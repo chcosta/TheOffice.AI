@@ -11692,25 +11692,27 @@
                 transition:transform .32s cubic-bezier(.4,0,.2,1); }
               .meai-side2-track > .meai-pane { flex:0 0 50%; width:50%; min-width:0; }
               .meai-side2.show-peek .meai-side2-track { transform:translateX(-50%); }
-              .meai-peek-panel { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px;
+              .meai-peek-panel { border:1px solid rgba(128,128,128,.16); border-radius:10px; padding:14px 16px;
                 background:var(--cp-surface); }
               .meai-peek-panel-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
               .meai-peek-panel-title { font-weight:700; font-size:14px; }
-              .meai-peek-back { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg);
+              .meai-peek-back { appearance:none; border:1px solid rgba(128,128,128,.16); background:var(--cp-bg);
                 color:var(--cp-text); font-size:12px; font-weight:600; padding:4px 10px; border-radius:8px; cursor:pointer;
                 display:inline-flex; align-items:center; gap:4px; transition:border-color .12s, color .12s; }
               .meai-peek-back:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
               /* Peek switcher (col 3): slim vertical tabs, sticky so they stay reachable while scrolling. */
               .meai-peek { grid-column:3; position:sticky; top:12px; align-self:start; display:flex; flex-direction:column; gap:8px; }
-              .meai-peek-tab { display:flex; flex-direction:column; align-items:center; gap:6px; width:46px; padding:12px 0;
-                border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); color:var(--cp-text);
-                cursor:pointer; transition:border-color .12s, background .12s; }
-              .meai-peek-tab:hover { border-color:var(--cp-accent); }
-              .meai-peek-tab.active { border-color:var(--cp-accent); background:var(--cp-accent-soft,rgba(31,111,235,.10)); }
+              .meai-peek-tab { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; width:46px; padding:12px 0;
+                border:1px solid rgba(128,128,128,.14); border-radius:10px; background:var(--cp-surface); color:var(--cp-text-muted);
+                cursor:pointer; transition:background .14s, color .14s, box-shadow .14s; }
+              .meai-peek-tab:hover { background:var(--cp-accent-soft,rgba(31,111,235,.10)); color:var(--cp-text); }
+              /* Active tab: accent tint + a slim accent bar instead of a heavy border. */
+              .meai-peek-tab.active { background:var(--cp-accent-soft,rgba(31,111,235,.10)); color:var(--cp-accent);
+                box-shadow:inset 3px 0 0 var(--cp-accent); }
               .meai-peek-label { writing-mode:vertical-rl; transform:rotate(180deg); font-size:11.5px; font-weight:600;
                 letter-spacing:.02em; white-space:nowrap; }
               .meai-peek-count { font-size:11px; font-weight:700; color:var(--cp-text); background:var(--cp-bg);
-                border:1px solid var(--cp-border); border-radius:8px; min-width:18px; text-align:center; padding:1px 4px; }
+                border:1px solid rgba(128,128,128,.16); border-radius:8px; min-width:18px; text-align:center; padding:1px 4px; }
               .meai-peek-dot { width:7px; height:7px; border-radius:50%; background:var(--cp-warning); }
               .meai-peek-ico { font-size:15px; line-height:1; }
               @media (max-width:1000px) {
@@ -11774,7 +11776,7 @@
               .meai-lb-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-lb-type { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
               .meai-lb-done { flex:0 0 auto; color:var(--cp-success,#3fb950); }
-              .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
+              .meai-card { border:1px solid rgba(128,128,128,.16); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
               .meai-na-item:last-child { border-bottom:0; }
               .meai-sugg { position:relative; padding:9px 0; border-bottom:1px solid var(--cp-border); }
@@ -12157,7 +12159,7 @@
                 <span class="meai-status-detail" style="margin-left:auto">Reviews, focus &amp; comms are re-prioritised for your day.</span>
               </div>
 
-              <div class="meai-grid2" @mouseleave="meai.peekHover=null">
+              <div class="meai-grid2">
                 <!-- Agenda timeline -->
                 <div>
                   <template x-if="meai.agenda && (meai.agenda.blocks||[]).length">
@@ -12304,7 +12306,7 @@
                     </div>
                     <!-- Pane B: the active notification panel slides in over pane A -->
                     <div class="meai-pane">
-                      <div class="meai-peek-panel" x-show="!!(meai.peekHover||meai.peekActive)">
+                      <div class="meai-peek-panel" x-show="!!(meai.peekHover||meai.peekActive)" @mouseenter="meAiPeekEnter()" @mouseleave="meAiPeekLeave()">
                         <div class="meai-peek-panel-head">
                           <button type="button" class="meai-peek-back" @click="meai.peekActive=null;meai.peekHover=null">← My day</button>
                           <span class="meai-peek-panel-title" x-text="(meai.peekHover||meai.peekActive)==='sugg' ? '💡 Suggestions' : (meai.peekHover||meai.peekActive)==='na' ? '⚠ Needs attention' : (meai.peekHover||meai.peekActive)==='bk' ? '📥 Didn\'t fit today' : (meai.peekHover||meai.peekActive)==='rm' ? '🗑 Removed today' : ''"></span>
@@ -12375,28 +12377,28 @@
                 <!-- Peek switcher (col 3): slim tabs; click to slide a panel into col 2. -->
                 <div class="meai-peek" x-show="meai.agenda">
                   <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='sugg' }" @mouseenter="meai.peekHover='sugg'" @click="meAiPeekToggle('sugg')" title="Suggestions">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='sugg' }" @mouseenter="meAiPeekEnter('sugg')" @mouseleave="meAiPeekLeave()" @click="meAiPeekToggle('sugg')" title="Suggestions">
                       <span class="meai-peek-ico">💡</span>
                       <span class="meai-peek-count" x-text="(meai.agenda.suggestions||[]).length"></span>
                       <span class="meai-peek-label">Suggestions</span>
                     </button>
                   </template>
                   <template x-if="meai.agenda && meAiNeedsAttentionList().length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='na' }" @mouseenter="meai.peekHover='na'" @click="meAiPeekToggle('na')" title="Needs attention">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='na' }" @mouseenter="meAiPeekEnter('na')" @mouseleave="meAiPeekLeave()" @click="meAiPeekToggle('na')" title="Needs attention">
                       <span class="meai-peek-dot"></span>
                       <span class="meai-peek-count" x-text="meAiNeedsAttentionList().length"></span>
                       <span class="meai-peek-label">Needs attention</span>
                     </button>
                   </template>
                   <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='bk' }" @mouseenter="meai.peekHover='bk'" @click="meAiPeekToggle('bk')" title="Didn't fit today">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='bk' }" @mouseenter="meAiPeekEnter('bk')" @mouseleave="meAiPeekLeave()" @click="meAiPeekToggle('bk')" title="Didn't fit today">
                       <span class="meai-peek-ico">📥</span>
                       <span class="meai-peek-count" x-text="(meai.agenda.backlog||[]).length"></span>
                       <span class="meai-peek-label">Didn't fit today</span>
                     </button>
                   </template>
                   <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='rm' }" @mouseenter="meai.peekHover='rm'" @click="meAiPeekToggle('rm')" title="Removed today">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='rm' }" @mouseenter="meAiPeekEnter('rm')" @mouseleave="meAiPeekLeave()" @click="meAiPeekToggle('rm')" title="Removed today">
                       <span class="meai-peek-ico">🗑</span>
                       <span class="meai-peek-count" x-text="(meai.agenda.dismissed||[]).length"></span>
                       <span class="meai-peek-label">Removed today</span>
@@ -27191,6 +27193,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // daily-work column); click the active tab again to slide back.
         meAiPeekToggle(key) {
           this.meai.peekActive = (this.meai.peekActive === key) ? null : key;
+        },
+        // Hover-intent: hovering a tab (or the panel it opened) keeps the peek
+        // panel slid in; leaving both slides it back after a short grace period
+        // so moving across the gap between the tab column and the panel doesn't
+        // collapse it.
+        meAiPeekEnter(key) {
+          if (this._peekT) { clearTimeout(this._peekT); this._peekT = null; }
+          if (key !== undefined) this.meai.peekHover = key;
+        },
+        meAiPeekLeave() {
+          if (this._peekT) clearTimeout(this._peekT);
+          this._peekT = setTimeout(() => { this.meai.peekHover = null; this._peekT = null; }, 140);
         },
         // De-dupe the redundancy the owner flagged: the top "new items need
         // attention" inbox and the right-rail "Needs attention" digest often show
