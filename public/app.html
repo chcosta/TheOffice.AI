@@ -12051,6 +12051,15 @@
               .meai-qgate-q { font-size:14px; color:var(--cp-text); line-height:1.5; margin-bottom:10px; white-space:pre-wrap; }
               .meai-qgate-row { display:flex; gap:8px; }
               .meai-qgate-row input { flex:1; }
+              .meai-attn { border:1px solid var(--cp-accent); border-left:3px solid var(--cp-accent); border-radius:8px; background:color-mix(in srgb, var(--cp-accent) 7%, var(--cp-surface)); padding:10px 12px; margin:2px 0 12px; cursor:pointer; }
+              .meai-attn.approval { border-color:var(--cp-warning,#d97706); border-left-color:var(--cp-warning,#d97706); background:color-mix(in srgb, var(--cp-warning,#d97706) 8%, var(--cp-surface)); }
+              .meai-attn-h { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:700; color:var(--cp-text); margin-bottom:6px; }
+              .meai-attn-ico { font-size:13px; }
+              .meai-attn-list { display:flex; flex-direction:column; gap:4px; margin-bottom:4px; }
+              .meai-attn-line { display:flex; align-items:flex-start; gap:7px; font-size:13px; color:var(--cp-text); line-height:1.4; }
+              .meai-attn-flag { opacity:.85; }
+              .meai-attn-q { font-size:13px; color:var(--cp-text); line-height:1.45; margin-bottom:4px; white-space:pre-wrap; }
+              .meai-attn-foot { font-size:11px; color:var(--cp-text-muted); font-weight:600; }
               .meai-dr-foot-bar { display:flex; gap:8px; align-items:center; margin-top:10px; }
               .meai-dr-foot-hint { font-size:12px; color:var(--cp-text-muted); line-height:1.4; }
               .meai-working { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text-muted); padding:6px 0; }
@@ -12708,6 +12717,28 @@
                       <div class="meai-dr-goal-h">Goal</div>
                       <div class="meai-dr-goal-t" x-text="meai.console.goal"></div>
                     </div>
+                    <!-- Attention banner: echo what the agent needs from you the moment the
+                         console opens (mirrors the compact lane approval/question signal) so
+                         it's obvious inline in the chat, not buried below the report. -->
+                    <template x-if="meai.console.status!=='running' && (meai.console.question || meAiLaneApprovalNeeded(meai.console))">
+                      <div class="meai-attn" :class="{ approval: meAiLaneApprovalNeeded(meai.console) }" @click="meAiScrollToAction()">
+                        <div class="meai-attn-h">
+                          <span class="meai-attn-ico" x-text="meAiLaneApprovalNeeded(meai.console) ? '⚠' : '❓'"></span>
+                          <span x-text="meAiLaneApprovalNeeded(meai.console) ? 'Approval requested' : 'The agent needs your answer'"></span>
+                        </div>
+                        <template x-if="meAiLaneApprovalNeeded(meai.console)">
+                          <div class="meai-attn-list">
+                            <template x-for="(a, ai) in meAiLaneApprovalList(meai.console)" :key="ai">
+                              <div class="meai-attn-line"><span class="meai-attn-flag" :title="a.risk==='external' ? 'Sends/posts externally' : 'Writes a change'" x-text="a.risk==='external' ? '↗' : '✎'"></span><span x-text="a.label"></span></div>
+                            </template>
+                          </div>
+                        </template>
+                        <template x-if="!meAiLaneApprovalNeeded(meai.console) && meai.console.question">
+                          <div class="meai-attn-q" x-text="meai.console.question"></div>
+                        </template>
+                        <div class="meai-attn-foot" x-text="meAiLaneApprovalNeeded(meai.console) ? 'Approve or decline below ↓' : 'Answer below ↓'"></div>
+                      </div>
+                    </template>
                     <!-- Thinking & tools trace: collapsed by default -->
                     <div class="meai-trace-toggle" x-show="meAiTraceCount()>0" @click="meai.traceOpen=!meai.traceOpen">
                       <span class="meai-prev-caret" :class="{open:meai.traceOpen}">▸</span>
@@ -28080,6 +28111,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.meai.laneActingId = null;
           }
+        },
+        // Nudge the pending action into view when the attention banner is clicked: focus
+        // the answer input for a question, else the first approve/next-action button.
+        meAiScrollToAction() {
+          this.$nextTick(() => {
+            const foot = document.querySelector('.meai-dr-foot');
+            if (foot && foot.scrollIntoView) { try { foot.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {} }
+            const q = document.querySelector('.meai-qgate-row input');
+            if (q && this.meai.console && this.meai.console.question) { try { q.focus(); } catch (_) {} return; }
+            const btn = document.querySelector('.meai-actions .meai-act-btn');
+            if (btn) { try { btn.focus(); } catch (_) {} }
+          });
         },
         meAiOpenTask(id) {
           this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = true; this.meai.reportOpen = false;
