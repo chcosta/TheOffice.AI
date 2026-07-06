@@ -12604,7 +12604,7 @@
                                     <div class="meai-detail-item">
                                       <div class="meai-detail-item-head">
                                         <span class="meai-detail-item-title" x-text="it.title"></span>
-                                        <a class="meai-detail-link" x-show="it.link" :href="meAiCfKey(it) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(it))) : it.link" :target="meAiCfKey(it) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(it)" x-text="meAiCfKey(it) ? 'Open in Code Flow →' : (b.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
+                                        <a class="meai-detail-link" x-show="it.link || it.prLink" :href="meAiCfKey(it) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(it))) : (it.link || it.prLink)" :target="meAiCfKey(it) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(it)" x-text="meAiCfKey(it) ? 'Open in Code Flow →' : (b.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
                                       </div>
                                       <div class="meai-detail-item-why" x-show="it.why" x-text="it.why"></div>
                                       <template x-for="row in meAiMetaRows(it)" :key="row[0]">
@@ -12620,7 +12620,7 @@
                                   <template x-for="row in meAiMetaRows(b)" :key="row[0]">
                                     <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
                                   </template>
-                                  <a class="meai-detail-link" x-show="b.link" :href="meAiCfKey(b) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(b))) : b.link" :target="meAiCfKey(b) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(b)" x-text="meAiCfKey(b) ? 'Open in Code Flow →' : 'Open ↗'"></a>
+                                  <a class="meai-detail-link" x-show="b.link || b.prLink" :href="meAiCfKey(b) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(b))) : (b.link || b.prLink)" :target="meAiCfKey(b) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(b)" x-text="meAiCfKey(b) ? 'Open in Code Flow →' : (b.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
                                 </div>
                               </template>
                             </div>
@@ -12826,7 +12826,7 @@
                                 <template x-for="row in meAiMetaRows(n)" :key="row[0]">
                                   <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
                                 </template>
-                                <a class="meai-detail-link" x-show="n.link" :href="n.link" target="_blank" rel="noopener">Open ↗</a>
+                                <a class="meai-detail-link" x-show="n.link || n.prLink" :href="meAiCfKey(n) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(n))) : (n.link || n.prLink)" :target="meAiCfKey(n) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(n)" x-text="meAiCfKey(n) ? 'Open in Code Flow →' : (n.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
                               </div>
                             </div>
                           </template>
@@ -28103,6 +28103,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this._inboxSwipeMoved) return;   // a swipe just happened — don't open
           if (this.meai.inboxSwipeOpen === (it && it.id)) { this.meai.inboxSwipeOpen = null; return; }
           if (this.meai.inboxSwipeOpen) { this.meai.inboxSwipeOpen = null; return; }
+          const key = this.meAiCfKey(it);
+          if (key) { this.goTo('#/codeflow/' + encodeURIComponent(key)); return; }
           const url = (it && (it.link || it.prLink)) || '';
           if (!url) return;
           try { window.open(url, '_blank'); } catch (_) { /* best-effort */ }
@@ -28544,13 +28546,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // agenda item's PR metadata — mirrors cfPrKey / server _cfWtKey. Empty string
         // when the item isn't a PR (no org/repo/prId), so callers fall back to the
         // raw link.
+        // Parse a raw GitHub/AzDO pull-request URL into the in-app Code Flow key
+        // so comms items (which only carry a raw prLink, not structured meta) can
+        // still deep-link to our steward/review surface. Returns '' if not a PR URL.
+        _meAiPrKeyFromUrl(url) {
+          const u = String(url || '').trim(); if (!u) return '';
+          try {
+            // GitHub: https://github.com/{owner}/{repo}/pull/{n}
+            let m = u.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i);
+            if (m) return ('github|' + [m[1], '', m[2], m[3]].join('|')).toLowerCase();
+            // AzDO: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}
+            m = u.match(/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i);
+            if (m) return [decodeURIComponent(m[1]), decodeURIComponent(m[2]), decodeURIComponent(m[3]), m[4]].join('|').toLowerCase();
+            // AzDO legacy: https://{org}.visualstudio.com/{project}/_git/{repo}/pullrequest/{id}
+            m = u.match(/([^/.]+)\.visualstudio\.com\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i);
+            if (m) return [decodeURIComponent(m[1]), decodeURIComponent(m[2]), decodeURIComponent(m[3]), m[4]].join('|').toLowerCase();
+          } catch (_) {}
+          return '';
+        },
         meAiCfKey(it) {
-          const m = it && it.meta; if (!m) return '';
-          const prId = m.prId != null ? m.prId : null;
-          const org = m.org || '', repo = m.repo || '';
-          if (prId == null || !org || !repo) return '';
-          const base = [org, m.project || '', repo, prId].join('|').toLowerCase();
-          return String(m.provider || 'azdo').toLowerCase() === 'github' ? ('github|' + base) : base;
+          const m = it && it.meta;
+          if (m) {
+            const prId = m.prId != null ? m.prId : null;
+            const org = m.org || '', repo = m.repo || '';
+            if (prId != null && org && repo) {
+              const base = [org, m.project || '', repo, prId].join('|').toLowerCase();
+              return String(m.provider || 'azdo').toLowerCase() === 'github' ? ('github|' + base) : base;
+            }
+          }
+          // Fall back to parsing a raw PR URL (comms items carry prLink/link only).
+          return this._meAiPrKeyFromUrl((it && (it.prLink || (m && m.prLink))) || (it && it.link) || '');
         },
         // Open an agenda item: a PR routes to its in-app Code Flow entry (so the user
         // lands on our steward/review surface, not raw AzDo/GitHub); anything else
@@ -28558,7 +28583,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiOpenItem(it) {
           const key = this.meAiCfKey(it);
           if (key) { this.goTo('#/codeflow/' + encodeURIComponent(key)); return; }
-          if (it && it.link) window.open(it.link, '_blank', 'noopener');
+          const link = (it && (it.link || it.prLink)) || '';
+          if (link) window.open(link, '_blank', 'noopener');
         },
         // Collapse/expand a side-rail card (persisted) so heavy lists can shrink
         // to a one-line status indicator when the user wants the space back.
