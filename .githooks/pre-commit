@@ -19,6 +19,25 @@ if command -v node >/dev/null 2>&1; then
     echo "Pre-commit self-review blocked this commit (syntax). Fix the above, or bypass with: git commit --no-verify"
     exit 1
   fi
+
+  # Optional advisory AI review pass (REQ-6 follow-up). OFF by default so routine
+  # commits stay fast. Needs the dev server (SDK) running; when it's down the pass
+  # quietly skips. It only surfaces findings — it does NOT block the commit unless
+  # you also opt into hard-blocking on high-severity findings.
+  #   Enable:                 git config selfreview.ai true      (or SELFREVIEW_AI=1)
+  #   Block on high-severity: git config selfreview.aiBlockHigh true
+  #   Target port:            git config selfreview.port 3847    (or ME_AI_PORT=3847)
+  ai_enabled="${SELFREVIEW_AI:-$(git config --bool selfreview.ai 2>/dev/null)}"
+  if [ "$ai_enabled" = "1" ] || [ "$ai_enabled" = "true" ]; then
+    ai_port="${ME_AI_PORT:-$(git config selfreview.port 2>/dev/null)}"
+    ai_port="${ai_port:-3847}"
+    ai_block="$(git config --bool selfreview.aiBlockHigh 2>/dev/null)"
+    if [ "$ai_block" = "true" ]; then
+      node selfreview.mjs --advisory --block-high --port "$ai_port" || exit 1
+    else
+      node selfreview.mjs --advisory --port "$ai_port"
+    fi
+  fi
 else
   echo "pre-commit: node not found on PATH — skipping self-review gate."
 fi

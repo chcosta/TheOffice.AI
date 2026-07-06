@@ -14,6 +14,8 @@
 //   node selfreview.mjs                 # full gate (mechanical + AI review)
 //   node selfreview.mjs --mechanical    # syntax gates only, VIA the server (no SDK)
 //   node selfreview.mjs --offline       # syntax gates only, SERVER-FREE (git hook)
+//   node selfreview.mjs --advisory      # full gate, but NEVER fails the commit (opt-in pre-commit AI pass)
+//   node selfreview.mjs --advisory --block-high   # ...unless a high-severity finding is present
 //   node selfreview.mjs --port 3847     # target a specific server port
 //   node selfreview.mjs --json          # machine-readable verdict on stdout
 //
@@ -29,6 +31,8 @@ const val = (f, d) => { const i = args.indexOf(f); return i >= 0 && args[i + 1] 
 const port = val('--port', process.env.ME_AI_PORT || '3847');
 const mechanicalOnly = has('--mechanical') || has('-m');
 const offline = has('--offline') || has('-o');
+const advisory = has('--advisory');       // AI pass runs but never fails the commit (unless --block-high)
+const blockHigh = has('--block-high');    // in advisory mode, still hard-block on high-severity findings
 const asJson = has('--json');
 const cwd = val('--cwd', process.cwd());
 
@@ -104,11 +108,19 @@ async function main() {
   try {
     resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   } catch (e) {
+    if (advisory) {
+      console.log(dim(`\n  Advisory AI review skipped — dev server not reachable on :${port}. (Mechanical gate already governs the commit.)`));
+      process.exit(0);
+    }
     console.error(red(`✗ Could not reach the self-review gate at ${url}`));
     console.error(dim(`  Is the dev server running on :${port}?  ${e.message || e}`));
     process.exit(2);
   }
   if (!resp.ok) {
+    if (advisory) {
+      console.log(dim(`\n  Advisory AI review skipped — gate returned HTTP ${resp.status}. (Mechanical gate already governs the commit.)`));
+      process.exit(0);
+    }
     console.error(red(`✗ Gate returned HTTP ${resp.status}`));
     try { console.error(dim('  ' + (await resp.text()).slice(0, 400))); } catch {}
     process.exit(2);
@@ -152,7 +164,19 @@ async function main() {
     console.log(green('✓ Gate PASSED — no blocking issues. Safe to commit.'));
     if (b.counts && b.counts.low) console.log(dim(`  (${b.counts.low} low finding(s) surfaced — justify or dismiss with a note.)`));
     process.exit(0);
-  } else {
+  }
+  // Advisory mode (pre-commit opt-in): surface findings but don't fail the commit,
+  // unless the caller opted into hard-blocking on high-severity with --block-high.
+  if (advisory) {
+    const highN = (b.counts && b.counts.high) || 0;
+    if (blockHigh && highN > 0) {
+      console.log(red(`✗ Advisory AI review found ${highN} high-severity finding(s) — blocking (--block-high). Fix or bypass with \`git commit --no-verify\`.`));
+      process.exit(1);
+    }
+    console.log(yellow('⚠ Advisory AI review surfaced findings above (not blocking this commit). Please review before pushing.'));
+    process.exit(0);
+  }
+  {
     const why = [];
     if (b.mechanical && !b.mechanical.pass) why.push('a syntax check failed');
     if (b.blocking && b.blocking.length) why.push(`${b.blocking.length} blocking review finding(s)`);
