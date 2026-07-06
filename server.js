@@ -11200,6 +11200,46 @@ function saveMeAiOverrides(date, ov) {
 function _meAiBlockKey(b) {
   return String((b && (b.link || b.title)) || '').trim().slice(0, 300);
 }
+// Reservations = explicit user commitments (one-off custom blocks + expanded recurring
+// blocks) as MINUTE intervals. Treated as FIXED in the pre-pass (like meetings/lunch)
+// so flexible work is laid out AROUND them and never on top — an explicit "2h golf"
+// supersedes suggested items. Exact user times are honoured (not grid-snapped).
+function _meAiReservationsFromOverrides(ov, cfg) {
+  const out = [];
+  if (!ov) return out;
+  const winStart = _hmToMin(cfg && cfg.workStart);
+  const winEnd = _hmToMin(cfg && cfg.workEnd);
+  for (const a of (ov.addBlocks || [])) {
+    if (!a || !a.start || !a.end) continue;
+    const s = _hmToMin(a.start), e = _hmToMin(a.end);
+    if (s == null || e == null || e <= s) continue;
+    out.push({
+      start: s, end: e,
+      type: ME_AI_BLOCK_TYPES.has(a.type) ? a.type : 'personal',
+      title: String(a.title || 'Blocked time').slice(0, 200),
+      detail: String(a.detail || '').slice(0, 500),
+      why: String(a.why || 'Added by you').slice(0, 200),
+      meta: { manual: true, overrideId: a.id || '' },
+    });
+  }
+  for (const r of (ov.recurring || [])) {
+    if (!r || !r.everyMin) continue;
+    const from = _hmToMin(r.from) != null ? _hmToMin(r.from) : (winStart != null ? winStart : 480);
+    const to = _hmToMin(r.to) != null ? _hmToMin(r.to) : (winEnd != null ? winEnd : 1020);
+    const every = Math.max(15, Math.min(480, +r.everyMin || 60));
+    const dur = Math.max(5, Math.min(240, +r.durMin || 10));
+    for (let t = from + every; t + dur <= to; t += every) {
+      out.push({
+        start: t, end: t + dur,
+        type: ME_AI_BLOCK_TYPES.has(r.type) ? r.type : 'break',
+        title: String(r.title || 'Break').slice(0, 200), detail: '',
+        why: 'Recurring block you set',
+        meta: { manual: true, recurring: true, overrideId: r.id || '' },
+      });
+    }
+  }
+  return out;
+}
 // Apply the manual overrides onto a freshly-built agenda. Mutates + returns blocks.
 // Order: remove constituents → split merged blocks → inject custom/recurring blocks
 // → sort by start. Injected blocks are tagged meta.manual so the client can badge
@@ -11247,9 +11287,45 @@ function _meAiApplyOverrides(agenda, date) {
     }
     blocks.push(b);
   }
-  // 3. Inject explicit one-off custom blocks.
+  // Explicit user commitments must SUPERSEDE suggested work: carve any flexible
+  // (non-manual, non-meeting) block out of the time a reservation claims. Fully
+  // covered work is bumped to the backlog ("Didn't fit today"); partial overlaps are
+  // clipped to the free remainder. The pre-pass already lays the deterministic plan
+  // around reservations — this also guards the LLM-refined path and manual re-adds.
+  const _resv = _meAiReservationsFromOverrides(ov, agenda.config).map(r => [r.start, r.end]);
+  const _haveOv = new Set(blocks.map(b => b && b.meta && b.meta.overrideId).filter(Boolean));
+  if (_resv.length) {
+    const _grid = Math.max(5, (agenda.config && agenda.config.grid) || 30);
+    const flexible = (b) => b && b.type !== 'meeting' && !(b.meta && b.meta.manual) && b.title !== 'Lunch';
+    const kept = [];
+    for (const b of blocks) {
+      if (!flexible(b)) { kept.push(b); continue; }
+      const s = _hmToMin(b.start), e = _hmToMin(b.end);
+      if (s == null || e == null || e <= s) { kept.push(b); continue; }
+      let segs = [[s, e]];
+      for (const [rs, re] of _resv) {
+        const next = [];
+        for (const [a2, b2] of segs) {
+          if (re <= a2 || rs >= b2) { next.push([a2, b2]); continue; }
+          if (rs > a2) next.push([a2, Math.min(rs, b2)]);
+          if (re < b2) next.push([Math.max(re, a2), b2]);
+        }
+        segs = next;
+      }
+      if (segs.length === 1 && segs[0][0] === s && segs[0][1] === e) { kept.push(b); continue; }
+      const big = segs.filter(([a2, b2]) => b2 - a2 >= _grid).sort((x, y) => (y[1] - y[0]) - (x[1] - x[0]))[0];
+      if (big) { kept.push({ ...b, start: _minToHm(big[0]), end: _minToHm(big[1]) }); continue; }
+      if (Array.isArray(agenda.backlog) && b.title && b.title !== 'Open focus time' && b.source !== 'me') {
+        agenda.backlog.push({ title: b.title, detail: b.detail || '', link: b.link || '', type: b.type, source: b.source || '', why: 'Bumped by a block you set', meta: b.meta || null, urgency: b.urgency || 0 });
+      }
+    }
+    blocks = kept;
+  }
+  // 3. Inject explicit one-off custom blocks (idempotent — the pre-pass usually
+  //    already placed them as fixed reservations; only re-add if missing).
   for (const a of (ov.addBlocks || [])) {
     if (!a || !a.start || !a.end) continue;
+    if (a.id && _haveOv.has(a.id)) continue;
     blocks.push({
       start: String(a.start), end: String(a.end), type: ME_AI_BLOCK_TYPES.has(a.type) ? a.type : 'personal',
       title: String(a.title || 'Blocked time').slice(0, 200), detail: String(a.detail || '').slice(0, 500),
@@ -11259,6 +11335,7 @@ function _meAiApplyOverrides(agenda, date) {
   // 4. Expand recurring blocks (e.g. a 10-minute break every hour) across their window.
   for (const r of (ov.recurring || [])) {
     if (!r || !r.everyMin) continue;
+    if (r.id && _haveOv.has(r.id)) continue;
     const from = _hmToMin(r.from) != null ? _hmToMin(r.from) : (_hmToMin(agenda.config && agenda.config.workStart) || 480);
     const to = _hmToMin(r.to) != null ? _hmToMin(r.to) : (_hmToMin(agenda.config && agenda.config.workEnd) || 1020);
     const every = Math.max(15, Math.min(480, +r.everyMin || 60));
@@ -11869,7 +11946,7 @@ function _meAiLoadFactor(mode) {
 // intervals with prioritized task blocks (merging adjacent same-type work). Any
 // tasks that don't fit spill into `backlog`. needs-attention (review/comms) are
 // surfaced separately for the rail even if not all are scheduled.
-function _meAiPrePass(cfg, signals, todos) {
+function _meAiPrePass(cfg, signals, todos, reserved) {
   const grid = cfg.grid;
   const winStart = _hmToMin(cfg.workStart) ?? 8 * 60;
   const winEnd = _hmToMin(cfg.workEnd) ?? 17 * 60;
@@ -11906,6 +11983,12 @@ function _meAiPrePass(cfg, signals, todos) {
   }
   const ls = _hmToMin(cfg.lunchStart), le = _hmToMin(cfg.lunchEnd);
   if (ls != null && le != null && le > ls) fixed.push({ start: snap(ls), end: snap(le), type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break', meta: null, urgency: 0 });
+  // Explicit user reservations (one-off + recurring blocks) are fixed too, so flexible
+  // work is scheduled AROUND them — an explicit "2h golf" supersedes suggested items.
+  for (const r of (reserved || [])) {
+    if (!r || r.start == null || r.end == null || r.end <= r.start) continue;
+    fixed.push({ start: r.start, end: r.end, type: r.type || 'personal', title: r.title || 'Blocked time', detail: r.detail || '', link: '', source: 'me', why: r.why || 'Added by you', meta: r.meta || { manual: true }, urgency: 0 });
+  }
   fixed.sort((x, y) => x.start - y.start);
   // Free intervals = window minus fixed.
   const free = [];
@@ -11972,7 +12055,7 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
     }[cfg.mode] || '';
     const prefPairs = Object.entries(cfg.timePrefs || {}).filter(([, v]) => v === 'morning' || v === 'afternoon').map(([k, v]) => `${k}→${v}`);
     const prefNote = prefPairs.length ? ` Respect these time-of-day preferences where the fixed schedule allows: ${prefPairs.join(', ')}.` : '';
-    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}\nRefine it: (1) keep all fixed meetings and lunch at their exact times; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
+    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}\nRefine it: (1) keep all fixed meetings, lunch, and any personal/break/blocked commitments I reserved (e.g. workout, golf, protected focus) at their EXACT times and NEVER schedule other work over them; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
@@ -12539,7 +12622,11 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
       for (const c of carried) { if (!have.has(c.title.toLowerCase())) { effTodos.push(c); have.add(c.title.toLowerCase()); } }
     }
   }
-  const pre = _meAiPrePass(cfg, planSignals, effTodos);
+  // Explicit user commitments (custom + recurring blocks) become fixed reservations so
+  // the pre-pass lays flexible work around them (they supersede suggested items).
+  const overridesForPlan = loadMeAiOverrides(day);
+  const reservedBlocks = _meAiReservationsFromOverrides(overridesForPlan, cfg);
+  const pre = _meAiPrePass(cfg, planSignals, effTodos, reservedBlocks);
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   const agenda = {
     date: day,
