@@ -251,6 +251,44 @@ function _deleteCfWt(key) {
   if (map[key]) { delete map[key]; saveCodeflowWorktrees(map); }
 }
 
+// --- Stale review-agent reconciliation ------------------------------------
+// A PR's review/steward run persists reviewStatus:'reviewing' BEFORE the async
+// job starts, and only the SAME process that launched it can flip that to
+// done/error when it finishes. So a server restart (or an SDK run that hangs or
+// dies) orphans the record at 'reviewing' forever — the Code Flow card shows a
+// permanent "Running…" with no escape but Recreate. We track live in-process
+// runs and reconcile anything that can't possibly still be running: at boot the
+// live set is empty so every 'reviewing' is by definition orphaned, and during
+// the process a run that blows a generous hard cap is treated as hung.
+const _cfActiveReviews = new Set();            // wt keys with a run live in THIS process
+const CF_REVIEW_MAX_MS = 60 * 60 * 1000;       // hard cap: 60 min even if flagged active
+function _reconcileStaleReviews() {
+  let map;
+  try { map = loadCodeflowWorktrees(); } catch { return false; }
+  const now = Date.now();
+  let changed = false;
+  for (const k of Object.keys(map)) {
+    const r = map[k];
+    if (!r || r.reviewStatus !== 'reviewing') continue;
+    // Genuinely running in THIS process — leave it unless it blew the hard cap.
+    if (_cfActiveReviews.has(k)) {
+      const started = Date.parse(r.reviewStartedAt || r.updatedAt || '') || 0;
+      if (started && (now - started) < CF_REVIEW_MAX_MS) continue;
+    }
+    map[k] = Object.assign({}, r, {
+      reviewStatus: 'error',
+      reviewError: 'The review didn’t finish — it was interrupted (server restart) or timed out. Run it again.',
+      reviewFinishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      // A worktree caught mid-create alongside the orphaned review is untrustworthy too.
+      ...(r.worktreeStatus === 'creating' ? { worktreeStatus: 'error', error: r.error || 'Worktree creation was interrupted.' } : {})
+    });
+    changed = true;
+  }
+  if (changed) { try { saveCodeflowWorktrees(map); } catch { return false; } }
+  return changed;
+}
+
 // Code Flow: per-PR freeform notes. A map keyed by the same prKey as worktrees
 // (_cfWtKey) → an array of { id, text, done, createdAt, updatedAt }. Lets you jot
 // down where you're at / what matters on a PR, independent of the live provider
@@ -3158,6 +3196,7 @@ function _writeCfReviewAgentFile(rec, pr, workItems, opts = {}) {
 // an active review PR is never mislabeled as closed. Best-effort; never throws.
 const CF_PRSTATUS_TTL_MS = 45000;
 app.get('/api/codeflow/pr/worktrees', async (req, res) => {
+  _reconcileStaleReviews();   // unstick any orphaned "Running…" reviews before listing
   const map = loadCodeflowWorktrees();
   const now = Date.now();
   const stale = Object.keys(map).filter(k => {
@@ -3262,6 +3301,7 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
   if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
+  _reconcileStaleReviews();   // an orphaned "Running…" self-heals on the next poll
   let rec = _getCfWt(key);
   if (!rec) return res.json({ worktree: null });
   if (rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath)) {
@@ -3481,6 +3521,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
     ...(haveWt ? {} : { worktreeStatus: 'creating', error: null })
   });
   res.json({ ok: true, status: 'reviewing', key });
+  _cfActiveReviews.add(key);   // mark live so the stale-review watchdog leaves it alone
   (async () => {
     try {
       // 1. Ensure the worktree (create detached if we don't already have one).
@@ -3545,6 +3586,8 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       });
     } catch (e) {
       _saveCfWt(key, { reviewStatus: 'error', reviewError: (e && e.message) || 'Review failed', worktreeStatus: (_getCfWt(key) || {}).worktreeStatus === 'creating' ? 'error' : undefined });
+    } finally {
+      _cfActiveReviews.delete(key);   // run is over — watchdog may now reconcile if needed
     }
   })();
 });
@@ -22704,6 +22747,10 @@ const onListen = () => {
   // Register enabled agents as scheduled. startAll() never runs any agent on
   // boot — execution comes only from user/orchestrated/scheduled triggers.
   supervisor.startAll();
+  // A restart orphans any in-flight Code Flow review (its persisted
+  // reviewStatus:'reviewing' can only be resolved by the process that started
+  // it). Reconcile them now so no card is stranded showing "Running…" forever.
+  try { if (_reconcileStaleReviews()) console.log('[supervisor] Reconciled interrupted Code Flow review agent(s) → error.'); } catch (e) { console.warn('[supervisor] stale-review reconcile failed:', e.message); }
   try {
     const _rdr = require('./sdk-reader');
     const _rnr = require('./sdk-runner');
