@@ -18743,6 +18743,44 @@
                     </div>
                   </div>
 
+                  <!-- Distractions & staying on track -->
+                  <div class="card" style="margin-bottom:20px" x-show="meaiDistraction().hasData" x-data="{ dx: {} }" x-effect="dx = meaiDistraction()">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Distractions &amp; staying on track</h3>
+                      <span class="hint">Was I heads-down, on plan, and delivering?</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">Reactive time — meetings, email &amp; Teams, and PR reviews — vs. deep focus, plus how well the day held its plan.</p>
+                    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px">
+                      <div style="flex:1 1 160px">
+                        <div class="hint" style="margin-bottom:2px">Reactive load</div>
+                        <div style="font-size:1.5rem;font-weight:600" :style="`color:${dx.vColor}`" x-text="dx.verdict"></div>
+                        <div class="hint" x-text="dx.sharePct + '% of work time (' + dx.reactiveHrs + ' reactive · ' + dx.focusHrs + ' focus)'"></div>
+                      </div>
+                      <div style="flex:1 1 160px">
+                        <div class="hint" style="margin-bottom:2px">On track</div>
+                        <div style="font-size:1.5rem;font-weight:600" :style="`color:${dx.otColor}`" x-text="dx.onTrack"></div>
+                        <div class="hint" x-text="dx.churn + ' agenda churn events across the range'"></div>
+                      </div>
+                      <div style="flex:1 1 160px" x-show="dx.trend">
+                        <div class="hint" style="margin-bottom:2px">Delivery trend</div>
+                        <div style="font-size:1.5rem;font-weight:600" :style="`color:${dx.trend && dx.trend.color}`"><span x-text="dx.trend && dx.trend.dir"></span> <span x-text="dx.trend && dx.trend.text"></span></div>
+                        <div class="hint">Second half of the range vs. the first</div>
+                      </div>
+                    </div>
+                    <div x-show="dx.sources && dx.sources.length">
+                      <div class="hint" style="margin-bottom:8px">Where the distractions came from<span x-show="dx.top"> — biggest is <strong x-text="dx.top && dx.top.label"></strong></span></div>
+                      <template x-for="src in dx.sources" :key="src.key">
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                          <div style="width:120px;font-size:0.85rem;color:var(--cp-text)" x-text="src.label"></div>
+                          <div style="flex:1;height:10px;border-radius:6px;background:var(--cp-surface-soft,#e5e7eb);overflow:hidden">
+                            <div :style="`width:${src.pct}%;height:100%;border-radius:6px;background:${src.color}`"></div>
+                          </div>
+                          <div style="width:96px;text-align:right;font-size:0.85rem;color:var(--cp-text-muted)" x-text="src.hrs + ' · ' + src.pct + '%'"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
                   <!-- Where the time went -->
                   <div class="card" style="margin-bottom:20px" x-show="meaiReport.summary.workMin > 0">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
@@ -43514,6 +43552,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           out += `<tr><td>🛡 Protected focus</td><td class="num">${esc(this.meaiHrs(s.protectedMin))}</td></tr>`;
           out += `<tr><td>💬 Responded</td><td class="num">${esc(this.meaiHrs(s.respondedMin))}</td></tr>`;
           out += `<tr><td>🎯 Effective (focus share)</td><td class="num">${esc(pct(s.focusShare))}</td></tr></tbody></table>`;
+          const dx = this.meaiDistraction();
+          if (dx && dx.hasData) {
+            out += `<h2>Distractions &amp; staying on track</h2><table><thead><tr><th>Signal</th><th class="num">Read</th></tr></thead><tbody>`;
+            out += `<tr><td>Reactive load</td><td class="num">${esc(dx.verdict)} (${esc(dx.sharePct)}%)</td></tr>`;
+            out += `<tr><td>On track</td><td class="num">${esc(dx.onTrack)}</td></tr>`;
+            if (dx.trend) out += `<tr><td>Delivery trend</td><td class="num">${esc(dx.trend.text)}</td></tr>`;
+            (dx.sources || []).forEach(src => { out += `<tr><td>↳ ${esc(src.label)}</td><td class="num">${esc(src.hrs)} · ${esc(src.pct)}%</td></tr>`; });
+            out += `</tbody></table>`;
+          }
           out += `<h2>Where the time went</h2><table><thead><tr><th>Kind</th><th class="num">Time</th></tr></thead><tbody>`;
           this.meaiTimeBars().forEach(b => { if (b.min > 0) out += `<tr><td>${esc(b.label)}</td><td class="num">${esc(b.hrs)}</td></tr>`; });
           out += `</tbody></table>`;
@@ -43790,6 +43837,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const min = Math.max(0, Number(d.min) || 0);
             return { ...d, min, pct: total ? (min / total) * 100 : 0, hrs: this.meaiHrs(min) };
           });
+        },
+
+        // Distraction / on-track digest for the Focus & flow report — answers
+        // "was I distracted, on track, delivering more or less, and where did the
+        // distractions come from?" from the aggregated series + summary.
+        meaiDistraction() {
+          const s = (this.meaiReport && this.meaiReport.summary) || {};
+          const series = this._meaiSeries();
+          const meeting = Math.max(0, Number(s.meetingMin) || 0);
+          const comms = Math.max(0, Number(s.commsMin) || 0);
+          const review = Math.max(0, Number(s.reviewMin) || 0);
+          const focus = Math.max(0, Number(s.focusMin) || 0);
+          const work = Math.max(0, Number(s.workMin) || 0);
+          const reactive = meeting + comms + review;   // interrupt-driven time
+          const share = work ? reactive / work : 0;     // distraction share of the working day
+          // Where the distractions came from, biggest first.
+          const sources = [
+            { key: 'meeting', label: 'Meetings', min: meeting, color: 'var(--cp-danger,#ef4444)' },
+            { key: 'comms', label: 'Email & Teams', min: comms, color: 'var(--cp-warning,#f59e0b)' },
+            { key: 'review', label: 'PR reviews', min: review, color: 'var(--cp-accent,#6366f1)' },
+          ].filter(x => x.min > 0).sort((a, b) => b.min - a.min)
+            .map(x => ({ ...x, pct: reactive ? Math.round((x.min / reactive) * 100) : 0, hrs: this.meaiHrs(x.min) }));
+          // Verdict on how heads-down the window was.
+          let verdict, vColor;
+          if (share >= 0.6) { verdict = 'Interrupt-driven'; vColor = 'var(--cp-danger,#ef4444)'; }
+          else if (share >= 0.4) { verdict = 'Reactive'; vColor = 'var(--cp-warning,#f59e0b)'; }
+          else if (share > 0) { verdict = 'Mostly heads-down'; vColor = 'var(--cp-success,#22c55e)'; }
+          else { verdict = 'No tracked time'; vColor = 'var(--cp-text-muted,#9ca3af)'; }
+          // On-track: churn + fragmentation across the window (organic churn only).
+          const churn = (Number(s.reschedule) || 0) + (Number(s.slip) || 0) + (Number(s.add) || 0);
+          const frag = (s.shapeCounts && (Number(s.shapeCounts.Fragmented) || 0)) || 0;
+          const activeDays = Number(s.activeDays) || 0;
+          let onTrack, otColor;
+          if (activeDays && frag / activeDays >= 0.5) { onTrack = 'Frequently knocked off track'; otColor = 'var(--cp-danger,#ef4444)'; }
+          else if (activeDays && churn > activeDays * 6) { onTrack = 'Some days got bumped around'; otColor = 'var(--cp-warning,#f59e0b)'; }
+          else { onTrack = 'Largely stayed on plan'; otColor = 'var(--cp-success,#22c55e)'; }
+          // Delivering more/less: first vs second half of the window.
+          let trend = null;
+          if (series.length >= 4) {
+            const mid = Math.floor(series.length / 2);
+            const sum = (arr) => arr.reduce((a, d) => a + (Number(d.delivered) || 0) + (Number(d.unblocked) || 0), 0);
+            const an = mid, bn = series.length - mid;
+            const ra = an ? sum(series.slice(0, mid)) / an : 0;
+            const rb = bn ? sum(series.slice(mid)) / bn : 0;
+            if (rb > ra * 1.15) trend = { dir: '▲', text: 'Delivering more lately', color: 'var(--cp-success,#22c55e)' };
+            else if (rb < ra * 0.85) trend = { dir: '▼', text: 'Delivering less lately', color: 'var(--cp-warning,#f59e0b)' };
+            else trend = { dir: '▬', text: 'Steady delivery', color: 'var(--cp-text-muted,#9ca3af)' };
+          }
+          return {
+            reactiveHrs: this.meaiHrs(reactive), focusHrs: this.meaiHrs(focus),
+            share, sharePct: Math.round(share * 100), verdict, vColor, sources,
+            top: sources[0] || null, churn, onTrack, otColor, trend, hasData: work > 0,
+          };
         },
 
         // Active-day series (chronological, oldest→newest) for the trend charts.
