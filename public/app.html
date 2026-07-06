@@ -9103,7 +9103,7 @@
                         </div>
                         <div class="board-sectionstage scrollfade" :class="{ 'drag-over': _boardDragOver }"
                              @dragenter.prevent
-                             @dragover.prevent="_boardDragOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
+                             @dragover.prevent="_boardDragOver = true; _boardDragAutoPan($event); try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
                              @dragleave="if ($event.target === $el) _boardDragOver = false"
                              @drop.prevent="_boardDragOver = false; onGridDrop($event)">
                           <div class="board-sec-grid" :class="{ 'view-mode': isViewTab(), 'show-grid': sectionShowGrid() && !sectionGrouped(), grouped: sectionGrouped() }" :style="sectionGridStyle()">
@@ -34838,9 +34838,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ex = (sec.cards || []).find(c => c.base === base);
           const w = ex ? ex.w : this._cardDefaultW(sec, base);
           const h = ex ? ex.h : this._cardDefaultH(base);
-          const x = Math.max(0, Math.min(cols - w, cell.x));
+          // Expand the canvas to the right if the user dropped the card past the
+          // current extent, instead of clamping it back to the last fitting column
+          // (owner: "the boards canvas needs to expand so I can drop the item rather
+          // than it just going back"). Grow the section's column count — capped at the
+          // 24-col ceiling — so a w-wide card fits where it was dropped.
+          let effCols = cols;
+          const want = cell.x + w;
+          if (want > cols && cols < 24) {
+            effCols = Math.min(24, want);
+            if ((sec.cols || 12) !== effCols) sec.cols = effCols;
+          }
+          const x = Math.max(0, Math.min(effCols - w, cell.x));
           const gy = this._dropGravityY(sec, base, x, w, h);
           this.placeCard(sec.id, base, x, gy);
+        },
+        // Auto-scroll the section stage while a card is being dragged toward an edge,
+        // so drop targets below/above (or beyond a horizontally-scrolled grid) become
+        // reachable without releasing the drag. No-op unless a board card is in flight.
+        _boardDragAutoPan(ev) {
+          if (!this._boardCardDrag) return;
+          const stage = ev.currentTarget; if (!stage) return;
+          const r = stage.getBoundingClientRect();
+          const M = 52, STEP = 26;          // edge margin + px per dragover tick
+          const y = ev.clientY, x = ev.clientX;
+          if (y > r.bottom - M) stage.scrollTop += STEP;
+          else if (y < r.top + M) stage.scrollTop -= STEP;
+          if (x > r.right - M) stage.scrollLeft += STEP;
+          else if (x < r.left + M) stage.scrollLeft -= STEP;
         },
         // Topmost free row (>=0) where a w×h card fits at column x among the OTHER cards
         // in the section. Empty board / empty column → 0 (top). Fills the highest gap.
