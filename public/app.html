@@ -11850,12 +11850,14 @@
               .meai-lane-spin { display:inline-block; width:9px; height:9px; border:2px solid var(--cp-border); border-top-color:var(--cp-accent); border-radius:999px; animation:meaiSpin .7s linear infinite; }
               @keyframes meaiSpin { to { transform:rotate(360deg); } }
               .meai-drawer-scrim { position:fixed; inset:0; background:rgba(0,0,0,.32); z-index:60; }
+              .meai-drawer-scrim.locked { background:transparent; pointer-events:none; }
               .meai-drawer { position:fixed; top:0; right:0; bottom:0; width:min(640px,94vw); background:var(--cp-bg); border-left:1px solid var(--cp-border); box-shadow:-8px 0 32px rgba(0,0,0,.28); z-index:61; display:flex; flex-direction:column; }
               .meai-dr-head { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--cp-border); }
               .meai-dr-title { font-weight:700; color:var(--cp-text); font-size:15px; flex:1; min-width:0; }
               .meai-dr-stage { font-size:12px; font-weight:600; color:var(--cp-text-muted); display:flex; align-items:center; gap:6px; }
               .meai-dr-x { appearance:none; border:none; background:none; font-size:20px; color:var(--cp-text-muted); cursor:pointer; line-height:1; }
               .meai-dr-x:hover { color:var(--cp-text); }
+              .meai-dr-x.on { color:var(--cp-accent); }
               .meai-dr-body { flex:1; overflow:auto; padding:14px 18px; }
               .meai-dr-goal { border:1px solid var(--cp-border); border-radius:8px; padding:10px 12px; margin-bottom:12px; background:var(--cp-surface-2, var(--cp-surface)); }
               .meai-dr-goal-h { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); margin-bottom:3px; }
@@ -12541,7 +12543,7 @@
             <!-- ===== Me-agent console drawer (M2) ===== -->
             <template x-if="meai.console">
               <div>
-                <div class="meai-drawer-scrim" @click="meAiCloseConsole()"></div>
+                <div class="meai-drawer-scrim" :class="{ locked: meai.consoleLocked }" @click="if(!meai.consoleLocked) meAiCloseConsole()"></div>
                 <div class="meai-drawer">
                   <div class="meai-dr-head">
                     <div class="meai-dr-title" x-text="meai.console.title"></div>
@@ -12549,6 +12551,10 @@
                       <span x-show="meai.console.status==='running'" class="meai-lane-spin"></span>
                       <span x-text="meAiTaskStageLabel(meai.console.stage)"></span>
                     </div>
+                    <button class="meai-dr-x" type="button" @click="meAiToggleConsoleLock()"
+                            :class="{ on: meai.consoleLocked }"
+                            :title="meai.consoleLocked ? 'Locked open — a click-outside won\'t close it. Click to unlock.' : 'Lock open so a click-outside won\'t close it'"
+                            x-text="meai.consoleLocked ? '📌' : '📍'"></button>
                     <button class="meai-dr-x" type="button" @click="meAiCloseConsole()" title="Close">✕</button>
                   </div>
                   <div class="meai-dr-body" id="meAiConsoleScroll">
@@ -12663,6 +12669,10 @@
                   <div class="meai-asst-title">💬 Agenda assistant</div>
                   <div class="hint" style="font-size:11px">Reshape your day in plain language — I'll propose changes you confirm.</div>
                 </div>
+                <button class="icon-button" type="button" @click="meAiAsstToggleLock()"
+                        :class="{ on: meai.asst.locked }"
+                        :title="meai.asst.locked ? 'Pinned open — stays across reloads. Click to unpin.' : 'Pin the assistant open (keeps the chat across reloads)'"
+                        x-text="meai.asst.locked ? '📌' : '📍'"></button>
                 <button class="icon-button" type="button" @click="meai.asst.open=false" title="Close">✕</button>
               </div>
               <div class="meai-asst-body" x-ref="meAiAsstBody">
@@ -20497,8 +20507,15 @@
           // Per-day work-window override ("I started early/late today") — a quick edit that
           // supersedes the standing schedule for the viewed date only.
           dayWin: { open: false, start: '', end: '' },
+          // When locked, the open Me-agent console won't close on a click-outside (scrim).
+          consoleLocked: (() => { try { return localStorage.getItem('meai-console-locked') === '1'; } catch (_) { return false; } })(),
           // REQ-13 Agenda Assistant — conversational agenda control. mode: 'agenda' | 'task'.
-          asst: { open: false, busy: false, input: '', messages: [], mode: 'agenda' },
+          // locked = keep the drawer pinned open (persists across reloads/nav).
+          asst: {
+            open: (() => { try { return localStorage.getItem('meai-asst-locked') === '1'; } catch (_) { return false; } })(),
+            locked: (() => { try { return localStorage.getItem('meai-asst-locked') === '1'; } catch (_) { return false; } })(),
+            busy: false, input: '', messages: [], mode: 'agenda',
+          },
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -26852,6 +26869,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiAsstToggle() {
           this.meai.asst.open = !this.meai.asst.open;
           if (this.meai.asst.open) this.$nextTick(() => this._meAiAsstScroll());
+        },
+        // Pin the agenda assistant open so it survives reloads/nav (and reads as "locked").
+        meAiAsstToggleLock() {
+          this.meai.asst.locked = !this.meai.asst.locked;
+          try { localStorage.setItem('meai-asst-locked', this.meai.asst.locked ? '1' : '0'); } catch (_) {}
+          if (this.meai.asst.locked) this.meai.asst.open = true;
+        },
+        // Lock the Me-agent console so a click-outside (scrim) won't detach it.
+        meAiToggleConsoleLock() {
+          this.meai.consoleLocked = !this.meai.consoleLocked;
+          try { localStorage.setItem('meai-console-locked', this.meai.consoleLocked ? '1' : '0'); } catch (_) {}
         },
         _meAiAsstScroll() {
           try { const el = this.$refs.meAiAsstBody; if (el) el.scrollTop = el.scrollHeight; } catch (_) {}
