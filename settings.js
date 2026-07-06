@@ -52,6 +52,12 @@ const DEFAULTS = {
   // created. Empty = a short auto-chosen default (e.g. C:\a) to maximize Windows
   // MAX_PATH headroom. Set to any short directory to relocate all new worktrees.
   worktreeRoot: '',
+  // Code Flow: reviewer GROUPS the user belongs to (Azure DevOps groups / GitHub
+  // teams that appear as a named reviewer on a PR, e.g. "Dotnet-Core-Engineering").
+  // When a PR lists one of these groups as a reviewer, Code Flow surfaces it under
+  // "Active PRs (reviews needed)" alongside PRs where the user is a direct reviewer.
+  // Array of group DISPLAY names, matched case-insensitively against PR reviewers.
+  codeflowMyGroups: [],
   // Master kill-switch for all OUTBOUND external-access subsystems: the Azure
   // Service Bus event listener, the cloud relay poller, and mobile/phone command
   // handling. When true, the server neither connects to Service Bus nor polls the

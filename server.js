@@ -2393,6 +2393,33 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   const myReviewer = viewerId ? (pr.reviewers || []).find(r => r.id === viewerId) : null;
   const myVote = myReviewer ? myReviewer.voteLabel : null;
 
+  // Group review: a PR can list an AzDO group / GitHub team as a reviewer (it shows
+  // up as a named reviewer entry). If one of MY configured groups (opts.myGroups) is a
+  // reviewer, this PR is also my action item — surfaced alongside direct reviews.
+  const myGroups = Array.isArray(opts.myGroups) ? opts.myGroups : [];
+  let groupReviewers = [];
+  if (myGroups.length) {
+    // Match a configured group name against a reviewer entry's DISPLAY NAME. Group
+    // reviewers surface as named reviewer entries (AzDO groups, GitHub teams) — there
+    // is no email to match on. AzDO decorates group names with a scope prefix, e.g.
+    // "[internal]\\Dotnet-Core-Engineering" or "[TEAM FOUNDATION]\\MaWilkie's Direct
+    // Reports", and GitHub teams show as "org/team". So we match forgivingly: exact,
+    // or the reviewer's trailing path segment (after \\ or /), or a whole-name contains.
+    const norm = v => String(v == null ? '' : v).trim().toLowerCase();
+    const tail = v => { const s = norm(v); const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); return i >= 0 ? s.slice(i + 1).trim() : s; };
+    const want = myGroups.map(norm).filter(Boolean);
+    const matchesGroup = (rvName) => {
+      const full = norm(rvName); const last = tail(rvName);
+      return want.some(w => w && (w === full || w === last || full === tail(w) || full.includes(w) || last.includes(tail(w))));
+    };
+    groupReviewers = (pr.reviewers || [])
+      .filter(rv => rv && rv.id !== viewerId && matchesGroup(rv.name))
+      .map(rv => ({ name: rv.name, voteLabel: rv.voteLabel || null }));
+  }
+  const amGroupReviewer = groupReviewers.length > 0;
+  // Has any of my groups already cast a (non-neutral) vote on my behalf?
+  const groupVoted = groupReviewers.some(g => g.voteLabel && g.voteLabel !== 'no-vote');
+
   // --- Reviewer / area-expert intelligence (best-effort, deterministic) ---
   const creatorName = ((pr.createdBy && pr.createdBy.name) || '').trim().toLowerCase();
   const viewerName = (opts.viewerName || '').trim().toLowerCase();
@@ -2519,6 +2546,9 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     readyToMerge: !!readyToMerge,
     myVote,
     amReviewer: !!myReviewer,
+    amGroupReviewer,
+    groupReviewers,
+    groupVoted,
     areaExpert,
     suggestedReviewers,
     devCard,
@@ -2529,9 +2559,14 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
 // Flag a PR as needing attention (drives the banner + menu badge).
 function _codeflowAttention(pr, view) {
   if (view === 'reviews' || view === 'active') {
-    // In the broad "active" view, only PRs that actually list me as a reviewer can be
-    // "awaiting your review" — everyone else's PRs aren't my action item.
-    if (view === 'active' && !pr.amReviewer) return { attention: false, reason: '' };
+    // In the broad "active" view, only PRs that actually list me — directly OR via one
+    // of my reviewer groups — can be "awaiting your review". Everyone else's PRs aren't
+    // my action item.
+    if (view === 'active' && !pr.amReviewer && !pr.amGroupReviewer) return { attention: false, reason: '' };
+    // Group-only reviewer (I'm not a direct reviewer): it's awaiting my group's review
+    // unless the group has already voted on my behalf.
+    if (!pr.amReviewer && pr.amGroupReviewer)
+      return pr.groupVoted ? { attention: false, reason: '' } : { attention: true, reason: 'group-review-requested' };
     // Awaiting my review (I haven't voted) or I asked for changes and it moved on.
     if (!pr.myVote || pr.myVote === 'no-vote') return { attention: true, reason: 'awaiting-your-review' };
     if (pr.myVote === 'waiting-for-author' && pr.approvalState !== 'waiting-for-author')
@@ -2563,6 +2598,13 @@ async function _gatherCodeflow(view) {
   const errors = [];
   const devCardIndex = _buildDevCardIndex();
   const notesMap = loadCodeflowNotes();
+  // Reviewer groups the user belongs to (case-insensitive display-name match). When the
+  // user is viewing "reviews needed" AND has configured groups, we broaden the fetch to
+  // all open PRs so we can also surface PRs where one of the user's groups is a reviewer
+  // (the forge reviewerId filter only returns DIRECT reviewer PRs).
+  const myGroups = (settings.getSettings().codeflowMyGroups || [])
+    .map(g => String(g || '').trim()).filter(Boolean);
+  const reviewsWithGroups = view === 'reviews' && myGroups.length > 0;
   const perRepo = await Promise.all(repos.map(async (r) => {
     const provider = providerOf(r);
     const F = forge(r);
@@ -2571,21 +2613,32 @@ async function _gatherCodeflow(view) {
     try {
       // 'mine' → PRs I authored; 'reviews' → PRs that list me as a reviewer;
       // 'active' → every open PR in the repo (no person filter — a broad listing).
-      const filter = view === 'reviews' ? { reviewerId: me.id }
-                   : view === 'active' ? { top: 100 }
-                   : { creatorId: me.id };
+      // reviewsWithGroups → fetch broadly (like 'active') so group-reviewer PRs are
+      // included, then keep only PRs where I'm a direct or group reviewer (below).
+      const broad = view === 'active' || reviewsWithGroups;
+      const filter = view === 'mine' ? { creatorId: me.id }
+                   : broad ? { top: 100 }
+                   : { reviewerId: me.id };
       const [prs, repoContributors, approverIndex] = await Promise.all([
         F.listPullRequests(r.org, r.project, r.repo, filter),
         F.getRepoContributors(r.org, r.project, r.repo).catch(() => []),
-        view === 'active' ? Promise.resolve([]) : _cfApproverIndex(r)
+        broad ? Promise.resolve([]) : _cfApproverIndex(r)
       ]);
-      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: view === 'active', provider };
-      const enriched = await Promise.all(prs.map(async (pr) => {
+      const meId = String(me.id || '').toLowerCase();
+      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: broad, provider, myGroups };
+      const enriched = (await Promise.all(prs.map(async (pr) => {
+        // Exclude PRs I authored from any non-'mine' view — my own PR belongs only under
+        // "My PRs", never under Active/Reviews (GitHub also empties requested_reviewers on
+        // review submit, which could otherwise let my own PR leak into the reviews list).
+        if (view !== 'mine' && String((pr.createdBy && pr.createdBy.id) || '').toLowerCase() === meId) return null;
         const e = await _enrichCodeflowPr(pr, me.id, opts);
+        // reviewsWithGroups broadened the fetch to all open PRs — keep only the ones that
+        // are actually mine to review (direct reviewer or one of my groups).
+        if (reviewsWithGroups && !e.amReviewer && !e.amGroupReviewer) return null;
         const a = _codeflowAttention(e, view);
         const notes = notesMap[_cfWtKey({ org: pr.org || r.org, project: pr.project || r.project, repo: pr.repo || r.repo, prId: pr.pullRequestId || pr.id, provider })];
         return { ...e, provider, attention: a.attention, attentionReason: a.reason, repoId: r.id, notes: Array.isArray(notes) ? notes : [] };
-      }));
+      }))).filter(Boolean);
       return enriched;
     } catch (e) {
       errors.push({ repo: r.repo, error: e.message });
@@ -8671,6 +8724,9 @@ async function _connectRunAgent(agentName, prompt) {
   if (!connectPluginDir || !fs.existsSync(connectPluginDir)) {
     throw new Error('Connect plugin is not available yet — restart the server.');
   }
+  // Only the writer/editor produce the actual Connect deliverable; collector/profiler
+  // are background diary collection and shouldn't be charged against "Connect" savings.
+  const cat = (agentName === 'writer' || agentName === 'editor') ? 'connect' : 'diary';
   let acc = '';
   const result = await sdkRunner.runChat({
     config: { pluginDir: connectPluginDir, agent: agentName, cwd: __dirname },
@@ -8678,7 +8734,7 @@ async function _connectRunAgent(agentName, prompt) {
     sessionId: require('crypto').randomUUID(),
     resume: false,
     cwd: __dirname,
-    meta: { source: 'connect', category: 'connect' },
+    meta: { source: 'connect', category: cat },
     onChunk: (c) => { acc += c; },
   });
   if (result && result.fallback) throw new Error(result.error || 'Connect agent runtime unavailable');
@@ -8939,7 +8995,7 @@ async function _runMeetingSlice(win, nowIso, skipIds, { hardCapMs, stallMs }) {
       sessionId: require('crypto').randomUUID(),
       resume: false,
       cwd: __dirname,
-      meta: { source: 'connect', category: 'connect' },
+      meta: { source: 'connect', category: 'diary' },
       onChunk: (c) => { acc += c; bump(); },
       onStep: () => { bump(); },
     });
@@ -9073,7 +9129,7 @@ async function runConnectSearch(query) {
   const result = await sdkRunner.runChat({
     config: null, prompt, sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
-    meta: { source: 'connect', category: 'connect' },
+    meta: { source: 'connect', category: 'diary' },
   });
   let raw = (acc.trim() || (result && result.output) || '').trim();
   raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -9442,7 +9498,7 @@ async function extractConnectMemories({ history, message } = {}) {
     result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
-      meta: { source: 'connect', category: 'connect' },
+      meta: { source: 'connect', category: 'diary' },
     });
   } catch (e) { console.warn('[connect] memory extraction failed:', e.message); return []; }
   let rawOut = (acc.trim() || (result && result.output) || '').trim();
@@ -9587,7 +9643,7 @@ async function runConnectAssistant({ message, history, extraContext, allowSearch
   const result = await sdkRunner.runChat({
     config: null, prompt: sys, sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
-    meta: { source: 'connect', category: 'connect' },
+    meta: { source: 'connect', category: 'diary' },
   });
   let raw = (acc.trim() || (result && result.output) || '').trim();
 
@@ -11053,6 +11109,10 @@ app.post('/api/connect/generate', async (req, res) => {
     const lookbackDays = Math.max(0, parseInt(req.body && req.body.lookbackDays, 10) || 0);
     const lockedSections = Array.isArray(req.body && req.body.lockedSections) ? req.body.lockedSections : [];
     const state = await runConnectGeneration({ lookbackDays, lockedSections });
+    // The user explicitly generating a Connect draft is the ground-truth "deliverable"
+    // — the only point at which Connect represents a real time-save (a few hours of
+    // hand-drafting replaced). Background collection is tagged 'diary' instead.
+    try { supervisor.recordUsage({ source: 'connect', category: 'connect', status: 'delivered', label: 'Connect draft generated', deliverable: 1 }); } catch (_) { /* non-fatal */ }
     res.json({ ok: true, state });
   } catch (err) {
     res.status(err.message && /No diary evidence/.test(err.message) ? 400 : 500).json({ error: err.message });

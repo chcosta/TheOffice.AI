@@ -2531,10 +2531,12 @@
     .cf-subsec + .cf-subsec { margin-top:14px; border-top:1px dashed var(--cp-border); padding-top:14px; }
     .cf-subhead { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); margin:0 0 8px; }
     /* Horizontal detail tabs pinned to the card bottom (replaces the "Details & actions" drawer toggle). */
-    .cf-dtabs { display:flex; flex-wrap:wrap; gap:2px; margin-top:10px; border-top:1px solid var(--cp-border); padding-top:6px; }
-    .cf-dtab { display:inline-flex; align-items:center; gap:6px; background:none; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--cp-text-muted); font-size:12.5px; font-weight:600; padding:5px 10px 6px; cursor:pointer; letter-spacing:.01em; }
+    .cf-dtabs { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px; border-top:1px solid var(--cp-border); padding-top:8px; }
+    .cf-dtab { display:inline-flex; align-items:center; gap:6px; background:none; border:0; border-bottom:3px solid transparent; border-radius:0; color:var(--cp-text-muted); font-size:13px; font-weight:600; padding:5px 10px 6px; cursor:pointer; letter-spacing:.01em; }
     .cf-dtab:hover { color:var(--cp-text); }
     .cf-dtab.active { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+    .cf-dtab.disabled { color:var(--cp-text-soft); opacity:.5; cursor:default; }
+    .cf-dtab.disabled:hover { color:var(--cp-text-soft); }
     .cf-dtab .rc { font-size:11px; color:var(--cp-text-soft); font-weight:600; }
     .cf-dtab.active .rc { color:var(--cp-accent); }
     .cf-dtab-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
@@ -3120,7 +3122,7 @@
     .md-output {
       max-height: 300px;
       overflow: auto;
-      font-size: 0.82rem;
+      font-size: 0.92rem;
       line-height: 1.6;
       padding: 12px 16px;
       background: var(--cp-surface-soft);
@@ -4402,6 +4404,11 @@
     .board-pin-card:focus-within .board-pin-acts,
     .board-panel:hover .board-pin-acts,
     .board-panel:focus-within .board-pin-acts { opacity: 1; pointer-events: auto; }
+    /* Dev-card manager (Home / Dev page): declutter the resting card — hide the
+       header action buttons + Pin-to-workspace control until the card is hovered. */
+    .dvx-card .dvx-hover-acts { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+    .dvx-card:hover .dvx-hover-acts,
+    .dvx-card:focus-within .dvx-hover-acts { opacity: 1; pointer-events: auto; }
     .board-panel-tag { font-size: 14px; line-height: 1; flex: 0 0 auto; opacity: .9; }
     .board-panel-type {
       font-size: 10.5px;
@@ -4477,7 +4484,7 @@
     /* Rendered markdown (chat/summary/run output) uses rem-based sizes that are
        relative to the document root, so they ignore the body font-size above.
        Re-base them on --board-fs so the text-size control actually scales content. */
-    .board-panel-body .md-output { font-size: calc(0.82rem * var(--board-fs, 1)); }
+    .board-panel-body .md-output { font-size: calc(0.92rem * var(--board-fs, 1)); }
     .board-panel-body .md-output pre,
     .board-panel-body .md-output code,
     .board-panel-body .md-output th,
@@ -9669,7 +9676,7 @@
                                       </div>
 
                                       <!-- Details &amp; actions drawer (rail + panes) -->
-                                      <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id) }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
+                                      <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
                                           <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <!-- Work item link row (the work item is shared by the whole card; PRs are per repo, shown in the Repos box below) -->
@@ -9685,7 +9692,7 @@
                                       <!-- Repos: primary + extra worktrees (one work item spanning one or more repos) -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                          <span style="font-weight:600;font-size:13.5px">🗃 Repos</span>
+                                          <span style="font-weight:600;font-size:13.5px">🗃 Code</span>
                                           <div style="display:flex;gap:6px;flex-wrap:wrap">
                                             <template x-if="devReadyWorktrees(d) >= 2">
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='workspace'" @click="openDevWorkspace(d,'editor')" title="Open every ready worktree together as one VS Code multi-root workspace" x-text="devBusy[d.id]==='workspace' ? 'Opening…' : '🗂 Open workspace'"></button>
@@ -10578,7 +10585,20 @@
                       </template>
                     </div>
                   </template>
-                  <div class="hint" style="font-size:11px" x-show="!slotLinkCandidates().length">No matching open pull requests found in Code Flow. Enter a PR number below.</div>
+                  <div class="hint" style="font-size:11px" x-show="!slotLinkCandidates().length">No open pull requests match this repo in Code Flow.</div>
+                  <template x-if="slotLinkSuggestions().length">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <div class="hint" style="font-size:11px;color:var(--cp-text-muted)">Your active pull requests</div>
+                      <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto">
+                        <template x-for="pr in slotLinkSuggestions()" :key="'sg:' + (pr.provider||'') + ':' + (pr.repo||'') + ':' + pr.id">
+                          <button type="button" class="btn ghost" style="justify-content:flex-start;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:2px" :disabled="prLink.busy" @click="linkSuggestedPr(pr)">
+                            <span style="font-weight:600;font-size:13px"><span x-text="'!' + pr.id"></span> <span x-text="pr.title"></span></span>
+                            <span style="font-size:11px;color:var(--cp-text-muted)" x-text="(pr.isDraft ? 'draft · ' : (pr.status ? pr.status + ' · ' : '')) + (pr.org ? pr.org + '/' : '') + pr.repo"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
                   <div style="display:flex;gap:8px;align-items:center;border-top:1px solid var(--cp-border);padding-top:10px">
                     <input class="field-input" type="text" placeholder="PR number, e.g. 12345" x-model="prLink.manual" style="flex:1" @keydown.enter="linkSlotPr('', null)">
                     <button class="btn primary" type="button" :disabled="prLink.busy || !prLink.manual" @click="linkSlotPr('', null)">Link</button>
@@ -10829,11 +10849,12 @@
                                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                   <div style="min-width:0">
                                     <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
-                                    <div class="hint" style="font-size:11px" x-text="(d.org ? d.org + ' / ' : '') + (d.project ? d.project + ' / ' : '') + (d.repo || '') + (d.branch ? ' @ ' + d.branch : '')"></div>
                                     <!-- Pin to workspace — same friendly control as PR cards.
                                          Unpinned: one button opens the board picker. Pinned:
-                                         calm inline board name + open/change/unpin links. -->
-                                    <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+                                         calm inline board name + open/change/unpin links.
+                                         Hidden until card hover to declutter the base face
+                                         (repo details now live on the 🗃 Code tab). -->
+                                    <div class="dvx-hover-acts" style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
                                       <button x-show="!d.homeBoardId" class="btn ghost" type="button" style="font-size:12px;padding:4px 10px"
                                               @click="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)">📌 Pin to workspace</button>
                                       <template x-if="d.homeBoardId">
@@ -10846,7 +10867,7 @@
                                       </template>
                                     </div>
                                   </div>
-                                  <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
+                                  <div class="dvx-hover-acts" style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
                                     <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
                                     <button class="board-act" type="button" data-tip="Edit dev card" @click="openDevModal(d)">✎</button>
                                     <button class="board-act danger" type="button" data-tip="Delete dev card permanently" @click="if (confirm('Delete this dev card permanently? Its worktrees will be cleaned up. This cannot be undone.')) deleteDevItem(d)">✕</button>
@@ -10889,7 +10910,7 @@
                                 </div>
 
                                 <!-- Details &amp; actions drawer (rail + panes) -->
-                                <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id) }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
+                                <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
                                     <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
@@ -10903,7 +10924,7 @@
                                       </div>
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                          <span style="font-weight:600;font-size:13.5px">🗃 Repos</span>
+                                          <span style="font-weight:600;font-size:13.5px">🗃 Code</span>
                                           <div style="display:flex;gap:6px;flex-wrap:wrap">
                                             <template x-if="devReadyWorktrees(d) >= 2">
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='workspace'" @click="openDevWorkspace(d,'editor')" title="Open every ready worktree together as one VS Code multi-root workspace" x-text="devBusy[d.id]==='workspace' ? 'Opening…' : '🗂 Open workspace'"></button>
@@ -13240,7 +13261,8 @@
               .connect-ev-detail { font-size:13px; color:var(--cp-text-muted); white-space:pre-wrap; margin-top:3px; }
               .connect-ev-impact { font-size:13px; margin-top:4px; }
               .connect-ev-impact b { color:var(--cp-accent); }
-              .connect-ev-actions { display:flex; gap:6px; flex:0 0 auto; align-items:flex-start; }
+              .connect-ev-actions { display:flex; gap:6px; flex:0 0 auto; align-items:flex-start; opacity:0; transition:opacity .12s ease; }
+              .connect-ev:hover .connect-ev-actions, .connect-ev:focus-within .connect-ev-actions { opacity:1; }
               .connect-ev-actions button { background:none; border:none; cursor:pointer; color:var(--cp-text-soft); font-size:13px; padding:2px 4px; }
               .connect-ev-actions button:hover { color:var(--cp-text); }
               .connect-field { margin-bottom:14px; }
@@ -13811,6 +13833,7 @@
               .diary-toolbar { padding:10px 0 12px;
                 border-bottom:1px solid var(--cp-border); margin-bottom:18px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
               .diary-layout { display:grid; grid-template-columns:200px 1fr; gap:28px; align-items:start; }
+              .diary-layout.single { grid-template-columns:1fr; }
               .diary-jump { position:sticky; top:12px; max-height:calc(100vh - 28px); overflow-y:auto; }
               .diary-jump h4 { margin:0 0 8px; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft); }
               .diary-jump a { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:5px 8px;
@@ -13943,7 +13966,7 @@
               </div>
 
               <!-- Two-column: quick-jump nav + day-grouped entries -->
-              <div class="diary-layout" x-show="!connect.loading && connectFilteredEvidence().length">
+              <div class="diary-layout" :class="{ single: diaryQuickJump().length <= 1 }" x-show="!connect.loading && connectFilteredEvidence().length">
                 <aside class="diary-jump" x-show="diaryQuickJump().length > 1">
                   <h4>Jump to</h4>
                   <template x-for="m in diaryQuickJump()" :key="m.key">
@@ -14447,6 +14470,13 @@
               .cf-rv-count { font-size:11.5px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
               .cf-rv-count.attn { color:var(--cp-warning); font-weight:700; }
               .cf-studio .nlx-fld { margin-bottom:10px; }
+              .cf-studio { grid-template-columns:var(--cf-rail-w,300px) 7px minmax(0,1fr); }
+              .cf-studio.chat-open { grid-template-columns:var(--cf-rail-w,300px) 7px minmax(0,1fr) 340px; }
+              .cf-rail-splitter { align-self:stretch; width:7px; margin:0 -6px; cursor:col-resize; position:relative; border-radius:4px; }
+              .cf-rail-splitter::before { content:''; position:absolute; top:0; bottom:0; left:50%; width:2px; transform:translateX(-50%); background:var(--cp-border); border-radius:2px; transition:background .12s; }
+              .cf-rail-splitter:hover::before, body.cf-rail-resizing .cf-rail-splitter::before { background:var(--cp-accent); }
+              body.cf-rail-resizing { cursor:col-resize; user-select:none; }
+              @media (max-width:900px) { .cf-studio, .cf-studio.chat-open { grid-template-columns:1fr; } .cf-rail-splitter { display:none; } }
               .cf-studio .nlx-fld:last-child { margin-bottom:0; }
               .cf-studio .cf-select { width:100%; }
               .cf-studio .cf-reviews-toggle { font-size:12.5px; }
@@ -14585,7 +14615,7 @@
             </div>
 
             <!-- Studio: sticky rail (view + filters) beside a bordered stage — echoes the Newsletter layout -->
-            <div class="nlx-studio cf-studio" x-show="codeflow.repos.length">
+            <div class="nlx-studio cf-studio" x-show="codeflow.repos.length" :style="'--cf-rail-w:' + cfRailW + 'px'">
               <aside class="nlx-rail">
                 <div class="nlx-card">
                   <div class="cf-rail-title">View</div>
@@ -14644,6 +14674,8 @@
                 </div>
               </aside>
 
+              <div class="cf-rail-splitter" @mousedown.prevent="cfRailResizeStart($event)" title="Drag to resize the left column"></div>
+
               <main class="nlx-stage">
                 <div class="nlx-stage-bar">
                   <span class="nlx-src">
@@ -14698,6 +14730,9 @@
                         <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
                         <span class="cf-m-muted" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
                         <span class="cf-m-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
+                        <span class="cf-m-muted" x-show="pr.amGroupReviewer && !pr.amReviewer && pr.groupReviewers && pr.groupReviewers.length"
+                              x-text="'via ' + pr.groupReviewers.map(g => g.name).join(', ')"
+                              :title="'You are a member of this reviewer group: ' + (pr.groupReviewers||[]).map(g => g.name).join(', ')"></span>
                         <span class="cf-m-muted" x-show="pr.proofOfPresencePending" title="Proof of presence is a merge-time human attestation, satisfied at merge — not a blocking failure">· pending proof of presence</span>
                       </div>
                     </div>
@@ -17437,6 +17472,28 @@
                 </div>
               </div>
               <p class="hint" x-show="exportSettingsSaved" style="margin-top:12px">✅ Saved.</p>
+            </div>
+
+            <!-- Code Flow reviewer groups -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">👥 Code Flow reviewer groups</h3>
+              <p class="hint" style="margin-bottom:14px">Groups (Azure DevOps groups / GitHub teams) you belong to, e.g. <strong>Dotnet-Core-Engineering</strong>. When a pull request lists one of these groups as a reviewer, Code Flow surfaces it under <strong>Active PRs (reviews needed)</strong> alongside PRs where you're a direct reviewer. Matched by the group's <strong>display name</strong> (case-insensitive), exactly as it appears on the PR.</p>
+              <div style="max-width:560px">
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" x-show="cfGroups.list.length">
+                  <template x-for="(g, gi) in cfGroups.list" :key="gi">
+                    <span style="display:inline-flex;align-items:center;gap:6px;background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:4px 8px;font-size:13px">
+                      <span x-text="g"></span>
+                      <button type="button" class="btn ghost" style="font-size:12px;padding:0 4px;line-height:1" title="Remove group" @click="cfRemoveGroup(gi)">✕</button>
+                    </span>
+                  </template>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <input class="field-input" type="text" x-model="cfGroups.input" placeholder="Add a group name…" @keydown.enter.prevent="cfAddGroup()" style="flex:1" />
+                  <button class="btn" type="button" @click="cfAddGroup()" :disabled="!cfGroups.input.trim()">Add</button>
+                </div>
+                <p class="hint" x-show="!cfGroups.list.length" style="margin-top:8px">No groups yet — only PRs where you're a direct reviewer surface under reviews.</p>
+                <p class="hint" x-show="cfGroups.saved" style="margin-top:8px">✅ Saved.</p>
+              </div>
             </div>
 
             </div><!-- /integrations category -->
@@ -21092,6 +21149,7 @@
             busy: false, input: '', messages: [], mode: 'agenda',
           },
         },
+        cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
           // The non-"mine" tab ("Active PRs") shows every open PR in the watched
@@ -21308,6 +21366,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
+        cfGroups: { list: [], input: '', saved: false, loaded: false },
         standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '', sortKey: 'id', sortDir: 'asc' },
         externalAccessDisabled: false,
         externalAccessLocked: false,
@@ -22156,6 +22215,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.loadModelSettings();
             if (this.settingsCat === 'dependencies') { this.loadDependencies(); this.loadAgentDeps(); }
             if (this.settingsCat === 'storage') { this.loadDataLocation(); this.ensureConnectConfig(); this.ensureDevSettings(); }
+            if (this.settingsCat === 'integrations') { this.ensureCfGroups(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
@@ -26106,6 +26166,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s) this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '', worktreeRoot: s.worktreeRoot || '' };
           } catch {}
           this._devSettingsLoaded = true;
+        },
+        // ----- Code Flow reviewer groups (settings.codeflowMyGroups) -----
+        async ensureCfGroups() {
+          if (this.cfGroups.loaded) return;
+          try {
+            const s = await this.request('/api/settings');
+            if (s && Array.isArray(s.codeflowMyGroups)) this.cfGroups.list = s.codeflowMyGroups.slice();
+          } catch {}
+          this.cfGroups.loaded = true;
+        },
+        async saveCfGroups() {
+          this.cfGroups.saved = false;
+          try {
+            const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ codeflowMyGroups: this.cfGroups.list }) });
+            if (next && Array.isArray(next.codeflowMyGroups)) this.cfGroups.list = next.codeflowMyGroups.slice();
+            this.cfGroups.loaded = true;
+            this.cfGroups.saved = true;
+            setTimeout(() => { this.cfGroups.saved = false; }, 2500);
+          } catch (err) {
+            this.showToast('Settings', 'Could not save reviewer groups: ' + err.message, 'error');
+          }
+        },
+        cfAddGroup() {
+          const v = (this.cfGroups.input || '').trim();
+          if (!v) return;
+          if (this.cfGroups.list.some(g => g.toLowerCase() === v.toLowerCase())) { this.cfGroups.input = ''; return; }
+          this.cfGroups.list.push(v);
+          this.cfGroups.input = '';
+          this.saveCfGroups();
+        },
+        cfRemoveGroup(i) {
+          this.cfGroups.list.splice(i, 1);
+          this.saveCfGroups();
         },
         // Editing org/project invalidates the picked repo list — reset the pickers
         // and persist the new org/project values.
@@ -30595,6 +30688,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
         },
+        // Drag-resize the Code Flow left column (view + filters rail). Width clamps
+        // 200–560px and persists to localStorage (cfRailW). Applied via the --cf-rail-w
+        // CSS var on .cf-studio; the splitter is hidden below the 900px single-column media query.
+        cfRailResizeStart(ev) {
+          const startX = ev.clientX;
+          const startW = this.cfRailW;
+          const MIN = 200, MAX = 560;
+          document.body.classList.add('cf-rail-resizing');
+          const onMove = (e) => {
+            let w = startW + (e.clientX - startX);
+            w = Math.max(MIN, Math.min(MAX, w));
+            this.cfRailW = w;
+          };
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.body.classList.remove('cf-rail-resizing');
+            try { localStorage.setItem('cfRailW', String(this.cfRailW)); } catch {}
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        },
         // Badge for the Active PRs tab. In 'active' mode it reflects the loaded list
         // (reviews-needed / total active); otherwise the lightweight reviews counts.
         cfReviewsTab() {
@@ -31857,6 +31972,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         codeflowAttentionLabel(reason) {
           const map = {
             'awaiting-your-review': '👀 Awaiting your review',
+            'group-review-requested': '👥 Awaiting your group\'s review',
             'updated-since-your-review': '🔄 Updated since your review',
             'changes-requested': '✗ Changes requested',
             'failing-checks': '⛔ Failing checks',
@@ -37625,9 +37741,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s.worktreeStatus === 'error') { repoAttn = true; break; }
             if (s.worktreePath && this.devGitBadge(s).attention) { repoAttn = true; break; }
           }
-          secs.push({ id: 'repos', label: '🗃 Repos', count: slots.length, attn: repoAttn });
+          secs.push({ id: 'repos', label: '🗃 Code', count: slots.length, attn: repoAttn });
           const artCount = ((d && d.reports && d.reports.length) || 0) + ((d && d.links && d.links.length) || 0);
-          secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount });
+          secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount, disabled: !artCount });
           return secs;
         },
         devActivePane(d) {
@@ -37643,6 +37759,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devTabActive(d, id) { return this.devDrawerIsOpen(d) && this.devActivePane(d) === id; },
         devTabToggle(d, id) {
           if (!d) return;
+          const sec = this.devSections(d).find(s => s.id === id);
+          if (sec && sec.disabled) return;
           if (this.devTabActive(d, id)) { this.devDrawer[d.id] = false; return; }
           this.devPane[d.id] = id;
           this.devDrawer[d.id] = true;
@@ -38049,6 +38167,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return out;
         },
+        // Fallback suggestions when nothing matches the slot's exact repo: the user's
+        // OWN active pull requests (view=mine), across ANY repo, so a GitHub PR the
+        // user authored (e.g. dotnet/arcade !17018) can be linked without hunting for
+        // the number. Excludes anything already shown as an exact-repo candidate.
+        slotLinkSuggestions() {
+          const p = this.prLink; if (!p.open) return [];
+          const exact = new Set(this.slotLinkCandidates().map(pr => (pr.provider || '') + ':' + (pr.repoId || pr.repo || '') + ':' + pr.id));
+          const seen = new Set();
+          const out = [];
+          for (const pr of (this.homePrs && this.homePrs.items) || []) {
+            if (!pr) continue;
+            const key = (pr.provider || '') + ':' + (pr.repoId || pr.repo || '') + ':' + pr.id;
+            if (exact.has(key) || seen.has(key)) continue;
+            seen.add(key);
+            out.push(pr);
+            if (out.length >= 30) break;
+          }
+          return out;
+        },
         async linkSlotPr(prId, prObj) {
           const p = this.prLink; if (!p.open || p.busy) return;
           const id = String(prId || p.manual || '').trim();
@@ -38063,6 +38200,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.prLink.open = false;
               try { await this.loadDevItems(true); } catch {}
               // Refresh Code Flow so the related-dev-card chip resolves.
+              try { this.refreshCodeFlow(); } catch {}
+            } else { this.showToast('Link PR', 'Linking returned no result — try again.', 'error'); }
+          } catch (e) { this.showToast('Link PR', (e && e.message) || 'Link failed', 'error'); }
+          finally { p.busy = false; }
+        },
+        // Link a SUGGESTED PR (the user's own active PR) that lives in a different repo
+        // than the slot the picker was opened from. We can't reuse the slot's repo (the
+        // server fetches the PR against that slot's descriptor), so we pass the PR's OWN
+        // org/project/repo/provider + createSlot:true and let the server mint a link-only
+        // slot on the card for that repo.
+        async linkSuggestedPr(pr) {
+          const p = this.prLink; if (!p.open || p.busy || !pr) return;
+          const id = String(pr.id || '').trim();
+          if (!id) return;
+          p.busy = true;
+          try {
+            const body = {
+              prId: id,
+              org: pr.org || '',
+              project: pr.project || '',
+              repo: pr.repo || '',
+              provider: pr.provider || 'azdo',
+              createSlot: true
+            };
+            const r = await this.request(this._devUrl(p.devId, 'link-pr'), { method: 'POST', body: JSON.stringify(body) });
+            if (r && r.dev) {
+              this._applyDevUpdate(p.devId, r.dev);
+              this.showToast('Link PR', '🔗 Linked PR !' + id + ' (' + (pr.repo || '') + ').', 'success');
+              if (r.stateWarning) this.showToast('Link PR', r.stateWarning, 'warning');
+              this.prLink.open = false;
+              try { await this.loadDevItems(true); } catch {}
               try { this.refreshCodeFlow(); } catch {}
             } else { this.showToast('Link PR', 'Linking returned no result — try again.', 'error'); }
           } catch (e) { this.showToast('Link PR', (e && e.message) || 'Link failed', 'error'); }
@@ -44348,6 +44516,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             dev_cards: 'Dev Cards / Code',
             newsletter: 'Newsletter',
             connect: 'Connect',
+            diary: 'Diary',
             agent_authoring: 'Agent Authoring',
             insights: 'Insights',
             feedback: 'Feedback',
@@ -44366,7 +44535,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             pull_requests: 'AI-written <strong>pull-request summaries, descriptions and code reviews</strong> generated across your PRs.',
             dev_cards: '<strong>Code &amp; dev-card work</strong> — turning board cards into code changes, drafts and implementation runs.',
             newsletter: 'Drafting, regenerating and shipping your <strong>newsletter</strong> — writing, layout and images. Counted once per issue emailed broadly.',
-            connect: 'Building your <strong>Connect / impact write-up</strong> — collecting M365 activity, profiling your role and drafting the review.',
+            connect: 'Building your <strong>Connect / impact write-up</strong> — profiling your role and drafting the review. Counted only when you explicitly generate a Connect draft.',
+            diary: 'Automatically <strong>collecting your work into the diary</strong> — M365 activity, meetings and role signals gathered in the background so you don\'t have to journal by hand.',
             agent_authoring: '<strong>Authoring agents</strong> — generating prompts, recommending skills and the live agent-preview chats while you build one.',
             insights: 'Generating <strong>board &amp; portfolio insights</strong> and summaries.',
             feedback: 'AI help <strong>drafting and triaging feedback</strong>.',
@@ -44404,8 +44574,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // deliverable = one issue emailed broadly (the publish signal).
             newsletter:      { active: 6,   perUnit: 190, unitRuns: 3 },
             // A polished Connect / impact write-up is a couple of hours of recall,
-            // drafting and evidence-gathering by hand.
-            connect:         { active: 5,   perUnit: 110, unitRuns: 3 },
+            // drafting and evidence-gathering by hand — but it's only a real time-save
+            // when the user EXPLICITLY generates one, so we count it per shipped draft
+            // (ground-truth deliverable) and never estimate it from background run volume.
+            connect:         { active: 5,   perUnit: 150, unitRuns: 1, estimateFromRuns: false },
+            // Background diary collection replaces hand-journaling your work. Low per-run
+            // value (a couple of minutes of logging each), high volume.
+            diary:           { manual: 2,   active: 0.3 },
             // Authoring a good agent by hand — writing the prompt, picking skills,
             // testing behaviour — is the better part of an hour.
             agent_authoring: { active: 2,   perUnit: 45,  unitRuns: 2 },
@@ -44444,9 +44619,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (m.perUnit) {
               const shipped = Number(c.deliverables || 0);
               const per = Math.max(1, m.unitRuns || 1);
+              // estimateFromRuns:false → count ONLY ground-truth shipped deliverables
+              // (e.g. an explicitly generated Connect); no run-volume estimate, so
+              // background/collection runs never inflate the savings.
               const units = shipped > 0
                 ? shipped
-                : (runs > 0 ? Math.max(1, Math.round(runs / per)) : 0);
+                : (m.estimateFromRuns === false ? 0
+                  : (runs > 0 ? Math.max(1, Math.round(runs / per)) : 0));
               manualMin = units * m.perUnit * mult;
             } else {
               manualMin = runs * (m.manual || 0) * mult;
