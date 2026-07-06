@@ -11883,7 +11883,23 @@
               .meai-lane-swipe { position:relative; overflow:hidden; }
               .meai-lane-swipe .meai-lane-row { background:var(--cp-surface); position:relative; z-index:1; padding-left:0; padding-right:0; touch-action:pan-y; }
               .meai-lane-fin { position:absolute; top:0; right:0; height:100%; z-index:0; display:flex; align-items:center; justify-content:flex-end; padding:0 12px; border:0; background:transparent; color:var(--cp-success); font-size:12px; font-weight:700; cursor:pointer; }
-              .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--cp-border); cursor:pointer; }              .meai-lane-row:last-child { border-bottom:0; }
+              .meai-lane-item { border-bottom:1px solid var(--cp-border); }
+              .meai-lane-item:last-child { border-bottom:0; }
+              .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; cursor:pointer; }
+              /* Inline pending-action panel on a paused lane row (approve without the console). */
+              .meai-lane-ask { padding:2px 0 10px; }
+              .meai-lane-ask-q { font-size:12px; color:var(--cp-text); line-height:1.4; margin-bottom:6px; }
+              .meai-lane-ask-hint { color:var(--cp-text-muted); font-weight:600; }
+              .meai-lane-ask-acts { display:flex; flex-wrap:wrap; gap:6px; }
+              .meai-lane-ask-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); color:var(--cp-text); font-size:11.5px; font-weight:600; cursor:pointer; line-height:1.2; }
+              .meai-lane-ask-btn:hover { border-color:var(--cp-accent); }
+              .meai-lane-ask-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; }
+              .meai-lane-ask-btn.write { border-color:color-mix(in srgb, var(--cp-warning,#d97706) 55%, var(--cp-border)); }
+              .meai-lane-ask-btn.write.primary { background:var(--cp-warning,#d97706); border-color:var(--cp-warning,#d97706); }
+              .meai-lane-ask-btn:disabled { opacity:.5; cursor:default; }
+              .meai-lane-ask-flag { font-size:11px; opacity:.85; }
+              .meai-lane-ask-foot { margin-top:7px; font-size:11px; color:var(--cp-text-muted); }
+              .meai-lane-ask-foot a { color:var(--cp-accent); text-decoration:none; }
               .meai-lane-t { font-weight:600; font-size:13px; color:var(--cp-text); }
               .meai-lane-m { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
               .meai-lane-stage { font-size:11px; font-weight:600; }
@@ -12374,6 +12390,7 @@
                     <template x-if="(meai.tasks||[]).length">
                       <div>
                         <template x-for="tk in meai.tasks" :key="tk.id">
+                          <div class="meai-lane-item">
                           <div class="meai-lane-swipe">
                             <button type="button" class="meai-lane-fin" @click.stop="meAiFinishTask(tk)" title="Finish — remove this agent from the lane">✓ Finish</button>
                             <div class="meai-lane-row" :style="meAiLaneStyle(tk)"
@@ -12389,6 +12406,32 @@
                               <span x-text="meAiTaskStageLabel(tk.stage)"></span>
                             </div>
                             </div>
+                          </div>
+                          <!-- Inline pending-action panel: when the agent is paused it shows WHAT it
+                               wants to do (its question or proposed next actions) so you can approve
+                               right here without opening the console. Writes/sends are flagged. -->
+                          <template x-if="meAiLanePending(tk)">
+                            <div class="meai-lane-ask" @pointerdown.stop @click.stop>
+                              <div class="meai-lane-ask-q" x-show="tk.question" x-text="tk.question"></div>
+                              <div class="meai-lane-ask-q meai-lane-ask-hint" x-show="!tk.question && (tk.nextActions||[]).length">Wants your go-ahead:</div>
+                              <div class="meai-lane-ask-acts" x-show="(tk.nextActions||[]).length">
+                                <template x-for="(a, ai) in tk.nextActions" :key="ai">
+                                  <button type="button" class="meai-lane-ask-btn"
+                                          :class="{ primary: a.primary, write: a.risk==='write' || a.risk==='external' }"
+                                          :disabled="meai.laneActingId===tk.id"
+                                          @click="meAiLaneAct(tk, a.intent, a.label)"
+                                          :title="(a.risk==='external' ? 'Sends/posts externally · ' : a.risk==='write' ? 'Makes a change · ' : '') + a.label">
+                                    <span x-show="a.risk==='write' || a.risk==='external'" class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'"></span>
+                                    <span x-text="a.label"></span>
+                                  </button>
+                                </template>
+                              </div>
+                              <div class="meai-lane-ask-foot">
+                                <a href="#" @click.prevent="meAiOpenTask(tk)">Open console</a>
+                                <span x-show="tk.question" style="opacity:.7">·&nbsp;answer needs the console</span>
+                              </div>
+                            </div>
+                          </template>
                           </div>
                         </template>
                       </div>
@@ -20578,6 +20621,7 @@
           draftOpen: false,      // §7.4 draft preview expanded
           traceOpen: true,       // background agent → reasoning/tools visible by default
           laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
+          laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
           expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
           // REQ-7 auto-regen + change tracking + day-shape report.
@@ -27896,6 +27940,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.request('/api/me-ai/task/' + tk.id + '/dismiss', { method: 'POST' });
           } catch (e) { this.toast('Could not finish task', 'error'); this.meAiLoadTasks(); }
         },
+        // True when a lane row is paused with something for you to approve/decide —
+        // either a mid-run question or proposed next actions. Drives the inline panel.
+        meAiLanePending(tk) {
+          if (!tk) return false;
+          if (this.meai.laneSwipeOpen === tk.id) return false; // don't compete with the swipe UI
+          if (tk.stage === 'done') return false;
+          return !!tk.question || (Array.isArray(tk.nextActions) && tk.nextActions.length > 0);
+        },
+        // Approve/choose an action straight from the lane (the click IS the confirmation).
+        // Reuses the same /act path as the console; merges the result into lane + console.
+        async meAiLaneAct(tk, intent, label) {
+          if (!tk || this.meai.laneActingId) return;
+          this.meai.laneActingId = tk.id;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(tk.id) + '/act', {
+              method: 'POST',
+              body: JSON.stringify({ intent, text: '', label: label || '' }),
+            });
+            if (r && r.task) {
+              this._meAiMergeTask(r.task);
+              // Reflect the new stage/status/pending-ask on the lane row immediately.
+              const row = (this.meai.tasks || []).find(x => x.id === tk.id);
+              if (row) {
+                row.stage = r.task.stage; row.status = r.task.status;
+                row.question = r.task.question || null;
+                row.nextActions = r.task.nextActions || [];
+              }
+            }
+            this.meai.laneSwipeOpen = null;
+          } catch (e) {
+            this.toast(e.message || String(e), 'error');
+          } finally {
+            this.meai.laneActingId = null;
+          }
+        },
         meAiOpenTask(id) {
           this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = true;
           const t = this.meai._taskById[id];
@@ -28033,7 +28112,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           // Keep the lane row in sync (stage/status change) without a full refetch.
           const row = (this.meai.tasks || []).find(x => x.id === id);
-          if (row) { row.stage = t.stage; row.status = t.status; }
+          if (row) {
+            const wasStage = row.stage;
+            row.stage = t.stage; row.status = t.status;
+            // When a row transitions INTO a pending state (paused to ask / report ready /
+            // needs-you error), the lane needs the fresh question + proposed nextActions so
+            // the inline Approve panel can render — pull the enriched /tasks list once.
+            const pend = ['awaiting', 'report', 'error'];
+            if (wasStage !== t.stage && pend.includes(t.stage)) this.meAiLoadTasks();
+            else if (t.question && !row.question) { row.question = t.question; }
+          }
           else if (ev && ev.kind === 'stage') this.meAiLoadTasks();
           if (this.meai.console && this.meai.console.id === id) this.$nextTick(() => this._meAiConsoleScroll());
         },

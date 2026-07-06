@@ -14515,7 +14515,14 @@ app.get('/api/me-ai/tasks', (req, res) => {
     for (const t of meAiTasks.values()) {
       if (date && t.date !== date) continue;
       if (t.archived) continue; // dismissed/finished off the active lane
-      items.push({ id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status, background: !!t.background, updatedAt: t.updatedAt, date: t.date });
+      // Carry the pending ask (question + proposed nextActions) onto the lane row so
+      // the "Me agents at work" list can show WHAT the agent is trying to do and let
+      // you approve it inline — without opening the console (owner ask).
+      items.push({
+        id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status,
+        background: !!t.background, updatedAt: t.updatedAt, date: t.date,
+        question: t.question || null, nextActions: t.nextActions || [],
+      });
     }
     items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     res.json({ ok: true, tasks: items });
