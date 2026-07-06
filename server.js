@@ -13014,6 +13014,15 @@ function _meAiMarkDayNoteDone(seed, outcome) {
   } catch (_) { return false; }
 }
 
+// Dynamic planning progress: emit a phase heartbeat so the client can show live status
+// (reading accounts → prioritizing → laying out → refining → finalizing) instead of a
+// static "Planning your day…" that looks stalled during the slow gather + LLM refine.
+// Broadcast to all SSE clients keyed by date; the client only renders it while ITS own
+// generate is in flight for the viewed date (background auto-regens emit but stay silent).
+function _meAiEmitProgress(date, phase, label) {
+  try { broadcastSSE('me-ai-progress', { date: String(date || '').slice(0, 10), phase, label, at: Date.now() }); } catch (_) {}
+}
+
 async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
@@ -13059,6 +13068,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // #3 Signals come from the pre-index cache when warm. An explicit "Regenerate"
   // (reindex) forces a fresh read; a mode/pref re-plan reuses the cache so it's fast.
   _meAiLastActive = Date.now();
+  _meAiEmitProgress(day, 'gather', 'Reading your calendar, email & pull requests…');
   const gathered = await _meAiGatherSignals(s, cfg, day, { force: !!reindex });
   const signals = gathered.signals.slice();
   const errors = gathered.errors.slice();
@@ -13114,8 +13124,10 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const reservedBlocks = _meAiReservationsFromOverrides(overridesForPlan, cfg);
   // Normalize urgency across signal types (PR vs dev card vs work item vs comms) on a
   // single scale BEFORE the deterministic scheduler runs, so prioritization is fair.
+  _meAiEmitProgress(day, 'prioritize', 'Prioritizing what matters most today…');
   await _meAiNormalizeUrgency(cfg, planSignals, day);
   const pre = _meAiPrePass(cfg, planSignals, effTodos, reservedBlocks);
+  _meAiEmitProgress(day, 'refine', 'Shaping your day with AI…');
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   // Safety net: the LLM refine can merge/drop a personal-todo block (it reads as flexible
   // focus time). Re-insert any personal commitment the refine lost so an explicit todo
@@ -13165,6 +13177,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   } catch (_) { agenda.rollover = []; }
   saveAgendaForDate(day, agenda);
   try { _meAiSyncDayBoard(agenda, day); } catch (_) { /* best-effort */ }  // REQ-1
+  _meAiEmitProgress(day, 'done', 'Ready');
   return agenda;
 }
 

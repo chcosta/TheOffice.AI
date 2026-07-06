@@ -12137,7 +12137,7 @@
               <div class="meai-datebar">
                 <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating">
                   <span x-show="!meai.generating" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
-                  <span x-show="meai.generating">Planning your day…</span>
+                  <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
                 </button>
                 <span class="meai-status-detail" x-show="meai.agenda && meai.agenda.meta">
                   <span x-show="meai.agenda.meta.refined">AI-refined</span>
@@ -20824,6 +20824,7 @@
           loaded: false,
           loading: false,
           generating: false,
+          progress: { phase: '', label: '', at: 0 },  // live planning heartbeat (SSE me-ai-progress)
           savingSettings: false,
           config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {} },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
@@ -22733,6 +22734,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Me.AI M2 — Me-agent console/task stream (thinking/tools/report/stage).
             source.addEventListener('me-ai-task', (event) => {
               try { this._meAiOnTaskEvent(JSON.parse(event.data || '{}')); } catch {}
+            });
+            // Live agenda-planning heartbeat: show which phase we're in (reading accounts →
+            // prioritizing → shaping) so a slow generate never looks stalled. Only render it
+            // while OUR own generate is in flight for the viewed date (background auto-regens
+            // broadcast too, but stay silent because meai.generating is false).
+            source.addEventListener('me-ai-progress', (event) => {
+              try {
+                const d = JSON.parse(event.data || '{}');
+                if (!d || d.date !== this.meai.date || !this.meai.generating) return;
+                if (d.phase === 'done') return;  // response arrival clears the state
+                this.meai.progress = { phase: d.phase || '', label: d.label || '', at: d.at || Date.now() };
+              } catch {}
             });
             const _resilienceRefresh = (event) => {
               try {
@@ -27440,10 +27453,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Regenerate today's agenda with an intentional cause (won't count as churn).
         async _meAiRegen(cause) {
-          const r = await this.request('/api/me-ai/agenda/generate', {
-            method: 'POST', body: JSON.stringify({ date: this.meai.date, todos: this.meai.todos, reindex: false, cause: cause || 'manual' })
-          });
-          return r && r.agenda;
+          // Drive the same generating/progress heartbeat as the page's Generate button so the
+          // agenda-assistant path also shows live planning status (not a silent stall).
+          const wasGen = this.meai.generating;
+          if (!wasGen) { this.meai.generating = true; this.meai.progress = { phase: 'start', label: 'Getting started…', at: Date.now() }; }
+          try {
+            const r = await this.request('/api/me-ai/agenda/generate', {
+              method: 'POST', body: JSON.stringify({ date: this.meai.date, todos: this.meai.todos, reindex: false, cause: cause || 'manual' })
+            });
+            return r && r.agenda;
+          } finally {
+            if (!wasGen) { this.meai.generating = false; this.meai.progress = { phase: '', label: '', at: 0 }; }
+          }
         },
         // REQ-7 change log for the viewed date (newest first) → "what changed" panel.
         async meAiLoadChanges() {
@@ -27611,6 +27632,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // churn score. Absent a reason, an explicit Generate/Regenerate = 'manual'.
           const cause = (opts && opts.cause) || (opts && opts.reason) || 'manual';
           this.meai.generating = true;
+          this.meai.progress = { phase: 'start', label: 'Getting started…', at: Date.now() };
           this.meai.notice = '';
           try {
             const todos = (this.meai.todos || [])
@@ -27627,6 +27649,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast('Failed to generate agenda: ' + (e.message || e), 'error');
           } finally {
             this.meai.generating = false;
+            this.meai.progress = { phase: '', label: '', at: 0 };
           }
         },
         // REQ-1: jump to the persistent "My Day" board that mirrors today's agenda.
