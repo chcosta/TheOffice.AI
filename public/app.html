@@ -2424,6 +2424,11 @@
     .cf-pr-card.cf-focus { border-color:var(--cp-accent); box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); animation:cfFocusPulse 1.2s ease-out 1; }
     @keyframes cfFocusPulse { 0% { box-shadow:0 0 0 0 var(--cp-accent); } 70% { box-shadow:0 0 0 6px var(--cp-accent-soft); } 100% { box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); } }
     .cf-pr-top { display:flex; align-items:flex-start; gap:12px; }
+    /* Keep the PR card calm: the Link / Pin / Add-to-today actions stay hidden
+       until the card is hovered (or a button inside gets keyboard focus). */
+    .cf-pr-actions { opacity:0; transition:opacity .12s ease; }
+    .cf-pr-card:hover .cf-pr-actions,
+    .cf-pr-card:focus-within .cf-pr-actions { opacity:1; }
     .cf-pr-title { font-size:15px; font-weight:650; line-height:1.35; color:var(--cp-text); text-decoration:none; }
     .cf-pr-title:hover { color:var(--cp-accent); }
     .cf-meta-line { display:flex; flex-wrap:wrap; align-items:center; row-gap:3px; margin-top:7px; font-size:12.5px; }
@@ -4599,8 +4604,8 @@
     .note-check.done { color: var(--cp-success); }
     .note-text { flex: 1 1 auto; min-width: 0; color: var(--cp-text); white-space: pre-wrap; word-break: break-word; line-height: 1.35; }
     .note-text.done { color: var(--cp-text-soft); text-decoration: line-through; }
-    .note-act { opacity: .4; transition: opacity .12s ease; flex: 0 0 auto; }
-    .note-row:hover .note-act { opacity: 1; }
+    .note-act { opacity: 0; transition: opacity .12s ease; flex: 0 0 auto; }
+    .note-row:hover .note-act, .note-row:focus-within .note-act { opacity: 1; }
     .note-act.danger:hover { color: var(--cp-danger); }
     .note-count { color: var(--cp-text-soft); font-size: 10.5px; font-weight: 400; }
     .board-tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--cp-text-muted); font-size: 12.5px; cursor: pointer; transition: background .12s ease, color .12s ease; }
@@ -14699,10 +14704,13 @@
                     <div x-show="pr.attention" style="flex:0 0 auto">
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
                     </div>
-                    <div style="flex:0 0 auto;display:flex;gap:6px">
+                    <div class="cf-pr-actions" style="flex:0 0 auto;display:flex;gap:6px">
                       <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="!pr.devCard"
                               title="Link this pull request to an existing dev card (or create one)"
                               @click.stop="openLinkToDevCard(pr)">🔗 Link to dev card</button>
+                      <button class="btn ghost" type="button" style="font-size:0.72rem"
+                              title="Add this pull request to today's Me.AI agenda (at least 30 min out; after hours if the day is full)"
+                              @click.stop="cfAddPrToAgenda(pr)">🗓 Add to today</button>
                       <button class="btn ghost" type="button" style="font-size:0.72rem"
                               title="Pin this pull request to a board (with full review/worktree actions)"
                               @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to workspace</button>
@@ -38076,6 +38084,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         openLinkToDevCard(pr) {
           this.linkDev = { open: true, prKey: this.cfPrKey(pr), pr, q: '', busy: false };
           if (!this.devItemsLoaded) { try { this.loadDevItems(true); } catch {} }
+        },
+        // Add a pull request to TODAY's Me.AI agenda. The server honors a 30-minute
+        // look-ahead buffer (never schedules something imminent), drops it into the
+        // first free slot for the rest of the day, and — if the day is packed —
+        // appends it after normal business hours instead of bumping it to another day.
+        async cfAddPrToAgenda(pr) {
+          if (!pr || this._cfAgendaBusy) return;
+          this._cfAgendaBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify({
+                op: 'add_to_today',
+                key: this.cfPrKey(pr),
+                title: pr.title || 'Pull request review',
+                link: pr.url || '',
+                detail: pr.repo ? (pr.repo + ' #' + pr.id) : '',
+                blockType: 'review',
+                durMin: 30,
+              }),
+            });
+            if (r && r.ok) {
+              const at = r.at ? this._meAiFmtHm(r.at) : '';
+              const msg = r.afterHours
+                ? ('🗓 Added after hours' + (at ? ' at ' + at : '') + ' — today was already full.')
+                : ('🗓 On today\u2019s agenda' + (at ? ' at ' + at : '') + '.');
+              this.showToast('Me.AI agenda', msg, 'success');
+            } else {
+              this.showToast('Me.AI agenda', (r && r.error) || 'Could not add to today.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Me.AI agenda', (e && e.message) || 'Could not add to today.', 'error');
+          } finally {
+            this._cfAgendaBusy = false;
+          }
         },
         linkDevCandidates() {
           const L = this.linkDev; if (!L.open || !L.pr) return [];
