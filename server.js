@@ -12840,9 +12840,22 @@ function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
 // (manual) blocks are left alone so two deliberately-separate personal blocks aren't merged.
 function _meAiDedupePersonal(blocks) {
   if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
+  // A block counts as a "personal commitment" if it is a personal-type block, OR it carries
+  // the personal-todo flag, OR it is a held-in-place pin (imminent/pinned) — the latter can
+  // inherit a non-personal type from the prior snapshot, so grouping on type alone would miss
+  // a held "2 hours for golf" pin sitting next to the same personal-todo golf block. Real
+  // work anchors (meetings, reviews) are excluded so an unrelated title never collapses.
+  const isPersonalish = (b) => {
+    if (!b) return false;
+    const ty = String(b.type || '');
+    if (ty === 'personal') return true;
+    if (b.meta && b.meta.personalTodo) return true;
+    if (b.meta && (b.meta.pinned || b.meta.imminent) && ty !== 'meeting' && ty !== 'review') return true;
+    return false;
+  };
   const groups = new Map(); // activityKey -> [indices]
   blocks.forEach((b, i) => {
-    if (!b || String(b.type || '') !== 'personal') return;
+    if (!isPersonalish(b)) return;
     const k = _meAiActivityKey(b.title);
     if (!k) return;
     if (!groups.has(k)) groups.set(k, []);

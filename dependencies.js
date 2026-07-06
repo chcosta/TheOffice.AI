@@ -506,27 +506,50 @@ async function updateWinget(id) {
   dstate.lastError = null;
   writeState(state);
 
-  const r = await _runAsync('winget', [
-    'upgrade', '--id', reg.wingetId, '--exact', '--scope', 'user',
-    '--silent', '--accept-source-agreements', '--accept-package-agreements',
-    '--disable-interactivity',
-  ], { timeout: 900000 });
+  const agree = ['--silent', '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity'];
+  const benignRe = /no available upgrade|no applicable upgrade|no applicable update|no newer|already installed|already up.?to.?date|up to date|no installed package|no updates? available/i;
+  // Some packages (Azure CLI is the canonical case) are machine-scoped MSIs, so a
+  // user-scope upgrade can't touch them: winget reports "install technology is different",
+  // "requires elevation", or simply finds no applicable user-scope upgrade. Rather than
+  // fail hard, walk a resilience ladder — drop --scope user, then fall back to a plain
+  // install-to-latest — and only surface an actionable error if the whole ladder fails.
+  const scopeMismatchRe = /install technolog|different install|requires elevation|elevat|administrator|machine.?scope|no applicable upgrade found/i;
+
+  const attempts = [
+    ['upgrade', '--id', reg.wingetId, '--exact', '--scope', 'user', ...agree],
+    ['upgrade', '--id', reg.wingetId, '--exact', ...agree],                 // let winget pick the scope
+    ['install', '--id', reg.wingetId, '--exact', ...agree],                 // reinstall to latest
+  ];
+
+  let last = null;
+  let succeeded = false;
+  for (let i = 0; i < attempts.length; i++) {
+    const r = await _runAsync('winget', attempts[i], { timeout: 900000 });
+    last = r;
+    const combined = ((r.out || '') + (r.err || '')).toLowerCase();
+    if (r.ok || benignRe.test(combined)) { succeeded = true; break; }
+    // Only escalate to the next rung when the failure looks scope/elevation-related;
+    // an unrelated failure (network, source down) shouldn't churn through reinstalls.
+    if (i < attempts.length - 1 && !scopeMismatchRe.test(combined)) break;
+  }
 
   const current = _detectCurrent(reg, dstate);
   dstate.currentVersion = current;
-  if (!r.ok) {
-    // winget exits non-zero when already up to date in some versions; treat
-    // "No available upgrade" / "No applicable update" as success.
-    const combined = ((r.out || '') + (r.err || '')).toLowerCase();
-    const benign = /no available upgrade|no applicable update|no newer|already installed|up to date/.test(combined);
-    if (!benign) {
-      dstate.status = 'error';
-      dstate.lastError = (r.err || 'winget upgrade failed').trim().split('\n').slice(-2).join(' ');
-      writeState(state);
-      return { ok: false, error: dstate.lastError };
+  if (!succeeded) {
+    const combined = ((last && last.out || '') + (last && last.err || '')).toLowerCase();
+    dstate.status = 'error';
+    let msg = ((last && last.err) || 'winget upgrade failed').trim().split('\n').slice(-2).join(' ');
+    if (scopeMismatchRe.test(combined)) {
+      msg = 'Azure CLI is installed machine-wide; winget could not upgrade it without elevation. Run an elevated "winget upgrade --id ' + reg.wingetId + '" or install the latest MSI, then re-check.';
+    } else if (/0x8a15|source|cdn|network|timed out|timeout/i.test(combined)) {
+      msg = 'winget could not reach its source (network/CDN). Check connectivity and retry — ' + msg;
     }
+    dstate.lastError = msg;
+    writeState(state);
+    return { ok: false, error: msg };
   }
   dstate.status = 'ok';
+  dstate.lastError = null;
   dstate.lastUpdated = new Date().toISOString();
   dstate.history = (dstate.history || []).concat([{ version: current, at: dstate.lastUpdated, action: 'winget-upgrade' }]).slice(-20);
   writeState(state);

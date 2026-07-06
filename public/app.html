@@ -2636,7 +2636,15 @@
     .cf-git-v { color:var(--cp-text); word-break:break-all; }
     .cf-git-actions { flex-wrap:wrap; gap:14px; }
     /* Worktree pane — quiet Open buttons + separated Remove */
-    .cf-wt-envwrap { display:flex; flex-direction:column; gap:10px; }
+    .cf-wt-envwrap { display:flex; flex-direction:column; gap:10px; position:relative; }
+    /* Hover-revealed remove-worktree × in the worktree card's top-right (declutter). */
+    .cf-wt-x { position:absolute; top:-2px; right:-2px; width:22px; height:22px; line-height:20px;
+      border-radius:6px; border:1px solid var(--cp-border); background:var(--cp-surface);
+      color:var(--cp-danger); font-size:14px; text-align:center; cursor:pointer; padding:0;
+      opacity:0; transition:opacity .12s ease; }
+    .cf-pr-card:hover .cf-wt-x, .cf-wt-x:focus-visible { opacity:.85; }
+    .cf-wt-x:hover { opacity:1; background:var(--cp-danger); color:#fff; }
+    .cf-wt-x:disabled { opacity:0; }
     .cf-pr-notes { margin-top:10px; padding-top:10px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:6px; }
     .cf-pr-notes-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .cf-wt-open-row { display:flex; align-items:center; gap:11px; flex-wrap:wrap; }
@@ -15147,6 +15155,8 @@
                         </template>
                         <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                           <div class="cf-wt-envwrap">
+                            <button class="cf-wt-x" :disabled="!!cfBusy(pr)" @click.stop="removeCfWorktree(pr)"
+                                    :title="cfBusy(pr) === 'remove' ? 'Removing…' : 'Remove this worktree and its cached report'">✕</button>
                             <div class="cf-wt-open-row">
                               <span class="cf-wt-open-k">Open in</span>
                               <span class="cf-wt-openbtns">
@@ -15158,10 +15168,6 @@
                               </span>
                             </div>
                             <div class="cf-wt-path" x-show="cfWt(pr).worktreePath" x-text="cfWt(pr).worktreePath"></div>
-                            <div class="cf-wt-remove-row">
-                              <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
-                                      title="Delete this PR's review worktree and its cached report">Remove worktree</button>
-                            </div>
                           </div>
                         </template>
                         </div>
