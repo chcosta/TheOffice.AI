@@ -11956,7 +11956,7 @@
               .meai-lane-swipe { position:relative; overflow:hidden; }
               .meai-lane-swipe .meai-lane-row { background:var(--cp-surface); position:relative; z-index:1; padding-left:0; padding-right:0; touch-action:pan-y; }
               .meai-lane-fin { position:absolute; top:0; right:0; height:100%; z-index:0; display:flex; align-items:center; justify-content:flex-end; padding:0 12px; border:0; background:transparent; color:var(--cp-success); font-size:12px; font-weight:700; cursor:pointer; }
-              .meai-lane-item { border-bottom:1px solid var(--cp-border); }
+              .meai-lane-item { border-bottom:1px solid var(--cp-border); cursor:pointer; }
               .meai-lane-item:last-child { border-bottom:0; }
               .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; cursor:pointer; }
               /* Inline pending-action panel on a paused lane row (approve without the console). */
@@ -12593,11 +12593,10 @@
                     <template x-if="(meai.tasks||[]).length">
                       <div>
                         <template x-for="tk in meai.tasks" :key="tk.id">
-                          <div class="meai-lane-item">
+                          <div class="meai-lane-item" @click="meAiLaneClick(tk)">
                           <div class="meai-lane-swipe">
                             <button type="button" class="meai-lane-fin" @click.stop="meAiFinishTask(tk)" title="Finish — remove this agent from the lane">✓ Finish</button>
                             <div class="meai-lane-row" :style="meAiLaneStyle(tk)"
-                                 @click="meAiLaneClick(tk)"
                                  @pointerdown="meAiLaneSwipeStart($event, tk)">
                             <div style="min-width:0">
                               <div class="meai-lane-t" x-text="tk.title"></div>
