@@ -14462,7 +14462,14 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
     err._fallback = true;
     throw err;
   }
-  return acc.trim() ? acc : ((result && result.output) || '');
+  // A run that came back errored (timeout, session.error, sendAndWait throw) with
+  // NO usable output must NOT masquerade as a completed empty report ("Run
+  // complete."). Surface the real error so the loop can self-correct or show it.
+  const text = acc.trim() ? acc : ((result && result.output) || '');
+  if (!text.trim() && result && result.ok === false) {
+    throw new Error(result.error || 'Me agent run failed with no output');
+  }
+  return text;
 }
 // Concurrency gate: run now if a slot is free, else queue. Drains on completion.
 function _meAiSchedule(fn) {
