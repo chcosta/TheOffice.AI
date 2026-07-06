@@ -169,6 +169,11 @@ const DEFAULTS = {
   // Work-week: weekday ints (0=Sun..6=Sat) the agenda is planned for. Default Mon–Fri.
   // May legitimately be empty (user works no fixed days). Persisted as an array.
   meAiWorkDays: [1, 2, 3, 4, 5],
+  // Hybrid work schedule: per-weekday overrides for hours + in-office/home designation.
+  // Map keyed by DOW string ('0'=Sun..'6'=Sat) → { start:'HH:MM', end:'HH:MM',
+  // location:'office'|'home'|'' }. A missing/blank field falls back to the global
+  // meAiWorkStart/meAiWorkEnd envelope. Only the days a user customizes appear here.
+  meAiWeeklyHours: {},
   // #2 Quick agenda MODE — a day-shape preset that re-weights task ordering and
   // steers the LLM refine. One of: balanced | relaxed | focused | low-sleep |
   // unblock-team. Default balanced (no bias).

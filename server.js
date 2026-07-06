@@ -11085,6 +11085,45 @@ function _meAiSanitizeWorkDays(v) {
   return out; // may legitimately be empty (user works no days)
 }
 
+// Hybrid schedule: per-weekday hours + office/home override map. Keyed by DOW string
+// ('0'=Sun..'6'=Sat). Each entry keeps only the fields the user actually set; a blank
+// start/end means "use the global envelope for that day". Location ∈ office|home|''.
+function _meAiSanitizeWeeklyHours(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out = {};
+  const validHm = x => typeof x === 'string' && _hmToMin(x) != null;
+  for (const [k, raw] of Object.entries(v)) {
+    const dow = Number(k);
+    if (!Number.isInteger(dow) || dow < 0 || dow > 6) continue;
+    if (!raw || typeof raw !== 'object') continue;
+    const e = {};
+    if (validHm(raw.start)) e.start = raw.start;
+    if (validHm(raw.end)) e.end = raw.end;
+    // only keep a day whose end is after its start when both present
+    if (e.start && e.end && _hmToMin(e.end) <= _hmToMin(e.start)) { delete e.start; delete e.end; }
+    if (['office', 'home'].includes(String(raw.location))) e.location = String(raw.location);
+    if (e.start || e.end || e.location) out[String(dow)] = e;
+  }
+  return out;
+}
+
+// Resolve the effective hours + location for a given date, layering the per-weekday
+// override on top of the global envelope. Returns { start, end, location }.
+function _meAiHoursForDate(cfg, day) {
+  const base = { start: cfg.workStart, end: cfg.workEnd, location: '' };
+  try {
+    const d = new Date(day + 'T00:00:00');
+    if (isNaN(d)) return base;
+    const wk = cfg.weeklyHours && cfg.weeklyHours[String(d.getDay())];
+    if (wk) {
+      if (wk.start) base.start = wk.start;
+      if (wk.end) base.end = wk.end;
+      if (wk.location) base.location = wk.location;
+    }
+  } catch { /* fall back to global */ }
+  return base;
+}
+
 // Local calendar day (YYYY-MM-DD) in the SERVER's timezone. Mirrors the client's
 // _meLocalDay — never use toISOString().slice(0,10) for "today", that is UTC and
 // rolls over to tomorrow in the evening for negative-offset zones (the "me.ai page
@@ -11102,6 +11141,7 @@ function _meAiConfig(s) {
   const MODES = ['balanced', 'relaxed', 'focused', 'low-sleep', 'unblock-team'];
   const mode = MODES.includes(String(s.meAiMode)) ? String(s.meAiMode) : 'balanced';
   const timePrefs = (s.meAiTimePrefs && typeof s.meAiTimePrefs === 'object' && !Array.isArray(s.meAiTimePrefs)) ? s.meAiTimePrefs : {};
+  const weeklyHours = _meAiSanitizeWeeklyHours(s.meAiWeeklyHours);
   return {
     consent: !!s.meAiConsent,
     workStart: s.meAiWorkStart || '08:00',
@@ -11110,6 +11150,7 @@ function _meAiConfig(s) {
     lunchEnd: s.meAiLunchEnd || '',
     grid,
     workDays,
+    weeklyHours,
     mode,
     timePrefs,
     hasAdo: targets.length > 0,
@@ -12155,6 +12196,11 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   // #2 Prioritize tasks by mode/time-aware score (falls back to urgency when
   // balanced with no prefs). Higher score → earlier slot in the chronological fill.
   tasks.sort((a, b) => _meAiTaskScore(b, cfg) - _meAiTaskScore(a, cfg));
+  // Personal todos are explicit commitments the user typed (e.g. "gym workout"): they
+  // must always land on the agenda. Float them ahead of suggested work and exempt them
+  // from the work chunk budget below so they can never be starved into the backlog.
+  // V8's Array.sort is stable, so score order is preserved within each group.
+  tasks.sort((a, b) => (b.scope === 'personal' ? 1 : 0) - (a.scope === 'personal' ? 1 : 0));
   const blocks = [];
   const CHUNK = Math.max(grid, 30);
   // #2 relaxed / low-sleep reserve open time: cap how many task-chunks we place so
@@ -12165,17 +12211,26 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   const chunkBudget = Math.max(1, Math.ceil(capacityChunks * _meAiLoadFactor(cfg.mode)));
   let placedChunks = 0;
   let ti = 0;
+  const _personalPending = () => { for (let k = ti; k < tasks.length; k++) if (tasks[k].scope === 'personal') return true; return false; };
   for (const [fa, fb] of free) {
     let c = fa;
-    while (c + grid <= fb && ti < tasks.length && placedChunks < chunkBudget) {
-      const t = tasks[ti++];
+    // Place tasks while there's room. Work tasks stop at the chunk budget; personal
+    // commitments always place (budget-exempt) so an explicit todo is never dropped.
+    while (c + grid <= fb && ti < tasks.length) {
+      const t = tasks[ti];
+      const isPersonal = t.scope === 'personal';
+      if (!isPersonal && placedChunks >= chunkBudget) break;
+      ti++;
       const len = Math.min(CHUNK, fb - c);
-      blocks.push({ start: c, end: c + len, type: t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : 'focus')), title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t), meta: t.meta || null, urgency: t.urgency || 0 });
+      const btype = t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : (isPersonal ? 'personal' : 'focus')));
+      const bmeta = isPersonal ? { ...(t.meta || {}), personalTodo: true } : (t.meta || null);
+      blocks.push({ start: c, end: c + len, type: btype, title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t), meta: bmeta, urgency: t.urgency || 0 });
       c += len;
-      placedChunks++;
+      if (!isPersonal) placedChunks++;
     }
-    // Remaining free time (no tasks left, or budget reached) → open focus block.
-    if ((ti >= tasks.length || placedChunks >= chunkBudget) && c + grid <= fb) {
+    // Remaining free time → open focus, but never while a personal commitment is still
+    // waiting for a slot (otherwise open-focus fill would starve it out of the day).
+    if ((ti >= tasks.length || (placedChunks >= chunkBudget && !_personalPending())) && c + grid <= fb) {
       blocks.push({ start: c, end: fb, type: 'focus', title: 'Open focus time', detail: 'Deep work / catch-up', link: '', source: 'me', why: 'Unallocated working time', meta: null, urgency: 0 });
     }
   }
@@ -12186,6 +12241,7 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   return { blocks: all, backlog, needsAttention };
 }
 function _meAiWhy(t) {
+  if (t.scope === 'personal') return 'Personal time you planned';
   if (t.type === 'review') return 'PR is waiting on your review';
   if (t.type === 'steward') return 'Your open PR needs stewarding';
   if (t.type === 'comms') return t.urgency >= 4 ? 'Needs a reply from you' : 'Follow-up';
@@ -12193,6 +12249,31 @@ function _meAiWhy(t) {
   if (t.source === 'azdo') return 'Assigned work item on your plate';
   if (t.source === 'todo') return 'Your todo for today';
   return 'Planned work';
+}
+
+// A personal-scope todo becomes a `personal` block in the deterministic pre-pass. The
+// LLM refine can merge it into generic focus time or drop it entirely (it looks like
+// flexible time), which would silently lose a commitment the user explicitly planned
+// (e.g. "gym workout"). Guarantee survival: for every personal-todo block in the pre-pass
+// plan, if no refined block still carries its title, re-insert the original block and
+// re-sort by start time. Deterministic safety net — the model can't erase an explicit todo.
+function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
+  try {
+    const personal = (preBlocks || []).filter(b => b && b.meta && b.meta.personalTodo && String(b.title || '').trim());
+    if (!personal.length) return finalBlocks;
+    const out = Array.isArray(finalBlocks) ? finalBlocks.slice() : [];
+    const present = (key) => out.some(b => {
+      const ft = String(b.title || '').trim().toLowerCase();
+      return ft && (ft === key || ft.includes(key));
+    });
+    let added = false;
+    for (const p of personal) {
+      const key = String(p.title).trim().toLowerCase();
+      if (!present(key)) { out.push(p); added = true; }
+    }
+    if (!added) return finalBlocks;
+    return out.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
+  } catch { return finalBlocks; }
 }
 
 // Cross-signal urgency normalization. The gather layer assigns urgency per source
@@ -12854,6 +12935,16 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
   const day = String(date || '').slice(0, 10) || _meAiLocalDay();
+  // Hybrid work schedule: layer the per-weekday hours + office/home designation on top
+  // of the global envelope for THIS date's weekday. The quick per-day override below
+  // still wins (it's the deliberate "I started early today" nudge).
+  let dayLocation = '';
+  try {
+    const _hd = _meAiHoursForDate(cfg, day);
+    cfg.workStart = _hd.start;
+    cfg.workEnd = _hd.end;
+    dayLocation = _hd.location || '';
+  } catch (_) { /* fall back to global envelope */ }
   // Per-day work-window override: a quick "I started early/late today" that supersedes
   // the standing schedule for THIS date only, without touching saved preferences.
   try {
@@ -12870,7 +12961,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
     const agenda = {
       date: day,
       generatedAt: new Date().toISOString(),
-      config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid },
+      config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid, location: dayLocation },
       blocks: [],
       backlog: [],
       needsAttention: [],
@@ -12943,11 +13034,15 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   await _meAiNormalizeUrgency(cfg, planSignals, day);
   const pre = _meAiPrePass(cfg, planSignals, effTodos, reservedBlocks);
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
+  // Safety net: the LLM refine can merge/drop a personal-todo block (it reads as flexible
+  // focus time). Re-insert any personal commitment the refine lost so an explicit todo
+  // like "gym workout" always survives onto the agenda.
+  const finalBlocks = refined ? _meAiEnsurePersonalTodos(pre.blocks, refined) : pre.blocks;
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
-    config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid, mode: cfg.mode, timePrefs: cfg.timePrefs },
-    blocks: refined || pre.blocks,
+    config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid, mode: cfg.mode, timePrefs: cfg.timePrefs, location: dayLocation },
+    blocks: finalBlocks,
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
     dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
@@ -13218,6 +13313,7 @@ app.put('/api/me-ai/settings', (req, res) => {
     if (b.lunchEnd === '' || validHm(b.lunchEnd)) patch.meAiLunchEnd = b.lunchEnd;
     if ([5, 10, 15].includes(Number(b.grid))) patch.meAiGrid = Number(b.grid);
     if (b.workDays !== undefined) patch.meAiWorkDays = _meAiSanitizeWorkDays(b.workDays);
+    if (b.weeklyHours !== undefined) patch.meAiWeeklyHours = _meAiSanitizeWeeklyHours(b.weeklyHours);
     const MODES = ['balanced', 'relaxed', 'focused', 'low-sleep', 'unblock-team'];
     if (MODES.includes(String(b.mode))) patch.meAiMode = String(b.mode);
     if (b.timePrefs && typeof b.timePrefs === 'object' && !Array.isArray(b.timePrefs)) {

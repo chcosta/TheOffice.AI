@@ -11869,6 +11869,16 @@
             .meai-ww-day { padding:4px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; cursor:pointer; transition:all .12s; }
             .meai-ww-day:hover { border-color:var(--cp-accent); }
             .meai-ww-day.on { background:var(--cp-accent-soft, rgba(88,166,255,.14)); color:var(--cp-text); border-color:var(--cp-accent); font-weight:600; }
+            /* Hybrid per-day schedule rows */
+            .meai-weekly-rows { display:flex; flex-direction:column; gap:6px; }
+            .meai-weekly-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            .meai-weekly-day { flex:0 0 76px; font-size:12.5px; color:var(--cp-text); font-weight:600; }
+            .meai-weekly-time { width:104px; }
+            .meai-weekly-dash { color:var(--cp-text-muted); }
+            .meai-weekly-loc { margin-left:auto; padding:4px 10px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; cursor:pointer; transition:all .12s; white-space:nowrap; }
+            .meai-weekly-loc:hover { border-color:var(--cp-accent); }
+            .meai-weekly-loc.set { background:var(--cp-accent-soft, rgba(88,166,255,.14)); color:var(--cp-text); border-color:var(--cp-accent); font-weight:600; }
+            .meai-loc-badge { display:inline-flex; align-items:center; padding:4px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; font-weight:600; white-space:nowrap; }
             /* #2 day mode segmented control + time-of-day prefs */
             .meai-modebar { display:flex; align-items:center; gap:10px; margin:2px 0 4px; flex-wrap:wrap; }
             .meai-mode-lbl { font-size:12px; color:var(--cp-text-muted); font-weight:600; }
@@ -12140,6 +12150,8 @@
                     </div>
                   </div>
                 </div>
+                <span class="meai-loc-badge" x-show="meai.loaded && meAiDayLocation()" x-text="meAiDayLocation()"
+                      title="Where you're expected to work this day (from your per-day schedule)"></span>
                 <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
                         title="Working hours, work week, grid & time-of-day preferences">
                   ⚙ Hours &amp; grid
@@ -12948,6 +12960,23 @@
                       <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
                     </template>
                   </div>
+                </div>
+                <!-- Hybrid schedule: per-day hours + in-office/home. Rows show only for
+                     enabled work days; blank times inherit the default Start/End above. -->
+                <div class="meai-weekly">
+                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:12px 0 4px">Per-day schedule <span style="font-weight:400">— override hours &amp; set where you work each day (blank = use the default above)</span></label>
+                  <div class="meai-weekly-rows">
+                    <template x-for="(dn, di) in ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']" :key="di">
+                      <div class="meai-weekly-row" x-show="(meai.config.workDays || []).includes(di)">
+                        <span class="meai-weekly-day" x-text="dn"></span>
+                        <input type="time" class="meai-weekly-time" :value="meAiWeeklyGet(di,'start')" @change="meAiWeeklySet(di,'start',$event.target.value)" :placeholder="meai.config.workStart">
+                        <span class="meai-weekly-dash">–</span>
+                        <input type="time" class="meai-weekly-time" :value="meAiWeeklyGet(di,'end')" @change="meAiWeeklySet(di,'end',$event.target.value)" :placeholder="meai.config.workEnd">
+                        <button type="button" class="meai-weekly-loc" :class="{ set: meAiWeeklyGet(di,'location') }" @click="meAiCycleWeeklyLoc(di)" x-text="meAiWeeklyLocLabel(di)" title="Click to cycle: no place → in office → home"></button>
+                      </div>
+                    </template>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--cp-text-muted);margin-top:4px" x-show="!(meai.config.workDays || []).length">Enable at least one work day above to set a per-day schedule.</div>
                 </div>
                 <div class="meai-timeprefs">
                   <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
@@ -20760,7 +20789,7 @@
           loading: false,
           generating: false,
           savingSettings: false,
-          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], mode: 'balanced', timePrefs: {} },
+          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {} },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           today: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
@@ -27580,6 +27609,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 lunchStart: c.lunchStart, lunchEnd: c.lunchEnd,
                 grid: Number(c.grid) || 10,
                 workDays: Array.isArray(c.workDays) ? c.workDays : [1, 2, 3, 4, 5],
+                weeklyHours: (c.weeklyHours && typeof c.weeklyHours === 'object' && !Array.isArray(c.weeklyHours)) ? c.weeklyHours : {},
                 mode: c.mode || 'balanced',
                 timePrefs: (c.timePrefs && typeof c.timePrefs === 'object') ? c.timePrefs : {},
               }),
@@ -27677,6 +27707,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const arr = this.meai.config.workDays;
           const i = arr.indexOf(di);
           if (i >= 0) arr.splice(i, 1); else { arr.push(di); arr.sort((a, b) => a - b); }
+        },
+        // --- Hybrid schedule: per-weekday hours + office/home designation ---
+        // The map is keyed by DOW string ('0'..'6'); a blank start/end means "use the
+        // global envelope for that day". Edits are local until Save preferences.
+        _meAiWeekly() {
+          if (!this.meai.config.weeklyHours || typeof this.meai.config.weeklyHours !== 'object' || Array.isArray(this.meai.config.weeklyHours)) this.meai.config.weeklyHours = {};
+          return this.meai.config.weeklyHours;
+        },
+        meAiWeeklyGet(di, field) {
+          const e = this._meAiWeekly()[String(di)];
+          return (e && e[field]) || '';
+        },
+        meAiWeeklySet(di, field, val) {
+          const wk = this._meAiWeekly();
+          const k = String(di);
+          const e = Object.assign({}, wk[k]);
+          val = String(val || '').trim();
+          if (val) e[field] = val; else delete e[field];
+          if (e.start || e.end || e.location) wk[k] = e; else delete wk[k];
+        },
+        // Cycle a weekday's location: '' → office → home → ''.
+        meAiCycleWeeklyLoc(di) {
+          const cur = this.meAiWeeklyGet(di, 'location');
+          const next = cur === '' ? 'office' : (cur === 'office' ? 'home' : '');
+          this.meAiWeeklySet(di, 'location', next);
+        },
+        meAiWeeklyLocLabel(di) {
+          const l = this.meAiWeeklyGet(di, 'location');
+          return l === 'office' ? '🏢 In office' : (l === 'home' ? '🏠 Home' : '— set place');
+        },
+        // Location badge for the VIEWED day (from the generated agenda's config).
+        meAiDayLocation() {
+          const l = (this.meai.agenda && this.meai.agenda.config && this.meai.agenda.config.location) || '';
+          return l === 'office' ? '🏢 In office' : (l === 'home' ? '🏠 Working from home' : '');
         },
         async meAiSetConsent(v) {
           this.meai.config.consent = !!v;
