@@ -28,6 +28,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 
 let SDK = null;
 let approveAll = null;
@@ -568,6 +570,58 @@ class SdkRunner {
   }
 
   /**
+   * Materialize an mcpServers map into a throwaway PLUGIN DIRECTORY and return
+   * its path (or null if there are no servers).
+   *
+   * WHY: with this SDK/CLI version, MCP servers passed as a bare `mcpServers`
+   * option do NOT register their tools in the session — even when a customAgent
+   * is active. The ONLY wiring that actually surfaces MCP tools is a plugin
+   * directory containing a `.mcp.json` (proven: a bare-mcpServers turn cannot
+   * call the tool; the same servers via a plugin dir can). This bit the Me-agent
+   * WorkIQ path: an approved external action attached WorkIQ via `mcpConfig` but
+   * the tools never loaded, so the agent shell-probed and hard-failed.
+   *
+   * The dir is content-addressed (hash of the servers JSON) under the OS temp
+   * dir, so repeated turns with the same config reuse it instead of churning
+   * files. Returns null on any write failure so callers degrade gracefully.
+   */
+  _mcpPluginDir(config) {
+    const servers = this._loadMcpServers(config);
+    if (!servers || typeof servers !== 'object' || !Object.keys(servers).length) return null;
+    try {
+      const body = JSON.stringify(servers);
+      const hash = crypto.createHash('sha1').update(body).digest('hex').slice(0, 16);
+      const dir = path.join(os.tmpdir(), 'theoffice-mcp-plugins', hash);
+      const mcpFile = path.join(dir, '.mcp.json');
+      const pluginFile = path.join(dir, 'plugin.json');
+      if (!fs.existsSync(mcpFile) || !fs.existsSync(pluginFile)) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: servers }, null, 2), 'utf8');
+        fs.writeFileSync(pluginFile, JSON.stringify({
+          name: 'mcp-' + hash,
+          description: 'Auto-generated MCP capability bundle',
+          version: '1.0.0',
+        }, null, 2), 'utf8');
+      }
+      return dir;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Attach MCP servers from config.mcpConfig to opts via a plugin directory
+   * (the only wiring that reliably registers MCP tools — see _mcpPluginDir).
+   * No-op when the config brings no servers. Safe to call alongside an existing
+   * pluginDirectories/agent.
+   */
+  _attachMcp(opts, config) {
+    const dir = this._mcpPluginDir(config);
+    if (!dir) return;
+    opts.pluginDirectories = [...(opts.pluginDirectories || []), dir];
+  }
+
+  /**
    * Run an agent via the SDK. Streams assistant deltas through onChunk(text).
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number}>}
@@ -609,8 +663,7 @@ class SdkRunner {
       }
       opts.customAgents = [agentCfg];
       opts.agent = agentCfg.name;
-      const mcp = this._loadMcpServers(config);
-      if (mcp) opts.mcpServers = mcp;
+      this._attachMcp(opts, config);
       this._applyOverlayCaps(opts, config);
     }
 
@@ -686,17 +739,16 @@ class SdkRunner {
       if (agentCfg) {
         opts.customAgents = [agentCfg];
         opts.agent = agentCfg.name;
-        const mcp = this._loadMcpServers(config);
-        if (mcp) opts.mcpServers = mcp;
+        this._attachMcp(opts, config);
         this._applyOverlayCaps(opts, config);
       }
     }
     // A plain config (no resolved plugin/package/project agent) may still bring MCP
     // servers — e.g. the Me-agent attaching WorkIQ for a user-approved external
-    // action (send mail / post to Teams). Load them if an agent path didn't already.
-    if (config && config.mcpConfig && !opts.mcpServers) {
-      const mcp = this._loadMcpServers(config);
-      if (mcp) opts.mcpServers = mcp;
+    // action (send mail / post to Teams). Attach them (as a plugin dir, the only
+    // wiring that registers MCP tools) if an agent path didn't already.
+    if (config && config.mcpConfig && !(opts.pluginDirectories && opts.pluginDirectories.length)) {
+      this._attachMcp(opts, config);
     }
     opts.__keepAlive = true;
     return this._execute(opts, prompt, sessionId, onChunk, onStep);
