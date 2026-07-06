@@ -13243,6 +13243,98 @@ function _meAiEnsureDayBoard() {
   }
   return { boards, idx };
 }
+// Tokenize free text into a de-duped set of meaningful lowercase tokens — used to
+// score keyword relevance between today's agenda and each agent's profile. Drops
+// stopwords + generic scheduling words so the overlap reflects real domain signal
+// (helix / azure / queue / standup / arcade …) rather than "review the pr today".
+const _MEAI_STOPWORDS = new Set(('a,an,the,and,or,of,to,for,in,on,at,by,with,from,into,over,your,you,my,me,we,us,our,'
+  + 'this,that,these,those,is,are,be,been,it,its,as,if,then,so,do,does,did,has,have,had,will,'
+  + 'review,reviews,reviewed,pr,prs,pull,request,requests,task,tasks,work,item,items,issue,issues,'
+  + 'open,focus,meeting,meetings,lunch,break,today,now,time,block,blocks,min,mins,minute,minutes,hour,hours,'
+  + 'day,daily,new,add,check,checking,build,builds,fix,fixes,update,updates,follow,followup,'
+  + 'draft,reply,replies,send,post,comment,comments,note,notes,todo,todos,prep,admin,comms').split(','));
+function _meAiTokenize(text) {
+  const out = new Set();
+  for (const raw of String(text || '').toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 3) continue;
+    if (/^\d+$/.test(raw)) continue;         // bare numbers (PR ids etc.) aren't domain signal
+    if (_MEAI_STOPWORDS.has(raw)) continue;
+    out.add(raw);
+  }
+  return out;
+}
+// Collect the domain vocabulary of today's agenda: block/item titles, PR & work-item
+// repos/titles, needs-attention + backlog + inbox subjects, and todo titles.
+function _meAiAgendaTokens(agenda) {
+  const parts = [];
+  const push = (...ss) => { for (const s of ss) if (s) parts.push(String(s)); };
+  for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
+    if (!b) continue;
+    push(b.title);
+    if (b.meta) push(b.meta.repo, b.meta.title, b.meta.project);
+    for (const it of (Array.isArray(b.items) ? b.items : [])) {
+      if (!it) continue; push(it.title);
+      if (it.meta) push(it.meta.repo, it.meta.title, it.meta.project);
+    }
+  }
+  for (const arr of [agenda.needsAttention, agenda.backlog]) {
+    for (const s of (Array.isArray(arr) ? arr : [])) { if (s) push(s.title, s.subject, s.meta && s.meta.repo); }
+  }
+  for (const it of ((agenda.inbox && Array.isArray(agenda.inbox.items)) ? agenda.inbox.items : [])) {
+    if (it) push(it.title, it.subject, it.sender);
+  }
+  for (const td of (Array.isArray(agenda.todos) ? agenda.todos : [])) { if (td) push(td.title); }
+  return _meAiTokenize(parts.join(' '));
+}
+// Pick the agents whose profile (name + group + description + skills + prompt) best
+// overlaps today's agenda vocabulary. Keyword/content based on purpose (agents carry
+// no team/repo binding), conservative by design: needs a real overlap (>=2 distinct
+// domain tokens) and returns nothing when the day is too thin to match — an empty,
+// uncluttered board beats irrelevant agent pins. Returns agent-pin item fields.
+function _meAiRelevantAgents(agenda, limit) {
+  let agents = [];
+  try { agents = loadAgents() || []; } catch (_) { agents = []; }
+  if (!agents.length) return [];
+  const aTok = _meAiAgendaTokens(agenda || {});
+  if (aTok.size < 3) return [];   // too little signal to judge relevance
+  const scored = [];
+  for (const a of agents) {
+    if (!a || !a.id) continue;
+    const profile = [a.name, a.group, a.description, Array.isArray(a.skills) ? a.skills.join(' ') : '', a.prompt].join(' ');
+    let score = 0;
+    for (const t of _meAiTokenize(profile)) if (aTok.has(t)) score++;
+    if (score >= 2) scored.push({ a, score });
+  }
+  scored.sort((x, y) => y.score - x.score || String(x.a.name || '').localeCompare(String(y.a.name || '')));
+  return scored.slice(0, limit || 4).map(({ a }) => ({
+    id: 'pin-' + _meAiHash('agent|' + a.id), kind: 'agent', meAi: true, refId: a.id,
+    label: a.name || a.id, sublabel: a.group || 'Agent',
+  }));
+}
+// Build a curated, non-overlapping grid layout for the managed My Day cards so the
+// board reads as a purposeful daily plan instead of an auto-packed pile. Type-banded,
+// full-width bands top→bottom: Today checklist, PR cards (3-up), dev cards (2-up),
+// agents (3-up). 12-col grid to match the SPA (boardCols). User-positioned panels are
+// preserved by the caller; the briefing (summary) is left unpositioned so the client
+// drops it full-width below the managed bands.
+function _meAiDayLayout(ids, rowCount) {
+  const cols = 12;
+  const layout = {};
+  const band = (list, startY, perRow, w, h) => {
+    (list || []).forEach((id, i) => {
+      const col = i % perRow, row = Math.floor(i / perRow);
+      layout[id] = { x: col * w, y: startY + row * h, w, h };
+    });
+    const rows = Math.ceil((list || []).length / perRow) || 0;
+    return startY + rows * h;
+  };
+  let y = 0;
+  if (ids.checklist) { const h = Math.min(14, Math.max(4, (rowCount || 0) + 2)); layout[ids.checklist] = { x: 0, y, w: cols, h }; y += h; }
+  y = band(ids.prs, y, 3, 4, 4);
+  y = band(ids.devs, y, 2, 6, 9);
+  y = band(ids.agents, y, 3, 4, 4);
+  return layout;
+}
 // Classify today's agenda into TYPED board content instead of a pile of notes:
 //   • PR-backed items  → native Code Flow PR cards (board pins, kind:'pr')
 //   • work items/issues → native dev cards (global dev-store, homed on this board)
@@ -13341,8 +13433,10 @@ function _meAiSyncDayBoard(agenda, date) {
     const userItems = items.filter(it => it && !it.meAi);
     const prevPr = new Map(items.filter(it => it && it.meAi && it.kind === 'pr').map(it => [it.refId, it]));
     const prevDevPin = new Map(items.filter(it => it && it.meAi && it.kind === 'dev').map(it => [it.refId, it]));
+    const prevAgent = new Map(items.filter(it => it && it.meAi && it.kind === 'agent').map(it => [it.refId, it]));
     const userPrRefs = new Set(userItems.filter(it => it.kind === 'pr').map(it => it.refId));
     const userDevRefs = new Set(userItems.filter(it => it.kind === 'dev').map(it => it.refId));
+    const userAgentRefs = new Set(userItems.filter(it => it.kind === 'agent').map(it => it.refId));
 
     // 1) PR cards — pin as board items (kind:'pr'); skip any the user already pinned.
     const managedPr = prs.filter(p => !userPrRefs.has(p.refId)).map(p => {
@@ -13389,6 +13483,13 @@ function _meAiSyncDayBoard(agenda, date) {
     }
 
     board.items = [...userItems, ...managedPr, ...managedDevPins];
+    // 2b) Relevant AGENTS — pin the agents whose purpose matches today's work so the
+    //     board also offers the right helpers to act on it (not just what to do). Skip
+    //     any the user pinned themselves; stable ids across syncs like PR/dev pins.
+    const managedAgentPins = _meAiRelevantAgents(agenda)
+      .filter(p => !userAgentRefs.has(p.refId))
+      .map(p => { const old = prevAgent.get(p.refId); return { ...p, id: (old && old.id) || p.id, addedAt: (old && old.addedAt) || now }; });
+    board.items = [...board.items, ...managedAgentPins];
     // 3) "Today" checklist — one managed checklist, done-state preserved across syncs.
     const cls = Array.isArray(board.checklists) ? board.checklists : [];
     const prevCl = cls.find(c => c && c.id === ME_AI_DAY_CL_ID);
@@ -13402,6 +13503,26 @@ function _meAiSyncDayBoard(agenda, date) {
     // 4) Migration — drop the legacy managed `me-note-*` notes (preserve user notes).
     const notes = Array.isArray(board.notes) ? board.notes : [];
     board.notes = notes.filter(n => !(n && typeof n.id === 'string' && n.id.startsWith(ME_AI_DAY_NOTE_PREFIX)));
+
+    // 5) Curated layout — give the managed cards a purposeful, non-overlapping grid
+    //    (checklist → PRs → dev cards → agents, banded top→bottom). The SPA only
+    //    auto-positions panels WITHOUT a layout entry and preserves existing ones, so
+    //    we (re)write geometry for our managed panels every sync and keep any layout the
+    //    user set for their own panels. Panel-id convention: pins → 'pin:'+id, dev-store
+    //    cards → 'dev:'+id, checklists → 'cl:'+id.
+    const layoutIds = {
+      checklist: clItems.length ? ('cl:' + ME_AI_DAY_CL_ID) : null,
+      prs: managedPr.map(p => 'pin:' + p.id),
+      devs: [...managedDevPins.map(p => 'pin:' + p.id), ...[...desiredDevIds].map(id => 'dev:' + id)],
+      agents: managedAgentPins.map(p => 'pin:' + p.id),
+    };
+    const managedLayout = _meAiDayLayout(layoutIds, clItems.length);
+    const managedKeys = new Set(Object.keys(managedLayout));
+    const prevLayout = (board.layout && typeof board.layout === 'object') ? board.layout : {};
+    const nextLayout = {};
+    for (const k of Object.keys(prevLayout)) { if (!managedKeys.has(k)) nextLayout[k] = prevLayout[k]; } // keep user panels
+    Object.assign(nextLayout, managedLayout);
+    board.layout = nextLayout;
 
     board.updatedAt = now;
     boards[idx] = board;
