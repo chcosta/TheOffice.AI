@@ -11785,10 +11785,20 @@
               .meai-tl { position:relative; }
               .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
               .meai-block-time { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; padding-top:12px; text-align:right; }
-              .meai-block-body { position:relative; border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:8px; padding:10px 14px; background:var(--cp-surface); margin-bottom:8px; }
-              .meai-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:var(--cp-text-muted); font-size:12px; cursor:pointer; padding:2px 5px; border-radius:6px; opacity:0; transition:opacity .12s; }
-              .meai-block-body:hover .meai-dismiss, .meai-na-item:hover .meai-dismiss { opacity:.7; }
-              .meai-dismiss:hover { opacity:1 !important; color:var(--cp-danger,#dc2626); background:var(--cp-hover,rgba(0,0,0,.05)); }
+              .meai-block-body { position:relative; z-index:1; border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:8px; padding:10px 14px; background:var(--cp-surface); margin-bottom:8px; touch-action:pan-y; }
+              .meai-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:var(--cp-text-muted); font-size:15px; line-height:1; cursor:pointer; padding:2px 5px; border-radius:6px; opacity:.35; transition:opacity .12s; }
+              .meai-block-body:hover .meai-dismiss, .meai-na-item:hover .meai-dismiss { opacity:.85; }
+              .meai-dismiss:hover { opacity:1 !important; color:var(--cp-text); background:var(--cp-hover,rgba(0,0,0,.05)); }
+              /* Swipe-to-dispose: the acts strip sits behind the opaque body; the body slides
+                 left (transform) to reveal it. Also opened by the ⋮ toggle. */
+              .meai-block-swipe { position:relative; }
+              .meai-block-acts { position:absolute; top:0; right:0; bottom:8px; display:flex; align-items:stretch; gap:0; z-index:0; }
+              .meai-block-act { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; width:60px; border:0; border-left:1px solid var(--cp-border); background:var(--cp-hover,rgba(0,0,0,.04)); color:var(--cp-text-muted); font-size:10px; cursor:pointer; padding:0 4px; }
+              .meai-block-act:first-child { border-radius:8px 0 0 8px; }
+              .meai-block-act:last-child { border-radius:0 8px 8px 0; }
+              .meai-block-act .meai-act-ico { font-size:14px; line-height:1; }
+              .meai-block-act:hover { color:var(--cp-text); background:var(--cp-hover,rgba(0,0,0,.08)); }
+              .meai-block-act.danger:hover { color:var(--cp-danger,#dc2626); }
               .meai-na-item { position:relative; }
               .meai-dismissed-row { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:12px; color:var(--cp-text-muted); border-bottom:1px solid var(--cp-border); }
               .meai-dismissed-row:last-child { border-bottom:0; }
@@ -12364,13 +12374,24 @@
                       <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
                         <div class="meai-block">
                           <div class="meai-block-time" x-text="_meAiFmtHm(b.start)"></div>
-                          <div class="meai-block-body"
+                          <div class="meai-block-swipe">
+                            <!-- Disposition strip: revealed by swiping the row left or tapping ⋮.
+                                 Available on ANY agenda item. Lives behind the body (opaque), which
+                                 slides over it. -->
+                            <div class="meai-block-acts">
+                              <button class="meai-block-act" type="button" @click.stop="meAiBlockDispose(b,'later',bi)" @pointerdown.stop title="Reschedule later today"><span class="meai-act-ico">↻</span><span>Later</span></button>
+                              <button class="meai-block-act" type="button" @click.stop="meAiBlockDispose(b,'future',bi)" @pointerdown.stop title="Move to a future work day"><span class="meai-act-ico">→</span><span>Future</span></button>
+                              <button class="meai-block-act" type="button" @click.stop="meAiBlockDispose(b,'wontfix',bi)" @pointerdown.stop title="Won't fix — a deliberate no-op (recorded for your report)"><span class="meai-act-ico">⊘</span><span>Won't fix</span></button>
+                              <button class="meai-block-act danger" type="button" @click.stop="meAiBlockDispose(b,'notmine',bi)" @pointerdown.stop title="Not mine — someone else owns it"><span class="meai-act-ico">✕</span><span>Not mine</span></button>
+                            </div>
+                            <div class="meai-block-body"
                                :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end) }"
-                               :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
-                            <button class="meai-dismiss" type="button" x-show="b.source && b.source!=='me'"
-                                    @click.stop="meAiDismiss(b)" title="Not mine — remove from today">✕ Not mine</button>
+                               :style="'border-left-color:' + meAiBlockTypeColor(b.type) + ';' + meAiBlockSwipeStyle(b,bi)"
+                               @pointerdown="meAiBlockSwipeStart($event,b,bi)">
+                            <button class="meai-dismiss" type="button"
+                                    @click.stop="meAiBlockSwipeToggle(b,bi)" @pointerdown.stop title="Remove / defer this item">⋮</button>
                             <div class="meai-block-title" :class="{ clickable: meAiHasDetail(b) }"
-                                 @click="meAiHasDetail(b) && meAiToggle(meAiItemKey('b',b,bi))">
+                                 @click="!_blockSwipeMoved && meAiHasDetail(b) && meAiToggle(meAiItemKey('b',b,bi))">
                               <span x-show="meAiHasDetail(b)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('b',b,bi))?'▾':'▸'"></span>
                               <span x-text="b.title"></span>
                             </div>
@@ -12412,6 +12433,7 @@
                                 🤖 <span x-text="b.type==='review' ? 'Launch review agent' : 'Launch Me agent'"></span>
                               </button>
                             </div>
+                          </div>
                           </div>
                         </div>
                       </template>
@@ -20814,6 +20836,7 @@
           lookaheadLoading: false,
           traceOpen: true,       // background agent → reasoning/tools visible by default
           laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
+          blockSwipeId: null, blockSwipeDx: 0, blockSwipeOpen: null,  // Task 3: swipe-to-dispose on agenda blocks
           laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
           expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
@@ -28192,6 +28215,78 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up);
           window.addEventListener('pointercancel', up);
+        },
+        // ── Task 3: swipe-to-dispose on ANY agenda block ────────────────────
+        // The body slides left to reveal a strip of dispositions (Later / Future /
+        // Won't fix / Not mine). Same strip is toggled by the ⋮ button for pointerless
+        // access. Mirrors the lane swipe pattern.
+        _blockSwipeW: 240, // 4 acts × 60px
+        meAiBlockSwipeStyle(b, bi) {
+          const m = this.meai; const key = this.meAiItemKey('b', b, bi);
+          if (m.blockSwipeOpen === key) return 'transform:translateX(-' + this._blockSwipeW + 'px);transition:transform .18s ease;';
+          if (m.blockSwipeId === key && m.blockSwipeDx < 0) return 'transform:translateX(' + m.blockSwipeDx + 'px);';
+          return 'transform:translateX(0);transition:transform .18s ease;';
+        },
+        meAiBlockSwipeStart(ev, b, bi) {
+          if (ev.button != null && ev.button !== 0) return;
+          // let clicks on links/buttons/inputs through (title expand, launch, ⋮, Open…)
+          if (ev.target && ev.target.closest && ev.target.closest('button,a,input,textarea,select')) return;
+          const m = this.meai; const key = this.meAiItemKey('b', b, bi);
+          const startX = ev.clientX, startY = ev.clientY;
+          let moved = false, horizontal = false;
+          m.blockSwipeId = key; m.blockSwipeDx = 0;
+          const move = (e) => {
+            const dx = e.clientX - startX, dy = e.clientY - startY;
+            if (!horizontal && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+            if (!horizontal) horizontal = Math.abs(dx) > Math.abs(dy);
+            if (!horizontal) { cleanup(); return; }
+            moved = true;
+            m.blockSwipeDx = Math.min(0, Math.max(-(this._blockSwipeW + 20), dx));
+          };
+          const up = () => {
+            const open = moved && m.blockSwipeDx <= -60;
+            m.blockSwipeOpen = open ? key : null;
+            m.blockSwipeId = null; m.blockSwipeDx = 0;
+            this._blockSwipeMoved = moved;
+            setTimeout(() => { this._blockSwipeMoved = false; }, 60);
+            cleanup();
+          };
+          const cleanup = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
+        },
+        meAiBlockSwipeToggle(b, bi) {
+          const m = this.meai; const key = this.meAiItemKey('b', b, bi);
+          m.blockSwipeOpen = (m.blockSwipeOpen === key) ? null : key;
+        },
+        // Apply a disposition to an agenda block, then reflow the day to fill the gap.
+        async meAiBlockDispose(b, kind, bi) {
+          this.meai.blockSwipeOpen = null;
+          if (!b) return;
+          if (kind === 'later') { await this.meAiDeferLater(b); return; }
+          if (kind === 'future') {
+            await this.meAiDeferFuture(b);
+            // reflow so the freed slot closes (reuse warm cache; not fragmentation)
+            this.meAiGenerate({ reindex: false, cause: 'triage' });
+            return;
+          }
+          // notmine / wontfix → dismiss with a reason (no prompt — frictionless swipe)
+          const reason = kind === 'wontfix' ? 'wontfix' : 'dismissed';
+          try {
+            const r = await this.request('/api/me-ai/agenda/dismiss', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date, title: b.title || b.label || '', link: b.link || '', note: '', reason }),
+            });
+            if (r && r.agenda) this.meai.agenda = r.agenda; // instant strip
+            this.toast(kind === 'wontfix' ? "Won't fix — recorded for your report" : 'Not mine — removed from today', 'success');
+            // reflow to reclaim the freed time (dismissal store keeps it excluded)
+            this.meAiGenerate({ reindex: false, cause: 'triage' });
+          } catch (e) { this.toast('Could not remove: ' + (e.message || e), 'error'); }
         },
         meAiLaneClick(tk) {
           const m = this.meai;

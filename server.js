@@ -12162,6 +12162,7 @@ function _meAiParseDuration(title) {
   return Math.min(480, mins);
 }
 function _meAiPrePass(cfg, signals, todos, reserved) {
+  const grid = [5, 10, 15].includes(Number(cfg.grid)) ? Number(cfg.grid) : 10;
   const winStart = _hmToMin(cfg.workStart) ?? 8 * 60;
   const winEnd = _hmToMin(cfg.workEnd) ?? 17 * 60;
   const snap = m => Math.round(m / grid) * grid;
@@ -13881,8 +13882,11 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const key = _meAiDismissKey({ link: b.link, title: b.title }) || String(b.key || '').trim().slice(0, 300);
     if (!key) return res.status(400).json({ error: 'key or title required' });
+    // reason distinguishes a deliberate no-op ('wontfix') from handing it off to
+    // its real owner ('dismissed' / "not mine") — Reports (REQ-12) splits the two.
+    const reason = String(b.reason || '').trim().toLowerCase() === 'wontfix' ? 'wontfix' : 'dismissed';
     const map = loadDismissForDate(date);
-    map[key] = { note: String(b.note || '').trim().slice(0, 500), title: String(b.title || key).slice(0, 300), at: new Date().toISOString() };
+    map[key] = { note: String(b.note || '').trim().slice(0, 500), title: String(b.title || key).slice(0, 300), at: new Date().toISOString(), reason };
     saveDismissForDate(date, map);
     // Strip from the live snapshot so the change is instant.
     const agenda = loadAgendaForDate(date);
@@ -13891,7 +13895,7 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
       agenda.blocks = (agenda.blocks || []).filter(keep);
       agenda.backlog = (agenda.backlog || []).filter(keep);
       agenda.needsAttention = (agenda.needsAttention || []).filter(keep);
-      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '' }));
+      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
       saveAgendaForDate(date, agenda);
     }
     res.json({ ok: true, date, agenda });
@@ -13909,7 +13913,7 @@ app.post('/api/me-ai/agenda/undismiss', (req, res) => {
     if (key && map[key]) { delete map[key]; saveDismissForDate(date, map); }
     const agenda = loadAgendaForDate(date);
     if (agenda) {
-      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '' }));
+      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
       saveAgendaForDate(date, agenda);
     }
     res.json({ ok: true, date, agenda, dismissed: agenda ? agenda.dismissed : [] });
