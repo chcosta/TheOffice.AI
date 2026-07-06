@@ -1389,7 +1389,7 @@
     }
     .home-section-label .hsl-sub { font-size: 12px; color: var(--cp-text-soft); font-weight: 500; }
     .home-section-label .hsl-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-    .home-section-label .hsl-toggle { align-self: center; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+    .home-section-label .hsl-toggle { align-self: center; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 8px; padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
     .home-section-label .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     .home-section { margin-bottom: 22px; }
 
@@ -6333,7 +6333,7 @@
                     <div class="home-agenda-list" x-show="homeAgenda.blocks.length">
                       <template x-for="(b, bi) in homeAgendaUpcoming(5)" :key="'ha-'+bi">
                         <div class="home-agenda-row" :class="{ 'is-now': homeAgendaIsNow(b) }" :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
-                          <span class="home-agenda-time" x-text="b.start"></span>
+                          <span class="home-agenda-time" x-text="_meAiFmtHm(b.start)"></span>
                           <span class="home-agenda-title" x-text="b.title"></span>
                           <span class="home-agenda-type" x-show="b.type" x-text="b.type"></span>
                         </div>
@@ -11816,6 +11816,8 @@
               .meai-hours { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; font-size:13px; }
               .meai-hours label { color:var(--cp-text-muted); }
               .meai-hours input, .meai-hours select { padding:5px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text); }
+              .meai-clock-toggle { justify-self:start; padding:5px 12px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; cursor:pointer; font-variant-numeric:tabular-nums; }
+              .meai-clock-toggle:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
             .meai-ww-days { display:flex; gap:4px; flex-wrap:wrap; }
             .meai-ww-day { padding:4px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; cursor:pointer; transition:all .12s; }
             .meai-ww-day:hover { border-color:var(--cp-accent); }
@@ -12241,7 +12243,7 @@
                     <div class="meai-tl">
                       <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
                         <div class="meai-block">
-                          <div class="meai-block-time" x-text="b.start"></div>
+                          <div class="meai-block-time" x-text="_meAiFmtHm(b.start)"></div>
                           <div class="meai-block-body"
                                :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end) }"
                                :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
@@ -12253,7 +12255,7 @@
                               <span x-text="b.title"></span>
                             </div>
                             <div class="meai-block-meta">
-                              <span x-text="b.start + '–' + b.end"></span>
+                              <span x-text="_meAiFmtHm(b.start) + '–' + _meAiFmtHm(b.end)"></span>
                               <span x-show="b.type"> · <span x-text="b.type"></span></span>
                             </div>
                             <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
@@ -12737,6 +12739,10 @@
                   <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
                   <label>Grid</label>
                   <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                  <label>Time format</label>
+                  <button type="button" class="meai-clock-toggle" @click="meAiToggleClock()"
+                          :title="meai.clock==='24' ? 'Showing 24-hour (military) time — click for AM/PM' : 'Showing 12-hour AM/PM — click for 24-hour'"
+                          x-text="meai.clock==='24' ? '24-hour (13:30)' : 'AM/PM (1:30 PM)'"></button>
                 </div>
                 <div class="meai-workweek">
                   <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
@@ -20486,6 +20492,8 @@
           peekPinned: (() => { try { return JSON.parse(localStorage.getItem('meai-peek-pinned') || '{}') || {}; } catch (_) { return {}; } })(),
           // Working hours & grid flyout.
           hoursOpen: false,
+          // Agenda time display: '12' (AM/PM) or '24' (military). Persisted.
+          clock: (() => { try { return localStorage.getItem('meai-clock') === '24' ? '24' : '12'; } catch (_) { return '12'; } })(),
           // Per-day work-window override ("I started early/late today") — a quick edit that
           // supersedes the standing schedule for the viewed date only.
           dayWin: { open: false, start: '', end: '' },
@@ -27196,9 +27204,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiFmtHm(hm) {
           const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '').trim());
           if (!m) return hm || '';
-          let h = +m[1]; const ap = h < 12 ? 'AM' : 'PM';
+          let h = +m[1];
+          if (this.meai.clock === '24') return String(h).padStart(2, '0') + ':' + m[2];
+          const ap = h < 12 ? 'AM' : 'PM';
           h = h % 12; if (h === 0) h = 12;
           return h + ':' + m[2] + ' ' + ap;
+        },
+        meAiToggleClock() {
+          this.meai.clock = this.meai.clock === '24' ? '12' : '24';
+          try { localStorage.setItem('meai-clock', this.meai.clock); } catch (_) {}
         },
         _meAiEffWin() {
           const ac = (this.meai.agenda && this.meai.agenda.config) || {};
@@ -27612,7 +27626,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiNowLabel() {
           const h = Math.floor(this.meai.nowMin / 60), m = this.meai.nowMin % 60;
-          return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+          return this._meAiFmtHm(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
         },
         // ===== Me.AI M2 — Me-agent console (dispatch / stream / decide / complete) =====
         async meAiLoadTasks() {
