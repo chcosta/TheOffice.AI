@@ -11945,6 +11945,17 @@ function _meAiGatherCodeflow() {
 function _meAiGatherDevCards() {
   const signals = [];
   try {
+    // Workspace briefings: a dev card that lives on a board carries the board's
+    // "Where was I?" briefing (b.summary.text) as extra context beyond the card's
+    // own summary — richer signal for both urgency normalization and the refine.
+    const boardBrief = new Map();
+    try {
+      for (const bd of loadBoards()) {
+        if (bd && bd.id && bd.summary && bd.summary.text) {
+          boardBrief.set(bd.id, { name: bd.name || bd.id, text: String(bd.summary.text).replace(/\s+/g, ' ').trim() });
+        }
+      }
+    } catch (_) { /* best-effort */ }
     for (const c of devStore.all()) {
       if (!c || c.archived) continue;
       if (c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID) continue; // our own managed projection
@@ -11961,6 +11972,8 @@ function _meAiGatherDevCards() {
       const sum = String((c.summary && c.summary.text) || '')
         .replace(/\s+/g, ' ')
         .trim();
+      // Workspace briefing for the board this card lives on (if any) — deeper context.
+      const brief = (c.homeBoardId && boardBrief.get(c.homeBoardId)) || null;
       const merge = String(pr.mergeStatus || '').toLowerCase();
       const draft = !!pr.isDraft;
       const hasPr = !!prId;
@@ -11986,6 +11999,8 @@ function _meAiGatherDevCards() {
         title: `Dev: ${c.title || wid || c.id}`,
         detail: bits.join(' · '),
         summary: sum || '',
+        wsBriefing: brief ? brief.text.slice(0, 600) : '',
+        wsBoard: brief ? brief.name : '',
         link,
         urgency,
         source: 'devcard',
@@ -12178,6 +12193,84 @@ function _meAiWhy(t) {
   if (t.source === 'azdo') return 'Assigned work item on your plate';
   if (t.source === 'todo') return 'Your todo for today';
   return 'Planned work';
+}
+
+// Cross-signal urgency normalization. The gather layer assigns urgency per source
+// with independent heuristics (a dev-card draft PR = 4, an ADO review PR = 4, a
+// steward PR = 3, a work item = 2…) that were never calibrated against each other,
+// so "PR-card urgency isn't directly comparable to dev-card urgency." This LLM pass
+// looks at ALL schedulable signals together — with their state detail, PR status,
+// and workspace briefing — and re-scores urgency on a single 0–5 scale with a short
+// reason, so prioritization is fair before the deterministic scheduler runs. Cached
+// by signal fingerprint so re-plans (mode/pref changes) don't re-pay the LLM cost.
+const ME_AI_URGENCY_CACHE = new Map();          // fingerprint -> Map(key -> {urgency, reason})
+async function _meAiNormalizeUrgency(cfg, signals, date) {
+  try {
+    // Only normalize schedulable asks — meetings are fixed anchors (leave at 5),
+    // pure-personal/lunch have no urgency. Key each by link|title so we can map the
+    // model's answer back onto the exact signal.
+    const items = (signals || []).filter(s => s && s.kind !== 'meeting' && s.type !== 'personal');
+    if (items.length < 2) return signals; // nothing to compare
+    const keyOf = (s) => `${(s.link || '') }|${String(s.title || '').slice(0, 120)}`;
+    const fp = items.map(s => `${keyOf(s)}#${s.urgency || 0}`).sort().join('~');
+    const cached = ME_AI_URGENCY_CACHE.get(fp);
+    if (cached) {
+      for (const s of items) { const a = cached.get(keyOf(s)); if (a && a.urgency != null) { s.urgency = a.urgency; s.urgencyReason = a.reason || s.urgencyReason || ''; } }
+      return signals;
+    }
+    const rows = items.map((s, i) => ({
+      i,
+      kind: s.kind || s.source || '',
+      type: s.type || '',
+      title: String(s.title || '').slice(0, 140),
+      state: String(s.detail || '').slice(0, 200),
+      // dev cards bring their own summary + workspace briefing as deeper context.
+      context: [s.summary && `summary: ${String(s.summary).slice(0, 200)}`, s.wsBriefing && `workspace "${s.wsBoard}": ${String(s.wsBriefing).slice(0, 300)}`].filter(Boolean).join(' | '),
+      heuristic: Number(s.urgency) || 0,
+    }));
+    const prompt = `You are my chief-of-staff triaging today's work signals (${date}). Each item below has a rough heuristic urgency (0–5) that was assigned by SEPARATE rules per source, so the scores are NOT comparable across types. Re-score every item on ONE consistent 0–5 urgency scale so I can prioritize fairly:
+5 = drop-everything / blocking others or me today
+4 = important and time-sensitive today
+3 = should get real time today
+2 = worth doing if time allows
+1 = minor / background
+0 = FYI, no action
+
+Judge by ACTUAL state, not source type: a PR blocked on merge conflicts or a teammate waiting on my review outranks a draft PR that's mine to finish; a dev card whose workspace briefing shows it's the critical-path item outranks a stale work item; long-open / near-done work that just needs a nudge is higher than freshly-created work. Use the state + context.
+
+ITEMS (JSON):
+${JSON.stringify(rows)}
+
+Return ONLY a fenced \`\`\`json code block with an array of {"i":<index>,"urgency":<0-5 integer>,"reason":<string <=80 chars>}. One object per item, same indices.`;
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'me-ai', category: 'me-ai' },
+    });
+    if (result && result.fallback) return signals;
+    const raw = (acc.trim() || (result && result.output) || '').trim();
+    const arr = _connectExtractJson(raw);
+    const list = Array.isArray(arr) ? arr : (arr && Array.isArray(arr.items) ? arr.items : null);
+    if (!list || !list.length) return signals;
+    const answer = new Map();
+    for (const m of list) {
+      const idx = parseInt(m && m.i, 10);
+      if (!(idx >= 0) || idx >= items.length) continue;
+      let u = parseInt(m.urgency, 10);
+      if (isNaN(u)) continue;
+      u = Math.max(0, Math.min(5, u));
+      const s = items[idx];
+      s.urgency = u;
+      s.urgencyReason = String((m.reason || '')).slice(0, 100);
+      answer.set(keyOf(s), { urgency: u, reason: s.urgencyReason });
+    }
+    if (answer.size) {
+      ME_AI_URGENCY_CACHE.set(fp, answer);
+      if (ME_AI_URGENCY_CACHE.size > 40) { const k = ME_AI_URGENCY_CACHE.keys().next().value; ME_AI_URGENCY_CACHE.delete(k); }
+    }
+    return signals;
+  } catch { return signals; }
 }
 
 // Optional LLM refine — merge same-focus adjacent chunks, add short meeting-prep
@@ -12845,6 +12938,9 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // the pre-pass lays flexible work around them (they supersede suggested items).
   const overridesForPlan = loadMeAiOverrides(day);
   const reservedBlocks = _meAiReservationsFromOverrides(overridesForPlan, cfg);
+  // Normalize urgency across signal types (PR vs dev card vs work item vs comms) on a
+  // single scale BEFORE the deterministic scheduler runs, so prioritization is fair.
+  await _meAiNormalizeUrgency(cfg, planSignals, day);
   const pre = _meAiPrePass(cfg, planSignals, effTodos, reservedBlocks);
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   const agenda = {
