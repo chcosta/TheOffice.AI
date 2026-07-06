@@ -147,6 +147,26 @@ function _isRepo(dir) {
   try { return fs.existsSync(path.join(dir, '.git')); } catch { return false; }
 }
 
+// Find the worktree (if any) that currently has local branch `br` checked out
+// (non-detached) in this clone. Git allows a given local branch to be checked
+// out in only ONE worktree at a time; a second `git worktree add <dir> <br>`
+// dies with "fatal: '<br>' is already checked out at '<other>'". Dev cards and
+// PR stewards can legitimately want the SAME source branch checked out (both
+// need to commit to it), so we detect the existing checkout and SHARE it rather
+// than let the add fail. Returns the absolute worktree path, or ''.
+function _branchWorktree(clone, br) {
+  const r = _gitTry(['worktree', 'list', '--porcelain'], clone);
+  if (!r.ok || !r.out) return '';
+  let cur = '';
+  const want = 'refs/heads/' + br;
+  for (const raw of r.out.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('worktree ')) { cur = line.slice(9).trim(); continue; }
+    if (line === 'branch ' + want || line === 'branch ' + br) return cur;
+  }
+  return '';
+}
+
 // Ensure the managed clone exists and is fetched. Returns the clone path.
 // `desc` (optional) carries {provider, org/owner, project, repo}; when absent
 // the record is treated as Azure DevOps (back-compat with positional callers).
@@ -203,6 +223,17 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId, detach,
   const localHas = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok;
   // Does the branch already exist on origin?
   const remoteHas = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + br], clone).ok;
+
+  // Collision guard: if this branch is ALREADY checked out (non-detached) in another
+  // worktree of this clone — e.g. a Dev card worktree when a PR steward asks for the
+  // same source branch, or vice-versa — git would fatal with "already checked out".
+  // Both roles need the real branch (to commit), so SHARE the existing checkout rather
+  // than fail or fragment onto a suffixed branch (which could never push to the PR).
+  const existingBranchWt = _branchWorktree(clone, br);
+  if (existingBranchWt && _isRepo(existingBranchWt)) {
+    return { worktreePath: existingBranchWt, branch: br, reused: true, shared: true };
+  }
+
   if (localHas) {
     // Check out the pre-existing local branch into the new worktree (no -b/-B so we
     // don't discard any local commits the branch already carries).

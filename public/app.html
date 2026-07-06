@@ -4861,6 +4861,7 @@
       border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 14px); background: var(--cp-surface); padding: 12px;
     }
     .board-sectionstage.drag-over { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
+    .board-sectionstage.panning { cursor: grabbing; user-select: none; }
     /* Trash drop-target: pinned to the lower-left of the section stage. Floated + sticky
        so it stays visible while the stage scrolls and never adds scroll height. */
     .board-trash {
@@ -9102,6 +9103,7 @@
                           <button type="button" class="board-sectiontab-add" @click="addSection()" title="New section">＋</button>
                         </div>
                         <div class="board-sectionstage scrollfade" :class="{ 'drag-over': _boardDragOver }"
+                             @pointerdown="boardStagePanStart($event)"
                              @dragenter.prevent
                              @dragover.prevent="_boardDragOver = true; _boardDragAutoPan($event); try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
                              @dragleave="if ($event.target === $el) _boardDragOver = false"
@@ -9672,7 +9674,7 @@
                                       <!-- Header: title + quick links + actions -->
                                       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                         <div style="min-width:0">
-                                        <div class="clickable" style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Open this dev card on the Code Flow page" @click="goTo('#/dev/' + encodeURIComponent(d.id))" x-text="d.title || d.repo || 'Dev card'"></div>
+                                        <div class="cf-pr-title clickable" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Open this dev card on the Code Flow page" @click="goTo('#/dev/' + encodeURIComponent(d.id))" x-text="d.title || d.repo || 'Dev card'"></div>
                                           <div class="hint" style="font-size:11px" x-text="(d.org ? d.org + ' / ' : '') + (d.project ? d.project + ' / ' : '') + (d.repo || '') + (d.branch ? ' @ ' + d.branch : '')"></div>
                                         </div>
                                         <div class="board-pin-acts" style="flex:0 0 auto">
@@ -9783,6 +9785,8 @@
                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevRepoDraft(d)" x-text="(devRepoDraft[d.id] && devRepoDraft[d.id].open) ? 'Cancel' : '＋ Add repo'"></button>
                                           </div>
                                         </div>
+
+                                        <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'The dev agent works this item in a private git worktree — open it in VS Code or the CLI (the agent is auto-selected) to read the work item, PR & git status and build, test & validate the change. Nothing is pushed without you.' : 'Open a repo in a private git worktree — in VS Code or the CLI the dev agent is auto-selected to help you build, test & validate the change. Nothing is pushed without you.'"></p>
 
                                         <!-- Work item done → offer to clean up worktrees (shown once at card level) -->
                                         <template x-if="devNeedsCleanup(d)">
@@ -10891,7 +10895,7 @@
                                 <!-- Header: title + board assignment + actions -->
                                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                   <div style="min-width:0">
-                                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
+                                    <div class="cf-pr-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
                                     <!-- Pin to workspace: unpinned = a 📌 icon in the right-side
                                          action group (hover-revealed, declutters the base face).
                                          Pinned = an always-visible board line below the title
@@ -11017,6 +11021,7 @@
                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevRepoDraft(d)" x-text="(devRepoDraft[d.id] && devRepoDraft[d.id].open) ? 'Cancel' : '＋ Add repo'"></button>
                                           </div>
                                         </div>
+                                        <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'The dev agent works this item in a private git worktree — open it in VS Code or the CLI (the agent is auto-selected) to read the work item, PR & git status and build, test & validate the change. Nothing is pushed without you.' : 'Open a repo in a private git worktree — in VS Code or the CLI the dev agent is auto-selected to help you build, test & validate the change. Nothing is pushed without you.'"></p>
                                         <template x-if="devNeedsCleanup(d)">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:calc(var(--cp-radius-scale, 1) * 6px);padding:6px 8px">
                                             <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — worktrees can be cleaned up.'"></span>
@@ -11788,7 +11793,10 @@
               .meai-inbox-swipe { position:relative; overflow:hidden; border-top:1px solid var(--cp-border); }
               .meai-inbox-swipe:first-child { border-top:0; }
               .meai-inbox-swipe .meai-inbox-item { position:relative; z-index:1; background:var(--cp-surface); touch-action:pan-y; will-change:transform; }
-              .meai-inbox-swipe-act { position:absolute; top:0; right:0; bottom:0; width:92px; display:flex; align-items:stretch; z-index:0; }
+              /* Act layer sits BEHIND the row; hide it at rest so it can never bleed
+                 through a non-opaque row. Revealed only while swiping / when open. */
+              .meai-inbox-swipe-act { position:absolute; top:0; right:0; bottom:0; width:92px; display:flex; align-items:stretch; z-index:0; opacity:0; pointer-events:none; }
+              .meai-inbox-swipe.swiping .meai-inbox-swipe-act, .meai-inbox-swipe.open .meai-inbox-swipe-act { opacity:1; pointer-events:auto; }
               .meai-inbox-swipe-btn { flex:1 1 auto; border:0; background:color-mix(in srgb, var(--cp-danger, #d9534f) 90%, #000); color:#fff; font-size:12.5px; font-weight:600; cursor:pointer; }
               .meai-inbox-swipe-btn:hover { background:var(--cp-danger, #d9534f); }
               .meai-inbox-swipe-btn:disabled { opacity:.6; cursor:default; }
@@ -11798,8 +11806,9 @@
               .meai-inbox-legend b { font-weight:600; color:var(--cp-text); }
               .meai-inbox-legend b.meai-lg-you { color:var(--cp-accent); }
               .meai-inbox-legend .meai-lg-hint { margin-left:auto; font-style:italic; }
-              .meai-inbox-item.fresh { background:color-mix(in srgb, var(--cp-warning) 6%, transparent); }
-              .meai-inbox-item.parked { opacity:.75; }
+              .meai-inbox-item.fresh { background:color-mix(in srgb, var(--cp-warning) 6%, var(--cp-surface)); }
+              .meai-inbox-item.parked { background:var(--cp-surface); }
+              .meai-inbox-item.parked .meai-inbox-title, .meai-inbox-item.parked .meai-inbox-kind, .meai-inbox-item.parked .meai-inbox-why, .meai-inbox-item.parked .meai-inbox-meta { opacity:.7; }
               .meai-inbox-head { display:flex; align-items:baseline; gap:8px; font-size:13px; }
               .meai-inbox-freshdot { flex:0 0 auto; width:7px; height:7px; border-radius:999px; background:var(--cp-warning); align-self:center; }
               .meai-inbox-kind { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -12483,7 +12492,7 @@
                     </div>
                   </template>
                   <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done')" :key="it.id">
-                    <div class="meai-inbox-swipe">
+                    <div class="meai-inbox-swipe" :class="{ swiping: meai.inboxSwipeId===it.id && meai.inboxSwipeDx<0, open: meai.inboxSwipeOpen===it.id }">
                       <div class="meai-inbox-swipe-act">
                         <button type="button" class="meai-inbox-swipe-btn" @click="meai.inboxSwipeOpen=null; meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Remove this notification">Remove</button>
                       </div>
@@ -15161,7 +15170,7 @@
                         </template>
                       </div>
                         <div class="cf-subsec">
-                        <div class="cf-subhead" x-text="'🧰 ' + ((codeflow && codeflow.view === 'reviews') ? 'Code' : 'Worktree')"></div>
+                        <div class="cf-subhead" x-text="'🧰 Code'"></div>
                         <template x-if="!cfHasWt(pr)">
                           <span class="cf-wt-history-ts">Create a worktree above to open it in VS Code, CLI, or File Explorer.</span>
                         </template>
@@ -31521,9 +31530,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const s = [];
           const revs = (pr.reviewers && pr.reviewers.length) || 0;
           const hasPeople = revs || (pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard;
-          s.push({ id: 'reviewers', label: 'Reviewers', count: revs || undefined, disabled: !hasPeople });
+          s.push({ id: 'reviewers', label: '👥 Reviewers', count: revs || undefined, disabled: !hasPeople });
           const v = (pr.validation && pr.validation.length) || 0;
-          s.push({ id: 'validation', label: 'Validation', count: v || undefined, attn: (pr.failedChecks || 0) > 0 || (pr.pendingChecks || 0) > 0, disabled: !v });
+          s.push({ id: 'validation', label: '✓ Validation', count: v || undefined, attn: (pr.failedChecks || 0) > 0 || (pr.pendingChecks || 0) > 0, disabled: !v });
           const wt = this.cfWt(pr);
           const reviews = this.codeflow && this.codeflow.view === 'reviews';
           // Review agent + Git + Worktree are rolled into ONE section (stacked sub-headers).
@@ -31534,9 +31543,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else {
             wtAttn = !!(wt && wt.worktreeStatus === 'error');
           }
-          s.push({ id: 'worktree', label: reviews ? 'Code' : 'Worktree', attn: wtAttn });
+          s.push({ id: 'worktree', label: '🗃 Code', attn: wtAttn });
           const arts = (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) ? ((wt.reports || []).length || 1) : 0;
-          s.push({ id: 'links', label: 'Artifacts', count: arts || undefined, disabled: !arts });
+          s.push({ id: 'links', label: '🔗 Artifacts', count: arts || undefined, disabled: !arts });
           return s;
         },
         cfSummaryAttn(pr) {
@@ -34938,6 +34947,42 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           else if (y < r.top + M) stage.scrollTop -= STEP;
           if (x > r.right - M) stage.scrollLeft += STEP;
           else if (x < r.left + M) stage.scrollLeft -= STEP;
+        },
+        // Click-drag anywhere on EMPTY stage area (not a card / link / button / grab
+        // handle) grabs and pans the board so you can move around a large board to find
+        // things. Starts on the stage's own empty space + gaps; cards keep their own
+        // header-grab drag. Uses pointer events + scrollLeft/Top so it works with the
+        // stage's overflow:auto without disturbing the grid geometry.
+        boardStagePanStart(ev) {
+          if (ev.button != null && ev.button !== 0) return;
+          const t = ev.target;
+          if (t && t.closest && t.closest('a,button,input,textarea,select,[contenteditable="true"],.board-panel,.board-card,.board-tbx-item,.board-card-resize-v,.board-card-resize-c,.board-canvas-resize,.board-trash')) return;
+          const stage = ev.currentTarget; if (!stage) return;
+          const startX = ev.clientX, startY = ev.clientY;
+          const startL = stage.scrollLeft, startT = stage.scrollTop;
+          const ptrId = ev.pointerId;
+          let moved = false;
+          const move = (e) => {
+            if (ptrId != null && e.pointerId !== ptrId) return;
+            const dx = e.clientX - startX, dy = e.clientY - startY;
+            if (!moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+            moved = true;
+            if (e.cancelable) e.preventDefault();
+            stage.scrollLeft = startL - dx;
+            stage.scrollTop = startT - dy;
+          };
+          const up = () => {
+            stage.classList.remove('panning');
+            try { if (ptrId != null && stage.releasePointerCapture) stage.releasePointerCapture(ptrId); } catch (_) {}
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+          };
+          try { if (ptrId != null && stage.setPointerCapture) stage.setPointerCapture(ptrId); } catch (_) {}
+          stage.classList.add('panning');
+          window.addEventListener('pointermove', move, { passive: false });
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
         },
         // Topmost free row (>=0) where a w×h card fits at column x among the OTHER cards
         // in the section. Empty board / empty column → 0 (top). Fills the highest gap.
