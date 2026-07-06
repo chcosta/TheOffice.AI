@@ -11644,6 +11644,16 @@
               .meai-title { font-size:22px; font-weight:700; color:var(--cp-text); margin:0; display:flex; align-items:center; gap:10px; }
               .meai-scope { font-size:12px; color:var(--cp-text-muted); margin:2px 0 0; }
               .meai-datebar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0 12px; }
+              .meai-week { display:flex; gap:6px; margin:12px 0 4px; overflow-x:auto; padding-bottom:2px; }
+              .meai-week-day { flex:1 1 0; min-width:120px; text-align:left; display:flex; flex-direction:column; gap:3px;
+                padding:9px 12px; background:transparent; border:1px solid transparent; border-bottom:2px solid var(--cp-border);
+                border-radius:8px 8px 0 0; cursor:pointer; transition:background .12s ease, border-color .12s ease; }
+              .meai-week-day:hover { background:var(--cp-surface-2, rgba(127,127,127,.06)); }
+              .meai-week-day.is-active { border-bottom-color:var(--cp-accent); background:var(--cp-surface-2, rgba(127,127,127,.06)); }
+              .meai-week-day .meai-week-dow { font-size:12.5px; font-weight:600; color:var(--cp-text); }
+              .meai-week-day.is-active .meai-week-dow { color:var(--cp-accent); }
+              .meai-week-day .meai-week-sub { font-size:11px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .meai-week-day.is-unplanned .meai-week-sub { font-style:italic; opacity:.75; }
               .meai-daywin-dot { display:inline-block; width:6px; height:6px; border-radius:999px; background:var(--cp-accent); margin-left:6px; vertical-align:middle; }
               .meai-daywin-pop { position:absolute; top:calc(100% + 6px); right:0; z-index:40; min-width:230px;
                 border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:10px; padding:12px;
@@ -12058,6 +12068,18 @@
                   <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(1)" title="Next day">›</button>
                   <input type="date" class="field-input" style="width:150px" :value="meai.date" @change="meAiSetDate($event.target.value)">
                 </div>
+              </div>
+
+              <!-- Week-ahead strip: the next 5 work days at a glance. Read-only; click a
+                   day to view/plan it. Active day gets an accent underline (no pills). -->
+              <div class="meai-week" x-show="meai.loaded && meai.lookahead.length">
+                <template x-for="d in meai.lookahead" :key="d.date">
+                  <button type="button" class="meai-week-day" :class="{ 'is-active': d.date === meai.date, 'is-unplanned': !d.planned }"
+                          @click="meAiSetDate(d.date)" :title="d.planned ? '' : 'Not planned yet — click to view'">
+                    <span class="meai-week-dow" x-text="meAiLookaheadLabel(d)"></span>
+                    <span class="meai-week-sub" x-text="meAiLookaheadSub(d)"></span>
+                  </button>
+                </template>
               </div>
 
               <!-- Consent (off) banner -->
@@ -20654,6 +20676,8 @@
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
           reportOpen: false,     // report card force-expanded while a question is pending
+          lookahead: [],         // next 5 work days (light per-day summary) — the week-ahead strip
+          lookaheadLoading: false,
           traceOpen: true,       // background agent → reasoning/tools visible by default
           laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
           laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
@@ -27041,6 +27065,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.meAiLoadAgenda();
             await this.meAiLoadTasks();
             await this.meAiLoadInbox();
+            this.meAiLoadLookahead();
             // #3 Warm the signal cache for the viewed date in the background so a
             // later generate / mode-change re-plan is fast. Consent-gated server-side.
             if (this.meai.config.consent) {
@@ -27067,7 +27092,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.agenda = null;
           }
         },
-        // REQ-13 Agenda Assistant — conversational control over the whole agenda.
+        // Week-ahead strip: the next 5 work days with a light per-day summary. Read-only
+        // (never generates); a day with no cached agenda shows "not planned yet".
+        async meAiLoadLookahead() {
+          this.meai.lookaheadLoading = true;
+          try {
+            const r = await this.request('/api/me-ai/lookahead?days=5');
+            this.meai.lookahead = (r && Array.isArray(r.days)) ? r.days : [];
+          } catch (e) {
+            this.meai.lookahead = [];
+          } finally {
+            this.meai.lookaheadLoading = false;
+          }
+        },
+        meAiLookaheadLabel(d) {
+          try {
+            const dt = new Date(String(d.date) + 'T00:00:00');
+            const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dt.getDay()];
+            return d.isToday ? 'Today' : `${wd} ${dt.getMonth() + 1}/${dt.getDate()}`;
+          } catch (_) { return String(d.date || ''); }
+        },
+        meAiLookaheadSub(d) {
+          if (!d || !d.planned) return 'not planned yet';
+          const h = (m) => { const v = Math.round((m / 60) * 10) / 10; return (v % 1 === 0) ? String(v) : v.toFixed(1); };
+          const bits = [];
+          bits.push(`${d.blocks} block${d.blocks === 1 ? '' : 's'}`);
+          if (d.focusMin) bits.push(`${h(d.focusMin)}h focus`);
+          if (d.distractMin) bits.push(`${h(d.distractMin)}h reactive`);
+          return bits.join(' · ');
+        },
         meAiAsstToggle() {
           this.meai.asst.open = !this.meai.asst.open;
           if (this.meai.asst.open) this.$nextTick(() => this._meAiAsstScroll());
@@ -27401,7 +27454,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
             if (!this.meai.agenda) this.meai.notice = 'No agenda was produced.';
-            else { this.meai._lastGeneratedAt = this.meai.agenda.generatedAt || ''; this._meAiSyncTodos(this.meai.agenda); this.meAiLoadChanges(); }
+            else { this.meai._lastGeneratedAt = this.meai.agenda.generatedAt || ''; this._meAiSyncTodos(this.meai.agenda); this.meAiLoadChanges(); this.meAiLoadLookahead(); }
           } catch (e) {
             this.toast('Failed to generate agenda: ' + (e.message || e), 'error');
           } finally {

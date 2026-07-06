@@ -13444,6 +13444,66 @@ app.get('/api/me-ai/reports', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/me-ai/lookahead?days=5 → the next N WORK days (today first if today is a
+// work day, then skipping non-work days), each with a light summary from its already
+// cached agenda. Read-only + cheap: it never generates (generation is slow), so a day
+// with no cached agenda comes back planned:false and the user clicks to plan/view it.
+// This is the "see my agenda 5 days out" horizon; the retrospective /reports endpoint
+// is where the was-I-distracted / on-track signals live.
+app.get('/api/me-ai/lookahead', (req, res) => {
+  try {
+    const s = settings.getSettings();
+    const cfg = _meAiConfig(s);
+    const workDays = (cfg.workDays || []);
+    const today = _meAiLocalDay();
+    let n = Number(req.query.days) || 5;
+    n = Math.max(1, Math.min(10, Math.round(n)));
+    // Build the next n work-day dates, starting at today when today is a work day.
+    const dates = [];
+    const todayDow = new Date(today + 'T00:00:00').getDay();
+    if (!workDays.length || workDays.includes(todayDow)) dates.push(today);
+    let cursor = today;
+    while (dates.length < n) {
+      const nx = _meAiNextWorkDay(cfg, cursor);
+      if (!nx || dates.includes(nx)) break;
+      dates.push(nx);
+      cursor = nx;
+    }
+    const minOf = (b) => { try { const a = _hmToMin(b.start), z = _hmToMin(b.end); return (z > a) ? (z - a) : 0; } catch (_) { return 0; } };
+    const days = dates.slice(0, n).map(date => {
+      const dt = new Date(date + 'T00:00:00');
+      const agenda = loadAgendaForDate(date);
+      const notWork = !!(agenda && agenda.meta && agenda.meta.notWorkDay);
+      const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+      const workBlocks = blocks.filter(b => b && b.type !== 'personal' && b.type !== 'lunch' && b.type !== 'open');
+      let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0;
+      for (const b of blocks) {
+        if (!b) continue;
+        const m = minOf(b);
+        if (b.type === 'focus') focusMin += m;
+        else if (b.type === 'meeting') meetingMin += m;
+        else if (b.type === 'comms') commsMin += m;
+        else if (b.type === 'review') reviewMin += m;
+        else if (b.type === 'steward') stewardMin += m;
+      }
+      const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos.filter(t => t && t.scope !== 'personal') : [];
+      const top = workBlocks.find(b => b.type === 'focus') || workBlocks[0] || null;
+      return {
+        date, dow: dt.getDay(), isToday: date === today,
+        planned: !!agenda && !notWork,
+        blocks: workBlocks.length,
+        focusMin, meetingMin, commsMin, reviewMin, stewardMin,
+        // Planned reactive/interrupt time (meetings + comms + PR reviews) vs deep focus —
+        // an early read on how "distractable" the day is shaping up to be.
+        distractMin: commsMin + reviewMin + meetingMin,
+        topItem: top ? String(top.title || '').slice(0, 90) : '',
+        todos: todos.length, todosDone: todos.filter(t => t && t.done).length,
+      };
+    });
+    res.json({ ok: true, today, days });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 app.get('/api/me-ai/inbox', (req, res) => {
   try {
