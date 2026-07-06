@@ -14305,8 +14305,10 @@ function _meAiActPrompt(intent, text, label) {
     : '';
   const extra = (text && String(text).trim()) ? ('\n\nMy note: ' + String(text).trim()) : '';
   return lead + base + extra + '\n\n' + [
-    'When done, again end with a single fenced ```json block:',
-    '{ "report": { "summary": "...", "findings": [...] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none" } ] }',
+    'When done, again end your reply with a single fenced ```json block — and NOTHING after it — of the form:',
+    '{ "report": { "summary": "<2-4 sentence outcome>", "findings": [ { "title":"...","detail":"...","severity":"high|medium|low" } ] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none|write|external" } ] }',
+    'If this step produced actual code changes, you MUST ALSO include "diff" inside report — the verbatim, unedited output of `git --no-pager diff` — so I can review the prepared change as a preview. If it produced a message/email/newsletter to send, ALSO include "draft" inside report with the ready-to-use body text. Do NOT commit or push and do NOT send anything unless I explicitly asked — prepare it and report the diff/draft instead.',
+    'Propose 2–4 nextActions that fit what you just did (keep labels short, human). Ending without the fenced json block leaves me with only raw narration — always emit it.',
   ].join('\n');
 }
 // §7.5 self-correction: on an auto-retry, feed the failure back so the agent
