@@ -1388,7 +1388,8 @@
       text-transform: uppercase; color: var(--cp-text-muted);
     }
     .home-section-label .hsl-sub { font-size: 12px; color: var(--cp-text-soft); font-weight: 500; }
-    .home-section-label .hsl-toggle { margin-left: auto; align-self: center; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+    .home-section-label .hsl-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .home-section-label .hsl-toggle { align-self: center; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
     .home-section-label .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     .home-section { margin-bottom: 22px; }
 
@@ -6469,10 +6470,12 @@
                       <span class="hsl-icon">🧰</span>
                       <span class="hsl-text">Active dev work</span>
                       <span class="hsl-sub" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></span>
+                      <span class="hsl-actions">
                       <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
                               x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
                       <button type="button" class="hsl-toggle" x-show="archivedDevCount()" @click="goTo('#/dev-archive')"
                               x-text="'🗄 Archive (' + archivedDevCount() + ')'"></button>
+                      </span>
                     </div>
                     <div class="hint" style="font-size:12px;padding:4px 2px 0" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
                     <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
@@ -11690,21 +11693,28 @@
               /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
                  column 2 = the daily-work side column (Me agents + todos); column 3 = a slim
                  "peek" rail of notification-style digests that expand on hover. */
-              .meai-grid2 { display:grid; grid-template-columns:minmax(0,1fr) 340px 46px; gap:24px; align-items:start; }
+              .meai-grid2 { display:grid; grid-template-columns:minmax(0,1fr) 340px 64px; gap:24px; align-items:start; }
               .meai-side-work { min-width:0; }
               /* Col 2 swaps between the daily-work column and the active notification
                  panel: a 2-pane horizontal track that slides so the panel replaces the
                  side-work (rather than a hover flyout). */
-              .meai-side2 { grid-column:2; overflow:hidden; }
-              .meai-side2-track { display:flex; align-items:flex-start; width:200%; position:relative;
-                transition:transform .32s cubic-bezier(.4,0,.2,1); }
-              .meai-side2-track > .meai-pane { flex:0 0 50%; width:50%; min-width:0; }
-              /* The notification panel overlays its slot (absolute) so opening it never
-                 changes column height — that document-reflow was the source of the sticky
-                 rail's hover jitter. It slides in via the track transform and scrolls
-                 internally when tall. */
-              .meai-pane-peek { position:absolute; top:0; left:50%; width:50%; }
-              .meai-side2.show-peek .meai-side2-track { transform:translateX(-50%); }
+              .meai-side2 { grid-column:2; position:relative; }
+              .meai-side2-track { position:relative; }
+              /* Pane A (daily work) fades + slides out of the way when a notification panel
+                 opens; it keeps occupying its slot (opacity, not display) so col height never
+                 changes → no sticky-reflow jitter. */
+              .meai-side2-track > .meai-pane:not(.meai-pane-peek) {
+                transition:opacity .28s cubic-bezier(.4,0,.2,1), transform .28s cubic-bezier(.4,0,.2,1); }
+              .meai-side2.show-peek .meai-side2-track > .meai-pane:not(.meai-pane-peek) {
+                opacity:0; transform:translateX(-16px); pointer-events:none; }
+              /* Pane B: the active notification panel is an absolute overlay anchored to the
+                 RIGHT edge of col 2 and expands LEFT over the agenda, so long rows and the
+                 "Not mine" button never crop (was capped at the 340px column). Absolute =>
+                 opening it never changes column height (that reflow was the old hover jitter). */
+              .meai-pane-peek { position:absolute; top:0; right:0; width:min(560px, 60vw); z-index:6;
+                opacity:0; transform:translateX(16px); pointer-events:none;
+                transition:opacity .28s cubic-bezier(.4,0,.2,1), transform .28s cubic-bezier(.4,0,.2,1); }
+              .meai-side2.show-peek .meai-pane-peek { opacity:1; transform:translateX(0); pointer-events:auto; }
               .meai-peek-panel { border:1px solid rgba(128,128,128,.16); border-radius:10px; padding:14px 16px;
                 background:var(--cp-surface); max-height:calc(100vh - 96px); overflow:auto; }
               .meai-peek-panel-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
@@ -11715,29 +11725,32 @@
               .meai-peek-back:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
               /* Peek switcher (col 3): slim vertical tabs, sticky so they stay reachable while scrolling. */
               .meai-peek { grid-column:3; position:sticky; top:12px; align-self:start; display:flex; flex-direction:column; gap:8px; }
-              .meai-peek-tab { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; width:46px; padding:12px 0;
+              .meai-peek-tab { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; width:64px; padding:12px 0;
                 border:1px solid rgba(128,128,128,.14); border-radius:10px; background:var(--cp-surface); color:var(--cp-text-muted);
                 cursor:pointer; transition:background .14s, color .14s, box-shadow .14s; }
               .meai-peek-tab:hover { background:var(--cp-accent-soft,rgba(31,111,235,.10)); color:var(--cp-text); }
               /* Active tab: accent tint + a slim accent bar instead of a heavy border. */
               .meai-peek-tab.active { background:var(--cp-accent-soft,rgba(31,111,235,.10)); color:var(--cp-accent);
                 box-shadow:inset 3px 0 0 var(--cp-accent); }
-              .meai-peek-label { writing-mode:vertical-rl; transform:rotate(180deg); font-size:11.5px; font-weight:600;
-                letter-spacing:.02em; white-space:nowrap; }
+              .meai-peek-label { writing-mode:horizontal-tb; font-size:12px; font-weight:650;
+                letter-spacing:.005em; white-space:nowrap; color:inherit;
+                width:20px; height:108px; display:flex; align-items:center; justify-content:center; overflow:visible;
+                transform:rotate(-60deg); transform-origin:center center; }
               .meai-peek-count { font-size:11px; font-weight:700; color:var(--cp-text); background:var(--cp-bg);
                 border:1px solid rgba(128,128,128,.16); border-radius:8px; min-width:18px; text-align:center; padding:1px 4px; }
               .meai-peek-dot { width:7px; height:7px; border-radius:50%; background:var(--cp-warning); }
               .meai-peek-ico { font-size:15px; line-height:1; }
               @media (max-width:1000px) {
                 .meai-grid2 { grid-template-columns:1fr; }
-                .meai-side2 { grid-column:auto; overflow:visible; }
-                .meai-side2-track { width:100%; flex-direction:column; transform:none !important; }
-                .meai-side2-track > .meai-pane { flex:0 0 auto; width:100%; }
-                .meai-pane-peek { position:static; left:auto; width:100%; }
+                .meai-side2 { grid-column:auto; }
+                .meai-side2-track { width:100%; }
+                .meai-side2-track > .meai-pane:not(.meai-pane-peek) { opacity:1 !important; transform:none !important; pointer-events:auto; }
+                .meai-side2.show-peek .meai-side2-track > .meai-pane:not(.meai-pane-peek) { opacity:1; transform:none; pointer-events:auto; }
+                .meai-pane-peek { position:static; width:100%; opacity:1; transform:none; pointer-events:auto; z-index:auto; }
                 .meai-peek-panel { max-height:none; overflow:visible; }
                 .meai-peek { grid-column:auto; position:static; flex-direction:row; flex-wrap:wrap; }
                 .meai-peek-tab { flex-direction:row; width:auto; padding:8px 12px; }
-                .meai-peek-label { writing-mode:horizontal-tb; transform:none; }
+                .meai-peek-label { writing-mode:horizontal-tb; transform:none; width:auto; height:auto; display:inline; overflow:visible; }
               }
               .meai-tl { position:relative; }
               .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
@@ -11791,6 +11804,11 @@
               .meai-lb-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-lb-type { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
               .meai-lb-done { flex:0 0 auto; color:var(--cp-success,#3fb950); }
+              .meai-lb-outcome { margin-top:10px; padding-top:8px; border-top:1px dashed var(--cp-border); }
+              .meai-lb-outcome-h { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin:0 0 3px; }
+              .meai-lb-mark { flex:0 0 auto; font-size:12px; }
+              .meai-lb-mark.wf { color:var(--cp-text-soft); }
+              .meai-lb-mark.nm { color:var(--cp-accent); }
               .meai-card { border:1px solid rgba(128,128,128,.16); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
               .meai-na-item:last-child { border-bottom:0; }
@@ -11946,6 +11964,7 @@
               .meai-qgate-row { display:flex; gap:8px; }
               .meai-qgate-row input { flex:1; }
               .meai-dr-foot-bar { display:flex; gap:8px; align-items:center; margin-top:10px; }
+              .meai-dr-foot-hint { font-size:12px; color:var(--cp-text-muted); line-height:1.4; }
               .meai-working { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text-muted); padding:6px 0; }
             </style>
 
@@ -12106,6 +12125,28 @@
                             </div>
                           </template>
                           <div class="meai-lb-none" x-show="!(meai.lookback.actual.completions||[]).length">No Me.AI task completions recorded.</div>
+                          <template x-if="(meai.lookback.actual.declined||[]).length">
+                            <div class="meai-lb-outcome">
+                              <div class="meai-lb-outcome-h">Declined · won't fix</div>
+                              <template x-for="(d, di) in (meai.lookback.actual.declined||[])" :key="'wf'+di">
+                                <div class="meai-lb-row">
+                                  <span class="meai-lb-mark wf">⊘</span>
+                                  <span class="meai-lb-title" x-text="d.title"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="(meai.lookback.actual.handedOff||[]).length">
+                            <div class="meai-lb-outcome">
+                              <div class="meai-lb-outcome-h">Handed off · not mine</div>
+                              <template x-for="(h, hi) in (meai.lookback.actual.handedOff||[])" :key="'nm'+hi">
+                                <div class="meai-lb-row">
+                                  <span class="meai-lb-mark nm">↪</span>
+                                  <span class="meai-lb-title" x-text="h.title"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
                         </div>
                       </div>
                     </div>
@@ -12551,7 +12592,7 @@
                       <button class="btn ghost" type="button" @click="meAiReplySend()" :disabled="meai.consoleBusy || !meai.consoleReply.trim()">Send</button>
                     </div>
                     <div class="meai-dr-foot-bar">
-                      <button class="btn ghost" type="button" @click="meAiBackgroundTask()" x-show="meai.console.stage!=='done'">Run in background</button>
+                      <span class="meai-dr-foot-hint" x-show="meai.console.stage!=='done'">Close to keep this running in the background — it'll report back in “Me agents at work.”</span>
                       <span style="flex:1"></span>
                       <button class="btn primary" type="button" @click="meAiComplete()" :disabled="!meAiCanComplete() || meai.consoleBusy">Mark task complete</button>
                     </div>
@@ -27464,7 +27505,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && r.task) { this.meai._taskById[id] = r.task; this.meai.console = r.task; this.$nextTick(() => this._meAiConsoleScroll()); }
           }).catch(() => {});
         },
-        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false; },
+        meAiCloseConsole() {
+          // Closing simply detaches — the task keeps running server-side and reports
+          // back via the "Me agents at work" lane. (Background IS the default; there's
+          // no separate "run in background" step.)
+          const t = this.meai.console;
+          if (t && t.id && t.stage !== 'done' && !t.background) {
+            try { this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/background', { method: 'POST' }); } catch (_) {}
+            t.background = true;
+            this.meAiLoadTasks();
+          }
+          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false;
+        },
         // #9 count of collapsible process events (thinking/tools/agent) in the open console.
         meAiTraceCount() {
           const evs = (this.meai.console && this.meai.console.events) || [];

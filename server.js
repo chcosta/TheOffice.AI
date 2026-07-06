@@ -12267,6 +12267,33 @@ function saveSuggDismiss(date, map) {
   fs.writeFileSync(_meAiSuggDismissPath(date), JSON.stringify(map || {}, null, 2));
   return map;
 }
+// Durable per-day todo store. The agenda snapshot also carries todos, but a snapshot may
+// not exist yet (todo edited before the first generate) and background regenerates used to
+// re-derive todos from other sources — so a removed todo could resurrect after a server
+// restart. This store is the authoritative record of the user's todo list for a day: once
+// it exists, generate honours it verbatim (no carry-over re-seed, no reconstruction), so a
+// removal always sticks across restarts and regenerates.
+const ME_AI_TODOS_DIR = path.join(dataPath('me-ai'), 'todos');
+function _meAiTodoStorePath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_TODOS_DIR, `${safe}.json`);
+}
+// Returns an array of normalised todos, or null when no store exists for the day.
+function loadMeAiTodoStore(date) {
+  try {
+    const p = _meAiTodoStorePath(date);
+    if (!fs.existsSync(p)) return null;
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return Array.isArray(v) ? _meAiNormTodos(v) : null;
+  } catch { return null; }
+}
+function saveMeAiTodoStore(date, todos) {
+  try {
+    fs.mkdirSync(ME_AI_TODOS_DIR, { recursive: true });
+    fs.writeFileSync(_meAiTodoStorePath(date), JSON.stringify(_meAiNormTodos(todos), null, 2));
+  } catch (_) { /* best-effort */ }
+  return todos;
+}
 function _meAiSuggestions(cfg, agenda, date) {
   const out = [];
   try {
@@ -12625,14 +12652,30 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // regenerates the day's own persisted todos are authoritative (no re-seeding) so a
   // carried item the user drops does not come back.
   const priorSnapshot = loadAgendaForDate(day);
-  const effTodos = _meAiNormTodos(todos);
-  if (!priorSnapshot) {
-    const carried = _meAiCarryOverTodos(cfg, day);
-    if (carried.length) {
-      const have = new Set(effTodos.map(t => t.title.toLowerCase()));
-      for (const c of carried) { if (!have.has(c.title.toLowerCase())) { effTodos.push(c); have.add(c.title.toLowerCase()); } }
+  // The durable todo store (if present) is the source of truth for the day's todos: it
+  // survives server restarts and background regenerates, so a removed todo never resurrects.
+  const todoStore = loadMeAiTodoStore(day);
+  let effTodos;
+  if (todoStore) {
+    // Honour the stored list verbatim, but fold in any brand-new todos the caller passed
+    // that aren't tracked yet (e.g. one typed just before this generate) so they persist.
+    effTodos = todoStore;
+    const have = new Set(effTodos.map(t => t.title.toLowerCase()));
+    for (const t of _meAiNormTodos(todos)) {
+      if (!have.has(t.title.toLowerCase())) { effTodos.push(t); have.add(t.title.toLowerCase()); }
+    }
+  } else {
+    effTodos = _meAiNormTodos(todos);
+    if (!priorSnapshot) {
+      const carried = _meAiCarryOverTodos(cfg, day);
+      if (carried.length) {
+        const have = new Set(effTodos.map(t => t.title.toLowerCase()));
+        for (const c of carried) { if (!have.has(c.title.toLowerCase())) { effTodos.push(c); have.add(c.title.toLowerCase()); } }
+      }
     }
   }
+  // Persist the resolved list so it is durable from here on (creates the store on first use).
+  saveMeAiTodoStore(day, effTodos);
   // Explicit user commitments (custom + recurring blocks) become fixed reservations so
   // the pre-pass lays flexible work around them (they supersede suggested items).
   const overridesForPlan = loadMeAiOverrides(day);
@@ -12939,18 +12982,19 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/agenda/todos { date, todos } → persist the day's todo list onto the
-// snapshot without a full re-plan (REQ-3). Keeps done/scope/carry-over durable across
-// navigation. If no snapshot exists yet the todos stay a client-side draft until the
-// first generate folds them in.
+// POST /api/me-ai/agenda/todos { date, todos } → persist the day's todo list. Writes the
+// durable todo store (authoritative across restarts + background regenerates, so a removed
+// todo never comes back) AND mirrors onto the snapshot if one exists, without a re-plan
+// (REQ-3). Keeps done/scope/carry-over durable across navigation and server restarts.
 app.post('/api/me-ai/agenda/todos', (req, res) => {
   try {
     const b = req.body || {};
     const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
     const todos = _meAiNormTodos(Array.isArray(b.todos) ? b.todos : []);
+    saveMeAiTodoStore(date, todos);
     const snap = loadAgendaForDate(date);
     if (snap) { snap.todos = todos; saveAgendaForDate(date, snap); }
-    res.json({ ok: true, date, todos, persisted: !!snap });
+    res.json({ ok: true, date, todos, persisted: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -13028,6 +13072,32 @@ app.get('/api/me-ai/lookback', (req, res) => {
         .filter(e => !(e.tags || []).some(t => String(t).startsWith('ext:me-ai:dayshape'))) // exclude the day-shape note itself
         .map(e => ({ title: e.title || '', detail: e.detail || '', source: e.source || '', links: e.links || [] }));
     } catch (_) { completions = []; }
+    // Fidelity (owner ask): a completed Me-agent task writes a `me-ai` diary entry,
+    // but that must NOT read as "done" if the underlying ask was consciously declined
+    // (won't-fix) or handed off (not-mine). Reconcile completions against the triage
+    // dismiss store for the day and surface those as their own outcomes instead.
+    let declined = [], handedOff = [];
+    try {
+      const dm = loadDismissForDate(date) || {};
+      const norm = s => String(s || '').toLowerCase()
+        .replace(/^\s*action(\s+required)?\s*[:\-]?\s*/i, '')
+        .replace(/\([^)]*\)/g, '')            // drop "(expires in 30 days)" etc.
+        .replace(/[^a-z0-9]+/g, ' ').trim();
+      const wontFixKeys = [], notMineKeys = [];
+      for (const v of Object.values(dm)) {
+        const k = norm(v && v.title);
+        if (!k) continue;
+        if (v && v.reason === 'wontfix') { wontFixKeys.push(k); declined.push({ title: (v && v.title) || '' }); }
+        else { notMineKeys.push(k); handedOff.push({ title: (v && v.title) || '' }); }
+      }
+      const hit = (title, keys) => {
+        const k = norm(title); if (!k) return false;
+        return keys.some(x => x && (x === k || (x.length >= 8 && k.length >= 8 && (k.includes(x) || x.includes(k)))));
+      };
+      if (wontFixKeys.length || notMineKeys.length) {
+        completions = completions.filter(c => !hit(c.title, wontFixKeys) && !hit(c.title, notMineKeys));
+      }
+    } catch (_) { declined = []; handedOff = []; }
     // Derive a short, honest retro.
     const insights = [];
     if (plannedBlocks.length) {
@@ -13038,11 +13108,13 @@ app.get('/api/me-ai/lookback', (req, res) => {
     if (churn.total) insights.push(`${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) — day shape: ${churn.shape}.`);
     else if (plannedBlocks.length) insights.push('No organic churn — the plan held (Focused).');
     if (backlogCount) insights.push(`${backlogCount} item(s) didn\u2019t fit and rolled over.`);
+    if (declined.length) insights.push(`${declined.length} ask(s) declined \u2014 won\u2019t fix.`);
+    if (handedOff.length) insights.push(`${handedOff.length} ask(s) handed off \u2014 not mine.`);
     const summary = agenda ? _meAiDayShapeText(churn) : 'No agenda was planned for this day.';
     res.json({
       ok: true, date, today, isPast: date < today, hasAgenda: !!agenda,
       planned: { blocks: plannedBlocks, focusPlanned, todos: workTodos.map(t => ({ title: t.title || '', done: !!t.done, carried: !!t.carried })), backlogCount },
-      actual: { completions, todosDone, todosCarried, churn },
+      actual: { completions, todosDone, todosCarried, churn, declined, handedOff },
       retro: { summary, insights },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -13436,12 +13508,18 @@ function _meAiHydrateTasks() {
         if (!t || !t.id) continue;
         const when = Date.parse(t.updatedAt || t.createdAt || 0) || 0;
         if (when && when < cutoff) continue;
-        if (t.status === 'running') {
-          // Interrupted by the restart — surface it as recoverable, not live.
+        if (t.status === 'running' || t.status === 'queued') {
+          // Interrupted by the restart — the in-memory run was lost. Surface it as a clear,
+          // recoverable state (never silently stuck or gone) so there's no confusion about
+          // what a background Me agent is doing. A queued task never got its slot; a running
+          // one lost its session. Both are one click from resuming.
+          const wasQueued = t.status === 'queued';
           t.status = 'error'; t.stage = 'error';
-          t.error = t.error || 'Interrupted by a server restart.';
+          t.error = t.error || (wasQueued
+            ? 'Interrupted by a server restart before it started. Resume to run it.'
+            : 'Interrupted by a server restart. Resume to pick up where it left off.');
           t.nextActions = [
-            { label: 'Retry', intent: 'retry', primary: true, risk: 'none' },
+            { label: 'Resume', intent: 'retry', primary: true, risk: 'none' },
             { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
           ];
         }
@@ -13486,7 +13564,9 @@ setInterval(async () => {
     const fp = _meAiSignalFingerprint(gathered.signals);
     if (prev.meta && prev.meta.signalFp && prev.meta.signalFp === fp) return; // nothing changed
     _meAiAutoRegenBusy = true;
-    const todos = (prev.todos || []).map(t => ({ title: t.title, scope: t.scope }));
+    // Pass full-fidelity todos (done/carried/scope) so a background regen never drops a
+    // completion or a carry marker; the durable todo store is authoritative regardless.
+    const todos = (prev.todos || []).map(t => ({ title: t.title, scope: t.scope, done: !!t.done, carried: !!t.carried, carriedFrom: t.carriedFrom || '' }));
     await generateMeAiAgenda({ date: today, todos, reindex: false });
   } catch (_) { /* best-effort */ }
   finally { _meAiAutoRegenBusy = false; }
