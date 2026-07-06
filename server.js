@@ -11170,7 +11170,7 @@ function _meAiOverridesPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
   return path.join(ME_AI_OVERRIDES_DIR, `${safe}.json`);
 }
-function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [] }; }
+function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], dayStart: '', dayEnd: '' }; }
 function loadMeAiOverrides(date) {
   try {
     const p = _meAiOverridesPath(date);
@@ -11182,6 +11182,8 @@ function loadMeAiOverrides(date) {
       recurring: Array.isArray(v.recurring) ? v.recurring : [],
       splits: Array.isArray(v.splits) ? v.splits : [],
       removedItems: Array.isArray(v.removedItems) ? v.removedItems : [],
+      dayStart: typeof v.dayStart === 'string' ? v.dayStart : '',
+      dayEnd: typeof v.dayEnd === 'string' ? v.dayEnd : '',
     };
   } catch { return _meAiEmptyOverrides(); }
 }
@@ -11192,6 +11194,8 @@ function saveMeAiOverrides(date, ov) {
     recurring: Array.isArray(ov && ov.recurring) ? ov.recurring : [],
     splits: Array.isArray(ov && ov.splits) ? ov.splits : [],
     removedItems: Array.isArray(ov && ov.removedItems) ? ov.removedItems : [],
+    dayStart: (ov && typeof ov.dayStart === 'string') ? ov.dayStart : '',
+    dayEnd: (ov && typeof ov.dayEnd === 'string') ? ov.dayEnd : '',
   };
   fs.writeFileSync(_meAiOverridesPath(date), JSON.stringify(clean, null, 2));
   return clean;
@@ -12569,6 +12573,13 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
   const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  // Per-day work-window override: a quick "I started early/late today" that supersedes
+  // the standing schedule for THIS date only, without touching saved preferences.
+  try {
+    const _ovWin = loadMeAiOverrides(day);
+    if (_ovWin && _hmToMin(_ovWin.dayStart) != null) cfg.workStart = String(_ovWin.dayStart);
+    if (_ovWin && _hmToMin(_ovWin.dayEnd) != null) cfg.workEnd = String(_ovWin.dayEnd);
+  } catch (_) { /* fall back to standing hours */ }
   // Work-week guard (REQ-2): on a configured non-work day we don't build a
   // schedule or read your accounts — just an empty "not a work day" agenda.
   // User todos still pass through so anything explicitly planned stays visible.
@@ -13336,6 +13347,18 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
     } else if (op === 'remove_item') {
       const key = String(b.key || '').trim().slice(0, 300); if (!key) return res.status(400).json({ error: 'key required' });
       if (!ov.removedItems.includes(key)) ov.removedItems.push(key);
+    } else if (op === 'set_day_window') {
+      // Quick per-day work window ("started early/late today"). Supersedes the standing
+      // schedule for this date only; saved preferences are untouched.
+      const hasS = _hmToMin(b.dayStart) != null, hasE = _hmToMin(b.dayEnd) != null;
+      if (!hasS && !hasE) return res.status(400).json({ error: 'dayStart and/or dayEnd required' });
+      const ns = hasS ? _hmToMin(b.dayStart) : _hmToMin(ov.dayStart);
+      const ne = hasE ? _hmToMin(b.dayEnd) : _hmToMin(ov.dayEnd);
+      if (ns != null && ne != null && ne <= ns) return res.status(400).json({ error: 'end must be after start' });
+      if (hasS) ov.dayStart = String(b.dayStart);
+      if (hasE) ov.dayEnd = String(b.dayEnd);
+    } else if (op === 'clear_day_window') {
+      ov.dayStart = ''; ov.dayEnd = '';
     } else if (op === 'clear_block') {
       // Remove a manual custom/recurring block by its overrideId.
       const id = String(b.overrideId || '').trim(); if (!id) return res.status(400).json({ error: 'overrideId required' });

@@ -11604,6 +11604,14 @@
               .meai-title { font-size:22px; font-weight:700; color:var(--cp-text); margin:0; display:flex; align-items:center; gap:10px; }
               .meai-scope { font-size:12px; color:var(--cp-text-muted); margin:2px 0 0; }
               .meai-datebar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0 12px; }
+              .meai-daywin-dot { display:inline-block; width:6px; height:6px; border-radius:999px; background:var(--cp-accent); margin-left:6px; vertical-align:middle; }
+              .meai-daywin-pop { position:absolute; top:calc(100% + 6px); right:0; z-index:40; min-width:230px;
+                border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:10px; padding:12px;
+                box-shadow:0 8px 24px rgba(0,0,0,.18); }
+              .meai-daywin-grid { display:grid; grid-template-columns:auto 1fr; gap:8px 10px; align-items:center; }
+              .meai-daywin-grid label { font-size:12px; color:var(--cp-text-muted); }
+              .meai-daywin-grid input { width:100%; }
+              .meai-daywin-acts { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
               .meai-datenav { display:flex; align-items:center; gap:6px; }
               .meai-daynav-btn { width:30px; height:30px; border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:8px; cursor:pointer; color:var(--cp-text); font-size:14px; line-height:1; }
               .meai-daynav-btn:hover { border-color:var(--cp-accent); }
@@ -11688,12 +11696,17 @@
                  panel: a 2-pane horizontal track that slides so the panel replaces the
                  side-work (rather than a hover flyout). */
               .meai-side2 { grid-column:2; overflow:hidden; }
-              .meai-side2-track { display:flex; align-items:flex-start; width:200%;
+              .meai-side2-track { display:flex; align-items:flex-start; width:200%; position:relative;
                 transition:transform .32s cubic-bezier(.4,0,.2,1); }
               .meai-side2-track > .meai-pane { flex:0 0 50%; width:50%; min-width:0; }
+              /* The notification panel overlays its slot (absolute) so opening it never
+                 changes column height — that document-reflow was the source of the sticky
+                 rail's hover jitter. It slides in via the track transform and scrolls
+                 internally when tall. */
+              .meai-pane-peek { position:absolute; top:0; left:50%; width:50%; }
               .meai-side2.show-peek .meai-side2-track { transform:translateX(-50%); }
               .meai-peek-panel { border:1px solid rgba(128,128,128,.16); border-radius:10px; padding:14px 16px;
-                background:var(--cp-surface); }
+                background:var(--cp-surface); max-height:calc(100vh - 96px); overflow:auto; }
               .meai-peek-panel-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
               .meai-peek-panel-title { font-weight:700; font-size:14px; }
               .meai-peek-back { appearance:none; border:1px solid rgba(128,128,128,.16); background:var(--cp-bg);
@@ -11720,6 +11733,8 @@
                 .meai-side2 { grid-column:auto; overflow:visible; }
                 .meai-side2-track { width:100%; flex-direction:column; transform:none !important; }
                 .meai-side2-track > .meai-pane { flex:0 0 auto; width:100%; }
+                .meai-pane-peek { position:static; left:auto; width:100%; }
+                .meai-peek-panel { max-height:none; overflow:visible; }
                 .meai-peek { grid-column:auto; position:static; flex-direction:row; flex-wrap:wrap; }
                 .meai-peek-tab { flex-direction:row; width:auto; padding:8px 12px; }
                 .meai-peek-label { writing-mode:horizontal-tb; transform:none; }
@@ -11978,6 +11993,25 @@
                 </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
                 <span style="flex:1"></span>
+                <!-- Per-day work window: start early / stay late today without touching prefs -->
+                <div class="meai-daywin" x-show="meai.loaded && meai.agenda && meai.agenda.config" style="position:relative">
+                  <button class="btn ghost" type="button" @click="meAiOpenDayWin()"
+                          :title="meAiDayWinOverridden() ? 'Custom hours for this day — click to edit' : 'Set a one-off start/end for this day'">
+                    <span x-text="meAiDayWinLabel()"></span>
+                    <span x-show="meAiDayWinOverridden()" class="meai-daywin-dot" title="Custom hours for this day"></span>
+                  </button>
+                  <div class="meai-daywin-pop" x-show="meai.dayWin.open" x-transition x-cloak @click.outside="meai.dayWin.open=false">
+                    <div class="meai-daywin-grid">
+                      <label>Start</label><input type="time" x-model="meai.dayWin.start">
+                      <label>End</label><input type="time" x-model="meai.dayWin.end">
+                    </div>
+                    <div class="meai-daywin-acts">
+                      <button class="btn primary" type="button" @click="meAiApplyDayWindow()" :disabled="meai.generating">Apply to this day</button>
+                      <button class="btn ghost" type="button" x-show="meai.date===meai.today" @click="meAiStartNow()" :disabled="meai.generating" title="Set the start to right now (rounded to the grid)">Start now</button>
+                      <button class="btn ghost" type="button" x-show="meAiDayWinOverridden()" @click="meAiResetDayWindow()" :disabled="meai.generating">Reset to schedule</button>
+                    </div>
+                  </div>
+                </div>
                 <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
                         title="Working hours, work week, grid & time-of-day preferences">
                   ⚙ Hours &amp; grid
@@ -12305,7 +12339,7 @@
                       </div><!-- /.meai-side-work -->
                     </div>
                     <!-- Pane B: the active notification panel slides in over pane A -->
-                    <div class="meai-pane">
+                    <div class="meai-pane meai-pane-peek">
                       <div class="meai-peek-panel" x-show="!!(meai.peekHover||meai.peekActive)" @mouseenter="meAiPeekEnter()" @mouseleave="meAiPeekLeave()">
                         <div class="meai-peek-panel-head">
                           <button type="button" class="meai-peek-back" @click="meai.peekActive=null;meai.peekHover=null">← My day</button>
@@ -20342,6 +20376,9 @@
           peekHover: null,
           // Working hours & grid flyout.
           hoursOpen: false,
+          // Per-day work-window override ("I started early/late today") — a quick edit that
+          // supersedes the standing schedule for the viewed date only.
+          dayWin: { open: false, start: '', end: '' },
           // REQ-13 Agenda Assistant — conversational agenda control. mode: 'agenda' | 'task'.
           asst: { open: false, busy: false, input: '', messages: [], mode: 'agenda' },
         },
@@ -27042,6 +27079,71 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false, cause: 'hours' });
           this.meai.hoursOpen = false;
         },
+        // --- Per-day work window ("started early / staying late today") ---
+        // A quick one-off start/end for the VIEWED date that supersedes the standing
+        // schedule without editing saved preferences. Effective window comes from the
+        // agenda snapshot's config (which already folds in the override server-side).
+        _meAiFmtHm(hm) {
+          const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '').trim());
+          if (!m) return hm || '';
+          let h = +m[1]; const ap = h < 12 ? 'AM' : 'PM';
+          h = h % 12; if (h === 0) h = 12;
+          return h + ':' + m[2] + ' ' + ap;
+        },
+        _meAiEffWin() {
+          const ac = (this.meai.agenda && this.meai.agenda.config) || {};
+          return { start: ac.workStart || this.meai.config.workStart || '', end: ac.workEnd || this.meai.config.workEnd || '' };
+        },
+        meAiDayWinLabel() {
+          const w = this._meAiEffWin();
+          if (!w.start || !w.end) return 'Set hours';
+          return this._meAiFmtHm(w.start) + '–' + this._meAiFmtHm(w.end);
+        },
+        meAiDayWinOverridden() {
+          const ac = (this.meai.agenda && this.meai.agenda.config) || {};
+          const cs = this.meai.config || {};
+          return !!(ac.workStart && cs.workStart && (ac.workStart !== cs.workStart || ac.workEnd !== cs.workEnd));
+        },
+        meAiOpenDayWin() {
+          if (!this.meai.dayWin.open) {
+            const w = this._meAiEffWin();
+            this.meai.dayWin.start = w.start || '';
+            this.meai.dayWin.end = w.end || '';
+          }
+          this.meai.dayWin.open = !this.meai.dayWin.open;
+        },
+        async _meAiDayWinOp(extra) {
+          this.meai.generating = true;
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify(Object.assign({ date: this.meai.date }, extra)),
+            });
+            if (r && r.agenda) this.meai.agenda = r.agenda;
+            this.meai.dayWin.open = false;
+            this.toast(extra.op === 'clear_day_window' ? 'Back to your scheduled hours' : 'Hours updated for this day', 'success');
+          } catch (err) {
+            this.toast('Could not update hours: ' + (err.message || err), 'error');
+          } finally {
+            this.meai.generating = false;
+          }
+        },
+        async meAiApplyDayWindow() {
+          const s = (this.meai.dayWin.start || '').trim(), e = (this.meai.dayWin.end || '').trim();
+          if (!s && !e) { this.toast('Enter a start or end time', 'error'); return; }
+          await this._meAiDayWinOp({ op: 'set_day_window', dayStart: s, dayEnd: e });
+        },
+        async meAiResetDayWindow() { await this._meAiDayWinOp({ op: 'clear_day_window' }); },
+        async meAiStartNow() {
+          const grid = Number(this.meai.config.grid) || 10;
+          const now = new Date();
+          let mins = Math.floor((now.getHours() * 60 + now.getMinutes()) / grid) * grid;
+          const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+          const mm = String(mins % 60).padStart(2, '0');
+          this.meai.dayWin.start = hh + ':' + mm;
+          if (!this.meai.dayWin.end) { const w = this._meAiEffWin(); this.meai.dayWin.end = w.end || ''; }
+          await this.meAiApplyDayWindow();
+        },
         meAiToggleWorkDay(di) {
           di = Number(di);
           if (!Array.isArray(this.meai.config.workDays)) this.meai.config.workDays = [1, 2, 3, 4, 5];
@@ -27092,9 +27194,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const todo = { title, scope: 'work', done: false, classifying: true };
           this.meai.todos.push(todo);
           this.meai.newTodo = '';
+          // Guard against a hung classify: never leave the scope button stuck on "…".
+          const guard = new Promise((resolve) => setTimeout(() => resolve(null), 10000));
           try {
-            const r = await this.request('/api/me-ai/todo/classify', { method: 'POST', body: JSON.stringify({ title }) });
-            todo.scope = (r && r.scope === 'personal') ? 'personal' : 'work';
+            const r = await Promise.race([
+              this.request('/api/me-ai/todo/classify', { method: 'POST', body: JSON.stringify({ title }) }),
+              guard,
+            ]);
+            if (r && r.scope) todo.scope = (r.scope === 'personal') ? 'personal' : 'work';
           } catch (_) { /* keep default work */ }
           finally { todo.classifying = false; this.meAiPersistTodos(); }
         },
@@ -27102,7 +27209,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const t = this.meai.todos[i];
           if (!t) return;
           if (typeof t === 'string') { this.meai.todos[i] = { title: t, scope: 'personal', done: false, classifying: false }; }
-          else { t.scope = t.scope === 'personal' ? 'work' : 'personal'; }
+          // An explicit click is the user's decision — stop any pending auto-classify so
+          // the button resolves from "…" to their choice immediately.
+          else { t.classifying = false; t.scope = t.scope === 'personal' ? 'work' : 'personal'; }
           this.meAiPersistTodos();
         },
         // REQ-3: mark a todo done/undone. Done todos are dropped from planning and do NOT
