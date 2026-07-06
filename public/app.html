@@ -10837,10 +10837,8 @@
                   <span class="nlx-src">
                     <strong x-text="devPageCards().length"></strong>
                     <span x-text="(devPageCards().length === 1 ? ' dev card' : ' dev cards')"></span>
+                    <span class="hint" style="margin-left:6px" x-text="'of ' + devPageStats().total + ' total'"></span>
                   </span>
-                  <div class="nlx-stage-actions">
-                    <span class="hint" x-text="'of ' + devPageStats().total + ' total'"></span>
-                  </div>
                 </div>
                 <div class="nlx-scroll">
                   <div x-show="!devPageCards().length" class="empty-state">
@@ -11851,7 +11849,7 @@
               .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
               .meai-block-time { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; padding-top:12px; text-align:right; }
               .meai-block-body { position:relative; z-index:1; border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:10px 14px; background:var(--cp-surface); margin-bottom:8px; touch-action:pan-y; }
-              .meai-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:var(--cp-text-muted); font-size:15px; line-height:1; cursor:pointer; padding:2px 5px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); opacity:.35; transition:opacity .12s; }
+              .meai-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:var(--cp-text-muted); font-size:15px; line-height:1; cursor:pointer; padding:2px 5px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); opacity:0; transition:opacity .12s; }
               .meai-block-body:hover .meai-dismiss, .meai-na-item:hover .meai-dismiss { opacity:.85; }
               .meai-dismiss:hover { opacity:1 !important; color:var(--cp-text); background:var(--cp-hover,rgba(0,0,0,.05)); }
               /* Swipe-to-dispose: the acts strip sits behind the opaque body; the body slides
@@ -14474,7 +14472,7 @@
           <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'prs'">
             <style>
               /* Code Flow: two-column studio (sticky rail + bordered stage) echoing the Newsletter layout */
-              .cf-tabs { display:flex; gap:20px; border-bottom:1px solid var(--cp-border); margin:0 0 18px; }
+              .cf-tabs { display:flex; gap:20px; border-bottom:1px solid var(--cp-border); margin:0 0 18px; position:sticky; top:0; z-index:20; background:var(--cp-bg); }
               .cf-tab { background:transparent; border:0; border-bottom:2px solid transparent; color:var(--cp-text-soft); padding:9px 2px; margin-bottom:-1px; font-size:14px; font-weight:600; cursor:pointer; transition:color .15s, border-color .15s; }
               .cf-tab:hover { color:var(--cp-text); }
               .cf-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
@@ -14665,6 +14663,14 @@
                     <input type="checkbox" :checked="codeflow.reviewsOnly" @change="toggleReviewsOnly()">
                     <span>Reviews needed from me</span>
                   </label>
+                  <div class="nlx-fld">
+                    <label>Type</label>
+                    <select class="field-input cf-select" x-model="codeflow.filterProvider">
+                      <option value="">All types</option>
+                      <option value="azdo">Azure DevOps</option>
+                      <option value="github">GitHub</option>
+                    </select>
+                  </div>
                   <div class="nlx-fld">
                     <label>Repository</label>
                     <select class="field-input cf-select" x-model="codeflow.filterRepo">
@@ -19698,7 +19704,11 @@
         </div>
         <div x-show="whatsNew.summary.ready && whatsNew.entries.length" style="font-size:.78rem;font-weight:600;opacity:.55;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 -4px">Release notes</div>
         <div class="empty-state" x-show="whatsNew.loading">Loading release notes…</div>
-        <div class="empty-state" x-show="!whatsNew.loading && !whatsNew.entries.length">No release notes yet.</div>
+        <div class="empty-state" x-show="!whatsNew.loading && whatsNew.error && !whatsNew.entries.length" style="display:flex;flex-direction:column;gap:8px;align-items:center">
+          <span x-text="whatsNew.error"></span>
+          <button class="btn ghost" type="button" @click="loadWhatsNew()">↻ Retry</button>
+        </div>
+        <div class="empty-state" x-show="!whatsNew.loading && !whatsNew.error && !whatsNew.entries.length">No release notes yet.</div>
         <template x-for="(e, ei) in whatsNew.entries" :key="e.version + ':' + ei">
           <div style="padding:16px 0;border-bottom:1px solid var(--cp-border)">
             <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
@@ -20699,7 +20709,7 @@
         _whatsNewChecked: false,
         // "What's new" release-notes dialog. Populated from /api/whats-new; shown
         // automatically the first time the app runs after a version bump.
-        whatsNew: { open: false, current: '', entries: [], expanded: {}, loading: false, summary: { loading: false, ready: false, headline: '', summary: '', highlights: [] } },
+        whatsNew: { open: false, current: '', entries: [], expanded: {}, loading: false, error: '', summary: { loading: false, ready: false, headline: '', summary: '', highlights: [] } },
         // In-app feedback -> GitHub issue.
         feedback: { open: false, topic: 'General', mood: '', text: '', includeShot: false, shot: '', capturing: false, submitting: false, error: '', done: null },
         mobileNavOpen: false,
@@ -21282,6 +21292,7 @@
           attentionCount: 0,
           fetchedAt: null,
           filterRepo: '',        // repoId filter ('' = all)
+          filterProvider: '',    // provider filter ('' = all | 'azdo' | 'github')
           sort: 'attention',     // 'attention' | 'newest' | 'oldest' | 'age' | 'urgency'
           groupBy: (localStorage.getItem('cfGroupBy') || 'none'),  // 'none' | 'repo' | 'state' | 'urgency' | 'approval'
           ai: {},                // prId -> { summary, urgency, urgencyReason }
@@ -31094,6 +31105,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         filteredCodeflowPrs() {
           let list = (this.codeflow.pullRequests || []).slice();
+          if (this.codeflow.filterProvider) {
+            const want = this.codeflow.filterProvider === 'github' ? 'github' : 'azdo';
+            list = list.filter(p => (String(p.provider || 'azdo').toLowerCase() === 'github' ? 'github' : 'azdo') === want);
+          }
           if (this.codeflow.filterRepo) {
             list = list.filter(p => p.repoId === this.codeflow.filterRepo);
           }
@@ -42986,12 +43001,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async loadWhatsNew() {
           this.whatsNew.loading = true;
+          this.whatsNew.error = '';
           try {
             const r = await this.request('/api/whats-new');
             this.whatsNew.current = r.current || (this.data.version && this.data.version.version) || '';
-            this.whatsNew.entries = Array.isArray(r.entries) ? r.entries : [];
+            const entries = Array.isArray(r.entries) ? r.entries : [];
+            // Only replace what we're showing when the fetch actually yields notes.
+            // A transient/empty response must not blank a previously-good list —
+            // that's what left the modal stuck on "No release notes yet.".
+            if (entries.length || !this.whatsNew.entries.length) this.whatsNew.entries = entries;
           } catch (e) {
-            this.whatsNew.entries = [];
+            // Keep any entries we already have; surface an error so the modal can
+            // offer a retry instead of falsely claiming there are no notes.
+            this.whatsNew.error = 'Could not load release notes.';
           } finally {
             this.whatsNew.loading = false;
           }
@@ -43000,7 +43022,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async openWhatsNew() {
           this.whatsNew.open = true;
           this.whatsNew.expanded = {};
-          if (!this.whatsNew.entries.length) await this.loadWhatsNew();
+          // Always refresh on open so the modal never shows stale/empty state that
+          // a prior failed load left behind (this is the local-browser bug).
+          await this.loadWhatsNew();
           // Kick off the AI digest in the background (non-blocking) so the raw
           // notes render immediately and the summary fills in when ready.
           this.loadWhatsNewSummary();
