@@ -18410,7 +18410,7 @@
                   </template>
                 </div>
                 <button class="btn" type="button" @click="loadReports(); if (reportView === 'focus') loadMeaiReport()" :disabled="reportsLoading">↻ Refresh</button>
-                <button class="btn" type="button" @click="emailReport()" :disabled="reportsLoading || !reports" title="Open this report in your mail client">✉ Email report</button>
+                <button class="btn" type="button" @click="emailReport()" :disabled="reportView === 'focus' ? (meaiReportLoading || !(meaiReport && meaiReport.summary)) : (reportsLoading || !reports)" title="Open this report in your mail client">✉ Email report</button>
               </div>
             </div>
 
@@ -18653,6 +18653,15 @@
                     </div>
                   </div>
 
+                  <!-- Time saved by activity chart -->
+                  <div class="card" style="margin-bottom:20px" x-show="prodRows().length">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Time saved by activity</h3>
+                      <span class="hint">Ranked — where the system gave you the most back</span>
+                    </div>
+                    <div class="report-chart" x-html="prodSavedChart()"></div>
+                  </div>
+
                   <!-- Methodology -->
                   <div class="card">
                     <h3 style="margin-bottom:10px">How this is estimated</h3>
@@ -18757,9 +18766,24 @@
                     </div>
                   </div>
 
-                  <div class="card" style="margin-bottom:20px">
+                  <!-- Time allocation trend -->
+                  <div class="card" style="margin-bottom:20px" x-show="meaiActiveDays().length">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
-                      <h3 style="margin:0">Day shape</h3>
+                      <h3 style="margin:0">How your time split, day by day</h3>
+                      <span class="hint">Each bar is one day — see the mix shift over the range</span>
+                    </div>
+                    <div class="report-chart" x-html="meaiTrendChart()"></div>
+                    <div class="meai-timebar-legend" style="margin-top:10px">
+                      <template x-for="s in meaiTimeBars()" :key="s.key">
+                        <span class="meai-legend" x-show="s.min > 0">
+                          <span class="meai-legend-dot" :style="`background:${s.color}`"></span>
+                          <span x-text="s.label"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="card" style="margin-bottom:20px">
                       <span class="hint">How focused vs. fragmented each tracked day was</span>
                     </div>
                     <p class="hint" style="margin:0 0 14px">Derived from organic agenda churn — reschedules, slips and late adds. Deliberate planning changes (switching day mode, time-of-day prefs, manual edits) are recorded separately and never count against a day.</p>
@@ -18773,6 +18797,15 @@
                       </div>
                     </template>
                     <div class="hint" x-show="!meaiReport.summary.activeDays" style="margin-top:4px">No tracked days in this range yet.</div>
+                  </div>
+
+                  <!-- Fragmentation trend -->
+                  <div class="card" style="margin-bottom:20px" x-show="meaiActiveDays().length">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Fragmentation over time</h3>
+                      <span class="hint">Churn per day (reschedules + slips + late adds), colored by shape</span>
+                    </div>
+                    <div class="report-chart" x-html="meaiChurnChart()"></div>
                   </div>
 
                   <!-- Triage decisions -->
@@ -43458,10 +43491,55 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return out;
         },
 
+        // Focus & flow report — driven by meaiReport (NOT the usage `reports` object), so
+        // emailing from the Focus tab sends the right data instead of the usage report.
+        buildMeaiReportEmailHtml() {
+          const r = this.meaiReport;
+          if (!r || !r.summary) return '';
+          const s = r.summary;
+          const esc = (v) => String(v == null ? '' : v).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+          const rangeTxt = 'Last ' + this.reportRange + ' days';
+          const pct = (x) => Math.round((Number(x) || 0) * 100) + '%';
+          const churn = (Number(s.reschedule) || 0) + (Number(s.slip) || 0) + (Number(s.add) || 0);
+          let out = `<h1>🎯 Focus &amp; flow report</h1><p class="sub">${esc(rangeTxt)} · how your days held their shape</p>`;
+          out += `<div class="cards">`;
+          out += `<span class="stat"><span class="l">Focused days</span><br><span class="v">${esc(s.focusDays + '/' + s.activeDays)}</span></span>`;
+          out += `<span class="stat"><span class="l">Fragmentation</span><br><span class="v">${esc(churn)}</span></span>`;
+          out += `<span class="stat"><span class="l">Planning adjustments</span><br><span class="v">${esc(s.planned)}</span></span>`;
+          out += `<span class="stat"><span class="l">Me-agents launched</span><br><span class="v">${esc(s.agentsLaunched)}</span></span></div>`;
+          out += `<h2>Your impact</h2><table><thead><tr><th>Measure</th><th class="num">Value</th></tr></thead><tbody>`;
+          out += `<tr><td>✅ Delivered</td><td class="num">${esc(s.delivered)}</td></tr>`;
+          out += `<tr><td>🔓 Unblocked</td><td class="num">${esc(s.unblocked)}</td></tr>`;
+          out += `<tr><td>✨ Multiplied (agent time)</td><td class="num">${esc(this.meaiHrs(s.multipliedMin))}</td></tr>`;
+          out += `<tr><td>🛡 Protected focus</td><td class="num">${esc(this.meaiHrs(s.protectedMin))}</td></tr>`;
+          out += `<tr><td>💬 Responded</td><td class="num">${esc(this.meaiHrs(s.respondedMin))}</td></tr>`;
+          out += `<tr><td>🎯 Effective (focus share)</td><td class="num">${esc(pct(s.focusShare))}</td></tr></tbody></table>`;
+          out += `<h2>Where the time went</h2><table><thead><tr><th>Kind</th><th class="num">Time</th></tr></thead><tbody>`;
+          this.meaiTimeBars().forEach(b => { if (b.min > 0) out += `<tr><td>${esc(b.label)}</td><td class="num">${esc(b.hrs)}</td></tr>`; });
+          out += `</tbody></table>`;
+          out += `<h2>Triage decisions</h2><table><thead><tr><th>Decision</th><th class="num">Count</th></tr></thead><tbody>`;
+          out += `<tr><td>🙌 Not mine (handed off)</td><td class="num">${esc(s.notMine)}</td></tr>`;
+          out += `<tr><td>🚫 Won't fix (declined)</td><td class="num">${esc(s.wontFix)}</td></tr>`;
+          out += `<tr><td>↪ Todos carried over</td><td class="num">${esc(s.todosCarried)}</td></tr></tbody></table>`;
+          const days = this.meaiActiveDays();
+          if (days.length) {
+            out += `<h2>Daily activity</h2><table><thead><tr><th>Day</th><th>Shape</th><th class="num">Blocks</th><th class="num">Focus</th><th class="num">Meetings</th><th class="num">Delivered</th><th class="num">Unblocked</th><th class="num">Agents</th><th class="num">Carried</th><th class="num">Churn</th></tr></thead><tbody>`;
+            days.forEach(d => {
+              const c = (Number(d.reschedule) || 0) + (Number(d.slip) || 0) + (Number(d.add) || 0);
+              out += `<tr><td>${esc(this.meaiDayLabel(d.date))}</td><td>${esc(d.shape || '—')}</td><td class="num">${esc(d.blocks)}</td><td class="num">${esc(d.focus)}</td><td class="num">${esc(d.meetings)}</td><td class="num">${esc(d.delivered || '—')}</td><td class="num">${esc(d.unblocked || '—')}</td><td class="num">${esc(d.agentsLaunched)}</td><td class="num">${esc(d.todosCarried)}</td><td class="num">${esc(c || '—')}</td></tr>`;
+            });
+            out += `</tbody></table>`;
+          }
+          out += `<p class="foot">Generated by TheOffice.AI · ${esc(new Date().toLocaleString())}</p>`;
+          return out;
+        },
+
         async emailReport() {
-          if (!this.reports) { this.showToast('No report', 'Nothing to email yet.', 'warning'); return; }
-          const html = this.buildReportEmailHtml();
-          const subject = (this.reportView === 'productivity' ? 'Productivity report' : 'AI usage report') + ' — last ' + this.reportRange + ' days';
+          const isFocus = this.reportView === 'focus';
+          const ready = isFocus ? !!(this.meaiReport && this.meaiReport.summary) : !!this.reports;
+          if (!ready) { this.showToast('No report', 'Nothing to email yet.', 'warning'); return; }
+          const html = isFocus ? this.buildMeaiReportEmailHtml() : this.buildReportEmailHtml();
+          const subject = (isFocus ? 'Focus & flow report' : this.reportView === 'productivity' ? 'Productivity report' : 'AI usage report') + ' — last ' + this.reportRange + ' days';
           try {
             const res = await fetch('/api/reports/email', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -43712,6 +43790,107 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const min = Math.max(0, Number(d.min) || 0);
             return { ...d, min, pct: total ? (min / total) * 100 : 0, hrs: this.meaiHrs(min) };
           });
+        },
+
+        // Active-day series (chronological, oldest→newest) for the trend charts.
+        _meaiSeries() {
+          const s = (this.meaiReport && Array.isArray(this.meaiReport.series)) ? this.meaiReport.series : [];
+          return s.filter(d => d && d.hasActivity);
+        },
+
+        // Shared x-axis day labels (first / middle / last) for a bar-per-day chart.
+        _meaiXAxis(s, padL, plotW, bw, n, H) {
+          const idx = [0, Math.floor(n / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i);
+          let out = '';
+          idx.forEach(i => {
+            const x = padL + i * (plotW / n) + bw / 2;
+            const lbl = String(s[i].date || '').slice(5);
+            const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+            out += `<text class="lbl" x="${x.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}">${lbl}</text>`;
+          });
+          return out;
+        },
+
+        // Focus & flow: stacked daily bars of how work time split by kind, day by day —
+        // shows the mix shifting across the window (management-friendly trend view).
+        meaiTrendChart() {
+          const s = this._meaiSeries();
+          if (!s.length) return '';
+          const segs = [
+            { key: 'focusMin', color: 'var(--cp-success,#22c55e)', label: 'Focus' },
+            { key: 'meetingMin', color: 'var(--cp-danger,#ef4444)', label: 'Meetings' },
+            { key: 'reviewMin', color: 'var(--cp-accent,#6366f1)', label: 'Reviews' },
+            { key: 'stewardMin', color: '#0ea5e9', label: 'Stewarding' },
+            { key: 'commsMin', color: 'var(--cp-warning,#f59e0b)', label: 'Comms' },
+            { key: 'prepMin', color: '#a855f7', label: 'Prep' },
+            { key: 'adminMin', color: 'var(--cp-text-muted,#9ca3af)', label: 'Admin' },
+          ];
+          const W = 720, H = 220, padL = 8, padR = 8, padT = 14, padB = 26;
+          const plotW = W - padL - padR, plotH = H - padT - padB;
+          const totals = s.map(d => segs.reduce((a, g) => a + (Number(d[g.key]) || 0), 0));
+          const max = Math.max(...totals, 0.0001);
+          const n = s.length, gap = 2, bw = Math.max(1, (plotW / n) - gap);
+          let bars = '';
+          s.forEach((d, i) => {
+            const x = padL + i * (plotW / n);
+            let yb = padT + plotH; // baseline, stack upward
+            segs.forEach(g => {
+              const v = Number(d[g.key]) || 0;
+              if (v <= 0) return;
+              const h = (v / max) * plotH;
+              yb -= h;
+              bars += `<rect x="${x.toFixed(1)}" y="${yb.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${g.color}"><title>${this.meaiDayLabel(d.date)} · ${g.label}: ${this.meaiHrs(v)}</title></rect>`;
+            });
+          });
+          const axisY = padT + plotH + 0.5;
+          const peak = `<text class="lbl" x="${padL}" y="${padT - 2}" text-anchor="start">peak ${this.meaiHrs(max)}</text>`;
+          return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily time allocation">`
+            + `${peak}<line class="axis" x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}"/>${bars}${this._meaiXAxis(s, padL, plotW, bw, n, H)}</svg>`;
+        },
+
+        // Focus & flow: daily fragmentation (reschedule + slip + late-add) as bars colored
+        // by that day's shape — the "how bumpy was each day" trend.
+        meaiChurnChart() {
+          const s = this._meaiSeries();
+          if (!s.length) return '';
+          const W = 720, H = 200, padL = 8, padR = 8, padT = 14, padB = 26;
+          const plotW = W - padL - padR, plotH = H - padT - padB;
+          const vals = s.map(d => (Number(d.reschedule) || 0) + (Number(d.slip) || 0) + (Number(d.add) || 0));
+          const max = Math.max(...vals, 1);
+          const n = s.length, gap = 2, bw = Math.max(1, (plotW / n) - gap);
+          let bars = '';
+          s.forEach((d, i) => {
+            const v = vals[i], h = (v / max) * plotH;
+            const x = padL + i * (plotW / n), y = padT + (plotH - h);
+            bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" rx="2" fill="${this.meaiShapeColor(d.shape)}"><title>${this.meaiDayLabel(d.date)} · ${d.shape || '—'} · ${v} churn event(s)</title></rect>`;
+          });
+          const axisY = padT + plotH + 0.5;
+          const peak = `<text class="lbl" x="${padL}" y="${padT - 2}" text-anchor="start">peak ${max}</text>`;
+          return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily fragmentation">`
+            + `${peak}<line class="axis" x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}"/>${bars}${this._meaiXAxis(s, padL, plotW, bw, n, H)}</svg>`;
+        },
+
+        // Productivity: horizontal "time saved by activity" bars — ranked, capped to keep it
+        // legible. Distinct visual to the by-activity table below it.
+        prodSavedChart() {
+          const rows = (this.prodRows() || []).filter(r => (Number(r.savedMin) || 0) > 0).slice(0, 12);
+          if (!rows.length) return '';
+          const esc = (v) => String(v == null ? '' : v).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+          const W = 720, padL = 8, padR = 8, padT = 4, rowH = 26, labelW = 150, valW = 70;
+          const plotW = W - padL - padR - labelW - valW;
+          const H = padT * 2 + rows.length * rowH;
+          const max = Math.max(...rows.map(r => Number(r.savedMin) || 0), 0.0001);
+          let out = '';
+          rows.forEach((r, i) => {
+            const y = padT + i * rowH, mid = y + rowH / 2 + 3.5;
+            const v = Number(r.savedMin) || 0, w = (v / max) * plotW;
+            let label = this.reportCategoryLabel(r.category) || r.category || '';
+            if (label.length > 22) label = label.slice(0, 21) + '…';
+            out += `<text class="lbl" x="${padL}" y="${mid.toFixed(1)}" style="font-size:11px;fill:var(--cp-text)">${esc(label)}</text>`;
+            out += `<rect x="${padL + labelW}" y="${(y + 4).toFixed(1)}" width="${Math.max(1, w).toFixed(1)}" height="${rowH - 10}" rx="3" fill="var(--cp-accent)"><title>${esc(label)}: ${esc(this.formatMinutes(v))}</title></rect>`;
+            out += `<text class="lbl" x="${(padL + labelW + w + 6).toFixed(1)}" y="${mid.toFixed(1)}" style="font-size:10px">${esc(this.formatMinutes(v))}</text>`;
+          });
+          return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Time saved by activity">${out}</svg>`;
         },
 
         setProdAggressiveness(v) {
