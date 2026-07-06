@@ -11888,6 +11888,14 @@
               .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; cursor:pointer; }
               /* Inline pending-action panel on a paused lane row (approve without the console). */
               .meai-lane-ask { padding:2px 0 10px; }
+              .meai-lane-ask-open { padding:9px 11px; margin:2px 0 8px; border:1px solid var(--cp-border); border-left:3px solid var(--cp-text-muted); border-radius:8px; background:color-mix(in srgb, var(--cp-surface) 70%, transparent); cursor:pointer; transition:border-color .12s, background .12s; }
+              .meai-lane-ask-open:hover { border-color:var(--cp-accent); border-left-color:var(--cp-accent); background:var(--cp-surface); }
+              .meai-lane-ask-open.approval { border-left-color:var(--cp-warning,#d97706); background:color-mix(in srgb, var(--cp-warning,#d97706) 8%, var(--cp-surface)); }
+              .meai-lane-ask-open.approval:hover { border-color:var(--cp-warning,#d97706); }
+              .meai-lane-ask-head { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--cp-text); margin-bottom:5px; }
+              .meai-lane-ask-ico { font-size:12px; }
+              .meai-lane-ask-list { display:flex; flex-direction:column; gap:4px; margin-bottom:2px; }
+              .meai-lane-ask-line { display:flex; align-items:flex-start; gap:6px; font-size:12px; color:var(--cp-text); line-height:1.35; }
               .meai-lane-ask-q { font-size:12px; color:var(--cp-text); line-height:1.4; margin-bottom:6px; }
               .meai-lane-ask-hint { color:var(--cp-text-muted); font-weight:600; }
               .meai-lane-ask-acts { display:flex; flex-wrap:wrap; gap:6px; }
@@ -11935,6 +11943,9 @@
               .meai-ev-choice { color:var(--cp-text); }
               .meai-ev-choice strong { color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
               .meai-report { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:12px 0; background:var(--cp-surface); }
+              .meai-report.compact { padding:8px 12px; background:transparent; border-style:dashed; opacity:.85; }
+              .meai-report-toggle { display:flex; align-items:center; gap:6px; width:100%; background:none; border:0; padding:2px 0; cursor:pointer; font-size:12.5px; color:var(--cp-text-muted); text-align:left; }
+              .meai-report-toggle:hover { color:var(--cp-text); }
               .meai-report h5 { margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); }
               .meai-report-sum { font-size:14px; color:var(--cp-text); line-height:1.5; }
               .meai-finding { padding:8px 0; border-top:1px solid var(--cp-border); }
@@ -12407,29 +12418,44 @@
                             </div>
                             </div>
                           </div>
-                          <!-- Inline pending-action panel: when the agent is paused it shows WHAT it
-                               wants to do (its question or proposed next actions) so you can approve
-                               right here without opening the console. Writes/sends are flagged. -->
+                          <!-- Pending panel: the agent is a BACKGROUND worker, so when it pauses
+                               the lane just SIGNALS what it needs (an answer, or approval for a
+                               write/send) and the whole panel opens the console — where you can
+                               read what it did and approve or decline. No inline approve here:
+                               approving blind from a one-line lane row isn't intuitive. -->
                           <template x-if="meAiLanePending(tk)">
-                            <div class="meai-lane-ask" @pointerdown.stop @click.stop>
-                              <div class="meai-lane-ask-q" x-show="tk.question" x-text="tk.question"></div>
-                              <div class="meai-lane-ask-q meai-lane-ask-hint" x-show="!tk.question && (tk.nextActions||[]).length">Wants your go-ahead:</div>
-                              <div class="meai-lane-ask-acts" x-show="(tk.nextActions||[]).length">
-                                <template x-for="(a, ai) in tk.nextActions" :key="ai">
-                                  <button type="button" class="meai-lane-ask-btn"
-                                          :class="{ primary: a.primary, write: a.risk==='write' || a.risk==='external' }"
-                                          :disabled="meai.laneActingId===tk.id"
-                                          @click="meAiLaneAct(tk, a.intent, a.label, a.risk)"
-                                          :title="(a.risk==='external' ? 'Sends/posts externally · ' : a.risk==='write' ? 'Makes a change · ' : '') + a.label">
-                                    <span x-show="a.risk==='write' || a.risk==='external'" class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'"></span>
-                                    <span x-text="a.label"></span>
-                                  </button>
-                                </template>
-                              </div>
-                              <div class="meai-lane-ask-foot">
-                                <a href="#" @click.prevent="meAiOpenTask(tk)">Open console</a>
-                                <span x-show="tk.question" style="opacity:.7">·&nbsp;answer needs the console</span>
-                              </div>
+                            <div class="meai-lane-ask meai-lane-ask-open"
+                                 :class="{ approval: meAiLaneApprovalNeeded(tk) }"
+                                 role="button" tabindex="0"
+                                 @pointerdown.stop @click.stop="meAiOpenTask(tk)"
+                                 @keydown.enter.stop="meAiOpenTask(tk)">
+                              <template x-if="meAiLaneApprovalNeeded(tk)">
+                                <div>
+                                  <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">⚠️</span> Approval requested</div>
+                                  <div class="meai-lane-ask-list">
+                                    <template x-for="(a, ai) in meAiLaneApprovalList(tk)" :key="ai">
+                                      <div class="meai-lane-ask-line">
+                                        <span class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'" :title="a.risk==='external' ? 'Sends/posts externally' : 'Makes a change'"></span>
+                                        <span x-text="a.label"></span>
+                                      </div>
+                                    </template>
+                                  </div>
+                                  <div class="meai-lane-ask-foot"><span>Open to approve or decline →</span></div>
+                                </div>
+                              </template>
+                              <template x-if="!meAiLaneApprovalNeeded(tk) && tk.question">
+                                <div>
+                                  <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">❓</span> Waiting on your answer</div>
+                                  <div class="meai-lane-ask-q" x-text="tk.question"></div>
+                                  <div class="meai-lane-ask-foot"><span>Open to respond →</span></div>
+                                </div>
+                              </template>
+                              <template x-if="!meAiLaneApprovalNeeded(tk) && !tk.question">
+                                <div>
+                                  <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">•</span> Ready for your review</div>
+                                  <div class="meai-lane-ask-foot"><span>Open the console →</span></div>
+                                </div>
+                              </template>
                             </div>
                           </template>
                           </div>
@@ -12685,8 +12711,15 @@
                     </template>
                     <!-- Report card -->
                     <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length || meai.console.report.diff || meai.console.report.draft)">
-                      <div class="meai-report">
-                        <h5>Report</h5>
+                      <div class="meai-report" :class="{ compact: meai.console.question && !meai.reportOpen }">
+                        <template x-if="meai.console.question">
+                          <button type="button" class="meai-report-toggle" @click="meai.reportOpen=!meai.reportOpen">
+                            <span class="meai-prev-caret" :class="{open:meai.reportOpen}">▸</span>
+                            <span x-text="meai.reportOpen ? 'Hide what I found so far' : 'Show what I found so far'"></span>
+                          </button>
+                        </template>
+                        <template x-if="!meai.console.question"><h5>Report</h5></template>
+                        <div x-show="!meai.console.question || meai.reportOpen">
                         <div class="meai-report-sum" x-text="meai.console.report.summary"></div>
                         <template x-for="(f, fi) in (meai.console.report.findings||[])" :key="fi">
                           <div class="meai-finding">
@@ -12723,6 +12756,7 @@
                             </div>
                           </div>
                         </template>
+                        </div>
                       </div>
                     </template>
                     <div class="meai-working" x-show="meai.console.status==='running'">
@@ -20603,8 +20637,8 @@
           generating: false,
           savingSettings: false,
           config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], mode: 'balanced', timePrefs: {} },
-          date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} return new Date().toISOString().slice(0, 10); })(),
-          today: new Date().toISOString().slice(0, 10),
+          date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
+          today: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
           newTodo: '',
           todos: [],             // draft todos for the day (title strings), fed into generate
@@ -20619,6 +20653,7 @@
           consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
+          reportOpen: false,     // report card force-expanded while a question is pending
           traceOpen: true,       // background agent → reasoning/tools visible by default
           laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
           laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
@@ -25138,7 +25173,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // viewed date (which #8 may hold on a future day).
         async loadHomeAgenda() {
           if (this.appMode !== 'workspace' || !this.featureVisible('me-ai')) return;
-          const today = new Date().toISOString().slice(0, 10);
+          const today = this._meLocalDay();
           this.homeAgenda.loading = true;
           try {
             const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(today));
@@ -26983,12 +27018,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // ---- Code Flow (Azure DevOps PR monitoring) ----------------------------
         // ===== Connect (living impact / performance diary) =====
         // ===== Me.AI methods (M1 read-only agenda) =====
+        // Local calendar day (YYYY-MM-DD) in the BROWSER's timezone. Never use
+        // toISOString().slice(0,10) for "today" — that is UTC and rolls over to
+        // tomorrow after ~5pm PDT, which made the Me.AI page think today was tomorrow.
+        _meLocalDay(d) {
+          const x = d ? new Date(d) : new Date();
+          return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+        },
         async loadMeAi() {
           this.meai.loading = true;
           try {
             const r = await this.request('/api/me-ai');
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
-            const today = new Date().toISOString().slice(0, 10);
+            const today = this._meLocalDay();
             this.meai.today = today;
             // #8 persist the viewed date across navigation. Restore what was saved, but
             // don't strand the user on a stale PAST date after the day rolls over — keep
@@ -27509,7 +27551,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiShiftDate(days) {
           const d = new Date(this.meai.date + 'T00:00:00');
           d.setDate(d.getDate() + days);
-          this.meai.date = d.toISOString().slice(0, 10);
+          this.meai.date = this._meLocalDay(d);
           try { localStorage.setItem('meAiDate', this.meai.date); } catch (_) {}
           this.meAiLoadAgenda();
         },
@@ -27948,6 +27990,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (tk.stage === 'done') return false;
           return !!tk.question || (Array.isArray(tk.nextActions) && tk.nextActions.length > 0);
         },
+        // Proposed next-actions that actually change something (write) or send/post
+        // externally (external) — these are the ones that need the user's approval.
+        meAiLaneApprovalList(tk) {
+          if (!tk || !Array.isArray(tk.nextActions)) return [];
+          return tk.nextActions.filter(a => a && (a.risk === 'write' || a.risk === 'external'));
+        },
+        meAiLaneApprovalNeeded(tk) {
+          return this.meAiLaneApprovalList(tk).length > 0;
+        },
         // Approve/choose an action straight from the lane (the click IS the confirmation).
         // Reuses the same /act path as the console; merges the result into lane + console.
         async meAiLaneAct(tk, intent, label, risk) {
@@ -27978,7 +28029,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         meAiOpenTask(id) {
-          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = true;
+          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = true; this.meai.reportOpen = false;
           const t = this.meai._taskById[id];
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); }

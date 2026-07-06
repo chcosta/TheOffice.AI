@@ -11085,6 +11085,15 @@ function _meAiSanitizeWorkDays(v) {
   return out; // may legitimately be empty (user works no days)
 }
 
+// Local calendar day (YYYY-MM-DD) in the SERVER's timezone. Mirrors the client's
+// _meLocalDay — never use toISOString().slice(0,10) for "today", that is UTC and
+// rolls over to tomorrow in the evening for negative-offset zones (the "me.ai page
+// thinks today is tomorrow" bug). In desktop mode server and client share the
+// machine timezone, so this matches what the user sees.
+function _meAiLocalDay(d) {
+  const x = d ? new Date(d) : new Date();
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
 function _meAiConfig(s) {
   s = s || settings.getSettings();
   const targets = _connectAdoTargets(s);
@@ -11732,7 +11741,7 @@ function _meAiDayShapeText(churn) {
 function _meAiWriteDayShape(date) {
   const s = settings.getSettings();
   if (!s.meAiConsent) return { written: false, reason: 'consent-off' };
-  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const day = String(date || '').slice(0, 10) || _meAiLocalDay();
   const churn = _meAiChurnSummary(loadChangesForDate(day).events);
   const detail = _meAiDayShapeText(churn);
   const extTag = 'ext:me-ai:dayshape:' + day;
@@ -11922,6 +11931,47 @@ function _meAiGatherCodeflow() {
       if (!rec || typeof rec !== 'object') continue;
       const title = rec.title || rec.prTitle || rec.workItemTitle || rec.branch || key;
       signals.push({ kind: 'worktree', type: 'focus', title: `Code Flow: ${title}`, detail: rec.branch ? `branch ${rec.branch}` : '', link: '', urgency: 2, source: 'codeflow' });
+    }
+  } catch { /* best-effort */ }
+  return signals;
+}
+
+// Dev cards → active development work the user has explicitly set up (a worktree,
+// often a branch/PR + work item). A non-archived dev card is committed work, so it
+// earns an agenda slot. We SKIP our own Me.AI-managed day-board cards (they are
+// projected FROM the agenda by _meAiSyncDayBoard, so re-ingesting them would loop).
+// The signal links to the work item so it dedups against the ADO/GitHub work-item
+// signal for the same item (link-keyed) instead of double-surfacing.
+function _meAiGatherDevCards() {
+  const signals = [];
+  try {
+    for (const c of devStore.all()) {
+      if (!c || c.archived) continue;
+      if (c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID) continue; // our own managed projection
+      const wi = c.workItem || {};
+      const wid = wi.id || c.workItemId || '';
+      const link = wi.url || '';
+      const bits = [];
+      if (c.repo) bits.push(c.repo);
+      if (c.branch) bits.push(`branch ${c.branch}`);
+      if (c.prId) bits.push(`PR !${c.prId}`);
+      // A dev card with an open PR is closer to the finish line → nudge urgency up a
+      // notch; a plain worktree in progress is steady focus work.
+      const urgency = c.prId ? 4 : 3;
+      signals.push({
+        kind: 'dev',
+        type: 'focus',
+        title: `Dev: ${c.title || wid || c.id}`,
+        detail: bits.join(' · '),
+        link,
+        urgency,
+        source: 'devcard',
+        provider: c.provider || (wi.provider) || 'azdo',
+        org: c.org || '',
+        project: c.project || '',
+        repo: c.repo || '',
+        devId: c.id,
+      });
     }
   } catch { /* best-effort */ }
   return signals;
@@ -12237,13 +12287,14 @@ async function _meAiGatherSignals(s, cfg, day, { force = false } = {}) {
   const run = (async () => {
     const signals = [];
     const errors = [];
-    const sources = { m365: false, azdo: false, github: false, codeflow: false };
+    const sources = { m365: false, azdo: false, github: false, codeflow: false, devcards: false };
     if (cfg.consent) {
       try { const m365 = await _meAiGatherM365(day); if (m365.length) { signals.push(...m365); sources.m365 = true; } } catch (e) { errors.push('m365: ' + (e && e.message || e)); }
       try { const ado = await _meAiGatherAdo(s, day); if (ado.signals.length) { signals.push(...ado.signals); sources.azdo = true; } if (ado.errors.length) errors.push(...ado.errors); } catch (e) { errors.push('azdo: ' + (e && e.message || e)); }
       try { const gh = await _meAiGatherGithub(s, day); if (gh.signals.length) { signals.push(...gh.signals); sources.github = true; } if (gh.errors.length) errors.push(...gh.errors); } catch (e) { errors.push('github: ' + (e && e.message || e)); }
     }
     try { const cf = _meAiGatherCodeflow(); if (cf.length) { signals.push(...cf); sources.codeflow = true; } } catch (e) { errors.push('codeflow: ' + (e && e.message || e)); }
+    try { const dv = _meAiGatherDevCards(); if (dv.length) { signals.push(...dv); sources.devcards = true; } } catch (e) { errors.push('devcards: ' + (e && e.message || e)); }
     const entry = { signals, sources, errors, at: Date.now() };
     ME_AI_SIGNAL_CACHE.set(day, entry);
     return entry;
@@ -12264,7 +12315,7 @@ function _meAiPreindex(day) {
     const s = settings.getSettings();
     const cfg = _meAiConfig(s);
     if (!cfg.consent) return false;
-    const d = String(day || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const d = String(day || '').slice(0, 10) || _meAiLocalDay();
     _meAiGatherSignals(s, cfg, d, { force: true }).catch(() => {});
     return true;
   } catch { return false; }
@@ -12577,7 +12628,7 @@ function _meAiClassifyDay(agenda) {
 function _meAiSyncDayBoard(agenda, date) {
   try {
     if (!leaderCheck()) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _meAiLocalDay();
     if (String(date || '').slice(0, 10) !== today) return;
     const { prs, devs, rows } = _meAiClassifyDay(agenda || {});
     const { boards, idx } = _meAiEnsureDayBoard();
@@ -12685,7 +12736,7 @@ function _meAiMarkDayNoteDone(seed, outcome) {
 async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
-  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const day = String(date || '').slice(0, 10) || _meAiLocalDay();
   // Per-day work-window override: a quick "I started early/late today" that supersedes
   // the standing schedule for THIS date only, without touching saved preferences.
   try {
@@ -12818,7 +12869,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
 // preserving the day's persisted todos so a regenerate never wipes them. Returns the
 // rebuilt agenda (overrides are folded in by generateMeAiAgenda).
 async function _meAiRegenLive(date) {
-  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const day = String(date || '').slice(0, 10) || _meAiLocalDay();
   const snap = loadAgendaForDate(day);
   const todos = snap && Array.isArray(snap.todos) ? snap.todos : [];
   return generateMeAiAgenda({ date: day, todos, reindex: false, cause: 'manual' });
@@ -12927,7 +12978,7 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
   if (!msg) throw new Error('Tell me what you would like to change about your day.');
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
-  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const day = String(date || '').slice(0, 10) || _meAiLocalDay();
   const agenda = loadAgendaForDate(day) || { blocks: [], backlog: [], needsAttention: [], todos: [] };
   const inbox = (() => { try { return loadInboxForDate(day).items || []; } catch { return []; } })();
   const clip = (s2, n) => String(s2 == null ? '' : s2).replace(/\s+/g, ' ').trim().slice(0, n);
@@ -13028,7 +13079,7 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
 app.get('/api/me-ai', (req, res) => {
   try {
     const cfg = _meAiConfig();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _meAiLocalDay();
     _meAiLastActive = Date.now();
     res.json({ ok: true, config: cfg, today, hasAgendaToday: !!loadAgendaForDate(today) });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -13066,7 +13117,7 @@ app.put('/api/me-ai/settings', (req, res) => {
 // GET /api/me-ai/agenda?date=YYYY-MM-DD → cached snapshot (or null).
 app.get('/api/me-ai/agenda', (req, res) => {
   try {
-    const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
     res.json({ ok: true, date, agenda: loadAgendaForDate(date), config: _meAiConfig() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -13088,7 +13139,7 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
 app.post('/api/me-ai/agenda/todos', (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const todos = _meAiNormTodos(Array.isArray(b.todos) ? b.todos : []);
     // Maintain the removed-title tombstone so a deleted todo can't be re-folded by a later
     // generate: any title that was in the prior store but is absent now is a deliberate
@@ -13112,7 +13163,7 @@ app.post('/api/me-ai/agenda/todos', (req, res) => {
 app.post('/api/me-ai/suggestion/dismiss', (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const id = String(b.id || '').slice(0, 300);
     if (!id) return res.status(400).json({ error: 'id required' });
     const store = loadSuggDismiss(date);
@@ -13132,7 +13183,7 @@ app.post('/api/me-ai/suggestion/dismiss', (req, res) => {
 // GET /api/me-ai/agenda/changes?date= → REQ-7 change log + churn summary for a day.
 app.get('/api/me-ai/agenda/changes', (req, res) => {
   try {
-    const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
     const log = loadChangesForDate(date);
     res.json({ ok: true, date, events: log.events.slice(-100), churn: _meAiChurnSummary(log.events) });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -13142,7 +13193,7 @@ app.get('/api/me-ai/agenda/changes', (req, res) => {
 // the Diary (consent-gated, deduped). Returns the summary even if already logged.
 app.post('/api/me-ai/agenda/dayshape', (req, res) => {
   try {
-    const date = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     const r = _meAiWriteDayShape(date);
     res.json({ ok: true, date, ...r });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -13156,7 +13207,7 @@ app.post('/api/me-ai/agenda/dayshape', (req, res) => {
 // GET /api/me-ai/lookback?date=YYYY-MM-DD
 app.get('/api/me-ai/lookback', (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _meAiLocalDay();
     const date = String(req.query.date || '').slice(0, 10) || today;
     const agenda = loadAgendaForDate(date);
     const churn = _meAiChurnSummary(loadChangesForDate(date).events);
@@ -13236,7 +13287,7 @@ app.get('/api/me-ai/lookback', (req, res) => {
 // fragmentation.
 app.get('/api/me-ai/reports', (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _meAiLocalDay();
     let days = Number(req.query.days) || 30;
     days = Math.max(1, Math.min(180, Math.round(days)));
     // Diary completions indexed by date once (avoids re-scanning per day).
@@ -13372,7 +13423,7 @@ app.get('/api/me-ai/reports', (req, res) => {
 
 app.get('/api/me-ai/inbox', (req, res) => {
   try {
-    const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
     const inbox = loadInboxForDate(date);
     const newCount = inbox.items.filter(i => i.triage === 'new').length;
     res.json({ ok: true, date, items: inbox.items, newCount, polledAt: inbox.polledAt || '' });
@@ -13382,7 +13433,7 @@ app.get('/api/me-ai/inbox', (req, res) => {
 // POST /api/me-ai/inbox/refresh { date? } → poll M365 now and merge new asks in.
 app.post('/api/me-ai/inbox/refresh', async (req, res) => {
   try {
-    const date = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     const s = settings.getSettings();
     const cfg = _meAiConfig(s);
     _meAiLastActive = Date.now();
@@ -13400,7 +13451,7 @@ app.post('/api/me-ai/inbox/refresh', async (req, res) => {
 app.post('/api/me-ai/inbox/triage', async (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const id = String(b.id || '').trim();
     const action = String(b.action || '').trim();
     const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix'];
@@ -13460,7 +13511,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
 app.post('/api/me-ai/inbox/undo-auto', async (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const id = String(b.id || '').trim();
     if (!id) return res.status(400).json({ error: 'bad request' });
     const inbox = loadInboxForDate(date);
@@ -13496,7 +13547,7 @@ app.get('/api/me-ai/triage-rules', (req, res) => {
 // a later generate/re-plan is fast (#3). Fire-and-forget; consent-gated inside.
 app.post('/api/me-ai/preindex', (req, res) => {
   try {
-    const day = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const day = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     _meAiLastActive = Date.now();
     const cached = ME_AI_SIGNAL_CACHE.get(day);
     const started = _meAiPreindex(day);
@@ -13511,7 +13562,7 @@ app.post('/api/me-ai/preindex', (req, res) => {
 app.post('/api/me-ai/agenda/dismiss', (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const key = _meAiDismissKey({ link: b.link, title: b.title }) || String(b.key || '').trim().slice(0, 300);
     if (!key) return res.status(400).json({ error: 'key or title required' });
     const map = loadDismissForDate(date);
@@ -13536,7 +13587,7 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
 app.post('/api/me-ai/agenda/undismiss', (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const key = String(b.key || '').trim().slice(0, 300);
     const map = loadDismissForDate(date);
     if (key && map[key]) { delete map[key]; saveDismissForDate(date, map); }
@@ -13565,7 +13616,7 @@ app.post('/api/me-ai/agenda/assistant', async (req, res) => {
 app.post('/api/me-ai/agenda/override', async (req, res) => {
   try {
     const b = req.body || {};
-    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const op = String(b.op || '').trim();
     const ov = loadMeAiOverrides(date);
     const uid = () => 'ov-' + Math.random().toString(36).slice(2, 9);
@@ -13616,7 +13667,7 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
       const grid = Math.max(5, (snap.config && snap.config.grid) || cfg.grid || 10);
       const ws = _hmToMin((snap.config && snap.config.workStart) || ov.dayStart || cfg.workStart) ?? 480;
       const we = _hmToMin((snap.config && snap.config.workEnd) || ov.dayEnd || cfg.workEnd) ?? 1020;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = _meAiLocalDay();
       let from = ws;
       if (date === today) { const d = new Date(); from = Math.max(ws, Math.ceil((d.getHours() * 60 + d.getMinutes()) / grid) * grid); }
       const occupied = ((snap.blocks) || [])
@@ -13670,7 +13721,7 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
       const grid = Math.max(5, (snap.config && snap.config.grid) || cfg.grid || 10);
       const ws = _hmToMin((snap.config && snap.config.workStart) || ov.dayStart || cfg.workStart) ?? 480;
       const we = _hmToMin((snap.config && snap.config.workEnd) || ov.dayEnd || cfg.workEnd) ?? 1020;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = _meAiLocalDay();
       let from = ws;
       if (date === today) { const d = new Date(); from = Math.max(ws, Math.ceil((d.getHours() * 60 + d.getMinutes()) / grid) * grid); }
       const durMin = 30;
@@ -13790,7 +13841,7 @@ setInterval(() => {
   try {
     if (!leaderCheck()) return;
     if ((Date.now() - _meAiLastActive) > ME_AI_ACTIVE_WINDOW_MS) return;
-    _meAiPreindex(new Date().toISOString().slice(0, 10));
+    _meAiPreindex(_meAiLocalDay());
   } catch (_) { /* best-effort */ }
 }, ME_AI_PREINDEX_INTERVAL_MS);
 
@@ -13808,7 +13859,7 @@ setInterval(async () => {
     if ((Date.now() - _meAiLastActive) > ME_AI_ACTIVE_WINDOW_MS) return;
     const s = settings.getSettings();
     if (!s.meAiConsent) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _meAiLocalDay();
     const prev = loadAgendaForDate(today);
     if (!prev || !Array.isArray(prev.blocks) || prev.meta && prev.meta.notWorkDay) return;
     const cfg = _meAiConfig(s);
@@ -14360,7 +14411,7 @@ function _meAiWriteDiary(t) {
   if (t.context && t.context.prUrl) links.push(t.context.prUrl);
   try {
     const item = connect.addEvidence({
-      date: t.date || new Date().toISOString().slice(0, 10),
+      date: t.date || _meAiLocalDay(),
       source: t.playbook === 'review' ? 'pr-review' : 'other',
       title,
       detail,
@@ -14488,7 +14539,7 @@ async function _meAiSelfReview({ cwd, review } = {}) {
     return verdict;
   }
   // Reuse the M2 review playbook on an ephemeral task (no lane / SSE / persistence).
-  const t = { id: 'selfreview', _ephemeral: true, playbook: 'review', context: { cwd: root }, sessionId: require('crypto').randomUUID(), events: [], seq: 0, date: new Date().toISOString().slice(0, 10) };
+  const t = { id: 'selfreview', _ephemeral: true, playbook: 'review', context: { cwd: root }, sessionId: require('crypto').randomUUID(), events: [], seq: 0, date: _meAiLocalDay() };
   const prompt = _meAiPlaybookPrompt('review', t.context, root);
   try {
     // Runs directly (not via _meAiSchedule) by design: this is an on-demand,
@@ -14534,7 +14585,7 @@ app.post('/api/me-ai/task/dispatch', (req, res) => {
     const id = require('crypto').randomUUID();
     const t = {
       id,
-      date: (typeof b.date === 'string' && b.date.slice(0, 10)) || new Date().toISOString().slice(0, 10),
+      date: (typeof b.date === 'string' && b.date.slice(0, 10)) || _meAiLocalDay(),
       playbook,
       title: String(b.title || '').slice(0, 200) || (playbook === 'review' ? 'Code review' : playbook),
       context: (b.context && typeof b.context === 'object') ? b.context : {},
@@ -14674,7 +14725,7 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
     // REQ-1: reflect completion onto the My Day board note bound to this task.
     try {
       const seed = (t.context && t.context.link) || t.title;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = _meAiLocalDay();
       if (seed && String(t.date || '').slice(0, 10) === today) {
         _meAiMarkDayNoteDone(seed, (t.report && t.report.summary) || '');
       }
