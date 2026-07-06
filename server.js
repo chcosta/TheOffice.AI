@@ -12613,11 +12613,16 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
     }
   }
   for (const t of (todos || [])) {
-    if (t && !t.done && String(t.title || '').trim()) {
-      const scope = (t.scope === 'personal') ? 'personal' : 'work';
-      const durationMin = _meAiParseDuration(t.title);
-      tasks.push({ kind: 'todo', type: scope === 'personal' ? 'personal' : 'focus', title: String(t.title).trim(), detail: scope === 'personal' ? 'Personal todo' : 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo', scope, durationMin });
-    }
+    if (!t || !String(t.title || '').trim()) continue;
+    // A checked-off todo means "I accomplished this" — NOT "remove it". If it's a TIME
+    // COMMITMENT (carries an explicit duration, e.g. "2 hours for golf"), keep its block
+    // reserved so the completed time still shows on the day and work stays scheduled
+    // around it. A done todo with no duration is just a finished task (nothing to reserve),
+    // so it drops off the timeline. Only REMOVING a todo takes its time back.
+    const durationMin = _meAiParseDuration(t.title);
+    if (t.done && !durationMin) continue;
+    const scope = (t.scope === 'personal') ? 'personal' : 'work';
+    tasks.push({ kind: 'todo', type: scope === 'personal' ? 'personal' : 'focus', title: String(t.title).trim(), detail: scope === 'personal' ? 'Personal todo' : 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo', scope, durationMin, done: !!t.done });
   }
   // Fixed blocks: meetings + lunch, sorted, clipped to window.
   const fixed = [];
@@ -12694,8 +12699,9 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
       }
       ti++;
       const btype = t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : (isPersonal ? 'personal' : 'focus')));
-      const bmeta = isPersonal ? { ...(t.meta || {}), personalTodo: true } : (t.meta || null);
-      blocks.push({ start: c, end: c + len, type: btype, title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t), meta: bmeta, urgency: t.urgency || 0 });
+      let bmeta = isPersonal ? { ...(t.meta || {}), personalTodo: true } : (t.meta ? { ...t.meta } : {});
+      if (t.done) { bmeta = { ...(bmeta || {}), todoDone: true }; }
+      blocks.push({ start: c, end: c + len, type: btype, title: t.title, detail: t.detail, link: t.link, source: t.source, why: t.done ? 'Completed — time you committed' : _meAiWhy(t), meta: (bmeta && Object.keys(bmeta).length) ? bmeta : null, urgency: t.urgency || 0 });
       c += len;
       if (!isPersonal) placedChunks++;
     }
@@ -13072,12 +13078,15 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
         }
       }
       // The time-window pass misses a constituent when the LLM merges two adjacent
-      // PR blocks into a span that only touches the second block's boundary. Recover
-      // the rest by matching the PR/work-item numbers the merged title/detail still
-      // names ("!62392 + !62389") back to the deterministic source blocks by prId.
+      // PR blocks into a span that only touches the second block's boundary, OR when
+      // it folds a BACKLOG PR into a placed block's title (backlog items have no time
+      // window at all). Recover the rest by matching the PR/work-item numbers the
+      // merged title/detail still names ("!62392 + !62389") back to the deterministic
+      // source blocks — searching both the placed blocks AND the backlog by prId.
       const refs = _meAiExtractRefs((b.title || '') + ' ' + (b.detail || ''));
       if (refs.length) {
-        for (const pb of (pre.blocks || [])) {
+        const pool = (pre.blocks || []).concat(pre.backlog || []);
+        for (const pb of pool) {
           if (pb.type !== 'steward' && pb.type !== 'review') continue;
           const pid = pb.meta && pb.meta.prId != null ? String(pb.meta.prId)
             : (_meAiExtractRefs(pb.title)[0] || '');
@@ -15222,15 +15231,29 @@ async function _meAiGenerateFutureDays() {
   const savedActive = _meAiLastActive; // background planning must NOT keep the active window warm
   const generated = [];
   try {
-    // Gather today's signals ONCE; future days reuse them (the collectors report the
-    // CURRENT PRs / emails / work items regardless of date, so this is an honest
-    // provisional forward plan). Seeding each future day's signal cache from this one
-    // gather avoids a separate collector spawn per day.
+    // Gather today's signals ONCE. PRs / work items / emails report CURRENT state
+    // regardless of date, so reusing them for a provisional forward plan is honest.
+    // MEETINGS are the exception — they're date-specific — so for each future day we
+    // fetch that day's actual calendar from WorkIQ and swap it in (dropping today's
+    // meetings), instead of pretending today's meetings recur every day.
     const gathered = await _meAiGatherSignals(s, cfg, _meAiLocalDay(), { force: false });
+    const hasM365 = !!(gathered.sources && gathered.sources.m365);
+    // Non-meeting signals are reusable across days (comms window is "last 2 days",
+    // PRs/work-items are live) — strip only today's meetings.
+    const reusable = gathered.signals.filter(x => !(x.source === 'm365' && x.kind === 'meeting'));
     for (const d of need) {
       try {
+        let dayMeetings = [];
+        if (hasM365) {
+          // Per-day calendar: _meAiGatherM365 asks WorkIQ for meetings scheduled ON d.
+          // Keep only meetings (its comms are the same "last 2 days" set as today's).
+          try {
+            const m = await _meAiGatherM365(d);
+            dayMeetings = (Array.isArray(m) ? m : []).filter(x => x && x.kind === 'meeting');
+          } catch (_) { dayMeetings = []; }
+        }
         ME_AI_SIGNAL_CACHE.set(d, {
-          signals: gathered.signals.slice(),
+          signals: reusable.concat(dayMeetings),
           sources: { ...gathered.sources },
           errors: gathered.errors.slice(),
           at: Date.now(),

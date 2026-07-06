@@ -12574,7 +12574,8 @@
                               <span x-show="meAiHasDetail(b)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('b',b,bi))?'▾':'▸'"></span>
                               <template x-if="!meAiIsEditing(b,bi)">
                                 <span class="meai-title-wrap">
-                                  <span x-text="b.title"></span>
+                                  <span x-show="b.meta && b.meta.todoDone" title="Completed — time you committed stays reserved" style="color:var(--cp-success,#16a34a);margin-right:2px">✓</span>
+                                  <span x-text="b.title" :style="(b.meta && b.meta.todoDone) ? 'text-decoration:line-through;text-decoration-thickness:1px;color:var(--cp-text-muted)' : ''"></span>
                                   <span x-show="b.meta && b.meta.locked" class="meai-lock-badge" title="Locked to this time — click to unlock" @click.stop="meAiUnlockBlock(b,bi)" @pointerdown.stop>🔒</span>
                                   <button class="meai-title-edit" type="button" title="Rename this item" @click.stop="meAiStartRename(b,bi)" @pointerdown.stop>✎</button>
                                 </span>
