@@ -12990,7 +12990,8 @@
                     <div class="meai-dr-foot-bar">
                       <span class="meai-dr-foot-hint" x-show="meai.console.stage!=='done'">Close to keep this running in the background — it'll report back in “Me agents at work.”</span>
                       <span style="flex:1"></span>
-                      <button class="btn primary" type="button" @click="meAiComplete()" :disabled="!meAiCanComplete() || meai.consoleBusy">Mark task complete</button>
+                      <button class="btn ghost" type="button" @click="meAiAbandon()" :disabled="!meAiCanAbandon() || meai.consoleBusy" title="Close this Me agent without recording it as done — nothing is logged to your diary or agenda." x-show="meai.console.stage!=='done'">Abandon</button>
+                      <button class="btn primary" type="button" @click="meAiComplete()" :disabled="!meAiCanComplete() || meai.consoleBusy" title="Mark the work done — logs the outcome to your diary and checks it off today's board. Use Abandon if the work wasn't actually delivered.">Mark task complete</button>
                     </div>
                   </div>
                 </div>
@@ -28648,6 +28649,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const t = this.meai.console;
           if (t && t.question) return false; // a pending question must be answered first
           return !!t && t.status !== 'running' && ['awaiting', 'report', 'done', 'error'].includes(t.stage) && t.stage !== 'done';
+        },
+        // Abandon = close the agent WITHOUT implying the work was delivered. Unlike
+        // "Mark task complete" it writes nothing to the diary/agenda and doesn't check
+        // off the board — for a background agent you just want to stop. Available
+        // whenever the task isn't actively running.
+        meAiCanAbandon() {
+          const t = this.meai.console;
+          return !!t && t.status !== 'running' && t.stage !== 'done';
+        },
+        async meAiAbandon() {
+          const t = this.meai.console;
+          if (!t || !this.meAiCanAbandon()) return;
+          if (!confirm('Abandon this Me agent? It will close without being recorded as done — nothing is logged to your diary or agenda.')) return;
+          this.meai.consoleBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/act', {
+              method: 'POST', body: JSON.stringify({ intent: 'abandon' }),
+            });
+            if (r && r.task) this._meAiMergeTask(r.task);
+            this.toast('Task abandoned', 'success');
+            this.meAiLoadTasks();
+          } catch (e) {
+            this.toast(e.message || String(e), 'error');
+          } finally {
+            this.meai.consoleBusy = false;
+          }
         },
         async meAiComplete() {
           const t = this.meai.console;

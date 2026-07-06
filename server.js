@@ -14414,6 +14414,120 @@ function _meAiInternalFirstBlock() {
 }
 function _meAiIndent(s) { return String(s || '').split('\n').map(l => l).join('\n'); }
 
+// ── Correct-repo targeting for code playbooks ───────────────────────────────
+// A me-agent that WRITES code (implement / steward, and a review that references
+// a specific work item / PR) must run in the dev card's git worktree for that
+// task — NOT in the TheOffice.AI app's own source tree (the code running this
+// tool). Historically the cwd defaulted to __dirname, so a "implement DNCENG
+// Task #NNNN" agent would pick up whatever was uncommitted under C:\repos\sessions
+// and go off-track. These helpers resolve a dev card (by devId, work-item number,
+// or repo) and its worktree; when none resolves we run in a neutral scratch dir
+// and have the agent ASK for / create a dev card instead of editing this repo.
+const ME_AI_CODE_PLAYBOOKS = new Set(['implement', 'steward']);
+function _meAiScratchDir() {
+  const d = dataPath('me-ai/scratch');
+  try { fs.mkdirSync(d, { recursive: true }); } catch (_) {}
+  return d;
+}
+// Parse a work-item / issue number out of free text ("#11247", "Task 11247", "WI #7880").
+function _meAiParseWorkItemNum(s) {
+  const str = String(s || '');
+  let m = str.match(/#\s*(\d{2,8})\b/);
+  if (m) return m[1];
+  m = str.match(/\b(?:task|issue|work\s?item|wi|bug|pbi|story)\s*#?\s*(\d{2,8})\b/i);
+  return m ? m[1] : null;
+}
+// Does this task need a real repo worktree (i.e. it may write/steward code)?
+function _meAiNeedsRepo(t) {
+  const pb = t && t.playbook;
+  if (ME_AI_CODE_PLAYBOOKS.has(pb)) return true;
+  // A 'review' only needs a specific repo when it references a work item / PR;
+  // the bare "review my current changes" dogfooding case stays on this repo.
+  if (pb === 'review' && t.context) {
+    if (t.context.devItemId || t.context.prUrl || t.context.prLink) return true;
+    if (_meAiParseWorkItemNum([t.context.title, t.context.link, t.context.detail].filter(Boolean).join(' '))) return true;
+  }
+  return false;
+}
+// Best-effort match of a dev card to a task. Order: explicit devItemId → work-item
+// number → repo mentioned in a link. Returns the card or null.
+function _meAiFindDevCardForTask(t) {
+  let cards = [];
+  try { cards = (devStore.all() || []).filter(d => d && !d.archived); } catch (_) { return null; }
+  const ctx = (t && t.context) || {};
+  if (ctx.devItemId) { const d = cards.find(c => c.id === ctx.devItemId); if (d) return d; }
+  const hay = [ctx.title, t.title, ctx.detail, ctx.link, ctx.prUrl, ctx.prLink].filter(Boolean).join(' ');
+  const wi = _meAiParseWorkItemNum(hay);
+  if (wi) { const d = cards.find(c => String(c.workItemId || '') === String(wi)); if (d) return d; }
+  // Repo slug in a link (…/_git/<repo> or github.com/<org>/<repo>) → repo-name match.
+  let repoHint = null;
+  const linkStr = String(ctx.link || ctx.prUrl || ctx.prLink || '');
+  let rm = linkStr.match(/[/_]git\/([^/?#]+)/i) || linkStr.match(/github\.com\/[^/]+\/([^/?#]+)/i);
+  if (rm) repoHint = decodeURIComponent(rm[1]).replace(/\.git$/i, '').toLowerCase();
+  if (repoHint) { const d = cards.find(c => String(c.repo || '').toLowerCase() === repoHint); if (d) return d; }
+  return null;
+}
+// Return a READY primary worktree path for a card, else null.
+function _meAiCardWorktree(d) {
+  if (d && d.worktreePath && d.worktreeStatus === 'ready') {
+    try { if (fs.existsSync(d.worktreePath)) return d.worktreePath; } catch (_) {}
+  }
+  return null;
+}
+// Resolve (and mutate onto t.context) the working directory for a code playbook.
+// Sets ctx.cwd to a real worktree when resolvable; otherwise marks noRepo /
+// devNoWorktree and points cwd at a neutral scratch dir so the agent physically
+// cannot clobber this app's repo, and the prompt makes it ask instead.
+function _meAiResolveRepoContext(t) {
+  try {
+    if (!_meAiNeedsRepo(t)) return;
+    const ctx = t.context = (t.context && typeof t.context === 'object') ? t.context : {};
+    if (ctx.cwd) return; // an explicit cwd always wins
+    const card = _meAiFindDevCardForTask(t);
+    if (card) {
+      ctx.devItemId = card.id;
+      const wt = _meAiCardWorktree(card);
+      if (wt) {
+        ctx.cwd = wt;
+        _meAiEmit(t, { kind: 'note', text: `Working in the "${card.title || card.repo || card.id}" dev card worktree: ${wt}` });
+        return;
+      }
+      ctx.devNoWorktree = { id: card.id, title: card.title || card.repo || card.id, org: card.org || '', project: card.project || '', repo: card.repo || '' };
+      ctx.cwd = _meAiScratchDir();
+      _meAiEmit(t, { kind: 'note', text: `Matched dev card "${card.title || card.repo || card.id}" but it has no git worktree yet — I'll ask before creating one instead of editing this app's repo.` });
+      return;
+    }
+    ctx.noRepo = true;
+    ctx.cwd = _meAiScratchDir();
+    _meAiEmit(t, { kind: 'note', text: 'No dev card matches this task — I\'ll confirm the repository before doing any code work (I will not touch this app\'s own source).' });
+  } catch (_) { /* best-effort; falls through to normal prompt */ }
+}
+// The "no working repo yet" guard block injected into a code playbook when we could
+// not resolve a worktree. Forbids editing this app's repo, lists the dev cards so the
+// agent can match one, and tells it to STOP and ask (create worktree / pick repo).
+function _meAiRepoGuardBlock(ctx) {
+  if (!ctx || (!ctx.noRepo && !ctx.devNoWorktree)) return null;
+  const lines = [];
+  lines.push('IMPORTANT — YOU DO NOT HAVE A WORKING REPOSITORY FOR THIS TASK YET.');
+  lines.push(`Your current working directory (${ctx.cwd}) is a NEUTRAL SCRATCH FOLDER, not the repo for this task. Do NOT run git or edit files there, and NEVER touch the source of the app that is running you (the TheOffice.AI app under ${__dirname}); ignore whatever branch, uncommitted changes, or git state happen to exist there — they are unrelated to this task.`);
+  let cards = [];
+  try { cards = (devStore.all() || []).filter(d => d && !d.archived); } catch (_) {}
+  if (cards.length) {
+    lines.push('Here are my active DEV CARDS (each groups a work item + repo + git worktree). If one corresponds to this task, that is where the work belongs:');
+    try { lines.push(_devCardContextLines(cards.slice(0, 25)).join('\n')); } catch (_) {}
+  } else {
+    lines.push('I currently have no dev cards.');
+  }
+  if (ctx.devNoWorktree) {
+    const slug = [ctx.devNoWorktree.org, ctx.devNoWorktree.project, ctx.devNoWorktree.repo].filter(Boolean).join('/');
+    lines.push(`A dev card for this task EXISTS ("${ctx.devNoWorktree.title}"${slug ? ' — ' + slug : ''}, id ${ctx.devNoWorktree.id}) but it has NO git worktree yet. STOP before writing any code: put a top-level "question" in your JSON offering to create the worktree, and a nextAction "Create worktree" with "risk":"write" and a "detail" naming the repo. Do not attempt the change until the worktree exists.`);
+  } else {
+    lines.push('If NONE of the dev cards match this task, STOP before doing any code work and ASK me for the repository: put a single top-level "question" in your JSON requesting the org/project/repo and confirming we should create a new dev card + worktree for it. If you can infer the most likely repo from the task, recommend it in the question — but do NOT guess silently or start editing anything. I will answer, and you resume with a real worktree.');
+  }
+  lines.push('Until the correct worktree is confirmed, produce your report + question ONLY; do not make code changes.');
+  return lines.join('\n');
+}
+
 // Build the kickoff prompt for a playbook. M2 ships the code-review playbook; the
 // prompt is written so it produces real, useful work even with NO PR context (it
 // reviews the repo's current uncommitted changes, else the latest commit).
@@ -14430,14 +14544,17 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human. For any nextAction whose risk is "write" or "external" (it changes something or sends/posts on my behalf), you MUST fill in "detail" with one plain-language line stating exactly what it will do and why — e.g. name the recipient and the gist ("Reply to Alex on the PR thread saying the two items are duplicates and I\'ll close #123") — so I can approve it informed without opening the draft. In report.summary, also explicitly name each write/external action you are asking me to approve and the reason, so the request is never a surprise.',
     'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. ALWAYS include your own recommendation inside the question text — end it with what you would do and why (e.g. "… I recommend the 30s default since most callers are interactive."), so I can accept your call quickly. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
   ].join('\n');
+  const repoGuard = _meAiRepoGuardBlock(ctx);
   if (playbook === 'review') {
     const target = ctx.prTitle || ctx.branch || 'the current uncommitted changes in this repository';
     return [
       'You are my code-review Me-agent. Perform a focused, senior-level code review.',
       `Review target: ${target}.`,
       ctx.prUrl ? `PR link: ${ctx.prUrl}` : '',
-      `Working directory: ${cwd}.`,
-      'Steps: (1) Inspect the changes — run `git status` and `git --no-pager diff` (and `git --no-pager diff --staged`); if there are no uncommitted changes, review the latest commit with `git --no-pager show --stat HEAD` and its diff. (2) Read the changed files for context. (3) Identify correctness bugs, security issues, missing tests, and style/maintainability concerns — be specific with file:line references. (4) Note what is good too.',
+      repoGuard || `Working directory: ${cwd}.`,
+      repoGuard
+        ? 'Once the correct worktree is confirmed, inspect the changes there (git status / diff, read the changed files) and identify correctness bugs, security issues, missing tests, and style/maintainability concerns — specific with file:line references; note what is good too.'
+        : 'Steps: (1) Inspect the changes — run `git status` and `git --no-pager diff` (and `git --no-pager diff --staged`); if there are no uncommitted changes, review the latest commit with `git --no-pager show --stat HEAD` and its diff. (2) Read the changed files for context. (3) Identify correctness bugs, security issues, missing tests, and style/maintainability concerns — be specific with file:line references. (4) Note what is good too.',
       'Stream your reasoning and tool use as you go. Be concise in prose.',
       '',
       jsonContract,
@@ -14448,8 +14565,10 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
       `You are my implementation Me-agent. Task: ${ctx.title || 'implement the requested change'}.`,
       ctx.detail ? `Context: ${ctx.detail}` : '',
       ctx.link ? `Reference: ${ctx.link}` : '',
-      `Working directory: ${cwd}.`,
-      'Steps: (1) Understand the task and the surrounding code (read the relevant files; run `git status`/`git --no-pager diff` to see current state). (2) Make a focused, correct change that fully addresses the task without touching unrelated code. (3) Run any existing build/tests/lint that apply and fix what you broke. (4) Summarize exactly what you changed (file:line) and how you verified it. Do NOT commit or push unless I ask.',
+      repoGuard || `Working directory: ${cwd}.`,
+      repoGuard
+        ? 'Once the correct worktree is confirmed, make a focused, correct change that fully addresses the task without touching unrelated code; run any existing build/tests/lint that apply and fix what you broke; then summarize exactly what you changed (file:line) and how you verified it. Do NOT commit or push unless I ask.'
+        : 'Steps: (1) Understand the task and the surrounding code (read the relevant files; run `git status`/`git --no-pager diff` to see current state). (2) Make a focused, correct change that fully addresses the task without touching unrelated code. (3) Run any existing build/tests/lint that apply and fix what you broke. (4) Summarize exactly what you changed (file:line) and how you verified it. Do NOT commit or push unless I ask.',
       'Stream your reasoning and tool use. Be concise in prose.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
@@ -14460,8 +14579,10 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
       'You are my PR-steward Me-agent. Help me shepherd a pull request toward merge.',
       `PR: ${target}.`,
       ctx.prUrl || ctx.link ? `Link: ${ctx.prUrl || ctx.link}` : '',
-      `Working directory: ${cwd}.`,
-      'Steps: (1) Assess the PR state — CI/validation status, review status, unresolved comments, merge conflicts (use git and any available PR tooling). (2) Identify what is blocking merge and who/what it is waiting on. (3) Propose concrete next moves — ping reviewers, address a failing check, resolve a conflict, or update the description. Be specific about the single most useful next step.',
+      repoGuard || `Working directory: ${cwd}.`,
+      repoGuard
+        ? 'Once the correct worktree is confirmed, assess the PR state there and propose the single most useful next move toward merge.'
+        : 'Steps: (1) Assess the PR state — CI/validation status, review status, unresolved comments, merge conflicts (use git and any available PR tooling). (2) Identify what is blocking merge and who/what it is waiting on. (3) Propose concrete next moves — ping reviewers, address a failing check, resolve a conflict, or update the description. Be specific about the single most useful next step.',
       'Stream your reasoning and tool use. Be concise in prose.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
@@ -14780,6 +14901,9 @@ function _meAiSchedule(fn) {
 function _meAiDispatchRun(t) {
   _meAiSchedule(async () => {
     t.startedAt = new Date().toISOString();
+    // Code playbooks must target the task's OWN repo worktree — resolve a dev card
+    // (or mark noRepo → scratch dir + ask) so the agent never edits this app's source.
+    _meAiResolveRepoContext(t);
     const kickoff = _meAiPlaybookPrompt(t.playbook, t.context, (t.context && t.context.cwd) || __dirname);
     let attempt = 0;
     while (true) {
