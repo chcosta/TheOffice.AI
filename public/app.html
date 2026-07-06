@@ -2549,6 +2549,10 @@
     .cf-dtab.active .rc { color:var(--cp-accent); }
     .cf-dtab-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
     .cf-dtab-panes { margin-top:12px; }
+    /* Right-side card action buttons stay quiet until the card is hovered/focused. */
+    .cf-hover-acts { opacity:0; transition:opacity .12s ease; }
+    .cf-pr-card:hover .cf-hover-acts, .cf-pr-card:focus-within .cf-hover-acts { opacity:1; }
+    @media (hover: none) { .cf-hover-acts { opacity:1; } }
     @media (max-width:640px){ .cf-drawer { grid-template-columns:1fr; } .cf-rail { flex-direction:row; flex-wrap:wrap; } }    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:8px; }
     .cf-validation-summary { display:flex; align-items:center; gap:7px; list-style:none; }
     .cf-validation-summary::-webkit-details-marker { display:none; }
@@ -9683,6 +9687,48 @@
                                         </div>
                                       </div>
 
+                                      <div class="cf-pr-notes">
+                                        <div style="display:flex;flex-direction:column;gap:4px">
+                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                            <span class="cal-caption">📝 Notes<span class="note-count" x-show="devNotesFor(d).length" x-text="' ' + devNotesFor(d).filter(n=>!n.done).length + '/' + devNotesFor(d).length"></span></span>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)" x-text="(devNoteDraft[d.id] && devNoteDraft[d.id].open) ? 'Cancel' : '＋ Add note'"></button>
+                                          </div>
+                                          <div style="display:flex;flex-direction:column;gap:3px" x-show="devNotesFor(d).length">
+                                            <template x-for="n in devNotesFor(d)" :key="n.id">
+                                              <div class="note-row">
+                                               <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
+                                                 <div class="note-view">
+                                                   <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
+                                                   <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                                                   <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
+                                                   <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
+                                                 </div>
+                                               </template>
+                                               <template x-if="devNoteEdit[n.id] && devNoteEdit[n.id].open">
+                                                 <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+                                                   <textarea class="field-input" rows="2" x-model="devNoteEdit[n.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="saveDevNoteEdit(d,n)"></textarea>
+                                                   <div style="display:flex;gap:6px;justify-content:flex-end">
+                                                     <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="cancelDevNoteEdit(n)">Cancel</button>
+                                                     <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" @click="saveDevNoteEdit(d,n)">Save</button>
+                                                   </div>
+                                                 </div>
+                                               </template>
+                                              </div>
+                                            </template>
+                                          </div>
+                                          <div class="hint" style="font-size:11px" x-show="!devNotesFor(d).length && !(devNoteDraft[d.id] && devNoteDraft[d.id].open)">No notes yet — ＋ Add note to track where you're at.</div>
+                                          <template x-if="devNoteDraft[d.id] && devNoteDraft[d.id].open">
+                                            <div style="display:flex;flex-direction:column;gap:6px">
+                                              <textarea class="field-input" rows="2" placeholder="Jot down where you're at…" x-model="devNoteDraft[d.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="addDevNote(d)"></textarea>
+                                              <div style="display:flex;gap:6px;justify-content:flex-end">
+                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)">Cancel</button>
+                                               <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='note'" @click="addDevNote(d)" x-text="devBusy[d.id]==='note' ? 'Saving…' : 'Save'"></button>
+                                              </div>
+                                            </div>
+                                          </template>
+                                        </div>
+                                      </div>
+
                                       <!-- Details &amp; actions drawer (rail + panes) -->
                                       <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
@@ -9994,49 +10040,6 @@
 
                                         </div>
                                       </div>
-                                    <div class="cf-pr-notes">
-                                      <!-- Freeform notes: where you're at / what matters -->
-                                      <div style="display:flex;flex-direction:column;gap:4px">
-                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                          <span class="cal-caption">📝 Notes<span class="note-count" x-show="devNotesFor(d).length" x-text="' ' + devNotesFor(d).filter(n=>!n.done).length + '/' + devNotesFor(d).length"></span></span>
-                                          <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)" x-text="(devNoteDraft[d.id] && devNoteDraft[d.id].open) ? 'Cancel' : '＋ Add note'"></button>
-                                        </div>
-                                        <div style="display:flex;flex-direction:column;gap:3px" x-show="devNotesFor(d).length">
-                                          <template x-for="n in devNotesFor(d)" :key="n.id">
-                                            <div class="note-row">
-                                             <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
-                                               <div class="note-view">
-                                                 <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                                                 <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
-                                                 <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
-                                                 <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
-                                               </div>
-                                             </template>
-                                             <template x-if="devNoteEdit[n.id] && devNoteEdit[n.id].open">
-                                               <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-                                                 <textarea class="field-input" rows="2" x-model="devNoteEdit[n.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="saveDevNoteEdit(d,n)"></textarea>
-                                                 <div style="display:flex;gap:6px;justify-content:flex-end">
-                                                   <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="cancelDevNoteEdit(n)">Cancel</button>
-                                                   <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" @click="saveDevNoteEdit(d,n)">Save</button>
-                                                 </div>
-                                               </div>
-                                             </template>
-                                            </div>
-                                          </template>
-                                        </div>
-                                        <div class="hint" style="font-size:11px" x-show="!devNotesFor(d).length && !(devNoteDraft[d.id] && devNoteDraft[d.id].open)">No notes yet — ＋ Add note to track where you're at.</div>
-                                        <template x-if="devNoteDraft[d.id] && devNoteDraft[d.id].open">
-                                          <div style="display:flex;flex-direction:column;gap:6px">
-                                            <textarea class="field-input" rows="2" placeholder="Jot down where you're at…" x-model="devNoteDraft[d.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="addDevNote(d)"></textarea>
-                                            <div style="display:flex;gap:6px;justify-content:flex-end">
-                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)">Cancel</button>
-                                             <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='note'" @click="addDevNote(d)" x-text="devBusy[d.id]==='note' ? 'Saving…' : 'Save'"></button>
-                                            </div>
-                                          </div>
-                                        </template>
-                                      </div>
-                                          
-                                    </div>
                                     </div>
                                   </template>
                                 </div>
@@ -10922,6 +10925,48 @@
                                   </div>
                                 </div>
 
+                                <div class="cf-pr-notes">
+                                  <div style="display:flex;flex-direction:column;gap:4px">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                      <span class="cal-caption">📝 Notes<span class="note-count" x-show="devNotesFor(d).length" x-text="' ' + devNotesFor(d).filter(n=>!n.done).length + '/' + devNotesFor(d).length"></span></span>
+                                      <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)" x-text="(devNoteDraft[d.id] && devNoteDraft[d.id].open) ? 'Cancel' : '＋ Add note'"></button>
+                                    </div>
+                                    <div style="display:flex;flex-direction:column;gap:3px" x-show="devNotesFor(d).length">
+                                      <template x-for="n in devNotesFor(d)" :key="n.id">
+                                        <div class="note-row">
+                                         <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
+                                           <div class="note-view">
+                                             <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
+                                             <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                                             <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
+                                             <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
+                                           </div>
+                                         </template>
+                                         <template x-if="devNoteEdit[n.id] && devNoteEdit[n.id].open">
+                                           <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+                                             <textarea class="field-input" rows="2" x-model="devNoteEdit[n.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="saveDevNoteEdit(d,n)"></textarea>
+                                             <div style="display:flex;gap:6px;justify-content:flex-end">
+                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="cancelDevNoteEdit(n)">Cancel</button>
+                                               <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" @click="saveDevNoteEdit(d,n)">Save</button>
+                                             </div>
+                                           </div>
+                                         </template>
+                                        </div>
+                                      </template>
+                                    </div>
+                                    <div class="hint" style="font-size:11px" x-show="!devNotesFor(d).length && !(devNoteDraft[d.id] && devNoteDraft[d.id].open)">No notes yet — ＋ Add note to track where you're at.</div>
+                                    <template x-if="devNoteDraft[d.id] && devNoteDraft[d.id].open">
+                                      <div style="display:flex;flex-direction:column;gap:6px">
+                                        <textarea class="field-input" rows="2" placeholder="Jot down where you're at…" x-model="devNoteDraft[d.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="addDevNote(d)"></textarea>
+                                        <div style="display:flex;gap:6px;justify-content:flex-end">
+                                         <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)">Cancel</button>
+                                         <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='note'" @click="addDevNote(d)" x-text="devBusy[d.id]==='note' ? 'Saving…' : 'Save'"></button>
+                                        </div>
+                                      </div>
+                                    </template>
+                                  </div>
+                                </div>
+
                                 <!-- Details &amp; actions drawer (rail + panes) -->
                                 <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
@@ -11215,47 +11260,6 @@
                                        <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
                                       </div>
                                     </div>
-                                  </div>
-                                </div>
-                                <div class="cf-pr-notes">
-                                  <div style="display:flex;flex-direction:column;gap:4px">
-                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                      <span class="cal-caption">📝 Notes<span class="note-count" x-show="devNotesFor(d).length" x-text="' ' + devNotesFor(d).filter(n=>!n.done).length + '/' + devNotesFor(d).length"></span></span>
-                                      <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)" x-text="(devNoteDraft[d.id] && devNoteDraft[d.id].open) ? 'Cancel' : '＋ Add note'"></button>
-                                    </div>
-                                    <div style="display:flex;flex-direction:column;gap:3px" x-show="devNotesFor(d).length">
-                                      <template x-for="n in devNotesFor(d)" :key="n.id">
-                                        <div class="note-row">
-                                         <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
-                                           <div class="note-view">
-                                             <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                                             <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
-                                             <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
-                                             <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
-                                           </div>
-                                         </template>
-                                         <template x-if="devNoteEdit[n.id] && devNoteEdit[n.id].open">
-                                           <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-                                             <textarea class="field-input" rows="2" x-model="devNoteEdit[n.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="saveDevNoteEdit(d,n)"></textarea>
-                                             <div style="display:flex;gap:6px;justify-content:flex-end">
-                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="cancelDevNoteEdit(n)">Cancel</button>
-                                               <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" @click="saveDevNoteEdit(d,n)">Save</button>
-                                             </div>
-                                           </div>
-                                         </template>
-                                        </div>
-                                      </template>
-                                    </div>
-                                    <div class="hint" style="font-size:11px" x-show="!devNotesFor(d).length && !(devNoteDraft[d.id] && devNoteDraft[d.id].open)">No notes yet — ＋ Add note to track where you're at.</div>
-                                    <template x-if="devNoteDraft[d.id] && devNoteDraft[d.id].open">
-                                      <div style="display:flex;flex-direction:column;gap:6px">
-                                        <textarea class="field-input" rows="2" placeholder="Jot down where you're at…" x-model="devNoteDraft[d.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="addDevNote(d)"></textarea>
-                                        <div style="display:flex;gap:6px;justify-content:flex-end">
-                                         <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)">Cancel</button>
-                                         <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='note'" @click="addDevNote(d)" x-text="devBusy[d.id]==='note' ? 'Saving…' : 'Save'"></button>
-                                        </div>
-                                      </div>
-                                    </template>
                                   </div>
                                 </div>
                               </div>
@@ -14811,7 +14815,48 @@
                     </div>
                   </div>
 
-                  <div class="cf-dtabs"><template x-for="s in cfSections(pr)" :key="s.id"><button type="button" class="cf-dtab" :class="{ active: cfTabActive(pr, s.id) }" @click="cfTabToggle(pr, s.id)"><span class="cf-dtab-dot" x-show="s.attn" title="Needs attention"></span><span x-text="s.label"></span><span class="rc" x-show="s.count" x-text="s.count"></span></button></template></div>
+                  <!-- Freeform notes: where you're at / what matters on this PR (above the tabs — the notes are the day-to-day working surface) -->
+                  <div class="cf-pr-notes">
+                    <div class="cf-pr-notes-head">
+                      <span class="cal-caption">📝 Notes<span class="note-count" x-show="pr.notes && pr.notes.length" x-text="' ' + (pr.notes||[]).filter(n=>!n.done).length + '/' + (pr.notes||[]).length"></span></span>
+                      <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="togglePrNoteDraft(pr)" x-text="(prNoteDraft[cfPrKey(pr)] && prNoteDraft[cfPrKey(pr)].open) ? 'Cancel' : '＋ Add note'"></button>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:3px" x-show="pr.notes && pr.notes.length">
+                      <template x-for="n in pr.notes" :key="n.id">
+                        <div class="note-row">
+                          <template x-if="!(prNoteEdit[n.id] && prNoteEdit[n.id].open)">
+                            <div class="note-view">
+                              <button class="note-check" type="button" :class="{ done: n.done }" @click="togglePrNoteDone(pr,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
+                              <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                              <button class="board-act note-act" type="button" data-tip="Edit note" @click="startPrNoteEdit(n)">✎</button>
+                              <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removePrNote(pr,n)">✕</button>
+                            </div>
+                          </template>
+                          <template x-if="prNoteEdit[n.id] && prNoteEdit[n.id].open">
+                            <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+                              <textarea class="field-input" rows="2" x-model="prNoteEdit[n.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="savePrNoteEdit(pr,n)"></textarea>
+                              <div style="display:flex;gap:6px;justify-content:flex-end">
+                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="cancelPrNoteEdit(n)">Cancel</button>
+                                <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" @click="savePrNoteEdit(pr,n)">Save</button>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="hint" style="font-size:11px" x-show="!(pr.notes && pr.notes.length) && !(prNoteDraft[cfPrKey(pr)] && prNoteDraft[cfPrKey(pr)].open)">No notes yet — ＋ Add note to track where you're at.</div>
+                    <template x-if="prNoteDraft[cfPrKey(pr)] && prNoteDraft[cfPrKey(pr)].open">
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <textarea class="field-input" rows="2" placeholder="Jot down where you're at…" x-model="prNoteDraft[cfPrKey(pr)].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="addPrNote(pr)"></textarea>
+                        <div style="display:flex;gap:6px;justify-content:flex-end">
+                          <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="togglePrNoteDraft(pr)">Cancel</button>
+                          <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="prNoteBusy[cfPrKey(pr)]" @click="addPrNote(pr)" x-text="prNoteBusy[cfPrKey(pr)] ? 'Saving…' : 'Save'"></button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <div class="cf-dtabs"><template x-for="s in cfSections(pr)" :key="s.id"><button type="button" class="cf-dtab" :class="{ active: cfTabActive(pr, s.id), disabled: s.disabled }" @click="cfTabToggle(pr, s.id)"><span class="cf-dtab-dot" x-show="s.attn" title="Needs attention"></span><span x-text="s.label"></span><span class="rc" x-show="s.count" x-text="s.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="cfDrawerIsOpen(pr)"><div class="cf-panes">
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'reviewers'">
                   <!-- Actual PR reviewers, split Required vs Optional, showing each vote -->
@@ -15118,46 +15163,6 @@
                     </div>
                   </div>
 
-                  <!-- Freeform notes: where you're at / what matters on this PR -->
-                  <div class="cf-pr-notes">
-                    <div class="cf-pr-notes-head">
-                      <span class="cal-caption">📝 Notes<span class="note-count" x-show="pr.notes && pr.notes.length" x-text="' ' + (pr.notes||[]).filter(n=>!n.done).length + '/' + (pr.notes||[]).length"></span></span>
-                      <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="togglePrNoteDraft(pr)" x-text="(prNoteDraft[cfPrKey(pr)] && prNoteDraft[cfPrKey(pr)].open) ? 'Cancel' : '＋ Add note'"></button>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:3px" x-show="pr.notes && pr.notes.length">
-                      <template x-for="n in pr.notes" :key="n.id">
-                        <div class="note-row">
-                          <template x-if="!(prNoteEdit[n.id] && prNoteEdit[n.id].open)">
-                            <div class="note-view">
-                              <button class="note-check" type="button" :class="{ done: n.done }" @click="togglePrNoteDone(pr,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                              <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
-                              <button class="board-act note-act" type="button" data-tip="Edit note" @click="startPrNoteEdit(n)">✎</button>
-                              <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removePrNote(pr,n)">✕</button>
-                            </div>
-                          </template>
-                          <template x-if="prNoteEdit[n.id] && prNoteEdit[n.id].open">
-                            <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-                              <textarea class="field-input" rows="2" x-model="prNoteEdit[n.id].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="savePrNoteEdit(pr,n)"></textarea>
-                              <div style="display:flex;gap:6px;justify-content:flex-end">
-                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="cancelPrNoteEdit(n)">Cancel</button>
-                                <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" @click="savePrNoteEdit(pr,n)">Save</button>
-                              </div>
-                            </div>
-                          </template>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="hint" style="font-size:11px" x-show="!(pr.notes && pr.notes.length) && !(prNoteDraft[cfPrKey(pr)] && prNoteDraft[cfPrKey(pr)].open)">No notes yet — ＋ Add note to track where you're at.</div>
-                    <template x-if="prNoteDraft[cfPrKey(pr)] && prNoteDraft[cfPrKey(pr)].open">
-                      <div style="display:flex;flex-direction:column;gap:6px">
-                        <textarea class="field-input" rows="2" placeholder="Jot down where you're at…" x-model="prNoteDraft[cfPrKey(pr)].text" style="font-size:12px;resize:vertical" @keydown.enter.meta.prevent="addPrNote(pr)"></textarea>
-                        <div style="display:flex;gap:6px;justify-content:flex-end">
-                          <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="togglePrNoteDraft(pr)">Cancel</button>
-                          <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="prNoteBusy[cfPrKey(pr)]" @click="addPrNote(pr)" x-text="prNoteBusy[cfPrKey(pr)] ? 'Saving…' : 'Save'"></button>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
                   <!--CF_PR_CARD_BODY:END-->
                 </article>
                     </template>
@@ -27974,18 +27979,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (ev.target && ev.target.closest && ev.target.closest('button,a,input,textarea,select')) return;
           const m = this.meai; const id = it && it.id;
           const startX = ev.clientX, startY = ev.clientY;
-          let moved = false, horizontal = false;
+          const node = ev.currentTarget;
+          const ptrId = ev.pointerId;
+          // If another row is already open, a press elsewhere closes it (and this press
+          // is consumed so it doesn't also start a fresh swipe / open the item).
+          if (m.inboxSwipeOpen && m.inboxSwipeOpen !== id) {
+            m.inboxSwipeOpen = null;
+            this._inboxSwipeMoved = true;
+            setTimeout(() => { this._inboxSwipeMoved = false; }, 60);
+            return;
+          }
+          let moved = false, decided = false, horizontal = false;
           m.inboxSwipeId = id; m.inboxSwipeDx = 0;
+          try { if (node && node.setPointerCapture && ptrId != null) node.setPointerCapture(ptrId); } catch (_) {}
           const move = (e) => {
+            if (ptrId != null && e.pointerId !== ptrId) return;
             const dx = e.clientX - startX, dy = e.clientY - startY;
-            if (!horizontal && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-            if (!horizontal) horizontal = Math.abs(dx) > Math.abs(dy);
-            if (!horizontal) { cleanup(); return; }
+            if (!decided) {
+              if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;   // ignore jitter
+              decided = true;
+              // Only bail for a CLEARLY vertical gesture (scroll); otherwise treat as a swipe.
+              horizontal = Math.abs(dx) >= Math.abs(dy) - 4;
+              if (!horizontal) { cleanup(); return; }
+            }
+            if (!horizontal) return;
+            // We own the gesture now — stop native text selection / scroll.
+            if (e.cancelable) e.preventDefault();
             moved = true;
             m.inboxSwipeDx = Math.min(0, Math.max(-(this._inboxSwipeW + 20), dx));
           };
           const up = () => {
-            const open = moved && m.inboxSwipeDx <= -48;
+            const open = moved && m.inboxSwipeDx <= -40;
             m.inboxSwipeOpen = open ? id : null;
             m.inboxSwipeId = null; m.inboxSwipeDx = 0;
             this._inboxSwipeMoved = moved;
@@ -27993,11 +28017,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             cleanup();
           };
           const cleanup = () => {
+            try { if (node && node.releasePointerCapture && ptrId != null) node.releasePointerCapture(ptrId); } catch (_) {}
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
             window.removeEventListener('pointercancel', up);
           };
-          window.addEventListener('pointermove', move);
+          window.addEventListener('pointermove', move, { passive: false });
           window.addEventListener('pointerup', up);
           window.addEventListener('pointercancel', up);
         },
@@ -31244,13 +31269,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try { localStorage.setItem('cfValOpen', JSON.stringify(this.codeflow.valOpen)); } catch { /* ignore */ }
         },
         cfSections(pr) {
+          // Stable tab set: tabs are ALWAYS shown (never appear/disappear); a tab with no
+          // content is rendered disabled instead of being dropped. Mirrors devSections().
           const s = [];
-          // Summary lives untruncated on the card face; the drawer no longer duplicates it.
           const revs = (pr.reviewers && pr.reviewers.length) || 0;
           const hasPeople = revs || (pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard;
-          if (hasPeople) s.push({ id: 'reviewers', label: 'Reviewers', count: revs || undefined });
+          s.push({ id: 'reviewers', label: 'Reviewers', count: revs || undefined, disabled: !hasPeople });
           const v = (pr.validation && pr.validation.length) || 0;
-          if (v) s.push({ id: 'validation', label: 'Validation', count: v, attn: (pr.failedChecks || 0) > 0 || (pr.pendingChecks || 0) > 0 });
+          s.push({ id: 'validation', label: 'Validation', count: v || undefined, attn: (pr.failedChecks || 0) > 0 || (pr.pendingChecks || 0) > 0, disabled: !v });
           const wt = this.cfWt(pr);
           const reviews = this.codeflow && this.codeflow.view === 'reviews';
           // Review agent + Git + Worktree are rolled into ONE section (stacked sub-headers).
@@ -31262,9 +31288,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             wtAttn = !!(wt && wt.worktreeStatus === 'error');
           }
           s.push({ id: 'worktree', label: reviews ? 'Code' : 'Worktree', attn: wtAttn });
-          if (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) {
-            s.push({ id: 'links', label: 'Artifacts', count: (wt.reports || []).length || undefined });
-          }
+          const arts = (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) ? ((wt.reports || []).length || 1) : 0;
+          s.push({ id: 'links', label: 'Artifacts', count: arts || undefined, disabled: !arts });
           return s;
         },
         cfSummaryAttn(pr) {
@@ -31319,8 +31344,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const secs = this.cfSections(pr);
           let cur = (this.codeflow.pane || {})[key];
           if (cur === 'agent' || cur === 'git') cur = 'worktree'; // legacy panes merged into Worktree
-          if (cur && secs.some(x => x.id === cur)) return cur;
-          return secs.length ? secs[0].id : 'worktree';
+          if (cur && secs.some(x => x.id === cur && !x.disabled)) return cur;
+          const first = secs.find(x => !x.disabled);
+          return first ? first.id : 'worktree';
         },
         cfSetPane(pr, id) {
           this.codeflow.pane[this.cfPrKey(pr)] = id;
@@ -31329,6 +31355,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // clicking the active tab collapses the drawer, any other tab opens that pane.
         cfTabActive(pr, id) { return this.cfDrawerIsOpen(pr) && this.cfActivePane(pr) === id; },
         cfTabToggle(pr, id) {
+          const sec = this.cfSections(pr).find(x => x.id === id);
+          if (sec && sec.disabled) return;
           const key = this.cfPrKey(pr);
           if (this.cfTabActive(pr, id)) {
             delete this.codeflow.drawerOpen[key];
