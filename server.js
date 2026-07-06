@@ -775,6 +775,109 @@ const sdkRunner = require('./sdk-runner');
 // via meta:{record:false}.
 sdkRunner.setUsageSink((ev) => { try { supervisor.recordUsage(ev); } catch (_) { /* non-fatal */ } });
 const settings = require('./settings');
+// ---- System agents: per-agent behavior overrides -------------------------
+// A read-only registry of the app's built-in AI "system agents" (what they are,
+// where they run, their tools + model category, and a short base-prompt excerpt
+// shown in Settings) PLUS runtime helpers that let a user-supplied override
+// (custom instructions + optional model) flow into each agent's run without
+// rewriting its base prompt. Injected instructions are framed as SUBORDINATE to
+// the agent's required output contract so they can't silently break parsing.
+const SYSTEM_AGENTS = [
+  {
+    id: 'connect', name: 'Connect assistant', modelCategory: 'chat', canModel: true,
+    role: 'Conversational editor for your Connect (living impact / performance diary). Discusses your draft, adjusts tone/focus, and proposes structured diary edits.',
+    usedIn: 'Connect page → "Assistant" chat.',
+    tools: 'No external tools — reads the diary context passed in and replies with a strict JSON {reply, actions[]} envelope.',
+    contract: 'Must return a single JSON object {reply, actions[]}.',
+  },
+  {
+    id: 'newsletter-writer', name: 'Newsletter writer', modelCategory: 'execution', canModel: true,
+    role: 'Synthesizes a polished, emailable newsletter from your Connect impact diary over a timeframe — investigates diary references, highlights impact, generates inline charts.',
+    usedIn: 'Newsletter studio → "Generate / Regenerate".',
+    tools: 'Runs as the newsletter plugin\'s "writer" agent with full investigation tools (diary/work-item/page lookups).',
+    contract: 'Wraps the newsletter between ===NEWSLETTER-START=== / ===NEWSLETTER-END=== sentinels.',
+  },
+  {
+    id: 'newsletter-editor', name: 'Newsletter editor', modelCategory: 'execution', canModel: true,
+    role: 'Conversationally revises an existing newsletter draft — reorders stories, tightens copy, adds/refines charts, suggests screenshots.',
+    usedIn: 'Newsletter studio → "Editor" chat.',
+    tools: 'Runs as the newsletter plugin\'s "editor" agent; can investigate diary references to strengthen a story.',
+    contract: 'Returns the revised newsletter between the same START/END sentinels.',
+  },
+  {
+    id: 'meai-agent', name: 'Me.AI agent', modelCategory: 'execution', canModel: true,
+    role: 'The background "Me agent" that carries out a task from your agenda (review / implement / steward / prep / comms / admin / ad-hoc). Runs real tools, streams its thinking, and reports back with next actions.',
+    usedIn: 'Me.AI page → per-block "Launch", the delegation lane, and the task console.',
+    tools: 'Full shell + gh + az CLIs in the task worktree (write-free working session; external sends require your approval).',
+    contract: 'Ends every turn with a fenced ```json block: { report, nextActions[], question }.',
+  },
+  {
+    id: 'meai-external', name: 'Me.AI external action', modelCategory: 'execution', canModel: true,
+    role: 'Executes ONE external action (send email / post to Teams / reply on a PR) that you have explicitly approved, on a fresh WorkIQ-attached session.',
+    usedIn: 'Me.AI console/lane → after you Approve an external "next action".',
+    tools: 'WorkIQ (Microsoft 365 / GitHub / Azure DevOps) plus shell + gh + az. Must produce a verifiable reference or an honest failure — never fake success.',
+    contract: 'Does EXACTLY the approved action, then reports with a fenced ```json block.',
+  },
+  {
+    id: 'agenda-assistant', name: 'Agenda assistant', modelCategory: 'chat', canModel: true,
+    role: 'Conversational control over your whole Me.AI day — add/split/remove blocks, reshape the day (mode, hours, work days, grid, time-of-day prefs), manage to-dos, triage the attention inbox. Proposes changes you confirm.',
+    usedIn: 'Me.AI page → Agenda assistant drawer (🗓 Adjust agenda).',
+    tools: 'No external tools — proposes structured actions against the agenda API.',
+    contract: 'Returns a single JSON object {reply, actions[]}.',
+  },
+  {
+    id: 'board-assistant', name: 'Workspace assistant', modelCategory: 'chat', canModel: true,
+    role: 'Keeps a workspace/board clean and actionable — proposes notes/checklists, places/moves/packs cards into sections, and can orchestrate the board\'s pinned agents. Proposes changes you confirm.',
+    usedIn: 'Boards page → workspace Assistant drawer.',
+    tools: 'Read-only board context + safe folder search; side-effecting ops (running a pinned agent) stay confirm-gated.',
+    contract: 'Returns a single JSON object {reply, actions[]}.',
+  },
+  {
+    id: 'codeflow-reviewer', name: 'Code Flow reviewer', modelCategory: 'execution', canModel: false,
+    role: 'A meticulous senior code reviewer for a pull request. Analyzes and reports only — never changes the PR. Produces an HTML review report + machine-readable findings.',
+    usedIn: 'Code Flow → "Review with AI" on a PR that needs your review.',
+    tools: 'Full shell + git + gh/az in a read-only review worktree. (Runs as a generated .agent.md — model is the runtime default and can\'t be pinned here.)',
+    contract: 'Writes an HTML report + a JSON findings file; ends with a verdict.',
+  },
+  {
+    id: 'codeflow-author', name: 'Code Flow steward', modelCategory: 'execution', canModel: false,
+    role: 'Tends YOUR OWN pull request — addresses reviewer feedback, hardens the change, adds validation, and commits fixes locally (you push).',
+    usedIn: 'Code Flow → "Tend with AI" on your own PR.',
+    tools: 'Full shell + git + build/test in your PR\'s worktree. (Runs as a generated .agent.md — model is the runtime default and can\'t be pinned here.)',
+    contract: 'Writes an HTML steward report + a JSON findings file after committing.',
+  },
+];
+const SYSTEM_AGENT_IDS = new Set(SYSTEM_AGENTS.map(a => a.id));
+// Return the persisted override {instructions, model} for a system agent id.
+function _systemAgentOverride(id) {
+  try {
+    const m = settings.getSettings().systemAgentOverrides || {};
+    const o = m[id];
+    if (o && typeof o === 'object') {
+      return { instructions: String(o.instructions || '').trim(), model: String(o.model || '').trim() };
+    }
+  } catch (_) {}
+  return { instructions: '', model: '' };
+}
+// The append-only instruction block for a system agent (empty string when none).
+// Framed as subordinate to the agent's required output contract.
+function _systemAgentInstr(id) {
+  const o = _systemAgentOverride(id);
+  if (!o.instructions) return '';
+  return '\n\n## ADDITIONAL USER INSTRUCTIONS\n' +
+    'The user configured these standing instructions for you in Settings → System agents. ' +
+    'Honor them for tone, focus, priorities and behavior. They are SUBORDINATE to your required ' +
+    'output format/contract: if any instruction would conflict with producing the exact required ' +
+    'JSON / structured output, keep the output format and apply the instruction only where compatible.\n' +
+    o.instructions;
+}
+// Merge a per-agent model override into a runChat config (returns a new/patched
+// config object; leaves config null when there is no override and none passed).
+function _systemAgentCfg(id, config) {
+  const o = _systemAgentOverride(id);
+  if (!o.model) return config;
+  return { ...(config || {}), model: o.model };
+}
 const uiPrefs = require('./ui-prefs');
 const connect = require('./connect');
 const newsletter = require('./newsletter');
@@ -3168,7 +3271,7 @@ In addition to the HTML report, write a **second** file named \`${commentsName}\
 - **Never check yourself in.** NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`), your generated review report (\`${reportName}\`), or the machine-readable findings (\`${commentsName}\`). They stay untracked.
 - If you notice a \`.github/agents/*.agent.md\` file, the report file, or \`${commentsName}\` in \`git status\`, leave them untracked and never add them.
 `;
-  return body;
+  return body + _systemAgentInstr('codeflow-reviewer');
 }
 
 // The PR STEWARD persona body. For YOUR OWN pull request (Code Flow "mine"
@@ -3277,7 +3380,7 @@ Also write a **second** file named \`${commentsName}\` at the root of this workt
 - **Push is the human's call.** Commit locally so your work is ready, but do **not** \`git push\` — the user pushes from the Code Flow card after reviewing your report.
 - **Never check yourself in.** NEVER stage, commit, or otherwise include your own agent definition (any file under \`.github/agents/\`), your generated report (\`${reportName}\`), or the machine-readable findings (\`${commentsName}\`). If you notice any of them in \`git status\`, leave them untracked and never add them.
 `;
-  return body;
+  return body + _systemAgentInstr('codeflow-author');
 }
 
 // Build the steward agent .agent.md (frontmatter + steward persona body).
@@ -8770,7 +8873,50 @@ app.put('/api/settings', (req, res) => {
   }
 });
 
-// --- Durable UI preferences (survive desktop reinstall/upgrade) ---------------
+// --- System agents: read the registry + save per-agent behavior overrides ------
+// GET returns each built-in AI system agent (role, where-used, tools, model
+// category, output contract) merged with the user's saved override (custom
+// instructions + optional pinned model). PUT saves ONE agent's override.
+app.get('/api/system-agents', (req, res) => {
+  try {
+    const overrides = settings.getSettings().systemAgentOverrides || {};
+    const models = { chat: settings.getSettings().chatModel || '', execution: settings.getSettings().executionModel || '', system: settings.getSettings().systemModel || '' };
+    const agents = SYSTEM_AGENTS.map(a => {
+      const o = overrides[a.id] && typeof overrides[a.id] === 'object' ? overrides[a.id] : {};
+      return {
+        ...a,
+        defaultModel: models[a.modelCategory] || '',
+        override: { instructions: String(o.instructions || ''), model: String(o.model || '') },
+      };
+    });
+    res.json({ agents });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/system-agents/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!SYSTEM_AGENT_IDS.has(id)) return res.status(404).json({ error: 'Unknown system agent' });
+    const agent = SYSTEM_AGENTS.find(a => a.id === id);
+    const b = req.body || {};
+    const instructions = String(b.instructions || '').trim().slice(0, 8000);
+    // Model pinning is only meaningful for agents that run via a runChat config.
+    const model = agent.canModel ? String(b.model || '').trim().slice(0, 200) : '';
+    // Full-object replace on update: read the current map, set/clear this id, write back.
+    const cur = settings.getSettings().systemAgentOverrides || {};
+    const nextMap = { ...cur };
+    if (!instructions && !model) delete nextMap[id];
+    else nextMap[id] = { instructions, model };
+    settings.updateSettings({ systemAgentOverrides: nextMap });
+    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    res.json({ ok: true, id, override: { instructions, model } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // The SPA keeps theme/palette/icon-set/experience-level/app-mode/basic-features/
 // sidebar-widths in browser localStorage, which is wiped on a WebView2 reinstall.
 // We mirror a whitelist of durable keys here (under the reinstall-durable profile
@@ -9785,7 +9931,7 @@ async function runConnectAssistant({ message, history, extraContext, allowSearch
 
   let acc = '';
   const result = await sdkRunner.runChat({
-    config: null, prompt: sys, sessionId: require('crypto').randomUUID(),
+    config: _systemAgentCfg('connect', null), prompt: sys + _systemAgentInstr('connect'), sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
     meta: { source: 'connect', category: 'diary' },
   });
@@ -10349,10 +10495,11 @@ async function _newsletterRunAgent(agentName, prompt, onStep) {
   if (!newsletterPluginDir || !fs.existsSync(newsletterPluginDir)) {
     throw new Error('Newsletter plugin is not available yet — restart the server.');
   }
+  const _saId = agentName === 'editor' ? 'newsletter-editor' : 'newsletter-writer';
   let acc = '';
   const result = await sdkRunner.runChat({
-    config: { pluginDir: newsletterPluginDir, agent: agentName, cwd: __dirname },
-    prompt,
+    config: _systemAgentCfg(_saId, { pluginDir: newsletterPluginDir, agent: agentName, cwd: __dirname }),
+    prompt: prompt + _systemAgentInstr(_saId),
     sessionId: require('crypto').randomUUID(),
     resume: false,
     cwd: __dirname,
@@ -13950,7 +14097,7 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
 
   let acc = '';
   const result = await sdkRunner.runChat({
-    config: null, prompt: sys, sessionId: require('crypto').randomUUID(),
+    config: _systemAgentCfg('agenda-assistant', null), prompt: sys + _systemAgentInstr('agenda-assistant'), sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
     meta: { source: 'me-ai', category: 'me-ai-assistant' },
   });
@@ -15520,6 +15667,9 @@ function _meAiExternalActPrompt(t, intent, text, label) {
 }
 async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   const cwd = (t.context && t.context.cwd) || __dirname;
+  const _saId = workiq ? 'meai-external' : 'meai-agent';
+  const _saOv = _systemAgentOverride(_saId);
+  prompt = prompt + _systemAgentInstr(_saId);
   let acc = '';
   let config = resume ? null : { cwd, allowAll: true };
   let sessionId = t.sessionId;
@@ -15538,6 +15688,9 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
     sessionId = require('crypto').randomUUID();
     resume = false;
   }
+  // Per-agent model override (Settings → System agents). On a resume turn config is
+  // null unless the user pinned a model, in which case we must materialize a config.
+  if (_saOv.model) config = { ...(config || {}), model: _saOv.model };
   const result = await sdkRunner.runChat({
     config,
     prompt,
@@ -20902,7 +21055,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     return null;
   };
   let acc = '';
-  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+  const result = await sdkRunner.runChat({ config: _systemAgentCfg('board-assistant', null), prompt: prompt + _systemAgentInstr('board-assistant'), sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
   const rawText = (acc.trim() || (result && result.output) || '').trim();
   const parsed = parseModel(rawText);
   // Newline-preserving normalizer for the chat reply so block markdown (headings,

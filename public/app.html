@@ -17455,6 +17455,57 @@
 
             </div><!-- /ai category -->
 
+            <!-- ===== System agents category ===== -->
+            <div x-show="settingsCat === 'agents'">
+              <div class="card" style="margin-bottom:20px">
+                <h3 style="margin-bottom:12px">🤖 System agents</h3>
+                <p class="hint" style="margin-bottom:14px">These are the app's built-in AI agents. You can't rewrite their base prompts, but you can add standing <strong>custom instructions</strong> (tone, focus, priorities) that are appended to every run, and optionally pin a specific model. Your instructions are subordinate to each agent's required output — they can't break parsing.</p>
+                <p class="hint" x-show="sysAgents.loading">Loading…</p>
+                <p class="hint" x-show="sysAgents.error" style="color:var(--danger,#dc2626)" x-text="sysAgents.error"></p>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <template x-for="a in sysAgents.list" :key="a.id">
+                    <div style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden">
+                      <div class="clickable" @click="sysAgentToggle(a.id)" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--cp-surface-2,var(--cp-surface))">
+                        <span x-text="a.override && (a.override.instructions || a.override.model) ? '●' : '○'" :style="(a.override && (a.override.instructions || a.override.model)) ? 'color:var(--cp-accent);font-size:11px' : 'color:var(--cp-text-muted);font-size:11px'"></span>
+                        <div style="flex:1;min-width:0">
+                          <div style="font-weight:600" x-text="a.name"></div>
+                          <div class="hint" style="margin:0" x-text="a.usedIn"></div>
+                        </div>
+                        <span class="hint" x-show="a.override && a.override.instructions" style="margin:0">customized</span>
+                        <span x-text="sysAgents.expanded === a.id ? '▾' : '▸'" style="color:var(--cp-text-muted)"></span>
+                      </div>
+                      <div x-show="sysAgents.expanded === a.id" style="padding:14px;border-top:1px solid var(--cp-border)">
+                        <p class="hint" style="margin-top:0" x-text="a.role"></p>
+                        <div class="hint" style="margin:8px 0"><strong>Tools:</strong> <span x-text="a.tools"></span></div>
+                        <div class="hint" style="margin:8px 0"><strong>Output contract:</strong> <span x-text="a.contract"></span></div>
+                        <div class="hint" style="margin:8px 0" x-show="!a.canModel"><strong>Model:</strong> runtime default (this agent runs as a generated agent file — its model can't be pinned here).</div>
+
+                        <label class="field-label" style="margin-top:12px">Custom instructions</label>
+                        <textarea class="field-input" rows="4" style="resize:vertical" placeholder="e.g. Keep replies terse and skip pleasantries. Always call out risky changes first." x-model="sysAgentDraftFor(a.id).instructions"></textarea>
+
+                        <div x-show="a.canModel" style="margin-top:12px;max-width:420px">
+                          <label class="field-label">Model override</label>
+                          <select class="field-input" x-model="sysAgentDraftFor(a.id).model">
+                            <option value="">Use category default (<span x-text="a.modelCategory"></span>)</option>
+                            <template x-for="m in models" :key="m.id">
+                              <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
+                            </template>
+                          </select>
+                        </div>
+
+                        <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
+                          <button class="btn btn-primary" type="button" :disabled="sysAgents.busy === a.id" @click="saveSystemAgent(a.id)" x-text="sysAgents.busy === a.id ? 'Saving…' : 'Save'"></button>
+                          <button class="btn" type="button" @click="sysAgentResetDraft(a.id)">Reset</button>
+                          <span class="hint" style="margin:0" x-show="sysAgents.saved === a.id">✅ Saved.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div><!-- /agents category -->
+
+
             <!-- ===== Integrations category ===== -->
             <div x-show="settingsCat === 'integrations'">
             <!-- Azure DevOps defaults (shared by Export + Dev cards) -->
@@ -21447,6 +21498,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         exportSettingsError: '',
         modelsError: '',
         modelsSaved: false,
+        sysAgents: { list: [], loading: false, error: '', expanded: '', busy: '', saved: '', draft: {} },
         syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '' },
         instances: [],
         otherMachines: [],
@@ -22283,7 +22335,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['experience', 'appearance', 'ai', 'integrations', 'dependencies', 'storage', 'connect', 'about'];
+            const cats = ['experience', 'appearance', 'ai', 'agents', 'integrations', 'dependencies', 'storage', 'connect', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
@@ -22292,6 +22344,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.settingsCat === 'storage') { this.loadDataLocation(); this.ensureConnectConfig(); this.ensureDevSettings(); }
             if (this.settingsCat === 'integrations') { this.ensureCfGroups(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
+            if (this.settingsCat === 'agents') this.loadSystemAgents();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
@@ -25964,6 +26017,54 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } catch {}
         },
+        // ---- System agents (Settings → System agents) ----
+        async loadSystemAgents() {
+          this.sysAgents.loading = true; this.sysAgents.error = '';
+          try {
+            const r = await this.request('/api/system-agents');
+            const list = (r && r.agents) || [];
+            this.sysAgents.list = list;
+            // Seed editable drafts from each agent's saved override.
+            const draft = {};
+            list.forEach(a => { draft[a.id] = { instructions: (a.override && a.override.instructions) || '', model: (a.override && a.override.model) || '' }; });
+            this.sysAgents.draft = draft;
+          } catch (e) {
+            this.sysAgents.error = 'Could not load system agents.';
+          } finally {
+            this.sysAgents.loading = false;
+          }
+        },
+        sysAgentDraftFor(id) {
+          if (!this.sysAgents.draft[id]) this.sysAgents.draft[id] = { instructions: '', model: '' };
+          return this.sysAgents.draft[id];
+        },
+        sysAgentToggle(id) {
+          this.sysAgents.expanded = this.sysAgents.expanded === id ? '' : id;
+          this.sysAgents.saved = '';
+        },
+        sysAgentResetDraft(id) {
+          const a = this.sysAgents.list.find(x => x.id === id);
+          this.sysAgents.draft[id] = { instructions: (a && a.override && a.override.instructions) || '', model: (a && a.override && a.override.model) || '' };
+          this.sysAgents.saved = '';
+        },
+        async saveSystemAgent(id) {
+          const d = this.sysAgentDraftFor(id);
+          this.sysAgents.busy = id; this.sysAgents.saved = ''; this.sysAgents.error = '';
+          try {
+            const r = await this.request('/api/system-agents/' + encodeURIComponent(id), {
+              method: 'PUT', body: JSON.stringify({ instructions: d.instructions || '', model: d.model || '' })
+            });
+            // Reflect the sanitized override back onto the list entry so the dot/status update.
+            const a = this.sysAgents.list.find(x => x.id === id);
+            if (a && r && r.override) a.override = r.override;
+            this.sysAgents.saved = id;
+            setTimeout(() => { if (this.sysAgents.saved === id) this.sysAgents.saved = ''; }, 2500);
+          } catch (e) {
+            this.sysAgents.error = 'Could not save.';
+          } finally {
+            this.sysAgents.busy = '';
+          }
+        },
         // Lightweight early load of just the external-access flag so the route
         // guard + External tab visibility are correct before the Settings page is
         // ever opened. Best-effort; silent on failure.
@@ -25984,6 +26085,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { id: 'experience', label: 'Experience', ico: '🧭', hash: '#/settings/experience' },
             { id: 'appearance', label: 'Appearance', ico: '🎨', hash: '#/settings/appearance' },
             { id: 'ai', label: 'AI & Behavior', ico: '🧠', hash: '#/settings/ai' },
+            { id: 'agents', label: 'System agents', ico: '🤖', hash: '#/settings/agents' },
             { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
             { id: 'dependencies', label: 'Dependencies', ico: '📦', hash: '#/settings/dependencies' },
             { id: 'storage', label: 'Storage', ico: '💾', hash: '#/settings/storage' },

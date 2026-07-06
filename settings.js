@@ -193,6 +193,17 @@ const DEFAULTS = {
   // (review|steward|focus|comms|admin|prep) → 'morning' | 'afternoon' | ''.
   // Biases ordering so preferred-morning work lands earlier; also fed to refine.
   meAiTimePrefs: {},
+  // --- System agents: per-agent behavior overrides -------------------------
+  // The app ships several built-in AI "system agents" (Connect assistant,
+  // Newsletter writer/editor, Me.AI agent + external-act, Agenda assistant,
+  // Workspace/Board assistant, Code Flow reviewer/steward). Settings → System
+  // agents lets the user READ each agent's role/tools/base prompt and APPEND
+  // standing custom instructions (and optionally pin a model) WITHOUT rewriting
+  // the base prompt — the override is appended at runtime, subordinate to the
+  // agent's required output contract. Map keyed by agent id →
+  // { instructions:'<free text>', model:'<model id or empty>' }. Only agents the
+  // user actually customizes appear here. Full-object replace on update.
+  systemAgentOverrides: {},
 };
 
 let cache = null;
