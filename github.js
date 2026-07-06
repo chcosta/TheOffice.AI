@@ -326,7 +326,27 @@ async function listPullRequests(owner, _project, repo, { creatorId, reviewerId, 
   const wantCreator = (creatorId || '').toLowerCase();
   const wantReviewer = (reviewerId || '').toLowerCase();
   if (wantCreator) list = list.filter(p => ((p.user && p.user.login) || '').toLowerCase() === wantCreator);
-  if (wantReviewer) list = list.filter(p => (p.requested_reviewers || []).some(r => (r.login || '').toLowerCase() === wantReviewer));
+  if (wantReviewer) {
+    // GitHub drops a user from `requested_reviewers` the moment they submit a review, so
+    // filtering on that alone makes a PR vanish from the reviews view the instant you
+    // approve it — even while it's still open (AzDo keeps the reviewer + vote, hence the
+    // mismatch). Union the still-requested set with PRs you've already reviewed (via the
+    // Search API) so approved-but-open PRs stay visible until they actually close.
+    const requested = new Set(
+      list.filter(p => (p.requested_reviewers || []).some(r => (r.login || '').toLowerCase() === wantReviewer))
+          .map(p => p.number)
+    );
+    let reviewed = new Set();
+    try {
+      const parts = [`repo:${owner}/${repo}`, 'is:pr', `reviewed-by:${wantReviewer}`];
+      if (ghState === 'open') parts.push('is:open');
+      else if (ghState === 'closed') parts.push('is:closed');
+      const q = encodeURIComponent(parts.join(' '));
+      const items = await apiAll(`/search/issues?q=${q}&sort=updated&order=desc`, { cap: Math.max(50, Number(top) || 50) });
+      reviewed = new Set(items.map(it => it.number));
+    } catch { /* search unavailable → fall back to requested-only (prior behavior) */ }
+    list = list.filter(p => requested.has(p.number) || reviewed.has(p.number));
+  }
   return list.slice(0, Number(top) || 50).map(p => _compactPr(p, owner, repo));
 }
 
