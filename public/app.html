@@ -9728,6 +9728,7 @@
                                                   <template x-if="slotPrBranchAvailable(d,s)">
                                                     <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s,'pr')" :title="'Open against the PR branch (' + s.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
                                                   </template>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                 </div>
                                               </div>
                                             </template>
@@ -9752,6 +9753,7 @@
                                                   <button class="cal-tbtn" type="button" :class="slotCommitsOpen[slotCommitsKey(d,s)] ? 'primary' : ''" @click="slotToggleCommits(d,s)" title="Show which commits are local-only (unpushed), which are on the origin/PR branch but missing locally, and recent history">↕ Commits</button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? '⟳…' : '⟳ Sync'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
                                                 </div>
                                                 <template x-if="slotCommitsOpen[slotCommitsKey(d,s)]">
@@ -10940,6 +10942,7 @@
                                                   <template x-if="slotPrBranchAvailable(d,s)">
                                                     <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s,'pr')" :title="'Open against the PR branch (' + s.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
                                                   </template>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                 </div>
                                               </div>
                                             </template>
@@ -10964,6 +10967,7 @@
                                                   <button class="cal-tbtn" type="button" :class="slotCommitsOpen[slotCommitsKey(d,s)] ? 'primary' : ''" @click="slotToggleCommits(d,s)" title="Show which commits are local-only (unpushed), which are on the origin/PR branch but missing locally, and recent history">↕ Commits</button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? '⟳…' : '⟳ Sync'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
                                                 </div>
                                                 <template x-if="slotCommitsOpen[slotCommitsKey(d,s)]">
@@ -11708,8 +11712,17 @@
               .meai-inbox-n { color:var(--cp-text-muted); font-weight:500; }
               .meai-inbox-refresh { font-size:12.5px; }
               .meai-inbox-list { border:1px solid var(--cp-border); border-top:0; border-radius:0 0 10px 10px; margin-top:-1px; background:var(--cp-surface); display:flex; flex-direction:column; }
-              .meai-inbox-item { padding:10px 14px; border-top:1px solid var(--cp-border); }
+              .meai-inbox-item { padding:10px 14px; }
               .meai-inbox-item:first-child { border-top:0; }
+              /* Issue 3: swipe-to-remove wrapper around each inbox item. */
+              .meai-inbox-swipe { position:relative; overflow:hidden; border-top:1px solid var(--cp-border); }
+              .meai-inbox-swipe:first-child { border-top:0; }
+              .meai-inbox-swipe .meai-inbox-item { position:relative; z-index:1; background:var(--cp-surface); touch-action:pan-y; will-change:transform; }
+              .meai-inbox-swipe-act { position:absolute; top:0; right:0; bottom:0; width:92px; display:flex; align-items:stretch; z-index:0; }
+              .meai-inbox-swipe-btn { flex:1 1 auto; border:0; background:color-mix(in srgb, var(--cp-danger, #d9534f) 90%, #000); color:#fff; font-size:12.5px; font-weight:600; cursor:pointer; }
+              .meai-inbox-swipe-btn:hover { background:var(--cp-danger, #d9534f); }
+              .meai-inbox-swipe-btn:disabled { opacity:.6; cursor:default; }
+              .meai-inbox-done { margin-left:auto; flex:0 0 auto; }
               .meai-inbox-item.fresh { background:color-mix(in srgb, var(--cp-warning) 6%, transparent); }
               .meai-inbox-item.parked { opacity:.75; }
               .meai-inbox-head { display:flex; align-items:baseline; gap:8px; font-size:13px; }
@@ -11822,6 +11835,7 @@
               .meai-detail-item { display:flex; flex-direction:column; gap:3px; padding:8px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); }
               .meai-detail-item-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
               .meai-detail-item-title { font-size:12.5px; font-weight:600; color:var(--cp-text); min-width:0; overflow:hidden; text-overflow:ellipsis; }
+              .meai-detail-item-why { font-size:11.5px; color:var(--cp-text-muted); margin:2px 0 3px; line-height:1.4; }
               .meai-detail-item-head .meai-detail-link { margin-top:0; flex:0 0 auto; }
               .meai-side h4 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin:0 0 8px; }
               .meai-card-head { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; margin:0 0 8px; }
@@ -12368,34 +12382,40 @@
                       </template>
                     </div>
                   </template>
-                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix')" :key="it.id">
-                    <div class="meai-inbox-item" :class="{ fresh: it.triage==='new', parked: it.triage==='later' }">
-                      <div class="meai-inbox-head">
-                        <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
-                        <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
-                        <span class="meai-inbox-title clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
-                        <span class="meai-inbox-ts" x-show="meAiInboxTs(it)" :title="it.ts||''" x-text="meAiInboxTs(it)"></span>
-                        <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned directly">@you</span>
-                        <span class="meai-inbox-state" x-show="it.triage==='later'">Parked</span>
-                        <span class="meai-inbox-state" x-show="it.triage==='today'">On today</span>
-                        <span class="meai-inbox-state" x-show="it.triage==='now'">Handling</span>
+                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done')" :key="it.id">
+                    <div class="meai-inbox-swipe">
+                      <div class="meai-inbox-swipe-act">
+                        <button type="button" class="meai-inbox-swipe-btn" @click="meai.inboxSwipeOpen=null; meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Remove this notification">Remove</button>
                       </div>
-                      <div class="meai-inbox-detail" x-show="it.detail" x-text="it.detail"></div>
-                      <div class="meai-inbox-acts" x-show="it.triage==='new' || it.triage==='seen'">
-                        <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
-                        <button type="button" class="meai-tri" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
-                        <button type="button" class="meai-tri" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
-                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
-                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
-                      </div>
-                      <div class="meai-inbox-acts" x-show="it.triage==='later'">
-                        <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
-                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
-                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
+                      <div class="meai-inbox-item" :style="meAiInboxSwipeStyle(it)" @pointerdown="meAiInboxSwipeStart($event, it)" :class="{ fresh: it.triage==='new', parked: it.triage==='later' }">
+                        <div class="meai-inbox-head">
+                          <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
+                          <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
+                          <span class="meai-inbox-title clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
+                          <span class="meai-inbox-ts" x-show="meAiInboxTs(it)" :title="it.ts||''" x-text="meAiInboxTs(it)"></span>
+                          <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned directly">@you</span>
+                          <span class="meai-inbox-state" x-show="it.triage==='later'">Parked</span>
+                          <span class="meai-inbox-state" x-show="it.triage==='today'">On today</span>
+                          <span class="meai-inbox-state" x-show="it.triage==='now'">Handling</span>
+                          <button type="button" class="meai-tri ghost meai-inbox-done" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">✓ Done</button>
+                        </div>
+                        <div class="meai-inbox-detail" x-show="it.detail" x-text="it.detail"></div>
+                        <div class="meai-inbox-acts" x-show="it.triage==='new' || it.triage==='seen'">
+                          <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
+                          <button type="button" class="meai-tri" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
+                          <button type="button" class="meai-tri" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
+                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
+                        </div>
+                        <div class="meai-inbox-acts" x-show="it.triage==='later'">
+                          <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
+                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
+                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
+                        </div>
                       </div>
                     </div>
                   </template>
-                  <div class="meai-inbox-empty" x-show="!meAiAutoHandled().length && !(meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix').length">
+                  <div class="meai-inbox-empty" x-show="!meAiAutoHandled().length && !(meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done').length">
                     Nothing waiting — email &amp; Teams are quiet. <span class="meai-status-detail">New asks appear here automatically while you work.</span>
                   </div>
                 </div>
@@ -12463,8 +12483,9 @@
                                     <div class="meai-detail-item">
                                       <div class="meai-detail-item-head">
                                         <span class="meai-detail-item-title" x-text="it.title"></span>
-                                        <a class="meai-detail-link" x-show="it.link" :href="it.link" target="_blank" rel="noopener">Open ↗</a>
+                                        <a class="meai-detail-link" x-show="it.link" :href="it.link" target="_blank" rel="noopener" x-text="b.type==='comms' ? 'Open to reply ↗' : 'Open ↗'"></a>
                                       </div>
+                                      <div class="meai-detail-item-why" x-show="it.why" x-text="it.why"></div>
                                       <template x-for="row in meAiMetaRows(it)" :key="row[0]">
                                         <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
                                       </template>
@@ -20971,6 +20992,7 @@
           inbox: { items: [], newCount: 0, polledAt: '' },
           inboxOpen: false,      // inbox panel expanded
           inboxBusy: false,      // a refresh / triage request is in flight
+          inboxSwipeId: null, inboxSwipeDx: 0, inboxSwipeOpen: null,  // Issue 3: swipe-to-remove on inbox items
           // Collapsible side-rail cards — heavy lists (needs-attention, backlog)
           // can be collapsed to a one-line status indicator to reclaim space.
           railCollapsed: (() => { try { return JSON.parse(localStorage.getItem('meAiRailCollapsed') || '{}') || {}; } catch (_) { return {}; } })(),
@@ -27671,6 +27693,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.toast('Removed — won\u2019t resurface today', 'info');
             } else if (action === 'wontfix') {
               this.toast('Marked won\u2019t-fix — recorded for your report', 'info');
+            } else if (action === 'done') {
+              this.toast('Marked done — nice work', 'success');
             }
           } catch (e) {
             this.toast('Triage failed: ' + (e.message || e), 'error');
@@ -27688,9 +27712,54 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // mail client has no external URL. Email URLs route through the desktop-Outlook
         // interceptor (openEmailDesktop) via the global window.open override.
         meAiInboxOpen(it) {
+          if (this._inboxSwipeMoved) return;   // a swipe just happened — don't open
+          if (this.meai.inboxSwipeOpen === (it && it.id)) { this.meai.inboxSwipeOpen = null; return; }
+          if (this.meai.inboxSwipeOpen) { this.meai.inboxSwipeOpen = null; return; }
           const url = (it && (it.link || it.prLink)) || '';
           if (!url) return;
           try { window.open(url, '_blank'); } catch (_) { /* best-effort */ }
+        },
+        // Issue 3: swipe an attention-inbox item LEFT to reveal a "Remove" action that
+        // dismisses it (so an already-handled / ignorable notification can be cleared).
+        // Mirrors the agenda-block swipe (meAiBlockSwipe*).
+        _inboxSwipeW: 92,
+        meAiInboxSwipeStyle(it) {
+          const m = this.meai; const id = it && it.id;
+          if (m.inboxSwipeOpen === id) return 'transform:translateX(-' + this._inboxSwipeW + 'px);transition:transform .18s ease;';
+          if (m.inboxSwipeId === id && m.inboxSwipeDx < 0) return 'transform:translateX(' + m.inboxSwipeDx + 'px);';
+          return 'transform:translateX(0);transition:transform .18s ease;';
+        },
+        meAiInboxSwipeStart(ev, it) {
+          if (ev.button != null && ev.button !== 0) return;
+          if (ev.target && ev.target.closest && ev.target.closest('button,a,input,textarea,select')) return;
+          const m = this.meai; const id = it && it.id;
+          const startX = ev.clientX, startY = ev.clientY;
+          let moved = false, horizontal = false;
+          m.inboxSwipeId = id; m.inboxSwipeDx = 0;
+          const move = (e) => {
+            const dx = e.clientX - startX, dy = e.clientY - startY;
+            if (!horizontal && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+            if (!horizontal) horizontal = Math.abs(dx) > Math.abs(dy);
+            if (!horizontal) { cleanup(); return; }
+            moved = true;
+            m.inboxSwipeDx = Math.min(0, Math.max(-(this._inboxSwipeW + 20), dx));
+          };
+          const up = () => {
+            const open = moved && m.inboxSwipeDx <= -48;
+            m.inboxSwipeOpen = open ? id : null;
+            m.inboxSwipeId = null; m.inboxSwipeDx = 0;
+            this._inboxSwipeMoved = moved;
+            setTimeout(() => { this._inboxSwipeMoved = false; }, 60);
+            cleanup();
+          };
+          const cleanup = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
         },
         // REQ-9: items Me.AI auto-triaged for you (safe, reversible decisions applied from
         // your past behaviour). Shown in a dedicated strip with Undo, not the main list.
@@ -37796,13 +37865,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // --- Dev-card side: link an existing PR into one repo slot ---
         openSlotLinkPr(d, s) {
           this.prLink = { open: true, devId: d.id, slotId: s.id, title: d.title || s.repo, repo: s.repo, org: s.org, project: s.project, provider: s.provider || d.provider || 'azdo', manual: '', busy: false };
-          // Best-effort: make sure some PRs are loaded to pick from.
+          // Best-effort: make sure PRs are loaded to pick from. The candidate list
+          // merges Code Flow (watched repos) with "My PRs" (view=mine), so a PR the
+          // user authored in a repo they don't watch — e.g. a GitHub arcade PR — is
+          // still findable without typing the number.
           if (!(this.codeflow && this.codeflow.pullRequests && this.codeflow.pullRequests.length)) { try { this.loadCodeFlow(true); } catch {} }
+          if (this.homePrs && !this.homePrs.items.length && !this.homePrs.loading) { try { this.loadHomePrs(); } catch {} }
         },
         slotLinkCandidates() {
           const p = this.prLink; if (!p.open) return [];
           const s = { org: p.org, project: p.project, repo: p.repo };
-          return (this.codeflow.pullRequests || []).filter(pr => this._prMatchesSlot(pr, s)).slice(0, 40);
+          const seen = new Set();
+          const out = [];
+          for (const list of [(this.codeflow && this.codeflow.pullRequests) || [], (this.homePrs && this.homePrs.items) || []]) {
+            for (const pr of list) {
+              if (!pr || !this._prMatchesSlot(pr, s)) continue;
+              const key = (pr.provider || '') + ':' + (pr.repoId || pr.repo || '') + ':' + pr.id;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              out.push(pr);
+              if (out.length >= 40) return out;
+            }
+          }
+          return out;
         },
         async linkSlotPr(prId, prObj) {
           const p = this.prLink; if (!p.open || p.busy) return;

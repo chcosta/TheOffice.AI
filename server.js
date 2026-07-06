@@ -12496,13 +12496,19 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
       if (bs != null && be != null) {
         const items = [], seen = new Set();
         for (const pb of (pre.blocks || [])) {
-          if (!pb.link || pb.type !== b.type) continue;
+          if (pb.type !== b.type) continue;
           const ps = _hmToMin(pb.start), pe = _hmToMin(pb.end);
           if (ps == null || pe == null) continue;
-          if (Math.min(be, pe) > Math.max(bs, ps) && !seen.has(pb.link)) {
-            seen.add(pb.link);
-            items.push({ title: pb.title, link: pb.link, meta: pb.meta || null });
-          }
+          if (Math.min(be, pe) <= Math.max(bs, ps)) continue;
+          // PR/review constituents always carry a link; comms items (an email or
+          // Teams ask) may not, so fall back to the title for the dedupe key —
+          // otherwise a merged comms block ("Reply: A + B") collapses to a single
+          // Open link and the other asks vanish. Carry why/detail so the UI can
+          // explain each item, not just link it.
+          const key = pb.link || pb.title;
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          items.push({ title: pb.title, link: pb.link || '', why: pb.why || '', detail: pb.detail || '', meta: pb.meta || null });
         }
         if (items.length > 1) b.items = items;
       }
@@ -13831,7 +13837,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const id = String(b.id || '').trim();
     const action = String(b.action || '').trim();
-    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix'];
+    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done'];
     if (!id || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
     const inbox = loadInboxForDate(date);
     const it = inbox.items.find(x => x.id === id);
@@ -13852,6 +13858,12 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
         saveDismissForDate(date, dm);
       } catch (_) { /* best-effort */ }
       it.triage = action === 'wontfix' ? 'wontfix' : 'dismissed';
+    } else if (action === 'done') {
+      // "Mark as done" = the ask has already been handled (I replied / resolved it).
+      // Recorded POSITIVELY — NOT as a dismissal/wontfix — so Reports count it as
+      // completed, not declined. It drops off the inbox like any resolved item.
+      it.triage = 'done';
+      it.doneAt = now;
     } else if (action === 'seen') {
       if (it.triage === 'new') it.triage = 'seen';
     } else {
@@ -13864,8 +13876,10 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     it.auto = false; // now an explicit user decision
     it.triagedAt = now;
     saveInboxForDate(date, inbox);
-    // REQ-9: learn from the explicit decision ('seen' is just clearing the flag).
-    if (action !== 'seen') {
+    // REQ-9: learn from the explicit triage decision. 'seen' just clears the flag;
+    // 'done' is a situational completion (already replied), not a routing preference,
+    // so neither feeds the learned model.
+    if (action !== 'seen' && action !== 'done') {
       try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
     }
     let agenda = null;
