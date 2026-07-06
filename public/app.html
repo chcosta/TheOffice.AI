@@ -2631,6 +2631,7 @@
     .cf-wt-approve:not(:disabled):hover { background:rgba(22,163,74,0.08); }
     /* Review-agent pane */
     .cf-agent-id { display:flex; align-items:center; gap:11px; margin-bottom:10px; }
+    .cf-agent-explain { margin:2px 0 10px; font-size:12.5px; line-height:1.5; color:var(--cp-text-muted); max-width:62ch; }
     .cf-agent-avatar { width:30px; height:30px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); display:flex; align-items:center; justify-content:center; background:var(--cp-surface-soft); border:1px solid var(--cp-border); font-size:15px; flex:0 0 auto; }
     .cf-agent-idmeta { display:flex; flex-direction:column; gap:2px; min-width:0; }
     .cf-agent-name { font-weight:600; font-size:13px; color:var(--cp-text); word-break:break-all; }
@@ -15047,7 +15048,8 @@
                       <!-- Worktree: Review agent + Git + Worktree rolled into ONE section (stacked sub-headers) -->
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'worktree'">
                         <div class="cf-subsec">
-                        <div class="cf-subhead">🤖 Review agent</div>
+                        <div class="cf-subhead" x-text="cfIsSteward(pr) ? '🛠 AI steward' : '🔍 AI reviewer'"></div>
+                        <p class="cf-agent-explain" x-text="cfIsSteward(pr) ? 'Because this is your PR, the steward works it in a private git worktree: reviews the diff, addresses reviewer feedback, hardens & validates the change, and can commit & push (you approve the push). Nothing is pushed without you.' : 'Checks this PR out into a private git worktree and produces a read-only review report — findings you can post as PR comments. It never edits or pushes the PR.'"></p>
                         <div class="cf-agent-id">
                           <span class="cf-agent-avatar">🤖</span>
                           <span class="cf-agent-idmeta">
@@ -15085,9 +15087,7 @@
                         <div class="cf-subhead">🌿 Git</div>
                         <template x-if="!cfWt(pr) || cfWt(pr).worktreeStatus !== 'ready'">
                           <div class="cf-git-empty">
-                            <span class="cf-wt-history-ts">Create a worktree to see git state and manage changes.</span>
-                            <button x-show="!cfHasWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
-                                    x-text="cfCreateLabel(pr)"></button>
+                            <span class="cf-wt-history-ts">Create a worktree above to see git state and manage changes.</span>
                           </div>
                         </template>
                         <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
@@ -15162,9 +15162,7 @@
                         <div class="cf-subsec">
                         <div class="cf-subhead" x-text="'🧰 ' + ((codeflow && codeflow.view === 'reviews') ? 'Code' : 'Worktree')"></div>
                         <template x-if="!cfHasWt(pr)">
-                          <span class="cf-wt-row">
-                            <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)" x-text="cfCreateLabel(pr)"></button>
-                          </span>
+                          <span class="cf-wt-history-ts">Create a worktree above to open it in VS Code, CLI, or File Explorer.</span>
                         </template>
                         <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
                           <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
