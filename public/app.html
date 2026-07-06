@@ -6405,6 +6405,26 @@
                     </span>
                   </div>
                   <section class="card home-hovercard">
+                    <style>
+                      .needs-group { margin-top:16px; }
+                      .needs-group:first-of-type { margin-top:0; }
+                      .needs-sub { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700;
+                        text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-soft); margin:0 0 9px; }
+                      .needs-sub .needs-n { font-weight:600; color:var(--cp-text-muted); letter-spacing:0; text-transform:none; }
+                      .needs-list { display:flex; flex-direction:column; gap:8px; }
+                      .needs-item { display:flex; align-items:flex-start; gap:11px; padding:11px 13px;
+                        background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; }
+                      .needs-item-ico { font-size:16px; line-height:1.4; flex:0 0 auto; }
+                      .needs-item-body { min-width:0; flex:1; }
+                      .needs-item-title { font-weight:600; display:flex; align-items:center; gap:7px; }
+                      .needs-item-title .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                      .needs-item-act { flex:0 0 auto; }
+                      .needs-row { display:flex; align-items:flex-start; gap:9px; font-size:13px; line-height:1.45; }
+                      .needs-row-ico { flex:0 0 auto; }
+                      .needs-row-txt { min-width:0; flex:1; }
+                      .needs-row.clickable { cursor:pointer; padding:2px 0; }
+                      .needs-row.clickable:hover .needs-row-txt { color:var(--cp-text); }
+                    </style>
                     <div class="card-header">
                       <div>
                         <h2 class="card-title">🛰️ Needs you</h2>
@@ -6418,43 +6438,49 @@
                     </div>
                     <div x-show="digestLoading && !digest.generatedAt" class="hint" style="padding:16px">🛰️ Scanning your boards, pull requests, tasks and agents…</div>
                     <div x-show="digest.generatedAt && !digest.needsYou.length && !digest.changed.length && !digest.nudges.length" class="empty-state" style="padding:18px">You're all caught up. Nothing needs you right now. 🎉</div>
-                    <div style="display:flex;flex-direction:column;gap:8px" x-show="digest.needsYou.length">
-                      <template x-for="row in digest.needsYou" :key="'hnu-' + row.key">
-                        <div class="card" style="padding:11px 13px;display:flex;align-items:flex-start;gap:11px">
-                          <span style="font-size:17px;line-height:1.4;flex:none" x-text="row.icon"></span>
-                          <div style="min-width:0;flex:1">
-                            <div style="font-weight:600;display:flex;align-items:center;gap:7px">
-                              <span x-show="row.isNew" title="New since your last visit" style="color:var(--cp-accent);flex:none">●</span>
-                              <span x-text="row.title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+
+                    <div class="needs-group" x-show="digest.needsYou.length">
+                      <div class="needs-sub"><span>🎯 Act now</span><span class="needs-n" x-text="digest.needsYou.length"></span></div>
+                      <div class="needs-list">
+                        <template x-for="row in digest.needsYou" :key="'hnu-' + row.key">
+                          <div class="needs-item">
+                            <span class="needs-item-ico" x-text="row.icon"></span>
+                            <div class="needs-item-body">
+                              <div class="needs-item-title">
+                                <span x-show="row.isNew" title="New since your last visit" style="color:var(--cp-accent);flex:none">●</span>
+                                <span class="t" x-text="row.title"></span>
+                              </div>
+                              <div class="hint" x-text="row.why"></div>
+                              <div class="hint" style="opacity:.7;margin-top:2px" x-show="row.source" x-text="row.source + (row.relative ? ' · ' + row.relative : '')"></div>
                             </div>
-                            <div class="hint" x-text="row.why"></div>
-                            <div class="hint" style="opacity:.7;margin-top:2px" x-show="row.source" x-text="row.source + (row.relative ? ' · ' + row.relative : '')"></div>
+                            <button class="btn ghost needs-item-act" type="button" @click="digestAct(row)" x-text="row.actionLabel"></button>
                           </div>
-                          <button class="btn ghost" type="button" style="flex:none" @click="digestAct(row)" x-text="row.actionLabel"></button>
-                        </div>
-                      </template>
+                        </template>
+                      </div>
                     </div>
-                    <template x-if="digest.changed.length">
-                      <div style="margin-top:12px">
-                        <div style="font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px"><span>🆕 Changed since you last looked</span><span class="hint" x-text="digest.changed.length"></span></div>
-                        <div style="display:flex;flex-direction:column;gap:6px">
-                          <template x-for="row in digest.changed" :key="'hchg-' + row.key">
-                            <div style="display:flex;align-items:flex-start;gap:9px;cursor:pointer" @click="digestAct(row)">
-                              <span style="flex:none" x-text="row.icon"></span>
-                              <div style="min-width:0"><span x-text="row.title" style="font-weight:600"></span><span class="hint" x-text="' · ' + row.why"></span></div>
+
+                    <template x-if="digestChangedFresh().length">
+                      <div class="needs-group">
+                        <div class="needs-sub"><span>🆕 Changed since you last looked</span><span class="needs-n" x-text="digestChangedFresh().length"></span></div>
+                        <div class="needs-list">
+                          <template x-for="row in digestChangedFresh()" :key="'hchg-' + row.key">
+                            <div class="needs-row clickable" @click="digestAct(row)">
+                              <span class="needs-row-ico" x-text="row.icon"></span>
+                              <div class="needs-row-txt"><span style="font-weight:600" x-text="row.title"></span><span class="hint" x-text="' · ' + row.why"></span></div>
                             </div>
                           </template>
                         </div>
                       </div>
                     </template>
+
                     <template x-if="digest.nudges.length">
-                      <div style="margin-top:12px">
-                        <div style="font-weight:600;margin-bottom:8px">💡 Nudges</div>
-                        <div style="display:flex;flex-direction:column;gap:7px">
+                      <div class="needs-group">
+                        <div class="needs-sub"><span>💡 Nudges</span><span class="needs-n" x-text="digest.nudges.length"></span></div>
+                        <div class="needs-list">
                           <template x-for="(n, i) in digest.nudges" :key="'hnudge-' + i">
-                            <div style="display:flex;align-items:flex-start;gap:9px" :style="n.hash ? 'cursor:pointer' : ''" @click="n.hash && goTo(n.hash)">
-                              <span style="flex:none" x-text="n.icon"></span>
-                              <div style="min-width:0" x-text="n.text"></div>
+                            <div class="needs-row" :class="n.hash ? 'clickable' : ''" @click="n.hash && goTo(n.hash)">
+                              <span class="needs-row-ico" x-text="n.icon"></span>
+                              <div class="needs-row-txt" x-text="n.text"></div>
                             </div>
                           </template>
                         </div>
@@ -11859,6 +11885,7 @@
               .meai-lane-m { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
               .meai-lane-stage { font-size:11px; font-weight:600; }
               .meai-lane-spin { display:inline-block; width:9px; height:9px; border:2px solid var(--cp-border); border-top-color:var(--cp-accent); border-radius:999px; animation:meaiSpin .7s linear infinite; }
+              .meai-lane-wait { display:inline-block; width:9px; height:9px; border-radius:999px; background:var(--cp-warning,#d97706); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning,#d97706) 22%, transparent); }
               @keyframes meaiSpin { to { transform:rotate(360deg); } }
               .meai-drawer-scrim { position:fixed; inset:0; background:rgba(0,0,0,.32); z-index:60; }
               .meai-drawer-scrim.locked { background:transparent; pointer-events:none; }
@@ -12343,8 +12370,9 @@
                               <div class="meai-lane-t" x-text="tk.title"></div>
                               <div class="meai-lane-m" x-text="tk.playbook + (tk.background ? ' · background' : '')"></div>
                             </div>
-                            <div class="meai-lane-stage" :style="'color:' + (tk.stage==='done' ? 'var(--cp-success)' : tk.stage==='error' ? 'var(--cp-danger)' : tk.status==='running' ? 'var(--cp-accent)' : 'var(--cp-text-muted)')">
-                              <span x-show="tk.status==='running'" class="meai-lane-spin"></span>
+                            <div class="meai-lane-stage" :style="'color:' + (tk.stage==='done' ? 'var(--cp-success)' : tk.stage==='error' ? 'var(--cp-danger)' : tk.stage==='awaiting' ? 'var(--cp-warning,#d97706)' : tk.status==='running' ? 'var(--cp-accent)' : 'var(--cp-text-muted)')">
+                              <span x-show="tk.status==='running' && tk.stage!=='awaiting'" class="meai-lane-spin"></span>
+                              <span x-show="tk.stage==='awaiting'" class="meai-lane-wait" title="Paused — waiting for your input"></span>
                               <span x-text="meAiTaskStageLabel(tk.stage)"></span>
                             </div>
                           </div>
@@ -12559,7 +12587,8 @@
                   <div class="meai-dr-head">
                     <div class="meai-dr-title" x-text="meai.console.title"></div>
                     <div class="meai-dr-stage">
-                      <span x-show="meai.console.status==='running'" class="meai-lane-spin"></span>
+                      <span x-show="meai.console.status==='running' && meai.console.stage!=='awaiting'" class="meai-lane-spin"></span>
+                      <span x-show="meai.console.stage==='awaiting'" class="meai-lane-wait" title="Paused — waiting for your input"></span>
                       <span x-text="meAiTaskStageLabel(meai.console.stage)"></span>
                     </div>
                     <button class="meai-dr-x" type="button" @click="meAiToggleConsoleLock()"
@@ -13386,12 +13415,15 @@
                 padding:12px 16px; min-width:120px; }
               .diary-stat .n { font-size:22px; font-weight:700; line-height:1.1; }
               .diary-stat .l { font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft); margin-top:3px; }
-              .diary-stat .src-line { font-size:12px; color:var(--cp-text-muted); display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-              .diary-stat .src-line span { white-space:nowrap; }
-              .diary-toolbar { position:sticky; top:0; z-index:5; background:var(--cp-bg); padding:10px 0 12px;
+              .diary-stat .src-line { font-size:12px; color:var(--cp-text-muted); display:flex; gap:8px 10px; flex-wrap:wrap; align-items:center; }
+              .diary-stat .src-line .src-chip { white-space:nowrap; cursor:pointer; padding:2px 6px; border-radius:7px;
+                border:1px solid transparent; transition:background .12s, border-color .12s, color .12s; }
+              .diary-stat .src-line .src-chip:hover { background:var(--cp-accent-soft); color:var(--cp-text); }
+              .diary-stat .src-line .src-chip.active { background:var(--cp-accent-soft); border-color:var(--cp-accent); color:var(--cp-text); }
+              .diary-toolbar { padding:10px 0 12px;
                 border-bottom:1px solid var(--cp-border); margin-bottom:18px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
               .diary-layout { display:grid; grid-template-columns:200px 1fr; gap:28px; align-items:start; }
-              .diary-jump { position:sticky; top:82px; }
+              .diary-jump { position:sticky; top:12px; max-height:calc(100vh - 28px); overflow-y:auto; }
               .diary-jump h4 { margin:0 0 8px; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft); }
               .diary-jump a { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:5px 8px;
                 border-radius:8px; color:var(--cp-text-muted); text-decoration:none; font-size:13px; cursor:pointer; }
@@ -13429,10 +13461,12 @@
                   <div class="l">Days logged</div>
                 </div>
                 <div class="diary-stat" style="flex:1;min-width:220px" x-show="diaryStats().sources.length">
-                  <div class="l" style="margin:0 0 6px">By source</div>
+                  <div class="l" style="margin:0 0 6px">By source <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0">— click to filter</span></div>
                   <div class="src-line">
                     <template x-for="s in diaryStats().sources" :key="s.src">
-                      <span x-text="s.meta.icon + ' ' + s.meta.label + ' ' + s.count"></span>
+                      <span class="src-chip" :class="{ active: connect.filterSource === s.src }"
+                            @click="connect.filterSource = (connect.filterSource === s.src ? '' : s.src)"
+                            x-text="s.meta.icon + ' ' + s.meta.label + ' ' + s.count"></span>
                     </template>
                   </div>
                 </div>
@@ -13442,17 +13476,6 @@
 
               <!-- Sticky filter/search toolbar -->
               <div class="diary-toolbar" x-show="!connect.loading">
-                <select x-model="connect.filterSource" style="width:auto">
-                  <option value="">All sources</option>
-                  <option value="manual">✍ Manual</option>
-                  <option value="teams">💬 Teams</option>
-                  <option value="email">✉ Email</option>
-                  <option value="meeting">📅 Meetings</option>
-                  <option value="ado">📋 Work items</option>
-                  <option value="pr">🔀 Pull requests</option>
-                  <option value="pr-review">👀 PR reviews</option>
-                  <option value="other">Other</option>
-                </select>
                 <div style="display:flex;align-items:center;gap:6px">
                   <label class="hint" style="margin:0">From</label>
                   <input type="date" x-model="connect.filterFrom" style="width:auto">
@@ -24933,13 +24956,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if ((this.homeSectionHidden || []).includes(key)) return false;
           switch (key) {
             case 'greeting': return true;
-            case 'agenda': return this.featureVisible('me-ai') && !!(this.homeAgenda && (this.homeAgenda.blocks.length || this.homeAgenda.loading));
-            case 'devwork': return !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
+            case 'agenda': return this.featureVisible('me-ai') && !!(this.homeAgenda && (this.homeAgenda.blocks.length || this.homeAgenda.loading || this.homeAgenda.loaded));
+            case 'devwork': return this.featureVisible('sessions') && !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
             case 'whatsnew': return this.homeWhatsNewFeed().length > 0;
             case 'boards': return true;
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
-            case 'insights': return !!(this.digest && (this.digest.needsYou.length || this.digest.changed.length || this.digest.nudges.length || this.digestLoading));
+            case 'insights': return this.featureVisible('insights') && !!(this.digest && (this.digest.needsYou.length || this.digest.changed.length || this.digest.nudges.length || this.digestLoading));
             default: return false;
           }
         },
@@ -27393,14 +27416,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = this.meai.config.timePrefs || {};
           return p[type] || '';
         },
-        // Cycle a type's time-of-day preference: '' → morning → afternoon → '' and re-plan.
-        async meAiCycleTimePref(type) {
+        // Cycle a type's time-of-day preference: '' → morning → afternoon → ''.
+        // Local-only — like the other fields in this modal, it's persisted and
+        // re-planned only when the user clicks "Save preferences". Auto-saving on
+        // each click fired spurious save/generate toasts and disabled the row mid-flight.
+        meAiCycleTimePref(type) {
           if (!this.meai.config.timePrefs || typeof this.meai.config.timePrefs !== 'object') this.meai.config.timePrefs = {};
           const cur = this.meai.config.timePrefs[type] || '';
           const next = cur === '' ? 'morning' : (cur === 'morning' ? 'afternoon' : '');
           if (next) this.meai.config.timePrefs[type] = next; else delete this.meai.config.timePrefs[type];
-          await this.meAiSaveSettings();
-          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false, cause: 'timeprefs' });
         },
         meAiShiftDate(days) {
           const d = new Date(this.meai.date + 'T00:00:00');
@@ -27916,7 +27940,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (el) el.scrollTop = el.scrollHeight;
         },
         meAiTaskStageLabel(stage) {
-          return { dispatch: 'Dispatching', working: 'Working', report: 'Report ready', awaiting: 'Your call', done: 'Done', error: 'Needs you' }[stage] || stage || '';
+          return { dispatch: 'Dispatching', working: 'Working', report: 'Report ready', awaiting: 'Waiting on you', done: 'Done', error: 'Needs you' }[stage] || stage || '';
         },
         meAiEventIcon(kind) {
           return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', question: '❓', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
@@ -30864,6 +30888,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!row) return;
           if (row.item) { this.boardJump(row.item); return; }
           if (row.hash) { this.goTo(row.hash); }
+        },
+        // "Changed since you last looked" minus anything already surfaced in
+        // "Act now" — avoids showing the same PR/task twice in the card.
+        digestChangedFresh() {
+          const seen = new Set((this.digest.needsYou || []).map(r => r.key));
+          const seenTitles = new Set((this.digest.needsYou || []).map(r => (r.title || '').trim().toLowerCase()));
+          return (this.digest.changed || []).filter(r =>
+            !seen.has(r.key) && !seenTitles.has((r.title || '').trim().toLowerCase()));
         },
         async loadInsights(selectId, silent) {
           if (!silent) this.insightsLoading = true;
