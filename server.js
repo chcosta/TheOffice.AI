@@ -14438,7 +14438,11 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
     // approve click is the confirmation; the prompt is self-contained (fresh context).
     const mcpPath = _meAiWorkIqMcpPath();
     config = { cwd, allowAll: true, ...(mcpPath ? { mcpConfig: mcpPath } : {}) };
-    sessionId = t.sessionId + ':wiq:' + Date.now();
+    // Must be a FRESH, VALID session id: the SDK rejects anything that isn't a
+    // plain UUID (a derived id like `${t.sessionId}:wiq:${ts}` fails session.create
+    // with "invalid sessionId"). A new random UUID is inherently distinct from the
+    // write-free working session, so keep-alive can't hand that one back.
+    sessionId = require('crypto').randomUUID();
     resume = false;
   }
   const result = await sdkRunner.runChat({
