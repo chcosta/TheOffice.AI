@@ -12016,6 +12016,32 @@
               .meai-brief-body a { color:var(--cp-accent); }
               .meai-dr-foot { border-top:1px solid var(--cp-border); padding:12px 18px; background:var(--cp-surface); }
               .meai-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+              /* Console body tabs (Conversation | Report) — quiet underline, no pills */
+              .meai-dr-tabs { display:flex; gap:18px; padding:8px 18px 0; border-bottom:1px solid var(--cp-border); background:var(--cp-bg); }
+              .meai-dr-tab { appearance:none; background:transparent; border:0; border-bottom:2px solid transparent; padding:6px 2px 8px; margin-bottom:-1px;
+                font-size:13px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; }
+              .meai-dr-tab:hover { color:var(--cp-text); }
+              .meai-dr-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .meai-dr-reportview { padding-top:4px; }
+              .meai-dr-reportview .meai-report { margin-top:2px; }
+              /* Approval gate: explicit per-item Approve / Decline before the agent resumes */
+              .meai-apprv { border:1px solid var(--cp-accent); border-radius:10px; background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); padding:12px 14px; margin-bottom:10px; }
+              .meai-apprv-h { font-size:12.5px; font-weight:700; color:var(--cp-text); margin-bottom:8px; }
+              .meai-apprv-row { display:flex; align-items:center; gap:9px; padding:7px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); margin-bottom:6px; }
+              .meai-apprv-row.approved { border-color:color-mix(in srgb, var(--cp-good, #2e7d32) 55%, var(--cp-border)); background:color-mix(in srgb, var(--cp-good, #2e7d32) 8%, var(--cp-bg)); }
+              .meai-apprv-row.declined { border-color:color-mix(in srgb, var(--cp-danger, #c62828) 45%, var(--cp-border)); background:color-mix(in srgb, var(--cp-danger, #c62828) 7%, var(--cp-bg)); opacity:.82; }
+              .meai-apprv-flag { flex:0 0 auto; font-size:13px; color:var(--cp-accent); width:16px; text-align:center; }
+              .meai-apprv-label { flex:1 1 auto; font-size:13px; color:var(--cp-text); line-height:1.4; }
+              .meai-apprv-btns { flex:0 0 auto; display:flex; gap:6px; }
+              .meai-apprv-b { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:4px 12px; font-size:12px; font-weight:600; cursor:pointer; }
+              .meai-apprv-b:hover:not(:disabled) { border-color:var(--cp-text-muted); }
+              .meai-apprv-b:disabled { opacity:.5; cursor:default; }
+              .meai-apprv-b.approve.on { background:var(--cp-good, #2e7d32); border-color:var(--cp-good, #2e7d32); color:#fff; }
+              .meai-apprv-b.decline.on { background:var(--cp-danger, #c62828); border-color:var(--cp-danger, #c62828); color:#fff; }
+              .meai-apprv-note { margin:8px 0 4px; }
+              .meai-apprv-foot { display:flex; align-items:center; gap:10px; margin-top:6px; }
+              .meai-apprv-status { font-size:12px; color:var(--cp-text-muted); }
+              .meai-apprv-status.ok { color:var(--cp-text); }
               /* REQ-13 Agenda Assistant drawer */
               .meai-asst { position:fixed; top:0; right:0; bottom:0; width:min(440px, 92vw); z-index:9600;
                 display:flex; flex-direction:column; background:var(--cp-bg); border-left:1px solid var(--cp-border);
@@ -12770,7 +12796,12 @@
                             x-text="meai.consoleLocked ? '🔒' : '🔓'"></button>
                     <button class="meai-dr-x" type="button" @click="meAiCloseConsole()" title="Close">✕</button>
                   </div>
+                  <div class="meai-dr-tabs" x-show="meAiHasReport()">
+                    <button type="button" class="meai-dr-tab" :class="{ on: meai.consoleTab==='chat' }" @click="meai.consoleTab='chat'">Conversation</button>
+                    <button type="button" class="meai-dr-tab" :class="{ on: meai.consoleTab==='report' }" @click="meai.consoleTab='report'">Report</button>
+                  </div>
                   <div class="meai-dr-body" id="meAiConsoleScroll">
+                    <div x-show="meai.consoleTab==='chat'">
                     <!-- Goal summary: what this Me agent is trying to accomplish -->
                     <div class="meai-dr-goal" x-show="meai.console.goal">
                       <div class="meai-dr-goal-h">Goal</div>
@@ -12821,17 +12852,17 @@
                         </div>
                       </div>
                     </template>
-                    <!-- Report card -->
-                    <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length || meai.console.report.diff || meai.console.report.draft || meAiBriefText())">
-                      <div class="meai-report" :class="{ compact: meai.console.question && !meai.reportOpen }">
-                        <template x-if="meai.console.question">
-                          <button type="button" class="meai-report-toggle" @click="meai.reportOpen=!meai.reportOpen">
-                            <span class="meai-prev-caret" :class="{open:meai.reportOpen}">▸</span>
-                            <span x-text="meai.reportOpen ? 'Hide what I found so far' : 'Show what I found so far'"></span>
-                          </button>
-                        </template>
-                        <template x-if="!meai.console.question"><h5>Report</h5></template>
-                        <div x-show="!meai.console.question || meai.reportOpen">
+                    <div class="meai-working" x-show="meai.console.status==='running'">
+                      <span class="meai-lane-spin"></span> Me agent is working…
+                    </div>
+                    </div><!-- /chat tab -->
+                    <!-- Report tab: the full report lives here, out of the chat flow so it
+                         doesn't clutter the conversation. View it on demand via the header tab. -->
+                    <div x-show="meai.consoleTab==='report'" class="meai-dr-reportview">
+                    <template x-if="meAiHasReport()">
+                      <div class="meai-report">
+                        <h5>Report</h5>
+                        <div>
                         <div class="meai-report-sum" x-text="meai.console.report.summary"></div>
                         <template x-for="(f, fi) in (meai.console.report.findings||[])" :key="fi">
                           <div class="meai-finding">
@@ -12885,9 +12916,7 @@
                         </div>
                       </div>
                     </template>
-                    <div class="meai-working" x-show="meai.console.status==='running'">
-                      <span class="meai-lane-spin"></span> Me agent is working…
-                    </div>
+                    </div><!-- /report tab -->
                   </div>
                   <div class="meai-dr-foot">
                     <!-- Mid-run question gate (§7.3): the agent paused and needs an answer -->
@@ -12901,14 +12930,42 @@
                         </div>
                       </div>
                     </template>
-                    <!-- AI-generated next actions -->
-                    <div class="meai-actions" x-show="!meai.console.question && meai.console.status!=='running' && (meai.console.nextActions||[]).length">
+                    <!-- Approval gate: when the agent proposed write/external actions, list
+                         them with an explicit Approve / Decline each. The agent WAITS until
+                         every requested approval is addressed; Proceed then carries out the
+                         approved ones (skipping the declined) with your optional note. -->
+                    <template x-if="!meai.console.question && meai.console.status!=='running' && meAiConsoleApprovals().length">
+                      <div class="meai-apprv">
+                        <div class="meai-apprv-h">Approvals requested — decide each to continue</div>
+                        <template x-for="(a, ai) in meAiConsoleApprovals()" :key="ai">
+                          <div class="meai-apprv-row" :class="{ approved: meAiDecision(a.label)==='approve', declined: meAiDecision(a.label)==='decline' }">
+                            <span class="meai-apprv-flag" :title="a.risk==='external' ? 'Sends/posts externally' : 'Writes a change'" x-text="a.risk==='external' ? '↗' : '✎'"></span>
+                            <span class="meai-apprv-label" x-text="a.label"></span>
+                            <span class="meai-apprv-btns">
+                              <button type="button" class="meai-apprv-b approve" :class="{ on: meAiDecision(a.label)==='approve' }" @click="meAiSetDecision(a.label,'approve')" :disabled="meai.consoleBusy">Approve</button>
+                              <button type="button" class="meai-apprv-b decline" :class="{ on: meAiDecision(a.label)==='decline' }" @click="meAiSetDecision(a.label,'decline')" :disabled="meai.consoleBusy">Decline</button>
+                            </span>
+                          </div>
+                        </template>
+                        <div class="meai-apprv-note">
+                          <input class="field-input" placeholder="Add a note for the agent (optional)…" x-model="meai.consoleReply" @keydown.enter="if(meAiAllAddressed()) meAiProceed()" :disabled="meai.consoleBusy">
+                        </div>
+                        <div class="meai-apprv-foot">
+                          <span class="meai-apprv-status" x-show="!meAiAllAddressed()" x-text="meAiApprovalsRemaining()+' of '+meAiConsoleApprovals().length+' still to decide'"></span>
+                          <span class="meai-apprv-status ok" x-show="meAiAllAddressed()" x-text="meAiApprovedCount()+' approved · '+meAiDeclinedCount()+' declined'"></span>
+                          <span style="flex:1"></span>
+                          <button class="btn primary" type="button" @click="meAiProceed()" :disabled="meai.consoleBusy || !meAiAllAddressed()">Proceed</button>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- Plain next actions (no approvals pending): quick one-click steps -->
+                    <div class="meai-actions" x-show="!meai.console.question && meai.console.status!=='running' && !meAiConsoleApprovals().length && (meai.console.nextActions||[]).length">
                       <template x-for="(a, ai) in meai.console.nextActions" :key="ai">
                         <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '', a.label, a.risk)" :disabled="meai.consoleBusy" x-text="a.label"></button>
                       </template>
                     </div>
-                    <!-- Free-text reply (available once no question is pending) -->
-                    <div class="meai-reply" x-show="!meai.console.question && meai.console.status!=='running'">
+                    <!-- Free-text reply (only when no approvals pending; approvals use the note + Proceed above) -->
+                    <div class="meai-reply" x-show="!meai.console.question && meai.console.status!=='running' && !meAiConsoleApprovals().length">
                       <input class="field-input" placeholder="Reply to the agent…" x-model="meai.consoleReply" @keydown.enter="meAiReplySend()" :disabled="meai.consoleBusy">
                       <button class="btn ghost" type="button" @click="meAiReplySend()" :disabled="meai.consoleBusy || !meai.consoleReply.trim()">Send</button>
                     </div>
@@ -20874,6 +20931,8 @@
           lookahead: [],         // next 5 work days (light per-day summary) — the week-ahead strip
           lookaheadLoading: false,
           traceOpen: true,       // background agent → reasoning/tools visible by default
+          consoleTab: 'chat',    // console body view: 'chat' transcript | 'report' (report out of the chat flow)
+          approvalDecisions: {}, // per-task approve/decline map { taskId: { <label>: 'approve'|'decline' } }
           laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
           blockSwipeId: null, blockSwipeDx: 0, blockSwipeOpen: null,  // Task 3: swipe-to-dispose on agenda blocks
           laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
@@ -28383,6 +28442,68 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiLaneApprovalNeeded(tk) {
           return this.meAiLaneApprovalList(tk).length > 0;
         },
+        // --- Console approval gate: the open task's write/external actions become an
+        //     explicit per-item Approve/Decline list. The agent stays paused until EVERY
+        //     item is decided; Proceed then resumes it with the approved set (§7.2). ---
+        meAiConsoleApprovals() { return this.meAiLaneApprovalList(this.meai.console); },
+        // True if the open task has a report worth showing on the Report tab.
+        meAiHasReport() {
+          const r = this.meai.console && this.meai.console.report;
+          if (!r) return false;
+          return !!(r.summary || (r.findings || []).length || r.diff || r.draft || this.meAiBriefText());
+        },
+        _meAiDecisions() {
+          const id = this.meai.console && this.meai.console.id;
+          if (!id) return {};
+          if (!this.meai.approvalDecisions[id]) this.meai.approvalDecisions[id] = {};
+          return this.meai.approvalDecisions[id];
+        },
+        meAiDecision(label) { return this._meAiDecisions()[label] || ''; },
+        meAiSetDecision(label, decision) {
+          const id = this.meai.console && this.meai.console.id;
+          if (!id) return;
+          if (!this.meai.approvalDecisions[id]) this.meai.approvalDecisions[id] = {};
+          // Toggle off if re-clicking the same decision, so a mis-click is easy to undo.
+          if (this.meai.approvalDecisions[id][label] === decision) delete this.meai.approvalDecisions[id][label];
+          else this.meai.approvalDecisions[id][label] = decision;
+        },
+        meAiAllAddressed() {
+          const list = this.meAiConsoleApprovals();
+          if (!list.length) return false;
+          const d = this._meAiDecisions();
+          return list.every(a => d[a.label] === 'approve' || d[a.label] === 'decline');
+        },
+        meAiApprovedCount() { const d = this._meAiDecisions(); return this.meAiConsoleApprovals().filter(a => d[a.label] === 'approve').length; },
+        meAiDeclinedCount() { const d = this._meAiDecisions(); return this.meAiConsoleApprovals().filter(a => d[a.label] === 'decline').length; },
+        meAiApprovalsRemaining() { const d = this._meAiDecisions(); return this.meAiConsoleApprovals().filter(a => !(d[a.label] === 'approve' || d[a.label] === 'decline')).length; },
+        // Resume the agent once every requested approval is decided: carry out the approved
+        // actions, skip the declined ones, and pass along the user's note. A single resume
+        // turn (intent 'continue') whose instruction encodes the whole decision set.
+        async meAiProceed() {
+          const t = this.meai.console;
+          if (!t || this.meai.consoleBusy || !this.meAiAllAddressed()) return;
+          const d = this._meAiDecisions();
+          const list = this.meAiConsoleApprovals();
+          const approved = list.filter(a => d[a.label] === 'approve');
+          const declined = list.filter(a => d[a.label] === 'decline');
+          // External sends are real — one final confirm summarising them (the Approve click
+          // recorded intent; this is the "actually send now" gate).
+          const ext = approved.filter(a => a.risk === 'external');
+          if (ext.length && !confirm('This will actually perform ' + ext.length + ' external action(s):\n\n' + ext.map(a => '• ' + a.label).join('\n') + '\n\nMe.AI will use WorkIQ to send/post these for real. Continue?')) return;
+          const note = (this.meai.consoleReply || '').trim();
+          const lines = ['Here are my decisions on the actions you proposed:'];
+          if (approved.length) lines.push('APPROVED — carry out ONLY these, in order: ' + approved.map(a => '"' + a.label + '"').join(', ') + '.');
+          if (declined.length) lines.push('DECLINED — do NOT do these: ' + declined.map(a => '"' + a.label + '"').join(', ') + '.');
+          if (!approved.length) lines.push('I approved none of them — skip them all and do not perform any of those actions.');
+          if (note) lines.push('My note: ' + note);
+          lines.push('Then report what you did.');
+          const text = lines.join('\n');
+          const anyExternal = ext.length > 0;
+          // Clear the recorded decisions — they've been consumed by this resume.
+          this.meai.approvalDecisions[t.id] = {};
+          this.meai.consoleReply = '';
+          await this.meAiAct('continue', text, '', anyExternal ? 'external' : 'write', { skipConfirm: true });
+        },
         // Approve/choose an action straight from the lane (the click IS the confirmation).
         // Reuses the same /act path as the console; merges the result into lane + console.
         async meAiLaneAct(tk, intent, label, risk) {
@@ -28420,12 +28541,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (foot && foot.scrollIntoView) { try { foot.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {} }
             const q = document.querySelector('.meai-qgate-row input');
             if (q && this.meai.console && this.meai.console.question) { try { q.focus(); } catch (_) {} return; }
+            const appr = document.querySelector('.meai-apprv-row .meai-apprv-b.approve');
+            if (appr) { try { appr.focus(); } catch (_) {} return; }
             const btn = document.querySelector('.meai-actions .meai-act-btn');
             if (btn) { try { btn.focus(); } catch (_) {} }
           });
         },
         meAiOpenTask(id) {
-          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false;
+          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false; this.meai.consoleTab = 'chat';
           const t = this.meai._taskById[id];
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); }
@@ -28453,7 +28576,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             t.background = true;
             this.meAiLoadTasks();
           }
-          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false;
+          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false; this.meai.consoleTab = 'chat';
         },
         // #9 count of collapsible process events (thinking/tools/agent) in the open console.
         meAiTraceCount() {
@@ -28472,10 +28595,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meAiLoadTasks();
         },
         // The user picked an AI-generated next action (or replied free-text).
-        async meAiAct(intent, text, label, risk) {
+        async meAiAct(intent, text, label, risk, opts) {
           const t = this.meai.console;
           if (!t || this.meai.consoleBusy) return;
-          if (risk === 'external' && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
+          if (risk === 'external' && !(opts && opts.skipConfirm) && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
           this.meai.consoleBusy = true;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/act', {
