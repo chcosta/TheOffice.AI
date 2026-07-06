@@ -10409,8 +10409,8 @@
                   <div x-show="!cfComments.loading && cfComments.items.length" style="display:flex;flex-direction:column;gap:8px">
                     <template x-for="c in cfComments.items" :key="c.index">
                       <div style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start"
-                           :style="c.posted ? 'opacity:.6;border-color:var(--cp-success)' : (cfComments.sel[c.index] ? '' : 'opacity:.55')">
-                        <input type="checkbox" :checked="!!cfComments.sel[c.index]" :disabled="c.posted" @change="cfComments.sel[c.index] = !cfComments.sel[c.index]" style="margin-top:3px;flex:0 0 auto" />
+                           :style="c.posted ? 'opacity:.6;border-color:var(--cp-success)' : c.dismissed ? 'opacity:.45' : (cfComments.sel[c.index] ? '' : 'opacity:.55')">
+                       <input type="checkbox" :checked="!!cfComments.sel[c.index]" :disabled="c.posted || c.dismissed" @change="cfComments.sel[c.index] = !cfComments.sel[c.index]" style="margin-top:3px;flex:0 0 auto" />
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
                           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                             <span style="font-size:12px;font-weight:600"
@@ -10418,7 +10418,12 @@
                                   x-text="cfCmSevTag(c.severity)"></span>
                             <span style="font-weight:600;color:var(--cp-text)" x-text="c.title || '(untitled finding)'"></span>
                             <span x-show="c.posted" style="font-size:11px;font-weight:600;color:var(--cp-success)">✓ Posted</span>
-                          </div>
+                           <span x-show="c.dismissed" style="font-size:11px;font-weight:600;color:var(--cp-text-muted)">Dismissed</span>
+                           <button x-show="!c.posted" type="button" class="link-button"
+                                   style="margin-left:auto;font-size:11px;color:var(--cp-text-muted)"
+                                   @click="cfCmDismiss(c)"
+                                   x-text="c.dismissed ? 'Restore' : 'Dismiss'"></button>
+                         </div>
                           <div style="font-family:Consolas,'Courier New',monospace;font-size:11px;color:var(--cp-text-muted)">
                             <template x-if="c.anchored"><span x-text="c.file + ':' + c.line"></span></template>
                             <template x-if="!c.anchored"><span>General comment (not anchored to a line)</span></template>
@@ -14633,11 +14638,17 @@
                       <span class="cf-rv-count" :class="{ attn: cfReviewsTab().attn }" x-show="cfReviewsTab().show"
                             :title="cfReviewsTab().title" x-text="cfReviewsTab().text"></span>
                     </button>
+                    <button type="button" class="cf-rv" :class="{ on: codeflow.view === 'other' }" role="tab"
+                            :aria-selected="codeflow.view === 'other'" @click="setCodeflowView('other')"
+                            title="PRs you dismissed from your review queue but want to keep access to">
+                      <span class="cf-rv-name">🗄 Other PRs</span>
+                      <span class="cf-rv-count" x-show="codeflow.view === 'other' && codeflow.pullRequests.length > 0" x-text="codeflow.pullRequests.length"></span>
+                    </button>
                   </div>
                 </div>
                 <div class="nlx-card">
                   <div class="cf-rail-title">Filters</div>
-                  <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine'" style="margin-bottom:12px"
+                  <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine' && codeflow.view !== 'other'" style="margin-bottom:12px"
                          title="Show only pull requests that list you as a reviewer">
                     <input type="checkbox" :checked="codeflow.reviewsOnly" @change="toggleReviewsOnly()">
                     <span>Reviews needed from me</span>
@@ -14700,7 +14711,7 @@
             <!-- Loading / empty -->
             <div x-show="codeflow.loading && !codeflow.pullRequests.length" class="hint" style="padding:24px">Loading pull requests…</div>
             <div x-show="!codeflow.loading && codeflow.repos.length && !filteredCodeflowPrs().length" class="empty-state">
-              <span x-text="codeflow.view === 'mine' ? 'You have no open pull requests in the watched repos.' : (codeflow.view === 'active' ? 'No active pull requests in the watched repos.' : 'No pull requests are waiting on your review. 🎉')"></span>
+              <span x-text="codeflow.view === 'mine' ? 'You have no open pull requests in the watched repos.' : (codeflow.view === 'active' ? 'No active pull requests in the watched repos.' : (codeflow.view === 'other' ? 'No dismissed pull requests. Use “Not reviewing” on a PR to stash it here.' : 'No pull requests are waiting on your review. 🎉'))"></span>
             </div>
 
             <!-- PR list -->
@@ -14739,16 +14750,22 @@
                     <div x-show="pr.attention" style="flex:0 0 auto">
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
                     </div>
-                    <div class="cf-pr-actions" style="flex:0 0 auto;display:flex;gap:6px">
-                      <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="!pr.devCard"
+                    <div class="cf-pr-actions cf-hover-acts" style="flex:0 0 auto;display:flex;gap:6px">
+                      <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="!pr.devCard && codeflow.view !== 'other'"
                               title="Link this pull request to an existing dev card (or create one)"
                               @click.stop="openLinkToDevCard(pr)">🔗 Link to dev card</button>
-                      <button class="btn ghost" type="button" style="font-size:0.72rem"
+                      <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="codeflow.view !== 'other'"
                               title="Add this pull request to today's Me.AI agenda (at least 30 min out; after hours if the day is full)"
                               @click.stop="cfAddPrToAgenda(pr)">🗓 Add to today</button>
                       <button class="btn ghost" type="button" style="font-size:0.72rem"
                               title="Pin this pull request to a board (with full review/worktree actions)"
                               @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to workspace</button>
+                      <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="codeflow.view !== 'mine' && codeflow.view !== 'other'"
+                              title="Dismiss this PR from your review queue. It moves to “Other PRs” where you can still open it."
+                              @click.stop="cfDismissPr(pr)">🗄 Not reviewing</button>
+                      <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="codeflow.view === 'other'"
+                              title="Restore this PR to your active review queue"
+                              @click.stop="cfDismissPr(pr, true)">↩ Restore</button>
                     </div>
                   </div>
 
@@ -15051,7 +15068,7 @@
                         </template>
                       </div>
                         <div class="cf-subsec">
-                        <div class="cf-subhead" x-text="'🧰 ' + ((codeflow && codeflow.view === 'reviews') ? 'Review env' : 'Worktree')"></div>
+                        <div class="cf-subhead" x-text="'🧰 ' + ((codeflow && codeflow.view === 'reviews') ? 'Code' : 'Worktree')"></div>
                         <template x-if="!cfHasWt(pr)">
                           <span class="cf-wt-row">
                             <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)" x-text="cfCreateLabel(pr)"></button>
@@ -17477,22 +17494,41 @@
             <!-- Code Flow reviewer groups -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">👥 Code Flow reviewer groups</h3>
-              <p class="hint" style="margin-bottom:14px">Groups (Azure DevOps groups / GitHub teams) you belong to, e.g. <strong>Dotnet-Core-Engineering</strong>. When a pull request lists one of these groups as a reviewer, Code Flow surfaces it under <strong>Active PRs (reviews needed)</strong> alongside PRs where you're a direct reviewer. Matched by the group's <strong>display name</strong> (case-insensitive), exactly as it appears on the PR.</p>
-              <div style="max-width:560px">
-                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" x-show="cfGroups.list.length">
-                  <template x-for="(g, gi) in cfGroups.list" :key="gi">
-                    <span style="display:inline-flex;align-items:center;gap:6px;background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:4px 8px;font-size:13px">
-                      <span x-text="g"></span>
-                      <button type="button" class="btn ghost" style="font-size:12px;padding:0 4px;line-height:1" title="Remove group" @click="cfRemoveGroup(gi)">✕</button>
-                    </span>
-                  </template>
+              <p class="hint" style="margin-bottom:14px">Groups you belong to (Azure DevOps groups / GitHub teams), e.g. <strong>Dotnet-Core-Engineering</strong>. When a pull request lists one of these groups as a reviewer, Code Flow surfaces it under <strong>Active PRs (reviews needed)</strong> alongside PRs where you're a direct reviewer. Matched by the group's <strong>display name</strong> (case-insensitive), exactly as it appears on the PR. GitHub and Azure DevOps are managed separately since group names rarely match across the two.</p>
+              <div style="max-width:560px;display:flex;flex-direction:column;gap:18px">
+                <div>
+                  <h4 style="margin:0 0 8px;font-size:13px;color:var(--cp-text-muted)">Azure DevOps groups</h4>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px" x-show="cfGroups.azdo.length">
+                    <template x-for="(g, gi) in cfGroups.azdo" :key="'ado'+gi">
+                      <span style="display:inline-flex;align-items:center;gap:6px;background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:4px 8px;font-size:13px">
+                        <span x-text="g"></span>
+                        <button type="button" class="btn ghost" style="font-size:12px;padding:0 4px;line-height:1" title="Remove group" @click="cfRemoveGroup('azdo', gi)">✕</button>
+                      </span>
+                    </template>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <input class="field-input" type="text" x-model="cfGroups.inputAzdo" placeholder="Add an Azure DevOps group name…" @keydown.enter.prevent="cfAddGroup('azdo')" style="flex:1" />
+                    <button class="btn" type="button" @click="cfAddGroup('azdo')" :disabled="!cfGroups.inputAzdo.trim()">Add</button>
+                  </div>
                 </div>
-                <div style="display:flex;gap:8px">
-                  <input class="field-input" type="text" x-model="cfGroups.input" placeholder="Add a group name…" @keydown.enter.prevent="cfAddGroup()" style="flex:1" />
-                  <button class="btn" type="button" @click="cfAddGroup()" :disabled="!cfGroups.input.trim()">Add</button>
+                <div>
+                  <h4 style="margin:0 0 8px;font-size:13px;color:var(--cp-text-muted)">GitHub teams</h4>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px" x-show="cfGroups.github.length">
+                    <template x-for="(g, gi) in cfGroups.github" :key="'gh'+gi">
+                      <span style="display:inline-flex;align-items:center;gap:6px;background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:4px 8px;font-size:13px">
+                        <span x-text="g"></span>
+                        <button type="button" class="btn ghost" style="font-size:12px;padding:0 4px;line-height:1" title="Remove group" @click="cfRemoveGroup('github', gi)">✕</button>
+                      </span>
+                    </template>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <input class="field-input" type="text" x-model="cfGroups.inputGithub" placeholder="Add a GitHub team name…" @keydown.enter.prevent="cfAddGroup('github')" style="flex:1" />
+                    <button class="btn" type="button" @click="cfAddGroup('github')" :disabled="!cfGroups.inputGithub.trim()">Add</button>
+                  </div>
+                  <p class="hint" style="margin-top:8px">Note: GitHub only exposes team review-requests on the PR when the team is still awaiting review; once anyone on the team reviews, GitHub drops the team from the PR.</p>
                 </div>
-                <p class="hint" x-show="!cfGroups.list.length" style="margin-top:8px">No groups yet — only PRs where you're a direct reviewer surface under reviews.</p>
-                <p class="hint" x-show="cfGroups.saved" style="margin-top:8px">✅ Saved.</p>
+                <p class="hint" x-show="!cfGroups.azdo.length && !cfGroups.github.length" style="margin:0">No groups yet — only PRs where you're a direct reviewer surface under reviews.</p>
+                <p class="hint" x-show="cfGroups.saved" style="margin:0">✅ Saved.</p>
               </div>
             </div>
 
@@ -21366,7 +21402,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
-        cfGroups: { list: [], input: '', saved: false, loaded: false },
+        cfGroups: { github: [], azdo: [], inputGithub: '', inputAzdo: '', saved: false, loaded: false },
         standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '', sortKey: 'id', sortDir: 'asc' },
         externalAccessDisabled: false,
         externalAccessLocked: false,
@@ -26167,20 +26203,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch {}
           this._devSettingsLoaded = true;
         },
-        // ----- Code Flow reviewer groups (settings.codeflowMyGroups) -----
+        // ----- Code Flow reviewer groups (per-forge: github + azdo) -----
         async ensureCfGroups() {
           if (this.cfGroups.loaded) return;
           try {
             const s = await this.request('/api/settings');
-            if (s && Array.isArray(s.codeflowMyGroups)) this.cfGroups.list = s.codeflowMyGroups.slice();
+            if (s) {
+              const gh = Array.isArray(s.codeflowMyGroupsGithub) ? s.codeflowMyGroupsGithub.slice() : [];
+              const ado = Array.isArray(s.codeflowMyGroupsAzdo) ? s.codeflowMyGroupsAzdo.slice() : [];
+              const legacy = Array.isArray(s.codeflowMyGroups) ? s.codeflowMyGroups.slice() : [];
+              // Migrate the legacy combined list onto Azure DevOps (that's what it matched
+              // against in practice) when no forge-specific list has been set yet.
+              this.cfGroups.github = gh;
+              this.cfGroups.azdo = (ado.length || !legacy.length) ? ado : legacy;
+            }
           } catch {}
           this.cfGroups.loaded = true;
         },
         async saveCfGroups() {
           this.cfGroups.saved = false;
           try {
-            const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ codeflowMyGroups: this.cfGroups.list }) });
-            if (next && Array.isArray(next.codeflowMyGroups)) this.cfGroups.list = next.codeflowMyGroups.slice();
+            const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({
+              codeflowMyGroupsGithub: this.cfGroups.github,
+              codeflowMyGroupsAzdo: this.cfGroups.azdo
+            }) });
+            if (next) {
+              if (Array.isArray(next.codeflowMyGroupsGithub)) this.cfGroups.github = next.codeflowMyGroupsGithub.slice();
+              if (Array.isArray(next.codeflowMyGroupsAzdo)) this.cfGroups.azdo = next.codeflowMyGroupsAzdo.slice();
+            }
             this.cfGroups.loaded = true;
             this.cfGroups.saved = true;
             setTimeout(() => { this.cfGroups.saved = false; }, 2500);
@@ -26188,16 +26238,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.showToast('Settings', 'Could not save reviewer groups: ' + err.message, 'error');
           }
         },
-        cfAddGroup() {
-          const v = (this.cfGroups.input || '').trim();
+        cfAddGroup(provider) {
+          const p = provider === 'github' ? 'github' : 'azdo';
+          const inputKey = p === 'github' ? 'inputGithub' : 'inputAzdo';
+          const v = (this.cfGroups[inputKey] || '').trim();
           if (!v) return;
-          if (this.cfGroups.list.some(g => g.toLowerCase() === v.toLowerCase())) { this.cfGroups.input = ''; return; }
-          this.cfGroups.list.push(v);
-          this.cfGroups.input = '';
+          if (this.cfGroups[p].some(g => g.toLowerCase() === v.toLowerCase())) { this.cfGroups[inputKey] = ''; return; }
+          this.cfGroups[p].push(v);
+          this.cfGroups[inputKey] = '';
           this.saveCfGroups();
         },
-        cfRemoveGroup(i) {
-          this.cfGroups.list.splice(i, 1);
+        cfRemoveGroup(provider, i) {
+          const p = provider === 'github' ? 'github' : 'azdo';
+          this.cfGroups[p].splice(i, 1);
           this.saveCfGroups();
         },
         // Editing org/project invalidates the picked repo list — reset the pickers
@@ -30587,7 +30640,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._codeflowSnaps[this.codeflow.view] = this._codeflowSnap(this.codeflow.pullRequests);
         },
         codeflowViewLabel(view) {
-          return view === 'mine' ? 'My PRs' : view === 'reviews' ? 'Active PRs (reviews needed)' : 'Active PRs';
+          return view === 'mine' ? 'My PRs' : view === 'reviews' ? 'Active PRs (reviews needed)' : view === 'other' ? 'Other PRs' : 'Active PRs';
         },
         codeflowChangeSummary() {
           const b = this.codeflow.changeBanner; if (!b) return '';
@@ -30669,7 +30722,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         setCodeflowView(view) {
-          if (view !== 'mine' && view !== 'reviews' && view !== 'active') return;
+          if (view !== 'mine' && view !== 'reviews' && view !== 'active' && view !== 'other') return;
           if (this.codeflow.view === view) return;
           this.codeflow.view = view;
           this._cfAiLoadCache(view);
@@ -31174,7 +31227,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else {
             wtAttn = !!(wt && wt.worktreeStatus === 'error');
           }
-          s.push({ id: 'worktree', label: reviews ? 'Review env' : 'Worktree', attn: wtAttn });
+          s.push({ id: 'worktree', label: reviews ? 'Code' : 'Worktree', attn: wtAttn });
           if (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) {
             s.push({ id: 'links', label: 'Artifacts', count: (wt.reports || []).length || undefined });
           }
@@ -31850,9 +31903,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const resp = await this.request('/api/codeflow/pr/comments?' + qs);
             m.summary = (resp && resp.summary) || '';
             m.items = (resp && resp.comments) || [];
-            // Default: select the findings not already posted to the PR.
+            // Default: select the findings not already posted or dismissed.
             const sel = {};
-            for (const c of m.items) sel[c.index] = !c.posted;
+            for (const c of m.items) sel[c.index] = !c.posted && !c.dismissed;
             m.sel = sel;
           } catch (e) {
             m.error = (e && e.message) || 'Could not load review findings.';
@@ -31883,6 +31936,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfCmSevTag(s) {
           const v = String(s || '').toLowerCase();
           return v === 'blocker' ? '🚫 Blocker' : v === 'major' ? '⚠️ Major' : v === 'minor' ? '🔹 Minor' : v === 'nit' ? '💬 Nit' : '💬 Comment';
+        },
+        // Dismiss (or restore) a single finding so it stops counting toward the card
+        // "Add N review comments" label — without ever posting it to the PR.
+        async cfCmDismiss(c) {
+          const m = this.cfComments;
+          const pr = m.pr;
+          if (!pr || !c || !c.fp) return;
+          const undo = !!c.dismissed;
+          try {
+            const resp = await this.request('/api/codeflow/pr/comments/dismiss', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider, fps: [c.fp], undo })
+            });
+            c.dismissed = !undo;
+            if (c.dismissed) m.sel[c.index] = false;
+            // Reflect the new remaining count on the card label immediately.
+            if (resp && resp.remaining != null) {
+              const wt = this.cfWt(pr);
+              if (wt) wt.reviewComments = resp.remaining;
+            }
+          } catch (e) {
+            this.showToast('Review comments', (e && e.message) || 'Could not update finding.', 'error');
+          }
         },
         async cfCmPost() {
           const m = this.cfComments;
@@ -38286,6 +38362,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.showToast('Me.AI agenda', (e && e.message) || 'Could not add to today.', 'error');
           } finally {
             this._cfAgendaBusy = false;
+          }
+        },
+        async cfDismissPr(pr, undo) {
+          if (!pr || this._cfDismissBusy) return;
+          this._cfDismissBusy = true;
+          try {
+            const r = await this.request('/api/codeflow/pr/dismiss', {
+              method: 'POST',
+              body: JSON.stringify({
+                org: pr.org, project: pr.project, repo: pr.repo,
+                prId: String(pr.id), provider: pr.provider || 'azdo',
+                title: pr.title || '', url: pr.url || '',
+                undo: !!undo,
+              }),
+            });
+            if (r && r.ok) {
+              // Optimistically drop it from the current list — it belongs in a different view now.
+              this.codeflow.pullRequests = (this.codeflow.pullRequests || []).filter(p => this.cfPrKey(p) !== this.cfPrKey(pr));
+              this.showToast('Code Flow', undo ? '↩ Restored to your review queue.' : '🗄 Moved to Other PRs.', 'success');
+              this.loadCodeFlow();
+            } else {
+              this.showToast('Code Flow', (r && r.error) || 'Could not update that PR.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Code Flow', (e && e.message) || 'Could not update that PR.', 'error');
+          } finally {
+            this._cfDismissBusy = false;
           }
         },
         linkDevCandidates() {

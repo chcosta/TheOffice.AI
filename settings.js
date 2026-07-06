@@ -57,7 +57,12 @@ const DEFAULTS = {
   // When a PR lists one of these groups as a reviewer, Code Flow surfaces it under
   // "Active PRs (reviews needed)" alongside PRs where the user is a direct reviewer.
   // Array of group DISPLAY names, matched case-insensitively against PR reviewers.
+  // codeflowMyGroups is the legacy combined list (kept for back-compat + as a fallback);
+  // GitHub and Azure DevOps groups are now managed separately since a person's reviewer
+  // groups rarely overlap across the two forges.
   codeflowMyGroups: [],
+  codeflowMyGroupsGithub: [],
+  codeflowMyGroupsAzdo: [],
   // Master kill-switch for all OUTBOUND external-access subsystems: the Azure
   // Service Bus event listener, the cloud relay poller, and mobile/phone command
   // handling. When true, the server neither connects to Service Bus nor polls the

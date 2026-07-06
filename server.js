@@ -308,6 +308,21 @@ function _getCfNotes(key) {
   const map = loadCodeflowNotes();
   return Array.isArray(map[key]) ? map[key] : [];
 }
+// Dismissed PRs ("Other PRs"): PRs the user isn't going to review but wants to
+// retain access to. Keyed by _cfWtKey so it survives across fetches/providers.
+// Stored as a map key -> { at, title } so the Other PRs page can render even a PR
+// that has since dropped out of the normal active/reviews fetch.
+const CODEFLOW_DISMISSED_PATH = dataPath('codeflow-dismissed-prs.json');
+function loadCodeflowDismissed() {
+  try {
+    if (!fs.existsSync(CODEFLOW_DISMISSED_PATH)) return {};
+    const v = JSON.parse(fs.readFileSync(CODEFLOW_DISMISSED_PATH, 'utf-8'));
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch { return {}; }
+}
+function saveCodeflowDismissed(map) {
+  fs.writeFileSync(CODEFLOW_DISMISSED_PATH, JSON.stringify(map || {}, null, 2));
+}
 // Read-modify-write the notes array for one PR. `fn` receives the current array
 // (a copy) and returns the next array. Empty arrays are pruned to keep the map lean.
 function _mutateCfNotes(key, fn) {
@@ -2622,18 +2637,30 @@ async function _gatherCodeflow(view) {
   const errors = [];
   const devCardIndex = _buildDevCardIndex();
   const notesMap = loadCodeflowNotes();
-  // Reviewer groups the user belongs to (case-insensitive display-name match). When the
-  // user is viewing "reviews needed" AND has configured groups, we broaden the fetch to
-  // all open PRs so we can also surface PRs where one of the user's groups is a reviewer
-  // (the forge reviewerId filter only returns DIRECT reviewer PRs).
-  const myGroups = (settings.getSettings().codeflowMyGroups || [])
-    .map(g => String(g || '').trim()).filter(Boolean);
-  const reviewsWithGroups = view === 'reviews' && myGroups.length > 0;
+  const dismissedMap = loadCodeflowDismissed();
+  // Reviewer groups the user belongs to (case-insensitive display-name match), managed
+  // separately per forge. When the user is viewing "reviews needed" AND has configured
+  // groups for a repo's provider, we broaden that repo's fetch to all open PRs so we can
+  // also surface PRs where one of the user's groups is a reviewer (the forge reviewerId
+  // filter only returns DIRECT reviewer PRs).
+  const _cfSt = settings.getSettings();
+  const _cfNormGroups = (a) => (a || []).map(g => String(g || '').trim()).filter(Boolean);
+  const ghGroups = _cfNormGroups(_cfSt.codeflowMyGroupsGithub);
+  const adoGroups = _cfNormGroups(_cfSt.codeflowMyGroupsAzdo);
+  const legacyGroups = _cfNormGroups(_cfSt.codeflowMyGroups);
+  // Provider-appropriate list, falling back to the legacy combined list when a forge-specific
+  // list hasn't been set (back-compat with the single-list era).
+  const groupsForProvider = (provider) => {
+    const specific = provider === 'github' ? ghGroups : adoGroups;
+    return specific.length ? specific : legacyGroups;
+  };
   const perRepo = await Promise.all(repos.map(async (r) => {
     const provider = providerOf(r);
     const F = forge(r);
     const me = userByKey[idKey(r)];
     if (!me || !me.id) { errors.push({ repo: r.repo, error: 'identity unavailable' }); return []; }
+    const myGroups = groupsForProvider(provider);
+    const reviewsWithGroups = view === 'reviews' && myGroups.length > 0;
     try {
       // 'mine' → PRs I authored; 'reviews' → PRs that list me as a reviewer;
       // 'active' → every open PR in the repo (no person filter — a broad listing).
@@ -2645,7 +2672,7 @@ async function _gatherCodeflow(view) {
       // server-filtered, and includes the already-reviewed-but-open union) PLUS a broad
       // LIST, then keep only the handful of PRs a group of mine reviews using list data
       // alone (zero per-PR calls). Only that small union gets enriched below.
-      const runLite = view === 'active' || reviewsWithGroups;
+      const runLite = view === 'active' || view === 'other' || reviewsWithGroups;
       const [repoContributors, approverIndex] = await Promise.all([
         F.getRepoContributors(r.org, r.project, r.repo).catch(() => []),
         runLite ? Promise.resolve([]) : _cfApproverIndex(r)
@@ -2666,24 +2693,30 @@ async function _gatherCodeflow(view) {
         prs = direct.concat(groupPrs);
       } else {
         const filter = view === 'mine' ? { creatorId: me.id }
-                     : view === 'active' ? { top: 100 }
+                     : (view === 'active' || view === 'other') ? { top: 100 }
                      : { reviewerId: me.id };
         prs = await F.listPullRequests(r.org, r.project, r.repo, filter);
       }
       const meId = String(me.id || '').toLowerCase();
       const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: runLite, provider, myGroups };
       const enriched = (await Promise.all(prs.map(async (pr) => {
+        const dkey = _cfWtKey({ org: pr.org || r.org, project: pr.project || r.project, repo: pr.repo || r.repo, prId: pr.pullRequestId || pr.id, provider });
+        const isDismissed = !!dismissedMap[dkey];
+        // "Other PRs" (view==='other') = ONLY dismissed PRs; every other view HIDES them.
+        if (view === 'other') { if (!isDismissed) return null; }
+        else if (isDismissed) return null;
         // Exclude PRs I authored from any non-'mine' view — my own PR belongs only under
         // "My PRs", never under Active/Reviews (GitHub also empties requested_reviewers on
         // review submit, which could otherwise let my own PR leak into the reviews list).
-        if (view !== 'mine' && String((pr.createdBy && pr.createdBy.id) || '').toLowerCase() === meId) return null;
+        // (The Other PRs page keeps whatever the user chose to stash, incl. their own.)
+        if (view !== 'mine' && view !== 'other' && String((pr.createdBy && pr.createdBy.id) || '').toLowerCase() === meId) return null;
         const e = await _enrichCodeflowPr(pr, me.id, opts);
         // reviewsWithGroups broadened the fetch to all open PRs — keep only the ones that
         // are actually mine to review (direct reviewer or one of my groups).
         if (reviewsWithGroups && !e.amReviewer && !e.amGroupReviewer) return null;
         const a = _codeflowAttention(e, view);
-        const notes = notesMap[_cfWtKey({ org: pr.org || r.org, project: pr.project || r.project, repo: pr.repo || r.repo, prId: pr.pullRequestId || pr.id, provider })];
-        return { ...e, provider, attention: a.attention, attentionReason: a.reason, repoId: r.id, notes: Array.isArray(notes) ? notes : [] };
+        const notes = notesMap[dkey];
+        return { ...e, provider, dismissed: isDismissed, attention: view === 'other' ? false : a.attention, attentionReason: view === 'other' ? '' : a.reason, repoId: r.id, notes: Array.isArray(notes) ? notes : [] };
       }))).filter(Boolean);
       return enriched;
     } catch (e) {
@@ -2701,7 +2734,7 @@ async function _gatherCodeflow(view) {
 }
 
 app.get('/api/codeflow/pullrequests', async (req, res) => {
-  const view = (req.query.view === 'reviews' || req.query.view === 'active') ? req.query.view : 'mine';
+  const view = (req.query.view === 'reviews' || req.query.view === 'active' || req.query.view === 'other') ? req.query.view : 'mine';
   const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
   try {
     const cached = _codeflowCache.get(view);
@@ -3352,6 +3385,12 @@ function _cfCommentFp(c) {
 function _cfPostedSet(rec) {
   return new Set(Array.isArray(rec && rec.postedComments) ? rec.postedComments : []);
 }
+// The set of finding fingerprints the user explicitly dismissed (won't post). Kept
+// separate from posted so the card count and modal drop them without claiming they
+// were sent to the PR.
+function _cfDismissedSet(rec) {
+  return new Set(Array.isArray(rec && rec.dismissedComments) ? rec.dismissedComments : []);
+}
 // Best-effort reconciliation: recognize findings the user posted to the PR before
 // we tracked them (or from another machine) by matching our own posted format
 // (the "_Posted from AI code review._" footer + the finding's title/body) against
@@ -3425,7 +3464,8 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
       const rc = _readCfReviewComments(rec.worktreePath);
       if (rc) {
         const posted = _cfPostedSet(rec);
-        save.reviewComments = rc.comments.filter(c => !posted.has(_cfCommentFp(c))).length;
+        const dismissed = _cfDismissedSet(rec);
+        save.reviewComments = rc.comments.filter(c => { const fp = _cfCommentFp(c); return !posted.has(fp) && !dismissed.has(fp); }).length;
       } else {
         save.reviewComments = 0;
       }
@@ -3996,6 +4036,7 @@ app.get('/api/codeflow/pr/comments', async (req, res) => {
   rec = await _cfReconcilePosted(o, key, rec, rc.comments);
   const wt = rec.worktreePath;
   const postedSet = _cfPostedSet(rec);
+  const dismissedSet = _cfDismissedSet(rec);
   const enrich = (c, i) => {
     const rel = c.file ? String(c.file).replace(/^[\\/]+/, '') : '';
     const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null;
@@ -4015,7 +4056,7 @@ app.get('/api/codeflow/pr/comments', async (req, res) => {
     }
     const fingerprint = _cfCommentFp(c);
     return {
-      index: i, fp: fingerprint, posted: postedSet.has(fingerprint),
+      index: i, fp: fingerprint, posted: postedSet.has(fingerprint), dismissed: dismissedSet.has(fingerprint),
       file: rel, line, severity: String(c.severity || '').toLowerCase(),
       title: c.title || '', body: c.body || '', suggestion: c.suggestion || '', anchored, snippet
     };
@@ -4083,7 +4124,53 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
   }
   res.json({ ok: posted > 0, posted, total: picked.length, results });
 });
-// Make a cached/agent-generated HTML report honor the SPA's light/dark theme.
+// Dismiss (or restore) individual AI review findings so they stop counting toward the
+// card's "Add N review comments" label and get filtered in the modal — without ever
+// posting them to the PR. Body: { ...pr, fps:[fingerprint], undo?:bool }.
+app.post('/api/codeflow/pr/comments/dismiss', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec) return res.status(400).json({ error: 'No review worktree found.' });
+  const fps = Array.isArray(b.fps) ? b.fps.map(String).filter(Boolean) : [];
+  if (!fps.length) return res.status(400).json({ error: 'No findings specified.' });
+  const have = _cfDismissedSet(rec);
+  if (b.undo) { for (const fp of fps) have.delete(fp); }
+  else { for (const fp of fps) have.add(fp); }
+  const saved = _saveCfWt(key, { dismissedComments: Array.from(have), dismissedCommentsAt: new Date().toISOString() });
+  // Recompute the remaining postable count so the caller can refresh the card label.
+  let remaining = null;
+  try {
+    const rc = _readCfReviewComments(rec.worktreePath);
+    if (rc) { const posted = _cfPostedSet(saved); remaining = rc.comments.filter(c => { const fp = _cfCommentFp(c); return !posted.has(fp) && !have.has(fp); }).length; }
+  } catch {}
+  res.json({ ok: true, dismissed: Array.from(have), remaining });
+});
+
+// Dismiss a PR into the "Other PRs" bucket (or restore it). PRs you won't review but
+// want to keep access to. Keyed by _cfWtKey so it survives across fetches/providers.
+app.post('/api/codeflow/pr/dismiss', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const map = loadCodeflowDismissed();
+  if (b.undo) { delete map[key]; }
+  else {
+    map[key] = {
+      at: new Date().toISOString(),
+      title: String(b.title || '').slice(0, 240),
+      org: o.org, project: o.project || '', repo: o.repo, prId: o.prId,
+      provider: String(o.provider || 'azdo').toLowerCase(),
+    };
+  }
+  saveCodeflowDismissed(map);
+  // Bust the PR-list cache so the PR moves in/out of Active/Reviews/Other immediately.
+  _codeflowCache.clear();
+  res.json({ ok: true, dismissed: !b.undo, count: Object.keys(map).length });
+});
 // Reports are free-form HTML the review agent writes, so we inject (idempotently):
 //   1. a theme-detection <script> right after <head> that reads ?scoutTheme=
 //      (passed by the SPA) or falls back to the OS prefers-color-scheme, and
@@ -8645,13 +8732,15 @@ app.put('/api/settings', (req, res) => {
     // turn it on (or off); the kill-switch is authoritative via isExternalAccessDisabled().
     if (settings.isExternalAccessLocked()) delete body.externalAccessDisabled;
     const before = settings.isExternalAccessDisabled();
-    const beforeGroups = JSON.stringify((settings.getSettings().codeflowMyGroups) || []);
+    const _grpKeys = ['codeflowMyGroups', 'codeflowMyGroupsGithub', 'codeflowMyGroupsAzdo'];
+    const beforeGroups = JSON.stringify(_grpKeys.map(k => (settings.getSettings()[k]) || []));
     const next = settings.updateSettings(body);
-    // If the user's reviewer groups changed, the cached Code Flow PR lists were built
-    // against the OLD group set (group-reviewer detection is per-gather) — bust the cache
-    // so newly-configured group PRs surface immediately instead of after the 2-min TTL.
+    // If any of the user's reviewer-group lists changed, the cached Code Flow PR lists were
+    // built against the OLD group set (group-reviewer detection is per-gather) — bust the
+    // cache so newly-configured group PRs surface immediately instead of after the TTL.
     try {
-      if ('codeflowMyGroups' in body && JSON.stringify((next.codeflowMyGroups) || []) !== beforeGroups) {
+      if (_grpKeys.some(k => k in body) &&
+          JSON.stringify(_grpKeys.map(k => (next[k]) || [])) !== beforeGroups) {
         _codeflowCache.clear();
       }
     } catch {}
@@ -12595,6 +12684,38 @@ function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
   } catch { return finalBlocks; }
 }
 
+// Final safety net: a personal commitment must appear at most ONCE. The imminent-pin path
+// (which holds the in-progress block at its old time) and the personal-todo re-insert path
+// can EACH emit a block for the same activity ("2 hours for golf"), and depending on how
+// the LLM refine echoed it, both can survive — so the user sees golf twice on the agenda.
+// Collapse personal blocks that share an activity key, keeping the pinned/imminent instance
+// (the one they're actively doing) when present, else the earliest. Distinct user-reserved
+// (manual) blocks are left alone so two deliberately-separate personal blocks aren't merged.
+function _meAiDedupePersonal(blocks) {
+  if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
+  const groups = new Map(); // activityKey -> [indices]
+  blocks.forEach((b, i) => {
+    if (!b || String(b.type || '') !== 'personal') return;
+    const k = _meAiActivityKey(b.title);
+    if (!k) return;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(i);
+  });
+  const drop = new Set();
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue;
+    const cand = idxs.map(i => blocks[i]);
+    // If EVERY block in the group is a distinct manual reservation, leave them (the user
+    // deliberately planned multiple). Otherwise collapse the group to a single block.
+    if (cand.every(b => b.meta && b.meta.manual && !b.meta.pinned && !b.meta.personalTodo)) continue;
+    let keep = idxs.find(i => blocks[i].meta && (blocks[i].meta.pinned || blocks[i].meta.imminent));
+    if (keep == null) keep = idxs.slice().sort((a, b) => (_hmToMin(blocks[a].start) || 0) - (_hmToMin(blocks[b].start) || 0))[0];
+    for (const i of idxs) if (i !== keep) drop.add(i);
+  }
+  if (!drop.size) return blocks;
+  return blocks.filter((_, i) => !drop.has(i));
+}
+
 // Detect genuine double-books among the final blocks. A conflict is two COMMITTED blocks
 // whose times overlap; open/flexible focus fill is ignored, and an overlap with a meeting
 // the user did not opt into (meta.attending === false) is NOT a conflict (that meeting is
@@ -13468,6 +13589,8 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // holds its exact slot; others reflow around it. I3: apply title overrides.
   if (lockReservations.length) finalBlocks = _meAiEnforcePins(finalBlocks, lockReservations);
   finalBlocks = _meAiApplyRenames(finalBlocks, overridesForPlan);
+  // Collapse any personal commitment that ended up scheduled twice (pin + todo re-insert).
+  finalBlocks = _meAiDedupePersonal(finalBlocks);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
