@@ -11880,6 +11880,9 @@
               .meai-mini-btn:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
               .meai-adhoc { display:flex; gap:8px; align-items:center; margin:0 0 12px; }
               .meai-adhoc-in { flex:1 1 auto; min-width:0; }
+              .meai-lane-swipe { position:relative; overflow:hidden; }
+              .meai-lane-swipe .meai-lane-row { background:var(--cp-surface); position:relative; z-index:1; padding-left:0; padding-right:0; touch-action:pan-y; }
+              .meai-lane-fin { position:absolute; top:0; right:0; height:100%; z-index:0; display:flex; align-items:center; justify-content:flex-end; padding:0 12px; border:0; background:transparent; color:var(--cp-success); font-size:12px; font-weight:700; cursor:pointer; }
               .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--cp-border); cursor:pointer; }              .meai-lane-row:last-child { border-bottom:0; }
               .meai-lane-t { font-weight:600; font-size:13px; color:var(--cp-text); }
               .meai-lane-m { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
@@ -12371,7 +12374,11 @@
                     <template x-if="(meai.tasks||[]).length">
                       <div>
                         <template x-for="tk in meai.tasks" :key="tk.id">
-                          <div class="meai-lane-row" @click="meAiOpenTask(tk.id)">
+                          <div class="meai-lane-swipe">
+                            <button type="button" class="meai-lane-fin" @click.stop="meAiFinishTask(tk)" title="Finish — remove this agent from the lane">✓ Finish</button>
+                            <div class="meai-lane-row" :style="meAiLaneStyle(tk)"
+                                 @click="meAiLaneClick(tk)"
+                                 @pointerdown="meAiLaneSwipeStart($event, tk)">
                             <div style="min-width:0">
                               <div class="meai-lane-t" x-text="tk.title"></div>
                               <div class="meai-lane-m" x-text="tk.playbook + (tk.background ? ' · background' : '')"></div>
@@ -12380,6 +12387,7 @@
                               <span x-show="tk.status==='running' && tk.stage!=='awaiting'" class="meai-lane-spin"></span>
                               <span x-show="tk.stage==='awaiting'" class="meai-lane-wait" title="Paused — waiting for your input"></span>
                               <span x-text="meAiTaskStageLabel(tk.stage)"></span>
+                            </div>
                             </div>
                           </div>
                         </template>
@@ -20568,7 +20576,8 @@
           consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
-          traceOpen: false,      // #9 thinking/tool trace collapsed by default
+          traceOpen: true,       // background agent → reasoning/tools visible by default
+          laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
           expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
           // REQ-7 auto-regen + change tracking + day-shape report.
@@ -27832,8 +27841,63 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
           this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
+        // Swipe-to-finish on the "Me agents at work" lane (mirrors the board toolbox swipe).
+        meAiLaneStyle(tk) {
+          const m = this.meai;
+          if (m.laneSwipeOpen === tk.id) return 'transform:translateX(-96px);transition:transform .18s ease;';
+          if (m.laneSwipeId === tk.id && m.laneSwipeDx < 0) return 'transform:translateX(' + m.laneSwipeDx + 'px);';
+          return 'transform:translateX(0);transition:transform .18s ease;';
+        },
+        meAiLaneSwipeStart(ev, tk) {
+          if (ev.button != null && ev.button !== 0) return;
+          const m = this.meai;
+          const startX = ev.clientX, startY = ev.clientY;
+          let moved = false, horizontal = false;
+          m.laneSwipeId = tk.id; m.laneSwipeDx = 0;
+          const move = (e) => {
+            const dx = e.clientX - startX, dy = e.clientY - startY;
+            if (!horizontal && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+            if (!horizontal) horizontal = Math.abs(dx) > Math.abs(dy);
+            if (!horizontal) { cleanup(); return; }
+            moved = true;
+            m.laneSwipeDx = Math.min(0, Math.max(-140, dx));
+          };
+          const up = () => {
+            const open = moved && m.laneSwipeDx <= -48;
+            m.laneSwipeOpen = open ? tk.id : null;
+            m.laneSwipeId = null; m.laneSwipeDx = 0;
+            this._laneSwipeMoved = moved;
+            setTimeout(() => { this._laneSwipeMoved = false; }, 60);
+            cleanup();
+          };
+          const cleanup = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
+        },
+        meAiLaneClick(tk) {
+          const m = this.meai;
+          if (this._laneSwipeMoved) return;              // a swipe just happened — don't open
+          if (m.laneSwipeOpen === tk.id) { m.laneSwipeOpen = null; return; } // tap closes the revealed action
+          if (m.laneSwipeOpen) { m.laneSwipeOpen = null; return; }
+          this.meAiOpenTask(tk.id);
+        },
+        async meAiFinishTask(tk) {
+          const m = this.meai;
+          m.laneSwipeOpen = null;
+          m.tasks = (m.tasks || []).filter(x => x.id !== tk.id);   // optimistic
+          delete m._taskById[tk.id];
+          if (m.console && m.console.id === tk.id) this.meAiCloseConsole();
+          try {
+            await this.request('/api/me-ai/task/' + tk.id + '/dismiss', { method: 'POST' });
+          } catch (e) { this.toast('Could not finish task', 'error'); this.meAiLoadTasks(); }
+        },
         meAiOpenTask(id) {
-          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false;
+          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = true;
           const t = this.meai._taskById[id];
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); }

@@ -13880,7 +13880,7 @@ function _meAiTaskPublic(t) {
   return {
     id: t.id, date: t.date, playbook: t.playbook, title: t.title, scope: t.scope || 'work',
     goal: t.goal || _meAiGoalFor(t),
-    stage: t.stage, status: t.status, background: !!t.background,
+    stage: t.stage, status: t.status, background: !!t.background, archived: !!t.archived,
     events: (t.events || []).slice(-200), report: t.report || null,
     nextActions: t.nextActions || [], question: t.question || null,
     error: t.error || null, completedToDiary: !!t.completedToDiary,
@@ -13936,6 +13936,7 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '  "nextActions": [ { "label": "<button text>", "intent": "<one of: apply-fix, comment, push, approve, request-review, retry, change-approach, continue, abandon>", "primary": true|false, "risk": "none|write|external" } ]',
     '}',
     'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. Include these ONLY when they apply; omit them otherwise. They are rendered as collapsible previews I can inspect.',
+    'HONESTY ABOUT DRAFTS: you have NO ability to save an Outlook/Teams draft, send mail, or post a message — you can only produce the text. So never claim in report.summary that you "created/prepared/saved N drafts" (that reads as items in my Outlook Drafts folder, which will not exist). Say instead that you "drafted reply text below for my review" and put the actual text in report.draft. If there are several, put each in a clearly-labelled section of report.draft.',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human.',
     'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. ALWAYS include your own recommendation inside the question text — end it with what you would do and why (e.g. "… I recommend the 30s default since most callers are interactive."), so I can accept your call quickly. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
   ].join('\n');
@@ -14513,6 +14514,7 @@ app.get('/api/me-ai/tasks', (req, res) => {
     const items = [];
     for (const t of meAiTasks.values()) {
       if (date && t.date !== date) continue;
+      if (t.archived) continue; // dismissed/finished off the active lane
       items.push({ id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status, background: !!t.background, updatedAt: t.updatedAt, date: t.date });
     }
     items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -14562,6 +14564,20 @@ app.post('/api/me-ai/task/:id/background', (req, res) => {
     const t = meAiTasks.get(req.params.id);
     if (!t) return res.status(404).json({ error: 'Task not found' });
     t.background = true; _meAiSaveTask(t);
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/dismiss → swipe-to-finish: archive the task so it drops
+// off the "Me agents at work" lane (persisted). A running task is left to finish in
+// the background but no longer surfaces; done/awaiting/errored tasks just clear.
+app.post('/api/me-ai/task/:id/dismiss', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    t.archived = true;
+    _meAiEmit(t, { kind: 'note', text: 'Dismissed from the lane.' });
+    if (meAiTasks.has(t.id)) meAiTasks.set(t.id, t);
     res.json({ ok: true, task: _meAiTaskPublic(t) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
