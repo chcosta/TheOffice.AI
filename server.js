@@ -13827,6 +13827,7 @@ function _meAiGoalFor(t) {
     steward: `Shepherd ${title || 'your pull request'} toward merge — find what's blocking it and the single best next move.`,
     comms: `Handle ${title || 'this message'} — understand the ask and prepare a ready-to-send reply and any action items.`,
     prep: `Get you ready for ${title || 'the meeting'} — purpose, talking points, decisions needed, and what to read first.`,
+    admin: `Brief you on ${title || 'this admin item'} — the impact on your day and coverage — and prepare the concrete actions (drafts, reschedules) so you can approve them.`,
     adhoc: `Accomplish this end-to-end: ${title || 'your request'} — work out the steps, do the work with your tools, and report what's done and what's left.`,
   };
   return map[(t && t.playbook)] || `Work on ${title || (t && t.playbook) || 'the task'} and report back with what you found.`;
@@ -13904,6 +13905,26 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
       `Working directory: ${cwd}.`,
       'Steps: (1) Work out the purpose of the meeting and what I need to know or decide. (2) Pull together the relevant context (recent related PRs/issues/threads if discoverable via tools). (3) Produce a tight prep brief: goal, 3–5 talking points, any decisions needed, and 1–2 questions to raise. Flag anything I should read beforehand.',
       'Be concise. Stream your reasoning.',
+      '', jsonContract,
+    ].filter(Boolean).join('\n');
+  }
+  // Admin / awareness item (e.g. "Team OOF awareness & day setup"). Owner decision:
+  // produce a briefing on the impact to my day AND prepare concrete, confirmable actions
+  // (draft a coverage note, propose rescheduling affected 1:1s) — nothing applied/sent
+  // without my sign-off. The actions ride the standard nextActions confirm loop.
+  if (playbook === 'admin') {
+    return [
+      'You are my day-setup Me-agent. This is an admin / awareness item — your job is to brief me on how it affects my day AND prepare the concrete follow-ups so I can approve them.',
+      `Item: ${ctx.title || 'today\'s admin / awareness setup'}.`,
+      ctx.detail ? `Context: ${ctx.detail}` : '',
+      ctx.link ? `Link: ${ctx.link}` : '',
+      `Working directory: ${cwd}.${ctx.date ? ' Today is ' + ctx.date + '.' : ''}`,
+      'You have my professional context via tools (email / Teams / calendar via WorkIQ, work items & PRs in Azure DevOps and GitHub, and my diary). Steps:',
+      '(1) Gather the awareness facts this item is about — e.g. who on my team is out of office today/this week, meetings on my calendar today, and where their absence creates a coverage gap, a blocked hand-off, or a 1:1 that should move.',
+      '(2) Assess the IMPACT on my day: which of my meetings/tasks are affected, what is now at risk or unblocked, and what I should adjust.',
+      '(3) PREPARE (do not send/apply) the concrete follow-ups: draft a short coverage / heads-up note if one is warranted, and spell out any 1:1s or meetings that should be rescheduled (who, from → to, and a one-line reason).',
+      'Produce a crisp briefing: 3–6 impact points, then the prepared actions. When you have a ready-to-send message, put it in report.draft. Do NOT send email/Teams messages, move calendar events, commit, or push — prepare everything for my review and offer it as nextActions I confirm.',
+      'Be concise. Stream your reasoning and tool use.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
   }
