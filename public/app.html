@@ -12419,7 +12419,7 @@
                                   <button type="button" class="meai-lane-ask-btn"
                                           :class="{ primary: a.primary, write: a.risk==='write' || a.risk==='external' }"
                                           :disabled="meai.laneActingId===tk.id"
-                                          @click="meAiLaneAct(tk, a.intent, a.label)"
+                                          @click="meAiLaneAct(tk, a.intent, a.label, a.risk)"
                                           :title="(a.risk==='external' ? 'Sends/posts externally · ' : a.risk==='write' ? 'Makes a change · ' : '') + a.label">
                                     <span x-show="a.risk==='write' || a.risk==='external'" class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'"></span>
                                     <span x-text="a.label"></span>
@@ -12744,7 +12744,7 @@
                     <!-- AI-generated next actions -->
                     <div class="meai-actions" x-show="!meai.console.question && meai.console.status!=='running' && (meai.console.nextActions||[]).length">
                       <template x-for="(a, ai) in meai.console.nextActions" :key="ai">
-                        <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '', a.label)" :disabled="meai.consoleBusy" x-text="a.label"></button>
+                        <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '', a.label, a.risk)" :disabled="meai.consoleBusy" x-text="a.label"></button>
                       </template>
                     </div>
                     <!-- Free-text reply (available once no question is pending) -->
@@ -27950,13 +27950,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Approve/choose an action straight from the lane (the click IS the confirmation).
         // Reuses the same /act path as the console; merges the result into lane + console.
-        async meAiLaneAct(tk, intent, label) {
+        async meAiLaneAct(tk, intent, label, risk) {
           if (!tk || this.meai.laneActingId) return;
+          // An external action performs a real send/post — confirm before it fires.
+          if (risk === 'external' && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
           this.meai.laneActingId = tk.id;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(tk.id) + '/act', {
               method: 'POST',
-              body: JSON.stringify({ intent, text: '', label: label || '' }),
+              body: JSON.stringify({ intent, text: '', label: label || '', risk: risk || 'none' }),
             });
             if (r && r.task) {
               this._meAiMergeTask(r.task);
@@ -28023,14 +28025,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meAiLoadTasks();
         },
         // The user picked an AI-generated next action (or replied free-text).
-        async meAiAct(intent, text, label) {
+        async meAiAct(intent, text, label, risk) {
           const t = this.meai.console;
           if (!t || this.meai.consoleBusy) return;
+          if (risk === 'external' && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
           this.meai.consoleBusy = true;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/act', {
               method: 'POST',
-              body: JSON.stringify({ intent, text: text || '', label: label || '' }),
+              body: JSON.stringify({ intent, text: text || '', label: label || '', risk: risk || 'none' }),
             });
             if (r && r.task) this._meAiMergeTask(r.task);
             this.meai.consoleReply = '';

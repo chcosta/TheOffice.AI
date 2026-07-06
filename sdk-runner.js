@@ -691,6 +691,13 @@ class SdkRunner {
         this._applyOverlayCaps(opts, config);
       }
     }
+    // A plain config (no resolved plugin/package/project agent) may still bring MCP
+    // servers — e.g. the Me-agent attaching WorkIQ for a user-approved external
+    // action (send mail / post to Teams). Load them if an agent path didn't already.
+    if (config && config.mcpConfig && !opts.mcpServers) {
+      const mcp = this._loadMcpServers(config);
+      if (mcp) opts.mcpServers = mcp;
+    }
     opts.__keepAlive = true;
     return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }

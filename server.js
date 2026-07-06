@@ -14147,13 +14147,71 @@ function _meAiParseReport(text) {
   return { report, nextActions, question };
 }
 // Run one turn of the Me agent, wiring streaming callbacks into the transcript.
-async function _meAiRunTurn(t, prompt, { resume }) {
+// The WorkIQ MCP server (Microsoft 365: mail/Teams read+write) — lazily materialize
+// an .mcp.json under dataPath('me-ai') and cache its path. Attached ONLY to a
+// user-approved external act turn; the same launch the connect/newsletter plugins use.
+let _meAiWorkIqPathCache = null;
+function _meAiWorkIqMcpPath() {
+  if (_meAiWorkIqPathCache) return _meAiWorkIqPathCache;
+  try {
+    const dir = dataPath('me-ai');
+    fs.mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, 'workiq.mcp.json');
+    const body = { mcpServers: { workiq: { command: 'npx', args: ['-y', '@microsoft/workiq@latest', 'mcp'] } } };
+    fs.writeFileSync(p, JSON.stringify(body, null, 2));
+    _meAiWorkIqPathCache = p;
+    return p;
+  } catch (_) { return null; }
+}
+// Self-contained prompt for a user-APPROVED external action. Runs in a FRESH WorkIQ
+// session (no prior context), so it carries the goal + prepared draft + the exact
+// approved action, and demands a verifiable reference or an HONEST failure.
+function _meAiExternalActPrompt(t, intent, text, label) {
+  const clean = (label && String(label).trim()) || intent;
+  const goal = _meAiGoalFor(t);
+  const r = (t && t.report) || {};
+  const ctx = [];
+  ctx.push('You are resuming a background task to carry out ONE action I have now explicitly approved. This turn runs in a fresh session, so here is everything you need.');
+  if (goal) ctx.push('Task goal: ' + String(goal).slice(0, 600));
+  if (r.summary) ctx.push('Where things stand: ' + String(r.summary).slice(0, 800));
+  if (r.draft) ctx.push('The draft you prepared (use this text verbatim unless I asked you to change it):\n"""\n' + String(r.draft).slice(0, 6000) + '\n"""');
+  const note = (text && String(text).trim()) ? ('\nMy note: ' + String(text).trim()) : '';
+  return [
+    ctx.join('\n\n'),
+    '',
+    'APPROVED ACTION: ' + String(clean).slice(0, 200) + '.' + note,
+    '',
+    'You now have WorkIQ tools available (in addition to shell + gh). Use them to ACTUALLY perform this action against my real Microsoft 365 / GitHub / Azure DevOps:',
+    '- Send email, or create an Outlook draft (WorkIQ: do_action /me/sendMail; or create_entity /me/messages for a draft).',
+    '- Reply to a message, or post to a Teams channel/chat (WorkIQ).',
+    '- Reply/comment on a GitHub or Azure DevOps PR (gh / az, or WorkIQ where it applies).',
+    'Do EXACTLY the approved action — nothing more, and nothing external beyond it. If a target (recipient, channel, PR, thread) is ambiguous, do NOT guess and do NOT send: stop and ask, returning your question in the "question" field.',
+    'If WorkIQ or the needed access is unavailable (not installed, not signed in, EULA not accepted, permission denied), say so plainly and DO NOT fake success — report it as a failure with the reason.',
+    '',
+    'When done, report HONESTLY. Put a verifiable reference in report.summary — the created draft id, the sent message id, the Teams message link, or the PR comment URL — so I can confirm it actually happened. Then end with a single fenced ```json block (and nothing after it):',
+    '{ "report": { "summary": "...", "findings": [] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none" } ], "question": null }',
+  ].join('\n');
+}
+async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   const cwd = (t.context && t.context.cwd) || __dirname;
   let acc = '';
+  let config = resume ? null : { cwd, allowAll: true };
+  let sessionId = t.sessionId;
+  if (workiq) {
+    // A user-approved EXTERNAL action (send email / post to Teams / reply on a PR).
+    // The task's main session was created write-free and is reused by keep-alive, so
+    // it can never send. Run the approved action on a FRESH session (distinct id so
+    // keep-alive doesn't hand back the write-free one) WITH WorkIQ attached. The
+    // approve click is the confirmation; the prompt is self-contained (fresh context).
+    const mcpPath = _meAiWorkIqMcpPath();
+    config = { cwd, allowAll: true, ...(mcpPath ? { mcpConfig: mcpPath } : {}) };
+    sessionId = t.sessionId + ':wiq:' + Date.now();
+    resume = false;
+  }
   const result = await sdkRunner.runChat({
-    config: resume ? null : { cwd, allowAll: true },
+    config,
     prompt,
-    sessionId: t.sessionId,
+    sessionId,
     resume: !!resume,
     cwd,
     meta: { source: 'me-ai', category: 'me-ai' },
@@ -14228,10 +14286,13 @@ function _meAiDispatchRun(t) {
 // `label` is the human-readable text of the button the user clicked (when they picked a
 // generated action rather than typing) — recorded verbatim so the transcript shows what
 // they actually chose, and fed into the prompt so the agent does exactly that.
-function _meAiActRun(t, intent, text, label) {
+function _meAiActRun(t, intent, text, label, opts = {}) {
+  const external = !!opts.external;
   _meAiSchedule(async () => {
     let attempt = 0;
-    const basePrompt = _meAiActPrompt(intent, text, label);
+    const basePrompt = external
+      ? _meAiExternalActPrompt(t, intent, text, label)
+      : _meAiActPrompt(intent, text, label);
     t.question = null; // a new turn is starting; any prior mid-run question is resolved
     // What to show in the timeline for this choice: prefer the clicked button's label,
     // then a typed answer/reply, then the raw intent as a last resort.
@@ -14248,8 +14309,12 @@ function _meAiActRun(t, intent, text, label) {
         _meAiSetStage(t, 'working', 'running');
         const selfCorrect = attempt > 1 && t._lastError;
         _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : choiceNote });
-        const prompt = selfCorrect ? _meAiCorrectionPrompt(t._lastError) : basePrompt;
-        const out = await _meAiRunTurn(t, prompt, { resume: true });
+        const prompt = selfCorrect
+          ? (external
+              ? (basePrompt + '\n\nNOTE: a previous attempt failed with: "' + String(t._lastError).slice(0, 500) + '". Diagnose what went wrong, self-correct, and carry out the approved action — or, if it is genuinely blocked (no access / WorkIQ unavailable), report that honestly and stop.')
+              : _meAiCorrectionPrompt(t._lastError))
+          : basePrompt;
+        const out = await _meAiRunTurn(t, prompt, { resume: !external, workiq: external });
         const { report, nextActions, question } = _meAiParseReport(out);
         t.report = report; t.nextActions = nextActions; t.error = null; t.question = question || null; t._lastError = null;
         _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
@@ -14556,7 +14621,7 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
       _meAiSetStage(t, 'awaiting', 'awaiting');
       return res.json({ ok: true, task: _meAiTaskPublic(t) });
     }
-    _meAiActRun(t, intent, b.text, b.label);
+    _meAiActRun(t, intent, b.text, b.label, { external: !!b.external || b.risk === 'external' });
     // Flip to running synchronously so a second /act in the same tick can't
     // pass the 409 guard and double-dispatch (the scheduled run only flips
     // status once it actually starts, which may be deferred by the queue).
