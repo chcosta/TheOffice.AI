@@ -8599,7 +8599,16 @@ app.put('/api/settings', (req, res) => {
     // turn it on (or off); the kill-switch is authoritative via isExternalAccessDisabled().
     if (settings.isExternalAccessLocked()) delete body.externalAccessDisabled;
     const before = settings.isExternalAccessDisabled();
+    const beforeGroups = JSON.stringify((settings.getSettings().codeflowMyGroups) || []);
     const next = settings.updateSettings(body);
+    // If the user's reviewer groups changed, the cached Code Flow PR lists were built
+    // against the OLD group set (group-reviewer detection is per-gather) — bust the cache
+    // so newly-configured group PRs surface immediately instead of after the 2-min TTL.
+    try {
+      if ('codeflowMyGroups' in body && JSON.stringify((next.codeflowMyGroups) || []) !== beforeGroups) {
+        _codeflowCache.clear();
+      }
+    } catch {}
     // If the external-access kill-switch flipped, apply it to the live subsystems
     // (relay poller + Service Bus) immediately — no restart required.
     if (settings.isExternalAccessDisabled() !== before) {
