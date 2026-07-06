@@ -11757,7 +11757,7 @@ function _meAiChurnSummary(events) {
   }
   const counted = reschedule + slip + add;
   const score = reschedule + slip * 2 + add;
-  const shape = score >= 8 ? 'Fragmented' : score >= 4 ? 'Reactive' : score >= 1 ? 'Steady' : 'Focused';
+  const shape = score >= 8 ? 'Fragmented' : score >= 4 ? 'Reactive' : score >= 1 ? 'Steady' : 'Calm';
   // total = organic changes that count toward the shape; planned = deliberate
   // adjustments recorded but not counted.
   return { reschedule, slip, add, planned, total: counted, score, shape };
@@ -11771,7 +11771,7 @@ function _meAiSignalFingerprint(signals) {
   } catch { return ''; }
 }
 function _meAiDayShapeText(churn) {
-  const interp = churn.shape === 'Focused' ? 'A focused, low-churn day — the plan held.'
+  const interp = churn.shape === 'Calm' ? 'A calm, low-churn day — the plan held.'
     : churn.shape === 'Steady' ? 'A steady day with only minor adjustments.'
       : churn.shape === 'Reactive' ? 'A reactive day — several reschedules pulled focus around.'
         : 'A fragmented day — heavy churn; the plan shifted a lot.';
@@ -12141,8 +12141,27 @@ function _meAiLoadFactor(mode) {
 // intervals with prioritized task blocks (merging adjacent same-type work). Any
 // tasks that don't fit spill into `backlog`. needs-attention (review/comms) are
 // surfaced separately for the rail even if not all are scheduled.
+// Parse a rough duration out of a todo title ("1 hour gym workout", "90 min run",
+// "1h30 deep work", "45-minute call") → minutes, or null if none. Capped at 8h so a
+// stray "10 hours" can't blow up the day. Deliberately conservative: only matches an
+// explicit hours/minutes token so clock times ("call at 3pm") aren't mistaken for a length.
+function _meAiParseDuration(title) {
+  const s = String(title || '').toLowerCase();
+  let mins = null;
+  const h = s.match(/(\d+(?:\.\d+)?)[\s-]*(?:hours?|hrs?|h)\b\.?/);
+  if (h) {
+    mins = Math.round(parseFloat(h[1]) * 60);
+    const after = s.slice(h.index + h[0].length);
+    const hm = after.match(/^[\s-]*(\d{1,2})[\s-]*(?:minutes?|mins?|m)\b/);
+    if (hm) mins += parseInt(hm[1], 10);
+  } else {
+    const mm = s.match(/(\d+)[\s-]*(?:minutes?|mins?|m)\b/);
+    if (mm) mins = parseInt(mm[1], 10);
+  }
+  if (mins == null || !isFinite(mins) || mins <= 0) return null;
+  return Math.min(480, mins);
+}
 function _meAiPrePass(cfg, signals, todos, reserved) {
-  const grid = cfg.grid;
   const winStart = _hmToMin(cfg.workStart) ?? 8 * 60;
   const winEnd = _hmToMin(cfg.workEnd) ?? 17 * 60;
   const snap = m => Math.round(m / grid) * grid;
@@ -12165,7 +12184,8 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   for (const t of (todos || [])) {
     if (t && !t.done && String(t.title || '').trim()) {
       const scope = (t.scope === 'personal') ? 'personal' : 'work';
-      tasks.push({ kind: 'todo', type: scope === 'personal' ? 'personal' : 'focus', title: String(t.title).trim(), detail: scope === 'personal' ? 'Personal todo' : 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo', scope });
+      const durationMin = _meAiParseDuration(t.title);
+      tasks.push({ kind: 'todo', type: scope === 'personal' ? 'personal' : 'focus', title: String(t.title).trim(), detail: scope === 'personal' ? 'Personal todo' : 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo', scope, durationMin });
     }
   }
   // Fixed blocks: meetings + lunch, sorted, clipped to window.
@@ -12207,12 +12227,14 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   // the day stays lighter (leftover free time becomes open focus; the rest spills to
   // the visible backlog rather than cramming the calendar).
   const freeMinutes = free.reduce((sum, [fa, fb]) => sum + Math.max(0, fb - fa), 0);
+  const maxFree = free.reduce((mx, [fa, fb]) => Math.max(mx, fb - fa), 0) || CHUNK;
   const capacityChunks = Math.floor(freeMinutes / CHUNK);
   const chunkBudget = Math.max(1, Math.ceil(capacityChunks * _meAiLoadFactor(cfg.mode)));
   let placedChunks = 0;
   let ti = 0;
   const _personalPending = () => { for (let k = ti; k < tasks.length; k++) if (tasks[k].scope === 'personal') return true; return false; };
-  for (const [fa, fb] of free) {
+  for (let fi = 0; fi < free.length; fi++) {
+    const [fa, fb] = free[fi];
     let c = fa;
     // Place tasks while there's room. Work tasks stop at the chunk budget; personal
     // commitments always place (budget-exempt) so an explicit todo is never dropped.
@@ -12220,8 +12242,26 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
       const t = tasks[ti];
       const isPersonal = t.scope === 'personal';
       if (!isPersonal && placedChunks >= chunkBudget) break;
+      const room = fb - c;
+      let len;
+      if (t.durationMin) {
+        // Todo carries an explicit span (e.g. "1 hour gym workout") → block out the whole
+        // duration, snapped up to the grid and capped at the biggest free interval.
+        const want = Math.min(Math.max(grid, Math.ceil(t.durationMin / grid) * grid), maxFree);
+        if (room >= want) {
+          len = want;
+        } else {
+          // Doesn't fit here — if a LATER interval can hold the full span, defer to it so we
+          // don't truncate; otherwise take what's here (never lose the item / blank the day).
+          let laterFits = false;
+          for (let fj = fi + 1; fj < free.length; fj++) { if ((free[fj][1] - free[fj][0]) >= want) { laterFits = true; break; } }
+          if (laterFits) break;
+          len = room;
+        }
+      } else {
+        len = Math.min(CHUNK, room);
+      }
       ti++;
-      const len = Math.min(CHUNK, fb - c);
       const btype = t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : (isPersonal ? 'personal' : 'focus')));
       const bmeta = isPersonal ? { ...(t.meta || {}), personalTodo: true } : (t.meta || null);
       blocks.push({ start: c, end: c + len, type: btype, title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t), meta: bmeta, urgency: t.urgency || 0 });
@@ -13602,7 +13642,7 @@ app.get('/api/me-ai/reports', (req, res) => {
     // Chronological (oldest → newest) for charting.
     out.reverse();
     const active = out.filter(d => d.hasActivity);
-    const shapeCounts = { Focused: 0, Steady: 0, Reactive: 0, Fragmented: 0 };
+    const shapeCounts = { Calm: 0, Steady: 0, Reactive: 0, Fragmented: 0 };
     let reschedule = 0, slip = 0, add = 0, planned = 0, agentsLaunched = 0, agentDone = 0, agentMin = 0, tasksDone = 0, todosDone = 0, todosCarried = 0, notMine = 0, wontFix = 0, focusDays = 0;
     let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0;
     let delivered = 0, unblocked = 0;
@@ -13615,7 +13655,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       focusMin += d.focusMin; meetingMin += d.meetingMin; commsMin += d.commsMin;
       reviewMin += d.reviewMin; stewardMin += d.stewardMin; prepMin += d.prepMin; adminMin += d.adminMin;
       delivered += d.delivered; unblocked += d.unblocked;
-      if (d.shape === 'Focused' || d.shape === 'Steady') focusDays++;
+      if (d.shape === 'Calm' || d.shape === 'Steady') focusDays++;
     }
     const workMin = focusMin + meetingMin + commsMin + reviewMin + stewardMin + prepMin + adminMin;
     const summary = {
@@ -14480,13 +14520,34 @@ function _meAiParseReport(text) {
 // an .mcp.json under dataPath('me-ai') and cache its path. Attached ONLY to a
 // user-approved external act turn; the same launch the connect/newsletter plugins use.
 let _meAiWorkIqPathCache = null;
+// Resolve an on-PATH command (Windows: try .exe/.cmd/.bat) so we only wire an MCP
+// server the machine can actually spawn. Returns the command name if found, else null.
+function _meAiResolveCmd(name) {
+  try {
+    const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+    const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+    for (const d of dirs) {
+      for (const e of exts) {
+        try { if (fs.existsSync(path.join(d, name + e))) return name; } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return null;
+}
 function _meAiWorkIqMcpPath() {
   if (_meAiWorkIqPathCache) return _meAiWorkIqPathCache;
   try {
     const dir = dataPath('me-ai');
     fs.mkdirSync(dir, { recursive: true });
     const p = path.join(dir, 'workiq.mcp.json');
-    const body = { mcpServers: { workiq: { command: 'npx', args: ['-y', '@microsoft/workiq@latest', 'mcp'] } } };
+    const servers = { workiq: { command: 'npx', args: ['-y', '@microsoft/workiq@latest', 'mcp'] } };
+    // Give the me-agent real Azure DevOps access (comment on PRs, update work items, etc.)
+    // when the scriptedai AzDO MCP is installed on PATH. Falls back to gh/az via shell when
+    // absent, so this stays optional. (Also strengthened in _meAiExternalActPrompt.)
+    if (_meAiResolveCmd('scriptedai-mcp-azdo')) {
+      servers['scriptedai-mcp-azdo'] = { command: 'scriptedai-mcp-azdo', args: [], env: {} };
+    }
+    const body = { mcpServers: servers };
     fs.writeFileSync(p, JSON.stringify(body, null, 2));
     _meAiWorkIqPathCache = p;
     return p;
@@ -14510,10 +14571,10 @@ function _meAiExternalActPrompt(t, intent, text, label) {
     '',
     'APPROVED ACTION: ' + String(clean).slice(0, 200) + '.' + note,
     '',
-    'You now have WorkIQ tools available (in addition to shell + gh). Use them to ACTUALLY perform this action against my real Microsoft 365 / GitHub / Azure DevOps:',
+    'You now have WorkIQ tools available (in addition to shell + gh + az). Use them to ACTUALLY perform this action against my real Microsoft 365 / GitHub / Azure DevOps:',
     '- Send email, or create an Outlook draft (WorkIQ: do_action /me/sendMail; or create_entity /me/messages for a draft).',
     '- Reply to a message, or post to a Teams channel/chat (WorkIQ).',
-    '- Reply/comment on a GitHub or Azure DevOps PR (gh / az, or WorkIQ where it applies).',
+    '- Reply/comment on a GitHub PR (gh), or an Azure DevOps PR or work item. For Azure DevOps prefer the scriptedai-mcp-azdo tools if present (e.g. add_pull_request_comment / add_work_item_comment / set_work_item_field); otherwise fall back to the az CLI (az repos pr / az boards).',
     'Do EXACTLY the approved action — nothing more, and nothing external beyond it. If a target (recipient, channel, PR, thread) is ambiguous, do NOT guess and do NOT send: stop and ask, returning your question in the "question" field.',
     'If WorkIQ or the needed access is unavailable (not installed, not signed in, EULA not accepted, permission denied), say so plainly and DO NOT fake success — report it as a failure with the reason.',
     '',

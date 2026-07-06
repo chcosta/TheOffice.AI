@@ -11683,7 +11683,7 @@
               .meai-dayshape.shape-fragmented { border-left:3px solid var(--cp-danger, #e5534b); }
               .meai-dayshape.shape-reactive { border-left:3px solid var(--cp-warning); }
               .meai-dayshape.shape-steady { border-left:3px solid var(--cp-accent); }
-              .meai-dayshape.shape-focused { border-left:3px solid var(--cp-success); }
+              .meai-dayshape.shape-calm { border-left:3px solid var(--cp-success); }
               .meai-dayshape-n { color:var(--cp-text-muted); }
               .meai-dayshape-planned { color:var(--cp-text-muted); opacity:.75; font-style:italic; }
               .meai-eod { font-size:12.5px; }
@@ -12165,14 +12165,15 @@
                 </span>
                 <span class="meai-auto-flash" x-show="meai.justUpdated" x-transition>Agenda updated</span>
                 <template x-if="meai.agenda.meta && meai.agenda.meta.churn">
-                  <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Focused').toLowerCase()"
-                          @click="meai.changesOpen=!meai.changesOpen" :title="'Click to see what changed today'">
-                    <span x-text="'Day shape: ' + (meai.agenda.meta.churn.shape||'Focused')"></span>
+                  <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Calm').toLowerCase()"
+                          @click="meai.changesOpen=!meai.changesOpen"
+                          title="Today's rhythm = how much the day actually churned on its own (Calm → Steady → Reactive → Fragmented), measured from reschedules/slips/late-adds. It is NOT your Day mode — Day mode (Balanced/Focused/…) is the planning strategy you choose; this rhythm is the observed outcome. Click to see what changed today.">
+                    <span x-text="'Today\'s rhythm: ' + (meai.agenda.meta.churn.shape||'Calm')"></span>
                     <span class="meai-dayshape-n" x-show="meai.agenda.meta.churn.total"
                           x-text="'· ' + meai.agenda.meta.churn.reschedule + ' resched · ' + meai.agenda.meta.churn.slip + ' slipped · ' + meai.agenda.meta.churn.add + ' added'"></span>
                     <span class="meai-dayshape-planned" x-show="meai.agenda.meta.churn.planned"
                           x-text="'· ' + meai.agenda.meta.churn.planned + ' planning'"
-                          title="Deliberate re-plans (day mode, time prefs, fit-into-today) — recorded but not counted against your focus"></span>
+                          title="Deliberate re-plans (day mode, time prefs, fit-into-today) — recorded but not counted against today's rhythm"></span>
                     <span class="meai-caret" x-show="meai.agenda.meta.churn.total || meai.agenda.meta.churn.planned" x-text="meai.changesOpen?'▾':'▸'"></span>
                   </button>
                 </template>
@@ -12199,7 +12200,7 @@
                     <span class="meai-change-when" x-show="c.kind==='add'" x-text="'at ' + (c.to||'')"></span>
                     <span class="meai-change-cause" x-show="['mode','timeprefs','todo','manual','triage'].includes(c.cause)"
                           x-text="c.cause==='mode'?'day mode':c.cause==='timeprefs'?'time prefs':c.cause==='todo'?'todo':c.cause==='triage'?'triage':'manual'"
-                          title="Planning adjustment — not counted toward day shape"></span>
+                          title="Planning adjustment — not counted toward today's rhythm"></span>
                   </div>
                 </template>
                 <div class="meai-change-empty" x-show="!meai.changes.length">No changes yet today — a steady plan.</div>
@@ -18710,9 +18711,9 @@
                   <!-- Headline -->
                   <div class="report-grid" style="margin-bottom:20px">
                     <div class="card report-stat">
-                      <div class="report-stat-label">🎯 Focused days</div>
+                      <div class="report-stat-label">🎯 Calm days</div>
                       <div class="report-stat-value" x-text="meaiReport.summary.focusDays + '/' + meaiReport.summary.activeDays"></div>
-                      <div class="hint" x-text="Math.round((meaiReport.summary.focusRatio || 0) * 100) + '% of tracked days held their shape'"></div>
+                      <div class="hint" x-text="Math.round((meaiReport.summary.focusRatio || 0) * 100) + '% of tracked days held a calm rhythm'"></div>
                     </div>
                     <div class="card report-stat">
                       <div class="report-stat-label">🌀 Fragmentation</div>
@@ -18851,7 +18852,9 @@
                   </div>
 
                   <div class="card" style="margin-bottom:20px">
-                      <span class="hint">How focused vs. fragmented each tracked day was</span>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Today's rhythm distribution</h3>
+                      <span class="hint">How calm vs. fragmented each tracked day was</span>
                     </div>
                     <p class="hint" style="margin:0 0 14px">Derived from organic agenda churn — reschedules, slips and late adds. Deliberate planning changes (switching day mode, time-of-day prefs, manual edits) are recorded separately and never count against a day.</p>
                     <template x-for="s in meaiShapeBars()" :key="s.shape">
@@ -27627,8 +27630,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // a cached agenda keeps its old start time until a manual Regenerate.
         async meAiSaveHoursGrid() {
           await this.meAiSaveSettings();
-          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false, cause: 'hours' });
+          // Close the modal RIGHT AWAY (saving is done) so it clearly acknowledges the save;
+          // the re-plan can take minutes and must NOT hold the modal open (owner: "it should
+          // indicate it saved and close"). Regenerate in the background; meai.generating drives
+          // the page spinner so the day updating is still visible.
           this.meai.hoursOpen = false;
+          if (this.meai.config.consent && this.meai.agenda) {
+            this.meAiGenerate({ reindex: false, cause: 'hours' }).catch(() => {});
+          }
         },
         // --- Per-day work window ("started early / staying late today") ---
         // A quick one-off start/end for the VIEWED date that supersedes the standing
@@ -43605,7 +43614,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const churn = (Number(s.reschedule) || 0) + (Number(s.slip) || 0) + (Number(s.add) || 0);
           let out = `<h1>🎯 Focus &amp; flow report</h1><p class="sub">${esc(rangeTxt)} · how your days held their shape</p>`;
           out += `<div class="cards">`;
-          out += `<span class="stat"><span class="l">Focused days</span><br><span class="v">${esc(s.focusDays + '/' + s.activeDays)}</span></span>`;
+          out += `<span class="stat"><span class="l">Calm days</span><br><span class="v">${esc(s.focusDays + '/' + s.activeDays)}</span></span>`;
           out += `<span class="stat"><span class="l">Fragmentation</span><br><span class="v">${esc(churn)}</span></span>`;
           out += `<span class="stat"><span class="l">Planning adjustments</span><br><span class="v">${esc(s.planned)}</span></span>`;
           out += `<span class="stat"><span class="l">Me-agents launched</span><br><span class="v">${esc(s.agentsLaunched)}</span></span></div>`;
@@ -43843,7 +43852,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         meaiShapeColor(shape) {
           return ({
-            Focused: 'var(--cp-success,#22c55e)',
+            Calm: 'var(--cp-success,#22c55e)',
             Steady: 'var(--cp-accent,#6366f1)',
             Reactive: 'var(--cp-warning,#f59e0b)',
             Fragmented: 'var(--cp-danger,#ef4444)',
@@ -43853,7 +43862,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meaiShapeBars() {
           const sc = (this.meaiReport && this.meaiReport.summary && this.meaiReport.summary.shapeCounts) || {};
           const total = (this.meaiReport && this.meaiReport.summary && this.meaiReport.summary.activeDays) || 0;
-          return ['Focused', 'Steady', 'Reactive', 'Fragmented'].map(shape => ({
+          return ['Calm', 'Steady', 'Reactive', 'Fragmented'].map(shape => ({
             shape,
             count: sc[shape] || 0,
             pct: total ? Math.round(((sc[shape] || 0) / total) * 100) : 0,
