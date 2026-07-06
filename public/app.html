@@ -11913,6 +11913,8 @@
               .meai-ev-ask strong { color:var(--cp-accent); font-weight:600; }
               .meai-ev-milestone { color:var(--cp-text); }
               .meai-ev-milestone strong { color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
+              .meai-ev-choice { color:var(--cp-text); }
+              .meai-ev-choice strong { color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
               .meai-report { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:12px 0; background:var(--cp-surface); }
               .meai-report h5 { margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); }
               .meai-report-sum { font-size:14px; color:var(--cp-text); line-height:1.5; }
@@ -12228,7 +12230,7 @@
                       <template x-for="(it, ai) in meAiAutoHandled()" :key="it.id">
                         <div class="meai-auto-item">
                           <span class="meai-auto-verb" x-text="meAiAutoLabel(it)"></span>
-                          <span class="meai-auto-name clickable" :title="it.link ? 'Open' : ''" @click="it.link && window.open(it.link,'_blank')" x-text="it.title"></span>
+                          <span class="meai-auto-name clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
                           <span class="meai-auto-why" x-show="it.autoReason" x-text="'you did this to ' + (it.autoReason?it.autoReason.n:0) + ' of ' + (it.autoReason?it.autoReason.total:0) + ' similar'"></span>
                           <button type="button" class="meai-tri ghost meai-auto-undo" @click="meAiUndoAuto(it)" :disabled="meai.inboxBusy" title="Undo — I'll decide this one myself">Undo</button>
                         </div>
@@ -12240,7 +12242,7 @@
                       <div class="meai-inbox-head">
                         <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
                         <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
-                        <span class="meai-inbox-title clickable" :title="it.link ? 'Open' : ''" @click="it.link && window.open(it.link,'_blank')" x-text="it.title"></span>
+                        <span class="meai-inbox-title clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
                         <span class="meai-inbox-ts" x-show="meAiInboxTs(it)" :title="it.ts||''" x-text="meAiInboxTs(it)"></span>
                         <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned directly">@you</span>
                         <span class="meai-inbox-state" x-show="it.triage==='later'">Parked</span>
@@ -12622,7 +12624,8 @@
                           <template x-if="ev.kind==='tool_complete'"><span class="meai-ev-tool" :style="ev.success===false ? 'color:var(--cp-danger)' : ''"><span x-text="ev.tool"></span> <span x-text="ev.success===false ? 'failed' : 'done'"></span></span></template>
                           <template x-if="ev.kind==='agent'"><span class="meai-ev-note">Using agent: <span x-text="ev.name"></span></span></template>
                           <template x-if="ev.kind==='stage'"><span class="meai-ev-note" x-text="meAiTaskStageLabel(ev.stage)"></span></template>
-                          <template x-if="ev.kind==='note'"><span class="meai-ev-note" x-text="ev.text"></span></template>
+                          <template x-if="ev.kind==='note' && /^You (chose|answered|replied)/.test(ev.text||'')"><span class="meai-ev-choice"><strong>Your response:</strong> <span x-text="(ev.text||'').replace(/^You (chose|answered|replied):\s*/,'')"></span></span></template>
+                          <template x-if="ev.kind==='note' && !/^You (chose|answered|replied)/.test(ev.text||'')"><span class="meai-ev-note" x-text="ev.text"></span></template>
                           <template x-if="ev.kind==='question'"><span class="meai-ev-ask"><strong>Asked you:</strong> <span x-text="ev.text"></span></span></template>
                           <template x-if="ev.kind==='report'"><span class="meai-ev-milestone"><strong>What I did:</strong> <span x-text="ev.summary || 'Produced a report.'"></span></span></template>
                           <template x-if="ev.kind==='error'"><span class="meai-ev-error" x-text="ev.text"></span></template>
@@ -12690,7 +12693,7 @@
                     <!-- AI-generated next actions -->
                     <div class="meai-actions" x-show="!meai.console.question && meai.console.status!=='running' && (meai.console.nextActions||[]).length">
                       <template x-for="(a, ai) in meai.console.nextActions" :key="ai">
-                        <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '')" :disabled="meai.consoleBusy" x-text="a.label"></button>
+                        <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '', a.label)" :disabled="meai.consoleBusy" x-text="a.label"></button>
                       </template>
                     </div>
                     <!-- Free-text reply (available once no question is pending) -->
@@ -12719,7 +12722,7 @@
                         :class="{ on: meai.asst.locked }"
                         :title="meai.asst.locked ? 'Docked open — stays across reloads. Click to undock.' : 'Dock the assistant open (keeps the chat across reloads)'"
                         x-text="meai.asst.locked ? '🔒' : '🔓'"></button>
-                <button class="icon-button" type="button" @click="meai.asst.open=false" title="Close">✕</button>
+                <button class="icon-button" type="button" @click="meAiAsstClose()" title="Close">✕</button>
               </div>
               <div class="meai-asst-body" x-ref="meAiAsstBody">
                 <template x-if="!meai.asst.messages.length">
@@ -26973,6 +26976,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiAsstToggle() {
           this.meai.asst.open = !this.meai.asst.open;
           if (this.meai.asst.open) this.$nextTick(() => this._meAiAsstScroll());
+          else this.meAiAsstClose();
+        },
+        // Closing the assistant also undocks it: a closed panel must stay closed across
+        // reloads, so clear the docked flag (otherwise `open` re-inits from it on refresh
+        // and the assistant reappears even though the user shut it).
+        meAiAsstClose() {
+          this.meai.asst.open = false;
+          this.meai.asst.locked = false;
+          try { localStorage.setItem('meai-asst-locked', '0'); } catch (_) {}
         },
         // Pin the agenda assistant open so it survives reloads/nav (and reads as "locked").
         meAiAsstToggleLock() {
@@ -27223,11 +27235,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { this.meai.inboxBusy = false; }
           // 'now' → hand it to a comms Me-agent (outside the busy guard so the drawer opens cleanly).
           if (action === 'now') {
-            this.meAiDispatch('comms', item.title || 'Handle this message', { link: item.link || item.prLink || '', detail: item.detail || '' }, 'work');
+            this.meAiDispatch('comms', item.title || 'Handle this message', { link: item.link || '', prLink: item.prLink || '', detail: item.detail || '' }, 'work');
           }
         },
         meAiInboxNewCount() {
           return (this.meai.inbox.items || []).filter(i => i.triage === 'new').length;
+        },
+        // Open an attention-inbox item. Prefer the item's own link (email webLink);
+        // fall back to the PR link so a PR-comment email still opens the PR when the
+        // mail client has no external URL. Email URLs route through the desktop-Outlook
+        // interceptor (openEmailDesktop) via the global window.open override.
+        meAiInboxOpen(it) {
+          const url = (it && (it.link || it.prLink)) || '';
+          if (!url) return;
+          try { window.open(url, '_blank'); } catch (_) { /* best-effort */ }
         },
         // REQ-9: items Me.AI auto-triaged for you (safe, reversible decisions applied from
         // your past behaviour). Shown in a dedicated strip with Undo, not the main list.
@@ -27859,14 +27880,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meAiLoadTasks();
         },
         // The user picked an AI-generated next action (or replied free-text).
-        async meAiAct(intent, text) {
+        async meAiAct(intent, text, label) {
           const t = this.meai.console;
           if (!t || this.meai.consoleBusy) return;
           this.meai.consoleBusy = true;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/act', {
               method: 'POST',
-              body: JSON.stringify({ intent, text: text || '' }),
+              body: JSON.stringify({ intent, text: text || '', label: label || '' }),
             });
             if (r && r.task) this._meAiMergeTask(r.task);
             this.meai.consoleReply = '';

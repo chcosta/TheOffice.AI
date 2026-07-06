@@ -13976,13 +13976,19 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     ].filter(Boolean).join('\n');
   }
   if (playbook === 'comms') {
+    const isPr = !!(ctx.prLink || (typeof ctx.link === 'string' && /\/(pull|pullrequest|_git)\b/i.test(ctx.link)));
     return [
       'You are my communications Me-agent. Help me handle a communication that needs attention.',
       `Subject: ${ctx.title || 'a message or thread needing follow-up'}.`,
       ctx.detail ? `Context: ${ctx.detail}` : '',
-      ctx.link ? `Link: ${ctx.link}` : '',
+      ctx.prLink ? `Pull request: ${ctx.prLink}` : (ctx.link ? `Link: ${ctx.link}` : ''),
+      isPr
+        ? 'IMPORTANT: this message is about a pull request. The right outcome is to respond ON the PR itself — reply to the specific review comment / discussion thread using the available GitHub / Azure DevOps PR tooling. Do NOT draft an email; an email notification is just a pointer to the PR conversation. Prepare (do not post) the exact PR reply I can post.'
+        : '',
       `Working directory: ${cwd}.`,
-      'Steps: (1) Understand what is being asked or discussed and what a good outcome looks like. (2) If it needs a reply, draft a clear, professional response I can send (ready to paste). (3) If it implies action items or a follow-up meeting, list them crisply. Do NOT send anything — only prepare it for my review.',
+      isPr
+        ? 'Steps: (1) Open the PR and read the specific comment/thread being referenced so you understand exactly what is being asked. (2) Draft a clear, professional reply to post ON that PR comment thread (ready to paste). (3) If it implies code changes or action items, list them crisply. Do NOT post or send anything — only prepare it for my review.'
+        : 'Steps: (1) Understand what is being asked or discussed and what a good outcome looks like. (2) If it needs a reply, draft a clear, professional response I can send (ready to paste). (3) If it implies action items or a follow-up meeting, list them crisply. Do NOT send anything — only prepare it for my review.',
       'Be concise. Stream your reasoning.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
@@ -14041,8 +14047,12 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '', jsonContract,
   ].filter(Boolean).join('\n');
 }
-// Prompt used when the user picks an intent to continue the loop (§7.2).
-function _meAiActPrompt(intent, text) {
+// Prompt used when the user picks an intent to continue the loop (§7.2). `label` is the
+// human-readable text of the action button the user actually clicked (e.g. "Send coverage
+// note"); the agent's own action intents are coerced to the generic vocabulary, so the
+// label is the only carrier of the *specific* thing the user asked for — lead with it so
+// the agent does exactly that instead of guessing what "continue" means.
+function _meAiActPrompt(intent, text, label) {
   const base = {
     'apply-fix': 'Apply the fix(es) you proposed. Make the edits, run any relevant tests/build to verify, and show what you changed.',
     'comment': 'Draft the review comments for the findings (grouped by file), ready for me to post.',
@@ -14056,8 +14066,13 @@ function _meAiActPrompt(intent, text) {
     'continue': 'Continue with the next logical step.',
     'summarize': 'Summarize the outcome and any follow-ups.',
   }[intent] || 'Continue.';
+  const clean = label && String(label).trim();
+  // A specific chosen action supersedes the generic intent line: do exactly what was picked.
+  const lead = clean
+    ? 'I chose this specific action: "' + clean.slice(0, 120) + '". Carry out exactly that as the next step — do not substitute a different action. '
+    : '';
   const extra = (text && String(text).trim()) ? ('\n\nMy note: ' + String(text).trim()) : '';
-  return base + extra + '\n\n' + [
+  return lead + base + extra + '\n\n' + [
     'When done, again end with a single fenced ```json block:',
     '{ "report": { "summary": "...", "findings": [...] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none" } ] }',
   ].join('\n');
@@ -14209,17 +14224,29 @@ function _meAiDispatchRun(t) {
   });
 }
 // Continue the loop when the user picks an intent (§7.2). Resumes the same session.
-function _meAiActRun(t, intent, text) {
+// `label` is the human-readable text of the button the user clicked (when they picked a
+// generated action rather than typing) — recorded verbatim so the transcript shows what
+// they actually chose, and fed into the prompt so the agent does exactly that.
+function _meAiActRun(t, intent, text, label) {
   _meAiSchedule(async () => {
     let attempt = 0;
-    const basePrompt = _meAiActPrompt(intent, text);
+    const basePrompt = _meAiActPrompt(intent, text, label);
     t.question = null; // a new turn is starting; any prior mid-run question is resolved
+    // What to show in the timeline for this choice: prefer the clicked button's label,
+    // then a typed answer/reply, then the raw intent as a last resort.
+    const clean = label && String(label).trim();
+    const txt = text && String(text).trim();
+    let choiceNote;
+    if (clean) choiceNote = `You chose: ${clean}` + (txt ? ` — ${txt}` : '');
+    else if (intent === 'ask-user' && txt) choiceNote = `You answered: ${txt}`;
+    else if (txt) choiceNote = `You replied: ${txt}`;
+    else choiceNote = `You chose: ${intent}`;
     while (true) {
       attempt++;
       try {
         _meAiSetStage(t, 'working', 'running');
         const selfCorrect = attempt > 1 && t._lastError;
-        _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : `You chose: ${intent}${text ? ' — ' + text : ''}` });
+        _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : choiceNote });
         const prompt = selfCorrect ? _meAiCorrectionPrompt(t._lastError) : basePrompt;
         const out = await _meAiRunTurn(t, prompt, { resume: true });
         const { report, nextActions, question } = _meAiParseReport(out);
@@ -14520,7 +14547,7 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
       _meAiSetStage(t, 'awaiting', 'awaiting');
       return res.json({ ok: true, task: _meAiTaskPublic(t) });
     }
-    _meAiActRun(t, intent, b.text);
+    _meAiActRun(t, intent, b.text, b.label);
     // Flip to running synchronously so a second /act in the same tick can't
     // pass the 409 guard and double-dispatch (the scheduled run only flips
     // status once it actually starts, which may be deferred by the queue).
