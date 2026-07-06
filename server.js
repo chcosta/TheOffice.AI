@@ -11950,19 +11950,42 @@ function _meAiGatherDevCards() {
       if (c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID) continue; // our own managed projection
       const wi = c.workItem || {};
       const wid = wi.id || c.workItemId || '';
-      const link = wi.url || '';
+      const pr = c.pr || {};
+      const prId = pr.id || c.prId || '';
+      // Prefer the PR url when there's an open PR (that's where the action is —
+      // review/merge), else the work item; either keeps this link-keyed so it
+      // dedups against the ADO/GitHub PR/work-item signal for the same thing.
+      const link = pr.url || wi.url || '';
+      // The dev card's summary (AI-written recap of what the work does + its state)
+      // is exactly the workspace context the user wants factored into priority.
+      const sum = String((c.summary && c.summary.text) || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const merge = String(pr.mergeStatus || '').toLowerCase();
+      const draft = !!pr.isDraft;
+      const hasPr = !!prId;
+      const blocked = hasPr && (merge === 'conflicts' || merge === 'failure' || merge === 'rejectedbypolicy');
+      // Priority reflects how close to the finish line — and whether the ball is in
+      // YOUR court — rather than a flat "has a PR" flag:
+      //   blocked PR (conflicts/failed policy) → 5, needs you to unblock (steward)
+      //   published PR (in review)             → 4, steward: nudge reviewers / address
+      //   draft PR                             → 4, focus: push it over the line
+      //   worktree only                        → 3, steady focus work
+      let urgency, type, state;
+      if (blocked) { urgency = 5; type = 'steward'; state = `PR !${prId} · merge ${pr.mergeStatus}`; }
+      else if (hasPr && !draft) { urgency = 4; type = 'steward'; state = `PR !${prId} · in review`; }
+      else if (hasPr) { urgency = 4; type = 'focus'; state = `PR !${prId} · draft`; }
+      else { urgency = 3; type = 'focus'; state = c.branch ? `branch ${c.branch}` : 'worktree'; }
       const bits = [];
       if (c.repo) bits.push(c.repo);
-      if (c.branch) bits.push(`branch ${c.branch}`);
-      if (c.prId) bits.push(`PR !${c.prId}`);
-      // A dev card with an open PR is closer to the finish line → nudge urgency up a
-      // notch; a plain worktree in progress is steady focus work.
-      const urgency = c.prId ? 4 : 3;
+      if (state) bits.push(state);
+      if (sum) bits.push(sum.slice(0, 160));
       signals.push({
         kind: 'dev',
-        type: 'focus',
+        type,
         title: `Dev: ${c.title || wid || c.id}`,
         detail: bits.join(' · '),
+        summary: sum || '',
         link,
         urgency,
         source: 'devcard',
@@ -11970,6 +11993,7 @@ function _meAiGatherDevCards() {
         org: c.org || '',
         project: c.project || '',
         repo: c.repo || '',
+        prId: prId || '',
         devId: c.id,
       });
     }
