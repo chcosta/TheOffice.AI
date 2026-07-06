@@ -19149,6 +19149,34 @@
                     </div>
                   </div>
 
+                  <!-- Findings + forward-planning coverage (summarize how the window went) -->
+                  <template x-if="meaiReport.summary.findings && meaiReport.summary.findings.length">
+                    <div class="card" style="margin-bottom:20px">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+                        <h3 style="margin:0">What the window shows</h3>
+                        <template x-if="meaiReport.summary.future && meaiReport.summary.future.horizon">
+                          <span class="hint" x-text="'Planned ahead: ' + meaiReport.summary.future.planned + '/' + meaiReport.summary.future.horizon + ' work days'"></span>
+                        </template>
+                      </div>
+                      <ul style="margin:0;padding-left:18px;line-height:1.7">
+                        <template x-for="(f, fi) in meaiReport.summary.findings" :key="fi">
+                          <li x-text="f"></li>
+                        </template>
+                      </ul>
+                      <template x-if="meaiReport.summary.future && meaiReport.summary.future.days && meaiReport.summary.future.days.length">
+                        <div style="display:flex;align-items:center;gap:14px;margin-top:12px;flex-wrap:wrap">
+                          <template x-for="d in meaiReport.summary.future.days" :key="d.date">
+                            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.9em">
+                              <span :style="'width:8px;height:8px;border-radius:999px;display:inline-block;background:' + (d.planned ? 'var(--cp-ok,#3fb950)' : 'var(--cp-border,#666)')"></span>
+                              <span x-text="meaiDayLabel(d.date)"></span>
+                              <span class="hint" x-text="d.planned ? 'planned' : 'not yet'"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
                   <!-- Impact — the reimagined "what did all this add up to" view -->
                   <div class="card" style="margin-bottom:20px">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">

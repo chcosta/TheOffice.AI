@@ -14458,9 +14458,37 @@ app.get('/api/me-ai/reports', (req, res) => {
       if (d.shape === 'Calm' || d.shape === 'Steady') focusDays++;
     }
     const workMin = focusMin + meetingMin + commsMin + reviewMin + stewardMin + prepMin + adminMin;
+    // Forward-planning coverage — how much of the upcoming work-day horizon the
+    // background planner has already laid down (so Reports shows the look-ahead is real).
+    const future = { horizon: 0, planned: 0, days: [] };
+    try {
+      const cfgF = _meAiConfig(settings.getSettings());
+      const fdays = _meAiFutureWorkDays(cfgF, ME_AI_FUTURE_DAYS);
+      future.horizon = fdays.length;
+      future.days = fdays.map(d => {
+        const a = loadAgendaForDate(d);
+        const isPlanned = !!(a && Array.isArray(a.blocks) && a.blocks.length);
+        if (isPlanned) future.planned++;
+        return { date: d, planned: isPlanned };
+      });
+    } catch (_) { /* best-effort */ }
+    const focusRatio = active.length ? focusDays / active.length : 0;
+    // A short, honest prose summary of the window — "summarize the findings" (owner).
+    const hrs = (m) => Math.round((m / 60) * 10) / 10;
+    const findings = [];
+    if (active.length) {
+      findings.push(`${focusDays} of ${active.length} tracked day${active.length === 1 ? '' : 's'} stayed calm or steady` +
+        (focusRatio >= 0.6 ? ' — a mostly focused stretch.' : focusRatio <= 0.34 ? ' — a reactive stretch.' : '.'));
+      const churnMoves = reschedule + slip;
+      findings.push(`${churnMoves} unplanned schedule move${churnMoves === 1 ? '' : 's'} from the day randomizing, kept separate from ${planned} deliberate planning change${planned === 1 ? '' : 's'}.`);
+      if (todosCarried) findings.push(`${todosCarried} todo${todosCarried === 1 ? '' : 's'} carried across days without getting done.`);
+      if (agentsLaunched) findings.push(`Me-agents ran ${agentsLaunched} task${agentsLaunched === 1 ? '' : 's'}${agentMin ? ` (~${hrs(agentMin)}h of delegated work)` : ''}.`);
+      if (notMine || wontFix) findings.push(`You set aside ${notMine} ask${notMine === 1 ? '' : 's'} as not yours and declined ${wontFix} as won't-fix.`);
+    }
+    if (future.horizon) findings.push(`${future.planned} of the next ${future.horizon} work day${future.horizon === 1 ? '' : 's'} already pre-planned ahead.`);
     const summary = {
       activeDays: active.length,
-      focusDays, focusRatio: active.length ? focusDays / active.length : 0,
+      focusDays, focusRatio,
       shapeCounts, reschedule, slip, add, planned,
       agentsLaunched, agentDone, agentMin, tasksDone, todosDone, todosCarried, notMine, wontFix,
       focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin, workMin,
@@ -14471,6 +14499,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       respondedMin: commsMin,                                   // reply/thread time
       focusShare: workMin ? focusMin / workMin : 0,             // share of work time in deep focus
       meetingShare: workMin ? meetingMin / workMin : 0,         // share lost to meetings
+      future, findings,
     };
     res.json({ ok: true, today, days, series: out, summary });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -15148,6 +15177,94 @@ setInterval(async () => {
   } catch (_) { /* best-effort */ }
   finally { _meAiInboxPollBusy = false; }
 }, ME_AI_INBOX_POLL_INTERVAL_MS);
+
+// Background future-day agenda generation. The owner wants the agenda planned a few
+// work days ahead automatically (so the look-ahead horizon shows a real plan, not a
+// "click to plan" placeholder) AND wants the Reports page to show how the plan held
+// up / randomized over a sliding window. This timer walks the next few work days and
+// generates a PROVISIONAL agenda for any that are missing or stale — bounded so it
+// never spawns collectors unless there's actually a day to plan.
+const ME_AI_FUTURE_DAYS = 3;                        // next N work days beyond today
+const ME_AI_FUTURE_STALE_MS = 18 * 60 * 60 * 1000;  // refresh a forward plan roughly daily
+const ME_AI_FUTURE_INTERVAL_MS = 45 * 60 * 1000;
+let _meAiFutureBusy = false;
+// Compute the next N work-day dates AFTER today (skipping configured off-days).
+function _meAiFutureWorkDays(cfg, n) {
+  const dates = [];
+  let cursor = _meAiLocalDay();
+  while (dates.length < n) {
+    const nx = _meAiNextWorkDay(cfg, cursor);
+    if (!nx || dates.includes(nx)) break;
+    dates.push(nx);
+    cursor = nx;
+  }
+  return dates;
+}
+async function _meAiGenerateFutureDays() {
+  if (_meAiFutureBusy) return { skipped: 'busy' };
+  const s = settings.getSettings();
+  if (!s.meAiConsent) return { skipped: 'no-consent' };
+  const cfg = _meAiConfig(s);
+  const horizon = _meAiFutureWorkDays(cfg, ME_AI_FUTURE_DAYS);
+  const now = Date.now();
+  // Decide what needs planning WITHOUT gathering — so a fully-planned horizon costs
+  // nothing (no collector spawn).
+  const need = horizon.filter(d => {
+    const a = loadAgendaForDate(d);
+    if (!a) return true;                                                         // never planned
+    if (a.meta && a.meta.notWorkDay) return false;                              // legit day off
+    if (!Array.isArray(a.blocks) || !a.blocks.length) return true;              // empty plan
+    const gen = Date.parse((a.meta && a.meta.indexedAt) || '') || 0;
+    return (now - gen) > ME_AI_FUTURE_STALE_MS;                                  // stale forward plan
+  });
+  if (!need.length) return { skipped: 'fresh', horizon };
+  _meAiFutureBusy = true;
+  const savedActive = _meAiLastActive; // background planning must NOT keep the active window warm
+  const generated = [];
+  try {
+    // Gather today's signals ONCE; future days reuse them (the collectors report the
+    // CURRENT PRs / emails / work items regardless of date, so this is an honest
+    // provisional forward plan). Seeding each future day's signal cache from this one
+    // gather avoids a separate collector spawn per day.
+    const gathered = await _meAiGatherSignals(s, cfg, _meAiLocalDay(), { force: false });
+    for (const d of need) {
+      try {
+        ME_AI_SIGNAL_CACHE.set(d, {
+          signals: gathered.signals.slice(),
+          sources: { ...gathered.sources },
+          errors: gathered.errors.slice(),
+          at: Date.now(),
+        });
+        await generateMeAiAgenda({ date: d, reindex: false, cause: 'auto' });
+        generated.push(d);
+      } catch (_) { /* per-day best effort */ }
+    }
+  } catch (_) { /* best-effort */ }
+  finally {
+    _meAiLastActive = savedActive; // restore — a background pre-plan is not "user active"
+    _meAiFutureBusy = false;
+  }
+  return { generated, horizon };
+}
+setInterval(() => {
+  try {
+    if (!leaderCheck()) return;
+    const s = settings.getSettings();
+    if (!s.meAiConsent) return;
+    _meAiGenerateFutureDays().catch(() => {});
+  } catch (_) { /* best-effort */ }
+}, ME_AI_FUTURE_INTERVAL_MS);
+// Warm the forward horizon shortly after boot settles (leader + consent gated inside).
+setTimeout(() => { try { _meAiGenerateFutureDays().catch(() => {}); } catch (_) {} }, 120 * 1000);
+
+// POST /api/me-ai/plan-ahead — force the background forward-planning pass on demand
+// (used by the look-ahead UI's "plan my next few days" control).
+app.post('/api/me-ai/plan-ahead', async (req, res) => {
+  try {
+    const r = await _meAiGenerateFutureDays();
+    res.json({ ok: true, ...r });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 function _meAiTaskPublic(t) {
   if (!t) return null;
