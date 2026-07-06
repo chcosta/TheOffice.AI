@@ -12292,29 +12292,71 @@ function _meAiWhy(t) {
   return 'Planned work';
 }
 
+// Reduce a personal-todo title to its core "activity" so renamed/split LLM echoes can
+// be matched back to it: strip any duration expression ("2 hours for", "30 min") and
+// filler connectors. "2 hours for golf" → "golf"; "1 hour gym workout" → "gym workout".
+function _meAiActivityKey(title) {
+  let t = String(title || '').toLowerCase().trim();
+  t = t.replace(/\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m)\b\.?/g, ' ');
+  t = t.replace(/\b(for|of|a|an|the|to|my|some|session|block|time|slot|hour|hours|min|mins|minute|minutes)\b/g, ' ');
+  t = t.replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t;
+}
+
 // A personal-scope todo becomes a `personal` block in the deterministic pre-pass. The
-// LLM refine can merge it into generic focus time or drop it entirely (it looks like
-// flexible time), which would silently lose a commitment the user explicitly planned
-// (e.g. "gym workout"). Guarantee survival: for every personal-todo block in the pre-pass
-// plan, if no refined block still carries its title, re-insert the original block and
-// re-sort by start time. Deterministic safety net — the model can't erase an explicit todo.
+// LLM refine can rename it ("2 hours for golf" → "Golf"), split it across slots, or drop
+// it — which silently loses OR DUPLICATES a commitment the user explicitly planned. Make
+// personal todos authoritative: drop every LLM personal block that echoes one of them
+// (by activity key), then re-insert the ONE canonical pre-pass block per todo at its exact
+// time and title. Reserved/manual personal blocks are preserved. Deterministic safety net.
 function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
   try {
     const personal = (preBlocks || []).filter(b => b && b.meta && b.meta.personalTodo && String(b.title || '').trim());
     if (!personal.length) return finalBlocks;
-    const out = Array.isArray(finalBlocks) ? finalBlocks.slice() : [];
-    const present = (key) => out.some(b => {
-      const ft = String(b.title || '').trim().toLowerCase();
-      return ft && (ft === key || ft.includes(key));
+    let out = Array.isArray(finalBlocks) ? finalBlocks.slice() : [];
+    const keys = personal.map(p => _meAiActivityKey(p.title)).filter(Boolean);
+    const keyMatch = (title) => {
+      const k = _meAiActivityKey(title);
+      if (!k) return false;
+      return keys.some(pk => pk && (pk === k || pk.includes(k) || k.includes(pk)));
+    };
+    out = out.filter(b => {
+      if (!b) return false;
+      const ty = String(b.type || '');
+      if (ty === 'meeting') return true;            // never drop a real meeting
+      if (ty !== 'personal') return true;           // only reconcile personal-type blocks
+      if (b.meta && b.meta.manual) return true;     // preserve blocks the user reserved
+      return !keyMatch(b.title);                     // drop LLM personal echoes of a todo
     });
-    let added = false;
-    for (const p of personal) {
-      const key = String(p.title).trim().toLowerCase();
-      if (!present(key)) { out.push(p); added = true; }
-    }
-    if (!added) return finalBlocks;
+    for (const p of personal) out.push(p);           // re-insert the canonical block(s)
     return out.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
   } catch { return finalBlocks; }
+}
+
+// Detect genuine double-books among the final blocks. A conflict is two COMMITTED blocks
+// whose times overlap; open/flexible focus fill is ignored, and an overlap with a meeting
+// the user did not opt into (meta.attending === false) is NOT a conflict (that meeting is
+// informational). Annotates each conflicting block with `conflict:true` and writes the
+// pairs to agenda.meta.conflicts so the UI can call them out.
+function _meAiDetectConflicts(agenda) {
+  const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+  const flexible = t => t === 'focus' || t === 'open' || t === 'break';
+  const optedOut = b => b && b.type === 'meeting' && b.meta && b.meta.attending === false;
+  const pairs = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const a = blocks[i]; const as = _hmToMin(a.start), ae = _hmToMin(a.end);
+    if (as == null || ae == null || flexible(a.type)) continue;
+    for (let j = i + 1; j < blocks.length; j++) {
+      const b = blocks[j]; const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+      if (bs == null || be == null || flexible(b.type)) continue;
+      if (Math.min(ae, be) <= Math.max(as, bs)) continue;   // no overlap
+      if (optedOut(a) || optedOut(b)) continue;             // meeting you didn't join is fine
+      a.conflict = true; b.conflict = true;
+      pairs.push({ a: { start: a.start, end: a.end, title: a.title, type: a.type }, b: { start: b.start, end: b.end, title: b.title, type: b.type } });
+    }
+  }
+  if (agenda && agenda.meta) agenda.meta.conflicts = pairs;
+  return pairs;
 }
 
 // Cross-signal urgency normalization. The gather layer assigns urgency per source
@@ -12472,7 +12514,7 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
 function _meAiHeuristicScope(title) {
   const t = String(title || '').toLowerCase();
   if (!t) return 'work';
-  const personal = /\b(lunch|dinner|breakfast|gym|workout|exercise|run|walk|dentist|doctor|appointment|groceries|shopping|family|kids|kid|school|birthday|anniversary|vacation|holiday|laundry|clean|cook|pick up|drop off|pet|dog|cat|car|bank|haircut|personal|home|house|errand)\b/;
+  const personal = /\b(lunch|dinner|breakfast|brunch|coffee|gym|workout|exercise|run|running|jog|jogging|walk|hike|hiking|golf|tennis|soccer|basketball|baseball|football|hockey|pickleball|swim|swimming|bike|biking|cycling|ride|yoga|pilates|climb|climbing|ski|skiing|snowboard|surf|paddle|sport|sports|game|practice|nap|meditate|meditation|sauna|spa|massage|dentist|doctor|appointment|therapy|groceries|shopping|family|kids|kid|school|birthday|anniversary|vacation|holiday|laundry|clean|cook|pick up|drop off|pet|dog|cat|car|bank|haircut|personal|home|house|errand)\b/;
   const work = /\b(pr|pull request|review|deploy|bug|ticket|standup|sprint|meeting|design|spec|code|refactor|test|build|release|customer|client|stakeholder|roadmap|okr|report|email|teams|slack|azdo|github|api|service|incident|oncall|on-call)\b/;
   if (personal.test(t) && !work.test(t)) return 'personal';
   return 'work';
@@ -13105,6 +13147,11 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // merged-item splits, per-item removals) on top of the planned schedule so they
   // survive every regenerate. Done before suggestions so nudges see the real day.
   try { _meAiApplyOverrides(agenda, day); } catch (_) { /* best-effort */ }
+  // Surface real double-books. Two committed blocks sharing time is a conflict the user
+  // should see — EXCEPT overlapping a meeting they did not explicitly opt into (declined /
+  // not-attending meetings are informational and may be worked over). Flexible open-focus
+  // fill never conflicts. Annotates blocks + records pairs on meta for a banner.
+  try { _meAiDetectConflicts(agenda); } catch (_) { /* best-effort */ }
   // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
   agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
   // Rollover digest — items carried to this day from a prior day (defer-to-future or a
