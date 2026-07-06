@@ -3134,7 +3134,7 @@
     .md-output {
       max-height: 300px;
       overflow: auto;
-      font-size: 0.92rem;
+      font-size: 0.95rem;
       line-height: 1.6;
       padding: 12px 16px;
       background: var(--cp-surface-soft);
@@ -4496,7 +4496,7 @@
     /* Rendered markdown (chat/summary/run output) uses rem-based sizes that are
        relative to the document root, so they ignore the body font-size above.
        Re-base them on --board-fs so the text-size control actually scales content. */
-    .board-panel-body .md-output { font-size: calc(0.92rem * var(--board-fs, 1)); }
+    .board-panel-body .md-output { font-size: calc(0.95rem * var(--board-fs, 1)); }
     .board-panel-body .md-output pre,
     .board-panel-body .md-output code,
     .board-panel-body .md-output th,
@@ -5079,7 +5079,7 @@
     .board-tab-brief-next .btb-next-more { flex: 0 0 auto; font-weight: 400; font-size: 11px; color: var(--cp-text-muted); }
     .board-tab-brief-next.empty .btb-next-text { font-weight: 400; font-size: 12px; font-style: italic; color: var(--cp-text-muted); }
     .board-tab-brief-caret { font-size: 11px; color: var(--cp-text-muted); }
-    .board-tab-brief-body { margin-top: 8px; font-size: 13px; }
+    .board-tab-brief-body { margin-top: 8px; font-size: 14px; }
     .board-header-brief .board-tab-brief-body { max-height: 44vh; overflow: auto; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
     .board-canvas-scroll.board-tabbed .board-panel-body { overflow: visible; }
@@ -9674,7 +9674,7 @@
                                           <span class="ba-spinner"></span>
                                           <span>AI is reviewing the work item, PR and code diff…</span>
                                         </div>
-                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.95rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
                                         <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                         <div class="cf-stat-strip" style="margin-top:8px">
                                           <template x-for="st in devFaceStats(d)" :key="st.k">
@@ -10912,7 +10912,7 @@
                                     <span class="ba-spinner"></span>
                                     <span>AI is reviewing the work item, PR and code diff…</span>
                                   </div>
-                                  <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
+                                  <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.95rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
                                   <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                   <div class="cf-stat-strip" style="margin-top:8px">
                                     <template x-for="st in devFaceStats(d)" :key="st.k">
@@ -11318,7 +11318,7 @@
                     <span class="hint" x-show="!dc.workItemId && !dc.prId" style="font-size:11px">No work item / PR linked.</span>
                   </div>
 
-                  <div x-show="dc.summary && dc.summary.text" class="md-output" style="line-height:1.55;font-size:0.9rem;max-height:220px;overflow:auto;border-top:1px dashed var(--cp-border);padding-top:8px" x-html="renderMarkdown(cleanDevSummary(dc.summary ? dc.summary.text : ''))"></div>
+                  <div x-show="dc.summary && dc.summary.text" class="md-output" style="line-height:1.55;font-size:0.95rem;max-height:220px;overflow:auto;border-top:1px dashed var(--cp-border);padding-top:8px" x-html="renderMarkdown(cleanDevSummary(dc.summary ? dc.summary.text : ''))"></div>
                   <div class="hint" style="font-size:11px;opacity:.7" x-show="!(dc.summary && dc.summary.text)">No AI summary was captured for this card.</div>
 
                   <!-- Cached reports (preserved after worktree removal) -->
