@@ -10871,25 +10871,25 @@
                                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                   <div style="min-width:0">
                                     <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
-                                    <!-- Pin to workspace — same friendly control as PR cards.
-                                         Unpinned: one button opens the board picker. Pinned:
-                                         calm inline board name + open/change/unpin links.
-                                         Hidden until card hover to declutter the base face
-                                         (repo details now live on the 🗃 Code tab). -->
-                                    <div class="dvx-hover-acts" style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
-                                      <button x-show="!d.homeBoardId" class="btn ghost" type="button" style="font-size:12px;padding:4px 10px"
-                                              @click="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)">📌 Pin to workspace</button>
-                                      <template x-if="d.homeBoardId">
-                                        <span style="display:inline-flex;align-items:center;gap:10px;font-size:11.5px;flex-wrap:wrap">
-                                          <span class="hint" style="font-size:11.5px" x-text="'📌 ' + devHomeBoardLabel(d)"></span>
+                                    <!-- Pin to workspace: unpinned = a 📌 icon in the right-side
+                                         action group (hover-revealed, declutters the base face).
+                                         Pinned = an always-visible board line below the title
+                                         (never hidden, per owner ask); open/change/unpin links
+                                         stay hover-gated. -->
+                                    <template x-if="d.homeBoardId">
+                                      <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;font-size:11.5px">
+                                        <span class="hint" style="font-size:11.5px" x-text="'📌 ' + devHomeBoardLabel(d)"></span>
+                                        <span class="dvx-hover-acts" style="display:inline-flex;align-items:center;gap:10px">
                                           <a href="#" @click.prevent="openDevOnBoard(d)" style="color:var(--cp-accent);text-decoration:none">Open ↗</a>
                                           <a href="#" @click.prevent="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)" style="color:var(--cp-accent);text-decoration:none">Change</a>
                                           <a href="#" @click.prevent="devPinToBoard(d, '')" style="color:var(--cp-text-soft);text-decoration:none">Unpin</a>
                                         </span>
-                                      </template>
-                                    </div>
+                                      </div>
+                                    </template>
                                   </div>
                                   <div class="dvx-hover-acts" style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
+                                    <button x-show="!d.homeBoardId" class="board-act" type="button" data-tip="Pin to workspace"
+                                            @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)">📌</button>
                                     <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
                                     <button class="board-act" type="button" data-tip="Edit dev card" @click="openDevModal(d)">✎</button>
                                     <button class="board-act danger" type="button" data-tip="Delete dev card permanently" @click="if (confirm('Delete this dev card permanently? Its worktrees will be cleaned up. This cannot be undone.')) deleteDevItem(d)">✕</button>
@@ -14772,6 +14772,11 @@
                               :title="'You are a member of this reviewer group: ' + (pr.groupReviewers||[]).map(g => g.name).join(', ')"></span>
                         <span class="cf-m-muted" x-show="pr.proofOfPresencePending" title="Proof of presence is a merge-time human attestation, satisfied at merge — not a blocking failure">· pending proof of presence</span>
                       </div>
+                      <!-- Pinned-workspace line: always visible once the PR is pinned (owner ask). -->
+                      <div class="cf-pinned-line" x-show="cfPrPinnedBoard(pr)" style="display:flex;align-items:center;gap:10px;margin-top:4px;font-size:11.5px">
+                        <span class="cf-m-muted" x-text="'📌 ' + cfPrPinnedLabel(pr)"></span>
+                        <a href="#" class="cf-hover-acts" @click.prevent.stop="boardJumpToBoard(cfPrPinnedBoard(pr))" style="color:var(--cp-accent);text-decoration:none">Open ↗</a>
+                      </div>
                     </div>
                     <div x-show="pr.attention" style="flex:0 0 auto">
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
@@ -14783,9 +14788,9 @@
                       <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="codeflow.view !== 'other'"
                               title="Add this pull request to today's Me.AI agenda (at least 30 min out; after hours if the day is full)"
                               @click.stop="cfAddPrToAgenda(pr)">🗓 Add to today</button>
-                      <button class="btn ghost" type="button" style="font-size:0.72rem"
-                              title="Pin this pull request to a board (with full review/worktree actions)"
-                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to workspace</button>
+                      <button class="btn ghost" type="button" style="font-size:0.82rem;padding:4px 8px"
+                              :title="cfPrPinnedBoard(pr) ? ('Pinned to ' + cfPrPinnedLabel(pr) + ' — change board') : 'Pin this pull request to a board (with full review/worktree actions)'"
+                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌</button>
                       <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="codeflow.view !== 'mine' && codeflow.view !== 'other'"
                               title="Dismiss this PR from your review queue. It moves to “Other PRs” where you can still open it."
                               @click.stop="cfDismissPr(pr)">🗄 Not reviewing</button>
@@ -30769,6 +30774,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Auto-generate AI summaries in the background (server only pays for new/changed PRs).
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
             this.loadCfWorktrees();
+            // Boards are needed to show which workspace a PR is pinned to (below title).
+            if (!this.boards || !this.boards.length) { this.loadBoards(null, true).catch(() => {}); }
             // Baseline the change detector to what the user is now looking at.
             this._codeflowSeedSnap();
           } catch (e) {
@@ -37989,6 +37996,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!d || !d.homeBoardId) return '';
           const b = (this.boards || []).find(x => x.id === d.homeBoardId);
           return b ? ((b.emoji || '📌') + ' ' + b.name) : 'a board';
+        },
+        // Which board (if any) a PR is currently pinned to — used to surface the
+        // workspace name below the PR title once it's pinned (owner ask). Returns
+        // null when boards aren't loaded yet or the PR isn't pinned.
+        cfPrPinnedBoard(pr) {
+          const ref = this.cfPrKey(pr);
+          if (!ref) return null;
+          return (this.boards || []).find(b => (b.items || []).some(i => i.kind === 'pr' && i.refId === ref)) || null;
+        },
+        cfPrPinnedLabel(pr) {
+          const b = this.cfPrPinnedBoard(pr);
+          return b ? ((b.emoji || '📌') + ' ' + b.name) : '';
         },
         // ---- PR-card-style drawer: compact face + expandable rail/panes ----
         devDrawerIsOpen(d) { return !!(d && this.devDrawer[d.id]); },
