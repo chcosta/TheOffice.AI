@@ -13213,12 +13213,25 @@ app.get('/api/me-ai/reports', (req, res) => {
       if ((e.tags || []).some(t => String(t).startsWith('ext:me-ai:dayshape'))) continue; // the note itself
       doneByDate[d] = (doneByDate[d] || 0) + 1;
     }
-    // Me-agent tasks indexed by creation date.
-    const launchedByDate = {};
+    // Me-agent tasks indexed by creation date, with playbook + outcome + wall-clock time
+    // so we can derive impact metrics (delegated / unblocked / agent-hours multiplied).
+    const taskByDate = {};
     try {
       for (const t of meAiTasks.values()) {
-        const d = String((t && (t.createdAt || t.updatedAt)) || '').slice(0, 10);
-        if (d) launchedByDate[d] = (launchedByDate[d] || 0) + 1;
+        if (!t || t._ephemeral) continue;
+        const d = String((t.createdAt || t.updatedAt) || '').slice(0, 10);
+        if (!d) continue;
+        const agg = taskByDate[d] || (taskByDate[d] = { launched: 0, done: 0, unblock: 0, comms: 0, agentMs: 0 });
+        agg.launched++;
+        const done = t.stage === 'done' || t.status === 'done';
+        if (done) agg.done++;
+        // review + steward = moving someone else's work / a PR forward = "unblocked".
+        if (t.playbook === 'review' || t.playbook === 'steward') agg.unblock++;
+        if (t.playbook === 'comms') agg.comms++;
+        // Wall-clock time the agent worked for you (only count finished runs).
+        const st = Date.parse(t.startedAt || t.createdAt || '');
+        const fi = Date.parse(t.finishedAt || t.updatedAt || '');
+        if (done && st && fi && fi > st) agg.agentMs += Math.min(fi - st, 4 * 3600000); // cap 4h/task
       }
     } catch (_) { /* best-effort */ }
     const out = [];
@@ -13232,6 +13245,22 @@ app.get('/api/me-ai/reports', (req, res) => {
       const workBlocks = blocks.filter(b => b && b.type !== 'personal' && b.type !== 'lunch' && b.type !== 'open');
       const focus = blocks.filter(b => b && b.type === 'focus').length;
       const meetings = blocks.filter(b => b && b.type === 'meeting').length;
+      // Minutes by block type (blocks carry HH:MM start/end) → time spent / protected.
+      const minOf = (b) => { try { const a = _hmToMin(b.start), z = _hmToMin(b.end); return (z > a) ? (z - a) : 0; } catch (_) { return 0; } };
+      let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0;
+      for (const b of blocks) {
+        if (!b) continue;
+        const m = minOf(b);
+        if (b.type === 'focus') focusMin += m;
+        else if (b.type === 'meeting') meetingMin += m;
+        else if (b.type === 'comms') commsMin += m;
+        else if (b.type === 'review') reviewMin += m;
+        else if (b.type === 'steward') stewardMin += m;
+        else if (b.type === 'prep') prepMin += m;
+        else if (b.type === 'admin') adminMin += m;
+      }
+      // review + steward blocks = time spent moving others / PRs forward.
+      const unblockBlocks = blocks.filter(b => b && (b.type === 'review' || b.type === 'steward')).length;
       const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos.filter(t => t && t.scope !== 'personal') : [];
       const todosDone = todos.filter(t => t && t.done).length;
       const todosCarried = todos.filter(t => t && t.carried).length;
@@ -13244,35 +13273,59 @@ app.get('/api/me-ai/reports', (req, res) => {
           if (v && v.reason === 'wontfix') wontFix++; else notMine++;
         }
       } catch (_) { /* best-effort */ }
-      const agentsLaunched = launchedByDate[date] || 0;
+      const ta = taskByDate[date] || { launched: 0, done: 0, unblock: 0, comms: 0, agentMs: 0 };
+      const agentsLaunched = ta.launched;
+      const agentDone = ta.done;
+      const agentMin = Math.round(ta.agentMs / 60000);
       const tasksDone = doneByDate[date] || 0;
+      // Derived impact metrics (honest aggregates of real signals).
+      const delivered = tasksDone + todosDone + agentDone; // things brought to done
+      const unblocked = unblockBlocks + ta.unblock;         // others / PRs moved forward
+      const responded = commsMin > 0 ? Math.round(commsMin) : 0; // reply/thread time
       const hasActivity = !!agenda || churn.total > 0 || churn.planned > 0 || agentsLaunched > 0 || tasksDone > 0 || notMine > 0 || wontFix > 0;
       out.push({
         date, isToday: date === today, hasAgenda: !!agenda, hasActivity,
         shape: agenda ? churn.shape : '', score: churn.score,
         reschedule: churn.reschedule, slip: churn.slip, add: churn.add, planned: churn.planned,
         blocks: workBlocks.length, focus, meetings,
+        focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin,
         todos: todos.length, todosDone, todosCarried, backlog,
-        agentsLaunched, tasksDone, notMine, wontFix,
+        agentsLaunched, agentDone, agentMin, tasksDone, notMine, wontFix,
+        delivered, unblocked, responded,
       });
     }
     // Chronological (oldest → newest) for charting.
     out.reverse();
     const active = out.filter(d => d.hasActivity);
     const shapeCounts = { Focused: 0, Steady: 0, Reactive: 0, Fragmented: 0 };
-    let reschedule = 0, slip = 0, add = 0, planned = 0, agentsLaunched = 0, tasksDone = 0, todosCarried = 0, notMine = 0, wontFix = 0, focusDays = 0;
+    let reschedule = 0, slip = 0, add = 0, planned = 0, agentsLaunched = 0, agentDone = 0, agentMin = 0, tasksDone = 0, todosDone = 0, todosCarried = 0, notMine = 0, wontFix = 0, focusDays = 0;
+    let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0;
+    let delivered = 0, unblocked = 0;
     for (const d of active) {
       if (d.shape && shapeCounts[d.shape] != null) shapeCounts[d.shape]++;
       reschedule += d.reschedule; slip += d.slip; add += d.add; planned += d.planned;
-      agentsLaunched += d.agentsLaunched; tasksDone += d.tasksDone; todosCarried += d.todosCarried;
+      agentsLaunched += d.agentsLaunched; agentDone += d.agentDone; agentMin += d.agentMin;
+      tasksDone += d.tasksDone; todosDone += d.todosDone; todosCarried += d.todosCarried;
       notMine += d.notMine; wontFix += d.wontFix;
+      focusMin += d.focusMin; meetingMin += d.meetingMin; commsMin += d.commsMin;
+      reviewMin += d.reviewMin; stewardMin += d.stewardMin; prepMin += d.prepMin; adminMin += d.adminMin;
+      delivered += d.delivered; unblocked += d.unblocked;
       if (d.shape === 'Focused' || d.shape === 'Steady') focusDays++;
     }
+    const workMin = focusMin + meetingMin + commsMin + reviewMin + stewardMin + prepMin + adminMin;
     const summary = {
       activeDays: active.length,
       focusDays, focusRatio: active.length ? focusDays / active.length : 0,
       shapeCounts, reschedule, slip, add, planned,
-      agentsLaunched, tasksDone, todosCarried, notMine, wontFix,
+      agentsLaunched, agentDone, agentMin, tasksDone, todosDone, todosCarried, notMine, wontFix,
+      focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin, workMin,
+      // Impact roll-ups
+      delivered, unblocked,
+      multipliedMin: agentMin,                                  // agent wall-clock working for you
+      protectedMin: focusMin,                                   // deep-work time you held
+      respondedMin: commsMin,                                   // reply/thread time
+      focusShare: workMin ? focusMin / workMin : 0,             // share of work time in deep focus
+      meetingShare: workMin ? meetingMin / workMin : 0,         // share lost to meetings
     };
     res.json({ ok: true, today, days, series: out, summary });
   } catch (err) { res.status(500).json({ error: err.message }); }

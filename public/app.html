@@ -2766,6 +2766,17 @@
     .report-stat { padding: 16px 18px; }
     .report-stat-label { font-size: 12px; color: var(--cp-text-muted); font-weight: 600; }
     .report-stat-value { font-size: 26px; font-weight: 700; margin: 6px 0 4px; color: var(--cp-text); letter-spacing: -0.01em; }
+    /* Me.AI Focus & flow — impact cards + time-allocation bar */
+    .meai-impact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px 22px; }
+    .meai-impact { padding: 4px 0; }
+    .meai-impact-v { font-size: 30px; font-weight: 700; color: var(--cp-text); letter-spacing: -0.02em; line-height: 1.1; }
+    .meai-impact-k { font-size: 13px; font-weight: 600; color: var(--cp-text); margin: 2px 0 3px; }
+    .meai-timebar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--cp-surface-soft, #e5e7eb); }
+    .meai-timebar-seg { height: 100%; transition: width .2s; }
+    .meai-timebar-legend { display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 12px; }
+    .meai-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cp-text); }
+    .meai-legend-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+    .meai-legend .hint { margin-left: 2px; }
     .report-chart svg { width: 100%; height: auto; display: block; }
     .report-chart .bar { fill: var(--cp-accent); transition: fill .15s; }
     .report-chart .bar:hover { fill: var(--cp-accent-hover); }
@@ -18508,11 +18519,74 @@
                     <div class="card report-stat">
                       <div class="report-stat-label">🤖 Me-agents launched</div>
                       <div class="report-stat-value" x-text="meaiReport.summary.agentsLaunched"></div>
-                      <div class="hint" x-text="meaiReport.summary.tasksDone + ' task(s) completed'"></div>
+                      <div class="hint" x-text="meaiReport.summary.agentDone + ' completed · ' + meaiHrs(meaiReport.summary.multipliedMin) + ' multiplied'"></div>
                     </div>
                   </div>
 
-                  <!-- Day-shape distribution -->
+                  <!-- Impact — the reimagined "what did all this add up to" view -->
+                  <div class="card" style="margin-bottom:20px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Your impact</h3>
+                      <span class="hint">What your days added up to</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 16px">Honest roll-ups from what actually happened — work brought to done, PRs and people moved forward, agent time multiplied, focus you protected, and threads you handled.</p>
+                    <div class="meai-impact-grid">
+                      <div class="meai-impact">
+                        <div class="meai-impact-v" x-text="meaiReport.summary.delivered"></div>
+                        <div class="meai-impact-k">✅ Delivered</div>
+                        <div class="hint" x-text="meaiReport.summary.tasksDone + ' logged · ' + meaiReport.summary.todosDone + ' todos · ' + meaiReport.summary.agentDone + ' by agents'"></div>
+                      </div>
+                      <div class="meai-impact">
+                        <div class="meai-impact-v" x-text="meaiReport.summary.unblocked"></div>
+                        <div class="meai-impact-k">🔓 Unblocked</div>
+                        <div class="hint">reviews &amp; PRs moved forward for others</div>
+                      </div>
+                      <div class="meai-impact">
+                        <div class="meai-impact-v" x-text="meaiHrs(meaiReport.summary.multipliedMin)"></div>
+                        <div class="meai-impact-k">✨ Multiplied</div>
+                        <div class="hint" x-text="meaiReport.summary.agentsLaunched + ' agent run(s) working in parallel'"></div>
+                      </div>
+                      <div class="meai-impact">
+                        <div class="meai-impact-v" x-text="meaiHrs(meaiReport.summary.protectedMin)"></div>
+                        <div class="meai-impact-k">🛡 Protected</div>
+                        <div class="hint">deep-focus time you held on the calendar</div>
+                      </div>
+                      <div class="meai-impact">
+                        <div class="meai-impact-v" x-text="meaiHrs(meaiReport.summary.respondedMin)"></div>
+                        <div class="meai-impact-k">💬 Responded</div>
+                        <div class="hint">time spent on replies &amp; threads</div>
+                      </div>
+                      <div class="meai-impact">
+                        <div class="meai-impact-v" x-text="Math.round((meaiReport.summary.focusShare || 0) * 100) + '%'"></div>
+                        <div class="meai-impact-k">🎯 Effective</div>
+                        <div class="hint" x-text="'of work time in deep focus · ' + Math.round((meaiReport.summary.meetingShare || 0) * 100) + '% in meetings'"></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Where the time went -->
+                  <div class="card" style="margin-bottom:20px" x-show="meaiReport.summary.workMin > 0">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Where the time went</h3>
+                      <span class="hint" x-text="meaiHrs(meaiReport.summary.workMin) + ' of planned work time'"></span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">How your planned working time split across the kinds of work — deep focus vs. meetings, reviews, comms and the rest.</p>
+                    <div class="meai-timebar">
+                      <template x-for="s in meaiTimeBars()" :key="s.key">
+                        <div class="meai-timebar-seg" :style="`width:${s.pct}%;background:${s.color}`" :title="`${s.label}: ${s.hrs}`" x-show="s.pct > 0"></div>
+                      </template>
+                    </div>
+                    <div class="meai-timebar-legend">
+                      <template x-for="s in meaiTimeBars()" :key="s.key">
+                        <span class="meai-legend" x-show="s.min > 0">
+                          <span class="meai-legend-dot" :style="`background:${s.color}`"></span>
+                          <span x-text="s.label"></span>
+                          <span class="hint" x-text="s.hrs"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+
                   <div class="card" style="margin-bottom:20px">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
                       <h3 style="margin:0">Day shape</h3>
@@ -18563,7 +18637,7 @@
                     <div class="table-wrap">
                       <table class="report-table">
                         <thead>
-                          <tr><th>Day</th><th>Shape</th><th class="num">Blocks</th><th class="num">Focus</th><th class="num">Meetings</th><th class="num">Agents</th><th class="num">Done</th><th class="num">Carried</th><th class="num">Churn</th><th class="num">Planned</th></tr>
+                          <tr><th>Day</th><th>Shape</th><th class="num">Blocks</th><th class="num">Focus</th><th class="num">Meetings</th><th class="num">Delivered</th><th class="num">Unblocked</th><th class="num">Agents</th><th class="num">Carried</th><th class="num">Churn</th><th class="num">Planned</th></tr>
                         </thead>
                         <tbody>
                           <template x-for="d in meaiActiveDays()" :key="d.date">
@@ -18582,8 +18656,9 @@
                               <td class="num" x-text="d.blocks"></td>
                               <td class="num" x-text="d.focus"></td>
                               <td class="num" x-text="d.meetings"></td>
+                              <td class="num" x-text="d.delivered || '—'"></td>
+                              <td class="num" x-text="d.unblocked || '—'"></td>
                               <td class="num" x-text="d.agentsLaunched"></td>
-                              <td class="num" x-text="d.tasksDone"></td>
                               <td class="num" x-text="d.todosCarried"></td>
                               <td class="num" x-text="(d.reschedule + d.slip + d.add) || '—'"></td>
                               <td class="num"><span class="hint" x-text="d.planned || '—'"></span></td>
@@ -43236,6 +43311,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const d = new Date(String(date) + 'T00:00:00');
             return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
           } catch (_) { return date; }
+        },
+
+        // Minutes → a compact human duration ("3h 20m", "45m", "—").
+        meaiHrs(min) {
+          const m = Math.max(0, Math.round(Number(min) || 0));
+          if (!m) return '—';
+          const h = Math.floor(m / 60), r = m % 60;
+          if (h && r) return h + 'h ' + r + 'm';
+          if (h) return h + 'h';
+          return r + 'm';
+        },
+
+        // Time-allocation segments for the "Where the time went" stacked bar.
+        meaiTimeBars() {
+          const s = (this.meaiReport && this.meaiReport.summary) || {};
+          const total = Number(s.workMin) || 0;
+          const defs = [
+            { key: 'focus', label: 'Focus', min: s.focusMin, color: 'var(--cp-success,#22c55e)' },
+            { key: 'meeting', label: 'Meetings', min: s.meetingMin, color: 'var(--cp-danger,#ef4444)' },
+            { key: 'review', label: 'Reviews', min: s.reviewMin, color: 'var(--cp-accent,#6366f1)' },
+            { key: 'steward', label: 'Stewarding', min: s.stewardMin, color: '#0ea5e9' },
+            { key: 'comms', label: 'Comms', min: s.commsMin, color: 'var(--cp-warning,#f59e0b)' },
+            { key: 'prep', label: 'Prep', min: s.prepMin, color: '#a855f7' },
+            { key: 'admin', label: 'Admin', min: s.adminMin, color: 'var(--cp-text-muted,#9ca3af)' },
+          ];
+          return defs.map(d => {
+            const min = Math.max(0, Number(d.min) || 0);
+            return { ...d, min, pct: total ? (min / total) * 100 : 0, hrs: this.meaiHrs(min) };
+          });
         },
 
         setProdAggressiveness(v) {
