@@ -12933,11 +12933,11 @@
                                 </div>
                               </template>
                             </div>
-                            <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus'">
+                            <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus' || b.type==='meeting'">
                               <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
-                                🤖 <span x-text="b.type==='review' ? 'Launch review agent' : 'Launch Me agent'"></span>
+                                🤖 <span x-text="b.type==='review' ? 'Launch review agent' : (b.type==='meeting' ? 'Prepare for meeting' : 'Launch Me agent')"></span>
                               </button>
-                              <button class="meai-mini-btn meai-mini-btn-ghost" type="button" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='steward'" @click="meAiPursueBlock(b)" :disabled="meai.pursuit.busy" title="Fan out into parallel investigation legs on the live canvas">
+                              <button class="meai-mini-btn meai-mini-btn-ghost" type="button" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='steward' || b.type==='meeting'" @click="meAiPursueBlock(b)" :disabled="meai.pursuit.busy" title="Fan out into parallel investigation legs on the live canvas">
                                 🕸 Pursue
                               </button>
                             </div>
@@ -29666,7 +29666,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiLaunchForBlock(block) {
           if (!block) return;
           const known = ['review', 'prep', 'comms', 'steward', 'implement', 'focus', 'admin'];
-          let pb = block.playbook || (known.includes(block.type) ? block.type : 'review');
+          let pb = block.playbook || (known.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'review'));
           if (pb === 'focus') pb = 'implement';
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
           this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
@@ -29676,7 +29676,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursueBlock(block) {
           if (!block) return;
           const curated = ['review', 'comms', 'prep', 'steward'];
-          const pb = curated.includes(block.playbook) ? block.playbook : (curated.includes(block.type) ? block.type : 'review');
+          const pb = curated.includes(block.playbook) ? block.playbook : (curated.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'review'));
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
           this.meAiLaunchPursuit(null, {
             playbook: pb,
