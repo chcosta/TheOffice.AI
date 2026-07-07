@@ -16470,7 +16470,7 @@ async function _meAiTreePlan(t, spine) {
     ref ? `SUBJECT: ${ref}` : '',
     _meAiSteerBlock(t),
     ``,
-    `Break this into 2-4 INDEPENDENT angles that separate agents can investigate IN`,
+    `Break this into 2-6 INDEPENDENT angles that separate agents can investigate IN`,
     `PARALLEL. Each angle is a distinct hypothesis, sub-question, or workstream that`,
     `does NOT depend on the others' results. Favor angles that can quickly CULL a`,
     `dead end so we don't waste effort. Each leg is read-only (it may read anything`,
@@ -16494,7 +16494,7 @@ async function _meAiTreePlan(t, spine) {
   let p = null; try { p = _connectExtractJson(String(out || '')); } catch (_) { p = null; }
   const legs = (p && Array.isArray(p.legs)) ? p.legs : [];
   const out2 = [];
-  for (let i = 0; i < legs.length && out2.length < 4; i++) {
+  for (let i = 0; i < legs.length && out2.length < 6; i++) {
     const l = legs[i] || {};
     const title = String(l.title || '').trim().slice(0, 80);
     const goal = String(l.goal || '').trim().slice(0, 600);
@@ -16769,9 +16769,29 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
     _meAiTreeMirror(t, `Fanning out into ${cands.length} parallel pursuits…`);
     const legs = cands.map(c => _meAiNewLeg({ parentId: spine.id, kind: c.kind, lane: c.lane, title: c.title, goal: c.goal, status: 'planned', baseEpoch: (spine.baseEpoch || 0), sessionId: _meAiUuid() }));
     for (const lg of legs) _meAiTreeEmit(id, 'leg_spawn', { leg: lg });
-    // Scouts first (cheap culling before the expensive branches).
-    const ordered = legs.slice().sort((a, b) => (a.kind === 'scout' ? -1 : 1) - (b.kind === 'scout' ? -1 : 1));
-    await _meAiPool(ordered, ME_AI_TREE_BUDGET.maxParallel, lg => _meAiRunLeg(t, lg));
+    // Scouts first (cheap culling), THEN branches — dropping any branch a scout
+    // invalidated before it burns a turn. This makes scout-first culling real
+    // (previously all legs ran in one pool and invalidation was only post-hoc).
+    const scouts = legs.filter(l => l.kind === 'scout');
+    const branches = legs.filter(l => l.kind !== 'scout');
+    if (scouts.length) await _meAiPool(scouts, ME_AI_TREE_BUDGET.maxParallel, lg => _meAiRunLeg(t, lg));
+    const culled = new Set();
+    for (const s of scouts) {
+      const inv = (s._result && Array.isArray(s._result.invalidates)) ? s._result.invalidates : [];
+      for (const name of inv) { const k = String(name || '').trim().toLowerCase(); if (k) culled.add(k); }
+    }
+    const wallLeft = () => (Date.now() - startedMs) <= ME_AI_TREE_BUDGET.wallMs;
+    const survivors = [];
+    for (const b of branches) {
+      if (culled.has(String(b.title || '').trim().toLowerCase())) {
+        _meAiTreeMirror(t, `A scout culled a branch before it ran — ${b.title}.`);
+        _meAiTreeEmit(id, 'leg_invalidate', { legId: b.id });
+        _meAiTreeEmit(id, 'leg_status', { legId: b.id, status: 'invalidated' });
+        b._result = { summary: 'Culled by a scout before running.', confidence: 'low', outcome: 'dead-end', findings: [], proposedAction: null, question: null, invalidates: [] };
+      } else survivors.push(b);
+    }
+    if (survivors.length && wallLeft()) await _meAiPool(survivors, ME_AI_TREE_BUDGET.maxParallel, lg => _meAiRunLeg(t, lg));
+    else if (survivors.length) { _meAiTreeMirror(t, 'Wall-clock budget reached before the branches — consolidating what the scouts found.'); for (const b of survivors) { _meAiTreeEmit(id, 'leg_status', { legId: b.id, status: 'skipped' }); b._result = { summary: 'Skipped — time budget reached before this branch ran.', confidence: 'low', outcome: 'dead-end', findings: [], proposedAction: null, question: null, invalidates: [] }; } }
     // Budget/loop guard: if we blew the wall clock, don't expand further.
     if (Date.now() - startedMs > ME_AI_TREE_BUDGET.wallMs) _meAiTreeMirror(t, 'Wall-clock budget reached — consolidating what I have.');
     await _meAiTreeMergeReport(t, spine, startedMs, legs);
