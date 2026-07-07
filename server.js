@@ -16589,6 +16589,24 @@ async function _meAiPool(items, n, fn) {
 
 // Run one leg end-to-end: running -> agent turn -> checkpoint -> {done|dead-end|
 // needs-auth|needs-info|needs-decision}. Siblings keep running regardless (pool).
+// Sub-agent legs (scouts/branches) are disposable workers: each runs a single
+// turn on its OWN durable SDK session (leg.sessionId), and once that turn
+// concludes the session is never resumed — stop resolution and converse always
+// run on a fresh/main session, never leg.sessionId. Release the live SDK session
+// so a wide fan-out doesn't leave N idle sub-agent sessions connected until the
+// keep-alive idle TTL. The leg's ANALYSIS survives untouched: its checkpoints,
+// leg._result and the forked leg_event journal are already persisted to the tree
+// (queryable later) — only the live compute session is torn down. Fire-and-forget;
+// NEVER disposes a main-agent (spine/reroute) session (those stay chattable).
+function _meAiDisposeLegSession(leg) {
+  try {
+    if (!leg || !leg.sessionId) return;
+    if (leg.kind === 'spine' || leg.kind === 'reroute') return;
+    if (typeof sdkRunner.closeChatSession !== 'function') return;
+    Promise.resolve(sdkRunner.closeChatSession(leg.sessionId)).catch(() => {});
+  } catch (_) { /* non-fatal: disposal is best-effort */ }
+}
+
 async function _meAiRunLeg(t, leg) {
   const id = t.id;
   _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'running' });
@@ -16600,34 +16618,41 @@ async function _meAiRunLeg(t, leg) {
   // record so the pursuit canvas can render a per-leg transcript. Bound to THIS
   // leg's id, so concurrent siblings never cross-attribute.
   lt._onLegEvent = (ev) => { try { _meAiTreeEmit(id, 'leg_event', { legId: leg.id, ev }); } catch (_) {} };
-  let out = '', err = null;
-  try { out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, leg), { resume: false }); }
-  catch (e) { err = e; }
-  if (err) {
-    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: 'Failed: ' + String(err.message || err).slice(0, 300), confidence: 'low' }) });
-    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'error' });
-    return;
+  try {
+    let out = '', err = null;
+    try { out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, leg), { resume: false }); }
+    catch (e) { err = e; }
+    if (err) {
+      _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: 'Failed: ' + String(err.message || err).slice(0, 300), confidence: 'low' }) });
+      _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'error' });
+      return;
+    }
+    const r = _meAiParseLegResult(out);
+    leg._result = r;
+    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: r.summary, confidence: r.confidence, interesting: r.confidence === 'high' }) });
+    if (r.confidence === 'high') _meAiTreeMirror(t, `Interesting — ${leg.title}: ${r.summary}`.slice(0, 300));
+    if (r.outcome === 'dead-end') { _meAiTreeEmit(id, 'leg_invalidate', { legId: leg.id }); return; }
+    if (r.proposedAction) {
+      const stop = _meAiNewStop({ type: 'needs-auth', legId: leg.id, risk: r.proposedAction.risk, action: r.proposedAction, prompt: r.proposedAction.summary || ('Approve: ' + leg.title) });
+      leg._stopId = stop.id;
+      _meAiTreeEmit(id, 'stop', { stop });
+      _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'needs-auth' });
+      return;
+    }
+    if (r.outcome === 'needs-info' || r.outcome === 'needs-decision') {
+      const stop = _meAiNewStop({ type: r.outcome, legId: leg.id, prompt: r.question || ('Decision on ' + leg.title) });
+      leg._stopId = stop.id;
+      _meAiTreeEmit(id, 'stop', { stop });
+      _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: r.outcome });
+      return;
+    }
+    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'done', confidence: r.confidence });
+  } finally {
+    // The sub-agent's turn is over; its analysis is journaled to the tree. Tear
+    // down the live SDK session (it is never resumed) so the fan-out doesn't hold
+    // idle sub-agent sessions open.
+    _meAiDisposeLegSession(leg);
   }
-  const r = _meAiParseLegResult(out);
-  leg._result = r;
-  _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: r.summary, confidence: r.confidence, interesting: r.confidence === 'high' }) });
-  if (r.confidence === 'high') _meAiTreeMirror(t, `Interesting — ${leg.title}: ${r.summary}`.slice(0, 300));
-  if (r.outcome === 'dead-end') { _meAiTreeEmit(id, 'leg_invalidate', { legId: leg.id }); return; }
-  if (r.proposedAction) {
-    const stop = _meAiNewStop({ type: 'needs-auth', legId: leg.id, risk: r.proposedAction.risk, action: r.proposedAction, prompt: r.proposedAction.summary || ('Approve: ' + leg.title) });
-    leg._stopId = stop.id;
-    _meAiTreeEmit(id, 'stop', { stop });
-    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'needs-auth' });
-    return;
-  }
-  if (r.outcome === 'needs-info' || r.outcome === 'needs-decision') {
-    const stop = _meAiNewStop({ type: r.outcome, legId: leg.id, prompt: r.question || ('Decision on ' + leg.title) });
-    leg._stopId = stop.id;
-    _meAiTreeEmit(id, 'stop', { stop });
-    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: r.outcome });
-    return;
-  }
-  _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'done', confidence: r.confidence });
 }
 
 // Playbook-aware report title. The fan-out artifact is NOT always a "PR blocker
