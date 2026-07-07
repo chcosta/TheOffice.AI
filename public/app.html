@@ -29682,19 +29682,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
           const COLW = 340, ROWH = 128, CX = 460, TOP = 40, W = 300, PAD = 48;
-          const nodes = [], lane = {}; let laneNext = 0;
+          const nodes = [], lane = {}, kidN = {};
           const laneIndex = (leg) => {
-            // Spine + merged-back (reroute) legs run straight down the centre column
-            // — a reroute *continues* the spine, and keeping the centre gutter clear
-            // lets the merge-back edge drop straight down without crossing a node.
+            // Spine + merged-back (reroute) legs run down the centre column — a
+            // reroute continues the spine.
             if (leg.kind === 'spine' || leg.kind === 'reroute' || leg.parentId == null) return 0;
             if (lane[leg.id] != null) return lane[leg.id];
-            laneNext++;
-            // Branches/scouts alternate into just two side columns (right, left);
-            // vertical row order separates same-side siblings. Caps the graph at
-            // three columns however many legs fan out.
-            const step = (laneNext % 2 === 1) ? 1 : -1;
-            lane[leg.id] = step; return step;
+            // Fan children symmetrically around THEIR parent's column, as wide as
+            // that parent's sibling set needs (1,-1,2,-2,…). Scoping the counter per
+            // parent means parallel branches fan broadly while sequential/vertical
+            // growth adds no width — and deep branches fan around their own parent.
+            const pid = leg.parentId;
+            const k = (kidN[pid] = (kidN[pid] || 0) + 1);
+            const step = Math.ceil(k / 2) * (k % 2 === 1 ? 1 : -1);
+            const base = (lane[pid] != null) ? lane[pid] : 0;
+            lane[leg.id] = base + step;
+            return lane[leg.id];
           };
           if (!tree) { p._nodes = []; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
