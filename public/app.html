@@ -4896,11 +4896,17 @@
        gap:0 so the guide lines align exactly to cell edges; per-card padding gives
        the visual gutter. Drops snap to the nearest cell; overlaps cascade down. */
     .board-sec-grid { display: grid; grid-template-columns: repeat(12, 1fr); grid-auto-rows: 22px; gap: 0; align-items: stretch; align-content: start; min-height: 100%; transform-origin: top left; }
-    .board-sec-grid.view-mode { display: block; grid-auto-rows: auto; min-height: 0; }
+    .board-sec-grid.view-mode { display: flex; flex-direction: column; grid-auto-rows: auto; min-height: 100%; }
     /* Grid guides: vertical column lines + horizontal row lines, filling the whole stage. */
     .board-sec-grid.show-grid { background-image: linear-gradient(90deg, var(--cp-border) 0 1px, transparent 1px), linear-gradient(180deg, var(--cp-border) 0 1px, transparent 1px); background-size: calc(100% / 12) 100%, 100% 22px; background-repeat: repeat; }
     .board-card { position: relative; min-width: 0; min-height: 0; overflow: visible; border-radius: calc(var(--cp-radius-scale, 1) * 12px); align-self: stretch; box-sizing: border-box; padding: 6px; }
     .board-card.sz-view { min-height: 62vh; padding: 0; }
+    /* Card View fills the whole stage: the focused card grows to the full available
+       height and its content scrolls internally (one scrollbar), instead of capping at
+       a fixed height and leaving dead space below it. */
+    .board-sec-grid.view-mode .board-card.sz-view { flex: 1 1 auto; display: flex; }
+    .board-sec-grid.view-mode .board-card.sz-view > .board-panel { height: 100% !important; flex: 1 1 auto; min-height: 0; }
+    .board-sec-grid.view-mode .board-card.sz-view .board-agent-chat { max-height: none !important; height: 100%; min-height: 0; }
     .board-card.dragging { opacity: .4; }
     /* Right-edge width resize handle (snap to columns). */
     .board-card-resize { position: absolute; top: 0; right: -2px; width: 12px; height: 100%; cursor: ew-resize; z-index: 6; }

@@ -17891,16 +17891,31 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
       _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
       _meAiTreeEmit(id, 'merge', { merge: _meAiNewMergeCandidate({ legId: stop.legId, baseEpoch: tree.epoch || 0, confidence: 'high', proposedActions: [action] }) });
-      // Reroute: the action landed -> bump epoch + a new spine leg for what's next.
+      t.report = { summary: (t.report && t.report.summary || '') + ' ✔ ' + (action.summary || action.op), findings: (t.report && t.report.findings) || [] };
+      // Merge-back reroute: the gated action landed. Rather than parking, rejoin the
+      // spine AND make the agent genuinely reconsider — bump the epoch, spawn a
+      // *running* reroute spine leg carrying the original goal, and re-run the fan-out
+      // orchestrator in replan mode (mirrors _meAiTreeReAct). The reconsider verifies
+      // the action's effect and pushes the goal forward; if nothing remains the planner
+      // returns [] and a single spine turn simply concludes. A steer note tells the
+      // planner + legs an unblock just landed so they re-evaluate instead of repeating it.
       const epoch = (tree.epoch || 0) + 1;
       _meAiTreeEmit(id, 'epoch_bump', { epoch });
-      const reroute = _meAiNewLeg({ kind: 'reroute', parentId: t._spineId || null, lane: 'spine', baseEpoch: epoch, status: 'done', title: 'Re-route: acted — ' + (action.op || 'action'), goal: '' });
+      const reroute = _meAiNewLeg({
+        kind: 'reroute', parentId: t._spineId || null, lane: 'spine', baseEpoch: epoch,
+        status: 'running', title: 'Re-route: acted — ' + (action.op || 'action'),
+        goal: t.goal || _meAiGoalFor(t), sessionId: _meAiUuid(),
+      });
+      t._spineId = reroute.id;
       _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
-      _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Acted', summary: (action.summary || 'Action completed') + ' — merged back and re-planned.', confidence: 'high', interesting: true }) });
-      _meAiTreeMirror(t, 'Done — ' + (action.summary || action.op) + '. Merged back and re-planned.');
-      t.report = { summary: (t.report && t.report.summary || '') + ' ✔ ' + (action.summary || action.op), findings: (t.report && t.report.findings) || [] };
-      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
-      _meAiSetStage(t, 'awaiting', 'awaiting');
+      _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Acted — reconsidering', summary: (action.summary || 'Action completed') + ' — merged back; re-planning what remains.', confidence: 'high', interesting: true }) });
+      _meAiTreeMirror(t, 'Done — ' + (action.summary || action.op) + '. Merging back and reconsidering what\u2019s left\u2026');
+      t._steerNote = 'I just APPROVED and completed this action: ' + (action.summary || action.op) + '. Reconsider the goal now that this is done \u2014 verify its effect if useful, then either finish (if the goal is met) or continue with what remains. Do NOT repeat this action.';
+      try {
+        await _meAiTreeOrchestrate(t, reroute, { replan: true });
+      } finally {
+        t._steerNote = null;
+      }
     } catch (e) {
       _meAiTreeMirror(t, 'That action failed: ' + String(e.message || e) + ' — you can retry.');
       _meAiSetStage(t, 'awaiting', 'awaiting');
