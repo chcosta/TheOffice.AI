@@ -12160,7 +12160,10 @@
               .meai-pnode.psel { border-color:var(--cp-accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-accent) 45%, transparent); }
               .meai-pnode.pdead .meai-pnode-t { color:var(--cp-text-muted); font-weight:600; }
               .meai-pnode.pdead .meai-pnode-g, .meai-pnode.pdead .meai-pnode-k { opacity:.7; }
-              .meai-pnode-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pnode-k { display:flex; align-items:center; gap:6px; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pnode-id { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; letter-spacing:0; padding:0 5px; border-radius:calc(var(--cp-radius-scale,1)*5px); background:color-mix(in srgb,var(--cp-text-muted) 16%, transparent); color:var(--cp-text); }
+              .meai-pnode-role { margin-left:auto; font-size:9.5px; letter-spacing:.03em; opacity:.75; }
+              .meai-pnode.pmain .meai-pnode-role { color:var(--cp-accent); opacity:1; }
               .meai-pnode-t { font-weight:700; color:var(--cp-text); font-size:13.5px; margin-top:2px; line-height:1.3; }
               .meai-pnode-g { font-size:12px; color:var(--cp-text-muted); margin-top:4px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-pnode-foot { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
@@ -12362,7 +12365,8 @@
               .meai-pu-nodeview-state { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--cp-text); font-weight:600; flex:0 0 auto; }
               .meai-pu-nodeview-body { flex:1; overflow:auto; padding:18px 22px; min-height:0; display:flex; flex-direction:column; gap:16px; }
               .meai-pu-nodeview-tr { display:flex; flex-direction:column; }
-              .meai-pu-nodeview-steer { border-top:1px solid var(--cp-border); padding:12px 18px; display:flex; flex-direction:column; gap:8px; flex:0 0 auto; background:var(--cp-surface); }
+              .meai-pu-nodeview-ro { border-top:1px solid var(--cp-border); padding:12px 18px; flex:0 0 auto; background:var(--cp-surface); font-size:12.5px; line-height:1.5; color:var(--cp-text-muted); }
+              .meai-pu-linkbtn { background:none; border:none; padding:0; color:var(--cp-accent); font:inherit; cursor:pointer; text-decoration:underline; }
               .meai-pu-report-ti { display:flex; align-items:baseline; gap:8px; min-width:0; flex:1; }
               .meai-pu-report-t { font-weight:700; color:var(--cp-text); font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-pu-det-arts { display:flex; flex-direction:column; }
@@ -13770,17 +13774,12 @@
                             <div x-show="!meAiPursuitNodeEvents(meai.pursuit.nodeView).length" class="meai-pu-empty">No transcript for this leg yet.</div>
                           </div>
                         </div>
-                        <!-- Redirect box scoped to this leg -->
-                        <div class="meai-pu-nodeview-steer" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')">
-                          <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.nodeSteer"
-                            placeholder="Redirect this leg or ask a follow-up…"
-                            :disabled="meai.pursuit.acting"
-                            @keydown.enter.meta.prevent="meAiPursuitNodeSteer('continue')"
-                            @keydown.enter.ctrl.prevent="meAiPursuitNodeSteer('continue')"></textarea>
-                          <div class="meai-pu-steer-row">
-                            <button type="button" class="btn primary" :disabled="meai.pursuit.acting || !meai.pursuit.nodeSteer.trim()" @click="meAiPursuitNodeSteer('continue')">Send →</button>
-                            <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.nodeSteer.trim()" @click="meAiPursuitNodeSteer('change-approach')">Try a different angle</button>
-                          </div>
+                        <!-- Sub-agents are disposable: read-only. Steering happens in the
+                             main agent's Chat, which can re-fork a fresh leg if needed. -->
+                        <div class="meai-pu-nodeview-ro" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')">
+                          This sub-agent runs on its own — it can't be chatted with directly. To
+                          redirect the work, talk to the main agent in
+                          <button type="button" class="meai-pu-linkbtn" @click="meai.pursuit.navOpen=true; meai.pursuit.nav='chat'">Chat</button>.
                         </div>
                       </div>
                     </template>
@@ -13813,7 +13812,11 @@
                         </svg>
                         <template x-for="n in meai.pursuit._nodes" :key="n.id">
                           <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
-                            <div class="meai-pnode-k" x-text="meAiPursuitLegKind(n.leg.kind)"></div>
+                            <div class="meai-pnode-k">
+                              <span x-show="n.shortId" class="meai-pnode-id" x-text="n.shortId"></span>
+                              <span x-text="meAiPursuitLegKind(n.leg.kind)"></span>
+                              <span class="meai-pnode-role" x-text="n.role==='main' ? 'main agent' : 'sub-agent'"></span>
+                            </div>
                             <div class="meai-pnode-t" x-text="n.leg.title"></div>
                             <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
                             <div class="meai-pnode-foot">
@@ -30174,6 +30177,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const a of (tree.artifacts || [])) { (artByLeg[a.legId] = artByLeg[a.legId] || []).push(a); }
           const pos = {};
           let minX = Infinity, maxX = -Infinity, maxY = TOP;
+          // Short IDs + agent role. The spine + merged-back nodes are the ONE main
+          // agent (chattable, share a conversation); branch legs (L1, L2…) and scouts
+          // (S1, S2…) are disposable sub-agents. Counters run in creation order so the
+          // labels stay stable across re-renders.
+          let _legN = 0, _scoutN = 0;
           order.forEach((id, i) => {
             const leg = legs[id]; if (!leg) return;
             const li = laneIndex(leg);
@@ -30181,12 +30189,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const y = TOP + i * ROWH;
             const stop = stopByLeg[id];
             const arts = artByLeg[id] || [];
-            let cls = 'kind-' + (leg.kind || 'branch');
+            const kind = leg.kind || 'branch';
+            const isMain = kind === 'spine' || kind === 'reroute';
+            const shortId = isMain ? '' : (kind === 'scout' ? 'S' + (++_scoutN) : 'L' + (++_legN));
+            const role = isMain ? 'main' : 'sub';
+            let cls = 'kind-' + kind + (isMain ? ' pmain' : ' psub');
             if (leg.invalidated || leg.status === 'invalidated') cls += ' pdead';
             if (leg.status === 'done') cls += ' pdone';
             if (stop) cls += (stop.type === 'needs-auth' ? ' pauth' : ' pstop');
             if (leg.status === 'running') cls += ' prun';
-            nodes.push({ id, leg, x, y, w: W, cls, stop: stop || null, arts, i });
+            nodes.push({ id, leg, x, y, w: W, cls, stop: stop || null, arts, i, shortId, role });
             pos[id] = { x, y };
             minX = Math.min(minX, x); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
           });
@@ -30345,17 +30357,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return (n && n.leg && n.leg.title) || 'Leg';
         },
         // ── 2-pane workspace: center view surface + node-view ────────────────────
-        // Clicking a node opens it as a FULL center view (unifies leg-chat + details,
-        // replacing the old modal). Spine nodes map to the main-thread transcript.
+        // Node routing depends on WHO the node is. The spine + merged-back nodes are
+        // the one MAIN agent — they share a single conversation, so clicking them
+        // focuses the Chat transcript (left nav) rather than a per-node surface.
+        // Branch legs and scouts are disposable SUB agents: clicking opens a READ-ONLY
+        // node view in the center (no steering — sub-agents aren't chattable).
         meAiPursuitOpenNode(n) {
           if (!n) return;
           const p = this.meai.pursuit;
-          p.centerView = 'node';
-          p.nodeView = n;
-          p.legPick = (n.leg && n.leg.kind === 'spine') ? 'spine' : n.id;
+          const kind = n.leg && n.leg.kind;
+          const isMain = kind === 'spine' || kind === 'reroute';
           p.follow = false;
           p._focusId = null;
           this.$nextTick(() => { p._focusId = n.id; setTimeout(() => { if (p._focusId === n.id) p._focusId = null; }, 1200); });
+          if (isMain) {
+            // Main agent: return the center to the map + open the shared Chat transcript.
+            p.centerView = 'map';
+            p.nodeView = null;
+            p.navOpen = true;
+            p.nav = 'chat';
+            p.legPick = 'spine';
+            return;
+          }
+          // Sub-agent: read-only detail in the center.
+          p.centerView = 'node';
+          p.nodeView = n;
+          p.legPick = n.id;
         },
         meAiPursuitOpenNodeById(id) {
           const n = (this.meai.pursuit._nodes || []).find(x => x.id === id);
