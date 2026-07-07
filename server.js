@@ -14439,6 +14439,15 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
     const cause = ME_AI_INTENTIONAL_CAUSES.has(b.cause) ? b.cause : 'manual';
     const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [], reindex: b.reindex !== false, cause });
     res.json({ ok: true, agenda });
+    // Item E — auto-ripple: a fresh TODAY plan is the anchor every forward day builds on,
+    // so after a successful today regenerate, rebuild the forward horizon in the background
+    // (fire-and-forget; leader + consent gated inside; never blocks the response). This
+    // replaces the manual "Regenerate next days" button — future days now update on their own
+    // whenever today changes.
+    try {
+      const genDate = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+      if (genDate === _meAiLocalDay()) _meAiGenerateFutureDays({ force: true }).catch(() => {});
+    } catch (_) { /* best-effort */ }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -15629,6 +15638,10 @@ setInterval(async () => {
     // completion or a carry marker; the durable todo store is authoritative regardless.
     const todos = (prev.todos || []).map(t => ({ title: t.title, scope: t.scope, done: !!t.done, carried: !!t.carried, carriedFrom: t.carriedFrom || '' }));
     await generateMeAiAgenda({ date: today, todos, reindex: false });
+    // Item E — ripple forward: new signals just reshaped today, so rebuild the forward
+    // horizon off the updated anchor (fire-and-forget; gated inside; _meAiFutureBusy guards
+    // against overlap). This is the "new items come in → future days update on their own" path.
+    _meAiGenerateFutureDays({ force: true }).catch(() => {});
   } catch (_) { /* best-effort */ }
   finally { _meAiAutoRegenBusy = false; }
 }, ME_AI_AUTOREGEN_INTERVAL_MS);

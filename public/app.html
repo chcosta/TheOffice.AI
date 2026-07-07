@@ -11757,7 +11757,7 @@
               .meai-week-day.is-active .meai-week-dow { color:var(--cp-accent); }
               .meai-week-day .meai-week-sub { font-size:11px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .meai-week-day.is-unplanned .meai-week-sub { font-style:italic; opacity:.75; }
-              .meai-week-regen { flex:none; align-self:center; white-space:nowrap; font-size:12.5px; }
+              .meai-week-auto { flex:none; align-self:center; white-space:nowrap; font-size:12px; color:var(--cp-text-muted); font-style:italic; margin-left:auto; }
               .meai-daywin-dot { display:inline-block; width:6px; height:6px; border-radius:999px; background:var(--cp-accent); margin-left:6px; vertical-align:middle; }
               .meai-daywin-pop { position:absolute; top:calc(100% + 6px); right:0; z-index:40; min-width:230px;
                 border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:12px;
@@ -12610,12 +12610,7 @@
                     <span class="meai-week-sub" x-text="meAiLookaheadSub(d)"></span>
                   </button>
                 </template>
-                <button type="button" class="btn ghost meai-week-regen" @click="meAiPlanAhead()"
-                        :disabled="meai.planningAhead"
-                        title="Re-plan all upcoming days now, in order (each day builds on the prior). Bypasses the daily-refresh wait.">
-                  <span x-show="!meai.planningAhead">↻ Regenerate next days</span>
-                  <span x-show="meai.planningAhead">Planning…</span>
-                </button>
+                <span class="meai-week-auto" title="Upcoming days re-plan on their own whenever today changes — no manual refresh needed.">Upcoming days update automatically</span>
               </div>
 
               <!-- Consent (off) banner -->
@@ -22057,7 +22052,6 @@
           reportOpen: false,     // report card force-expanded while a question is pending
           lookahead: [],         // next 5 work days (light per-day summary) — the week-ahead strip
           lookaheadLoading: false,
-          planningAhead: false,  // force-regenerate of the forward horizon in flight
           traceOpen: true,       // background agent → reasoning/tools visible by default
           consoleTab: 'chat',    // console body view: 'chat' transcript | 'report' (report out of the chat flow)
           approvalDecisions: {}, // per-task approve/decline map { taskId: { <label>: 'approve'|'decline' } }
@@ -28665,28 +28659,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!silent) this.meai.lookahead = [];
           } finally {
             if (!silent) this.meai.lookaheadLoading = false;
-          }
-        },
-        // Force-regenerate the whole forward horizon NOW (server re-plans each upcoming
-        // work day in order — each builds on the prior). Bypasses the ~daily staleness
-        // gate so changes you just made propagate across all future days in one pass.
-        async meAiPlanAhead() {
-          if (this.meai.planningAhead) return;
-          this.meai.planningAhead = true;
-          try {
-            const r = await this.request('/api/me-ai/plan-ahead', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ force: true }),
-            });
-            const gen = (r && Array.isArray(r.generated)) ? r.generated.length : 0;
-            this.toast(gen ? `Re-planned ${gen} upcoming day${gen === 1 ? '' : 's'}` : 'Upcoming days already up to date', gen ? 'success' : 'info');
-            await this.meAiLoadLookahead();
-            // Refresh the day in view in case it was one that just re-planned.
-            await this.meAiLoad();
-          } catch (e) {
-            this.toast('Could not regenerate upcoming days', 'error');
-          } finally {
-            this.meai.planningAhead = false;
           }
         },
         meAiLookaheadLabel(d) {
