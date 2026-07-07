@@ -12106,7 +12106,7 @@
               .meai-pu-back:hover { border-color:var(--cp-accent); }
               .meai-pu-title { min-width:0; }
               .meai-pu-goal { font-weight:700; color:var(--cp-text); font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:46vw; }
-              .meai-pu-status { font-size:12px; color:var(--cp-text-muted); }
+              .meai-pu-status { font-size:12px; color:var(--cp-text-muted); display:flex; align-items:center; gap:6px; }
               .meai-pu-icon { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:8px; width:34px; height:32px; cursor:pointer; }
               .meai-pu-icon.on { color:var(--cp-accent); border-color:var(--cp-accent); }
               .meai-pu-body { flex:1; min-height:0; display:flex; }
@@ -12126,7 +12126,7 @@
               .meai-pu-legt { font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .meai-pu-legk { font-size:11px; color:var(--cp-text-muted); }
               .meai-pu-empty { color:var(--cp-text-muted); font-size:12px; padding:12px 4px; line-height:1.5; }
-              .meai-pu-center { flex:1; min-width:0; display:flex; flex-direction:column; }
+              .meai-pu-center { flex:1; min-width:0; display:flex; flex-direction:column; position:relative; }
               .meai-pu-ctabs { display:flex; align-items:center; gap:4px; padding:6px 12px; border-bottom:1px solid var(--cp-border); }
               .meai-pu-ctab { border:0; background:transparent; color:var(--cp-text-muted); padding:6px 10px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; }
               .meai-pu-ctab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
@@ -12145,6 +12145,7 @@
               .meai-pedges .pe-spine { stroke:var(--cp-accent); stroke-width:2.5; }
               .meai-pedges .pe-branch { stroke:var(--cp-text-muted); stroke-dasharray:5 4; }
               .meai-pedges .pe-merge { stroke:#2ea043; stroke-width:2.5; }
+              .meai-pedges .pe-converge { stroke:#2ea043; stroke-width:2; stroke-dasharray:2 5; opacity:.55; }
               .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; }
               .meai-pnode:hover { border-color:var(--cp-accent); box-shadow:0 4px 14px rgba(0,0,0,.18); }
               .meai-pnode.kind-spine { border-left:3px solid var(--cp-accent); }
@@ -12249,6 +12250,51 @@
               .meai-pu-artcard-x:hover { border-color:var(--cp-accent); color:var(--cp-text); }
               .meai-pu-artcard-body { flex:1; overflow:auto; padding:20px 24px; min-height:0; }
               .meai-pu-artcard-foot { display:flex; gap:8px; padding:12px 18px; border-top:1px solid var(--cp-border); flex:0 0 auto; }
+              /* Live status dot (top bar) */
+              .meai-pu-livedot { width:8px; height:8px; border-radius:999px; background:var(--cp-text-muted); flex:0 0 auto; }
+              .meai-pu-livedot.live { background:#2ea043; box-shadow:0 0 0 0 color-mix(in srgb,#2ea043 60%, transparent); animation:meaiPuPulse 1.6s ease-out infinite; }
+              .meai-pu-livedot.wait { background:#d29922; }
+              .meai-pu-livedot.done { background:#2ea043; }
+              .meai-pu-livedot.err  { background:#cf222e; }
+              @keyframes meaiPuPulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb,#2ea043 55%, transparent); } 70% { box-shadow:0 0 0 6px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+              @media (prefers-reduced-motion: reduce) { .meai-pu-livedot.live { animation:none; } }
+              /* Node activity dot + timestamp (foot) */
+              .meai-pnode-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-text-muted); flex:0 0 auto; }
+              .meai-pnode-dot.run { background:#2ea043; box-shadow:0 0 0 0 color-mix(in srgb,#2ea043 55%, transparent); animation:meaiPuPulse 1.6s ease-out infinite; }
+              .meai-pnode-dot.wait { background:#d29922; }
+              .meai-pnode-dot.done { background:#2ea043; }
+              .meai-pnode-dot.dead { background:#cf222e; }
+              .meai-pnode-dot.idle { background:var(--cp-text-muted); }
+              @media (prefers-reduced-motion: reduce) { .meai-pnode-dot.run { animation:none; } }
+              .meai-pnode-ago { font-size:11px; color:var(--cp-text-muted); margin-left:auto; }
+              /* Panel collapse chevrons */
+              .meai-pu-panx { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; width:24px; height:24px; line-height:1; cursor:pointer; flex:0 0 auto; font-size:13px; }
+              .meai-pu-panx:hover { border-color:var(--cp-accent); color:var(--cp-text); }
+              /* Reopen tabs when a side panel is collapsed */
+              .meai-pu-reopen { position:absolute; top:50%; transform:translateY(-50%); z-index:6; width:22px; height:64px; display:flex; align-items:center; justify-content:center; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.12); }
+              .meai-pu-reopen:hover { border-color:var(--cp-accent); color:var(--cp-text); }
+              .meai-pu-reopen.left { left:0; border-left:0; border-radius:0 10px 10px 0; }
+              .meai-pu-reopen.right { right:0; border-right:0; border-radius:10px 0 0 10px; }
+              /* Report reader (center) */
+              .meai-pu-report { position:absolute; inset:0; z-index:8; background:var(--cp-bg); display:flex; flex-direction:column; min-height:0; }
+              .meai-pu-report-top { display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid var(--cp-border); flex:0 0 auto; }
+              .meai-pu-report-back { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; padding:5px 12px; cursor:pointer; font-weight:600; font-size:12.5px; }
+              .meai-pu-report-back:hover { border-color:var(--cp-accent); color:var(--cp-text); }
+              .meai-pu-report-ti { font-weight:700; color:var(--cp-text); font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-pu-report-body { flex:1; overflow:auto; padding:22px 28px; min-height:0; }
+              /* Outcome next-action buttons */
+              .meai-pu-outcome-next { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+              .meai-pu-outcome-nexth { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pu-nextbtn { justify-content:space-between; text-align:left; width:100%; display:flex; align-items:center; gap:8px; }
+              .meai-pu-next-risk { color:#9a6700; font-weight:700; flex:0 0 auto; }
+              /* Node detail overlay */
+              .meai-pu-detcard { width:min(680px,100%); }
+              .meai-pu-detcard-body { flex:1; overflow:auto; padding:18px 22px; min-height:0; display:flex; flex-direction:column; gap:16px; }
+              .meai-pu-det-state { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text); font-weight:600; }
+              .meai-pu-det-ts { color:var(--cp-text-muted); font-weight:400; }
+              .meai-pu-det-lbl { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin-bottom:5px; }
+              .meai-pu-det-goal, .meai-pu-det-stop { font-size:13px; color:var(--cp-text); line-height:1.5; }
+              .meai-pu-det-stop { padding:11px 13px; border:1px solid #d29922; border-radius:10px; background:color-mix(in srgb,#d29922 7%, transparent); }
               /* Pursuit launcher on the lane */
               .meai-pursue-launch { display:flex; gap:8px; margin-bottom:10px; }
               .meai-pursue-input { flex:1; font-size:12.5px; }
@@ -13364,23 +13410,22 @@
 
             <!-- ===== Live pursuit canvas (P2) — fan-out map, framed in the app shell ===== -->
             <template x-if="meai.pursuit.open">
-              <div class="meai-pursuit" :style="meAiPursuitFrameStyle()" @keydown.escape.window="meai.pursuit.artView ? meAiPursuitCloseArt() : meAiPursuitClose()">
+              <div class="meai-pursuit" :style="meAiPursuitFrameStyle()" @keydown.escape.window="meai.pursuit.nodeDetail ? meAiPursuitCloseDetail() : (meai.pursuit.artView ? meAiPursuitCloseArt() : (meai.pursuit.centerView==='report' ? meAiPursuitHideReport() : meAiPursuitClose()))">
                 <!-- Top bar -->
                 <div class="meai-pu-top">
                   <button type="button" class="meai-pu-back" @click="meAiPursuitClose()" title="Back">‹ Back</button>
                   <div class="meai-pu-title">
                     <div class="meai-pu-goal" x-text="(meai._taskById[meai.pursuit.tid] && (meai._taskById[meai.pursuit.tid].goal || meai._taskById[meai.pursuit.tid].title)) || 'Pursuit'"></div>
-                    <div class="meai-pu-status" x-text="meAiPursuitStageLabel()"></div>
+                    <div class="meai-pu-status"><span class="meai-pu-livedot" :class="meAiPursuitLiveCls()"></span><span x-text="meAiPursuitStageLabel()"></span></div>
                   </div>
                   <span style="flex:1"></span>
-                  <button type="button" class="meai-pu-icon" :class="{ on: meai.pursuit.left }" @click="meai.pursuit.left=!meai.pursuit.left" title="Toggle leg chat">💬</button>
-                  <button type="button" class="meai-pu-icon" :class="{ on: meai.pursuit.right }" @click="meai.pursuit.right=!meai.pursuit.right" title="Toggle approvals, artifacts &amp; the index">▤</button>
                 </div>
 
                 <div class="meai-pu-body">
                   <!-- LEFT: leg chat (main thread by default) -->
                   <aside class="meai-pu-left" x-show="meai.pursuit.left" x-transition.opacity>
                     <div class="meai-pu-legpick">
+                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.left=false" title="Collapse leg chat">‹</button>
                       <button type="button" :class="{ on: meai.pursuit.legPick==='spine' }" @click="meai.pursuit.legPick='spine'">Main thread</button>
                       <template x-for="n in (meai.pursuit._nodes||[]).filter(x => x.leg.kind!=='spine')" :key="'lp-'+n.id">
                         <button type="button" :class="{ on: meai.pursuit.legPick===n.id }" @click="meai.pursuit.legPick=n.id" x-text="n.leg.title"></button>
@@ -13400,7 +13445,16 @@
                             <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
                           </div>
                           <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
-                            <button type="button" class="btn primary" @click="meAiPursuitOpenArt(meAiPursuitReport())">Read the full report ↗</button>
+                            <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
+                          </div>
+                          <div class="meai-pu-outcome-next" x-show="meAiPursuitOutcome().nextActions.length">
+                            <div class="meai-pu-outcome-nexth">Recommended next</div>
+                            <template x-for="(a, ai) in meAiPursuitOutcome().nextActions" :key="'na-'+ai">
+                              <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meai.pursuit.acting" @click="meAiPursuitAct(a)">
+                                <span x-text="a.label || a.intent"></span>
+                                <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
+                              </button>
+                            </template>
                           </div>
                         </div>
                       </template>
@@ -13429,7 +13483,25 @@
 
                   <!-- CENTER: live canvas only -->
                   <main class="meai-pu-center">
-                    <div class="meai-pcanvas"
+                    <!-- Edge re-open tabs when a side panel is collapsed -->
+                    <button type="button" class="meai-pu-reopen left" x-show="!meai.pursuit.left" @click="meai.pursuit.left=true" title="Show leg chat">💬</button>
+                    <button type="button" class="meai-pu-reopen right" x-show="!meai.pursuit.right" @click="meai.pursuit.right=true" title="Show approvals, artifacts &amp; index">▤</button>
+                    <!-- Report reader (item 7): uses the roomy center pane, not a cramped modal -->
+                    <template x-if="meai.pursuit.centerView==='report' && meAiPursuitReport()">
+                      <div class="meai-pu-report">
+                        <div class="meai-pu-report-top">
+                          <button type="button" class="meai-pu-report-back" @click="meAiPursuitHideReport()">‹ Back to map</button>
+                          <div class="meai-pu-report-ti">
+                            <span class="meai-pu-art-k" x-text="meAiPursuitReport().kind"></span>
+                            <span class="meai-pu-report-t" x-text="meAiPursuitReport().title"></span>
+                          </div>
+                          <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
+                        </div>
+                        <div class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
+                      </div>
+                    </template>
+                    <div class="meai-pcanvas" x-show="meai.pursuit.centerView!=='report'"
+                         @wheel.prevent="meAiPursuitWheel($event)"
                          @pointerdown="meAiPursuitPanStart($event)" @pointermove="meAiPursuitPanMove($event)"
                          @pointerup="meAiPursuitPanEnd()" @pointerleave="meAiPursuitPanEnd()">
                       <!-- Floating zoom toolbar -->
@@ -13441,17 +13513,20 @@
                       </div>
                       <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
                         <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.converge) || ''" class="pe pe-converge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none"></path>
                         </svg>
                         <template x-for="n in meai.pursuit._nodes" :key="n.id">
-                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', meai.pursuit.legPick===n.id ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenLeg(n.id)">
+                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', meai.pursuit.legPick===n.id ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenDetail(n)">
                             <div class="meai-pnode-k" x-text="meAiPursuitLegKind(n.leg.kind)"></div>
                             <div class="meai-pnode-t" x-text="n.leg.title"></div>
                             <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
                             <div class="meai-pnode-foot">
-                              <span class="meai-pnode-st" x-text="n.leg.status"></span>
+                              <span class="meai-pnode-dot" :class="meAiPursuitNodeState(n).cls" :title="meAiPursuitNodeState(n).label"></span>
+                              <span class="meai-pnode-st" x-text="meAiPursuitNodeState(n).label"></span>
+                              <span class="meai-pnode-ago" x-show="meAiPursuitNodeTs(n)" x-text="meAiPursuitNodeTs(n)"></span>
                               <span x-show="n.stop && n.stop.type==='needs-auth'" class="meai-pnode-badge auth" title="Waiting for your approval">needs approval</span>
                               <span x-show="n.stop && n.stop.type!=='needs-auth'" class="meai-pnode-badge stop" title="Waiting on you">waiting on you</span>
                               <button type="button" x-show="(n.arts||[]).length" class="meai-pnode-badge art" @click.stop="meAiPursuitOpenLegArt(n.id, $event)" :title="'Open '+((n.arts||[]).length)+' artifact'+((n.arts||[]).length===1?'':'s')" x-text="(n.arts.length)+' artifact'+(n.arts.length===1?'':'s')"></button>
@@ -13491,6 +13566,8 @@
                       <button type="button" :class="{ on: meai.pursuit.rail==='approvals' }" @click="meai.pursuit.rail='approvals'">Approvals <span class="meai-pu-rc" x-text="meAiPursuitStops().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.rail==='artifacts' }" @click="meai.pursuit.rail='artifacts'">Artifacts <span class="meai-pu-rc" x-text="meAiPursuitArtifacts().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.rail==='interesting' }" @click="meai.pursuit.rail='interesting'">Index</button>
+                      <span style="flex:1"></span>
+                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.right=false" title="Collapse this panel">›</button>
                     </div>
                     <div class="meai-pu-rbody">
                       <!-- Approvals -->
@@ -13583,6 +13660,56 @@
                       <div class="meai-pu-artcard-foot" x-show="meai.pursuit.artView.legId">
                         <button type="button" class="btn ghost" @click="meAiPursuitFocus(meai.pursuit.artView.legId); meAiPursuitCloseArt()">Show on map</button>
                         <button type="button" class="btn ghost" @click="meai.pursuit.legPick=meai.pursuit.artView.legId; meAiPursuitCloseArt()">Open this leg's chat</button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Node detail overlay (item 3): full untruncated text + timestamps + artifacts -->
+                <template x-if="meai.pursuit.nodeDetail">
+                  <div class="meai-pu-artmodal" @click.self="meAiPursuitCloseDetail()">
+                    <div class="meai-pu-artcard meai-pu-detcard">
+                      <div class="meai-pu-artcard-h">
+                        <div class="meai-pu-artcard-ti">
+                          <span class="meai-pu-art-k" x-text="meAiPursuitLegKind(meai.pursuit.nodeDetail.leg.kind)"></span>
+                          <span class="meai-pu-artcard-t" x-text="meai.pursuit.nodeDetail.leg.title"></span>
+                        </div>
+                        <button type="button" class="meai-pu-artcard-x" @click="meAiPursuitCloseDetail()" title="Close">✕</button>
+                      </div>
+                      <div class="meai-pu-detcard-body">
+                        <div class="meai-pu-det-state">
+                          <span class="meai-pnode-dot" :class="meAiPursuitNodeState(meai.pursuit.nodeDetail).cls"></span>
+                          <span x-text="meAiPursuitNodeState(meai.pursuit.nodeDetail).label"></span>
+                          <span class="meai-pu-det-ts" x-show="meAiPursuitNodeTs(meai.pursuit.nodeDetail)" x-text="'· '+meAiPursuitNodeTs(meai.pursuit.nodeDetail)"></span>
+                        </div>
+                        <div class="meai-pu-det-goal" x-show="meai.pursuit.nodeDetail.leg.goal">
+                          <div class="meai-pu-det-lbl">Goal</div>
+                          <div x-text="meai.pursuit.nodeDetail.leg.goal"></div>
+                        </div>
+                        <template x-if="meai.pursuit.nodeDetail.stop">
+                          <div class="meai-pu-det-stop">
+                            <div class="meai-pu-det-lbl">Waiting on you</div>
+                            <div x-text="meai.pursuit.nodeDetail.stop.prompt"></div>
+                          </div>
+                        </template>
+                        <template x-if="meAiPursuitDetailArts(meai.pursuit.nodeDetail).length">
+                          <div class="meai-pu-det-arts">
+                            <div class="meai-pu-det-lbl" x-text="meAiPursuitDetailArts(meai.pursuit.nodeDetail).length+' artifact'+(meAiPursuitDetailArts(meai.pursuit.nodeDetail).length===1?'':'s')"></div>
+                            <template x-for="a in meAiPursuitDetailArts(meai.pursuit.nodeDetail)" :key="a.id">
+                              <button type="button" class="meai-pu-art" @click="meAiPursuitOpenArt(a); meAiPursuitCloseDetail()">
+                                <div class="meai-pu-art-h">
+                                  <span class="meai-pu-art-k" x-text="a.kind"></span>
+                                  <span class="meai-pu-art-t" x-text="a.title"></span>
+                                </div>
+                                <div class="meai-pu-art-open">Open ↗</div>
+                              </button>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="meai-pu-artcard-foot">
+                        <button type="button" class="btn ghost" @click="meAiPursuitFocus(meai.pursuit.nodeDetail.id); meAiPursuitCloseDetail()">Show on map</button>
+                        <button type="button" class="btn primary" @click="meai.pursuit.left=true; meAiPursuitOpenLeg(meai.pursuit.nodeDetail.id); meAiPursuitCloseDetail()">Open this leg's chat</button>
                       </div>
                     </div>
                   </div>
@@ -21819,6 +21946,10 @@
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
             artView: null,               // artifact opened in the expanded reader modal
             evOpen: {},                  // per-event expand map (leg-chat substeps)
+            nodeDetail: null,            // node opened in the detail overlay (full text)
+            centerView: 'map',           // center pane: 'map' | 'report'
+            acting: false,               // a next-action resume is in flight
+            _intent: null,               // deep-link intent to apply once the tree loads
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
@@ -29761,12 +29892,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.pursuit.busy = false;
           }
         },
-        meAiPursuitOpen(id) {
+        meAiPursuitOpen(id, opts) {
           const p = this.meai.pursuit;
           p.open = true; p.tid = id; p.follow = true;
           p.zoom = 1; p.panX = 0; p.panY = 0; p.note = ''; p.answering = null;
           p._fitted = false; p._focusId = null; p.legPick = 'spine';
-          p.artView = null; p.evOpen = {};
+          p.artView = null; p.evOpen = {}; p.nodeDetail = null; p.centerView = 'map';
+          p._intent = (opts && opts.intent) || null;
           this.$nextTick(() => { this.meAiPursuitFrame(); this._meAiPursuitObserve(); });
           this.meAiPursuitLoad();
         },
@@ -29809,7 +29941,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = this.meai.pursuit; if (!p.tid) return;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/tree');
-            if (r && r.tree) { p.tree = r.tree; this._meAiPursuitLayout(); if (!p._fitted) { p._fitted = true; this.$nextTick(() => this.meAiPursuitFit()); } }
+            if (r && r.tree) {
+              p.tree = r.tree; this._meAiPursuitLayout();
+              if (!p._fitted) { p._fitted = true; this.$nextTick(() => this.meAiPursuitFit()); }
+              if (p._intent) { const it = p._intent; p._intent = null; this.$nextTick(() => this._meAiPursuitApplyIntent(it)); }
+            }
           } catch (_) {}
           // Also keep the task record (goal/title/events) warm for the leg-chat tab.
           if (!this.meai._taskById[p.tid]) {
@@ -29873,13 +30009,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // elements in the SVG (not x-for) so they live in the SVG namespace and
           // actually render — Alpine x-for inside <svg> creates HTML-namespaced
           // nodes that never paint.
-          const dByType = { spine: '', branch: '', merge: '' };
+          const dByType = { spine: '', branch: '', merge: '', converge: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
             const type = (leg.kind === 'reroute') ? 'merge' : (leg.kind === 'spine' ? 'spine' : 'branch');
             dByType[type] += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
           });
+          // Item 4: a concluded side leg (done result or culled dead-end) shouldn't
+          // just trail off into empty space — draw a faint convergence edge back into
+          // the nearest downstream merged-back (reroute) node so the eye follows the
+          // work rejoining the main thread. Purely visual; only when a reroute exists.
+          const reroutes = order
+            .map((id, i) => ({ id, i, leg: legs[id] }))
+            .filter(x => x.leg && x.leg.kind === 'reroute' && pos[x.id]);
+          if (reroutes.length) {
+            order.forEach((id, i) => {
+              const leg = legs[id];
+              if (!leg || leg.kind === 'spine' || leg.kind === 'reroute') return;
+              const done = leg.status === 'done';
+              const dead = leg.invalidated || leg.status === 'invalidated';
+              if (!done && !dead) return;
+              const target = reroutes.find(r => r.i > i);
+              if (!target) return;
+              const a = pos[id], b = pos[target.id]; if (!a || !b) return;
+              dByType.converge += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+            });
+          }
           p._nodes = nodes; p._edgeD = dByType;
           p._w = maxX + W + 120; p._h = maxY + ROWH + 80;
         },
@@ -30046,7 +30202,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitConcluded() {
           const t = this.meai.pursuit.tree; if (!t) return false;
           if (this.meAiPursuitReport()) return true;
-          return t.stage === 'done';
+          if (t.stage === 'done') return true;
+          // "Ready for your review" tree tasks: parked awaiting with recommended
+          // next actions but no open approval stop — surface the outcome card so
+          // there's actually something to act on (fixes the "nothing to review").
+          const task = this.meai._taskById[this.meai.pursuit.tid] || {};
+          if (t.stage === 'awaiting' && Array.isArray(task.nextActions) && task.nextActions.length && !this.meAiPursuitStops().length) return true;
+          return false;
         },
         meAiPursuitOutcome() {
           const t = this.meai.pursuit.tree || {};
@@ -30138,6 +30300,106 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const open = (t.stops || []).filter(s => s.status === 'open').length;
           const st = ({ working: 'Working', awaiting: 'Waiting on you', error: 'Needs attention', done: 'Complete' })[t.stage] || t.stage;
           return st + ' · ' + n + ' leg' + (n === 1 ? '' : 's') + (open ? ' · ' + open + ' awaiting you' : '');
+        },
+        // Overall live/waiting/done state for the header dot (item 5).
+        meAiPursuitLiveCls() {
+          const t = this.meai.pursuit.tree; if (!t) return '';
+          if (t.stage === 'done') return 'done';
+          if ((t.stops || []).some(s => s.status === 'open')) return 'wait';
+          if (t.stage === 'awaiting') return 'wait';
+          if (t.stage === 'error') return 'err';
+          return 'live';
+        },
+        // Item 1 — cursor-anchored wheel zoom. Keep the point under the cursor fixed
+        // in world space while scaling, so zoom feels like it's toward the pointer.
+        meAiPursuitWheel(ev) {
+          const p = this.meai.pursuit;
+          const host = (ev.currentTarget && ev.currentTarget.getBoundingClientRect) ? ev.currentTarget.getBoundingClientRect() : null;
+          const factor = ev.deltaY < 0 ? 1.1 : (1 / 1.1);
+          const nz = Math.min(2, Math.max(0.35, p.zoom * factor));
+          if (nz === p.zoom) return;
+          const cx = host ? (ev.clientX - host.left) : 0;
+          const cy = host ? (ev.clientY - host.top) : 0;
+          const wx = (cx - p.panX) / p.zoom;
+          const wy = (cy - p.panY) / p.zoom;
+          p.zoom = nz;
+          p.panX = cx - wx * nz;
+          p.panY = cy - wy * nz;
+          p.follow = false;
+        },
+        // Item 5 — compact relative timestamp for a node (mirrors meAiWaitedLabel; ties
+        // to the reactive this.now clock so it ticks live).
+        meAiPursuitAgo(iso) {
+          const t = Date.parse(iso || ''); if (!t) return '';
+          let s = Math.max(0, Math.floor(((this.now || Date.now()) - t) / 1000));
+          if (s < 45) return 'just now';
+          const m = Math.floor(s / 60);
+          if (m < 60) return m + 'm ago';
+          const h = Math.floor(m / 60), rm = m % 60;
+          if (h < 24) return (rm ? (h + 'h ' + rm + 'm') : (h + 'h')) + ' ago';
+          const d = Math.floor(h / 24);
+          return d + 'd ago';
+        },
+        meAiPursuitNodeTs(n) {
+          const leg = (n && n.leg) || {};
+          return this.meAiPursuitAgo(leg.updatedAt || leg.createdAt || '');
+        },
+        // Per-node activity state → {cls,label} for the foot dot (item 5).
+        meAiPursuitNodeState(n) {
+          const leg = (n && n.leg) || {};
+          if (leg.status === 'running') return { cls: 'run', label: 'Working now' };
+          if (n && n.stop) return { cls: 'wait', label: 'Waiting on you' };
+          if (leg.status === 'done') return { cls: 'done', label: 'Done' };
+          if (leg.invalidated || leg.status === 'invalidated' || leg.status === 'cancelled') return { cls: 'dead', label: 'Ended — did not pan out' };
+          if (leg.status === 'blocked' || String(leg.status || '').startsWith('needs')) return { cls: 'wait', label: 'Blocked' };
+          return { cls: 'idle', label: leg.status || 'Planned' };
+        },
+        // Item 3 — node detail overlay (full untruncated text + timestamps + artifacts).
+        meAiPursuitOpenDetail(n) { this.meai.pursuit.nodeDetail = n; },
+        meAiPursuitCloseDetail() { this.meai.pursuit.nodeDetail = null; },
+        meAiPursuitDetailArts(n) {
+          if (!n) return [];
+          if (Array.isArray(n.arts) && n.arts.length) return n.arts;
+          const t = this.meai.pursuit.tree;
+          if (!t || !Array.isArray(t.artifacts)) return [];
+          return t.artifacts.filter(a => a.legId === n.id);
+        },
+        // Item 7 — report reader lives in the CENTER pane (not a cramped modal).
+        meAiPursuitShowReport() {
+          if (!this.meAiPursuitReport()) return;
+          this.meai.pursuit.centerView = 'report';
+          this.meai.pursuit.nodeDetail = null;
+        },
+        meAiPursuitHideReport() { this.meai.pursuit.centerView = 'map'; },
+        // Item 6 — resume a tree pursuit from a recommended next action (Ready-for-review).
+        async meAiPursuitAct(a) {
+          const p = this.meai.pursuit; if (!p.tid || p.acting || !a) return;
+          if (a.risk === 'external' && !confirm('This will actually carry out: "' + (a.label || a.intent) + '".\n\nContinue?')) return;
+          p.acting = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/act', {
+              method: 'POST', body: JSON.stringify({ intent: a.intent, text: '', label: a.label || '', risk: a.risk || 'none' }),
+            });
+            if (r && r.task) { this.meai._taskById[p.tid] = r.task; if (this._meAiMergeTask) this._meAiMergeTask(r.task); }
+            this.toast('On it — the agent is continuing', 'success');
+            setTimeout(() => this.meAiPursuitLoad(), 600);
+          } catch (e) { this.toast('Could not continue: ' + (e.message || e), 'error'); }
+          finally { p.acting = false; }
+        },
+        // Item 6 — apply a deep-link intent once the tree has loaded. Title/row →
+        // the map; an approval/question sub-item → approvals rail + focus the stop's
+        // node; a "ready for review" sub-item → the report in the center (or the
+        // recommendation card in the leg chat).
+        _meAiPursuitApplyIntent(intent) {
+          const p = this.meai.pursuit;
+          if (intent === 'approvals') {
+            p.right = true; p.rail = 'approvals';
+            const stops = this.meAiPursuitStops();
+            if (stops.length && stops[0].legId) this.meAiPursuitFocus(stops[0].legId);
+          } else if (intent === 'review') {
+            p.left = true; p.legPick = 'spine';
+            if (this.meAiPursuitReport()) p.centerView = 'report';
+          }
         },
         meAiOpenTask(id) {
           const cached = this.meai._taskById[id];
