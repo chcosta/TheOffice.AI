@@ -16170,11 +16170,11 @@
                     <div style="display:flex;gap:18px;border-bottom:1px solid var(--cp-border)">
                       <button type="button" @click="createAgent.tab='skills'"
                         :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='skills' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
-                        Skills <span style="font-weight:400" x-text="caAttachedCount()"></span>
+                        Skills<span x-show="caAttachedCount()" style="font-weight:400"> · <span x-text="caAttachedCount()"></span></span>
                       </button>
                       <button type="button" @click="createAgent.tab='tools'"
                         :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='tools' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
-                        Tools <span style="font-weight:400" x-text="caMcpCount()"></span>
+                        Tools<span x-show="caMcpCount()" style="font-weight:400"> · <span x-text="caMcpCount()"></span></span>
                       </button>
                       <button type="button" @click="createAgent.tab='other'"
                         :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='other' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
