@@ -12451,6 +12451,17 @@
               .meai-pursue-launch { display:flex; gap:8px; margin-bottom:10px; }
               .meai-pursue-input { flex:1; font-size:12.5px; }
               .meai-pursue-go { white-space:nowrap; }
+              /* Launch-depth chooser — a calm 3-way segmented control (not pills):
+                 shared track, active segment carries the accent, quiet inactive text. */
+              .meai-depth { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+              .meai-depth-lbl { font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--cp-text-muted); }
+              .meai-depth-track { display:inline-flex; padding:2px; gap:2px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); }
+              .meai-depth-seg { appearance:none; border:0; cursor:pointer; font:inherit; font-size:11.5px; font-weight:600; line-height:1;
+                padding:5px 11px; border-radius:6px; background:transparent; color:var(--cp-text-muted); transition:background .14s ease, color .14s ease; }
+              .meai-depth-seg:hover { color:var(--cp-text,#1f2937); }
+              .meai-depth-seg.is-on { background:var(--cp-accent); color:var(--cp-accent-fg,#fff); }
+              .meai-depth-seg:focus-visible { outline:2px solid var(--cp-accent); outline-offset:1px; }
+              @media (prefers-reduced-motion: reduce) { .meai-depth-seg { transition:none; } }
               .meai-lane-map { margin-left:8px; color:var(--cp-accent); text-decoration:none; font-weight:600; }
               .meai-lane-map:hover { text-decoration:underline; }
               /* ── 2-pane pursuit surface (left nav + center view) ── */
@@ -13138,7 +13149,7 @@
                               </template>
                             </div>
                             <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus' || b.type==='meeting'">
-                              <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy || meai.pursuit.busy" :title="meAiBlockPursues(b) ? 'Fan out into parallel investigation legs on the live canvas' : 'Hand this to a Me agent'">
+                              <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy || meai.pursuit.busy" :title="meAiBlockLaunchTitle(b)">
                                 🤖 <span x-text="meAiBlockLaunchLabel(b)"></span>
                               </button>
                             </div>
@@ -13175,12 +13186,26 @@
                     <div x-show="!meai.railCollapsed.agents" x-transition>
                     <!-- Launch a dogged, self-driven pursuit (fan-out me-agent with its own
                          live map). Distinct from the single-thread console tasks below. -->
+                    <!-- Launch a Me agent against a free-form goal. The depth chooser
+                         below decides whether it fans out into a live pursuit (Deep) or
+                         runs as a single flat agent (Quick); Auto right-sizes by task. -->
+                    <div class="meai-depth" role="group" aria-label="Launch depth">
+                      <span class="meai-depth-lbl">Depth</span>
+                      <div class="meai-depth-track">
+                        <button type="button" class="meai-depth-seg" :class="meai.launchDepth==='auto' && 'is-on'" @click="meAiSetDepth('auto')"
+                                title="Right-sized: investigative work (review/reply/prep/steward) fans out into a pursuit, simpler work runs as one agent">Auto</button>
+                        <button type="button" class="meai-depth-seg" :class="meai.launchDepth==='deep' && 'is-on'" @click="meAiSetDepth('deep')"
+                                title="Always fan out into a parallel investigation on the live canvas — more thorough, takes longer">Deep</button>
+                        <button type="button" class="meai-depth-seg" :class="meai.launchDepth==='quick' && 'is-on'" @click="meAiSetDepth('quick')"
+                                title="Always run a single flat agent — faster, one pass, no fan-out">Quick</button>
+                      </div>
+                    </div>
                     <div class="meai-pursue-launch">
-                      <input type="text" class="field-input meai-pursue-input" placeholder="Set a goal for a dogged pursuit…"
-                             x-model="meai.adhocGoal" @keydown.enter="meAiLaunchPursuit()">
-                      <button type="button" class="btn btn-primary meai-pursue-go" @click="meAiLaunchPursuit()"
-                              :disabled="meai.pursuit.busy || !(meai.adhocGoal||'').trim()"
-                              x-text="meai.pursuit.busy ? 'Starting…' : 'Launch pursuit'"></button>
+                      <input type="text" class="field-input meai-pursue-input" :placeholder="meai.launchDepth==='quick' ? 'Set a goal for a Me agent…' : 'Set a goal for a dogged pursuit…'"
+                             x-model="meai.adhocGoal" @keydown.enter="meAiLaunchAsk()">
+                      <button type="button" class="btn btn-primary meai-pursue-go" @click="meAiLaunchAsk()"
+                              :disabled="meai.pursuit.busy || meai.consoleBusy || !(meai.adhocGoal||'').trim()"
+                              x-text="(meai.pursuit.busy || meai.consoleBusy) ? 'Starting…' : (meai.launchDepth==='quick' ? 'Launch agent' : 'Launch pursuit')"></button>
                     </div>
                     <template x-if="(meai.tasks||[]).length">
                       <div>
@@ -22404,6 +22429,11 @@
           // M2 — Me-agent console + delegation lane.
           tasks: [],             // live "Me agents at work" lane (lightweight rows)
           adhocGoal: '',         // free-form "ask a Me agent to…" composer
+          // Launch-time depth: 'auto' lets the block type decide (investigative work
+          // fans out, simple work runs flat), 'deep' always fans out into a live
+          // pursuit, 'quick' always runs a single flat agent. One choice replaces the
+          // old hardcoded pursuit-vs-single split (no separate "pursuit canvas" mode).
+          launchDepth: (() => { try { const v = localStorage.getItem('meAiLaunchDepth'); return ['auto', 'deep', 'quick'].includes(v) ? v : 'auto'; } catch (_) { return 'auto'; } })(),
           console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
           consoleBusy: false,    // a dispatch/act request is in flight
           consoleReply: '',      // free-text reply box
@@ -30261,6 +30291,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiLaunchReview() {
           this.meAiDispatch('review', 'Code review', {});
         },
+        // Persist the launch-depth choice (auto/deep/quick). Governs both the per-block
+        // launch buttons and the free-form composer below.
+        meAiSetDepth(d) {
+          if (!['auto', 'deep', 'quick'].includes(d)) return;
+          this.meai.launchDepth = d;
+          try { localStorage.setItem('meAiLaunchDepth', d); } catch (_) {}
+        },
+        // Resolve the effective depth for a block: 'auto' defers to the block-type
+        // heuristic (meAiBlockPursues); 'deep'/'quick' force the choice for any type.
+        meAiEffectiveDeep(block) {
+          const d = this.meai.launchDepth;
+          if (d === 'deep') return true;
+          if (d === 'quick') return false;
+          return this.meAiBlockPursues(block);
+        },
+        meAiBlockLaunchTitle(block) {
+          return this.meAiEffectiveDeep(block)
+            ? 'Fan out into a parallel investigation on the live canvas (Deep)'
+            : 'Hand this to a single Me agent (Quick)';
+        },
+        // Free-form composer entry point — route by the chosen depth. Quick runs a flat
+        // agent in the console; Auto/Deep run the dogged fan-out pursuit (a free-form
+        // goal is best served by a self-driven investigation).
+        meAiLaunchAsk() {
+          const goal = (this.meai.adhocGoal || '').trim();
+          if (!goal) { this.toast('Set a goal first', 'info'); return; }
+          if (this.meai.launchDepth === 'quick') this.meAiLaunchAdhoc();
+          else this.meAiLaunchPursuit();
+        },
         // Ad-hoc: dispatch a Me agent against a free-form goal typed by the user.
         // The agent decides the steps and does the work (more flexible than the
         // structured per-block "Launch review agent").
@@ -30285,24 +30344,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (block.type === 'review') return 'Review with a Me agent';
           return 'Launch Me agent';
         },
-        // ONE launch per block: route investigative types to the pursuit canvas, simple
-        // execution types to a flat single agent. (Was two buttons — "Launch" vs "Pursue"
-        // — which just confused people; the block type decides the right-sized experience.)
+        // ONE launch per block: the launch-depth choice (Auto/Deep/Quick) decides whether
+        // the block fans out into a pursuit or runs as a flat single agent. Auto right-sizes
+        // by block type; Deep/Quick force it. (Replaces the old hardcoded type-only split.)
         meAiLaunchForBlock(block) {
           if (!block) return;
-          if (this.meAiBlockPursues(block)) { this.meAiPursueBlock(block); return; }
+          if (this.meAiEffectiveDeep(block)) { this.meAiPursueBlock(block); return; }
           const known = ['review', 'prep', 'comms', 'steward', 'implement', 'focus', 'admin'];
           let pb = block.playbook || (known.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'review'));
           if (pb === 'focus') pb = 'implement';
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
           this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
-        // Pursue a curated playbook (review/comms/prep/steward) as a fan-out on the
-        // live canvas — the server seeds the tree with its curated candidate angles.
+        // Pursue a block as a fan-out on the live canvas. Curated playbooks (review/comms/
+        // prep/steward) get server-seeded candidate angles; forcing Deep on any other type
+        // (implement/admin/focus/meeting) uses the block's own playbook (a non-curated deep
+        // pursuit self-drives — the server returns no seed legs and pursues it directly).
         meAiPursueBlock(block) {
           if (!block) return;
           const curated = ['review', 'comms', 'prep', 'steward'];
-          const pb = curated.includes(block.playbook) ? block.playbook : (curated.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'review'));
+          const known = ['review', 'prep', 'comms', 'steward', 'implement', 'focus', 'admin'];
+          let pb = curated.includes(block.playbook) ? block.playbook
+            : curated.includes(block.type) ? block.type
+            : block.playbook || (known.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'implement'));
+          if (pb === 'focus') pb = 'implement';
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
           this.meAiLaunchPursuit(null, {
             playbook: pb,
@@ -30740,14 +30805,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try { window.removeEventListener('resize', this._meAiPursuitFrameBound || (() => {})); } catch (_) {}
         },
         // Frame the pursuit surface to the live content area so it never covers the
-        // sidebar/topbar — it should feel like we're still inside the app shell.
+        // sidebar/topbar — it should feel like we're still inside the app shell. Clamp the
+        // height to the VISIBLE viewport, not main.content's full scroll height (the Me.AI
+        // page is very tall, so the raw rect height would make this fixed frame overflow the
+        // viewport — spawning a useless outer scrollbar and a big dead black zone below).
         meAiPursuitFrame() {
           const p = this.meai.pursuit; if (!p.open) return;
           try {
             const el = document.querySelector('main.content') || document.querySelector('.content');
             if (!el) { p._box = null; return; }
             const r = el.getBoundingClientRect();
-            p._box = { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width), height: Math.round(r.height) };
+            const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+            const top = Math.max(0, Math.round(r.top));
+            const rawH = Math.round(r.height);
+            const visH = Math.max(0, Math.round(vh - top));
+            const height = visH > 0 ? Math.min(rawH, visH) : rawH;
+            p._box = { top, left: Math.round(r.left), width: Math.round(r.width), height };
           } catch (_) { p._box = null; }
         },
         meAiPursuitFrameStyle() {

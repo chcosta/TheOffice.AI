@@ -16590,6 +16590,8 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     'HONESTY ABOUT DRAFTS: on this turn you have NO ability to save an Outlook/Teams draft, send mail, or post a message — you can only produce the text. Do NOT try to work around this by calling internal server HTTP endpoints (e.g. POST /api/share/email, /api/share/teams, anything on localhost:3847) or by any shell/script trick — those only write a local .eml file or need a webhook, they do NOT actually send the message and they bypass my approval. The ONE correct way to send an email or post a message is to put the ready text in report.draft and offer a nextAction (e.g. "Send email", "Post to Teams") with "risk":"external"; when I approve it, it is carried out for real using my WorkIQ tools (do_action /me/sendMail, etc.). So never claim in report.summary that you "created/prepared/saved N drafts" (that reads as items in my Outlook Drafts folder, which will not exist). Say instead that you "drafted reply text below for my review" and put the actual text in report.draft. If there are several, put each in a clearly-labelled section of report.draft.',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human. For any nextAction whose risk is "write" or "external" (it changes something or sends/posts on my behalf), you MUST fill in "detail" with one plain-language line stating exactly what it will do and why — e.g. name the recipient and the gist ("Reply to Alex on the PR thread saying the two items are duplicates and I\'ll close #123") — so I can approve it informed without opening the draft. In report.summary, also explicitly name each write/external action you are asking me to approve and the reason, so the request is never a surprise.',
     'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. ALWAYS include your own recommendation inside the question text — end it with what you would do and why (e.g. "… I recommend the 30s default since most callers are interactive."), so I can accept your call quickly. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
+    '',
+    ..._meAiDoggedClause(),
   ].join('\n');
   const repoGuard = _meAiRepoGuardBlock(ctx);
   if (playbook === 'review') {
@@ -17245,6 +17247,32 @@ function _meAiTreeCandidates(t) {
   return [];
 }
 
+// The doggedness contract shared by the planner and every pursuit leg. The Chief-of-
+// Staff is expected to be RELENTLESS: a locked door is a problem to route around, not a
+// place to stop. Two failure modes the user has called out and we refuse to repeat —
+// (1) giving up after only checking the local clone when the real source lives elsewhere
+// (a different GitHub org, Azure DevOps, the web); (2) reporting "I lack access / a tool /
+// a skill" as a finished result instead of trying to acquire the capability or naming the
+// exact one-click unblock. Kept short so it doesn't crowd the leg's own instructions.
+function _meAiDoggedClause() {
+  return [
+    `DOGGED DETERMINATION — this is the bar I hold you to:`,
+    `- Before you EVER conclude something is inaccessible, exhaust every tool you have:`,
+    `  search GitHub org-wide (not just the local clone), Azure DevOps, connected MCP`,
+    `  servers, and the web. A PR/file/repo not being in the local checkout is a starting`,
+    `  point for the hunt, not a dead end — locate where it actually lives and read it there.`,
+    `- Never quit at the first locked door. If one path is blocked, try another angle,`,
+    `  another tool, another identifier. Only report a blocker after the alternatives fail.`,
+    `- If you're missing a capability (access, a credential, an MCP/tool, or a skill), do`,
+    `  NOT file that as a finished result. First try to unblock yourself with what's`,
+    `  available (e.g. delegate to a registered specialist agent whose scope covers it, or`,
+    `  stand up an agent equipped with the needed skill/MCP and run it). If you still can't,`,
+    `  raise it as a gated action/decision naming EXACTLY what would unblock you (e.g. "grant`,
+    `  ADO read on org X", "add the Azure DevOps MCP", "spin up a review agent with access to`,
+    `  <repo>") so I can approve it in one click — never a flat "cannot".`,
+  ];
+}
+
 // AI planner: decompose ANY goal into 2-4 INDEPENDENT angles the orchestrator can
 // pursue in parallel (the self-driven fan-out the static candidates only did for
 // 'steward'). One cheap spine turn; returns [] when the goal is genuinely linear
@@ -17273,6 +17301,12 @@ async function _meAiTreePlan(t, spine) {
     ``,
     `If the goal is genuinely a single linear task with NO independent parallel`,
     `angles, return an empty legs array and I will pursue it directly.`,
+    ``,
+    `The subject may not live in the local clone — it could be in a different GitHub`,
+    `org, in Azure DevOps, or online. If where it truly lives is uncertain, make ONE`,
+    `angle a fast scout that LOCATES the real source before anything assumes it's`,
+    `unreachable. Hold every leg to this bar:`,
+    ..._meAiDoggedClause(),
     ``,
     `End your reply with a single fenced \`\`\`json block (and nothing after it):`,
     `{ "legs": [ { "kind": "scout|branch", "title": "<short label>", "goal": "<what THIS leg investigates; read-only; propose gated actions, don't take them>" } ] }`,
@@ -17316,6 +17350,8 @@ function _meAiTreeLegPrompt(t, leg) {
     `- READ-ONLY. You may read PR status/threads/logs, ADO/GitHub items, and internal briefings. Do NOT edit code, push, comment, post, or send anything. If an action like that is warranted, PROPOSE it (see proposedAction) — I approve gated actions separately.`,
     `- Prefer what we already know internally before reaching outside:`,
     internal ? internal.slice(0, 1200) : '(no internal directory available)',
+    ``,
+    ..._meAiDoggedClause(),
     ``,
     `End your reply with a single fenced \`\`\`json block (and nothing after it):`,
     `{`,
