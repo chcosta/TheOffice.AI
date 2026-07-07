@@ -15037,7 +15037,7 @@ const meAiQueue = [];                   // queued run fns waiting for a concurre
 let meAiActive = 0;                     // in-flight background runs
 const ME_AI_MAX_CONCURRENT = 3;         // locked decision #5
 // Allowed intent vocabulary — generated actions must map to one of these (§7.2).
-const ME_AI_INTENTS = ['apply-fix', 'comment', 'push', 'approve', 'request-review', 'retry', 'change-approach', 'hand-to-me', 'continue', 'summarize', 'ask-user', 'abandon'];
+const ME_AI_INTENTS = ['apply-fix', 'comment', 'push', 'approve', 'request-review', 'retry', 'change-approach', 'hand-to-me', 'continue', 'summarize', 'ask-user', 'abandon', 'converse'];
 
 function _meAiTaskPath(id) { return path.join(ME_AI_TASKS_DIR, String(id).replace(/[^a-z0-9_-]/gi, '') + '.json'); }
 function _meAiSaveTask(t) {
@@ -16765,6 +16765,74 @@ function _meAiTreeReAct(t, intent, text, label) {
   });
 }
 
+// A lightweight conversational turn on a concluded tree pursuit — NO re-fork. The
+// user is chatting with their Chief of Staff after the work is done: either asking a
+// question about what it found/did (mode 'ask' → an inline answer, report untouched)
+// or asking to revise the deliverable in place (mode 'revise' → rewrite the report
+// markdown per the request, e.g. warmer tone / tighter framing / a small addition).
+// Runs ONE spine turn against the existing report as context (thinking/tools stream
+// into the chat as spine events), so the map never grows another wave.
+function _meAiTreeConverse(t, mode, text) {
+  const id = t.id;
+  const msg = String(text || '').trim().slice(0, 1500);
+  const isRevise = mode === 'revise';
+  _meAiSchedule(async () => {
+    // Run on a shallow copy with a FRESH session id so keep-alive can't hand back a
+    // stale session; the copy shares .id and .events with the real task, so streamed
+    // substeps still land in the pursuit chat and broadcast under the same task id.
+    const lt = Object.assign({}, t, { sessionId: require('crypto').randomUUID(), _ephemeral: false });
+    try {
+      t.question = null; t.error = null; t._lastError = null;
+      _meAiSetStage(t, 'working', 'running');
+      _meAiTreeEmit(id, 'stage', { stage: 'working' });
+      _meAiEmit(t, { kind: 'note', text: (isRevise ? 'You asked me to revise the report: ' : 'You asked: ') + (msg || (isRevise ? 'refine it' : '(no question)')) });
+      const report = (t.report && t.report.markdown) ? String(t.report.markdown) : (t.report && t.report.summary) || '';
+      const findings = (t.report && Array.isArray(t.report.findings) ? t.report.findings : [])
+        .slice(0, 12).map(f => `- ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`).join('\n');
+      const ctx = [
+        `You are my Chief of Staff. You already completed this pursuit and produced the report below. I'm now following up in conversation — do NOT start new investigations or run tools unless strictly necessary to answer; rely on what you already found.`,
+        `GOAL: ${t.goal || _meAiGoalFor(t)}`,
+        findings ? `KEY FINDINGS:\n${findings}` : '',
+        report ? `CURRENT REPORT (markdown):\n${report}` : '',
+      ].filter(Boolean).join('\n\n');
+      if (isRevise) {
+        const prompt = ctx + `\n\nMY REQUEST: ${msg || 'Refine and tighten the report.'}\n\n` +
+          `Rewrite the FULL report markdown applying my request (keep every real finding and the "Recommended next move" line; change only what I asked — tone, framing, ordering, or a small addition). ` +
+          `Reply with ONLY the revised report as a single fenced \`\`\`markdown code block, nothing else.`;
+        const out = await _meAiRunTurn(lt, prompt, { resume: false }).catch(e => 'Error: ' + (e.message || e));
+        let md = '';
+        const m = String(out || '').match(/```(?:markdown|md)?\s*([\s\S]*?)```/i);
+        md = (m ? m[1] : String(out || '')).trim();
+        if (md && md.length > 40) {
+          t.report = Object.assign({}, t.report, { markdown: md, summary: 'Report revised — ' + (msg ? msg.slice(0, 80) : 'refined') });
+          try {
+            const art = _meAiNewArtifact({ legId: t._spineId || null, kind: 'report', title: _meAiReportTitle(t), body: md });
+            const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true });
+            art.path = path.join(adir, art.id + '.md'); fs.writeFileSync(art.path, md);
+            _meAiTreeEmit(id, 'artifact', { artifact: art });
+          } catch (_) {}
+          _meAiEmit(t, { kind: 'response', text: 'Updated the report — open it to see the revised version.' });
+          _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings || [] });
+        } else {
+          _meAiEmit(t, { kind: 'response', text: String(out || 'I could not revise the report.').slice(0, 2000) });
+        }
+      } else {
+        const prompt = ctx + `\n\nMY QUESTION: ${msg || 'Summarize what you found.'}\n\n` +
+          `Answer directly and concisely in plain prose (no fenced report, no JSON). If I asked about something you didn't cover, say so honestly rather than inventing.`;
+        const out = await _meAiRunTurn(lt, prompt, { resume: false }).catch(e => 'Error: ' + (e.message || e));
+        _meAiEmit(t, { kind: 'response', text: String(out || 'No answer.').slice(0, 3000) });
+      }
+      // Keep the concluded next-actions intact so the finish/steer affordances stay.
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+      _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+    } catch (e) {
+      _meAiEmit(t, { kind: 'response', text: 'Sorry — that follow-up failed: ' + String(e.message || e) });
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+    }
+  });
+}
+
 // Top-level tree orchestration for a fresh tree task.
 async function _meAiTreeOrchestrate(t, spine, opts = {}) {
   const id = t.id;
@@ -17271,6 +17339,17 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
         { label: 'Change approach', intent: 'change-approach', primary: false, risk: 'none' },
       ];
       _meAiSetStage(t, 'awaiting', 'awaiting');
+      return res.json({ ok: true, task: _meAiTaskPublic(t) });
+    }
+    // A plain conversational turn on a concluded/awaiting tree pursuit: ask a
+    // question about what it found, or revise the existing report in place (tone /
+    // framing / small additions). Unlike continue/change-approach this runs ONE
+    // lightweight spine turn and NEVER re-forks the fan-out — so chatting with your
+    // Chief of Staff stays calm and the map doesn't grow another wave.
+    if (t.mode === 'tree' && intent === 'converse') {
+      const mode = (String(b.mode || '').trim() === 'revise') ? 'revise' : 'ask';
+      _meAiTreeConverse(t, mode, b.text);
+      t.status = 'running';
       return res.json({ ok: true, task: _meAiTaskPublic(t) });
     }
     // Tree pursuits: a steer ("keep going / dig deeper" = continue, or "try a
