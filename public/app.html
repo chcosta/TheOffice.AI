@@ -29812,10 +29812,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // event stream, filtered to the picked leg when the event carries a legId.
         meAiPursuitLegEvents() {
           const p = this.meai.pursuit;
-          const t = this.meai._taskById[p.tid]; if (!t) return [];
-          const evs = t.events || [];
-          if (!p.legPick || p.legPick === 'spine') return evs;
-          return evs.filter(e => !e.legId || e.legId === p.legPick);
+          // Spine (or no selection): the orchestrator's own narration lives in the
+          // flat task transcript with NO legId (planning notes, mirrors, merges).
+          if (!p.legPick || p.legPick === 'spine') {
+            const t = this.meai._taskById[p.tid]; if (!t) return [];
+            return (t.events || []).filter(e => !e.legId);
+          }
+          // A specific leg: its thinking/tool/response substeps were forked into the
+          // tree journal (leg_event → leg.events) so parallel legs never collide.
+          const tree = p.tree; if (!tree || !tree.legs) return [];
+          const leg = tree.legs[p.legPick];
+          return (leg && leg.events) || [];
         },
         meAiPursuitZoom(dir) {
           const p = this.meai.pursuit;

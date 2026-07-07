@@ -15216,6 +15216,17 @@ function _meAiFoldJournal(id) {
         const leg = state.legs[r.legId]; if (leg) { leg.status = r.status; if (r.confidence != null) leg.confidence = r.confidence; leg.updatedAt = r.at; } break;
       }
       case 'leg_invalidate': { const leg = state.legs[r.legId]; if (leg) { leg.invalidated = true; leg.status = 'invalidated'; } break; }
+      case 'leg_event': {
+        // Per-leg thinking/tool/response substep captured for the pursuit canvas.
+        // Bounded so an unbounded refold cost never grows past a few hundred lines.
+        const leg = state.legs[r.legId];
+        if (leg && r.ev) {
+          leg.events = leg.events || [];
+          leg.events.push(Object.assign({ at: r.at, legId: r.legId }, r.ev));
+          if (leg.events.length > 200) leg.events.splice(0, leg.events.length - 200);
+        }
+        break;
+      }
       case 'checkpoint': state.checkpoints.push(r.checkpoint || {}); break;
       case 'artifact': state.artifacts.push(r.artifact || {}); break;
       case 'merge': state.merges.push(r.merge || {}); break;
@@ -15551,6 +15562,12 @@ function _meAiTaskPublic(t) {
 }
 // Push a transcript event, persist, and stream it live over the shared SSE bus.
 function _meAiEmit(t, ev) {
+  // Tree legs run as ephemeral clones (their raw substeps must NOT flood the flat
+  // spine transcript) but the live pursuit canvas still needs each leg's own
+  // thinking/tool stream. Fork substantive substeps into the leg's durable journal,
+  // tagged with legId, before the ephemeral drop. Parallel-safe: each leg's clone
+  // binds its own _onLegEvent closure to its own legId.
+  if (t && t._onLegEvent) { try { t._onLegEvent(ev); } catch (_) {} }
   // The self-review gate (REQ-6) runs the review playbook on an ephemeral task
   // that must not surface in the "at work" lane, persist, or broadcast SSE.
   if (t && t._ephemeral) { t.seq = (t.seq || 0) + 1; return; }
@@ -16438,6 +16455,10 @@ async function _meAiRunLeg(t, leg) {
   // Leg turn runs on the leg's OWN session (durable resume) and is _ephemeral so
   // its raw substeps don't flood the flat transcript; the tree keeps the structure.
   const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true });
+  // Fork this leg's thinking/tool/response substeps into its own durable journal
+  // record so the pursuit canvas can render a per-leg transcript. Bound to THIS
+  // leg's id, so concurrent siblings never cross-attribute.
+  lt._onLegEvent = (ev) => { try { _meAiTreeEmit(id, 'leg_event', { legId: leg.id, ev }); } catch (_) {} };
   let out = '', err = null;
   try { out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, leg), { resume: false }); }
   catch (e) { err = e; }
