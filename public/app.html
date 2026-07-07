@@ -12100,7 +12100,7 @@
               .meai-drawer { position:fixed; top:0; right:0; bottom:0; width:min(640px,94vw); background:var(--cp-bg); border-left:1px solid var(--cp-border); box-shadow:-8px 0 32px rgba(0,0,0,.28); z-index:61; display:flex; flex-direction:column; }
 
               /* ===== Live pursuit canvas (P2) ===== */
-              .meai-pursuit { position:fixed; inset:0; z-index:70; background:var(--cp-bg); display:flex; flex-direction:column; }
+              .meai-pursuit { position:fixed; z-index:55; background:var(--cp-bg); display:flex; flex-direction:column; overflow:hidden; }
               .meai-pu-top { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); flex:0 0 auto; }
               .meai-pu-back { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); border-radius:8px; padding:6px 12px; cursor:pointer; font-weight:600; }
               .meai-pu-back:hover { border-color:var(--cp-accent); }
@@ -12110,9 +12110,8 @@
               .meai-pu-icon { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:8px; width:34px; height:32px; cursor:pointer; }
               .meai-pu-icon.on { color:var(--cp-accent); border-color:var(--cp-accent); }
               .meai-pu-body { flex:1; min-height:0; display:flex; }
-              .meai-pu-left { flex:0 0 240px; border-right:1px solid var(--cp-border); background:var(--cp-surface); display:flex; flex-direction:column; min-height:0; }
-              .meai-pu-left-head { display:flex; align-items:center; gap:8px; padding:12px 14px 8px; font-weight:700; color:var(--cp-text); font-size:13px; }
-              .meai-pu-filter { flex:1; font-size:12px; padding:4px 8px; }
+              .meai-pu-left { flex:0 0 340px; border-right:1px solid var(--cp-border); background:var(--cp-surface); display:flex; flex-direction:column; min-height:0; }
+              .meai-pu-filter { width:100%; font-size:12px; padding:6px 8px; margin-bottom:8px; }
               .meai-pu-legend { flex:1; overflow:auto; padding:4px 8px 12px; }
               .meai-pu-legrow { display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:0; background:transparent; padding:8px 8px; border-radius:8px; cursor:pointer; color:var(--cp-text); }
               .meai-pu-legrow:hover { background:var(--cp-bg); }
@@ -12131,7 +12130,7 @@
               .meai-pu-ctabs { display:flex; align-items:center; gap:4px; padding:6px 12px; border-bottom:1px solid var(--cp-border); }
               .meai-pu-ctab { border:0; background:transparent; color:var(--cp-text-muted); padding:6px 10px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; }
               .meai-pu-ctab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
-              .meai-pu-zoom { display:flex; align-items:center; gap:2px; }
+              .meai-pu-zoom { position:absolute; top:12px; right:12px; z-index:4; display:flex; align-items:center; gap:2px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:3px; box-shadow:0 2px 10px rgba(0,0,0,.12); }
               .meai-pu-zoom > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); min-width:32px; height:28px; cursor:pointer; }
               .meai-pu-zoom > button:first-child { border-radius:8px 0 0 8px; }
               .meai-pu-zoom > button:nth-child(3) { border-radius:0 8px 8px 0; }
@@ -12154,6 +12153,7 @@
               .meai-pnode.pstop { border-color:#d29922; }
               .meai-pnode.pdone { border-color:#2ea043; }
               .meai-pnode.pdead { border-style:dashed; }
+              .meai-pnode.psel { border-color:var(--cp-accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-accent) 45%, transparent); }
               .meai-pnode.pdead .meai-pnode-t { color:var(--cp-text-muted); font-weight:600; }
               .meai-pnode.pdead .meai-pnode-g, .meai-pnode.pdead .meai-pnode-k { opacity:.7; }
               .meai-pnode-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
@@ -12178,6 +12178,7 @@
               .meai-pu-legend-map { position:absolute; left:12px; bottom:12px; z-index:3; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; box-shadow:0 2px 12px rgba(0,0,0,.14); max-width:190px; }
               .meai-pu-legend-h { display:flex; align-items:center; gap:6px; width:100%; border:0; background:transparent; color:var(--cp-text-muted); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:7px 11px; cursor:pointer; }
               .meai-pu-legend-body { padding:0 11px 10px; display:flex; flex-direction:column; gap:10px; }
+              .meai-pu-legend-grp { display:flex; flex-direction:column; gap:3px; }
               .meai-pu-legend-cap { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; opacity:.8; margin-bottom:3px; }
               .meai-pu-legend-r { display:flex; align-items:center; gap:8px; color:var(--cp-text); font-size:11.5px; padding:1px 0; }
               .meai-pu-lg-line { width:22px; flex:none; border-top:2.5px solid var(--cp-accent); }
@@ -12188,15 +12189,31 @@
               .meai-pu-lg-dot.d-auth { background:#d29922; }
               .meai-pu-lg-dot.d-dead { background:transparent; border:1.5px dashed #cf222e; }
               .meai-pu-legchat { flex:1; min-height:0; display:flex; flex-direction:column; }
-              .meai-pu-legpick { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); overflow-x:auto; flex-wrap:nowrap; }
+              .meai-pu-legpick { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); overflow-x:auto; flex-wrap:nowrap; flex:0 0 auto; }
               .meai-pu-legpick > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12px; white-space:nowrap; }
               .meai-pu-legpick > button.on { color:var(--cp-accent); border-color:var(--cp-accent); }
-              .meai-pu-legscroll { flex:1; overflow:auto; padding:12px 16px; }
+              .meai-pu-legscroll { flex:1; overflow:auto; padding:12px 14px; min-height:0; }
+              /* Conclusion / outcome card at the top of the main thread */
+              .meai-pu-outcome { border:1px solid var(--cp-accent); border-radius:10px; padding:14px; margin-bottom:14px; background:color-mix(in srgb,var(--cp-accent) 6%, var(--cp-bg)); }
+              .meai-pu-outcome.done { border-color:#2ea043; background:color-mix(in srgb,#2ea043 8%, var(--cp-bg)); }
+              .meai-pu-outcome-h { display:flex; align-items:center; gap:8px; font-weight:700; color:var(--cp-text); font-size:14px; }
+              .meai-pu-outcome-ic { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:var(--cp-accent); color:#fff; font-size:12px; }
+              .meai-pu-outcome.done .meai-pu-outcome-ic { background:#2ea043; }
+              .meai-pu-outcome-sum { font-size:13px; color:var(--cp-text); margin-top:8px; line-height:1.5; }
+              .meai-pu-outcome-meta { font-size:12px; color:var(--cp-text-muted); margin-top:8px; }
+              .meai-pu-outcome-acts { margin-top:12px; }
               .meai-pu-ev { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
               .meai-pu-ev-ic { flex:0 0 auto; }
-              .meai-pu-ev-k { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; }
-              .meai-pu-ev-t { font-size:13px; color:var(--cp-text); white-space:pre-wrap; line-height:1.45; }
-              .meai-pu-ev.ev-thinking .meai-pu-ev-t { color:var(--cp-text-muted); font-style:italic; }
+              .meai-pu-ev-b { min-width:0; flex:1; }
+              .meai-pu-ev-head { display:flex; align-items:baseline; gap:8px; width:100%; text-align:left; border:0; background:transparent; padding:0; cursor:pointer; color:inherit; }
+              .meai-pu-ev-head:disabled { cursor:default; }
+              .meai-pu-ev-k { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; flex:0 0 auto; }
+              .meai-pu-ev-s { font-size:13px; color:var(--cp-text); line-height:1.45; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+              .meai-pu-ev-car { color:var(--cp-text-muted); font-size:11px; flex:0 0 auto; }
+              .meai-pu-ev.ev-thinking .meai-pu-ev-s { color:var(--cp-text-muted); font-style:italic; }
+              .meai-pu-ev-d { margin-top:6px; }
+              .meai-pu-ev-pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--cp-text); background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:9px 11px; white-space:pre-wrap; word-break:break-word; max-height:280px; overflow:auto; line-height:1.5; }
+              .meai-pu-ev-d .md-output { font-size:13px; }
               .meai-pu-right { flex:0 0 300px; border-left:1px solid var(--cp-border); background:var(--cp-surface); display:flex; flex-direction:column; min-height:0; }
               .meai-pu-rtabs { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); }
               .meai-pu-rtabs > button { border:0; background:transparent; color:var(--cp-text-muted); padding:6px 8px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; }
@@ -12213,22 +12230,36 @@
               .meai-pu-constraints { margin-top:14px; }
               .meai-pu-constraints-h { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; margin-bottom:6px; }
               .meai-pu-constraint { font-size:12px; color:var(--cp-text); padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
-              .meai-pu-art { border:1px solid var(--cp-border); border-radius:10px; padding:11px; margin-bottom:10px; background:var(--cp-bg); }
+              .meai-pu-art { display:block; width:100%; text-align:left; border:1px solid var(--cp-border); border-radius:10px; padding:11px; margin-bottom:10px; background:var(--cp-bg); cursor:pointer; transition:border-color .15s; }
+              .meai-pu-art:hover { border-color:var(--cp-accent); }
               .meai-pu-art-h { display:flex; align-items:baseline; gap:8px; }
-              .meai-pu-art-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:#6639ba; font-weight:700; }
+              .meai-pu-art-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:#6639ba; font-weight:700; flex:0 0 auto; }
               .meai-pu-art-t { font-weight:600; color:var(--cp-text); font-size:13px; }
-              .meai-pu-art-body { font-size:12px; color:var(--cp-text-muted); margin-top:6px; white-space:pre-wrap; line-height:1.45; max-height:120px; overflow:auto; }
-              .meai-pu-art-acts { display:flex; gap:12px; margin-top:8px; font-size:12px; }
+              .meai-pu-art-body { font-size:12px; color:var(--cp-text-muted); margin-top:6px; line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+              .meai-pu-art-open { font-size:12px; color:var(--cp-accent); font-weight:600; margin-top:8px; }
+              /* Expanded artifact reader */
+              .meai-pu-artmodal { position:absolute; inset:0; z-index:20; background:color-mix(in srgb,#000 42%, transparent); display:flex; align-items:center; justify-content:center; padding:34px; }
+              .meai-pu-artcard { width:min(860px,100%); max-height:100%; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 18px 50px rgba(0,0,0,.35); display:flex; flex-direction:column; min-height:0; }
+              .meai-pu-artcard-h { display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--cp-border); flex:0 0 auto; }
+              .meai-pu-artcard-ti { display:flex; align-items:baseline; gap:8px; min-width:0; flex:1; }
+              .meai-pu-artcard-t { font-weight:700; color:var(--cp-text); font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .meai-pu-artcard-link { color:var(--cp-accent); text-decoration:none; font-size:12.5px; font-weight:600; white-space:nowrap; }
+              .meai-pu-artcard-link:hover { text-decoration:underline; }
+              .meai-pu-artcard-x { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; width:30px; height:30px; cursor:pointer; }
+              .meai-pu-artcard-x:hover { border-color:var(--cp-accent); color:var(--cp-text); }
+              .meai-pu-artcard-body { flex:1; overflow:auto; padding:20px 24px; min-height:0; }
+              .meai-pu-artcard-foot { display:flex; gap:8px; padding:12px 18px; border-top:1px solid var(--cp-border); flex:0 0 auto; }
               /* Pursuit launcher on the lane */
               .meai-pursue-launch { display:flex; gap:8px; margin-bottom:10px; }
               .meai-pursue-input { flex:1; font-size:12.5px; }
               .meai-pursue-go { white-space:nowrap; }
               .meai-lane-map { margin-left:8px; color:var(--cp-accent); text-decoration:none; font-weight:600; }
               .meai-lane-map:hover { text-decoration:underline; }
-              @media (max-width:900px) {
-                .meai-pu-left { display:none; }
-                .meai-pu-right { flex-basis:240px; }
+              @media (max-width:1000px) {
+                .meai-pu-body { flex-direction:column; }
+                .meai-pu-left, .meai-pu-right { flex:0 0 auto; max-height:44vh; border-right:0; border-left:0; border-bottom:1px solid var(--cp-border); }
                 .meai-pu-goal { max-width:40vw; }
+                .meai-pu-artmodal { padding:14px; }
               }
               @media (prefers-reduced-motion: reduce) {
                 .meai-pu-spin { animation:none; }
@@ -13331,9 +13362,9 @@
               </div>
             </template>
 
-            <!-- ===== Live pursuit canvas (P2) — full-screen fan-out map ===== -->
+            <!-- ===== Live pursuit canvas (P2) — fan-out map, framed in the app shell ===== -->
             <template x-if="meai.pursuit.open">
-              <div class="meai-pursuit" @keydown.escape.window="meAiPursuitClose()">
+              <div class="meai-pursuit" :style="meAiPursuitFrameStyle()" @keydown.escape.window="meai.pursuit.artView ? meAiPursuitCloseArt() : meAiPursuitClose()">
                 <!-- Top bar -->
                 <div class="meai-pu-top">
                   <button type="button" class="meai-pu-back" @click="meAiPursuitClose()" title="Back">‹ Back</button>
@@ -13342,58 +13373,72 @@
                     <div class="meai-pu-status" x-text="meAiPursuitStageLabel()"></div>
                   </div>
                   <span style="flex:1"></span>
-                  <button type="button" class="meai-pu-icon" :class="{ on: meai.pursuit.left }" @click="meai.pursuit.left=!meai.pursuit.left" title="Toggle the index panel">☰</button>
-                  <button type="button" class="meai-pu-icon" :class="{ on: meai.pursuit.right }" @click="meai.pursuit.right=!meai.pursuit.right" title="Toggle the approvals &amp; artifacts rail">▤</button>
+                  <button type="button" class="meai-pu-icon" :class="{ on: meai.pursuit.left }" @click="meai.pursuit.left=!meai.pursuit.left" title="Toggle leg chat">💬</button>
+                  <button type="button" class="meai-pu-icon" :class="{ on: meai.pursuit.right }" @click="meai.pursuit.right=!meai.pursuit.right" title="Toggle approvals, artifacts &amp; the index">▤</button>
                 </div>
 
                 <div class="meai-pu-body">
-                  <!-- LEFT: interesting-vertices index -->
+                  <!-- LEFT: leg chat (main thread by default) -->
                   <aside class="meai-pu-left" x-show="meai.pursuit.left" x-transition.opacity>
-                    <div class="meai-pu-left-head">
-                      <span>Interesting</span>
-                      <select class="field-input meai-pu-filter" x-model="meai.pursuit.filter">
-                        <option value="all">All</option>
-                        <option value="done">Results</option>
-                        <option value="merge">Merge-backs</option>
-                        <option value="auth">Needs approval</option>
-                        <option value="artifact">Artifacts</option>
-                        <option value="dead">Dead ends</option>
-                      </select>
-                    </div>
-                    <div class="meai-pu-legend">
-                      <template x-for="row in meAiPursuitInteresting()" :key="row.n.id">
-                        <button type="button" class="meai-pu-legrow" :class="'lg-'+row.tag" @click="meAiPursuitFocus(row.n.id)">
-                          <span class="meai-pu-legdot"></span>
-                          <span class="meai-pu-legtxt">
-                            <span class="meai-pu-legt" x-text="row.n.leg.title"></span>
-                            <span class="meai-pu-legk" x-text="meAiPursuitTagLabel(row.tag)"></span>
-                          </span>
-                        </button>
+                    <div class="meai-pu-legpick">
+                      <button type="button" :class="{ on: meai.pursuit.legPick==='spine' }" @click="meai.pursuit.legPick='spine'">Main thread</button>
+                      <template x-for="n in (meai.pursuit._nodes||[]).filter(x => x.leg.kind!=='spine')" :key="'lp-'+n.id">
+                        <button type="button" :class="{ on: meai.pursuit.legPick===n.id }" @click="meai.pursuit.legPick=n.id" x-text="n.leg.title"></button>
                       </template>
-                      <div x-show="!meAiPursuitInteresting().length" class="meai-pu-empty">Nothing flagged yet — the agent will surface results, merge-backs and dead ends here as it works.</div>
+                    </div>
+                    <div class="meai-pu-legscroll">
+                      <!-- Conclusion / outcome — surfaces on the main thread when the pursuit reaches a recommendation -->
+                      <template x-if="meai.pursuit.legPick==='spine' && meAiPursuitConcluded()">
+                        <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done') }">
+                          <div class="meai-pu-outcome-h">
+                            <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
+                            <span x-text="meAiPursuitOutcome().title"></span>
+                          </div>
+                          <div class="meai-pu-outcome-sum" x-show="meAiPursuitOutcome().summary" x-text="meAiPursuitOutcome().summary"></div>
+                          <div class="meai-pu-outcome-meta">
+                            <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
+                            <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
+                          </div>
+                          <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
+                            <button type="button" class="btn primary" @click="meAiPursuitOpenArt(meAiPursuitReport())">Read the full report ↗</button>
+                          </div>
+                        </div>
+                      </template>
+
+                      <template x-for="(ev, ei) in meAiPursuitLegEvents()" :key="'pe-'+ei">
+                        <div class="meai-pu-ev" :class="['ev-'+ev.kind, meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                          <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                          <div class="meai-pu-ev-b">
+                            <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey(ei,ev))">
+                              <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                              <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                              <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey(ei,ev)] ? '▾' : '▸'"></span>
+                            </button>
+                            <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey(ei,ev)]">
+                              <div class="meai-pu-ev-d">
+                                <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                      <div x-show="!meAiPursuitLegEvents().length && !(meai.pursuit.legPick==='spine' && meAiPursuitConcluded())" class="meai-pu-empty">No transcript for this leg yet.</div>
                     </div>
                   </aside>
 
-                  <!-- CENTER: canvas / leg-chat -->
+                  <!-- CENTER: live canvas only -->
                   <main class="meai-pu-center">
-                    <div class="meai-pu-ctabs">
-                      <button type="button" class="meai-pu-ctab" :class="{ on: meai.pursuit.center==='canvas' }" @click="meai.pursuit.center='canvas'">🗺 Live canvas</button>
-                      <button type="button" class="meai-pu-ctab" :class="{ on: meai.pursuit.center==='leg' }" @click="meai.pursuit.center='leg'">💬 Leg chat</button>
-                      <span style="flex:1"></span>
-                      <template x-if="meai.pursuit.center==='canvas'">
-                        <div class="meai-pu-zoom">
-                          <button type="button" @click="meAiPursuitZoom('out')" title="Zoom out">−</button>
-                          <button type="button" @click="meAiPursuitZoom('reset')" title="Reset" x-text="Math.round(meai.pursuit.zoom*100)+'%'"></button>
-                          <button type="button" @click="meAiPursuitZoom('in')" title="Zoom in">＋</button>
-                          <button type="button" class="meai-pu-follow" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
-                        </div>
-                      </template>
-                    </div>
-
-                    <!-- Canvas -->
-                    <div class="meai-pcanvas" x-show="meai.pursuit.center==='canvas'"
+                    <div class="meai-pcanvas"
                          @pointerdown="meAiPursuitPanStart($event)" @pointermove="meAiPursuitPanMove($event)"
                          @pointerup="meAiPursuitPanEnd()" @pointerleave="meAiPursuitPanEnd()">
+                      <!-- Floating zoom toolbar -->
+                      <div class="meai-pu-zoom">
+                        <button type="button" @click="meAiPursuitZoom('out')" title="Zoom out">−</button>
+                        <button type="button" @click="meAiPursuitZoom('reset')" title="Fit" x-text="Math.round(meai.pursuit.zoom*100)+'%'"></button>
+                        <button type="button" @click="meAiPursuitZoom('in')" title="Zoom in">＋</button>
+                        <button type="button" class="meai-pu-follow" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
+                      </div>
                       <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
                         <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
@@ -13401,7 +13446,7 @@
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none"></path>
                         </svg>
                         <template x-for="n in meai.pursuit._nodes" :key="n.id">
-                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenLeg(n.id)">
+                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', meai.pursuit.legPick===n.id ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenLeg(n.id)">
                             <div class="meai-pnode-k" x-text="meAiPursuitLegKind(n.leg.kind)"></div>
                             <div class="meai-pnode-t" x-text="n.leg.title"></div>
                             <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
@@ -13409,7 +13454,7 @@
                               <span class="meai-pnode-st" x-text="n.leg.status"></span>
                               <span x-show="n.stop && n.stop.type==='needs-auth'" class="meai-pnode-badge auth" title="Waiting for your approval">needs approval</span>
                               <span x-show="n.stop && n.stop.type!=='needs-auth'" class="meai-pnode-badge stop" title="Waiting on you">waiting on you</span>
-                              <span x-show="(n.arts||[]).length" class="meai-pnode-badge art" x-text="(n.arts.length)+' artifact'+(n.arts.length===1?'':'s')"></span>
+                              <button type="button" x-show="(n.arts||[]).length" class="meai-pnode-badge art" @click.stop="meAiPursuitOpenLegArt(n.id, $event)" :title="'Open '+((n.arts||[]).length)+' artifact'+((n.arts||[]).length===1?'':'s')" x-text="(n.arts.length)+' artifact'+(n.arts.length===1?'':'s')"></button>
                             </div>
                           </div>
                         </template>
@@ -13438,35 +13483,14 @@
                         </div>
                       </div>
                     </div>
-
-                    <!-- Leg chat -->
-                    <div class="meai-pu-legchat" x-show="meai.pursuit.center==='leg'">
-                      <div class="meai-pu-legpick">
-                        <button type="button" :class="{ on: !meai.pursuit.legPick || meai.pursuit.legPick==='spine' }" @click="meai.pursuit.legPick='spine'">Main thread</button>
-                        <template x-for="n in (meai.pursuit._nodes||[]).filter(x => x.leg.kind!=='spine')" :key="'lp-'+n.id">
-                          <button type="button" :class="{ on: meai.pursuit.legPick===n.id }" @click="meai.pursuit.legPick=n.id" x-text="n.leg.title"></button>
-                        </template>
-                      </div>
-                      <div class="meai-pu-legscroll">
-                        <template x-for="(ev, ei) in meAiPursuitLegEvents()" :key="'pe-'+ei">
-                          <div class="meai-pu-ev" :class="'ev-'+ev.kind">
-                            <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
-                            <div class="meai-pu-ev-b">
-                              <div class="meai-pu-ev-k" x-text="ev.kind"></div>
-                              <div class="meai-pu-ev-t" x-text="ev.text || ev.tool || ''"></div>
-                            </div>
-                          </div>
-                        </template>
-                        <div x-show="!meAiPursuitLegEvents().length" class="meai-pu-empty">No transcript for this leg yet.</div>
-                      </div>
-                    </div>
                   </main>
 
-                  <!-- RIGHT: approvals + artifacts rail -->
+                  <!-- RIGHT: approvals + artifacts + index rail -->
                   <aside class="meai-pu-right" x-show="meai.pursuit.right" x-transition.opacity>
                     <div class="meai-pu-rtabs">
                       <button type="button" :class="{ on: meai.pursuit.rail==='approvals' }" @click="meai.pursuit.rail='approvals'">Approvals <span class="meai-pu-rc" x-text="meAiPursuitStops().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.rail==='artifacts' }" @click="meai.pursuit.rail='artifacts'">Artifacts <span class="meai-pu-rc" x-text="meAiPursuitArtifacts().length"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.rail==='interesting' }" @click="meai.pursuit.rail='interesting'">Index</button>
                     </div>
                     <div class="meai-pu-rbody">
                       <!-- Approvals -->
@@ -13502,24 +13526,67 @@
                       <template x-if="meai.pursuit.rail==='artifacts'">
                         <div>
                           <template x-for="a in meAiPursuitArtifacts()" :key="a.id">
-                            <div class="meai-pu-art">
+                            <button type="button" class="meai-pu-art" @click="meAiPursuitOpenArt(a)">
                               <div class="meai-pu-art-h">
                                 <span class="meai-pu-art-k" x-text="a.kind"></span>
                                 <span class="meai-pu-art-t" x-text="a.title"></span>
                               </div>
-                              <div x-show="a.body" class="meai-pu-art-body" x-text="(a.body||'').slice(0,600)"></div>
-                              <div class="meai-pu-art-acts">
-                                <a x-show="a.link" :href="a.link" target="_blank" rel="noopener">Open ↗</a>
-                                <a x-show="a.legId" href="#" @click.prevent="meAiPursuitFocus(a.legId)">Show on map</a>
-                              </div>
-                            </div>
+                              <div x-show="a.body" class="meai-pu-art-body" x-text="(a.body||'').replace(/[#*`>_-]/g,' ').replace(/\s+/g,' ').trim().slice(0,180)"></div>
+                              <div class="meai-pu-art-open">Open ↗</div>
+                            </button>
                           </template>
                           <div x-show="!meAiPursuitArtifacts().length" class="meai-pu-empty">No reports or charts yet. The agent files results here as it reaches conclusions.</div>
+                        </div>
+                      </template>
+                      <!-- Index (interesting vertices) -->
+                      <template x-if="meai.pursuit.rail==='interesting'">
+                        <div>
+                          <select class="field-input meai-pu-filter" x-model="meai.pursuit.filter">
+                            <option value="all">Everything interesting</option>
+                            <option value="done">Results</option>
+                            <option value="merge">Merge-backs</option>
+                            <option value="auth">Needs approval</option>
+                            <option value="artifact">Artifacts</option>
+                            <option value="dead">Dead ends</option>
+                          </select>
+                          <div class="meai-pu-legend">
+                            <template x-for="row in meAiPursuitInteresting()" :key="row.n.id">
+                              <button type="button" class="meai-pu-legrow" :class="'lg-'+row.tag" @click="meAiPursuitFocus(row.n.id)">
+                                <span class="meai-pu-legdot"></span>
+                                <span class="meai-pu-legtxt">
+                                  <span class="meai-pu-legt" x-text="row.n.leg.title"></span>
+                                  <span class="meai-pu-legk" x-text="meAiPursuitTagLabel(row.tag)"></span>
+                                </span>
+                              </button>
+                            </template>
+                            <div x-show="!meAiPursuitInteresting().length" class="meai-pu-empty">Nothing flagged yet — the agent will surface results, merge-backs and dead ends here as it works.</div>
+                          </div>
                         </div>
                       </template>
                     </div>
                   </aside>
                 </div>
+
+                <!-- Expanded artifact reader -->
+                <template x-if="meai.pursuit.artView">
+                  <div class="meai-pu-artmodal" @click.self="meAiPursuitCloseArt()">
+                    <div class="meai-pu-artcard">
+                      <div class="meai-pu-artcard-h">
+                        <div class="meai-pu-artcard-ti">
+                          <span class="meai-pu-art-k" x-text="meai.pursuit.artView.kind"></span>
+                          <span class="meai-pu-artcard-t" x-text="meai.pursuit.artView.title"></span>
+                        </div>
+                        <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
+                        <button type="button" class="meai-pu-artcard-x" @click="meAiPursuitCloseArt()" title="Close">✕</button>
+                      </div>
+                      <div class="meai-pu-artcard-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
+                      <div class="meai-pu-artcard-foot" x-show="meai.pursuit.artView.legId">
+                        <button type="button" class="btn ghost" @click="meAiPursuitFocus(meai.pursuit.artView.legId); meAiPursuitCloseArt()">Show on map</button>
+                        <button type="button" class="btn ghost" @click="meai.pursuit.legPick=meai.pursuit.artView.legId; meAiPursuitCloseArt()">Open this leg's chat</button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </template>
             <div class="meai-asst" x-show="meai.asst.open" x-transition.opacity.duration.150ms x-cloak>
@@ -21738,18 +21805,20 @@
           // three-panel view over a mode:'tree' task's journal fold (/task/:id/tree).
           pursuit: {
             open: false, tid: null, tree: null, busy: false,
-            center: 'canvas',            // 'canvas' | 'leg'
-            legPick: '',                 // selected legId for the leg-chat tab
-            left: true, right: true,     // panel expanded state
-            rail: 'approvals',           // right-rail tab: approvals|artifacts|index|sources
-            filter: 'all',               // interesting-vertex filter
+            legPick: 'spine',            // selected leg for the LEFT leg-chat pane
+            left: true, right: true,     // panel expanded state (leg-chat / rail)
+            rail: 'approvals',           // right-rail tab: approvals|artifacts|interesting
+            filter: 'all',               // interesting-vertex filter (rail)
             note: '',                    // note for an approve/deny/answer
             answering: null,             // stopId being answered inline
             zoom: 1, panX: 0, panY: 0,   // canvas transform
             follow: true,                // auto-recenter on latest
-            legendOpen: true,            // canvas legend visible
+            legendOpen: false,           // canvas legend visible
             _drag: null, _fitted: false, _focusId: null,
             _nodes: [], _edgeD: { spine: '', branch: '', merge: '' }, _w: 1000, _h: 600,
+            _box: null, _ro: null,       // content-rect framing (stay in the app shell)
+            artView: null,               // artifact opened in the expanded reader modal
+            evOpen: {},                  // per-event expand map (leg-chat substeps)
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
@@ -29694,15 +29763,47 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiPursuitOpen(id) {
           const p = this.meai.pursuit;
-          p.open = true; p.tid = id; p.center = 'canvas'; p.follow = true;
+          p.open = true; p.tid = id; p.follow = true;
           p.zoom = 1; p.panX = 0; p.panY = 0; p.note = ''; p.answering = null;
-          p._fitted = false; p._focusId = null;
-          try { document.body.style.overflow = 'hidden'; } catch (_) {}
+          p._fitted = false; p._focusId = null; p.legPick = 'spine';
+          p.artView = null; p.evOpen = {};
+          this.$nextTick(() => { this.meAiPursuitFrame(); this._meAiPursuitObserve(); });
           this.meAiPursuitLoad();
         },
         meAiPursuitClose() {
-          this.meai.pursuit.open = false;
-          try { document.body.style.overflow = ''; } catch (_) {}
+          const p = this.meai.pursuit;
+          p.open = false; p.artView = null;
+          try { if (p._ro) { p._ro.disconnect(); p._ro = null; } } catch (_) {}
+          try { window.removeEventListener('resize', this._meAiPursuitFrameBound || (() => {})); } catch (_) {}
+        },
+        // Frame the pursuit surface to the live content area so it never covers the
+        // sidebar/topbar — it should feel like we're still inside the app shell.
+        meAiPursuitFrame() {
+          const p = this.meai.pursuit; if (!p.open) return;
+          try {
+            const el = document.querySelector('main.content') || document.querySelector('.content');
+            if (!el) { p._box = null; return; }
+            const r = el.getBoundingClientRect();
+            p._box = { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width), height: Math.round(r.height) };
+          } catch (_) { p._box = null; }
+        },
+        meAiPursuitFrameStyle() {
+          const b = this.meai.pursuit._box;
+          if (!b) return 'position:fixed; inset:0;';
+          return 'position:fixed; top:' + b.top + 'px; left:' + b.left + 'px; width:' + b.width + 'px; height:' + b.height + 'px;';
+        },
+        _meAiPursuitObserve() {
+          const p = this.meai.pursuit;
+          try {
+            if (p._ro) { p._ro.disconnect(); p._ro = null; }
+            const el = document.querySelector('main.content') || document.querySelector('.content');
+            if (el && 'ResizeObserver' in window) {
+              p._ro = new ResizeObserver(() => this.meAiPursuitFrame());
+              p._ro.observe(el);
+            }
+            this._meAiPursuitFrameBound = this._meAiPursuitFrameBound || (() => this.meAiPursuitFrame());
+            window.addEventListener('resize', this._meAiPursuitFrameBound);
+          } catch (_) {}
         },
         async meAiPursuitLoad() {
           const p = this.meai.pursuit; if (!p.tid) return;
@@ -29817,12 +29918,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitFocus(id) {
           const p = this.meai.pursuit;
           const n = (p._nodes || []).find(x => x.id === id); if (!n) return;
-          p.center = 'canvas';      // jumping from the index should show the map
           p.follow = false;
           // retrigger the flash even when the same node is picked twice
           p._focusId = null;
           this.$nextTick(() => {
-            // measure AFTER the canvas is shown (it may have been display:none on the leg tab)
             const host = document.querySelector('.meai-pcanvas');
             if (host) {
               const r = host.getBoundingClientRect();
@@ -29849,8 +29948,119 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.panY = 24;
           p.follow = false;
         },
+        // Clicking a node drives the LEFT leg-chat pane. A spine-kind node maps to
+        // 'spine' (the orchestrator's own narration); everything else picks the leg.
+        // Always flash the node on the canvas so the selection is legible.
         meAiPursuitOpenLeg(id) {
-          this.meai.pursuit.legPick = id; this.meai.pursuit.center = 'leg';
+          const p = this.meai.pursuit;
+          const n = (p._nodes || []).find(x => x.id === id);
+          p.legPick = (n && n.leg && n.leg.kind === 'spine') ? 'spine' : id;
+          p.left = true;
+          // flash the node so the map + left pane stay visually linked
+          p._focusId = null;
+          this.$nextTick(() => { p._focusId = id; setTimeout(() => { if (p._focusId === id) p._focusId = null; }, 1200); });
+        },
+        // Label for the currently-selected leg (LEFT pane header).
+        meAiPursuitLegLabel() {
+          const p = this.meai.pursuit;
+          if (!p.legPick || p.legPick === 'spine') return 'Main thread';
+          const n = (p._nodes || []).find(x => x.id === p.legPick);
+          return (n && n.leg && n.leg.title) || 'Leg';
+        },
+        // ── Artifacts (rail + expanded reader) ──────────────────────────────────
+        meAiPursuitOpenArt(a) {
+          if (!a) return;
+          const p = this.meai.pursuit;
+          p.right = true; p.rail = 'artifacts'; p.artView = a;
+        },
+        meAiPursuitCloseArt() { this.meai.pursuit.artView = null; },
+        meAiPursuitArtMd(a) {
+          const body = (a && a.body) || '';
+          try { return this.renderMarkdown ? this.renderMarkdown(body) : body; } catch (_) { return body; }
+        },
+        // Open the (latest) report artifact for a leg from a node's "N artifacts" badge.
+        meAiPursuitOpenLegArt(legId, ev) {
+          if (ev) ev.stopPropagation();
+          const arts = this.meAiPursuitArtifacts().filter(a => a.legId === legId);
+          this.meAiPursuitOpenArt(arts[0] || null);
+        },
+        // ── Leg-chat rich substep expansion ─────────────────────────────────────
+        meAiPursuitEvKey(ei, ev) {
+          const p = this.meai.pursuit;
+          return (p.legPick || 'spine') + ':' + ei + ':' + (ev && (ev.at || ev.toolCallId || ev.kind) || '');
+        },
+        meAiPursuitEvToggle(key) {
+          const m = this.meai.pursuit.evOpen; m[key] = !m[key];
+        },
+        // The one-line summary shown collapsed for an event.
+        meAiPursuitEvSummary(ev) {
+          if (!ev) return '';
+          switch (ev.kind) {
+            case 'tool_start': return (ev.tool || 'tool') + (ev.args ? ' — running' : '');
+            case 'tool_complete': return (ev.tool || 'tool') + (ev.success === false ? ' — failed' : ' — done');
+            case 'thinking': { const t = String(ev.text || ''); return t.length > 120 ? t.slice(0, 120) + '…' : t; }
+            case 'agent': return ev.name || 'agent';
+            case 'stage': return ev.stage || '';
+            case 'report': return ev.summary || 'Report';
+            default: return ev.text || ev.tool || ev.summary || '';
+          }
+        },
+        // Whether an event has heavier detail worth an expander.
+        meAiPursuitEvHasDetail(ev) {
+          if (!ev) return false;
+          if (ev.kind === 'thinking') return String(ev.text || '').length > 120;
+          if (ev.kind === 'tool_start') return !!ev.args;
+          if (ev.kind === 'tool_complete') return !!(ev.result || ev.output || ev.error);
+          if (ev.kind === 'report') return !!(ev.markdown || ev.summary);
+          return false;
+        },
+        // The expanded detail body for an event (markdown for reports, else preformatted).
+        meAiPursuitEvDetail(ev) {
+          if (!ev) return '';
+          if (ev.kind === 'report' && (ev.markdown || ev.summary)) {
+            try { return this.renderMarkdown ? this.renderMarkdown(ev.markdown || ev.summary) : (ev.markdown || ev.summary); } catch (_) { return ev.markdown || ev.summary; }
+          }
+          if (ev.kind === 'thinking') return String(ev.text || '');
+          if (ev.kind === 'tool_start') { try { return typeof ev.args === 'string' ? ev.args : JSON.stringify(ev.args, null, 2); } catch (_) { return String(ev.args || ''); } }
+          if (ev.kind === 'tool_complete') {
+            const v = ev.result || ev.output || ev.error || '';
+            try { return typeof v === 'string' ? v : JSON.stringify(v, null, 2); } catch (_) { return String(v); }
+          }
+          return ev.text || '';
+        },
+        meAiPursuitEvIsMd(ev) { return ev && ev.kind === 'report'; },
+        // ── Conclusion / outcome ────────────────────────────────────────────────
+        // The pursuit's headline report artifact (server files ONE kind:'report' on
+        // completion — "PR blocker report" with a markdown body + recommended move).
+        meAiPursuitReport() {
+          const arts = this.meAiPursuitArtifacts();
+          return arts.find(a => a.kind === 'report') || null;
+        },
+        // How many legs merged back into the spine (visible reroute of the spine).
+        meAiPursuitMergeCount() {
+          const p = this.meai.pursuit; const tree = p.tree; if (!tree || !tree.legs) return 0;
+          return Object.values(tree.legs).filter(l => l && (l.kind === 'reroute' || l.merged)).length;
+        },
+        // Show a satisfying conclusion once there's a headline report or the pursuit
+        // has parked awaiting/done with a recommendation.
+        meAiPursuitConcluded() {
+          const t = this.meai.pursuit.tree; if (!t) return false;
+          if (this.meAiPursuitReport()) return true;
+          return t.stage === 'done';
+        },
+        meAiPursuitOutcome() {
+          const t = this.meai.pursuit.tree || {};
+          const task = this.meai._taskById[this.meai.pursuit.tid] || {};
+          const rep = this.meAiPursuitReport();
+          const summary = (task.report && task.report.summary) || (rep && (rep.title || '')) || t.question || '';
+          return {
+            stage: t.stage,
+            title: (t.stage === 'done') ? 'Pursuit complete' : 'Recommendation ready',
+            summary: summary,
+            report: rep,
+            merges: this.meAiPursuitMergeCount(),
+            nextActions: Array.isArray(task.nextActions) ? task.nextActions : [],
+          };
         },
         // Approvals/artifacts rail data.
         meAiPursuitStops() {
