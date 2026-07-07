@@ -703,15 +703,23 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, availableTools, meta }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, availableTools, meta, onPermissionRequest }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
+    // A caller MAY supply its own permission handler (a classifier that approves
+    // read-only work but gates writes/external actions — see the Me-agent auth
+    // gate). This is opt-in and additive: when omitted, behavior is unchanged
+    // (approveAll, or deny when allowAll:false). Shared by all agents, so the
+    // default MUST stay identical for non-Me-agent callers.
+    const permHandler = (typeof onPermissionRequest === 'function')
+      ? onPermissionRequest
+      : ((config && config.allowAll === false) ? deny : approveAll);
     const opts = {
       sessionId,
       workingDirectory: (config && config.cwd) || cwd || process.cwd(),
       streaming: true,
-      onPermissionRequest: (config && config.allowAll === false) ? deny : approveAll,
+      onPermissionRequest: permHandler,
     };
     if (model) opts.model = model;
     // Default chat turns to the chat/system buckets; callers override via meta.

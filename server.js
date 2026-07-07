@@ -16091,6 +16091,119 @@ function _meAiExternalActPrompt(t, intent, text, label) {
     '{ "report": { "summary": "...", "findings": [] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none" } ], "question": null }',
   ].join('\n');
 }
+// ── Me-agent auth gate (ENFORCED at the SDK permission boundary) ──────────────
+// The Me-agent's leg/dispatch prompts INSTRUCT it to stay read-only and PROPOSE
+// gated actions, but instruction is not enforcement — a misbehaving turn could
+// still post a comment, push, send mail, or delete. This classifier runs at the
+// SDK's onPermissionRequest boundary so a write/external/destructive action is
+// physically BLOCKED (rejected) and steered back into the needs-auth/outbox
+// approval flow, while ordinary read-only investigation (reads, web fetch, local
+// scratch writes in a worktree) proceeds without friction.
+//
+// External-publish / destructive shell surface the agent must NOT run unapproved.
+// Local investigation writes (mkdir, git add/commit, echo>file, node script.js)
+// stay ALLOWED — the danger is the PUBLISH step: gh/az mutations, git push,
+// HTTP writes, package publish, and force/remote-mutating git.
+const _MEAI_EXT_SHELL_RE = new RegExp(
+  '\\bgit\\s+push\\b' +
+  '|\\bgit\\s+remote\\s+(add|set-url|remove)\\b' +
+  '|\\bgit\\s+push\\b.*--force|\\bgit\\s+.*--force-with-lease\\b' +
+  '|\\bnpm\\s+publish\\b|\\byarn\\s+publish\\b|\\bpnpm\\s+publish\\b' +
+  // gh / az mutating subverbs (view/list/show/diff/checks/status stay allowed):
+  '|\\b(gh|az)\\b[^\\n]*\\b(comment|create|merge|close|edit|review|delete|reopen|ready|vote|set-vote|complete|abandon|reset-votes|update|add|remove|set|approve|reject|link|unlink|transfer|rename|sync|dispatch|run|trigger|send)\\b' +
+  // HTTP clients doing a write method / body:
+  '|\\b(curl|wget|iwr|invoke-webrequest|invoke-restmethod)\\b[^\\n]*(' +
+  '-x\\s*(post|put|patch|delete)|--request\\s+(post|put|patch|delete)|-method\\s+(post|put|patch|delete)|--data|--data-raw|\\s-d\\s' +
+  ')',
+  'i'
+);
+// External CLI identifiers whose non-read invocation is always suspicious.
+const _MEAI_EXT_TOOLS = /^(gh|az|curl|wget|iwr|invoke-webrequest|invoke-restmethod)$/i;
+
+// Classify one SDK permission request → { gate:boolean, label:string }.
+// gate=true means BLOCK (needs the user's approval); gate=false means allow.
+function _meAiClassifyPermission(request) {
+  const kind = request && request.kind;
+  const lbl = (s) => String(s || '').slice(0, 180);
+  switch (kind) {
+    case 'read':
+    case 'memory':
+      return { gate: false };
+    case 'url':
+      // Web fetch / research (GET). Gating this breaks web_search / research.
+      return { gate: false };
+    case 'write':
+      // LOCAL filesystem write — core to "create a worktree and investigate".
+      // The external danger (publish) surfaces as shell/mcp, not local write.
+      return { gate: false };
+    case 'mcp': {
+      // Trust the MCP layer's own side-effect flag: read-only tool calls
+      // (PR/thread reads, work-item queries) pass; anything that mutates
+      // (post comment, send mail, set field, create/merge) is gated.
+      if (request.readOnly === true) return { gate: false };
+      return { gate: true, label: lbl((request.serverName ? request.serverName + ':' : '') + (request.toolName || 'mcp tool')) };
+    }
+    case 'shell': {
+      const cmds = Array.isArray(request.commands) ? request.commands : [];
+      const full = String(request.fullCommandText || '');
+      // (1) SDK marks an external CLI (gh/az/curl/…) as NOT read-only → gate.
+      const extWrite = cmds.some(c => c && _MEAI_EXT_TOOLS.test(String(c.identifier || '')) && c.readOnly === false);
+      // (2) Belt-and-suspenders regex for publish/destructive text.
+      const pub = _MEAI_EXT_SHELL_RE.test(full);
+      if (extWrite || pub) return { gate: true, label: lbl(full || 'shell command') };
+      return { gate: false };
+    }
+    case 'custom-tool': {
+      const tn = String(request.toolName || '');
+      // Tokenize snake/kebab/camelCase (a bare \bverb\b fails on "create_pull_request"
+      // because "_" is a \w char → no boundary), then match write verbs on whole tokens.
+      const toks = tn.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[^A-Za-z0-9]+/).map(s => s.toLowerCase());
+      const WRITE = new Set(['send','post','comment','reply','create','merge','close','delete','remove','update','patch','put','push','publish','approve','reject','assign','set','write','edit','dispatch','trigger','run','vote','abandon','complete','add']);
+      if (toks.some(t => WRITE.has(t))) return { gate: true, label: lbl(tn) };
+      return { gate: false };
+    }
+    // Rare / powerful — err on caution.
+    case 'hook':
+    case 'extension-management':
+    case 'extension-permission-access':
+      return { gate: true, label: lbl(kind) };
+    default:
+      // Unknown kind: gate (safe default), but never block a plain read.
+      return { gate: true, label: lbl(kind || 'action') };
+  }
+}
+
+// Steering message returned on a gated request. It tells the model the action
+// was NOT performed and to route it into the existing needs-auth approval flow
+// (leg contract: outcome "needs-auth" + proposedAction; dispatch/console:
+// nextActions[] with risk "external"/"write"). Read-only work may continue.
+function _meAiGateFeedback(label) {
+  return [
+    'BLOCKED BY THE USER-APPROVAL GATE: the action you just attempted' + (label ? ' (' + label + ')' : '') +
+    ' writes to or affects an external/shared system (or is destructive) and requires the user\'s explicit approval.',
+    'It was NOT performed. Do NOT retry it, and do NOT attempt a workaround (another tool, a shell fallback, etc.).',
+    'Instead, STOP taking gated actions and report this one for approval in your final JSON:',
+    '- If you are a pursuit LEG: set "outcome" to "needs-auth" and put the action in "proposedAction" { risk:"external"|"write"|"spend"|"destructive", op, target, summary, body } — summary must say exactly what approving does.',
+    '- If you are a dispatch/console turn: add it to "nextActions" as an entry with risk "external" (or "write") and a clear label + enough detail for the user to approve.',
+    'You MAY continue any OTHER read-only investigation you still can (reads, web fetch, local scratch writes); only this approval-gated action must wait for the user.',
+  ].join('\n');
+}
+
+// Build the PermissionHandler for a Me-agent turn. Returns undefined for the
+// approved-outbox (workiq) path so that stays approve-all.
+function _meAiPermissionGate(t) {
+  return (request) => {
+    let d;
+    try { d = _meAiClassifyPermission(request); }
+    catch (_) { d = { gate: true, label: 'unclassified action' }; }
+    if (!d || !d.gate) return { kind: 'approve-once' };
+    try {
+      if (t) _meAiEmit(t, { kind: 'note', text: 'Auth gate: blocked an action needing approval' + (d.label ? ' — ' + d.label : '') + '. Reporting it for approval instead of acting.' });
+    } catch (_) {}
+    return { kind: 'reject', feedback: _meAiGateFeedback(d.label) };
+  };
+}
+
 async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   const cwd = (t.context && t.context.cwd) || __dirname;
   const _saId = workiq ? 'meai-external' : 'meai-agent';
@@ -16146,6 +16259,11 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
       resume: !!resume,
       cwd,
       meta: { source: 'me-ai', category: 'me-ai' },
+      // ENFORCED auth gate: every ordinary Me-agent turn (dispatch + legs) runs
+      // through the write/external classifier so it physically cannot post/send/
+      // merge/push/delete without approval. The workiq branch is the POST-approval
+      // outbox execution (the approve click IS the confirmation) → stays ungated.
+      ...(workiq ? {} : { onPermissionRequest: _meAiPermissionGate(t) }),
       onChunk: (c) => { _lastActivity = Date.now(); acc += c; },
       onStep: (s) => {
         _lastActivity = Date.now();
