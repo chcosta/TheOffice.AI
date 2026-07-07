@@ -16126,7 +16126,7 @@
             <div class="page-header" style="flex:0 0 auto">
               <div class="page-title">
                 <h1>🛠️ Create Agent</h1>
-                <p>Name your agent, let AI draft its prompt, attach skills, and chat with the draft before creating it — then it's available to teams and the marketplace like any other agent.</p>
+                <p>Name your agent, let AI draft its prompt, attach skills and tools, and chat with the draft before creating it — then it's available to teams and the marketplace like any other agent.</p>
               </div>
               <div class="toolbar">
                 <button class="btn" type="button" @click="goTo('#/agents')">Cancel</button>
@@ -16137,7 +16137,7 @@
                 <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;min-height:0;overflow:hidden;flex:1">
                   <!-- LEFT: configuration -->
                   <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:hidden;border-right:1px solid var(--cp-border)">
-                    <p class="hint" style="margin:0">Name your agent and describe what it should do. Let AI draft its prompt, attach skills, then chat with the draft below. Create it when you're happy — it becomes available to teams and the marketplace like any other agent.</p>
+                    <p class="hint" style="margin:0">Name your agent and describe what it should do. Let AI draft its prompt, attach skills and tools, then chat with the draft below. Create it when you're happy — it becomes available to teams and the marketplace like any other agent.</p>
 
                     <div style="display:flex;gap:10px">
                       <label style="flex:1">
@@ -16171,6 +16171,10 @@
                       <button type="button" @click="createAgent.tab='skills'"
                         :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='skills' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
                         Skills <span style="font-weight:400" x-text="caAttachedCount()"></span>
+                      </button>
+                      <button type="button" @click="createAgent.tab='tools'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='tools' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Tools <span style="font-weight:400" x-text="caMcpCount()"></span>
                       </button>
                       <button type="button" @click="createAgent.tab='other'"
                         :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='other' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
@@ -16244,7 +16248,49 @@
                       </div>
                     </div>
 
-                    <!-- OTHER SOURCE TAB: browse a temporary ADO/GitHub repo and attach its skills -->
+                    <!-- TOOLS TAB: browse & attach MCP servers from the catalog -->
+                    <div x-show="createAgent.tab==='tools'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
+                      <p class="hint" style="margin:0">Attach MCP servers so this agent can call their tools (e.g. WorkIQ, Kusto, Azure DevOps). They're wired into the draft right away, so you can exercise them in the chat before creating the agent.</p>
+                      <div style="display:flex;gap:8px;align-items:center">
+                        <input class="field-input" type="text" x-model="createAgent.mcpQ" placeholder="Search tools by name, description, or source…" style="flex:1" />
+                      </div>
+                      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+                        <span class="hint" style="margin:0"><span x-text="caMcpCount()"></span> attached</span>
+                        <a x-show="caMcpCount()" href="#" @click.prevent="caClearMcps()" class="hint" style="margin:0;color:var(--cp-text-muted)">Clear</a>
+                      </div>
+
+                      <div style="flex:1;min-height:0;overflow:auto;border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);background:var(--cp-surface-soft);padding:6px 8px">
+                        <div x-show="createAgent.mcpsLoading" class="hint" style="margin:8px 4px">Loading tools…</div>
+                        <div x-show="!createAgent.mcpsLoading && !createAgent.mcps.length" class="hint" style="margin:8px 4px">No MCP servers in the catalog yet. Add sources from the marketplace to build a toolbox.</div>
+                        <div x-show="!createAgent.mcpsLoading && createAgent.mcps.length && !caGroupedMcps().length" class="hint" style="margin:8px 4px">No tools match your search.</div>
+                        <template x-for="grp in caGroupedMcps()" :key="grp.source">
+                          <div style="margin-top:8px">
+                            <button type="button" @click="caToggleMcpGroup(grp.source)"
+                              style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;cursor:pointer;padding:2px 0;text-align:left;color:var(--cp-text)">
+                              <span style="display:inline-block;width:12px;color:var(--cp-text-muted);transition:transform .12s" :style="caMcpGroupOpen(grp.source) ? 'transform:rotate(90deg)' : ''">›</span>
+                              <span style="font-weight:600;font-size:12.5px" x-text="grp.source"></span>
+                              <span class="hint" style="margin:0;color:var(--cp-text-muted)" x-text="grp.items.length"></span>
+                              <span x-show="grp.selectedCount" class="hint" style="margin:0;color:var(--cp-accent)" x-text="'· ' + grp.selectedCount + ' on'"></span>
+                            </button>
+                            <div x-show="caMcpGroupOpen(grp.source)" style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);overflow:hidden;background:var(--cp-surface);margin-top:4px">
+                              <template x-for="(mc, mci) in grp.items" :key="caMcpKey(mc)">
+                                <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
+                                  :style="(mci < grp.items.length-1 ? 'border-bottom:1px solid var(--cp-border);' : '') + (caMcpIsSelected(mc) ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : '')">
+                                  <input type="checkbox" :checked="caMcpIsSelected(mc)" @change="caToggleMcp(mc)" style="margin-top:2px" />
+                                  <span style="flex:1;min-width:0">
+                                    <span style="font-weight:600;color:var(--cp-text)" x-text="mc.name"></span>
+                                    <span x-show="mc.mcp && mc.mcp.server && mc.mcp.server !== mc.name" class="hint" style="margin:0;color:var(--cp-text-muted)"> · <span x-text="mc.mcp.server"></span></span>
+                                    <span x-show="mc.inUse" class="hint" style="margin:0;color:var(--cp-text-muted)"> · in catalog</span>
+                                    <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="mc.description || ''"></span>
+                                  </span>
+                                </label>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
                     <div x-show="createAgent.tab==='other'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
                       <p class="hint" style="margin:0">Point at any Azure DevOps or GitHub repo/branch to browse its skills. Skills you attach here are used to build and test the agent right away — you'll be asked to add the source to your marketplace when you create the agent.</p>
                       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
@@ -23186,6 +23232,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Resilient deep-link: make sure the skills toolbox is populated even
             // if the user landed here without going through openCreateAgent().
             if (!this.createAgent.skills.length && !this.createAgent.skillsLoading) this.caLoadSkills();
+            if (!this.createAgent.mcps.length && !this.createAgent.mcpsLoading) this.caLoadMcps();
           }
           if (this.route === 'export' && !this.exp.agentId) {
             // Deep-linked without an agent context — nothing to export.
@@ -46271,6 +46318,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         openCreateAgent() {
           this.caReset();
           this.caLoadSkills();
+          this.caLoadMcps();
           this.goTo('#/create-agent');
         },
         caReset() {
@@ -46278,6 +46326,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             open: false, name: '', description: '', prompt: '',
             genBusy: false, recBusy: false,
             skills: [], skillsLoading: false, selected: {}, recommended: {}, skillQ: '', recOnly: false, skillGroups: {}, tab: 'skills',
+            mcps: [], mcpsLoading: false, mcpSelected: {}, mcpQ: '', mcpGroups: {},
             other: { kind: 'github', org: '', project: '', repo: '', branch: '', busy: false, error: '', source: null, exists: false, entries: [], q: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, repoOpen: false, repoQuery: '' },
             tempSelected: {}, confirmSources: { open: false, busy: false, error: '', sources: [] },
             chat: { input: '', messages: [], live: null, sessionId: null, configSig: '', running: false, status: '', error: '' },
@@ -46353,6 +46402,69 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         caSelectedNames() {
           return Object.keys(this.createAgent.selected).filter(k => this.createAgent.selected[k]);
+        },
+        // ---- MCP tools (attach servers from the marketplace catalog) ----
+        async caLoadMcps() {
+          const c = this.createAgent;
+          c.mcpsLoading = true;
+          try {
+            const r = await this.request('/api/marketplace/catalog?type=mcp');
+            c.mcps = (r.entries || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+          } catch (e) {
+            this.showToast('Tools failed to load', e.message || 'catalog error', 'error');
+          } finally { c.mcpsLoading = false; }
+        },
+        // MCP names collide across sources, so identity is source-scoped.
+        caMcpKey(m) {
+          return (m.sourceId || m.sourceLabel || '') + '::' + (m.name || '');
+        },
+        caFilteredMcps() {
+          const c = this.createAgent;
+          const q = c.mcpQ.trim().toLowerCase();
+          if (!q) return c.mcps;
+          return c.mcps.filter(m => (String(m.name) + ' ' + String(m.description || '') + ' ' + String(m.sourceLabel || '') + ' ' + String((m.mcp && m.mcp.server) || '')).toLowerCase().includes(q));
+        },
+        caGroupedMcps() {
+          const c = this.createAgent;
+          const groups = {};
+          for (const m of this.caFilteredMcps()) {
+            const src = m.sourceLabel || m.sourceId || 'Other';
+            const key = this.caMcpKey(m);
+            const g = (groups[src] = groups[src] || { seen: {}, items: [] });
+            if (g.seen[key]) continue; // catalog can list the same server twice per source
+            g.seen[key] = true;
+            g.items.push(m);
+          }
+          return Object.keys(groups).sort((a, b) => a.localeCompare(b)).map(src => {
+            const items = groups[src].items.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            return { source: src, items, selectedCount: items.filter(m => c.mcpSelected[this.caMcpKey(m)]).length };
+          });
+        },
+        caMcpGroupOpen(src) {
+          const c = this.createAgent;
+          if (c.mcpQ.trim()) return true; // auto-expand while searching
+          return !!c.mcpGroups[src];
+        },
+        caToggleMcpGroup(src) {
+          const g = this.createAgent.mcpGroups;
+          if (g[src]) delete g[src]; else g[src] = true;
+        },
+        caToggleMcp(m) {
+          const sel = this.createAgent.mcpSelected;
+          const key = this.caMcpKey(m);
+          if (sel[key]) delete sel[key]; else sel[key] = m;
+        },
+        caMcpIsSelected(m) {
+          return !!this.createAgent.mcpSelected[this.caMcpKey(m)];
+        },
+        caSelectedMcpEntries() {
+          return Object.values(this.createAgent.mcpSelected);
+        },
+        caMcpCount() {
+          return Object.keys(this.createAgent.mcpSelected).length;
+        },
+        caClearMcps() {
+          this.createAgent.mcpSelected = {};
         },
         // ---- temporary "other source" skills ----
         caTempList() {
@@ -46483,7 +46595,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         caConfigSig() {
           const c = this.createAgent;
-          return JSON.stringify({ p: c.prompt.trim(), s: this.caSelectedNames().sort(), t: this.caTempList().map(x => x.entry.id).sort() });
+          return JSON.stringify({ p: c.prompt.trim(), s: this.caSelectedNames().sort(), t: this.caTempList().map(x => x.entry.id).sort(), m: Object.keys(c.mcpSelected).sort() });
         },
         caProposal() {
           const c = this.createAgent;
@@ -46494,6 +46606,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             attach: [
               ...this.caSelectedNames().map(name => ({ type: 'skill', name })),
               ...this.caTempList().map(t => ({ type: 'skill', name: t.entry.name, entry: t.entry, temp: true, sourceId: t.source && t.source.id })),
+              // MCP servers carry their full catalog entry inline: MCP names collide
+              // across sources (e.g. workiq appears in several), so resolveByTypeName
+              // is ambiguous — the entry pins the exact source/config to attach.
+              ...this.caSelectedMcpEntries().map(e => ({ type: 'mcp', name: (e.mcp && e.mcp.server) || e.name, entry: e })),
             ],
           };
         },
