@@ -5052,7 +5052,44 @@ async function attachCapsToAgent(agentId, attachArr) {
   return { attached, failed };
 }
 
-// Materialize an AI-authored proposal's newSkills.
+// The generated agent's frontmatter `tools:` is an AUTHORITATIVE allowlist: when
+// present it restricts the agent to ONLY the listed tools. Marketplace-attached
+// MCP servers / skills are wired via the overlay, and the SDK runner widens the
+// allowlist at launch (see sdk-runner _applyOverlayCaps) — but the raw Copilot
+// CLI never sees the overlay, so a CLI-run agent is forbidden from calling its
+// attached tools ("I don't have the WorkIQ integration available"). Patch the
+// frontmatter allowlist in place so attached caps work under BOTH runtimes: grant
+// each attached MCP server's tools via a `<server>/*` wildcard (the CLI honours
+// it), plus the built-in `skill` tool when any skill is attached. No-op when the
+// frontmatter carries no tools array (a null allowlist already permits all).
+function grantAttachedToolsInFrontmatter(agentMdPath, { mcpServers = [], hasSkills = false } = {}) {
+  try {
+    if (!agentMdPath || !fs.existsSync(agentMdPath)) return;
+    const additions = [];
+    for (const s of mcpServers) if (s) additions.push(String(s) + '/*');
+    if (hasSkills) additions.push('skill');
+    if (!additions.length) return;
+    const raw = fs.readFileSync(agentMdPath, 'utf8');
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+    if (!fmMatch) return;
+    const fm = fmMatch[1];
+    const tm = fm.match(/^tools:[ \t]*(\[[\s\S]*?\])[ \t]*$/m);
+    if (!tm) return; // null allowlist = all tools already permitted
+    let tools;
+    try { tools = JSON.parse(tm[1]); } catch (_) { return; }
+    if (!Array.isArray(tools)) return;
+    const have = new Set(tools.map(t => String(t).toLowerCase()));
+    let changed = false;
+    for (const a of additions) {
+      if (!have.has(a.toLowerCase())) { tools.push(a); have.add(a.toLowerCase()); changed = true; }
+    }
+    if (!changed) return;
+    const newFm = fm.replace(/^tools:[ \t]*\[[\s\S]*?\][ \t]*$/m, 'tools: ' + JSON.stringify(tools));
+    fs.writeFileSync(agentMdPath, raw.replace(fmMatch[0], '---\n' + newFm + '\n---'));
+  } catch (e) {
+    console.error('[design] frontmatter tool-grant failed:', e.message);
+  }
+}
 //  - persist (apply): write each skill into the catalog-scanned _generated-skills
 //    dir (so it surfaces in the marketplace catalog for reuse) AND attach it to
 //    the new agent's overlay.
@@ -5150,6 +5187,14 @@ app.post('/api/marketplace/design/apply', async (req, res) => {
 
     const { attached, failed } = await attachCapsToAgent(agentId, proposal.attach);
     const skills = materializeProposalSkills(agentId, proposal.newSkills, { persist: true });
+    // Grant attached MCP/skill tools in the new agent's frontmatter allowlist so
+    // they're callable under the raw Copilot CLI runtime, not just the SDK runner.
+    if (proposal.kind === 'create' && config.source && config.source.path) {
+      grantAttachedToolsInFrontmatter(config.source.path, {
+        mcpServers: attached.filter(a => a.type === 'mcp').map(a => a.name),
+        hasSkills: attached.some(a => a.type === 'skill') || !!(skills.generated && skills.generated.length),
+      });
+    }
     broadcastSSE('agent-update', { agentId });
     res.json({ ok: true, kind: proposal.kind, agentId, created: config, attached, failed, generatedSkills: skills.generated, skillsFailed: skills.failed });
   } catch (e) {
