@@ -13375,9 +13375,9 @@
                          @pointerup="meAiPursuitPanEnd()" @pointerleave="meAiPursuitPanEnd()">
                       <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
                         <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
-                          <template x-for="e in meai.pursuit._edges" :key="e.id">
-                            <path :d="e.d" :class="'pe pe-'+e.type" fill="none"></path>
-                          </template>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none"></path>
                         </svg>
                         <template x-for="n in meai.pursuit._nodes" :key="n.id">
                           <div class="meai-pnode" :class="n.cls" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenLeg(n.id)">
@@ -21708,6 +21708,7 @@
             zoom: 1, panX: 0, panY: 0,   // canvas transform
             follow: true,                // auto-recenter on latest
             _drag: null,
+            _nodes: [], _edgeD: { spine: '', branch: '', merge: '' }, _w: 1000, _h: 600,
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
@@ -29678,8 +29679,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // merge-back edges become SVG paths. Cached onto pursuit._nodes/_edges.
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
-          const COLW = 340, ROWH = 128, CX = 460, TOP = 40, W = 300;
-          const nodes = [], edges = [], lane = {}; let laneNext = 0;
+          const COLW = 340, ROWH = 128, CX = 460, TOP = 40, W = 300, PAD = 48;
+          const nodes = [], lane = {}; let laneNext = 0;
           const laneIndex = (leg) => {
             if (leg.kind === 'spine' || leg.parentId == null) return 0;
             if (lane[leg.id] != null) return lane[leg.id];
@@ -29688,7 +29689,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const step = Math.ceil(laneNext / 2) * (laneNext % 2 === 1 ? 1 : -1);
             lane[leg.id] = step; return step;
           };
-          if (!tree) { p._nodes = []; p._edges = []; p._w = 1000; p._h = 600; return; }
+          if (!tree) { p._nodes = []; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
           const legs = tree.legs || {};
           const stopByLeg = {};
@@ -29696,13 +29697,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const artByLeg = {};
           for (const a of (tree.artifacts || [])) { (artByLeg[a.legId] = artByLeg[a.legId] || []).push(a); }
           const pos = {};
-          let maxX = CX, maxY = TOP;
+          let minX = Infinity, maxX = -Infinity, maxY = TOP;
           order.forEach((id, i) => {
             const leg = legs[id]; if (!leg) return;
             const li = laneIndex(leg);
             const x = CX + li * COLW;
             const y = TOP + i * ROWH;
-            pos[id] = { x: x + W / 2, y };
             const stop = stopByLeg[id];
             const arts = artByLeg[id] || [];
             let cls = 'kind-' + (leg.kind || 'branch');
@@ -29711,16 +29711,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (stop) cls += (stop.type === 'needs-auth' ? ' pauth' : ' pstop');
             if (leg.status === 'running') cls += ' prun';
             nodes.push({ id, leg, x, y, w: W, cls, stop: stop || null, arts, i });
-            maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+            pos[id] = { x, y };
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
           });
-          // edges: parent link + merge-back (reroute legs point at spine)
+          // Shift the whole graph right so the leftmost node clears the left panel /
+          // canvas edge — side-lane legs (esp. reroutes) land at negative x otherwise.
+          const offsetX = (isFinite(minX) && minX < PAD) ? (PAD - minX) : 0;
+          if (offsetX) { nodes.forEach(n => { n.x += offsetX; pos[n.id].x += offsetX; }); maxX += offsetX; }
+          // Edges: one combined path per visual type. Authored as static <path>
+          // elements in the SVG (not x-for) so they live in the SVG namespace and
+          // actually render — Alpine x-for inside <svg> creates HTML-namespaced
+          // nodes that never paint.
+          const dByType = { spine: '', branch: '', merge: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
             const type = (leg.kind === 'reroute') ? 'merge' : (leg.kind === 'spine' ? 'spine' : 'branch');
-            edges.push({ id: 'e-' + id, d: this._meAiEdgePath(a.x, a.y + 96, b.x, b.y), type });
+            dByType[type] += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
           });
-          p._nodes = nodes; p._edges = edges;
+          p._nodes = nodes; p._edgeD = dByType;
           p._w = maxX + W + 120; p._h = maxY + ROWH + 80;
         },
         _meAiEdgePath(x1, y1, x2, y2) {
