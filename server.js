@@ -16630,7 +16630,26 @@ async function _meAiRunLeg(t, leg) {
   _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'done', confidence: r.confidence });
 }
 
-// Assemble the ONE artifact (PR blocker report) from merged findings, journal the
+// Playbook-aware report title. The fan-out artifact is NOT always a "PR blocker
+// report" — that header was hardcoded regardless of what the pursuit was doing.
+function _meAiReportTitle(t) {
+  const byPlaybook = {
+    steward: 'PR stewardship report',
+    review: 'Code review report',
+    comms: 'Comms brief',
+    prep: 'Meeting prep brief',
+    implement: 'Implementation report',
+    admin: 'Admin brief',
+  };
+  const p = t && t.playbook;
+  if (p && byPlaybook[p]) return byPlaybook[p];
+  // Ad-hoc / unknown: derive from the task title, else a neutral fallback.
+  const ti = (t && (t.title || '')).trim();
+  if (ti) return (ti.length > 60 ? ti.slice(0, 57) + '…' : ti) + ' — report';
+  return 'Pursuit report';
+}
+
+// Assemble the ONE artifact (the pursuit report) from merged findings, journal the
 // merges, reroute the spine if the merge is strong, and park the task awaiting.
 async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   const id = t.id;
@@ -16644,8 +16663,9 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   for (const l of done) {
     _meAiTreeEmit(id, 'merge', { merge: _meAiNewMergeCandidate({ legId: l.id, baseEpoch: 0, confidence: l._result.confidence, findings: l._result.findings, invalidatesLegIds: [] }) });
   }
-  // Build the blocker report markdown.
-  const lines = [`# PR blocker report`, ``, `**Goal:** ${t.goal || _meAiGoalFor(t)}`, ``];
+  // Build the pursuit report markdown.
+  const reportTitle = _meAiReportTitle(t);
+  const lines = [`# ${reportTitle}`, ``, `**Goal:** ${t.goal || _meAiGoalFor(t)}`, ``];
   for (const l of legs) {
     const r = l._result;
     const glyph = !r ? '·' : r.outcome === 'dead-end' ? '✖' : l._stopId ? '⏸' : '✔';
@@ -16661,7 +16681,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   else if (done.length) { const top = done.slice().sort((a, b) => (rank[b._result.confidence] || 0) - (rank[a._result.confidence] || 0))[0]; best = { text: top._result.summary, kind: 'info' }; }
   else if (pendingInfo.length) best = { text: (pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title), kind: 'ask' };
   lines.push(`---`, `**Recommended next move:** ${best ? best.text : 'Review findings.'}`);
-  const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: 'PR blocker report', body: lines.join('\n') });
+  const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: reportTitle, body: lines.join('\n') });
   try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + '.md'); fs.writeFileSync(art.path, art.body); } catch (_) {}
   _meAiTreeEmit(id, 'artifact', { artifact: art });
   // Reroute: a strong merged recommendation changes the plan -> bump epoch + a
@@ -16685,7 +16705,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     ? [{ label: 'Approve: ' + ((pa._result.proposedAction && pa._result.proposedAction.op) || 'action'), intent: 'approve', primary: true, risk: (pa._result.proposedAction && pa._result.proposedAction.risk === 'external') ? 'external' : 'write', detail: (pa._result.proposedAction && pa._result.proposedAction.summary) || pa.title, _stopId: pa._stopId },
        { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: pa._stopId },
        { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' }]
-    : [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }, { label: 'Continue', intent: 'continue', primary: false, risk: 'none' }];
+    : [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
   _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
   _meAiSetStage(t, 'awaiting', 'awaiting');

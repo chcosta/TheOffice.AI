@@ -12314,11 +12314,44 @@
               .meai-pursue-go { white-space:nowrap; }
               .meai-lane-map { margin-left:8px; color:var(--cp-accent); text-decoration:none; font-weight:600; }
               .meai-lane-map:hover { text-decoration:underline; }
+              /* ── 2-pane pursuit surface (left nav + center view) ── */
+              .meai-pu-nav { display:flex; flex-direction:column; min-width:0; min-height:0; border-right:1px solid var(--cp-border); background:var(--cp-surface); }
+              .meai-pu-navtabs { display:flex; align-items:center; gap:2px; padding:8px 10px; border-bottom:1px solid var(--cp-border); flex:0 0 auto; }
+              .meai-pu-navtabs > button { border:0; background:transparent; color:var(--cp-text-muted); padding:6px 9px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; display:flex; align-items:center; gap:5px; }
+              .meai-pu-navtabs > button.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .meai-pu-nc { color:var(--cp-text-muted); font-weight:600; font-size:11px; }
+              .meai-pu-navbody { flex:1; overflow:auto; padding:12px; min-height:0; }
+              .meai-pu-chat-goal { padding:11px 13px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); background:var(--cp-bg); margin-bottom:12px; }
+              .meai-pu-chat-goal-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin-bottom:4px; }
+              .meai-pu-chat-goal-t { font-size:13.5px; color:var(--cp-text); line-height:1.5; font-weight:600; }
+              /* Drag splitter between nav and view */
+              .meai-pu-split { flex:0 0 6px; cursor:col-resize; background:transparent; position:relative; touch-action:none; }
+              .meai-pu-split::before { content:''; position:absolute; inset:0 2px; border-radius:999px; background:transparent; transition:background .15s; }
+              .meai-pu-split:hover::before { background:color-mix(in srgb,var(--cp-accent) 45%, transparent); }
+              /* Center view surface (map | node | report | artifact) */
+              .meai-pu-view { flex:1; min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; }
+              /* Node view (replaces the node-detail modal) */
+              .meai-pu-nodeview { position:absolute; inset:0; z-index:8; background:var(--cp-bg); display:flex; flex-direction:column; min-height:0; }
+              .meai-pu-nodeview-ti { font-weight:700; color:var(--cp-text); font-size:15px; min-width:0; display:flex; align-items:baseline; gap:8px; flex:1; }
+              .meai-pu-nodeview-ti .meai-pu-report-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-pu-nodeview-state { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--cp-text); font-weight:600; flex:0 0 auto; }
+              .meai-pu-nodeview-body { flex:1; overflow:auto; padding:18px 22px; min-height:0; display:flex; flex-direction:column; gap:16px; }
+              .meai-pu-nodeview-tr { display:flex; flex-direction:column; }
+              .meai-pu-nodeview-steer { border-top:1px solid var(--cp-border); padding:12px 18px; display:flex; flex-direction:column; gap:8px; flex:0 0 auto; background:var(--cp-surface); }
+              .meai-pu-report-ti { display:flex; align-items:baseline; gap:8px; min-width:0; flex:1; }
+              .meai-pu-report-t { font-weight:700; color:var(--cp-text); font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-pu-det-arts { display:flex; flex-direction:column; }
+              /* Gate / cull edges + legend (increment 3) */
+              .meai-pedges .pe-gate { stroke:#d29922; stroke-width:2; stroke-dasharray:4 4; opacity:.85; }
+              .meai-pedges .pe-cull { stroke:#cf222e; stroke-width:2; stroke-dasharray:4 4; opacity:.7; }
+              .meai-pnode.pgate { border-color:#d29922; border-style:dashed; }
+              .meai-pnode-dot.gate { background:#d29922; }
+              .meai-pu-legrow.lg-gate .meai-pu-legdot { background:#d29922; }
               @media (max-width:1000px) {
                 .meai-pu-body { flex-direction:column; }
-                .meai-pu-left, .meai-pu-right { flex:0 0 auto; max-height:44vh; border-right:0; border-left:0; border-bottom:1px solid var(--cp-border); }
+                .meai-pu-nav { flex:0 0 auto !important; max-height:44vh; border-right:0; border-bottom:1px solid var(--cp-border); }
+                .meai-pu-split { display:none; }
                 .meai-pu-goal { max-width:40vw; }
-                .meai-pu-artmodal { padding:14px; }
               }
               @media (prefers-reduced-motion: reduce) {
                 .meai-pu-spin { animation:none; }
@@ -13426,7 +13459,7 @@
 
             <!-- ===== Live pursuit canvas (P2) — fan-out map, framed in the app shell ===== -->
             <template x-if="meai.pursuit.open">
-              <div class="meai-pursuit" :style="meAiPursuitFrameStyle()" @keydown.escape.window="meai.pursuit.nodeDetail ? meAiPursuitCloseDetail() : (meai.pursuit.artView ? meAiPursuitCloseArt() : (meai.pursuit.centerView==='report' ? meAiPursuitHideReport() : meAiPursuitClose()))">
+              <div class="meai-pursuit" :style="meAiPursuitFrameStyle()" @keydown.escape.window="meAiPursuitEscape()">
                 <!-- Top bar -->
                 <div class="meai-pu-top">
                   <button type="button" class="meai-pu-back" @click="meAiPursuitClose()" title="Back">‹ Back</button>
@@ -13438,185 +13471,132 @@
                 </div>
 
                 <div class="meai-pu-body">
-                  <!-- LEFT: leg chat (main thread by default) -->
-                  <aside class="meai-pu-left" x-show="meai.pursuit.left" x-transition.opacity>
-                    <div class="meai-pu-legpick">
-                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.left=false" title="Collapse leg chat">‹</button>
-                      <button type="button" :class="{ on: meai.pursuit.legPick==='spine' }" @click="meai.pursuit.legPick='spine'">Main thread</button>
-                      <template x-for="n in (meai.pursuit._nodes||[]).filter(x => x.leg.kind!=='spine')" :key="'lp-'+n.id">
-                        <button type="button" :class="{ on: meai.pursuit.legPick===n.id }" @click="meai.pursuit.legPick=n.id" x-text="n.leg.title"></button>
-                      </template>
+                  <!-- LEFT: navigation — Chat (default) / Index / Approvals / Artifacts -->
+                  <aside class="meai-pu-nav" x-show="meai.pursuit.navOpen" :style="'flex:0 0 '+meai.pursuit.navW+'px'">
+                    <div class="meai-pu-navtabs">
+                      <button type="button" :class="{ on: meai.pursuit.nav==='chat' }" @click="meai.pursuit.nav='chat'">Chat</button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='index' }" @click="meai.pursuit.nav='index'">Index</button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='approvals' }" @click="meai.pursuit.nav='approvals'">Approvals<span class="meai-pu-nc" x-show="meAiPursuitStops().length" x-text="meAiPursuitStops().length"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='artifacts' }" @click="meai.pursuit.nav='artifacts'">Artifacts<span class="meai-pu-nc" x-show="meAiPursuitArtifacts().length" x-text="meAiPursuitArtifacts().length"></span></button>
+                      <span style="flex:1"></span>
+                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.navOpen=false" title="Collapse">‹</button>
                     </div>
-                    <div class="meai-pu-legscroll">
-                      <!-- Conclusion / outcome — surfaces on the main thread when the pursuit reaches a recommendation -->
-                      <template x-if="meai.pursuit.legPick==='spine' && meAiPursuitConcluded()">
-                        <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done') }">
-                          <div class="meai-pu-outcome-h">
-                            <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
-                            <span x-text="meAiPursuitOutcome().title"></span>
+                    <div class="meai-pu-navbody">
+                      <!-- CHAT: the main-thread conversation (goal → reasoning → outcome + steer) -->
+                      <template x-if="meai.pursuit.nav==='chat'">
+                        <div>
+                          <!-- Original goal, framed as the opening request -->
+                          <div class="meai-pu-chat-goal">
+                            <div class="meai-pu-chat-goal-h">You asked</div>
+                            <div class="meai-pu-chat-goal-t" x-text="(meai._taskById[meai.pursuit.tid] && (meai._taskById[meai.pursuit.tid].goal || meai._taskById[meai.pursuit.tid].title)) || 'Pursuit'"></div>
                           </div>
-                          <div class="meai-pu-outcome-sum" x-show="meAiPursuitOutcome().summary" x-text="meAiPursuitOutcome().summary"></div>
-                          <div class="meai-pu-outcome-meta">
-                            <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
-                            <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
-                          </div>
-                          <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
-                            <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
-                          </div>
-                          <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
-                            <div class="meai-pu-outcome-nexth">Recommended next</div>
-                            <template x-for="(a, ai) in meAiPursuitSteerActions()" :key="'na-'+ai">
-                              <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meai.pursuit.acting" @click="meAiPursuitAct(a)">
-                                <span x-text="a.label || a.intent"></span>
-                                <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
+                          <!-- Conclusion / outcome — surfaces when the pursuit reaches a recommendation -->
+                          <template x-if="meAiPursuitConcluded()">
+                            <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done') }">
+                              <div class="meai-pu-outcome-h">
+                                <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
+                                <span x-text="meAiPursuitOutcome().title"></span>
+                              </div>
+                              <div class="meai-pu-outcome-sum" x-show="meAiPursuitOutcome().summary" x-text="meAiPursuitOutcome().summary"></div>
+                              <div class="meai-pu-outcome-meta">
+                                <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
+                                <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
+                              </div>
+                              <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
+                                <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
+                              </div>
+                              <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
+                                <div class="meai-pu-outcome-nexth">Recommended next</div>
+                                <template x-for="(a, ai) in meAiPursuitSteerActions()" :key="'na-'+ai">
+                                  <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meai.pursuit.acting" @click="meAiPursuitAct(a)">
+                                    <span x-text="a.label || a.intent"></span>
+                                    <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
+                                  </button>
+                                </template>
+                              </div>
+                              <!-- Steer composer: keep the pursuit going (dig deeper), send it a new
+                                   angle, or wrap up. Re-engages the fan-out on the canvas. -->
+                              <div class="meai-pu-steer" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')">
+                                <div class="meai-pu-steer-h">Take it further</div>
+                                <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.steer"
+                                  placeholder="Tell the agent what to pursue next — dig into a thread, chase a new angle, or ask for more data…"
+                                  :disabled="meai.pursuit.acting"
+                                  @keydown.enter.meta.prevent="meAiPursuitSteer('continue')"
+                                  @keydown.enter.ctrl.prevent="meAiPursuitSteer('continue')"></textarea>
+                                <div class="meai-pu-steer-row">
+                                  <button type="button" class="btn primary" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('continue')">Dig into this →</button>
+                                  <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('change-approach')">Try a different angle</button>
+                                </div>
+                                <div class="meai-pu-steer-quick">
+                                  <span class="meai-pu-steer-qh">Or quickly:</span>
+                                  <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Dig deeper on the strongest thread and bring back more evidence.')">Dig deeper</button>
+                                  <span aria-hidden="true">·</span>
+                                  <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('change-approach','Try a fundamentally different approach to this.')">Different approach</button>
+                                  <span aria-hidden="true">·</span>
+                                  <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Gather more data and sources before concluding.')">Get more data</button>
+                                </div>
+                                <button type="button" class="meai-pu-steer-done" :disabled="meai.pursuit.acting" @click="meAiPursuitFinish()">Looks good — I'm done here ✓</button>
+                              </div>
+                            </div>
+                          </template>
+
+                          <template x-for="(ev, ei) in meAiPursuitChatEvents()" :key="'pe-'+ei">
+                            <div class="meai-pu-ev" :class="['ev-'+ev.kind, meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                              <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                              <div class="meai-pu-ev-b">
+                                <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('spine',ei,ev))">
+                                  <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                                  <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                                  <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)] ? '▾' : '▸'"></span>
+                                </button>
+                                <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)]">
+                                  <div class="meai-pu-ev-d">
+                                    <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                    <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                          <div x-show="!meAiPursuitChatEvents().length && !meAiPursuitConcluded()" class="meai-pu-empty">The main thread fills in as the agent plans and forks legs. Click any node on the map to dive into that leg.</div>
+                        </div>
+                      </template>
+
+                      <!-- INDEX: interesting vertices (jump to them on the map) -->
+                      <template x-if="meai.pursuit.nav==='index'">
+                        <div>
+                          <select class="field-input meai-pu-filter" x-model="meai.pursuit.filter">
+                            <option value="all">Everything interesting</option>
+                            <option value="done">Results</option>
+                            <option value="merge">Merge-backs</option>
+                            <option value="auth">Needs approval</option>
+                            <option value="artifact">Artifacts</option>
+                            <option value="dead">Dead ends</option>
+                          </select>
+                          <div class="meai-pu-legend">
+                            <template x-for="row in meAiPursuitInteresting()" :key="row.n.id">
+                              <button type="button" class="meai-pu-legrow" :class="'lg-'+row.tag" @click="meAiPursuitOpenNode(row.n)">
+                                <span class="meai-pu-legdot"></span>
+                                <span class="meai-pu-legtxt">
+                                  <span class="meai-pu-legt" x-text="row.n.leg.title"></span>
+                                  <span class="meai-pu-legk" x-text="meAiPursuitTagLabel(row.tag)"></span>
+                                </span>
                               </button>
                             </template>
-                          </div>
-                          <!-- Steer composer: keep the pursuit going (dig deeper), send it a new
-                               angle, or wrap up. Re-engages the fan-out on the canvas. -->
-                          <div class="meai-pu-steer" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')">
-                            <div class="meai-pu-steer-h">Take it further</div>
-                            <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.steer"
-                              placeholder="Tell the agent what to pursue next — dig into a thread, chase a new angle, or ask for more data…"
-                              :disabled="meai.pursuit.acting"
-                              @keydown.enter.meta.prevent="meAiPursuitSteer('continue')"
-                              @keydown.enter.ctrl.prevent="meAiPursuitSteer('continue')"></textarea>
-                            <div class="meai-pu-steer-row">
-                              <button type="button" class="btn primary" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('continue')">Dig into this →</button>
-                              <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('change-approach')">Try a different angle</button>
-                            </div>
-                            <div class="meai-pu-steer-quick">
-                              <span class="meai-pu-steer-qh">Or quickly:</span>
-                              <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Dig deeper on the strongest thread and bring back more evidence.')">Dig deeper</button>
-                              <span aria-hidden="true">·</span>
-                              <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('change-approach','Try a fundamentally different approach to this.')">Different approach</button>
-                              <span aria-hidden="true">·</span>
-                              <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Gather more data and sources before concluding.')">Get more data</button>
-                            </div>
-                            <button type="button" class="meai-pu-steer-done" :disabled="meai.pursuit.acting" @click="meAiPursuitFinish()">Looks good — I'm done here ✓</button>
+                            <div x-show="!meAiPursuitInteresting().length" class="meai-pu-empty">Nothing flagged yet — the agent will surface results, merge-backs and dead ends here as it works.</div>
                           </div>
                         </div>
                       </template>
 
-                      <template x-for="(ev, ei) in meAiPursuitLegEvents()" :key="'pe-'+ei">
-                        <div class="meai-pu-ev" :class="['ev-'+ev.kind, meAiPursuitEvHasDetail(ev)?'has-detail':'']">
-                          <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
-                          <div class="meai-pu-ev-b">
-                            <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey(ei,ev))">
-                              <span class="meai-pu-ev-k" x-text="ev.kind"></span>
-                              <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
-                              <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey(ei,ev)] ? '▾' : '▸'"></span>
-                            </button>
-                            <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey(ei,ev)]">
-                              <div class="meai-pu-ev-d">
-                                <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
-                                <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
-                              </div>
-                            </template>
-                          </div>
-                        </div>
-                      </template>
-                      <div x-show="!meAiPursuitLegEvents().length && !(meai.pursuit.legPick==='spine' && meAiPursuitConcluded())" class="meai-pu-empty">No transcript for this leg yet.</div>
-                    </div>
-                  </aside>
-
-                  <!-- CENTER: live canvas only -->
-                  <main class="meai-pu-center">
-                    <!-- Edge re-open tabs when a side panel is collapsed -->
-                    <button type="button" class="meai-pu-reopen left" x-show="!meai.pursuit.left" @click="meai.pursuit.left=true" title="Show leg chat">💬</button>
-                    <button type="button" class="meai-pu-reopen right" x-show="!meai.pursuit.right" @click="meai.pursuit.right=true" title="Show approvals, artifacts &amp; index">▤</button>
-                    <!-- Report reader (item 7): uses the roomy center pane, not a cramped modal -->
-                    <template x-if="meai.pursuit.centerView==='report' && meAiPursuitReport()">
-                      <div class="meai-pu-report">
-                        <div class="meai-pu-report-top">
-                          <button type="button" class="meai-pu-report-back" @click="meAiPursuitHideReport()">‹ Back to map</button>
-                          <div class="meai-pu-report-ti">
-                            <span class="meai-pu-art-k" x-text="meAiPursuitReport().kind"></span>
-                            <span class="meai-pu-report-t" x-text="meAiPursuitReport().title"></span>
-                          </div>
-                          <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
-                        </div>
-                        <div class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
-                      </div>
-                    </template>
-                    <div class="meai-pcanvas" x-show="meai.pursuit.centerView!=='report'"
-                         @wheel.prevent="meAiPursuitWheel($event)"
-                         @pointerdown="meAiPursuitPanStart($event)" @pointermove="meAiPursuitPanMove($event)"
-                         @pointerup="meAiPursuitPanEnd()" @pointerleave="meAiPursuitPanEnd()">
-                      <!-- Floating zoom toolbar -->
-                      <div class="meai-pu-zoom">
-                        <button type="button" @click="meAiPursuitZoom('out')" title="Zoom out">−</button>
-                        <button type="button" @click="meAiPursuitZoom('reset')" title="Fit" x-text="Math.round(meai.pursuit.zoom*100)+'%'"></button>
-                        <button type="button" @click="meAiPursuitZoom('in')" title="Zoom in">＋</button>
-                        <button type="button" class="meai-pu-follow" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
-                      </div>
-                      <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
-                        <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.converge) || ''" class="pe pe-converge" fill="none"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none"></path>
-                        </svg>
-                        <template x-for="n in meai.pursuit._nodes" :key="n.id">
-                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', meai.pursuit.legPick===n.id ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenDetail(n)">
-                            <div class="meai-pnode-k" x-text="meAiPursuitLegKind(n.leg.kind)"></div>
-                            <div class="meai-pnode-t" x-text="n.leg.title"></div>
-                            <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
-                            <div class="meai-pnode-foot">
-                              <span class="meai-pnode-dot" :class="meAiPursuitNodeState(n).cls" :title="meAiPursuitNodeState(n).label"></span>
-                              <span class="meai-pnode-st" x-text="meAiPursuitNodeState(n).label"></span>
-                              <span class="meai-pnode-ago" x-show="meAiPursuitNodeTs(n)" x-text="meAiPursuitNodeTs(n)"></span>
-                              <span x-show="n.stop && n.stop.type==='needs-auth'" class="meai-pnode-badge auth" title="Waiting for your approval">needs approval</span>
-                              <span x-show="n.stop && n.stop.type!=='needs-auth'" class="meai-pnode-badge stop" title="Waiting on you">waiting on you</span>
-                              <button type="button" x-show="(n.arts||[]).length" class="meai-pnode-badge art" @click.stop="meAiPursuitOpenLegArt(n.id, $event)" :title="'Open '+((n.arts||[]).length)+' artifact'+((n.arts||[]).length===1?'':'s')" x-text="(n.arts.length)+' artifact'+(n.arts.length===1?'':'s')"></button>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                      <div x-show="!(meai.pursuit._nodes||[]).length" class="meai-pu-canvas-empty">
-                        <div class="meai-pu-spin"></div>
-                        <div>Spinning up the pursuit… the map fills in as the agent forks legs.</div>
-                      </div>
-                      <div class="meai-pu-legend-map" x-show="(meai.pursuit._nodes||[]).length">
-                        <button type="button" class="meai-pu-legend-h" @click="meai.pursuit.legendOpen=!meai.pursuit.legendOpen">
-                          <span x-text="meai.pursuit.legendOpen ? '▾' : '▸'"></span> Legend
-                        </button>
-                        <div class="meai-pu-legend-body" x-show="meai.pursuit.legendOpen">
-                          <div class="meai-pu-legend-grp">
-                            <div class="meai-pu-legend-cap">Connections</div>
-                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-spine"></span> Main thread</div>
-                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-branch"></span> Pursuit leg</div>
-                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-merge"></span> Merged back</div>
-                          </div>
-                          <div class="meai-pu-legend-grp">
-                            <div class="meai-pu-legend-cap">Legs</div>
-                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-done"></span> Result</div>
-                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-auth"></span> Needs approval</div>
-                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-dead"></span> Dead end</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </main>
-
-                  <!-- RIGHT: approvals + artifacts + index rail -->
-                  <aside class="meai-pu-right" x-show="meai.pursuit.right" x-transition.opacity>
-                    <div class="meai-pu-rtabs">
-                      <button type="button" :class="{ on: meai.pursuit.rail==='approvals' }" @click="meai.pursuit.rail='approvals'">Approvals <span class="meai-pu-rc" x-text="meAiPursuitStops().length"></span></button>
-                      <button type="button" :class="{ on: meai.pursuit.rail==='artifacts' }" @click="meai.pursuit.rail='artifacts'">Artifacts <span class="meai-pu-rc" x-text="meAiPursuitArtifacts().length"></span></button>
-                      <button type="button" :class="{ on: meai.pursuit.rail==='interesting' }" @click="meai.pursuit.rail='interesting'">Index</button>
-                      <span style="flex:1"></span>
-                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.right=false" title="Collapse this panel">›</button>
-                    </div>
-                    <div class="meai-pu-rbody">
-                      <!-- Approvals -->
-                      <template x-if="meai.pursuit.rail==='approvals'">
+                      <!-- APPROVALS -->
+                      <template x-if="meai.pursuit.nav==='approvals'">
                         <div>
                           <template x-for="s in meAiPursuitStops()" :key="s.id">
                             <div class="meai-pu-stop" :class="'st-'+s.type">
                               <div class="meai-pu-stop-k" x-text="({'needs-auth':'Needs approval','needs-info':'Needs an answer','needs-decision':'Needs a decision'})[s.type] || s.type"></div>
                               <div class="meai-pu-stop-p" x-text="s.prompt"></div>
                               <div x-show="s.risk" class="meai-pu-stop-risk" x-text="s.risk==='external' ? '↗ sends/posts externally' : (s.risk ? '✎ '+s.risk : '')"></div>
+                              <button type="button" x-show="s.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(s.legId)">Show the leg →</button>
                               <input type="text" class="field-input meai-pu-stop-note" placeholder="Optional note…" x-model="meai.pursuit.note">
                               <div class="meai-pu-stop-acts" x-show="s.type==='needs-auth' || s.type==='needs-decision'">
                                 <button type="button" class="btn primary" @click="meAiPursuitResolve(s,'approve')">Approve</button>
@@ -13638,8 +13618,9 @@
                           </template>
                         </div>
                       </template>
-                      <!-- Artifacts -->
-                      <template x-if="meai.pursuit.rail==='artifacts'">
+
+                      <!-- ARTIFACTS -->
+                      <template x-if="meai.pursuit.nav==='artifacts'">
                         <div>
                           <template x-for="a in meAiPursuitArtifacts()" :key="a.id">
                             <button type="button" class="meai-pu-art" @click="meAiPursuitOpenArt(a)">
@@ -13648,111 +13629,210 @@
                                 <span class="meai-pu-art-t" x-text="a.title"></span>
                               </div>
                               <div x-show="a.body" class="meai-pu-art-body" x-text="(a.body||'').replace(/[#*`>_-]/g,' ').replace(/\s+/g,' ').trim().slice(0,180)"></div>
-                              <div class="meai-pu-art-open">Open ↗</div>
                             </button>
                           </template>
                           <div x-show="!meAiPursuitArtifacts().length" class="meai-pu-empty">No reports or charts yet. The agent files results here as it reaches conclusions.</div>
                         </div>
                       </template>
-                      <!-- Index (interesting vertices) -->
-                      <template x-if="meai.pursuit.rail==='interesting'">
-                        <div>
-                          <select class="field-input meai-pu-filter" x-model="meai.pursuit.filter">
-                            <option value="all">Everything interesting</option>
-                            <option value="done">Results</option>
-                            <option value="merge">Merge-backs</option>
-                            <option value="auth">Needs approval</option>
-                            <option value="artifact">Artifacts</option>
-                            <option value="dead">Dead ends</option>
-                          </select>
-                          <div class="meai-pu-legend">
-                            <template x-for="row in meAiPursuitInteresting()" :key="row.n.id">
-                              <button type="button" class="meai-pu-legrow" :class="'lg-'+row.tag" @click="meAiPursuitFocus(row.n.id)">
-                                <span class="meai-pu-legdot"></span>
-                                <span class="meai-pu-legtxt">
-                                  <span class="meai-pu-legt" x-text="row.n.leg.title"></span>
-                                  <span class="meai-pu-legk" x-text="meAiPursuitTagLabel(row.tag)"></span>
-                                </span>
-                              </button>
-                            </template>
-                            <div x-show="!meAiPursuitInteresting().length" class="meai-pu-empty">Nothing flagged yet — the agent will surface results, merge-backs and dead ends here as it works.</div>
-                          </div>
-                        </div>
-                      </template>
                     </div>
                   </aside>
-                </div>
 
-                <!-- Expanded artifact reader -->
-                <template x-if="meai.pursuit.artView">
-                  <div class="meai-pu-artmodal" @click.self="meAiPursuitCloseArt()">
-                    <div class="meai-pu-artcard">
-                      <div class="meai-pu-artcard-h">
-                        <div class="meai-pu-artcard-ti">
-                          <span class="meai-pu-art-k" x-text="meai.pursuit.artView.kind"></span>
-                          <span class="meai-pu-artcard-t" x-text="meai.pursuit.artView.title"></span>
-                        </div>
-                        <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
-                        <button type="button" class="meai-pu-artcard-x" @click="meAiPursuitCloseArt()" title="Close">✕</button>
-                      </div>
-                      <div class="meai-pu-artcard-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
-                      <div class="meai-pu-artcard-foot" x-show="meai.pursuit.artView.legId">
-                        <button type="button" class="btn ghost" @click="meAiPursuitFocus(meai.pursuit.artView.legId); meAiPursuitCloseArt()">Show on map</button>
-                        <button type="button" class="btn ghost" @click="meai.pursuit.legPick=meai.pursuit.artView.legId; meAiPursuitCloseArt()">Open this leg's chat</button>
-                      </div>
-                    </div>
-                  </div>
-                </template>
+                  <!-- Drag splitter (resize the nav) -->
+                  <div class="meai-pu-split" x-show="meai.pursuit.navOpen" @pointerdown="meAiPursuitNavResize($event)" title="Drag to resize"></div>
 
-                <!-- Node detail overlay (item 3): full untruncated text + timestamps + artifacts -->
-                <template x-if="meai.pursuit.nodeDetail">
-                  <div class="meai-pu-artmodal" @click.self="meAiPursuitCloseDetail()">
-                    <div class="meai-pu-artcard meai-pu-detcard">
-                      <div class="meai-pu-artcard-h">
-                        <div class="meai-pu-artcard-ti">
-                          <span class="meai-pu-art-k" x-text="meAiPursuitLegKind(meai.pursuit.nodeDetail.leg.kind)"></span>
-                          <span class="meai-pu-artcard-t" x-text="meai.pursuit.nodeDetail.leg.title"></span>
-                        </div>
-                        <button type="button" class="meai-pu-artcard-x" @click="meAiPursuitCloseDetail()" title="Close">✕</button>
-                      </div>
-                      <div class="meai-pu-detcard-body">
-                        <div class="meai-pu-det-state">
-                          <span class="meai-pnode-dot" :class="meAiPursuitNodeState(meai.pursuit.nodeDetail).cls"></span>
-                          <span x-text="meAiPursuitNodeState(meai.pursuit.nodeDetail).label"></span>
-                          <span class="meai-pu-det-ts" x-show="meAiPursuitNodeTs(meai.pursuit.nodeDetail)" x-text="'· '+meAiPursuitNodeTs(meai.pursuit.nodeDetail)"></span>
-                        </div>
-                        <div class="meai-pu-det-goal" x-show="meai.pursuit.nodeDetail.leg.goal">
-                          <div class="meai-pu-det-lbl">Goal</div>
-                          <div x-text="meai.pursuit.nodeDetail.leg.goal"></div>
-                        </div>
-                        <template x-if="meai.pursuit.nodeDetail.stop">
-                          <div class="meai-pu-det-stop">
-                            <div class="meai-pu-det-lbl">Waiting on you</div>
-                            <div x-text="meai.pursuit.nodeDetail.stop.prompt"></div>
+                  <!-- CENTER: one flexible view surface (map | node | report | artifact) -->
+                  <main class="meai-pu-view">
+                    <button type="button" class="meai-pu-reopen left" x-show="!meai.pursuit.navOpen" @click="meai.pursuit.navOpen=true" title="Show navigation">☰</button>
+
+                    <!-- REPORT view -->
+                    <template x-if="meai.pursuit.centerView==='report' && meAiPursuitReport()">
+                      <div class="meai-pu-report">
+                        <div class="meai-pu-report-top">
+                          <button type="button" class="meai-pu-report-back" @click="meAiPursuitToMap()">‹ Back to map</button>
+                          <div class="meai-pu-report-ti">
+                            <span class="meai-pu-art-k" x-text="meAiPursuitReport().kind"></span>
+                            <span class="meai-pu-report-t" x-text="meAiPursuitReport().title"></span>
                           </div>
-                        </template>
-                        <template x-if="meAiPursuitDetailArts(meai.pursuit.nodeDetail).length">
-                          <div class="meai-pu-det-arts">
-                            <div class="meai-pu-det-lbl" x-text="meAiPursuitDetailArts(meai.pursuit.nodeDetail).length+' artifact'+(meAiPursuitDetailArts(meai.pursuit.nodeDetail).length===1?'':'s')"></div>
-                            <template x-for="a in meAiPursuitDetailArts(meai.pursuit.nodeDetail)" :key="a.id">
-                              <button type="button" class="meai-pu-art" @click="meAiPursuitOpenArt(a); meAiPursuitCloseDetail()">
-                                <div class="meai-pu-art-h">
-                                  <span class="meai-pu-art-k" x-text="a.kind"></span>
-                                  <span class="meai-pu-art-t" x-text="a.title"></span>
+                          <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
+                        </div>
+                        <div class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
+                      </div>
+                    </template>
+
+                    <!-- ARTIFACT view (was a modal) -->
+                    <template x-if="meai.pursuit.centerView==='artifact' && meai.pursuit.artView">
+                      <div class="meai-pu-report">
+                        <div class="meai-pu-report-top">
+                          <button type="button" class="meai-pu-report-back" @click="meAiPursuitToMap()">‹ Back to map</button>
+                          <div class="meai-pu-report-ti">
+                            <span class="meai-pu-art-k" x-text="meai.pursuit.artView.kind"></span>
+                            <span class="meai-pu-report-t" x-text="meai.pursuit.artView.title"></span>
+                          </div>
+                          <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
+                          <button type="button" class="meai-pu-report-back" x-show="meai.pursuit.artView.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.artView.legId)">Show the leg →</button>
+                        </div>
+                        <div class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
+                      </div>
+                    </template>
+
+                    <!-- NODE view (was a modal) — full transcript + details + a redirect box -->
+                    <template x-if="meai.pursuit.centerView==='node' && meai.pursuit.nodeView">
+                      <div class="meai-pu-nodeview">
+                        <div class="meai-pu-report-top">
+                          <button type="button" class="meai-pu-report-back" @click="meAiPursuitToMap()">‹ Back to map</button>
+                          <div class="meai-pu-nodeview-ti">
+                            <span class="meai-pu-art-k" x-text="meAiPursuitLegKind(meai.pursuit.nodeView.leg.kind)"></span>
+                            <span class="meai-pu-report-t" x-text="meai.pursuit.nodeView.leg.title"></span>
+                          </div>
+                          <span class="meai-pu-nodeview-state">
+                            <span class="meai-pnode-dot" :class="meAiPursuitNodeState(meai.pursuit.nodeView).cls"></span>
+                            <span x-text="meAiPursuitNodeState(meai.pursuit.nodeView).label"></span>
+                            <span class="meai-pu-det-ts" x-show="meAiPursuitNodeTs(meai.pursuit.nodeView)" x-text="'· '+meAiPursuitNodeTs(meai.pursuit.nodeView)"></span>
+                          </span>
+                        </div>
+                        <div class="meai-pu-nodeview-body">
+                          <!-- Goal -->
+                          <div class="meai-pu-det-goal" x-show="meai.pursuit.nodeView.leg.goal">
+                            <div class="meai-pu-det-lbl">Goal</div>
+                            <div x-text="meai.pursuit.nodeView.leg.goal"></div>
+                          </div>
+                          <!-- Waiting-on stop -->
+                          <template x-if="meai.pursuit.nodeView.stop">
+                            <div class="meai-pu-det-stop">
+                              <div class="meai-pu-det-lbl">Waiting on you</div>
+                              <div x-text="meai.pursuit.nodeView.stop.prompt"></div>
+                              <div class="meai-pu-stop-acts" x-show="meai.pursuit.nodeView.stop.type==='needs-auth' || meai.pursuit.nodeView.stop.type==='needs-decision'">
+                                <button type="button" class="btn primary" @click="meAiPursuitResolve(meai.pursuit.nodeView.stop,'approve')">Approve</button>
+                                <button type="button" class="btn ghost" @click="meAiPursuitResolve(meai.pursuit.nodeView.stop,'deny')">Decline</button>
+                              </div>
+                            </div>
+                          </template>
+                          <!-- Artifacts from this leg -->
+                          <template x-if="meAiPursuitDetailArts(meai.pursuit.nodeView).length">
+                            <div class="meai-pu-det-arts">
+                              <div class="meai-pu-det-lbl" x-text="meAiPursuitDetailArts(meai.pursuit.nodeView).length+' artifact'+(meAiPursuitDetailArts(meai.pursuit.nodeView).length===1?'':'s')"></div>
+                              <template x-for="a in meAiPursuitDetailArts(meai.pursuit.nodeView)" :key="a.id">
+                                <button type="button" class="meai-pu-art" @click="meAiPursuitOpenArt(a)">
+                                  <div class="meai-pu-art-h">
+                                    <span class="meai-pu-art-k" x-text="a.kind"></span>
+                                    <span class="meai-pu-art-t" x-text="a.title"></span>
+                                  </div>
+                                </button>
+                              </template>
+                            </div>
+                          </template>
+                          <!-- Transcript (reasoning / tools / thinking / response) -->
+                          <div class="meai-pu-nodeview-tr">
+                            <div class="meai-pu-det-lbl">What this leg did</div>
+                            <template x-for="(ev, ei) in meAiPursuitNodeEvents(meai.pursuit.nodeView)" :key="'nv-'+ei">
+                              <div class="meai-pu-ev" :class="['ev-'+ev.kind, meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                                <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                                <div class="meai-pu-ev-b">
+                                  <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('nv',ei,ev))">
+                                    <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                                    <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                                    <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('nv',ei,ev)] ? '▾' : '▸'"></span>
+                                  </button>
+                                  <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('nv',ei,ev)]">
+                                    <div class="meai-pu-ev-d">
+                                      <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                      <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                                    </div>
+                                  </template>
                                 </div>
-                                <div class="meai-pu-art-open">Open ↗</div>
-                              </button>
+                              </div>
                             </template>
+                            <div x-show="!meAiPursuitNodeEvents(meai.pursuit.nodeView).length" class="meai-pu-empty">No transcript for this leg yet.</div>
+                          </div>
+                        </div>
+                        <!-- Redirect box scoped to this leg -->
+                        <div class="meai-pu-nodeview-steer" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')">
+                          <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.nodeSteer"
+                            placeholder="Redirect this leg or ask a follow-up…"
+                            :disabled="meai.pursuit.acting"
+                            @keydown.enter.meta.prevent="meAiPursuitNodeSteer('continue')"
+                            @keydown.enter.ctrl.prevent="meAiPursuitNodeSteer('continue')"></textarea>
+                          <div class="meai-pu-steer-row">
+                            <button type="button" class="btn primary" :disabled="meai.pursuit.acting || !meai.pursuit.nodeSteer.trim()" @click="meAiPursuitNodeSteer('continue')">Send →</button>
+                            <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.nodeSteer.trim()" @click="meAiPursuitNodeSteer('change-approach')">Try a different angle</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- MAP (default) -->
+                    <div class="meai-pcanvas" x-show="meai.pursuit.centerView==='map'"
+                         @wheel.prevent="meAiPursuitWheel($event)"
+                         @pointerdown="meAiPursuitPanStart($event)" @pointermove="meAiPursuitPanMove($event)"
+                         @pointerup="meAiPursuitPanEnd()" @pointerleave="meAiPursuitPanEnd()">
+                      <!-- Floating zoom toolbar -->
+                      <div class="meai-pu-zoom">
+                        <button type="button" @click="meAiPursuitZoom('out')" title="Zoom out">−</button>
+                        <button type="button" @click="meAiPursuitZoom('reset')" title="Fit" x-text="Math.round(meai.pursuit.zoom*100)+'%'"></button>
+                        <button type="button" @click="meAiPursuitZoom('in')" title="Zoom in">＋</button>
+                        <button type="button" class="meai-pu-follow" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
+                      </div>
+                      <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
+                        <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
+                          <defs>
+                            <marker id="meaiArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                              <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+                            </marker>
+                          </defs>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.converge) || ''" class="pe pe-converge" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cull) || ''" class="pe pe-cull" fill="none" marker-end="url(#meaiArrow)"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gate) || ''" class="pe pe-gate" fill="none" marker-end="url(#meaiArrow)"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none" marker-end="url(#meaiArrow)"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none" marker-end="url(#meaiArrow)"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none" marker-end="url(#meaiArrow)"></path>
+                        </svg>
+                        <template x-for="n in meai.pursuit._nodes" :key="n.id">
+                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
+                            <div class="meai-pnode-k" x-text="meAiPursuitLegKind(n.leg.kind)"></div>
+                            <div class="meai-pnode-t" x-text="n.leg.title"></div>
+                            <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
+                            <div class="meai-pnode-foot">
+                              <span class="meai-pnode-dot" :class="meAiPursuitNodeState(n).cls" :title="meAiPursuitNodeState(n).label"></span>
+                              <span class="meai-pnode-st" x-text="meAiPursuitNodeState(n).label"></span>
+                              <span class="meai-pnode-ago" x-show="meAiPursuitNodeTs(n)" x-text="meAiPursuitNodeTs(n)"></span>
+                              <span x-show="n.stop && n.stop.type==='needs-auth'" class="meai-pnode-badge auth" title="Waiting for your approval">needs approval</span>
+                              <span x-show="n.stop && n.stop.type!=='needs-auth'" class="meai-pnode-badge stop" title="Waiting on you">waiting on you</span>
+                              <span x-show="(n.arts||[]).length" class="meai-pnode-badge art" x-text="(n.arts.length)+' artifact'+(n.arts.length===1?'':'s')"></span>
+                            </div>
                           </div>
                         </template>
                       </div>
-                      <div class="meai-pu-artcard-foot">
-                        <button type="button" class="btn ghost" @click="meAiPursuitFocus(meai.pursuit.nodeDetail.id); meAiPursuitCloseDetail()">Show on map</button>
-                        <button type="button" class="btn primary" @click="meai.pursuit.left=true; meAiPursuitOpenLeg(meai.pursuit.nodeDetail.id); meAiPursuitCloseDetail()">Open this leg's chat</button>
+                      <div x-show="!(meai.pursuit._nodes||[]).length" class="meai-pu-canvas-empty">
+                        <div class="meai-pu-spin"></div>
+                        <div>Spinning up the pursuit… the map fills in as the agent forks legs.</div>
+                      </div>
+                      <div class="meai-pu-legend-map" x-show="(meai.pursuit._nodes||[]).length"
+                           @mouseenter="meai.pursuit.legendOpen=true" @mouseleave="meai.pursuit.legendOpen=false">
+                        <button type="button" class="meai-pu-legend-h" @click="meai.pursuit.legendOpen=!meai.pursuit.legendOpen">
+                          <span x-text="meai.pursuit.legendOpen ? '▾' : '▸'"></span> Legend
+                        </button>
+                        <div class="meai-pu-legend-body" x-show="meai.pursuit.legendOpen" x-transition.opacity>
+                          <div class="meai-pu-legend-grp">
+                            <div class="meai-pu-legend-cap">Connections</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-spine"></span> Main thread</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-branch"></span> Pursuit leg</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-gate"></span> Gated on a scout</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-cull"></span> Culled by a scout</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-merge"></span> Merged back</div>
+                          </div>
+                          <div class="meai-pu-legend-grp">
+                            <div class="meai-pu-legend-cap">Legs</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-run"></span> Working now</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-done"></span> Result</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-auth"></span> Waiting on you</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-gate"></span> Waiting on a scout</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-dead"></span> Dead end</div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </template>
+                  </main>
+                </div>
               </div>
             </template>
             <div class="meai-asst" x-show="meai.asst.open" x-transition.opacity.duration.150ms x-cloak>
@@ -21971,24 +22051,30 @@
           // three-panel view over a mode:'tree' task's journal fold (/task/:id/tree).
           pursuit: {
             open: false, tid: null, tree: null, busy: false,
-            legPick: 'spine',            // selected leg for the LEFT leg-chat pane
-            left: true, right: true,     // panel expanded state (leg-chat / rail)
-            rail: 'approvals',           // right-rail tab: approvals|artifacts|interesting
-            filter: 'all',               // interesting-vertex filter (rail)
+            // ── 2-pane workspace ──────────────────────────────────────────────
+            // LEFT = navigation (Chat / Index / Approvals / Artifacts, no pills).
+            // CENTER = one flexible view surface (map | node | report | artifact).
+            // No modals; clicking a node turns the CENTER into that node's view.
+            nav: 'chat',                 // left-nav section: chat|index|approvals|artifacts
+            navOpen: true,               // left nav expanded
+            navW: (() => { try { const v = parseInt(localStorage.getItem('meAiPuNavW') || '360', 10); return (v >= 300 && v <= 640) ? v : 360; } catch { return 360; } })(),
+            legPick: 'spine',            // selected leg for the Chat transcript (spine=main thread)
+            centerView: 'map',           // center surface: map|node|report|artifact
+            nodeView: null,              // the node shown in the CENTER node-view
+            artView: null,               // artifact shown in the CENTER artifact-view
+            filter: 'all',               // Index filter
             note: '',                    // note for an approve/deny/answer
             answering: null,             // stopId being answered inline
             zoom: 1, panX: 0, panY: 0,   // canvas transform
             follow: true,                // auto-recenter on latest
             legendOpen: false,           // canvas legend visible
-            _drag: null, _fitted: false, _focusId: null,
-            _nodes: [], _edgeD: { spine: '', branch: '', merge: '' }, _w: 1000, _h: 600,
+            _drag: null, _navDrag: null, _fitted: false, _focusId: null,
+            _nodes: [], _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
-            artView: null,               // artifact opened in the expanded reader modal
-            evOpen: {},                  // per-event expand map (leg-chat substeps)
-            nodeDetail: null,            // node opened in the detail overlay (full text)
-            centerView: 'map',           // center pane: 'map' | 'report'
+            evOpen: {},                  // per-event expand map (transcript substeps)
             acting: false,               // a next-action resume is in flight
             steer: '',                   // free-text follow-up / redirect for the agent
+            nodeSteer: '',               // free-text redirect scoped to a node-view leg
             _intent: null,               // deep-link intent to apply once the tree loads
           },
         },
@@ -30165,17 +30251,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.panY = 24;
           p.follow = false;
         },
-        // Clicking a node drives the LEFT leg-chat pane. A spine-kind node maps to
-        // 'spine' (the orchestrator's own narration); everything else picks the leg.
-        // Always flash the node on the canvas so the selection is legible.
+        // Legacy alias — clicking a node now opens the full center node-view.
         meAiPursuitOpenLeg(id) {
-          const p = this.meai.pursuit;
-          const n = (p._nodes || []).find(x => x.id === id);
-          p.legPick = (n && n.leg && n.leg.kind === 'spine') ? 'spine' : id;
-          p.left = true;
-          // flash the node so the map + left pane stay visually linked
-          p._focusId = null;
-          this.$nextTick(() => { p._focusId = id; setTimeout(() => { if (p._focusId === id) p._focusId = null; }, 1200); });
+          this.meAiPursuitOpenNodeById(id);
         },
         // Label for the currently-selected leg (LEFT pane header).
         meAiPursuitLegLabel() {
@@ -30184,11 +30262,90 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const n = (p._nodes || []).find(x => x.id === p.legPick);
           return (n && n.leg && n.leg.title) || 'Leg';
         },
+        // ── 2-pane workspace: center view surface + node-view ────────────────────
+        // Clicking a node opens it as a FULL center view (unifies leg-chat + details,
+        // replacing the old modal). Spine nodes map to the main-thread transcript.
+        meAiPursuitOpenNode(n) {
+          if (!n) return;
+          const p = this.meai.pursuit;
+          p.centerView = 'node';
+          p.nodeView = n;
+          p.legPick = (n.leg && n.leg.kind === 'spine') ? 'spine' : n.id;
+          p.follow = false;
+          p._focusId = null;
+          this.$nextTick(() => { p._focusId = n.id; setTimeout(() => { if (p._focusId === n.id) p._focusId = null; }, 1200); });
+        },
+        meAiPursuitOpenNodeById(id) {
+          const n = (this.meai.pursuit._nodes || []).find(x => x.id === id);
+          if (n) this.meAiPursuitOpenNode(n);
+        },
+        // Return the center surface to the live map.
+        meAiPursuitToMap() {
+          const p = this.meai.pursuit;
+          p.centerView = 'map'; p.nodeView = null; p.artView = null;
+        },
+        // Escape cascade: any non-map center view collapses back to the map first;
+        // a second Escape on the map closes the whole pursuit surface.
+        meAiPursuitEscape() {
+          if (this.meai.pursuit.centerView !== 'map') { this.meAiPursuitToMap(); return; }
+          this.meAiPursuitClose();
+        },
+        // Main-thread transcript (the orchestrator's own narration = flat task events
+        // with no legId). Drives the left-nav Chat section.
+        meAiPursuitChatEvents() {
+          const t = this.meai._taskById[this.meai.pursuit.tid];
+          if (!t) return [];
+          return (t.events || []).filter(e => !e.legId);
+        },
+        // Transcript for a specific node's leg (spine → flat main thread; else the
+        // leg's forked journal events).
+        meAiPursuitNodeEvents(n) {
+          if (!n) return [];
+          if (n.leg && n.leg.kind === 'spine') return this.meAiPursuitChatEvents();
+          const tree = this.meai.pursuit.tree;
+          const leg = tree && tree.legs && tree.legs[n.id];
+          return (leg && leg.events) || [];
+        },
+        // Redirect / follow-up scoped to the node-view leg. Mirrors meAiPursuitSteer
+        // but reads the node-view composer and tags the thread so the agent knows
+        // which leg to continue.
+        async meAiPursuitNodeSteer(intent) {
+          const p = this.meai.pursuit;
+          const n = p.nodeView;
+          const raw = String(p.nodeSteer || '').trim();
+          if (!raw) { this.toast('Say what you want the agent to pursue', 'info'); return; }
+          const label = (n && n.leg && n.leg.title && !(n.leg.kind === 'spine')) ? ('On the "' + n.leg.title + '" thread: ') : '';
+          const ok = await this._meAiPursuitPost(intent, label + raw);
+          if (ok) {
+            p.nodeSteer = '';
+            this.toast(intent === 'change-approach' ? 'New angle — re-planning the pursuit' : 'On it — digging deeper', 'success');
+            setTimeout(() => this.meAiPursuitLoad(), 600);
+          }
+        },
+        // Drag the splitter between the left nav and the center view. Pointer-driven,
+        // clamped 300–640px, persisted to localStorage (mirrors cfRailResizeStart).
+        meAiPursuitNavResize(ev) {
+          const p = this.meai.pursuit;
+          if (ev && ev.preventDefault) ev.preventDefault();
+          const startX = ev.clientX;
+          const startW = p.navW;
+          const move = (e) => {
+            const w = Math.min(640, Math.max(300, startW + (e.clientX - startX)));
+            p.navW = w;
+          };
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            try { localStorage.setItem('meAiPuNavW', String(p.navW)); } catch (_) {}
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        },
         // ── Artifacts (rail + expanded reader) ──────────────────────────────────
         meAiPursuitOpenArt(a) {
           if (!a) return;
           const p = this.meai.pursuit;
-          p.right = true; p.rail = 'artifacts'; p.artView = a;
+          p.centerView = 'artifact'; p.artView = a;
         },
         meAiPursuitCloseArt() { this.meai.pursuit.artView = null; },
         meAiPursuitArtMd(a) {
@@ -30202,9 +30359,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meAiPursuitOpenArt(arts[0] || null);
         },
         // ── Leg-chat rich substep expansion ─────────────────────────────────────
-        meAiPursuitEvKey(ei, ev) {
-          const p = this.meai.pursuit;
-          return (p.legPick || 'spine') + ':' + ei + ':' + (ev && (ev.at || ev.toolCallId || ev.kind) || '');
+        meAiPursuitEvKey(scope, ei, ev) {
+          return (scope || 'spine') + ':' + ei + ':' + (ev && (ev.at || ev.toolCallId || ev.kind) || '');
         },
         meAiPursuitEvToggle(key) {
           const m = this.meai.pursuit.evOpen; m[key] = !m[key];
@@ -30494,11 +30650,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiPursuitApplyIntent(intent) {
           const p = this.meai.pursuit;
           if (intent === 'approvals') {
-            p.right = true; p.rail = 'approvals';
+            p.navOpen = true; p.nav = 'approvals';
             const stops = this.meAiPursuitStops();
-            if (stops.length && stops[0].legId) this.meAiPursuitFocus(stops[0].legId);
+            if (stops.length && stops[0].legId) this.meAiPursuitOpenNodeById(stops[0].legId);
           } else if (intent === 'review') {
-            p.left = true; p.legPick = 'spine';
+            p.navOpen = true; p.nav = 'chat'; p.legPick = 'spine';
             if (this.meAiPursuitReport()) p.centerView = 'report';
           }
         },
