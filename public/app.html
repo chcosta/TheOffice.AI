@@ -28767,6 +28767,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               await this.meAiLoadInbox();
             } else if (a.type === 'regenerate') {
               refreshed = await this._meAiRegen('manual');
+            } else if (a.type === 'launch_me_agent') {
+              const ctx = {};
+              if (a.link) ctx.link = a.link;
+              if (a.pursue) {
+                if (a.playbook === 'adhoc') ctx.goal = a.goal || '';
+                else ctx.goal = a.goal || '';
+                await this.meAiLaunchPursuit(a.playbook === 'adhoc' ? a.goal : null, { playbook: a.playbook, title: a.title || a.goal, scope: a.scope, context: ctx });
+              } else {
+                ctx.goal = a.goal || '';
+                ctx.date = date;
+                await this.meAiDispatch(a.playbook, a.title || a.goal, ctx, a.scope);
+              }
+              a._applied = true;
+              if (!this.meai.asst.locked) this.meai.asst.open = false;
+              return;
             }
             if (refreshed) {
               this.meai.agenda = refreshed;

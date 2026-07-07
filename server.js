@@ -13948,8 +13948,12 @@ async function _meAiRegenLive(date) {
 const ME_AI_ASSISTANT_ACTIONS = new Set([
   'add_block', 'add_recurring', 'split_item', 'remove_item', 'dismiss_item',
   'set_mode', 'set_time_pref', 'set_hours', 'set_grid', 'set_work_days',
-  'add_todo', 'remove_todo', 'triage_inbox', 'regenerate',
+  'add_todo', 'remove_todo', 'triage_inbox', 'regenerate', 'launch_me_agent',
 ]);
+// Playbooks the agenda assistant may hand to a Me agent. Investigative ones fan
+// out on the pursuit canvas; execution ones run as a single flat agent.
+const ME_AI_ASSISTANT_PLAYBOOKS = new Set(['review', 'implement', 'steward', 'prep', 'comms', 'admin', 'adhoc']);
+const ME_AI_PURSUIT_PLAYBOOKS = new Set(['review', 'comms', 'prep', 'steward']);
 function _meAiResolveAssistantAction(a, ctx) {
   if (!a || typeof a !== 'object') return null;
   const type = String(a.type || '').trim();
@@ -14034,6 +14038,23 @@ function _meAiResolveAssistantAction(a, ctx) {
     }
     case 'regenerate':
       return { type, label: 'Regenerate the day', preview: 'Re-plan with the latest signals' };
+    case 'launch_me_agent': {
+      let pb = String(a.playbook || a.kind || '').trim().toLowerCase();
+      if (pb === 'focus') pb = 'implement';
+      if (pb === 'meeting') pb = 'prep';
+      if (!ME_AI_ASSISTANT_PLAYBOOKS.has(pb)) pb = 'adhoc';
+      const goal = clip(a.goal || a.title || a.detail, 600);
+      if (!goal) return null;
+      const link = clip(a.link || a.prLink || a.url, 400);
+      const scope = a.scope === 'personal' ? 'personal' : 'work';
+      const pursue = ME_AI_PURSUIT_PLAYBOOKS.has(pb);
+      const title = clip(a.title || goal, 120);
+      const kindLabel = { review: 'review', comms: 'reply', prep: 'prep', steward: 'stewardship',
+        implement: 'implementation', admin: 'admin', adhoc: 'task' }[pb] || 'task';
+      return { type, playbook: pb, goal, link, scope, pursue, title,
+        label: pursue ? `Launch a ${kindLabel} pursuit` : `Launch a Me agent (${kindLabel})`,
+        preview: (pursue ? 'Fans out on the canvas · ' : '') + title };
+    }
     default: return null;
   }
 }
@@ -14099,12 +14120,18 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
     '- Remove a to-do: {"type":"remove_todo","title":"<exact title>"}',
     '- Triage an inbox ask: {"type":"triage_inbox","key":"<link or title>","action":"today|now|later|dismiss|wontfix"}',
     '- Re-plan the day with the latest signals: {"type":"regenerate"}',
+    '- Hand work to a Me agent (it does the actual work — reviewing a PR, drafting a reply, prepping for a meeting, stewarding a PR, or any ad-hoc goal): {"type":"launch_me_agent","playbook":"review|comms|prep|steward|implement|admin|adhoc","goal":"<what the agent should accomplish>","link":"<optional PR/item URL>","scope":"work|personal"}',
     '',
     'Rules:',
     '- Reference blocks/items by the {key: …} shown in the context. Use exact HH:MM 24-hour times.',
     '- To "protect 2–3pm for deep work", propose add_block 14:00–15:00 type deep-focus.',
     '- To "break the PR review of A, B, C into separate items", propose split_item on that block key.',
     '- To "remove PR 62392 from today\'s review", propose remove_item with that PR\'s link/title.',
+    '- When the user asks you to actually DO something (review a PR, reply to an email, prep me for a',
+    '  meeting, steward/unblock a PR, or a free-form task), propose launch_me_agent — do NOT just add a',
+    '  block. A Me agent works in the background, shows its thinking/tools, and asks before any external',
+    '  send. Pick the closest playbook (review/comms/prep/steward/implement/admin) or "adhoc" for anything',
+    '  else. review/comms/prep/steward fan out into a live pursuit on the canvas; the rest run as one agent.',
     '- Keep "reply" concise and friendly. If nothing needs changing, return "actions": [] and just answer.',
     '- Propose at most a handful of actions per turn.',
     '',
