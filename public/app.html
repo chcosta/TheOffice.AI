@@ -11922,12 +11922,10 @@
                  section is hovered or focused, or pinned open by clicking the header. Uses the
                  grid 0fr→1fr trick so arbitrary content heights animate cleanly. */
               .meai-sec-wrap { display:grid; grid-template-rows:0fr; transition:grid-template-rows .18s cubic-bezier(.22,1,.36,1); }
-              .meai-sec:hover > .meai-sec-wrap,
-              .meai-sec:focus-within > .meai-sec-wrap,
               .meai-sec.is-pinned > .meai-sec-wrap { grid-template-rows:1fr; }
               .meai-sec-wrap > .meai-sec-body { overflow:hidden; min-height:0; }
               .meai-sec-peek { font-size:11px; color:var(--cp-text-muted); opacity:.85; }
-              .meai-sec:hover .meai-sec-peek, .meai-sec.is-pinned .meai-sec-peek { display:none; }
+              .meai-sec.is-pinned .meai-sec-peek { display:none; }
               @media (prefers-reduced-motion: reduce) { .meai-sec-wrap { transition:none; } }
               /* Discrete "Triaged" area — items you've already dispositioned, kept out of the
                  active decision/approval flow but reversible (reopen / re-triage). */
@@ -12015,10 +12013,13 @@
               .meai-block-body.is-now { box-shadow:0 0 0 1px var(--cp-accent); }
               /* Meetings + locked/pinned/imminent items read as "held in place" with a faint tint. */
               .meai-block-body.is-fixed { background:color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)); border-style:solid; }
-              /* B: past = a finished block earlier today — quieted so the eye skips it. */
-              .meai-block-body.meai-past { background:color-mix(in srgb, var(--cp-text-muted) 6%, var(--cp-surface)); opacity:.66; }
-              /* Past blocks are dimmed via opacity, which would let the disposition strip
-                 behind the body bleed through. Past items are locked anyway, so hide it. */
+              /* B: past = a finished block earlier today. Recede it WITHOUT dimming the
+                 text into unreadability: a quiet grey wash + a softened border + a small
+                 "earlier" marker. Full text contrast is preserved (opacity is NOT used). */
+              .meai-block-body.meai-past { background:color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)); border-color:color-mix(in srgb, var(--cp-border) 60%, transparent); }
+              .meai-past-tag { color:var(--cp-text-muted); }
+              /* Past items are locked; the swipe-to-reveal disposition strip is meaningless
+                 for them, so hide it (also avoids any bleed-through). */
               .meai-block-swipe:has(> .meai-block-body.meai-past) .meai-block-acts { display:none; }
               /* B: imminent = starting within the "protect near-now" window; a re-plan
                  won't move it, so a faint accent tint marks it as locked-in. */
@@ -12916,7 +12917,7 @@
                         <span class="meai-sec-caret" x-text="meAiSecCollapsed(sec) ? '\u25B8' : '\u25BE'"></span>
                         <span class="meai-sec-label" x-text="sec.label"></span>
                         <span class="meai-sec-n" x-text="sec.items.length"></span>
-                        <span class="meai-sec-peek" x-show="meAiSecCollapsed(sec)">hover to view · click to pin</span>
+                        <span class="meai-sec-peek" x-show="meAiSecCollapsed(sec)">click to expand</span>
                         <span class="meai-sec-flex"></span>
                         <span class="meai-sec-approve" x-show="meAiSecPending(sec)" @click.stop="meAiApproveAll(sec)" role="button" tabindex="0" @keydown.enter.stop.prevent="meAiApproveAll(sec)" x-text="'Approve all ' + meAiSecPending(sec)"></span>
                       </button>
@@ -12987,7 +12988,7 @@
                       <span class="meai-sec-caret" x-text="meai.triagedPinned ? '\u25BE' : '\u25B8'"></span>
                       <span class="meai-sec-label">Triaged</span>
                       <span class="meai-sec-n" x-text="meAiTriagedItems().length"></span>
-                      <span class="meai-sec-peek" x-show="!meai.triagedPinned">hover to view · click to pin</span>
+                      <span class="meai-sec-peek" x-show="!meai.triagedPinned">click to expand</span>
                       <span class="meai-sec-flex"></span>
                     </button>
                     <div class="meai-sec-wrap">
@@ -13126,6 +13127,7 @@
                             <div class="meai-block-meta">
                               <span x-text="_meAiFmtHm(b.start) + '–' + _meAiFmtHm(b.end)"></span>
                               <span x-show="b.type"> · <span x-text="b.type"></span></span>
+                              <span x-show="meAiBlockPast(b)" class="meai-past-tag"> · earlier</span>
                             </div>
                             <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
                             <div class="meai-block-conflict" x-show="b.conflict" title="This block overlaps another committed item">⚠ Overlaps another item</div>
@@ -29421,8 +29423,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const key = sec && sec.key;
           const m = this.meai.inboxSecCollapsed || {};
           if (key in m) return !!m[key];
-          // Default: collapsed. Sections peek open on hover; clicking the header pins one open.
-          return true;
+          // Default: expanded. Click a header to collapse a section you don't need.
+          return false;
         },
         meAiToggleSec(sec) {
           const key = sec && sec.key; if (!key) return;
@@ -29528,14 +29530,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // new working hours take effect immediately (mirrors meAiSetMode). Without this,
         // a cached agenda keeps its old start time until a manual Regenerate.
         async meAiSaveHoursGrid() {
+          // Detect whether any AGENDA-affecting field diverges from the config the current
+          // agenda was generated with — before we persist. If so we'll nudge (not replan).
+          const ac = (this.meai.agenda && this.meai.agenda.config) || {};
+          const cs = this.meai.config || {};
+          const diff = (a, b) => a !== undefined && b !== undefined && JSON.stringify(a) !== JSON.stringify(b);
+          const agendaStale = !!this.meai.agenda && (
+            diff(ac.workStart, cs.workStart) || diff(ac.workEnd, cs.workEnd) ||
+            diff(Number(ac.grid), Number(cs.grid)) ||
+            diff(ac.workDays, cs.workDays) || diff(ac.weeklyHours, cs.weeklyHours)
+          );
           await this.meAiSaveSettings();
-          // Close the modal RIGHT AWAY (saving is done) so it clearly acknowledges the save;
-          // the re-plan can take minutes and must NOT hold the modal open (owner: "it should
-          // indicate it saved and close"). Regenerate in the background; meai.generating drives
-          // the page spinner so the day updating is still visible.
+          // Close the modal RIGHT AWAY (saving is done) so it clearly acknowledges the save.
           this.meai.hoursOpen = false;
-          if (this.meai.config.consent && this.meai.agenda) {
-            this.meAiGenerate({ reindex: false, cause: 'hours' }).catch(() => {});
+          // Saving Hours & grid preferences must NOT silently replan the day. The owner edits
+          // triage-only settings here (auto-triage tiers, the "protect near-now" window) and
+          // doesn't want the agenda reshuffled underneath them. Regeneration is EXPLICIT via
+          // the "Regenerate agenda" button. If hours/days/grid actually changed, just nudge.
+          if (agendaStale) {
+            this.toast('Preferences saved — click “Regenerate agenda” to apply the new hours.', 'info');
           }
           // Phase 2: auto-triage thresholds/tiers may have changed — re-score the inbox so
           // confidence + suggested actions reflect the new settings (base-only, instant).
