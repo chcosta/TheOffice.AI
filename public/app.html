@@ -12953,11 +12953,8 @@
                               </template>
                             </div>
                             <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus' || b.type==='meeting'">
-                              <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
-                                🤖 <span x-text="b.type==='review' ? 'Launch review agent' : (b.type==='meeting' ? 'Prepare for meeting' : 'Launch Me agent')"></span>
-                              </button>
-                              <button class="meai-mini-btn meai-mini-btn-ghost" type="button" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='steward' || b.type==='meeting'" @click="meAiPursueBlock(b)" :disabled="meai.pursuit.busy" title="Fan out into parallel investigation legs on the live canvas">
-                                🕸 Pursue
+                              <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy || meai.pursuit.busy" :title="meAiBlockPursues(b) ? 'Fan out into parallel investigation legs on the live canvas' : 'Hand this to a Me agent'">
+                                🤖 <span x-text="meAiBlockLaunchLabel(b)"></span>
                               </button>
                             </div>
                           </div>
@@ -29680,8 +29677,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.adhocGoal = '';
         },
         // Launch the agent scoped to a specific agenda block (e.g. a review block).
+        // Curated investigative playbooks run as a fan-out on the live canvas; the rest
+        // (admin/focus execution) run as a single flat agent in the console drawer.
+        meAiBlockPursues(block) {
+          if (!block) return false;
+          const curated = ['review', 'comms', 'prep', 'steward'];
+          return curated.includes(block.playbook) || curated.includes(block.type) || block.type === 'meeting';
+        },
+        meAiBlockLaunchLabel(block) {
+          if (!block) return 'Launch Me agent';
+          if (block.type === 'meeting') return 'Prepare for meeting';
+          if (block.type === 'review') return 'Review with a Me agent';
+          return 'Launch Me agent';
+        },
+        // ONE launch per block: route investigative types to the pursuit canvas, simple
+        // execution types to a flat single agent. (Was two buttons — "Launch" vs "Pursue"
+        // — which just confused people; the block type decides the right-sized experience.)
         meAiLaunchForBlock(block) {
           if (!block) return;
+          if (this.meAiBlockPursues(block)) { this.meAiPursueBlock(block); return; }
           const known = ['review', 'prep', 'comms', 'steward', 'implement', 'focus', 'admin'];
           let pb = block.playbook || (known.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'review'));
           if (pb === 'focus') pb = 'implement';
