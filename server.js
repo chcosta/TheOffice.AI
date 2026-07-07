@@ -12966,6 +12966,87 @@ function _meAiDedupeWorkItems(blocks) {
   return blocks.filter((_, i) => !drop.has(i));
 }
 
+// Make the planner meeting-aware. Fixed meetings you're attending are hard anchors — nothing
+// flexible should sit on top of one. Two moves:
+//   (1) a "prep" block must PRECEDE its meeting. The LLM refine inserts prep in "free time
+//       just before" a meeting, but it can drift so the prep overlaps (or even lands after)
+//       the meeting it's for. If a prep overlaps a meeting we re-slot it into free time right
+//       before the meeting it preps for (title-token match, else the nearest later meeting);
+//       if there's no room, we drop it — a prep sitting over/after its own meeting is noise.
+//   (2) any movable work block (review/steward/comms/admin/pr/dev/work/task) that lands on a
+//       meeting slides forward to the first slot that's free of every committed block and fits
+//       within work hours.
+// Pins, imminent-held work, manual reservations, and other meetings NEVER yield — a real
+// double-book there (e.g. in-progress work now colliding with a just-added meeting) is a
+// genuine conflict the user should see, so it's left for _meAiDetectConflicts to surface.
+function _meAiYieldOffMeetings(blocks, cfg) {
+  if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
+  const FLEX = new Set(['focus', 'open', 'break']);           // flexible fill never conflicts
+  const attendingMeeting = b => b && b.type === 'meeting' && !(b.meta && b.meta.attending === false);
+  const anchored = b => attendingMeeting(b) || (b && b.meta && (b.meta.pinned || b.meta.imminent || b.meta.manual));
+  const wStart = (v => v == null ? 9 * 60 : v)(_hmToMin(cfg && cfg.workStart));
+  const wEnd = (v => v == null ? 18 * 60 : v)(_hmToMin(cfg && cfg.workEnd));
+  const meetings = blocks.filter(attendingMeeting)
+    .map(m => [_hmToMin(m.start), _hmToMin(m.end)]).filter(r => r[0] != null && r[1] != null)
+    .sort((a, b) => a[0] - b[0]);
+  if (!meetings.length) return blocks;
+  const overlapsMeeting = (s, e) => meetings.some(([ms, me]) => s < me && e > ms);
+  const drop = new Set();
+  const tokens = t => new Set(String(t || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []);
+  // Committed (non-flexible) ranges other than `self`, used to test whether a candidate slot
+  // is truly free. Recomputed per-move so earlier moves in this pass are respected.
+  const occupied = (self) => blocks.filter(b => b !== self && !drop.has(b) && !FLEX.has(String(b.type || '')))
+    .map(b => [_hmToMin(b.start), _hmToMin(b.end)]).filter(r => r[0] != null && r[1] != null)
+    .sort((a, b) => a[0] - b[0]);
+  const slotFree = (s, e, self) => !occupied(self).some(([os, oe]) => s < oe && e > os);
+  // Earliest start >= fromMin whose [start,start+dur] clears every committed range and ends
+  // by the work-day close; null if the block simply can't fit off the anchors today.
+  const firstFree = (fromMin, dur, self) => {
+    const occ = occupied(self); let s = fromMin;
+    for (let guard = 0; guard <= occ.length + 1; guard++) {
+      if (s + dur > wEnd) return null;
+      const hit = occ.find(([os, oe]) => s < oe && (s + dur) > os);
+      if (!hit) return s;
+      s = hit[1];
+    }
+    return null;
+  };
+  // (1) prep blocks — must sit before their meeting.
+  for (const b of blocks) {
+    if (String(b.type || '') !== 'prep' || anchored(b)) continue;
+    const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+    if (bs == null || be == null || !overlapsMeeting(bs, be)) continue;
+    const dur = be - bs;
+    const ptok = tokens(b.title);
+    let target = null, best = 0;                               // best title-token match
+    for (const [ms, me] of meetings) {
+      const mb = blocks.find(x => attendingMeeting(x) && _hmToMin(x.start) === ms && _hmToMin(x.end) === me);
+      let sc = 0; const mtok = tokens(mb && mb.title); for (const w of ptok) if (mtok.has(w)) sc++;
+      if (sc > best) { best = sc; target = ms; }
+    }
+    if (target == null) { const later = meetings.find(([ms]) => ms >= bs); target = later ? later[0] : null; }
+    let placed = false;
+    if (target != null) {
+      const ds = target - dur, de = target;
+      if (ds >= wStart && slotFree(ds, de, b)) { b.start = _minToHm(ds); b.end = _minToHm(de); placed = true; }
+    }
+    if (!placed) drop.add(b);                                  // no room before the meeting -> noise
+  }
+  // (2) movable work blocks — slide off any meeting they overlap.
+  const MOVABLE = new Set(['review', 'steward', 'comms', 'admin', 'pr', 'dev', 'work', 'task']);
+  for (const b of blocks) {
+    if (drop.has(b) || anchored(b) || !MOVABLE.has(String(b.type || ''))) continue;
+    const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+    if (bs == null || be == null || !overlapsMeeting(bs, be)) continue;
+    const s = firstFree(bs, be - bs, b);
+    if (s != null && s !== bs) { const dur = be - bs; b.start = _minToHm(s); b.end = _minToHm(s + dur); }
+    // else: can't clear the anchors today -> leave it, surfaced as a real conflict.
+  }
+  const kept = drop.size ? blocks.filter(b => !drop.has(b)) : blocks;
+  kept.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
+  return kept;
+}
+
 // Detect genuine double-books among the final blocks. A conflict is two COMMITTED blocks
 // whose times overlap; open/flexible focus fill is ignored, and an overlap with a meeting
 // the user did not opt into (meta.attending === false) is NOT a conflict (that meeting is
@@ -13969,6 +14050,10 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // re-emitted by the fresh gather (different title variants). One block per PR so it isn't
   // flagged as a bogus conflict and can be rescheduled/dismissed independently.
   finalBlocks = _meAiDedupeWorkItems(finalBlocks);
+  // Meeting-aware placement: nothing flexible sits on a fixed meeting. Re-slot prep before its
+  // meeting (or drop stale prep), and slide movable work off any meeting it overlaps. Pinned/
+  // manual work that truly clashes is left for the conflict detector to surface.
+  finalBlocks = _meAiYieldOffMeetings(finalBlocks, cfg);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
