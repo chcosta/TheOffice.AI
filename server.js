@@ -14615,6 +14615,182 @@ const ME_AI_ASSISTANT_ACTIONS = new Set([
 // out on the pursuit canvas; execution ones run as a single flat agent.
 const ME_AI_ASSISTANT_PLAYBOOKS = new Set(['review', 'implement', 'steward', 'prep', 'comms', 'admin', 'adhoc']);
 const ME_AI_PURSUIT_PLAYBOOKS = new Set(['review', 'comms', 'prep', 'steward']);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Playbook definitions surface (Playbooks tab).
+//
+// The kickoff prompts (_meAiPlaybookPrompt) stay hand-tuned in code — they weave in
+// live context, repo guards and the JSON contract. But the *editable shape* of a
+// playbook is a small structured definition: goal, approach steps, constraints, and
+// gating. ME_AI_PLAYBOOK_SEED is the built-in default for each; a thin JSON overlay
+// (playbooks.json) holds the user's edits and any brand-new custom playbooks. The
+// composer appends the user's authored directives as authoritative overrides on top
+// of the tuned built-in prompt, and drives custom playbooks entirely from their def.
+// ─────────────────────────────────────────────────────────────────────────────
+const ME_AI_PLAYBOOK_SEED = {
+  review: {
+    label: 'Code review', icon: '🔍',
+    description: 'A focused, senior-level review of a PR or the current changes.',
+    goal: 'Perform a focused, senior-level code review of the target changes and report what matters.',
+    steps: [
+      'Inspect the changes — git status / diff (staged too), or the latest commit if the tree is clean.',
+      'Read the changed files for context.',
+      'Identify correctness bugs, security issues, missing tests, and style/maintainability concerns — specific with file:line.',
+      'Note what is good, too.',
+    ],
+    constraints: ['Read-only — never edit, commit, or push.'],
+    gating: { pursuit: true, code: false, external: 'none' },
+  },
+  implement: {
+    label: 'Implement', icon: '🛠️',
+    description: 'Make a focused code change that fully addresses a task.',
+    goal: 'Make a focused, correct change that fully addresses the task without touching unrelated code.',
+    steps: [
+      'Understand the task and the surrounding code.',
+      'Make a focused, correct change that fully addresses it.',
+      'Run any existing build/tests/lint that apply and fix what you broke.',
+      'Summarize exactly what changed (file:line) and how you verified it.',
+    ],
+    constraints: ['Do not touch unrelated code.', 'Do not commit or push unless I ask.'],
+    gating: { pursuit: false, code: true, external: 'none' },
+  },
+  steward: {
+    label: 'PR steward', icon: '🚦',
+    description: 'Shepherd a pull request toward merge.',
+    goal: 'Assess a pull request and propose the single most useful next move toward merge.',
+    steps: [
+      'Assess the PR state — CI/validation, review status, unresolved comments, merge conflicts.',
+      'Identify what is blocking merge and who/what it is waiting on.',
+      'Propose concrete next moves — ping reviewers, fix a failing check, resolve a conflict, update the description.',
+    ],
+    constraints: ['Do not post, merge, or push without my approval.'],
+    gating: { pursuit: true, code: true, external: 'confirm' },
+  },
+  comms: {
+    label: 'Communications', icon: '✉️',
+    description: 'Handle a message or thread that needs a reply or follow-up.',
+    goal: 'Handle a communication that needs attention and prepare a reply for my review.',
+    steps: [
+      'Understand exactly what is being asked, by whom, and what a good outcome looks like.',
+      'Draft a clear, professional reply, ready to paste.',
+      'If it implies action items or a follow-up, list them crisply.',
+    ],
+    constraints: [
+      'If it is about a PR, reply ON the PR thread — do not draft an email.',
+      'Never send or post — only prepare it for my review.',
+    ],
+    gating: { pursuit: true, code: false, external: 'confirm' },
+  },
+  prep: {
+    label: 'Meeting prep', icon: '📋',
+    description: 'Get me ready for an upcoming meeting.',
+    goal: 'Get me ready for an upcoming meeting with a tight, decision-focused brief.',
+    steps: [
+      'Work out the purpose of the meeting and what I need to know or decide.',
+      'Gather the relevant context — consult my internal resources (Boards, specialist agents) FIRST, then fill gaps.',
+      'Produce a tight brief: goal, 3–5 talking points, decisions needed, 1–2 questions to raise, pre-reads.',
+    ],
+    constraints: ['Put the whole brief in report.brief.', 'Read-only — gather, do not act.'],
+    gating: { pursuit: true, code: false, external: 'none' },
+  },
+  admin: {
+    label: 'Day setup', icon: '🗓️',
+    description: 'Brief me on an admin/awareness item and prepare the follow-ups.',
+    goal: 'Brief me on how an admin / awareness item affects my day and prepare concrete follow-ups.',
+    steps: [
+      'Gather the awareness facts (who is out, meetings today, where a gap or hand-off is created).',
+      'Assess the impact on my day — what is at risk, unblocked, or should move.',
+      'Prepare (do not send) the concrete follow-ups: a coverage note, 1:1s to reschedule.',
+    ],
+    constraints: ['Never send email/Teams, move calendar events, commit, or push — prepare for my review.'],
+    gating: { pursuit: false, code: false, external: 'confirm' },
+  },
+  adhoc: {
+    label: 'Ad-hoc goal', icon: '✨',
+    description: 'A free-form goal — take it as far as you safely can.',
+    goal: 'Take a free-form goal and carry it as far as you safely can, end-to-end.',
+    steps: [
+      'Interpret the goal and decide the concrete actions that would accomplish it.',
+      'Gather whatever context you need with tools — check internal resources first when relevant.',
+      'Do the work — investigate, draft, edit code, or prepare the action.',
+      'Report what you did and exactly what remains.',
+    ],
+    constraints: ['Do not send external messages, commit, or push unless I explicitly ask — prepare them for review.'],
+    gating: { pursuit: false, code: false, external: 'confirm' },
+  },
+};
+const ME_AI_PLAYBOOK_SEED_ORDER = ['review', 'implement', 'steward', 'comms', 'prep', 'admin', 'adhoc'];
+
+function _meAiPlaybookStorePath() { return dataPath('me-ai/playbooks.json'); }
+function _meAiLoadPlaybookStore() {
+  try {
+    const p = _meAiPlaybookStorePath();
+    if (!fs.existsSync(p)) return {};
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return (j && typeof j === 'object') ? j : {};
+  } catch (_) { return {}; }
+}
+function _meAiSavePlaybookStore(map) {
+  try {
+    const p = _meAiPlaybookStorePath();
+    fs.mkdirSync(require('path').dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(map || {}, null, 2));
+    return true;
+  } catch (e) { console.error('[me-ai] playbook store save failed', e && e.message); return false; }
+}
+// Normalize a definition to the canonical editable shape.
+function _meAiNormPlaybookDef(d) {
+  const g = (d && d.gating && typeof d.gating === 'object') ? d.gating : {};
+  return {
+    label: String((d && d.label) || '').slice(0, 80),
+    icon: String((d && d.icon) || '📓').slice(0, 8),
+    description: String((d && d.description) || '').slice(0, 300),
+    goal: String((d && d.goal) || '').slice(0, 800),
+    steps: Array.isArray(d && d.steps) ? d.steps.map(s => String(s || '').slice(0, 500)).filter(Boolean).slice(0, 12) : [],
+    constraints: Array.isArray(d && d.constraints) ? d.constraints.map(s => String(s || '').slice(0, 400)).filter(Boolean).slice(0, 12) : [],
+    gating: { pursuit: !!g.pursuit, code: !!g.code, external: g.external === 'confirm' ? 'confirm' : 'none' },
+  };
+}
+// The merged, current definition for an id: seed overlaid by any stored edits, or a
+// stored custom playbook. Returns null for an unknown id.
+function _meAiPlaybookDef(id) {
+  const key = String(id || '').trim().toLowerCase();
+  if (!key) return null;
+  const store = _meAiLoadPlaybookStore();
+  const seed = ME_AI_PLAYBOOK_SEED[key];
+  const rec = store[key];
+  if (!seed && !rec) return null;
+  const base = seed ? _meAiNormPlaybookDef(seed) : null;
+  const over = rec ? _meAiNormPlaybookDef(rec) : null;
+  const merged = base && over
+    ? { ...base, ...over, gating: { ...base.gating, ...over.gating } }
+    : (over || base);
+  merged.id = key;
+  merged.kind = seed ? 'builtin' : 'custom';
+  merged.edited = !!(seed && rec);
+  return merged;
+}
+function _meAiPlaybookList() {
+  const store = _meAiLoadPlaybookStore();
+  const out = [];
+  for (const id of ME_AI_PLAYBOOK_SEED_ORDER) out.push(_meAiPlaybookDef(id));
+  for (const id of Object.keys(store)) {
+    if (!ME_AI_PLAYBOOK_SEED[id]) { const d = _meAiPlaybookDef(id); if (d) out.push(d); }
+  }
+  return out.filter(Boolean);
+}
+// Gating routed through the def overlay, falling back to the code constant so behavior
+// is unchanged until a playbook is actually edited.
+function _meAiIsPursuitPlaybook(pb) {
+  const d = _meAiPlaybookDef(pb);
+  if (d && d.gating) return !!d.gating.pursuit;
+  return ME_AI_PURSUIT_PLAYBOOKS.has(pb);
+}
+function _meAiIsCodePlaybook(pb) {
+  const d = _meAiPlaybookDef(pb);
+  if (d && d.gating) return !!d.gating.code;
+  return ME_AI_CODE_PLAYBOOKS.has(pb);
+}
 function _meAiResolveAssistantAction(a, ctx) {
   if (!a || typeof a !== 'object') return null;
   const type = String(a.type || '').trim();
@@ -14703,12 +14879,12 @@ function _meAiResolveAssistantAction(a, ctx) {
       let pb = String(a.playbook || a.kind || '').trim().toLowerCase();
       if (pb === 'focus') pb = 'implement';
       if (pb === 'meeting') pb = 'prep';
-      if (!ME_AI_ASSISTANT_PLAYBOOKS.has(pb)) pb = 'adhoc';
+      if (!ME_AI_ASSISTANT_PLAYBOOKS.has(pb) && !_meAiPlaybookDef(pb)) pb = 'adhoc';
       const goal = clip(a.goal || a.title || a.detail, 600);
       if (!goal) return null;
       const link = clip(a.link || a.prLink || a.url, 400);
       const scope = a.scope === 'personal' ? 'personal' : 'work';
-      const pursue = ME_AI_PURSUIT_PLAYBOOKS.has(pb);
+      const pursue = _meAiIsPursuitPlaybook(pb);
       const title = clip(a.title || goal, 120);
       const kindLabel = { review: 'review', comms: 'reply', prep: 'prep', steward: 'stewardship',
         implement: 'implementation', admin: 'admin', adhoc: 'task' }[pb] || 'task';
@@ -16604,7 +16780,7 @@ function _meAiParseWorkItemNum(s) {
 // Does this task need a real repo worktree (i.e. it may write/steward code)?
 function _meAiNeedsRepo(t) {
   const pb = t && t.playbook;
-  if (ME_AI_CODE_PLAYBOOKS.has(pb)) return true;
+  if (_meAiIsCodePlaybook(pb)) return true;
   // A 'review' only needs a specific repo when it references a work item / PR;
   // the bare "review my current changes" dogfooding case stays on this repo.
   if (pb === 'review' && t.context) {
@@ -16695,9 +16871,8 @@ function _meAiRepoGuardBlock(ctx) {
 // Build the kickoff prompt for a playbook. M2 ships the code-review playbook; the
 // prompt is written so it produces real, useful work even with NO PR context (it
 // reviews the repo's current uncommitted changes, else the latest commit).
-function _meAiPlaybookPrompt(playbook, context, cwd) {
-  const ctx = context && typeof context === 'object' ? context : {};
-  const jsonContract = [
+function _meAiJsonContract() {
+  return [
     'When you have finished, end your reply with a single fenced ```json block (and nothing after it) of the form:',
     '{',
     '  "report": { "summary": "<2-4 sentence outcome>", "findings": [ { "title": "<short>", "detail": "<what & where>", "severity": "high|medium|low" } ] },',
@@ -16710,6 +16885,13 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '',
     ..._meAiDoggedClause(),
   ].join('\n');
+}
+// The tuned, context-woven kickoff prompt for each BUILT-IN playbook. _meAiPlaybookPrompt
+// (below) wraps this: it appends the user's authored overrides for a built-in, or composes
+// a fresh prompt for a custom playbook.
+function _meAiPlaybookPromptBuiltin(playbook, context, cwd) {
+  const ctx = context && typeof context === 'object' ? context : {};
+  const jsonContract = _meAiJsonContract();
   const repoGuard = _meAiRepoGuardBlock(ctx);
   if (playbook === 'review') {
     const target = ctx.prTitle || ctx.branch || 'the current uncommitted changes in this repository';
@@ -16831,6 +17013,66 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     'Investigate using tools as needed, then report.',
     '', jsonContract,
   ].filter(Boolean).join('\n');
+}
+// Authored-override block: for a built-in playbook the user has edited, emit an
+// authoritative appendix carrying ONLY the fields they changed away from the seed, so the
+// tuned base prompt is preserved but the user's intent takes precedence.
+function _meAiPlaybookOverrideBlock(def) {
+  if (!def || def.kind !== 'builtin' || !def.edited) return '';
+  const seed = _meAiNormPlaybookDef(ME_AI_PLAYBOOK_SEED[def.id] || {});
+  const lines = [];
+  const arrEq = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
+  if (def.goal && def.goal !== seed.goal) lines.push(`Goal: ${def.goal}`);
+  if (!arrEq(def.steps, seed.steps) && def.steps.length) {
+    lines.push('Approach:');
+    def.steps.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
+  }
+  if (!arrEq(def.constraints, seed.constraints) && def.constraints.length) {
+    lines.push('Constraints:');
+    def.constraints.forEach(s => lines.push(`  • ${s}`));
+  }
+  if (!lines.length) return '';
+  return [
+    '',
+    '── MY UPDATED PLAYBOOK DIRECTIVES (these take precedence over anything above) ──',
+    ...lines,
+    'Follow these directives; where they conflict with the general guidance above, mine win.',
+  ].join('\n');
+}
+// Compose a full kickoff prompt for a CUSTOM playbook entirely from its definition.
+function _meAiComposeCustomPrompt(def, ctx, cwd) {
+  const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const repoGuard = _meAiIsCodePlaybook(def.id) ? _meAiRepoGuardBlock(c) : '';
+  const lines = [
+    `You are my "${def.label || def.id}" Me-agent.`,
+    def.description ? def.description : '',
+    def.goal ? `Goal: ${def.goal}` : '',
+    c.title ? `This specific task: ${c.title}` : '',
+    c.detail ? `Context: ${c.detail}` : '',
+    c.link ? `Link: ${c.link}` : '',
+    repoGuard || `Working directory: ${cwd}.`,
+  ];
+  if (def.steps && def.steps.length) {
+    lines.push('Approach:');
+    def.steps.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
+  }
+  if (def.constraints && def.constraints.length) {
+    lines.push('Constraints:');
+    def.constraints.forEach(s => lines.push(`  • ${s}`));
+  }
+  lines.push(_meAiInternalFirstBlock());
+  lines.push('Stream your reasoning and tool use as you go. Be concise in prose.');
+  lines.push('', _meAiJsonContract());
+  return lines.filter(Boolean).join('\n');
+}
+// Public prompt builder: routes custom playbooks through the composer and appends the
+// user's authored overrides for edited built-ins. Falls back to the tuned built-in prompt.
+function _meAiPlaybookPrompt(playbook, context, cwd) {
+  const def = _meAiPlaybookDef(playbook);
+  if (def && def.kind === 'custom') return _meAiComposeCustomPrompt(def, context, cwd);
+  const base = _meAiPlaybookPromptBuiltin(playbook, context, cwd);
+  const override = def ? _meAiPlaybookOverrideBlock(def) : '';
+  return override ? base + '\n' + override : base;
 }
 // Prompt used when the user picks an intent to continue the loop (§7.2). `label` is the
 // human-readable text of the action button the user actually clicked (e.g. "Send coverage
@@ -17361,9 +17603,18 @@ function _meAiTreeCandidates(t) {
       { kind: 'scout', lane: 'r1', title: 'Recent related activity', goal: 'Cheaply pull the recent related PRs/issues/threads since this topic was last touched, so the brief reflects the latest state. Fast scout — surface only what changed the picture.' },
     ];
   }
+  const cdef = _meAiPlaybookDef(t.playbook);
+  if (cdef && cdef.kind === 'custom' && _meAiIsPursuitPlaybook(cdef.id) && Array.isArray(cdef.steps) && cdef.steps.length > 1) {
+    const legs = [];
+    cdef.steps.slice(0, 4).forEach((s, i) => {
+      const step = String(s || '').trim();
+      if (!step) return;
+      legs.push({ kind: i === cdef.steps.length - 1 ? 'scout' : 'branch', lane: (i === cdef.steps.length - 1 ? 'r' : 'l') + (i + 1), title: step.slice(0, 70), goal: `${step} — read-only: read anything, but PROPOSE (do not take) any gated action.` });
+    });
+    return legs;
+  }
   return [];
 }
-
 // The doggedness contract shared by the planner and every pursuit leg. The Chief-of-
 // Staff is expected to be RELENTLESS: a locked door is a problem to route around, not a
 // place to stop. Two failure modes the user has called out and we refuse to repeat —
@@ -18312,6 +18563,113 @@ app.post('/api/me-ai/self-review', async (req, res) => {
     res.json({ ok: true, verdict });
   } catch (err) { res.status(500).json({ error: err.message }); }
   finally { _meAiSelfReviewPromise = null; }
+});
+
+// ── Playbook management surface ─────────────────────────────────────────────
+// Review/edit the Me-agent pursuit playbooks (built-in + custom). Built-ins are
+// never rewritten; edits are stored as an additive overlay and appended to the
+// tuned base prompt at run time. See ME_AI_PLAYBOOK_SEED / _meAiPlaybookPrompt.
+
+// GET /api/me-ai/playbooks → list all playbooks (built-in in seed order + custom).
+app.get('/api/me-ai/playbooks', (req, res) => {
+  try { res.json({ ok: true, playbooks: _meAiPlaybookList() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/playbook/:id → one playbook def + a live preview of its kickoff prompt.
+app.get('/api/me-ai/playbook/:id', (req, res) => {
+  try {
+    const def = _meAiPlaybookDef(String(req.params.id || ''));
+    if (!def) return res.status(404).json({ error: 'No such playbook.' });
+    let preview = '';
+    try { preview = _meAiPlaybookPrompt(def.id, { title: '<this task>', detail: '' }, __dirname); } catch (_) {}
+    res.json({ ok: true, playbook: def, preview, pursuit: _meAiIsPursuitPlaybook(def.id), code: _meAiIsCodePlaybook(def.id) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/me-ai/playbook/:id → save edits (goal/steps/constraints/gating/label/desc).
+app.put('/api/me-ai/playbook/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    const cur = _meAiPlaybookDef(id);
+    if (!cur) return res.status(404).json({ error: 'No such playbook.' });
+    const b = req.body || {};
+    const store = _meAiLoadPlaybookStore();
+    const merged = _meAiNormPlaybookDef(Object.assign({}, cur, b, { kind: cur.kind }));
+    store[id] = merged;
+    _meAiSavePlaybookStore(store);
+    res.json({ ok: true, playbook: _meAiPlaybookDef(id) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/playbooks { name, description?, goal?, steps?, constraints?, gating? }
+// → create a brand-new custom playbook. id = slug(name).
+app.post('/api/me-ai/playbooks', (req, res) => {
+  try {
+    const b = req.body || {};
+    const name = String(b.name || b.label || '').trim();
+    if (!name) return res.status(400).json({ error: 'A name is required.' });
+    let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    if (!id) return res.status(400).json({ error: 'Could not derive an id from that name.' });
+    if (ME_AI_PLAYBOOK_SEED[id]) return res.status(409).json({ error: 'That id collides with a built-in playbook — pick a different name.' });
+    const store = _meAiLoadPlaybookStore();
+    if (store[id]) return res.status(409).json({ error: 'A playbook with that name already exists.' });
+    const def = _meAiNormPlaybookDef(Object.assign({}, b, { label: name, kind: 'custom', id }));
+    store[id] = def;
+    _meAiSavePlaybookStore(store);
+    res.json({ ok: true, playbook: _meAiPlaybookDef(id) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/me-ai/playbook/:id → delete a custom playbook, or reset a built-in to seed
+// (by removing its overlay key).
+app.delete('/api/me-ai/playbook/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    const store = _meAiLoadPlaybookStore();
+    const wasCustom = !ME_AI_PLAYBOOK_SEED[id];
+    if (wasCustom && !store[id]) return res.status(404).json({ error: 'No such playbook.' });
+    delete store[id];
+    _meAiSavePlaybookStore(store);
+    res.json({ ok: true, reset: !wasCustom, playbook: wasCustom ? null : _meAiPlaybookDef(id) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/playbook/:id/assist { message, def? } → conversational editing helper.
+// Runs a short ephemeral model turn that proposes a revised structured def + a chat reply.
+app.post('/api/me-ai/playbook/:id/assist', async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    const cur = _meAiPlaybookDef(id);
+    if (!cur) return res.status(404).json({ error: 'No such playbook.' });
+    const b = req.body || {};
+    const message = String(b.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'A message is required.' });
+    // Work against the draft the client is editing, if provided, else the saved def.
+    const working = b.def && typeof b.def === 'object' ? _meAiNormPlaybookDef(Object.assign({}, cur, b.def)) : cur;
+    const prompt = [
+      `You help me refine a "Me-agent" PLAYBOOK — the reusable instructions a background agent follows when I dispatch it for a class of task.`,
+      `This playbook is "${working.label || id}" (${working.kind}). Here is its CURRENT definition as JSON:`,
+      '```json',
+      JSON.stringify({ label: working.label, description: working.description, goal: working.goal, steps: working.steps, constraints: working.constraints, gating: working.gating }, null, 2),
+      '```',
+      `MY REQUEST: ${message}`,
+      ``,
+      `Propose an updated definition that satisfies my request. Keep it tight and high-signal — good goal, ordered concrete steps, real constraints. Do not pad. Preserve anything I did not ask to change.`,
+      `Reply with a 1-3 sentence plain-language summary of what you changed, THEN end with a single fenced \`\`\`json block (and nothing after it):`,
+      `{ "reply": "<your short summary>", "def": { "label": "...", "description": "...", "goal": "...", "steps": ["..."], "constraints": ["..."], "gating": { "pursuit": true|false, "code": true|false, "external": true|false } } }`,
+    ].join('\n');
+    const t = { id: 'pb-assist', _ephemeral: true, playbook: id, context: { cwd: __dirname }, sessionId: require('crypto').randomUUID(), events: [], seq: 0, date: _meAiLocalDay() };
+    let out = '';
+    try { out = await _meAiRunTurn(t, prompt, { resume: false }); }
+    catch (e) { return res.status(502).json({ error: 'The assistant is unavailable: ' + e.message }); }
+    let parsed = null; try { parsed = _connectExtractJson(String(out || '')); } catch (_) {}
+    const reply = (parsed && parsed.reply) ? String(parsed.reply) : String(out || '').replace(/```json[\s\S]*$/, '').trim().slice(0, 800);
+    const proposed = (parsed && parsed.def && typeof parsed.def === 'object')
+      ? _meAiNormPlaybookDef(Object.assign({}, working, parsed.def, { kind: working.kind, id: working.id }))
+      : null;
+    res.json({ ok: true, reply, proposed });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /api/me-ai/task/dispatch { playbook, title, context, date } → start a Me agent.

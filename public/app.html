@@ -8194,6 +8194,173 @@
           </section>
           </template>
 
+          <section x-show="!loading && !errorMessage && route === 'playbooks'">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Playbooks</h1>
+                <p>Review and tune how your Me agents pursue each kind of work — edit the goal, steps, guardrails, or author a brand-new playbook.</p>
+              </div>
+              <div class="toolbar">
+                <span class="badge-count" x-text="(playbooksPage.list.length) + ' playbooks'"></span>
+                <span class="badge-count" x-show="pbEditedCount() > 0" x-text="pbEditedCount() + ' edited'"></span>
+              </div>
+            </div>
+
+            <div class="pb-wrap">
+              <!-- LEFT: playbook list -->
+              <div class="pb-list">
+                <div class="pb-group-h"><span>Built-in</span><span class="n" x-text="pbBuiltins().length"></span></div>
+                <template x-for="pb in pbBuiltins()" :key="pb.id">
+                  <button class="pb-item" :class="playbooksPage.selectedId === pb.id ? 'on' : ''" @click="pbOpen(pb.id)">
+                    <span x-text="pb.label"></span><span class="pb-edited" x-show="pb.edited" title="Has your edits">• edited</span>
+                    <span class="pb-item-sub" x-text="pb.description || pb.id"></span>
+                  </button>
+                </template>
+
+                <template x-if="pbCustoms().length">
+                  <div>
+                    <div class="pb-group-h" style="margin-top:8px;"><span>Custom</span><span class="n" x-text="pbCustoms().length"></span></div>
+                    <template x-for="pb in pbCustoms()" :key="pb.id">
+                      <button class="pb-item" :class="playbooksPage.selectedId === pb.id ? 'on' : ''" @click="pbOpen(pb.id)">
+                        <span x-text="pb.label"></span>
+                        <span class="pb-item-sub" x-text="pb.description || pb.id"></span>
+                      </button>
+                    </template>
+                  </div>
+                </template>
+
+                <button class="pb-new-btn" @click="pbNewOpen()">＋ New playbook</button>
+              </div>
+
+              <!-- RIGHT: editor / creator -->
+              <div>
+                <!-- New playbook form -->
+                <template x-if="playbooksPage.creating">
+                  <div class="pb-panel">
+                    <h3>New playbook</h3>
+                    <div class="pb-kind">A custom playbook your Me agents can be dispatched with.</div>
+                    <div class="pb-field">
+                      <label>Name</label>
+                      <input type="text" x-model="playbooksPage.newName" placeholder="e.g. Release notes drafting" @keydown.enter="pbCreate()" />
+                    </div>
+                    <div class="pb-field">
+                      <label>Description</label>
+                      <textarea x-model="playbooksPage.newDescription" placeholder="One line on what this playbook is for."></textarea>
+                    </div>
+                    <div class="pb-actions">
+                      <button class="btn primary" :disabled="playbooksPage.busy" @click="pbCreate()">Create</button>
+                      <button class="btn" @click="pbNewCancel()">Cancel</button>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Editor -->
+                <template x-if="!playbooksPage.creating && playbooksPage.draft">
+                  <div class="pb-editor">
+                    <div>
+                      <div class="pb-panel">
+                        <h3 x-text="playbooksPage.draft.label || 'Untitled playbook'"></h3>
+                        <div class="pb-kind">
+                          <span x-text="playbooksPage.def && playbooksPage.def.kind === 'custom' ? 'Custom playbook' : 'Built-in playbook'"></span>
+                          <span x-show="playbooksPage.def && playbooksPage.def.edited"> · has your edits</span>
+                        </div>
+
+                        <div class="pb-field">
+                          <label>Label</label>
+                          <input type="text" x-model="playbooksPage.draft.label" />
+                        </div>
+                        <div class="pb-field">
+                          <label>Description</label>
+                          <textarea x-model="playbooksPage.draft.description"></textarea>
+                        </div>
+                        <div class="pb-field">
+                          <label>Goal</label>
+                          <textarea x-model="playbooksPage.draft.goal" placeholder="What the agent is trying to achieve on this kind of work."></textarea>
+                        </div>
+
+                        <div class="pb-field">
+                          <label>Steps</label>
+                          <template x-for="(s, i) in playbooksPage.draft.steps" :key="i">
+                            <div class="pb-listrow">
+                              <textarea x-model="playbooksPage.draft.steps[i]"></textarea>
+                              <button class="pb-x" @click="pbStepRemove(i)" title="Remove step">×</button>
+                            </div>
+                          </template>
+                          <button class="pb-add" @click="pbStepAdd()">＋ Add step</button>
+                        </div>
+
+                        <div class="pb-field">
+                          <label>Constraints &amp; guardrails</label>
+                          <template x-for="(c, i) in playbooksPage.draft.constraints" :key="i">
+                            <div class="pb-listrow">
+                              <textarea x-model="playbooksPage.draft.constraints[i]"></textarea>
+                              <button class="pb-x" @click="pbConstraintRemove(i)" title="Remove constraint">×</button>
+                            </div>
+                          </template>
+                          <button class="pb-add" @click="pbConstraintAdd()">＋ Add constraint</button>
+                        </div>
+
+                        <div class="pb-field">
+                          <label>Gating</label>
+                          <div class="pb-gating">
+                            <label><input type="checkbox" x-model="playbooksPage.draft.gating.pursuit" /> Fan out (pursuit)</label>
+                            <label><input type="checkbox" x-model="playbooksPage.draft.gating.code" /> Code-aware</label>
+                            <label><input type="checkbox" x-model="playbooksPage.draft.gating.external" /> Require approval for external actions</label>
+                          </div>
+                        </div>
+
+                        <div class="pb-actions">
+                          <button class="btn primary" :disabled="playbooksPage.busy || !pbDirty()" @click="pbSave()" x-text="playbooksPage.busy ? 'Saving…' : 'Save'"></button>
+                          <button class="btn" :disabled="!pbDirty()" @click="pbRevert()">Revert</button>
+                          <span class="spacer"></span>
+                          <button class="btn" :disabled="playbooksPage.busy" @click="pbResetOrDelete()" x-text="playbooksPage.def && playbooksPage.def.kind === 'custom' ? 'Delete' : 'Reset to default'"></button>
+                        </div>
+                      </div>
+
+                      <!-- Assistant -->
+                      <div class="pb-panel" style="margin-top:18px;">
+                        <div class="pb-assist-h">Edit conversationally — describe the change and the assistant proposes an update you can apply.</div>
+                        <div class="pb-assist-log" x-show="playbooksPage.assist.length">
+                          <template x-for="(m, i) in playbooksPage.assist" :key="i">
+                            <div class="pb-msg" :class="m.role">
+                              <div class="pb-msg-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
+                              <div class="pb-msg-b" x-text="m.text"></div>
+                              <div class="pb-msg-apply" x-show="m.role === 'assistant' && m.proposed">
+                                <button class="pb-add" x-show="!m.applied" @click="pbApplyProposed(m)">Apply proposed edit →</button>
+                                <span x-show="m.applied" style="font-size:11.5px;color:var(--cp-text-muted);">Applied — review and Save.</span>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                        <div class="pb-assist-compose">
+                          <textarea x-model="playbooksPage.assistMsg" placeholder="e.g. Add a step to check CI status before proposing a merge." @keydown.enter.prevent="pbAssistSend()"></textarea>
+                          <button class="btn" :disabled="playbooksPage.assistBusy || !playbooksPage.assistMsg.trim()" @click="pbAssistSend()" x-text="playbooksPage.assistBusy ? '…' : 'Send'"></button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Prompt preview -->
+                    <div class="pb-panel">
+                      <div class="pb-preview-h">
+                        <strong style="font-size:13px;">Prompt preview</strong>
+                        <span class="pb-badges">
+                          <span x-show="playbooksPage.pursuit">fan-out</span>
+                          <span x-show="playbooksPage.pursuit && playbooksPage.code"> · </span>
+                          <span x-show="playbooksPage.code">code-aware</span>
+                        </span>
+                      </div>
+                      <pre class="pb-preview" x-text="playbooksPage.preview || 'Save to see the composed prompt.'"></pre>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="!playbooksPage.creating && !playbooksPage.draft && !playbooksPage.loading">
+                  <div class="pb-empty">Select a playbook to review or edit it.</div>
+                </template>
+              </div>
+            </div>
+          </section>
+
           <section x-show="!loading && !errorMessage && route === 'executions'">
             <div class="page-header">
               <div class="page-title">
@@ -12101,6 +12268,52 @@
               .meai-card-head .meai-caret { flex:0 0 auto; }
               .meai-card-count { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
               .meai-card-dot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; background:var(--cp-warning,#d29922); }
+              /* Playbooks page */
+              .pb-wrap { display:grid; grid-template-columns:minmax(220px,300px) 1fr; gap:20px; align-items:start; }
+              @media (max-width:900px){ .pb-wrap { grid-template-columns:1fr; } }
+              .pb-list { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); background:var(--cp-surface); padding:10px 4px; position:sticky; top:12px; }
+              .pb-group-h { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--cp-text-muted); padding:8px 12px 4px; display:flex; justify-content:space-between; align-items:baseline; }
+              .pb-group-h .n { font-variant-numeric:tabular-nums; }
+              .pb-item { display:block; width:100%; text-align:left; background:none; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; color:var(--cp-text); font-size:13px; line-height:1.3; }
+              .pb-item:hover { background:var(--cp-hover,rgba(128,128,128,.08)); }
+              .pb-item.on { background:var(--cp-hover,rgba(128,128,128,.12)); box-shadow:inset 2px 0 0 var(--cp-accent); }
+              .pb-item .pb-item-sub { font-size:11px; color:var(--cp-text-muted); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .pb-item .pb-edited { color:var(--cp-accent); font-size:11px; margin-left:6px; }
+              .pb-new-btn { display:block; width:calc(100% - 8px); margin:8px 4px 2px; padding:8px 10px; border:1px dashed var(--cp-border); border-radius:8px; background:none; color:var(--cp-text-muted); cursor:pointer; font-size:12.5px; }
+              .pb-new-btn:hover { color:var(--cp-text); border-color:var(--cp-accent); }
+              .pb-editor { display:grid; grid-template-columns:1fr; gap:18px; }
+              @media (min-width:1200px){ .pb-editor { grid-template-columns:1.3fr 1fr; } }
+              .pb-panel { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); background:var(--cp-surface); padding:16px 18px; }
+              .pb-panel h3 { margin:0 0 4px; font-size:15px; }
+              .pb-panel .pb-kind { font-size:11px; color:var(--cp-text-muted); }
+              .pb-field { margin-top:14px; }
+              .pb-field label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); margin-bottom:5px; }
+              .pb-field input[type=text], .pb-field textarea { width:100%; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg,var(--cp-surface)); color:var(--cp-text); padding:8px 10px; font:inherit; font-size:13px; box-sizing:border-box; }
+              .pb-field textarea { resize:vertical; min-height:56px; line-height:1.5; }
+              .pb-listrow { display:flex; gap:8px; align-items:flex-start; margin-bottom:6px; }
+              .pb-listrow textarea { flex:1; min-height:38px; }
+              .pb-listrow .pb-x { flex:0 0 auto; background:none; border:0; color:var(--cp-text-muted); cursor:pointer; font-size:15px; line-height:1; padding:6px 4px; }
+              .pb-listrow .pb-x:hover { color:var(--cp-danger,#f85149); }
+              .pb-add { background:none; border:0; color:var(--cp-accent); cursor:pointer; font-size:12.5px; padding:2px 0; }
+              .pb-gating { display:flex; flex-wrap:wrap; gap:16px; margin-top:8px; }
+              .pb-gating label { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--cp-text); text-transform:none; letter-spacing:0; margin:0; }
+              .pb-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; padding-top:14px; border-top:1px solid var(--cp-border); }
+              .pb-actions .spacer { flex:1; }
+              .pb-preview { font-family:var(--cp-mono,ui-monospace,SFMono-Regular,Menlo,monospace); font-size:11.5px; line-height:1.6; white-space:pre-wrap; word-break:break-word; color:var(--cp-text); max-height:520px; overflow:auto; margin:0; }
+              .pb-preview-h { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+              .pb-preview-h .pb-badges { font-size:11px; color:var(--cp-text-muted); }
+              .pb-assist { margin-top:16px; border-top:1px solid var(--cp-border); padding-top:14px; }
+              .pb-assist-h { font-size:12px; color:var(--cp-text-muted); margin-bottom:8px; }
+              .pb-assist-log { max-height:260px; overflow:auto; display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+              .pb-msg { font-size:12.5px; line-height:1.5; }
+              .pb-msg.user { color:var(--cp-text); }
+              .pb-msg.user .pb-msg-b { background:var(--cp-hover,rgba(128,128,128,.1)); border-radius:8px; padding:7px 10px; display:inline-block; }
+              .pb-msg.assistant { color:var(--cp-text); }
+              .pb-msg-role { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); margin-bottom:3px; }
+              .pb-msg-apply { margin-top:6px; }
+              .pb-assist-compose { display:flex; gap:8px; }
+              .pb-assist-compose textarea { flex:1; min-height:40px; }
+              .pb-empty { color:var(--cp-text-muted); font-size:13px; padding:40px 20px; text-align:center; }
               .meai-lookback { border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:10px 14px; margin:0 0 12px; background:var(--cp-surface); }
               .meai-lookback .meai-card-head { margin:0; }
               .meai-lookback strong { font-size:13px; }
@@ -22521,6 +22734,25 @@
           },
         },
         // ===== Me.AI (personal daily agenda / command center) — M1 read-only =====
+        playbooksPage: {
+          loaded: false,
+          loading: false,
+          list: [],            // [{id,label,kind,edited,pursuit,code,...}]
+          selectedId: '',
+          def: null,           // the saved def as loaded from the server
+          draft: null,         // the in-editor working copy
+          preview: '',         // composed prompt preview
+          pursuit: false,
+          code: false,
+          busy: false,         // a save/create/delete/assist request is in flight
+          assist: [],          // conversational edit transcript [{role,text}]
+          assistMsg: '',
+          assistBusy: false,
+          creating: false,     // "new playbook" form open
+          newName: '',
+          newDescription: '',
+          notice: '',
+        },
         meai: {
           loaded: false,
           loading: false,
@@ -23688,7 +23920,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -23789,6 +24021,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
             await this.loadMeAi();
+          } else if (this.route === 'playbooks') {
+            await this.loadPlaybooks();
           } else if (this.route === 'newsletter') {
             await this.loadNewsletter();
           } else if (this.route === 'insights') {
@@ -24723,6 +24957,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'watercooler': return mk('Water cooler', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
             case 'managers': return mk('Managers', '👔', '#/managers', 'managers');
+            case 'playbooks': return mk('Playbooks', '📓', '#/playbooks', 'playbooks');
             case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
             case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
             case 'marketplace': return mk('Marketplace', '🛍️', '#/marketplace', 'marketplace', { badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' });
@@ -24980,7 +25215,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               home,
               { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
                 { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
-                { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
+                { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] },
+                { key: 'playbooks', title: 'Playbooks', icon: '📓', href: '#/playbooks', routeGroup: 'playbooks', items: [] }
               ]},
               { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
                 { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
@@ -25171,7 +25407,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         routeMode(route) {
           const r = route || this.route;
           if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary'].includes(r)) return 'workspace';
-          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
+          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions', 'playbooks',
                'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
           return null;
@@ -29127,6 +29363,207 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const x = d ? new Date(d) : new Date();
           return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
         },
+        // ===== Playbooks page — review/edit pursuit playbooks + author custom ones =====
+        async loadPlaybooks() {
+          const p = this.playbooksPage;
+          p.loading = true;
+          try {
+            const r = await this.request('/api/me-ai/playbooks');
+            p.list = (r && r.playbooks) || [];
+            p.loaded = true;
+            // Auto-open the first playbook (or keep the current selection if it survives).
+            if (p.selectedId && p.list.some(x => x.id === p.selectedId)) {
+              await this.pbOpen(p.selectedId);
+            } else if (p.list.length) {
+              await this.pbOpen(p.list[0].id);
+            }
+          } catch (e) {
+            this.toast('Failed to load playbooks: ' + (e.message || e), 'error');
+          } finally {
+            p.loading = false;
+          }
+        },
+        pbBuiltins() { return (this.playbooksPage.list || []).filter(x => x.kind !== 'custom'); },
+        pbCustoms() { return (this.playbooksPage.list || []).filter(x => x.kind === 'custom'); },
+        pbEditedCount() { return (this.playbooksPage.list || []).filter(x => x.edited).length; },
+        async pbOpen(id) {
+          const p = this.playbooksPage;
+          if (!id) return;
+          p.busy = true;
+          p.notice = '';
+          p.creating = false;
+          try {
+            const r = await this.request('/api/me-ai/playbook/' + encodeURIComponent(id));
+            if (!r || !r.playbook) { this.toast('Playbook not found', 'error'); return; }
+            p.selectedId = id;
+            p.def = r.playbook;
+            p.draft = this._pbCloneDef(r.playbook);
+            p.preview = r.preview || '';
+            p.pursuit = !!r.pursuit;
+            p.code = !!r.code;
+            p.assist = [];
+            p.assistMsg = '';
+          } catch (e) {
+            this.toast('Failed to open playbook: ' + (e.message || e), 'error');
+          } finally {
+            p.busy = false;
+          }
+        },
+        _pbCloneDef(d) {
+          d = d || {};
+          const g = d.gating || {};
+          return {
+            id: d.id || '',
+            kind: d.kind || 'custom',
+            label: d.label || '',
+            description: d.description || '',
+            goal: d.goal || '',
+            steps: Array.isArray(d.steps) ? d.steps.slice() : [],
+            constraints: Array.isArray(d.constraints) ? d.constraints.slice() : [],
+            gating: { pursuit: !!g.pursuit, code: !!g.code, external: g.external !== false },
+          };
+        },
+        pbDirty() {
+          const p = this.playbooksPage;
+          if (!p.def || !p.draft) return false;
+          return JSON.stringify(this._pbCloneDef(p.def)) !== JSON.stringify(p.draft);
+        },
+        pbStepAdd() { this.playbooksPage.draft.steps.push(''); },
+        pbStepRemove(i) { this.playbooksPage.draft.steps.splice(i, 1); },
+        pbConstraintAdd() { this.playbooksPage.draft.constraints.push(''); },
+        pbConstraintRemove(i) { this.playbooksPage.draft.constraints.splice(i, 1); },
+        async pbSave() {
+          const p = this.playbooksPage;
+          if (!p.draft || !p.selectedId) return;
+          p.busy = true;
+          try {
+            const body = {
+              label: p.draft.label,
+              description: p.draft.description,
+              goal: p.draft.goal,
+              steps: (p.draft.steps || []).map(s => (s || '').trim()).filter(Boolean),
+              constraints: (p.draft.constraints || []).map(s => (s || '').trim()).filter(Boolean),
+              gating: p.draft.gating,
+            };
+            const r = await this.request('/api/me-ai/playbook/' + encodeURIComponent(p.selectedId), { method: 'PUT', body: JSON.stringify(body) });
+            if (r && r.playbook) {
+              p.def = r.playbook;
+              p.draft = this._pbCloneDef(r.playbook);
+              await this._pbRefreshPreview();
+              await this._pbRefreshList();
+              this.toast('Playbook saved', 'success');
+            }
+          } catch (e) {
+            this.toast('Failed to save: ' + (e.message || e), 'error');
+          } finally {
+            p.busy = false;
+          }
+        },
+        async _pbRefreshPreview() {
+          const p = this.playbooksPage;
+          try {
+            const r = await this.request('/api/me-ai/playbook/' + encodeURIComponent(p.selectedId));
+            if (r) { p.preview = r.preview || ''; p.pursuit = !!r.pursuit; p.code = !!r.code; }
+          } catch (_) {}
+        },
+        async _pbRefreshList() {
+          try { const r = await this.request('/api/me-ai/playbooks'); this.playbooksPage.list = (r && r.playbooks) || []; } catch (_) {}
+        },
+        pbRevert() {
+          const p = this.playbooksPage;
+          if (p.def) p.draft = this._pbCloneDef(p.def);
+        },
+        async pbResetOrDelete() {
+          const p = this.playbooksPage;
+          if (!p.selectedId || !p.def) return;
+          const custom = p.def.kind === 'custom';
+          const msg = custom
+            ? `Delete the custom playbook "${p.def.label}"? This can't be undone.`
+            : `Reset "${p.def.label}" back to its built-in defaults? Your edits will be discarded.`;
+          if (!confirm(msg)) return;
+          p.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/playbook/' + encodeURIComponent(p.selectedId), { method: 'DELETE' });
+            await this._pbRefreshList();
+            if (custom) {
+              p.selectedId = '';
+              p.def = null; p.draft = null; p.preview = '';
+              if (this.playbooksPage.list.length) await this.pbOpen(this.playbooksPage.list[0].id);
+              this.toast('Playbook deleted', 'success');
+            } else if (r && r.playbook) {
+              await this.pbOpen(p.selectedId);
+              this.toast('Reset to built-in defaults', 'success');
+            }
+          } catch (e) {
+            this.toast('Failed: ' + (e.message || e), 'error');
+          } finally {
+            p.busy = false;
+          }
+        },
+        pbNewOpen() {
+          const p = this.playbooksPage;
+          p.creating = true;
+          p.newName = '';
+          p.newDescription = '';
+        },
+        pbNewCancel() { this.playbooksPage.creating = false; },
+        async pbCreate() {
+          const p = this.playbooksPage;
+          const name = (p.newName || '').trim();
+          if (!name) { this.toast('Give the playbook a name', 'info'); return; }
+          p.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/playbooks', { method: 'POST', body: JSON.stringify({ name, description: (p.newDescription || '').trim() }) });
+            if (r && r.playbook) {
+              p.creating = false;
+              await this._pbRefreshList();
+              await this.pbOpen(r.playbook.id);
+              this.toast('Playbook created', 'success');
+            }
+          } catch (e) {
+            this.toast('Failed to create: ' + (e.message || e), 'error');
+          } finally {
+            p.busy = false;
+          }
+        },
+        async pbAssistSend() {
+          const p = this.playbooksPage;
+          const msg = (p.assistMsg || '').trim();
+          if (!msg || !p.selectedId || p.assistBusy) return;
+          p.assist.push({ role: 'user', text: msg });
+          p.assistMsg = '';
+          p.assistBusy = true;
+          try {
+            const body = {
+              message: msg,
+              def: {
+                label: p.draft.label,
+                description: p.draft.description,
+                goal: p.draft.goal,
+                steps: (p.draft.steps || []).filter(Boolean),
+                constraints: (p.draft.constraints || []).filter(Boolean),
+                gating: p.draft.gating,
+              },
+            };
+            const r = await this.request('/api/me-ai/playbook/' + encodeURIComponent(p.selectedId) + '/assist', { method: 'POST', body: JSON.stringify(body) });
+            p.assist.push({ role: 'assistant', text: (r && r.reply) || 'Done.', proposed: (r && r.proposed) || null });
+            this.$nextTick(() => this._pbAssistScroll());
+          } catch (e) {
+            p.assist.push({ role: 'assistant', text: 'Sorry — I hit an error: ' + (e.message || e) });
+          } finally {
+            p.assistBusy = false;
+          }
+        },
+        pbApplyProposed(m) {
+          if (!m || !m.proposed) return;
+          this.playbooksPage.draft = this._pbCloneDef(Object.assign({}, this.playbooksPage.draft, m.proposed, { id: this.playbooksPage.draft.id, kind: this.playbooksPage.draft.kind }));
+          m.applied = true;
+          this.toast('Applied to the editor — review, then Save', 'info');
+        },
+        _pbAssistScroll() {
+          try { const el = this.$root.querySelector('.pb-assist-log'); if (el) el.scrollTop = el.scrollHeight; } catch (_) {}
+        },
+
         async loadMeAi() {
           this.meai.loading = true;
           try {
