@@ -10077,10 +10077,15 @@
                                                <div class="hint" style="font-size:11px">Not on any board yet.</div>
                                              </template>
                                              <template x-for="b in devPinnedBoards(d)" :key="b.id">
-                                               <div class="cal-row">
-                                                 <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name"></a>
+                                               <div class="cal-row" style="display:flex;align-items:center;gap:10px">
+                                                 <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name" style="flex:1 1 auto;min-width:0"></a>
+                                                 <a href="#" class="dvx-hover-acts" @click.prevent.stop="boardJumpToBoard(b)" style="color:var(--cp-accent);text-decoration:none;font-size:11px">Open ↗</a>
+                                                 <a href="#" class="dvx-hover-acts" @click.prevent.stop="devUnpinFromBoard(d, b)" style="color:var(--cp-text-soft);text-decoration:none;font-size:11px">Unpin</a>
                                                </div>
                                              </template>
+                                             <button class="btn ghost" type="button" style="font-size:0.72rem;margin-top:4px;align-self:flex-start"
+                                                     @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)"
+                                                     x-text="devPinnedBoards(d).length ? '📌 Change board' : '📌 Pin to a board'"></button>
                                            </div>
                                          </div>
 
@@ -10909,21 +10914,10 @@
                                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                   <div style="min-width:0">
                                     <div class="cf-pr-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
-                                    <!-- Pin to workspace: unpinned = a 📌 icon in the right-side
-                                         action group (hover-revealed, declutters the base face).
-                                         Pinned = an always-visible board line below the title
-                                         (never hidden, per owner ask); open/change/unpin links
-                                         stay hover-gated. -->
-                                    <template x-if="d.homeBoardId">
-                                      <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;font-size:11.5px">
-                                        <span class="hint" style="font-size:11.5px" x-text="'📌 ' + devHomeBoardLabel(d)"></span>
-                                        <span class="dvx-hover-acts" style="display:inline-flex;align-items:center;gap:10px">
-                                          <a href="#" @click.prevent="openDevOnBoard(d)" style="color:var(--cp-accent);text-decoration:none">Open ↗</a>
-                                          <a href="#" @click.prevent="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)" style="color:var(--cp-accent);text-decoration:none">Change</a>
-                                          <a href="#" @click.prevent="devPinToBoard(d, '')" style="color:var(--cp-text-soft);text-decoration:none">Unpin</a>
-                                        </span>
-                                      </div>
-                                    </template>
+                                   <!-- Board pinning lives entirely in the "📌 Boards" tab now
+                                        (open / change / unpin), so the base face stays clean. The
+                                        hover 📌 in the action group is a quick "pin" shortcut for
+                                        a card that isn't on a board yet. -->
                                   </div>
                                   <div class="dvx-hover-acts" style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
                                     <button x-show="!d.homeBoardId" class="board-act" type="button" data-tip="Pin to workspace"
@@ -11312,10 +11306,15 @@
                                           <div class="hint" style="font-size:11px">Not on any board yet.</div>
                                         </template>
                                         <template x-for="b in devPinnedBoards(d)" :key="b.id">
-                                          <div class="cal-row">
-                                            <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name"></a>
+                                          <div class="cal-row" style="display:flex;align-items:center;gap:10px">
+                                            <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name" style="flex:1 1 auto;min-width:0"></a>
+                                            <a href="#" class="dvx-hover-acts" @click.prevent.stop="boardJumpToBoard(b)" style="color:var(--cp-accent);text-decoration:none;font-size:11px">Open ↗</a>
+                                            <a href="#" class="dvx-hover-acts" @click.prevent.stop="devUnpinFromBoard(d, b)" style="color:var(--cp-text-soft);text-decoration:none;font-size:11px">Unpin</a>
                                           </div>
                                         </template>
+                                        <button class="btn ghost" type="button" style="font-size:0.72rem;margin-top:4px;align-self:flex-start"
+                                                @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)"
+                                                x-text="devPinnedBoards(d).length ? '📌 Change board' : '📌 Pin to a board'"></button>
                                       </div>
                                     </div>
                                   </div>
@@ -11759,6 +11758,7 @@
               .meai-week-day.is-active .meai-week-dow { color:var(--cp-accent); }
               .meai-week-day .meai-week-sub { font-size:11px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .meai-week-day.is-unplanned .meai-week-sub { font-style:italic; opacity:.75; }
+              .meai-week-regen { flex:none; align-self:center; white-space:nowrap; font-size:12.5px; }
               .meai-daywin-dot { display:inline-block; width:6px; height:6px; border-radius:999px; background:var(--cp-accent); margin-left:6px; vertical-align:middle; }
               .meai-daywin-pop { position:absolute; top:calc(100% + 6px); right:0; z-index:40; min-width:230px;
                 border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:12px;
@@ -12301,6 +12301,12 @@
                     <span class="meai-week-sub" x-text="meAiLookaheadSub(d)"></span>
                   </button>
                 </template>
+                <button type="button" class="btn ghost meai-week-regen" @click="meAiPlanAhead()"
+                        :disabled="meai.planningAhead"
+                        title="Re-plan all upcoming days now, in order (each day builds on the prior). Bypasses the daily-refresh wait.">
+                  <span x-show="!meai.planningAhead">↻ Regenerate next days</span>
+                  <span x-show="meai.planningAhead">Planning…</span>
+                </button>
               </div>
 
               <!-- Consent (off) banner -->
@@ -14831,11 +14837,8 @@
                               :title="'You are a member of this reviewer group: ' + (pr.groupReviewers||[]).map(g => g.name).join(', ')"></span>
                         <span class="cf-m-muted" x-show="pr.proofOfPresencePending" title="Proof of presence is a merge-time human attestation, satisfied at merge — not a blocking failure">· pending proof of presence</span>
                       </div>
-                      <!-- Pinned-workspace line: always visible once the PR is pinned (owner ask). -->
-                      <div class="cf-pinned-line" x-show="cfPrPinnedBoard(pr)" style="display:flex;align-items:center;gap:10px;margin-top:4px;font-size:11.5px">
-                        <span class="cf-m-muted" x-text="'📌 ' + cfPrPinnedLabel(pr)"></span>
-                        <a href="#" class="cf-hover-acts" @click.prevent.stop="boardJumpToBoard(cfPrPinnedBoard(pr))" style="color:var(--cp-accent);text-decoration:none">Open ↗</a>
-                      </div>
+                      <!-- Board pinning lives entirely in the "📌 Boards" tab now
+                           (jump / unpin / pin-to-more), so the base face stays clean. -->
                     </div>
                     <div x-show="pr.attention" style="flex:0 0 auto">
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
@@ -15091,9 +15094,10 @@
                           <span class="cf-wt-history-ts">Not pinned to any workspace yet.</span>
                         </template>
                         <template x-for="b in cfPrPinnedBoards(pr)" :key="b.id">
-                          <div class="cf-wt-row" style="align-items:center">
+                          <div class="cf-wt-row" style="align-items:center;gap:10px">
                             <span x-text="(b.emoji || '📌') + ' ' + b.name"></span>
                             <a href="#" class="cf-wt-link" @click.prevent.stop="boardJumpToBoard(b)" style="margin-left:auto">Open ↗</a>
+                            <a href="#" class="cf-wt-link" @click.prevent.stop="cfPrUnpinFromBoard(pr, b)" style="color:var(--cp-text-soft)">Unpin</a>
                           </div>
                         </template>
                         <button class="btn ghost" type="button" style="font-size:0.72rem;margin-top:6px"
@@ -21325,6 +21329,7 @@
           reportOpen: false,     // report card force-expanded while a question is pending
           lookahead: [],         // next 5 work days (light per-day summary) — the week-ahead strip
           lookaheadLoading: false,
+          planningAhead: false,  // force-regenerate of the forward horizon in flight
           traceOpen: true,       // background agent → reasoning/tools visible by default
           consoleTab: 'chat',    // console body view: 'chat' transcript | 'report' (report out of the chat flow)
           approvalDecisions: {}, // per-task approve/decline map { taskId: { <label>: 'approve'|'decline' } }
@@ -27897,6 +27902,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!silent) this.meai.lookaheadLoading = false;
           }
         },
+        // Force-regenerate the whole forward horizon NOW (server re-plans each upcoming
+        // work day in order — each builds on the prior). Bypasses the ~daily staleness
+        // gate so changes you just made propagate across all future days in one pass.
+        async meAiPlanAhead() {
+          if (this.meai.planningAhead) return;
+          this.meai.planningAhead = true;
+          try {
+            const r = await this.request('/api/me-ai/plan-ahead', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ force: true }),
+            });
+            const gen = (r && Array.isArray(r.generated)) ? r.generated.length : 0;
+            this.toast(gen ? `Re-planned ${gen} upcoming day${gen === 1 ? '' : 's'}` : 'Upcoming days already up to date', gen ? 'success' : 'info');
+            await this.meAiLoadLookahead();
+            // Refresh the day in view in case it was one that just re-planned.
+            await this.meAiLoad();
+          } catch (e) {
+            this.toast('Could not regenerate upcoming days', 'error');
+          } finally {
+            this.meai.planningAhead = false;
+          }
+        },
         meAiLookaheadLabel(d) {
           try {
             const dt = new Date(String(d.date) + 'T00:00:00');
@@ -31612,7 +31639,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const arts = (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) ? ((wt.reports || []).length || 1) : 0;
           s.push({ id: 'links', label: '🔗 Artifacts', count: arts || undefined, disabled: !arts });
           const pinned = this.cfPrPinnedBoards(pr);
-          s.push({ id: 'boards', label: '📌 Boards', count: pinned.length || undefined, disabled: !pinned.length });
+          s.push({ id: 'boards', label: '📌 Boards', count: pinned.length || undefined });
           return s;
         },
         cfSummaryAttn(pr) {
@@ -38276,6 +38303,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return out;
         },
+        // Unpin a dev card from one board. For its single home board this clears
+        // homeBoardId; for any board it's pinned onto as an item, that item is removed.
+        async devUnpinFromBoard(d, board) {
+          if (!d || !board) return;
+          if (d.homeBoardId === board.id) { await this.devPinToBoard(d, ''); return; }
+          const item = (board.items || []).find(i => i.kind === 'dev' && String(i.refId) === String(d.id));
+          if (!item) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items/' + encodeURIComponent(item.id), { method: 'DELETE' });
+            const updated = (resp && resp.board) || resp;
+            const idx = (this.boards || []).findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.toast && this.toast('Removed from ' + board.name + '.', 'success');
+          } catch (e) {
+            this.toast && this.toast(e.message || 'Could not unpin', 'error');
+          }
+        },
         // Which board (if any) a PR is currently pinned to — used to surface the
         // workspace name below the PR title once it's pinned (owner ask). Returns
         // null when boards aren't loaded yet or the PR isn't pinned.
@@ -38295,6 +38339,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!ref) return [];
           return (this.boards || []).filter(b => (b.items || []).some(i => i.kind === 'pr' && i.refId === ref));
         },
+        // Remove a PR's board item from one specific board (multi-board unpin).
+        async cfPrUnpinFromBoard(pr, board) {
+          const ref = this.cfPrKey(pr);
+          if (!ref || !board) return;
+          const item = (board.items || []).find(i => i.kind === 'pr' && i.refId === ref);
+          if (!item) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items/' + encodeURIComponent(item.id), { method: 'DELETE' });
+            const updated = (resp && resp.board) || resp;
+            const idx = (this.boards || []).findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.toast && this.toast('Removed from ' + board.name + '.', 'success');
+          } catch (e) {
+            this.toast && this.toast(e.message || 'Could not unpin', 'error');
+          }
+        },
         // ---- PR-card-style drawer: compact face + expandable rail/panes ----
         devDrawerIsOpen(d) { return !!(d && this.devDrawer[d.id]); },
         devDrawerToggle(d) { if (d) this.devDrawer[d.id] = !this.devDrawer[d.id]; },
@@ -38311,7 +38371,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const artCount = ((d && d.reports && d.reports.length) || 0) + ((d && d.links && d.links.length) || 0);
           secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount, disabled: !artCount });
           const dPinned = this.devPinnedBoards(d);
-          secs.push({ id: 'boards', label: '📌 Boards', count: dPinned.length || undefined, disabled: !dPinned.length });
+          secs.push({ id: 'boards', label: '📌 Boards', count: dPinned.length || undefined });
           return secs;
         },
         devActivePane(d) {

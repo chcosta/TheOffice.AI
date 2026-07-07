@@ -15209,7 +15209,8 @@ function _meAiFutureWorkDays(cfg, n) {
   }
   return dates;
 }
-async function _meAiGenerateFutureDays() {
+async function _meAiGenerateFutureDays(opts = {}) {
+  const force = !!opts.force;   // user-initiated: re-plan every forward work day NOW, ignoring the staleness gate
   if (_meAiFutureBusy) return { skipped: 'busy' };
   const s = settings.getSettings();
   if (!s.meAiConsent) return { skipped: 'no-consent' };
@@ -15217,11 +15218,14 @@ async function _meAiGenerateFutureDays() {
   const horizon = _meAiFutureWorkDays(cfg, ME_AI_FUTURE_DAYS);
   const now = Date.now();
   // Decide what needs planning WITHOUT gathering — so a fully-planned horizon costs
-  // nothing (no collector spawn).
+  // nothing (no collector spawn). A forced pass bypasses the freshness check so the
+  // whole horizon re-plans in dependency order (each day builds on the prior), but
+  // still leaves legit days off alone.
   const need = horizon.filter(d => {
     const a = loadAgendaForDate(d);
     if (!a) return true;                                                         // never planned
     if (a.meta && a.meta.notWorkDay) return false;                              // legit day off
+    if (force) return true;                                                      // force: re-plan this work day now
     if (!Array.isArray(a.blocks) || !a.blocks.length) return true;              // empty plan
     const gen = Date.parse((a.meta && a.meta.indexedAt) || '') || 0;
     return (now - gen) > ME_AI_FUTURE_STALE_MS;                                  // stale forward plan
@@ -15236,7 +15240,7 @@ async function _meAiGenerateFutureDays() {
     // MEETINGS are the exception — they're date-specific — so for each future day we
     // fetch that day's actual calendar from WorkIQ and swap it in (dropping today's
     // meetings), instead of pretending today's meetings recur every day.
-    const gathered = await _meAiGatherSignals(s, cfg, _meAiLocalDay(), { force: false });
+    const gathered = await _meAiGatherSignals(s, cfg, _meAiLocalDay(), { force });
     const hasM365 = !!(gathered.sources && gathered.sources.m365);
     // Non-meeting signals are reusable across days (comms window is "last 2 days",
     // PRs/work-items are live) — strip only today's meetings.
@@ -15284,7 +15288,8 @@ setTimeout(() => { try { _meAiGenerateFutureDays().catch(() => {}); } catch (_) 
 // (used by the look-ahead UI's "plan my next few days" control).
 app.post('/api/me-ai/plan-ahead', async (req, res) => {
   try {
-    const r = await _meAiGenerateFutureDays();
+    const force = !!(req.body && req.body.force);
+    const r = await _meAiGenerateFutureDays({ force });
     res.json({ ok: true, ...r });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
