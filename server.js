@@ -12908,6 +12908,64 @@ function _meAiDedupePersonal(blocks) {
   return blocks.filter((_, i) => !drop.has(i));
 }
 
+// Stable identity for a work item (PR / work-item / dev card) so two blocks that point at
+// the SAME underlying thing can be recognised as duplicates. Returns `<type>:<id>` when a
+// confident id is found — from the title (ADO !62578, GitHub #123) or a recognised PR /
+// work-item URL — else '' (unknown → never deduped, so unrelated items are left alone).
+// Type is included so a *review* and a *steward* action on the same PR (genuinely different
+// jobs) don't collapse into one; only same-type duplicates merge.
+function _meAiWorkItemIdentity(b) {
+  if (!b) return '';
+  const type = String(b.type || '').toLowerCase();
+  // Only work-item-style blocks have PR/work-item identity; personal/meeting/flexible don't.
+  if (!(type === 'review' || type === 'steward' || type === 'pr' || type === 'dev' || type === 'work' || type === 'task')) return '';
+  const link = String(b.link || '');
+  const title = String(b.title || '');
+  let id = '';
+  const lm = link.match(/(?:pullrequest|pull|_workitems\/edit|workitem|issues?)\/(\d{2,})\b/i);
+  if (lm) id = lm[1];
+  if (!id) { const tm = title.match(/[!#](\d{2,})\b/); if (tm) id = tm[1]; }
+  return id ? `${type}:${id}` : '';
+}
+
+// Collapse blocks that reference the SAME PR / work item. The imminent-pin path re-inserts
+// a block carried from the prior snapshot ("held in place") while the fresh gather emits a
+// block for the same PR with the CURRENT title — so the same review can appear twice with
+// slightly different titles/windows. Left alone these (a) get flagged as a bogus scheduling
+// "conflict" and (b) share a link-derived key, so rescheduling/dismissing one hits both.
+// Keep the pinned/imminent instance (it holds the live slot you're actively working) — else
+// the earliest — and adopt the freshest sibling's title/detail/link (the live gather is
+// authoritative for the PR's current title; the pin only carries a stale snapshot copy).
+// Distinct user-reserved (manual) blocks are never auto-merged.
+function _meAiDedupeWorkItems(blocks) {
+  if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
+  const groups = new Map(); // identity -> [indices]
+  blocks.forEach((b, i) => {
+    const id = _meAiWorkItemIdentity(b);
+    if (!id) return;
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(i);
+  });
+  const drop = new Set();
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue;
+    if (idxs.every(i => blocks[i].meta && blocks[i].meta.manual)) continue; // deliberate reservations
+    let keep = idxs.find(i => blocks[i].meta && (blocks[i].meta.pinned || blocks[i].meta.imminent));
+    if (keep == null) keep = idxs.slice().sort((a, b) => (_hmToMin(blocks[a].start) || 0) - (_hmToMin(blocks[b].start) || 0))[0];
+    // Freshest content = a non-pinned sibling (live gather) if present, else the survivor.
+    const fresh = idxs.find(i => i !== keep && !(blocks[i].meta && (blocks[i].meta.pinned || blocks[i].meta.imminent)));
+    if (fresh != null) {
+      const f = blocks[fresh], s = blocks[keep];
+      if (f.title) s.title = f.title;
+      if (f.link) s.link = f.link;
+      if (f.detail) s.detail = f.detail;
+    }
+    for (const i of idxs) if (i !== keep) drop.add(i);
+  }
+  if (!drop.size) return blocks;
+  return blocks.filter((_, i) => !drop.has(i));
+}
+
 // Detect genuine double-books among the final blocks. A conflict is two COMMITTED blocks
 // whose times overlap; open/flexible focus fill is ignored, and an overlap with a meeting
 // the user did not opt into (meta.attending === false) is NOT a conflict (that meeting is
@@ -13907,6 +13965,10 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   finalBlocks = _meAiApplyRenames(finalBlocks, overridesForPlan);
   // Collapse any personal commitment that ended up scheduled twice (pin + todo re-insert).
   finalBlocks = _meAiDedupePersonal(finalBlocks);
+  // Collapse duplicate work items — the same PR/work item carried by the imminent pin AND
+  // re-emitted by the fresh gather (different title variants). One block per PR so it isn't
+  // flagged as a bogus conflict and can be rescheduled/dismissed independently.
+  finalBlocks = _meAiDedupeWorkItems(finalBlocks);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
