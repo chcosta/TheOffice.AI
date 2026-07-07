@@ -12017,6 +12017,9 @@
               .meai-block-body.is-fixed { background:color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)); border-style:solid; }
               /* B: past = a finished block earlier today — quieted so the eye skips it. */
               .meai-block-body.meai-past { background:color-mix(in srgb, var(--cp-text-muted) 6%, var(--cp-surface)); opacity:.66; }
+              /* Past blocks are dimmed via opacity, which would let the disposition strip
+                 behind the body bleed through. Past items are locked anyway, so hide it. */
+              .meai-block-swipe:has(> .meai-block-body.meai-past) .meai-block-acts { display:none; }
               /* B: imminent = starting within the "protect near-now" window; a re-plan
                  won't move it, so a faint accent tint marks it as locked-in. */
               .meai-block-body.meai-imminent { background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 22%, transparent); }
@@ -12937,7 +12940,6 @@
                               <span class="meai-conf-band" :class="meAiConfClass(row.it)" x-text="meAiConfBand(row.it) + ' confidence · ' + (row.it.confidence||0) + '%'"></span>
                               <span class="meai-conf-why" x-show="row.it.confidenceWhy" x-text="row.it.confidenceWhy"></span>
                             </div>
-                            <div class="meai-secitem-why" x-show="row.status==='auto' && row.it.autoReason && row.it.autoReason.why" x-text="row.it.autoReason.why + (typeof row.it.autoReason.confidence==='number' ? ' · ' + row.it.autoReason.confidence + '% sure' : '')"></div>
                             <div class="meai-inbox-acts" x-show="row.status==='decide'">
                               <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
                               <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
@@ -12968,10 +12970,6 @@
                                 <option value="wontfix">Won't fix</option>
                               </select>
                               <button type="button" class="meai-tri ghost" @click="meAiSendBack(row.it)" :disabled="meai.inboxBusy" title="Send back so you decide it yourself">Decide myself</button>
-                            </div>
-                            <div class="meai-inbox-acts" x-show="row.status==='auto'">
-                              <span class="meai-secitem-done">Handled for you</span>
-                              <button type="button" class="meai-tri ghost" @click="meAiUndoAuto(row.it)" :disabled="meai.inboxBusy" title="Undo — I'll decide this one myself">Undo</button>
                             </div>
                           </div>
                         </template>
@@ -14169,7 +14167,6 @@
                       <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
                     </template>
                   </div>
-                </div>
                 <!-- Hybrid schedule: per-day hours + in-office/home. Rows show only for
                      enabled work days; blank times inherit the default Start/End above. -->
                 <div class="meai-weekly">
@@ -14198,6 +14195,7 @@
                           x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
                       </button>
                     </template>
+                  </div>
                 </div>
                 <!-- Phase 2: confidence-scored auto-triage. Opt-in, hands-off handling of
                      high-confidence attention items. NO pills; --cp-* tokens; standard controls. -->
