@@ -12385,6 +12385,13 @@
               .meai-pu-stop-risk { font-size:12px; color:#9a6700; margin-top:6px; }
               .meai-pu-stop-note { width:100%; margin-top:8px; font-size:12px; }
               .meai-pu-stop-acts { display:flex; gap:8px; margin-top:8px; }
+              .meai-pu-conflict { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:12px; margin-bottom:12px; background:var(--cp-bg); }
+              .meai-pu-conflict-h { font-weight:700; color:var(--cp-text); font-size:13px; }
+              .meai-pu-conflict-sub { font-size:12px; color:var(--cp-text-muted); margin:2px 0 10px; }
+              .meai-pu-conflict-side { padding:9px 0; border-top:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
+              .meai-pu-conflict-tag { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pu-conflict-claim { font-size:13px; color:var(--cp-text); margin:4px 0 8px; }
+              .meai-pu-conflict-auto { font-size:12px; color:var(--cp-text-muted); margin-top:8px; font-style:italic; }
               .meai-pu-constraints { margin-top:14px; }
               .meai-pu-constraints-h { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; margin-bottom:6px; }
               .meai-pu-constraint { font-size:12px; color:var(--cp-text); padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
@@ -13843,6 +13850,7 @@
                       <button type="button" :class="{ on: meai.pursuit.nav==='chat' }" @click="meai.pursuit.nav='chat'">Chat</button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='index' }" @click="meai.pursuit.nav='index'">Index</button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='approvals' }" @click="meai.pursuit.nav='approvals'">Approvals<span class="meai-pu-nc" x-show="meAiPursuitStops().length" x-text="meAiPursuitStops().length"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='conflicts' }" @click="meai.pursuit.nav='conflicts'" x-show="meAiPursuitConflicts().length">Conflicts<span class="meai-pu-nc" x-text="meAiPursuitConflicts().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='artifacts' }" @click="meai.pursuit.nav='artifacts'">Artifacts<span class="meai-pu-nc" x-show="meAiPursuitArtifacts().length" x-text="meAiPursuitArtifacts().length"></span></button>
                       <span style="flex:1"></span>
                       <button type="button" class="meai-pu-panx" @click="meai.pursuit.navOpen=false" title="Collapse">‹</button>
@@ -13984,6 +13992,30 @@
                               </template>
                             </div>
                           </template>
+                        </div>
+                      </template>
+
+                      <!-- CONFLICTS (§5a) — same-subject / opposite-stance contradictions -->
+                      <template x-if="meai.pursuit.nav==='conflicts'">
+                        <div>
+                          <template x-for="c in meAiPursuitConflicts()" :key="c.id">
+                            <div class="meai-pu-conflict">
+                              <div class="meai-pu-conflict-h" x-text="c.subject || 'Contradiction'"></div>
+                              <div class="meai-pu-conflict-sub">Two legs reached opposite conclusions. Pick the one to keep.</div>
+                              <div class="meai-pu-conflict-side">
+                                <div class="meai-pu-conflict-tag">A · <span x-text="(c.a && c.a.stance) || '—'"></span> · <span x-text="meAiPursuitConf(c.a)"></span></div>
+                                <div class="meai-pu-conflict-claim" x-text="(c.a && c.a.claim) || ''"></div>
+                                <button type="button" class="btn ghost" @click="meAiPursuitResolvePick(c._stopId || c.id, 'a', c.subject||'')" :disabled="!c._stopId">Keep A</button>
+                              </div>
+                              <div class="meai-pu-conflict-side">
+                                <div class="meai-pu-conflict-tag">B · <span x-text="(c.b && c.b.stance) || '—'"></span> · <span x-text="meAiPursuitConf(c.b)"></span></div>
+                                <div class="meai-pu-conflict-claim" x-text="(c.b && c.b.claim) || ''"></div>
+                                <button type="button" class="btn ghost" @click="meAiPursuitResolvePick(c._stopId || c.id, 'b', c.subject||'')" :disabled="!c._stopId">Keep B</button>
+                              </div>
+                              <div x-show="!c._stopId" class="meai-pu-conflict-auto">The agent is running a quick tiebreaker leg to settle this — no action needed.</div>
+                            </div>
+                          </template>
+                          <div x-show="!meAiPursuitConflicts().length" class="meai-pu-empty">No open contradictions. When two legs disagree on the same point, the conflict shows here.</div>
                         </div>
                       </template>
 
@@ -31445,6 +31477,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const t = this.meai.pursuit.tree;
           return (t && t.rootState && Array.isArray(t.rootState.constraints)) ? t.rootState.constraints : [];
         },
+        // §5a — open contradictions rolled up from parallel legs (same subject, opposite stance).
+        // Each open conflict is joined to its needs-decision stop (stop.conflictId === c.id) so
+        // Keep A/B can resolve the RIGHT side; a conflict with no open stop is being tiebroken.
+        meAiPursuitConflicts() {
+          const t = this.meai.pursuit.tree;
+          const list = (t && t.rootState && Array.isArray(t.rootState.openConflicts)) ? t.rootState.openConflicts : [];
+          const stops = (t && Array.isArray(t.stops)) ? t.stops : [];
+          return list.filter(c => c && c.status === 'open').map(c => {
+            const st = stops.find(s => s && s.status === 'open' && s.conflictId === c.id);
+            return st ? { ...c, _stopId: st.id } : c;
+          });
+        },
+        meAiPursuitConf(side) {
+          const n = side && typeof side.confidence === 'number' ? side.confidence : null;
+          if (n == null) return '—';
+          return Math.round(n * 100) + '%';
+        },
         async meAiPursuitResolve(stop, decision) {
           const p = this.meai.pursuit; if (!p.tid) return;
           try {
@@ -31456,8 +31505,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             setTimeout(() => this.meAiPursuitLoad(), 600);
           } catch (e) { this.toast('Could not resolve: ' + (e.message || e), 'error'); }
         },
-        async meAiPursuitAnswer(stop) {
+        // §5a conflict resolution: keep the side the user picked (A or B). Routes through
+        // /answer with an explicit note so the server's needs-decision branch resolves the
+        // named side (not its higher-confidence fallback).
+        async meAiPursuitResolvePick(stopId, pick, label) {
           const p = this.meai.pursuit; if (!p.tid) return;
+          const note = (String(pick) === 'b' ? 'Pick option B' : 'Pick option A') + (label ? ' — ' + label : '');
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/answer', {
+              method: 'POST', body: JSON.stringify({ stopId, text: note }),
+            });
+            this.toast('Recorded your call — the agent will fold it in', 'success');
+            setTimeout(() => this.meAiPursuitLoad(), 600);
+          } catch (e) { this.toast('Could not resolve: ' + (e.message || e), 'error'); }
+        },
+        async meAiPursuitAnswer(stop) {          const p = this.meai.pursuit; if (!p.tid) return;
           const ans = String(p.note || '').trim();
           if (!ans) { this.toast('Type an answer first', 'info'); return; }
           try {
@@ -31584,6 +31646,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiPursuitAct(a) {
           const p = this.meai.pursuit; if (!p.tid || p.acting || !a) return;
           if (a.risk === 'external' && !confirm('This will actually carry out: "' + (a.label || a.intent) + '".\n\nContinue?')) return;
+          // A conflict Pick A/Pick B carries which side to keep (_conflictPick). Send it
+          // via /answer with an explicit note so the server resolves the SIDE YOU picked,
+          // not its confidence fallback (§5a merge/conflict resolution).
+          if (a._conflictPick && a._stopId) { return this.meAiPursuitResolvePick(a._stopId, a._conflictPick, a.label || ''); }
           // A gated approve/deny carries a journal stop (_stopId). It must RESOLVE that
           // stop, not run a generic /act turn — otherwise the stop stays open and the
           // Approvals rail/map keep waiting on you after you've already acted.

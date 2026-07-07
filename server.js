@@ -15934,6 +15934,78 @@ function _meAiNewMergeCandidate(o = {}) {
     requiresUserDecision: !!o.requiresUserDecision, at: new Date().toISOString(),
   };
 }
+// Normalize a finding's subject into a stable slug so sibling legs that touch the
+// same topic group together (needed for dedup + contradiction detection, §5a).
+function _meAiSubjectSlug(s) {
+  const raw = String(s == null ? '' : s).toLowerCase().trim();
+  if (!raw) return '';
+  return raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').split('-').slice(0, 6).join('-');
+}
+function _meAiNormStance(s) {
+  const v = String(s == null ? '' : s).toLowerCase().trim();
+  if (v === 'affirm' || v === 'affirmative' || v === 'yes' || v === 'true' || v === 'positive') return 'affirm';
+  if (v === 'deny' || v === 'negative' || v === 'no' || v === 'false' || v === 'refute') return 'deny';
+  return 'neutral';
+}
+function _meAiStanceOpposed(a, b) {
+  return (a === 'affirm' && b === 'deny') || (a === 'deny' && b === 'affirm');
+}
+// PURE single-writer merge: fold one leg's MergeCandidate into a working rootState.
+// Dedupes same-subject/same-stance findings (keeps the strongest evidence + unions
+// sources); on same-subject/OPPOSITE-stance raises an explicit conflict checkpoint
+// (keeps BOTH findings, never silently overwrites — §5a). Returns the next rootState
+// plus the journal events to emit (so the fold can replay them verbatim). No I/O.
+function _meAiMergeInto(rootState, cand) {
+  const rs = {
+    constraints: Array.isArray(rootState && rootState.constraints) ? rootState.constraints.slice() : [],
+    answers: Array.isArray(rootState && rootState.answers) ? rootState.answers.slice() : [],
+    findings: Array.isArray(rootState && rootState.findings) ? rootState.findings.map(f => Object.assign({}, f)) : [],
+    openConflicts: Array.isArray(rootState && rootState.openConflicts) ? rootState.openConflicts.map(c => Object.assign({}, c)) : [],
+  };
+  const events = [];
+  const legId = cand.legId || null;
+  const findings = Array.isArray(cand.findings) ? cand.findings : [];
+  for (const raw of findings) {
+    if (!raw || !raw.claim) continue;
+    const subject = _meAiSubjectSlug(raw.subject || raw.claim);
+    const stance = _meAiNormStance(raw.stance);
+    const conf = (typeof raw.confidence === 'number') ? raw.confidence
+      : ({ high: 0.9, medium: 0.6, low: 0.3 }[String(raw.confidence || '').toLowerCase()] || 0.5);
+    const finding = {
+      subject, stance, claim: String(raw.claim), confidence: conf,
+      evidence: raw.evidence || raw.evidenceRefs || null,
+      sources: legId ? [legId] : [], legId, at: new Date().toISOString(),
+    };
+    if (!subject) { rs.findings.push(finding); events.push({ kind: 'rootstate', patch: { finding } }); continue; }
+    const sameSubject = rs.findings.filter(f => f.subject === subject);
+    const opposed = sameSubject.find(f => _meAiStanceOpposed(f.stance, stance) && f.legId !== legId);
+    if (opposed) {
+      // Contradiction — keep both, raise a conflict on the spine.
+      rs.findings.push(finding);
+      const conflict = {
+        id: 'cf-' + Math.random().toString(36).slice(2, 9), subject, status: 'open',
+        a: { claim: opposed.claim, stance: opposed.stance, confidence: opposed.confidence, legId: opposed.legId },
+        b: { claim: finding.claim, stance: finding.stance, confidence: finding.confidence, legId: finding.legId },
+        at: new Date().toISOString(), verdict: null,
+      };
+      rs.openConflicts.push(conflict);
+      events.push({ kind: 'rootstate', patch: { finding } });
+      events.push({ kind: 'rootstate', patch: { conflict } });
+      continue;
+    }
+    const twin = sameSubject.find(f => f.stance === stance);
+    if (twin) {
+      // Agreement — dedupe: keep the higher-confidence claim, union the evidence legs.
+      if (conf > (twin.confidence || 0)) { twin.claim = finding.claim; twin.confidence = conf; twin.evidence = finding.evidence || twin.evidence; twin.at = finding.at; }
+      if (legId && twin.sources.indexOf(legId) === -1) twin.sources.push(legId);
+      continue;
+    }
+    rs.findings.push(finding);
+    events.push({ kind: 'rootstate', patch: { finding } });
+  }
+  return { rootState: rs, events };
+}
+
 function _meAiNewSideEffectIntent(o = {}) {
   // Two-phase: written BEFORE the external call; reconciled on crash-resume.
   return {
@@ -15958,7 +16030,7 @@ function _meAiJournalAppend(id, kind, data) {
 // Build (or rebuild) the in-memory tree by folding every journal record.
 function _meAiFoldJournal(id) {
   const state = {
-    id, epoch: 0, rootState: { constraints: [], answers: [] }, stops: [], stage: 'working',
+    id, epoch: 0, rootState: { constraints: [], answers: [], findings: [], openConflicts: [] }, stops: [], stage: 'working',
     legs: {}, order: [], checkpoints: [], artifacts: [], merges: [], conflicts: [],
     heartbeatAt: null,
   };
@@ -16004,7 +16076,24 @@ function _meAiFoldJournal(id) {
           if (!Array.isArray(state.rootState.answers)) state.rootState.answers = [];
           state.rootState.answers.push(patch.answer);
         }
-        const rest = Object.assign({}, patch); delete rest.constraint; delete rest.answer;
+        // finding / conflict / resolveConflict come pre-reduced from _meAiMergeInto
+        // (the pure single-writer merge), so the fold just replays them verbatim —
+        // no re-dedup here keeps the reload deterministic + cheap (§5a).
+        if (patch.finding) {
+          if (!Array.isArray(state.rootState.findings)) state.rootState.findings = [];
+          state.rootState.findings.push(patch.finding);
+        }
+        if (patch.conflict) {
+          if (!Array.isArray(state.rootState.openConflicts)) state.rootState.openConflicts = [];
+          state.rootState.openConflicts.push(patch.conflict);
+        }
+        if (patch.resolveConflict) {
+          const oc = state.rootState.openConflicts || [];
+          const c = oc.find(x => x && x.id === patch.resolveConflict);
+          if (c) { c.status = 'resolved'; c.verdict = patch.verdict || c.verdict || null; c.resolvedBy = patch.resolvedBy || null; }
+        }
+        const rest = Object.assign({}, patch);
+        delete rest.constraint; delete rest.answer; delete rest.finding; delete rest.conflict; delete rest.resolveConflict; delete rest.verdict; delete rest.resolvedBy;
         state.rootState = Object.assign({}, state.rootState, rest);
         break;
       }
@@ -17390,6 +17479,8 @@ function _meAiTreeLegPrompt(t, leg) {
     ``,
     ..._meAiDoggedClause(),
     ``,
+    `For each finding, set "subject" to a short stable slug for the topic (reuse the SAME slug a sibling leg would pick for the same question, e.g. "ci-status", "reviewer-approval") and "stance" to whether you AFFIRM or DENY that subject (or neutral). This lets the main thread detect when two legs contradict each other instead of silently overwriting.`,
+    ``,
     `IF YOU HIT A WALL, FAN OUT before you park. Don't return blocked after a single`,
     `failed approach — explore several alternate routes to get through (search the`,
     `subject org-wide / in Azure DevOps / on the web, try a connected MCP or tool, or`,
@@ -17399,7 +17490,7 @@ function _meAiTreeLegPrompt(t, leg) {
     ``,
     `  "confidence": "low|medium|high",`,
     `  "outcome": "done|dead-end|needs-auth|needs-info|needs-decision",`,
-    `  "findings": [ { "claim": "<one specific claim>", "confidence": "low|medium|high" } ],`,
+    `  "findings": [ { "subject": "<short stable topic slug, e.g. ci-status — siblings MUST reuse the same slug for the same topic>", "stance": "affirm|deny|neutral", "claim": "<one specific claim>", "confidence": "low|medium|high" } ],`,
     `  "proposedAction": { "risk": "external|write|spend", "op": "<short id e.g. post-pr-comment>", "target": "<what/where>", "summary": "<one line: exactly what approving does>", "body": "<the message/comment text if any>" }  (or null),`,
     `  "question": "<for needs-info/needs-decision: one specific question, WITH your recommendation>"  (or null),`,
     `  "invalidates": [ "<name of any sibling hypothesis this result makes moot>" ]`,
@@ -17433,7 +17524,7 @@ function _meAiParseLegResult(out) {
     summary: String(p.summary || prose.slice(0, 400) || 'Leg complete.').slice(0, 800),
     confidence: okConf(p.confidence),
     outcome,
-    findings: Array.isArray(p.findings) ? p.findings.slice(0, 12).map(f => ({ claim: String((f && f.claim) || f || '').slice(0, 300), confidence: okConf(f && f.confidence) })).filter(f => f.claim) : [],
+    findings: Array.isArray(p.findings) ? p.findings.slice(0, 12).map(f => ({ subject: String((f && f.subject) || '').slice(0, 80), stance: _meAiNormStance(f && f.stance), claim: String((f && f.claim) || f || '').slice(0, 300), confidence: okConf(f && f.confidence) })).filter(f => f.claim) : [],
     proposedAction: pa,
     question: p.question ? String(p.question).slice(0, 600) : null,
     invalidates: Array.isArray(p.invalidates) ? p.invalidates.map(s => String(s).slice(0, 120)).filter(Boolean) : [],
@@ -17552,10 +17643,58 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   // INFO/DECISION leg only carries a question (drives an ask, never an approve).
   const pendingAuth = legs.filter(l => l._stopId && l._result && l._result.proposedAction);
   const pendingInfo = legs.filter(l => l._stopId && (!l._result || !l._result.proposedAction));
-  // Fold each non-dead leg into the root as a merge record.
+  // ---- Serialized single-writer merge (§5a) ----
+  // Roll each non-dead leg up toward the root ONE AT A TIME, accumulating into a
+  // working rootState: dedupe same-subject/same-stance findings (keep strongest),
+  // and on same-subject/opposite-stance raise an explicit conflict (keep both,
+  // never overwrite). The pure reducer returns the journal events to replay.
+  const tree0 = meAiTrees.get(id);
+  let work = (tree0 && tree0.rootState) ? tree0.rootState : { constraints: [], answers: [], findings: [], openConflicts: [] };
+  const curEpoch = (tree0 && typeof tree0.epoch === 'number') ? tree0.epoch : 0;
+  const titleToId = {}; for (const l of legs) titleToId[String(l.title || '').toLowerCase().trim()] = l.id;
+  const newConflicts = [];
   for (const l of done) {
-    _meAiTreeEmit(id, 'merge', { merge: _meAiNewMergeCandidate({ legId: l.id, baseEpoch: 0, confidence: l._result.confidence, findings: l._result.findings, invalidatesLegIds: [] }) });
+    const invalidatesLegIds = (l._result.invalidates || []).map(n => titleToId[String(n).toLowerCase().trim()]).filter(Boolean);
+    const cand = _meAiNewMergeCandidate({ legId: l.id, baseEpoch: (l.baseEpoch != null ? l.baseEpoch : curEpoch), confidence: l._result.confidence, findings: l._result.findings, invalidatesLegIds });
+    _meAiTreeEmit(id, 'merge', { merge: cand });
+    for (const lid of invalidatesLegIds) _meAiTreeEmit(id, 'leg_invalidate', { legId: lid });
+    const res = _meAiMergeInto(work, cand);
+    work = res.rootState;
+    for (const ev of res.events) {
+      _meAiTreeEmit(id, 'rootstate', { patch: ev.patch });
+      if (ev.patch && ev.patch.conflict) { _meAiTreeEmit(id, 'conflict', { conflict: ev.patch.conflict }); newConflicts.push(ev.patch.conflict); }
+    }
   }
+  // ---- Conflict resolution (§5a): tiebreaker leg when budget allows + factual,
+  // else raise it to a needs-decision (never silently pick a side). ----
+  const budgetLeftFrac = () => Math.max(0, (ME_AI_TREE_BUDGET.wallMs - (Date.now() - startedMs)) / ME_AI_TREE_BUDGET.wallMs);
+  let openConflicts = newConflicts.slice();
+  let tiebreakUsed = 0;
+  for (const c of openConflicts.slice()) {
+    if (c.status !== 'open') continue;
+    const factual = _meAiStanceOpposed(c.a.stance, c.b.stance);
+    if (factual && tiebreakUsed < 1 && budgetLeftFrac() > 0.4) {
+      tiebreakUsed++;
+      const tb = _meAiNewLeg({ kind: 'tiebreak', parentId: spine.id, lane: 'spine', baseEpoch: curEpoch, status: 'planned', title: 'Tiebreak: ' + c.subject, goal: `Two of my pursuit legs disagree about "${c.subject}". One concluded: ${c.a.claim} (${c.a.stance}). The other concluded: ${c.b.claim} (${c.b.stance}). Determine which is correct and WHY. Return a single finding with subject "${c.subject}" and the correct stance.` });
+      _meAiTreeEmit(id, 'leg_spawn', { leg: tb });
+      try { await _meAiRunLeg(t, tb); } catch (_) {}
+      const vf = (tb._result && Array.isArray(tb._result.findings)) ? tb._result.findings.find(f => _meAiSubjectSlug(f.subject || f.claim) === c.subject && _meAiNormStance(f.stance) !== 'neutral') : null;
+      if (vf) {
+        const verdict = { stance: _meAiNormStance(vf.stance), claim: String(vf.claim), legId: tb.id, confidence: vf.confidence };
+        _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: c.id, verdict, resolvedBy: tb.id } });
+        c.status = 'resolved'; c.verdict = verdict;
+        continue;
+      }
+      // Inconclusive tiebreaker -> fall through to needs-decision.
+    }
+    // Raise it: keep both sides in front of the user with a recommendation.
+    const rec = (c.a.confidence || 0) === (c.b.confidence || 0) ? 'They are equally supported — you decide.' : ((c.a.confidence || 0) > (c.b.confidence || 0) ? `Leaning toward: ${c.a.claim}.` : `Leaning toward: ${c.b.claim}.`);
+    const stop = _meAiNewStop({ type: 'needs-decision', legId: spine.id, prompt: `Conflicting findings on "${c.subject}": (A) ${c.a.claim} — vs — (B) ${c.b.claim}. ${rec}` });
+    stop.conflictId = c.id;
+    _meAiTreeEmit(id, 'stop', { stop });
+    c._stopId = stop.id;
+  }
+  const unresolvedConflicts = openConflicts.filter(c => c.status === 'open');
   // Build the pursuit report markdown.
   const reportTitle = _meAiReportTitle(t);
   const lines = [`# ${reportTitle}`, ``, `**Goal:** ${t.goal || _meAiGoalFor(t)}`, ``];
@@ -17567,10 +17706,21 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     if (r && r.findings.length) { lines.push(''); for (const f of r.findings) lines.push(`- ${f.claim} _(${f.confidence})_`); }
     lines.push('');
   }
+  // Conflicts section (§5a): contradictions are surfaced, never silently dropped.
+  if (openConflicts.length) {
+    lines.push(`## ⚠ Conflicts`, ``);
+    for (const c of openConflicts) {
+      if (c.status === 'resolved' && c.verdict) lines.push(`- **${c.subject}** — resolved via tiebreak: ${c.verdict.claim}`);
+      else lines.push(`- **${c.subject}** — needs your call: (A) ${c.a.claim} · vs · (B) ${c.b.claim}`);
+    }
+    lines.push('');
+  }
   // Single best next move: prefer a pending gated action, else the highest-confidence done leg.
   const rank = { high: 3, medium: 2, low: 1 };
   let best = null;
+  const uc0 = unresolvedConflicts[0];
   if (pendingAuth.length) best = { text: (pendingAuth[0]._result.proposedAction.summary) || pendingAuth[0].title, stopId: pendingAuth[0]._stopId, kind: 'approve' };
+  else if (uc0) best = { text: `Two legs disagree on "${uc0.subject}" — pick (A) ${uc0.a.claim} or (B) ${uc0.b.claim}.`, stopId: uc0._stopId, kind: 'decide' };
   else if (done.length) { const top = done.slice().sort((a, b) => (rank[b._result.confidence] || 0) - (rank[a._result.confidence] || 0))[0]; best = { text: top._result.summary, kind: 'info' }; }
   else if (pendingInfo.length) best = { text: (pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title), kind: 'ask' };
   lines.push(`---`, `**Recommended next move:** ${best ? best.text : 'Review findings.'}`);
@@ -17587,18 +17737,27 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
     _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Re-plan', summary: pendingAuth.length ? 'Recommendation ready; one action awaits your approval.' : 'Findings merged; recommendation ready.', confidence: 'high', interesting: true }) });
   }
-  _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: pendingAuth.length ? 'needs-auth' : (pendingInfo.length ? 'needs-info' : 'done') });
+  _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: pendingAuth.length ? 'needs-auth' : (unresolvedConflicts.length ? 'needs-decision' : (pendingInfo.length ? 'needs-info' : 'done')) });
   // Flat report so the legacy console + lane reflect the outcome, with approve
   // buttons for any pending gated action.
   const findings = legs.filter(l => l._result).map(l => ({ title: l.title, detail: l._result.summary, severity: l._result.confidence === 'high' ? 'high' : 'medium' }));
-  t.report = { summary: best ? `Fanned out into ${legs.length} pursuits (${dead.length} dead-ended). ${best.text}` : `Fanned out into ${legs.length} pursuits.`, findings, markdown: art.body };
-  t.question = pendingInfo.length ? ((pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title)) : null;
+  const conflictSummary = openConflicts.map(c => ({ id: c.id, subject: c.subject, status: c.status, a: c.a, b: c.b, verdict: c.verdict || null }));
+  t.report = { summary: best ? `Fanned out into ${legs.length} pursuits (${dead.length} dead-ended). ${best.text}` : `Fanned out into ${legs.length} pursuits.`, findings, conflicts: conflictSummary, markdown: art.body };
+  t.question = pendingInfo.length ? ((pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title))
+    : (unresolvedConflicts.length ? best.text : null);
   const pa = pendingAuth[0];
-  t.nextActions = pendingAuth.length
-    ? [{ label: 'Approve: ' + ((pa._result.proposedAction && pa._result.proposedAction.op) || 'action'), intent: 'approve', primary: true, risk: (pa._result.proposedAction && pa._result.proposedAction.risk === 'external') ? 'external' : 'write', detail: (pa._result.proposedAction && pa._result.proposedAction.summary) || pa.title, _stopId: pa._stopId },
-       { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: pa._stopId },
-       { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' }]
-    : [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+  if (pendingAuth.length) {
+    t.nextActions = [{ label: 'Approve: ' + ((pa._result.proposedAction && pa._result.proposedAction.op) || 'action'), intent: 'approve', primary: true, risk: (pa._result.proposedAction && pa._result.proposedAction.risk === 'external') ? 'external' : 'write', detail: (pa._result.proposedAction && pa._result.proposedAction.summary) || pa.title, _stopId: pa._stopId },
+      { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: pa._stopId },
+      { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' }];
+  } else if (unresolvedConflicts.length) {
+    t.nextActions = unresolvedConflicts.slice(0, 3).flatMap(c => ([
+      { label: `Pick A: ${String(c.a.claim).slice(0, 60)}`, intent: 'answer', primary: true, risk: 'none', detail: `Resolve "${c.subject}" in favor of A`, _stopId: c._stopId, _conflictPick: 'a' },
+      { label: `Pick B: ${String(c.b.claim).slice(0, 60)}`, intent: 'answer', primary: false, risk: 'none', detail: `Resolve "${c.subject}" in favor of B`, _stopId: c._stopId, _conflictPick: 'b' },
+    ]));
+  } else {
+    t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+  }
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
   _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
   _meAiSetStage(t, 'awaiting', 'awaiting');
@@ -17889,6 +18048,21 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
         return;
       }
       // needs-info / needs-decision: fold the answer, refresh, continue.
+      // A conflict needs-decision stop additionally resolves the conflict in
+      // rootState (§5a) — pick the side the note names, else the stronger side.
+      if (stop.conflictId) {
+        const tt = meAiTrees.get(id) || tree;
+        const c = ((tt.rootState && tt.rootState.openConflicts) || []).find(x => x && x.id === stop.conflictId);
+        if (c && c.status === 'open') {
+          const n = String(note || '').toLowerCase();
+          let pick = /(^|\b)(pick|option|favor of|side)\s*[:=]?\s*a\b|\(a\)/.test(n) ? 'a'
+            : (/(^|\b)(pick|option|favor of|side)\s*[:=]?\s*b\b|\(b\)/.test(n) ? 'b' : null);
+          if (!pick) pick = (c.a && (c.a.confidence || 0)) >= (c.b && (c.b.confidence || 0)) ? 'a' : 'b';
+          const side = c[pick] || c.a;
+          const verdict = { stance: side.stance, claim: side.claim, legId: side.legId, confidence: side.confidence, chosenBy: 'user' };
+          _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: c.id, verdict, resolvedBy: 'user' } });
+        }
+      }
       _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
       _meAiTreeEmit(id, 'rootstate', { patch: { answer: note || 'answered' } });
