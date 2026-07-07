@@ -177,6 +177,10 @@ const DEFAULTS = {
   meAiLunchEnd: '12:30',
   // Agenda time-grid granularity in minutes. Configurable 5 / 10 / 15; default 10.
   meAiGrid: 10,
+  // "Protect near-now" window in minutes: on a re-plan of today, any block starting within
+  // this many minutes of now is held in place (imminent — too close to move). Also the
+  // buffer that guards an in-progress block. Configurable 10/15/30/45/60; default 30.
+  meAiImminentWindow: 30,
   // Work-week: weekday ints (0=Sun..6=Sat) the agenda is planned for. Default Mon–Fri.
   // May legitimately be empty (user works no fixed days). Persisted as an array.
   meAiWorkDays: [1, 2, 3, 4, 5],

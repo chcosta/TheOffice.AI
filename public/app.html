@@ -11933,6 +11933,11 @@
               .meai-block-body.is-now { box-shadow:0 0 0 1px var(--cp-accent); }
               /* Meetings + locked/pinned/imminent items read as "held in place" with a faint tint. */
               .meai-block-body.is-fixed { background:color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)); border-style:solid; }
+              /* B: past = a finished block earlier today — quieted so the eye skips it. */
+              .meai-block-body.meai-past { background:color-mix(in srgb, var(--cp-text-muted) 6%, var(--cp-surface)); opacity:.66; }
+              /* B: imminent = starting within the "protect near-now" window; a re-plan
+                 won't move it, so a faint accent tint marks it as locked-in. */
+              .meai-block-body.meai-imminent { background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 22%, transparent); }
               .meai-block-title { font-weight:600; color:var(--cp-text); font-size:14px; }
               .meai-block-meta { font-size:12px; color:var(--cp-text-muted); margin-top:3px; }
               .meai-block-why { font-size:12px; color:var(--cp-text-muted); margin-top:5px; font-style:italic; }
@@ -11941,6 +11946,23 @@
               /* I2 drag-to-lock + I3 rename */
               .meai-block-time[draggable="true"] { cursor:grab; }
               .meai-block-time[draggable="true"]:active { cursor:grabbing; }
+              /* Item A — calm "planning your day" state shown while a plan is (re)generating,
+                 in place of the stale prior timeline. Modest radius, --cp-* tokens, no pills. */
+              .meai-planning { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-surface); padding:16px; }
+              .meai-planning-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+              .meai-planning-spin { width:16px; height:16px; flex:0 0 auto; border-radius:50%; border:2px solid color-mix(in srgb, var(--cp-accent) 30%, transparent); border-top-color:var(--cp-accent); animation:meaiSpin .8s linear infinite; }
+              .meai-planning-t { font-weight:600; color:var(--cp-text); font-size:14px; }
+              .meai-planning-s { font-size:12.5px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-planning-rows { display:flex; flex-direction:column; gap:12px; }
+              .meai-planning-row { display:grid; grid-template-columns:64px 1fr; gap:14px; align-items:center; }
+              .meai-sk { display:block; height:38px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:linear-gradient(100deg, color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)) 30%, color-mix(in srgb, var(--cp-text-muted) 16%, var(--cp-surface)) 50%, color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)) 70%); background-size:200% 100%; animation:meaiShimmer 1.4s ease-in-out infinite; }
+              .meai-sk-time { height:12px; }
+              @keyframes meaiSpin { to { transform:rotate(360deg); } }
+              @keyframes meaiShimmer { 0% { background-position:200% 0; } 100% { background-position:-200% 0; } }
+              @media (prefers-reduced-motion: reduce) {
+                .meai-planning-spin { animation:none; }
+                .meai-sk { animation:none; background:color-mix(in srgb, var(--cp-text-muted) 10%, var(--cp-surface)); }
+              }
               .meai-block.meai-drag-src, .meai-block-time.meai-drag-src { opacity:.5; }
               .meai-block.meai-drop-hi > .meai-block-swipe > .meai-block-body { box-shadow:0 0 0 2px var(--cp-accent); }
               .meai-title-wrap { display:inline-flex; align-items:center; gap:6px; }
@@ -12867,7 +12889,31 @@
               <div class="meai-grid2">
                 <!-- Agenda timeline -->
                 <div>
-                  <template x-if="meai.agenda && (meai.agenda.blocks||[]).length">
+                  <!-- Item A: while a plan is being (re)generated, show a calm planning
+                       state instead of the STALE previous timeline. Meetings and fixed
+                       time are anchored first server-side, then flexible work is fitted
+                       around them; the finished plan swaps in once, so you never watch the
+                       previous day's PR/dev blocks get visibly reshuffled as meetings land. -->
+                  <template x-if="meai.generating">
+                    <div class="meai-planning" aria-live="polite" aria-busy="true">
+                      <div class="meai-planning-head">
+                        <span class="meai-planning-spin" aria-hidden="true"></span>
+                        <div>
+                          <div class="meai-planning-t" x-text="(meai.agenda && (meai.agenda.blocks||[]).length) ? 'Replanning your day…' : 'Planning your day…'"></div>
+                          <div class="meai-planning-s">Anchoring meetings and fixed time first, then fitting your work around them.</div>
+                        </div>
+                      </div>
+                      <div class="meai-planning-rows">
+                        <template x-for="i in 6" :key="i">
+                          <div class="meai-planning-row">
+                            <span class="meai-sk meai-sk-time"></span>
+                            <span class="meai-sk meai-sk-body" :style="'width:' + (92 - (i % 3) * 16) + '%'"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!meai.generating && meai.agenda && (meai.agenda.blocks||[]).length">
                     <div class="meai-tl">
                       <div class="meai-conflict-banner" x-show="meai.agenda.meta && meai.agenda.meta.conflicts && meai.agenda.meta.conflicts.length">
                         ⚠ <strong x-text="(meai.agenda.meta.conflicts||[]).length + ((meai.agenda.meta.conflicts||[]).length===1 ? ' scheduling conflict' : ' scheduling conflicts')"></strong>
@@ -12894,7 +12940,7 @@
                               <button class="meai-block-act danger" type="button" @click.stop="meAiBlockDispose(b,'notmine',bi)" @pointerdown.stop title="Not mine — someone else owns it"><span class="meai-act-ico">✕</span><span>Not mine</span></button>
                             </div>
                             <div class="meai-block-body"
-                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end), 'is-fixed': meAiBlockFixed(b) }"
+                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end), 'is-fixed': meAiBlockFixed(b), 'meai-past': meAiBlockPast(b), 'meai-imminent': meAiBlockImminent(b) }"
                                :style="'border-left-color:' + meAiBlockTypeColor(b.type) + ';' + meAiBlockSwipeStyle(b,bi)"
                                @pointerdown="meAiBlockSwipeStart($event,b,bi)">
                             <button class="meai-dismiss" type="button"
@@ -12966,11 +13012,11 @@
                       </template>
                     </div>
                   </template>
-                  <div class="meai-empty" x-show="meai.loaded && meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay">
+                  <div class="meai-empty" x-show="!meai.generating && meai.loaded && meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay">
                     <p style="font-size:15px;margin:0 0 6px">🌤️ Not a work day.</p>
                     <p style="font-size:13px;margin:0">This weekday is outside your work week. Adjust it under <strong>Working hours &amp; grid → Work week</strong> if that's not right.</p>
                   </div>
-                  <div class="meai-empty" x-show="meai.loaded && (!meai.agenda || !(meai.agenda.blocks||[]).length) && !(meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay)">
+                  <div class="meai-empty" x-show="!meai.generating && meai.loaded && (!meai.agenda || !(meai.agenda.blocks||[]).length) && !(meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay)">
                     <p style="font-size:15px;margin:0 0 6px">No agenda yet for this day.</p>
                     <p style="font-size:13px;margin:0">Click <strong>Generate agenda</strong> to plan it from your signals.</p>
                   </div>
@@ -13948,12 +13994,16 @@
                   <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
                   <label>Grid</label>
                   <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                  <label>Protect near-now</label>
+                  <select x-model.number="meai.config.imminentWindow" title="On a re-plan of today, a block starting within this window is held in place — too close to now to move.">
+                    <option :value="10">10 min</option><option :value="15">15 min</option><option :value="30">30 min</option><option :value="45">45 min</option><option :value="60">1 hour</option>
+                  </select>
                   <label>Time format</label>
                   <button type="button" class="meai-clock-toggle" @click="meAiToggleClock()"
                           :title="meai.clock==='24' ? 'Showing 24-hour (military) time — click for AM/PM' : 'Showing 12-hour AM/PM — click for 24-hour'"
                           x-text="meai.clock==='24' ? '24-hour (13:30)' : 'AM/PM (1:30 PM)'"></button>
                 </div>
-                <div class="meai-workweek">
+                <div style="font-size:11.5px;color:var(--cp-text-muted);margin-top:4px">Protect near-now keeps any block starting within that window from moving when the day re-plans.</div>
                   <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
                   <div class="meai-ww-days">
                     <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
@@ -29113,6 +29163,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 workStart: c.workStart, workEnd: c.workEnd,
                 lunchStart: c.lunchStart, lunchEnd: c.lunchEnd,
                 grid: Number(c.grid) || 10,
+                imminentWindow: [10, 15, 30, 45, 60].includes(Number(c.imminentWindow)) ? Number(c.imminentWindow) : 30,
                 workDays: Array.isArray(c.workDays) ? c.workDays : [1, 2, 3, 4, 5],
                 weeklyHours: (c.weeklyHours && typeof c.weeklyHours === 'object' && !Array.isArray(c.weeklyHours)) ? c.weeklyHours : {},
                 mode: c.mode || 'balanced',
@@ -29371,6 +29422,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (b.type === 'meeting' || b.source === 'meeting') return true;
           const m = b.meta || {};
           return !!(m.locked || m.pinned || m.imminent || m.manual);
+        },
+        // B: subtle visual states derived from the clock (so they also cover meetings).
+        // Past — a finished block earlier today (dimmed, quieter surface).
+        meAiBlockPast(b) {
+          if (!b || this.meai.date !== this.meai.today) return false;
+          const e = this._hmToMin(b.end);
+          return e != null && this.meai.nowMin >= e;
+        },
+        // Imminent — a block starting soon (within the configured "protect near-now"
+        // window) that a re-plan won't move. Faint accent tint so it reads as locked-in.
+        meAiImminentWindow() {
+          const c = this.meai.agenda && this.meai.agenda.config;
+          const w = c && Number(c.imminentWindow);
+          return (w && w > 0) ? w : 30;
+        },
+        meAiBlockImminent(b) {
+          if (!b || this.meai.date !== this.meai.today) return false;
+          const s = this._hmToMin(b.start), e = this._hmToMin(b.end);
+          if (s == null || e == null || e <= this.meai.nowMin) return false;
+          return s > this.meai.nowMin && s <= this.meai.nowMin + this.meAiImminentWindow();
         },
         // #5 Expandable agenda/backlog/attention items. Each item toggles a detail
         // panel; keyed by a stable-ish composite so re-renders preserve open state.

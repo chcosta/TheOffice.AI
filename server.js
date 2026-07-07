@@ -11557,6 +11557,7 @@ function _meAiConfig(s) {
   s = s || settings.getSettings();
   const targets = _connectAdoTargets(s);
   const grid = [5, 10, 15].includes(Number(s.meAiGrid)) ? Number(s.meAiGrid) : 10;
+  const imminentWindow = [10, 15, 30, 45, 60].includes(Number(s.meAiImminentWindow)) ? Number(s.meAiImminentWindow) : 30;
   const workDays = _meAiSanitizeWorkDays(s.meAiWorkDays);
   const MODES = ['balanced', 'relaxed', 'focused', 'low-sleep', 'unblock-team'];
   const mode = MODES.includes(String(s.meAiMode)) ? String(s.meAiMode) : 'balanced';
@@ -11569,6 +11570,7 @@ function _meAiConfig(s) {
     lunchStart: s.meAiLunchStart || '',
     lunchEnd: s.meAiLunchEnd || '',
     grid,
+    imminentWindow,
     workDays,
     weeklyHours,
     mode,
@@ -12780,7 +12782,7 @@ function _meAiActivityKey(title) {
 function _meAiImminentPins(priorSnapshot, nowMin, cfg) {
   const pins = [];
   if (!priorSnapshot || !Array.isArray(priorSnapshot.blocks) || nowMin == null) return pins;
-  const BUFFER = 30;
+  const BUFFER = (cfg && Number(cfg.imminentWindow) > 0) ? Number(cfg.imminentWindow) : 30;
   for (const pb of priorSnapshot.blocks) {
     const bs = _hmToMin(pb.start), be = _hmToMin(pb.end);
     if (bs == null || be == null) continue;
@@ -12799,7 +12801,33 @@ function _meAiImminentPins(priorSnapshot, nowMin, cfg) {
   }
   return pins;
 }
-// Re-assert imminent pins after the LLM refine: snap each pinned block back to its held
+// D: past blocks stay PUT. On a re-plan of TODAY, anything that already finished
+// (be <= nowMin) is history — the user lived it, so a regenerate must NOT quietly drop it
+// or reshuffle earlier work. We re-pin every finished non-filler WORK block at its exact
+// past slot (meta.past) so _meAiPrePass/_meAiEnforcePins hold it immutable. Meetings and
+// lunch re-fix from their own live sources; open/break filler isn't worth freezing. Items
+// the user explicitly dismissed are already stripped from priorSnapshot, so "unless I
+// removed it" falls out for free.
+function _meAiPastPins(priorSnapshot, nowMin, cfg) {
+  const pins = [];
+  if (!priorSnapshot || !Array.isArray(priorSnapshot.blocks) || nowMin == null) return pins;
+  for (const pb of priorSnapshot.blocks) {
+    const bs = _hmToMin(pb.start), be = _hmToMin(pb.end);
+    if (bs == null || be == null) continue;
+    if (be > nowMin) continue;                                   // not finished yet — imminent/live pins own it
+    const ty = String(pb.type || '');
+    if (ty === 'meeting') continue;                              // re-fixes from live calendar signals
+    if (/^lunch$/i.test(String(pb.title || '').trim())) continue; // re-fixes from config
+    if (ty === 'open' || ty === 'break') continue;               // flexible filler — nothing to freeze
+    pins.push({
+      start: bs, end: be, type: ty || 'focus', title: pb.title,
+      detail: pb.detail || '', link: pb.link || '',
+      why: pb.why || 'Already happened today — locked in place', urgency: pb.urgency || 0,
+      meta: Object.assign({}, pb.meta || {}, { pinned: true, past: true }),
+    });
+  }
+  return pins;
+}
 // time (the refine can drift it), then cascade any non-pinned block that now overlaps a
 // pin to just after it (preserving duration), and de-clump so shifted flexible blocks
 // don't stack. Meetings and pins hold their ground; conflicts they create are surfaced
@@ -14031,7 +14059,21 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
       }
     }
   }
-  const pre = _meAiPrePass(cfg, planSignals, planTodos, reservedBlocks.concat(lockReservations, imminentPins));
+  // D: freeze already-finished work blocks so a regenerate keeps them locked in place
+  // (never dropped or reshuffled). Same TODAY + prior-snapshot guard as imminent pins.
+  let pastPins = [];
+  if (day === _meAiLocalDay() && priorSnapshot) {
+    const _now = new Date();
+    pastPins = _meAiPastPins(priorSnapshot, _now.getHours() * 60 + _now.getMinutes(), cfg);
+    if (pastPins.length) {
+      const pastTitles = new Set(pastPins.map(p => String(p.title || '').trim().toLowerCase()).filter(Boolean));
+      for (let i = planSignals.length - 1; i >= 0; i--) {
+        const t = String(planSignals[i].title || '').trim().toLowerCase();
+        if (t && pastTitles.has(t)) planSignals.splice(i, 1);
+      }
+    }
+  }
+  const pre = _meAiPrePass(cfg, planSignals, planTodos, reservedBlocks.concat(lockReservations, imminentPins, pastPins));
   _meAiEmitProgress(day, 'refine', 'Shaping your day with AI…');
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   // Safety net: the LLM refine can merge/drop a personal-todo block (it reads as flexible
@@ -14040,6 +14082,8 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   let finalBlocks = refined ? _meAiEnsurePersonalTodos(pre.blocks, refined) : pre.blocks;
   // I1: re-assert the imminent pins in case the refine drifted one, cascading others around.
   if (imminentPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, imminentPins);
+  // D: re-assert the frozen past blocks so the refine can't drop or move history.
+  if (pastPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, pastPins);
   // I2: re-assert locked blocks (the refine can nudge a reservation) so a pinned item
   // holds its exact slot; others reflow around it. I3: apply title overrides.
   if (lockReservations.length) finalBlocks = _meAiEnforcePins(finalBlocks, lockReservations);
@@ -14361,6 +14405,7 @@ app.put('/api/me-ai/settings', (req, res) => {
     if (b.lunchStart === '' || validHm(b.lunchStart)) patch.meAiLunchStart = b.lunchStart;
     if (b.lunchEnd === '' || validHm(b.lunchEnd)) patch.meAiLunchEnd = b.lunchEnd;
     if ([5, 10, 15].includes(Number(b.grid))) patch.meAiGrid = Number(b.grid);
+    if ([10, 15, 30, 45, 60].includes(Number(b.imminentWindow))) patch.meAiImminentWindow = Number(b.imminentWindow);
     if (b.workDays !== undefined) patch.meAiWorkDays = _meAiSanitizeWorkDays(b.workDays);
     if (b.weeklyHours !== undefined) patch.meAiWeeklyHours = _meAiSanitizeWeeklyHours(b.weeklyHours);
     const MODES = ['balanced', 'relaxed', 'focused', 'low-sleep', 'unblock-team'];
