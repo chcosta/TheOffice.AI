@@ -15618,6 +15618,60 @@ function _meAiGoalFor(t) {
   return map[(t && t.playbook)] || `Work on ${title || (t && t.playbook) || 'the task'} and report back with what you found.`;
 }
 
+// prep-goal-ask: a meeting / 1-on-1 prep pursuit works far better when it knows what
+// YOU want out of the meeting (a decision to land, an ask to make, an outcome to
+// reach) — otherwise it can only prep you generically. When a prep pursuit is
+// launched with no stated outcome (e.g. straight off a calendar block, where
+// context.goal is empty), the Chief of Staff PAUSES up front and asks for your goal,
+// then aims the whole fan-out at achieving it. Answered in the console as a plain
+// needs-info stop — NOT a modal (owner constraint).
+function _meAiNeedsGoalAsk(t) {
+  if (!t || t.mode !== 'tree') return false;
+  if (t.playbook !== 'prep') return false;                 // only meeting / 1-on-1 prep
+  if (t._goalAsked) return false;                          // already asked + answered
+  if (String((t.context && t.context.goal) || '').trim()) return false;    // outcome stated
+  if (String((t.context && t.context.outcome) || '').trim()) return false;
+  return true;
+}
+
+// Resume a prep pursuit after the user answers the up-front goal-ask. Folds the
+// stated outcome into the goal and STARTS the fan-out — the parking needs-info fold
+// (below in _meAiTreeResolveStop) would leave the pursuit stalled, because it never
+// orchestrated. Restart-safe: _pendingSpine is in-memory only, so if it was lost we
+// rebuild the spine before orchestrating.
+async function _meAiResolveGoalAsk(t, stop, note) {
+  const id = t.id;
+  const ans = String(note || '').trim();
+  const skip = !ans || /^(no(ne|thing)?|skip|just prep|general(ly)?|n\/?a|whatever|not sure|idk|don'?t care)\b/i.test(ans);
+  _meAiTreeEmit(id, 'auth_decision', { stopId: stop.id, decision: 'approve', note: ans || null });
+  t._goalAsked = true;
+  t._goalAskStopId = null;
+  t.question = null;
+  // Keep the prep framing; append the stated outcome so the fan-out aims at it.
+  const base = _meAiGoalFor(t);   // generic prep goal (context.goal still empty)
+  if (!skip) {
+    t.context = Object.assign({}, t.context, { outcome: ans });
+    t.goal = `${base} My specific goal for this meeting: ${ans}. Focus the prep on getting me to that outcome — the talking points, evidence, and decisions that land it.`;
+  } else {
+    t.goal = base;
+  }
+  let spine = t._pendingSpine;
+  if (spine) { spine.goal = t.goal; }
+  _meAiTreeMirror(t, skip ? "No problem — I'll prep you broadly." : `Got it — I'll aim the prep at: ${ans}`);
+  _meAiSetStage(t, 'working', 'running');
+  _meAiTreeEmit(id, 'stage', { stage: 'working' });
+  if (!spine) {
+    // Spine lost (server restart mid-ask): rebuild one and orchestrate.
+    spine = _meAiNewLeg({ kind: 'spine', lane: 'spine', title: 'Prep ' + (t.title || 'the meeting'), goal: t.goal, status: 'running', baseEpoch: 0, sessionId: t.sessionId || _meAiUuid() });
+    t._spineId = spine.id;
+    _meAiTreeEmit(id, 'leg_spawn', { leg: spine });
+  } else {
+    _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: 'running' });
+  }
+  t._pendingSpine = null;
+  await _meAiTreeOrchestrate(t, spine);
+}
+
 // Compact directory of the user's OWN internal resources — the Boards/workspaces they
 // keep (with their AI briefing summaries), the specialist agents they've registered
 // (e.g. a "Helix UX Standup" facilitator), and their team roster — so a Me-agent
@@ -16932,6 +16986,26 @@ function _meAiTreeDispatch(t) {
     const spine = _meAiNewLeg({ kind: 'spine', lane: 'spine', title: 'Steward ' + (t.title || 'the PR'), goal: t.goal || _meAiGoalFor(t), status: 'running', baseEpoch: 0, sessionId: t.sessionId || _meAiUuid() });
     t._spineId = spine.id;
     _meAiTreeEmit(t.id, 'leg_spawn', { leg: spine });
+    // prep-goal-ask: before fanning out a meeting-prep pursuit with no stated
+    // outcome, pause and ask what you want to get out of the meeting, then aim the
+    // whole prep at it. Holds the spine at needs-info; _meAiResolveGoalAsk resumes
+    // (orchestrates) once you answer. Surfaces automatically in the Approvals tab.
+    if (_meAiNeedsGoalAsk(t)) {
+      const label = String(t.title || 'this meeting').replace(/^(prep(are)?(\s+for)?|prep):?\s*/i, '').trim() || 'this meeting';
+      const q = `Before I prep you for ${label}: what do you want to get out of it? (a decision to land, an ask to make, an outcome to reach — or say "just prep me generally"). I'll aim the whole prep at that.`;
+      const stop = _meAiNewStop({ type: 'needs-info', legId: spine.id, prompt: q });
+      stop.goalAsk = true;
+      t._goalAskStopId = stop.id;
+      t._pendingSpine = spine;
+      _meAiTreeEmit(t.id, 'stop', { stop });
+      _meAiTreeEmit(t.id, 'leg_status', { legId: spine.id, status: 'needs-info' });
+      _meAiTreeMirror(t, q);
+      t.question = q;
+      t.nextActions = [];
+      _meAiTreeEmit(t.id, 'stage', { stage: 'awaiting' });
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+      return;
+    }
     await _meAiTreeOrchestrate(t, spine);
   });
 }
@@ -16992,6 +17066,14 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
       return;
     }
     if (stop.type !== 'needs-auth') {
+      // prep-goal-ask: the up-front "what outcome do you want?" fold must KICK OFF
+      // the fan-out (the generic needs-info fold below only parks the task, which
+      // would STALL a pursuit that never started). Detect via stop.goalAsk (survives
+      // a restart) or the in-memory id.
+      if (stop.goalAsk === true || (t._goalAskStopId && stopId === t._goalAskStopId)) {
+        await _meAiResolveGoalAsk(t, stop, note);
+        return;
+      }
       // needs-info / needs-decision: fold the answer, refresh, continue.
       _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
