@@ -15580,6 +15580,15 @@ function _meAiSetStage(t, stage, status) {
 // asking you something). Derived from the playbook + title (works for old tasks too).
 function _meAiGoalFor(t) {
   const title = String((t && t.title) || '').trim();
+  // An explicit, full-length goal (e.g. from the pursuit launcher / ad-hoc composer,
+  // which also passes the truncated goal as `title`) wins verbatim — the title is a
+  // 120-char label for the lane, not the instruction the agent should act on.
+  const explicit = String((t && t.context && t.context.goal) || '').trim();
+  if (explicit) {
+    return t && t.playbook === 'adhoc'
+      ? `Accomplish this end-to-end: ${explicit} — work out the steps, do the work with your tools, pursue every promising angle, and report what's done and what's left.`
+      : explicit;
+  }
   const map = {
     review: `Review ${title || 'the changes'} at a senior level — surface bugs, risks, and what's good so you can decide how to act.`,
     implement: `Implement ${title || 'the requested change'} end-to-end and verify it, without touching unrelated code.`,
@@ -16289,6 +16298,56 @@ function _meAiTreeCandidates(t) {
   return [];
 }
 
+// AI planner: decompose ANY goal into 2-4 INDEPENDENT angles the orchestrator can
+// pursue in parallel (the self-driven fan-out the static candidates only did for
+// 'steward'). One cheap spine turn; returns [] when the goal is genuinely linear
+// (the orchestrator then runs a single spine leg) or when planning fails (safe
+// degrade). Sanitized + capped so a wild model reply can't blow up the fan-out.
+async function _meAiTreePlan(t, spine) {
+  const internal = _meAiInternalDirectory();
+  const ctx = (t.context && typeof t.context === 'object') ? t.context : {};
+  const ref = [ctx.prNumber ? `PR #${ctx.prNumber}` : '', ctx.repo ? `repo ${ctx.repo}` : '', ctx.org ? `org ${ctx.org}` : '', ctx.url || '']
+    .filter(Boolean).join(' · ');
+  const prompt = [
+    `You are the PLANNER for a Chief-of-Staff agent pursuing this goal for me:`,
+    `TASK GOAL: ${t.goal || _meAiGoalFor(t)}`,
+    ref ? `SUBJECT: ${ref}` : '',
+    ``,
+    `Break this into 2-4 INDEPENDENT angles that separate agents can investigate IN`,
+    `PARALLEL. Each angle is a distinct hypothesis, sub-question, or workstream that`,
+    `does NOT depend on the others' results. Favor angles that can quickly CULL a`,
+    `dead end so we don't waste effort. Each leg is read-only (it may read anything`,
+    `but must PROPOSE — not take — any gated action).`,
+    `- "scout": a cheap, fast check meant to confirm or kill a theory.`,
+    `- "branch": a substantive investigation workstream.`,
+    `Prefer what we already know internally before reaching outside:`,
+    internal ? internal.slice(0, 1200) : '(no internal directory available)',
+    ``,
+    `If the goal is genuinely a single linear task with NO independent parallel`,
+    `angles, return an empty legs array and I will pursue it directly.`,
+    ``,
+    `End your reply with a single fenced \`\`\`json block (and nothing after it):`,
+    `{ "legs": [ { "kind": "scout|branch", "title": "<short label>", "goal": "<what THIS leg investigates; read-only; propose gated actions, don't take them>" } ] }`,
+  ].filter(x => x !== '').join('\n');
+  let out = '';
+  try {
+    const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true });
+    out = await _meAiRunTurn(lt, prompt, { resume: false });
+  } catch (_) { return []; }
+  let p = null; try { p = _connectExtractJson(String(out || '')); } catch (_) { p = null; }
+  const legs = (p && Array.isArray(p.legs)) ? p.legs : [];
+  const out2 = [];
+  for (let i = 0; i < legs.length && out2.length < 4; i++) {
+    const l = legs[i] || {};
+    const title = String(l.title || '').trim().slice(0, 80);
+    const goal = String(l.goal || '').trim().slice(0, 600);
+    if (!title || !goal) continue;
+    const kind = l.kind === 'branch' ? 'branch' : 'scout';
+    out2.push({ kind, lane: (kind === 'scout' ? 'r' : 'l') + (out2.length + 1), title, goal });
+  }
+  return out2;
+}
+
 // The per-leg agent prompt: one hypothesis, read-only by default, ends with a
 // single fenced JSON LEG_RESULT the orchestrator folds into the tree.
 function _meAiTreeLegPrompt(t, leg) {
@@ -16475,9 +16534,13 @@ async function _meAiTreeOrchestrate(t, spine) {
   const id = t.id;
   const startedMs = Date.now();
   try {
-    const cands = _meAiTreeCandidates(t);
+    let cands = _meAiTreeCandidates(t);
     if (!cands.length) {
-      // No fan-out playbook yet -> single spine turn (still journaled as a tree).
+      _meAiTreeMirror(t, 'Planning the angles worth pursuing in parallel…');
+      cands = await _meAiTreePlan(t, spine);
+    }
+    if (!cands.length) {
+      // Genuinely linear goal -> single spine turn (still journaled as a tree).
       const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true });
       const out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, spine), { resume: false }).catch(e => 'Error: ' + (e.message || e));
       const r = _meAiParseLegResult(out); spine._result = r;
