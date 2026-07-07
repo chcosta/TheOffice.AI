@@ -2160,6 +2160,14 @@ const _codeflowCache = new Map(); // view -> { at, data }
 const CODEFLOW_TTL_MS = 300000; // 5 min — long enough that the 3-min attention poll reuses cache most ticks (was 2 min → re-gathered every poll, a big GitHub-quota driver)
 const _codeflowAiCache = new Map(); // view -> Map(prId -> { sig, at, insight })
 const CODEFLOW_AI_TTL_MS = 600000; // 10 min
+// Serialize codeflow AI generation. The SDK/CLI subprocess cannot service concurrent
+// runChat calls — parallel streamed outputs interleave and corrupt each other, so the
+// JSON fails to parse and the endpoint 502s. The page fires several AI calls at once
+// (loadCodeFlow + auto-refresh + view-switch + the board-pins loop), which reliably
+// triggered this. We run one generation at a time through _codeflowAiChain and coalesce
+// identical in-flight non-refresh requests per view so those concurrent calls share one result.
+let _codeflowAiChain = Promise.resolve();
+const _codeflowAiInflight = new Map(); // view -> Promise (non-refresh only)
 const _cfApproverCache = new Map(); // "org|project|repo" -> { at, entries }
 const CF_APPROVER_TTL_MS = 1800000; // 30 min — PR history changes slowly
 
@@ -2918,76 +2926,94 @@ function _parseCodeflowAi(text) {
   try { const arr = JSON.parse(body); return Array.isArray(arr) ? arr : null; }
   catch { return null; }
 }
+async function _codeflowGenerateAi(view, refresh) {
+  // Use cached view data if fresh, else gather it.
+  let cached = _codeflowCache.get(view), data;
+  if (cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) data = cached.data;
+  else { data = await _gatherCodeflow(view); _codeflowCache.set(view, { at: Date.now(), data }); }
+  const prs = data.pullRequests || [];
+  if (!prs.length) return { view, insights: [], generatedAt: new Date().toISOString() };
+
+  // Per-PR cache keyed by id, validated against the volatile signature. We only
+  // pay the model for PRs that are new or whose state actually changed.
+  let store = _codeflowAiCache.get(view);
+  if (!store) { store = new Map(); _codeflowAiCache.set(view, store); }
+  const toGenerate = prs.filter(p => {
+    if (refresh) return true;
+    const hit = store.get(String(p.id));
+    return !hit || hit.sig !== (p.signature || '');
+  });
+
+  if (toGenerate.length) {
+    const prompt = _codeflowAiPrompt(view, toGenerate);
+    let arr = null, text = '';
+    for (let attempt = 0; attempt < 2 && !arr; attempt++) {
+      let acc = '';
+      const result = await sdkRunner.runChat({
+        config: null, prompt, sessionId: require('crypto').randomUUID(),
+        resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+        meta: { source: 'system', category: 'pull_requests' }
+      });
+      text = acc.trim() ? acc : (result.output || '');
+      arr = _parseCodeflowAi(text);
+    }
+    if (!arr) {
+      // Insights are best-effort — a rare parse miss must not paint the console red.
+      // Return whatever we already have (possibly empty) as a soft success; the client
+      // renders the PRs immediately and simply lacks AI summaries for this pass.
+      const insights = prs.map(p => (store.get(String(p.id)) || {}).insight).filter(Boolean);
+      return { view, insights, generatedAt: new Date().toISOString(), generated: 0, soft: true };
+    }
+    const byId = new Map(arr.map(x => [String(x.id), x]));
+    for (const p of toGenerate) {
+      const m = byId.get(String(p.id)) || {};
+      let urg = parseInt(m.urgency, 10);
+      if (!Number.isFinite(urg)) urg = 0;
+      store.set(String(p.id), {
+        sig: p.signature || '',
+        at: Date.now(),
+        insight: {
+          id: p.id,
+          summary: String(m.summary || '').slice(0, 240),
+          urgency: Math.max(0, Math.min(100, urg)),
+          urgencyReason: String(m.urgencyReason || '').slice(0, 120)
+        }
+      });
+    }
+  }
+
+  // Drop cache entries for PRs no longer in the view.
+  const live = new Set(prs.map(p => String(p.id)));
+  for (const k of [...store.keys()]) if (!live.has(k)) store.delete(k);
+
+  const insights = prs.map(p => (store.get(String(p.id)) || {}).insight).filter(Boolean);
+  return {
+    view, insights,
+    generatedAt: new Date().toISOString(),
+    generated: toGenerate.length,
+    cached: toGenerate.length === 0
+  };
+}
+
 app.post('/api/codeflow/ai', async (req, res) => {
   const bview = req.body && req.body.view;
   const view = (bview === 'reviews' || bview === 'active') ? bview : 'mine';
   const refresh = !!(req.body && req.body.refresh);
   try {
-    // Use cached view data if fresh, else gather it.
-    let cached = _codeflowCache.get(view), data;
-    if (cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) data = cached.data;
-    else { data = await _gatherCodeflow(view); _codeflowCache.set(view, { at: Date.now(), data }); }
-    const prs = data.pullRequests || [];
-    if (!prs.length) return res.json({ view, insights: [], generatedAt: new Date().toISOString() });
-
-    // Per-PR cache keyed by id, validated against the volatile signature. We only
-    // pay the model for PRs that are new or whose state actually changed.
-    let store = _codeflowAiCache.get(view);
-    if (!store) { store = new Map(); _codeflowAiCache.set(view, store); }
-    const toGenerate = prs.filter(p => {
-      if (refresh) return true;
-      const hit = store.get(String(p.id));
-      return !hit || hit.sig !== (p.signature || '');
-    });
-
-    if (toGenerate.length) {
-      const prompt = _codeflowAiPrompt(view, toGenerate);
-      let arr = null, text = '';
-      for (let attempt = 0; attempt < 2 && !arr; attempt++) {
-        let acc = '';
-        const result = await sdkRunner.runChat({
-          config: null, prompt, sessionId: require('crypto').randomUUID(),
-          resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
-          meta: { source: 'system', category: 'pull_requests' }
-        });
-        text = acc.trim() ? acc : (result.output || '');
-        arr = _parseCodeflowAi(text);
-      }
-      if (!arr) {
-        // If nothing was cached at all, this is a hard failure; otherwise fall
-        // back to returning whatever we already have.
-        if (![...store.keys()].length) return res.status(502).json({ error: 'Could not parse AI insights. Please try again.' });
-      } else {
-        const byId = new Map(arr.map(x => [String(x.id), x]));
-        for (const p of toGenerate) {
-          const m = byId.get(String(p.id)) || {};
-          let urg = parseInt(m.urgency, 10);
-          if (!Number.isFinite(urg)) urg = 0;
-          store.set(String(p.id), {
-            sig: p.signature || '',
-            at: Date.now(),
-            insight: {
-              id: p.id,
-              summary: String(m.summary || '').slice(0, 240),
-              urgency: Math.max(0, Math.min(100, urg)),
-              urgencyReason: String(m.urgencyReason || '').slice(0, 120)
-            }
-          });
-        }
-      }
+    // Coalesce identical concurrent non-refresh requests for the same view — the page
+    // fires several at once and they'd otherwise all queue up behind each other.
+    if (!refresh && _codeflowAiInflight.has(view)) {
+      return res.json(await _codeflowAiInflight.get(view));
     }
-
-    // Drop cache entries for PRs no longer in the view.
-    const live = new Set(prs.map(p => String(p.id)));
-    for (const k of [...store.keys()]) if (!live.has(k)) store.delete(k);
-
-    const insights = prs.map(p => (store.get(String(p.id)) || {}).insight).filter(Boolean);
-    res.json({
-      view, insights,
-      generatedAt: new Date().toISOString(),
-      generated: toGenerate.length,
-      cached: toGenerate.length === 0
-    });
+    // Serialize every generation through one chain so concurrent runChat calls can't
+    // corrupt each other's streamed output.
+    const run = _codeflowAiChain.then(() => _codeflowGenerateAi(view, refresh));
+    _codeflowAiChain = run.then(() => {}, () => {}); // keep the chain alive on either outcome
+    if (!refresh) {
+      _codeflowAiInflight.set(view, run);
+      run.finally(() => { if (_codeflowAiInflight.get(view) === run) _codeflowAiInflight.delete(view); });
+    }
+    res.json(await run);
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 

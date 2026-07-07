@@ -740,9 +740,8 @@
     }
   })();
   </script>
-  <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <script defer src="/public/vendor/alpinejs-3.14.9.min.js"></script>
+  <script src="/public/vendor/mermaid-10.9.1.min.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -6165,7 +6164,7 @@
                     <button class="conn-pop-cta" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening sign-in…' : 'Sign in with GitHub CLI'"></button>
                     <div class="conn-pop-or">or paste a Personal Access Token</div>
                     <div class="conn-pop-pat">
-                      <input type="password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" />
+                      <form style="display:contents" autocomplete="off" onsubmit="return false"><input type="password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" /></form>
                       <button type="button" @click="connectGithubPat()" :disabled="ghBusy || !ghPat">Save</button>
                     </div>
                     <div class="conn-pop-err" x-show="ghErr" x-text="ghErr"></div>
@@ -12621,9 +12620,9 @@
                   <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
                 </button>
                 <span class="meai-status-detail" x-show="meai.agenda && meai.agenda.meta">
-                  <span x-show="meai.agenda.meta.refined">AI-refined</span>
-                  <span x-show="!meai.agenda.meta.refined">Deterministic plan</span>
-                  <span x-show="meai.agenda.meta.signalCount"> · <span x-text="meai.agenda.meta.signalCount"></span> signals</span>
+                  <span x-show="meai.agenda?.meta?.refined">AI-refined</span>
+                  <span x-show="!(meai.agenda?.meta?.refined)">Deterministic plan</span>
+                  <span x-show="meai.agenda?.meta?.signalCount"> · <span x-text="meai.agenda?.meta?.signalCount"></span> signals</span>
                 </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
                 <span style="flex:1"></span>
@@ -12660,7 +12659,7 @@
                   <span class="meai-auto-dot"></span>Auto-updates on
                 </span>
                 <span class="meai-auto-flash" x-show="meai.justUpdated" x-transition>Agenda updated</span>
-                <template x-if="meai.agenda.meta && meai.agenda.meta.churn">
+                <template x-if="meai.agenda?.meta?.churn">
                   <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Calm').toLowerCase()"
                           @click="meai.changesOpen=!meai.changesOpen"
                           title="Today's rhythm = how much the day actually churned on its own (Calm → Steady → Reactive → Fragmented), measured from reschedules/slips/late-adds. It is NOT your Day mode — Day mode (Balanced/Focused/…) is the planning strategy you choose; this rhythm is the observed outcome. Click to see what changed today.">
@@ -12702,8 +12701,8 @@
                 <div class="meai-change-empty" x-show="!meai.changes.length">No changes yet today — a steady plan.</div>
               </div>
               <div class="meai-dayshape-out" x-show="meai.dayShape && meai.dayShape.detail" x-transition>
-                <span x-text="meai.dayShape.detail"></span>
-                <span class="meai-status-detail" x-show="meai.dayShape.written"> · saved to diary</span>
+                <span x-text="meai.dayShape?.detail"></span>
+                <span class="meai-status-detail" x-show="meai.dayShape?.written"> · saved to diary</span>
               </div>
 
               <!-- M5 look-back / retro: planned-vs-actual for a PAST date. Read-only. -->
@@ -20904,7 +20903,7 @@
           </div>
           <div>
             <div class="field-label">Connection String <span class="hint">(alternative to namespace)</span></div>
-            <input class="field-input" type="password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" />
+            <form style="display:contents" autocomplete="off" onsubmit="return false"><input class="field-input" type="password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" /></form>
             <span class="hint" x-show="eventsConfig.connectionString && eventsConfig.connectionString.includes('•••••')">🔒 Stored securely (masked)</span>
           </div>
           <div>
@@ -21103,7 +21102,7 @@
         <div x-show="!pairingPayload" style="text-align:left">
           <p style="margin:0 0 12px;color:var(--text-muted)">Enter the Service Bus SAS key to embed in the pairing code for <strong x-text="pairingUser"></strong>:</p>
           <div class="field-label">SAS Key</div>
-          <input class="field-input" type="password" x-model="pairingSasKey" placeholder="Paste your SharedAccessKey here" style="margin-bottom:10px;font-family:var(--font-mono);font-size:0.85rem" />
+          <form style="display:contents" autocomplete="off" onsubmit="return false"><input class="field-input" type="password" x-model="pairingSasKey" placeholder="Paste your SharedAccessKey here" style="margin-bottom:10px;font-family:var(--font-mono);font-size:0.85rem" /></form>
           <div class="field-label">Key Name</div>
           <input class="field-input" type="text" x-model="pairingSasKeyName" placeholder="RootManageSharedAccessKey" style="margin-bottom:16px" />
           <button class="btn primary" type="button" style="width:100%" @click="generatePairingQRWithKey()">Generate QR Code</button>
@@ -23260,6 +23259,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (this.codeflow.cfTab === 'dev') {
                 await this.devEnsureLoaded();
               } else {
+                // The Active PRs tab's server view is derived from the reviews-only
+                // toggle — re-sync it on every normal entry so a prior deep-link widen
+                // (focusCodeflowPr → view='active') can't leave the tab stuck on every
+                // open PR while the "Reviews needed from me" box is still checked.
+                if (this.codeflow.view === 'active' || this.codeflow.view === 'reviews') {
+                  this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
+                }
                 await this.loadCodeFlow();
                 this.codeflowPrefillRepoDefaults();
               }
