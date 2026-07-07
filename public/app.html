@@ -12146,14 +12146,16 @@
               .meai-pedges .pe-spine { stroke:var(--cp-accent); stroke-width:2.5; }
               .meai-pedges .pe-branch { stroke:var(--cp-text-muted); stroke-dasharray:5 4; }
               .meai-pedges .pe-merge { stroke:#2ea043; stroke-width:2.5; }
-              .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; }
+              .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; }
               .meai-pnode:hover { border-color:var(--cp-accent); box-shadow:0 4px 14px rgba(0,0,0,.18); }
               .meai-pnode.kind-spine { border-left:3px solid var(--cp-accent); }
               .meai-pnode.prun { box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
               .meai-pnode.pauth { border-color:#d29922; background:color-mix(in srgb,#d29922 8%, var(--cp-surface)); }
               .meai-pnode.pstop { border-color:#d29922; }
               .meai-pnode.pdone { border-color:#2ea043; }
-              .meai-pnode.pdead { opacity:.5; border-style:dashed; }
+              .meai-pnode.pdead { border-style:dashed; }
+              .meai-pnode.pdead .meai-pnode-t { color:var(--cp-text-muted); font-weight:600; }
+              .meai-pnode.pdead .meai-pnode-g, .meai-pnode.pdead .meai-pnode-k { opacity:.7; }
               .meai-pnode-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
               .meai-pnode-t { font-weight:700; color:var(--cp-text); font-size:13.5px; margin-top:2px; line-height:1.3; }
               .meai-pnode-g { font-size:12px; color:var(--cp-text-muted); margin-top:4px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
@@ -29682,11 +29684,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const COLW = 340, ROWH = 128, CX = 460, TOP = 40, W = 300, PAD = 48;
           const nodes = [], lane = {}; let laneNext = 0;
           const laneIndex = (leg) => {
-            if (leg.kind === 'spine' || leg.parentId == null) return 0;
+            // Spine + merged-back (reroute) legs run straight down the centre column
+            // — a reroute *continues* the spine, and keeping the centre gutter clear
+            // lets the merge-back edge drop straight down without crossing a node.
+            if (leg.kind === 'spine' || leg.kind === 'reroute' || leg.parentId == null) return 0;
             if (lane[leg.id] != null) return lane[leg.id];
             laneNext++;
-            // alternate right(+), left(-): 1,-1,2,-2,...
-            const step = Math.ceil(laneNext / 2) * (laneNext % 2 === 1 ? 1 : -1);
+            // Branches/scouts alternate into just two side columns (right, left);
+            // vertical row order separates same-side siblings. Caps the graph at
+            // three columns however many legs fan out.
+            const step = (laneNext % 2 === 1) ? 1 : -1;
             lane[leg.id] = step; return step;
           };
           if (!tree) { p._nodes = []; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
