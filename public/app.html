@@ -29849,8 +29849,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return st + ' · ' + n + ' leg' + (n === 1 ? '' : 's') + (open ? ' · ' + open + ' awaiting you' : '');
         },
         meAiOpenTask(id) {
+          const cached = this.meai._taskById[id];
+          // Tree-mode pursuits have their own robust full-page home — the live
+          // fan-out canvas. Route straight there instead of the compact flyout
+          // drawer (the drawer is only for simple single-thread tasks).
+          if (cached && cached.mode === 'tree') { this.meAiPursuitOpen(id); return; }
           this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false; this.meai.consoleTab = 'chat';
-          const t = this.meai._taskById[id];
+          const t = cached;
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); }
           // …but ALWAYS refetch the authoritative task so the full transcript (stopping
@@ -29858,6 +29863,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // navigate-away or a server restart, when the in-memory cache may be stale/gone.
           this.request('/api/me-ai/task/' + encodeURIComponent(id)).then(r => {
             if (r && r.task) {
+              // If we only just learned this is a tree pursuit (cache lacked mode),
+              // hand off to the canvas instead of the drawer.
+              if (r.task.mode === 'tree') {
+                this.meai._taskById[id] = r.task;
+                if (this.meai.console && this.meai.console.id === id) this.meai.console = null;
+                this.meAiPursuitOpen(id);
+                return;
+              }
               // Preserve the client-only de-dupe set so live SSE events keep flowing.
               const seen = t && t._seen;
               this.meai._taskById[id] = r.task;

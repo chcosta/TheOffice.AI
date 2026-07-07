@@ -17115,6 +17115,7 @@ app.get('/api/me-ai/tasks', (req, res) => {
       // you approve it inline — without opening the console (owner ask).
       items.push({
         id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status,
+        mode: t.mode || 'single',
         background: !!t.background, updatedAt: t.updatedAt, date: t.date,
         awaitingSince: t.awaitingSince || null,
         question: t.question || null, nextActions: t.nextActions || [],
