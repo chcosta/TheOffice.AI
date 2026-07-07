@@ -9466,7 +9466,7 @@
                                           </template>
                                           <!-- Agent: inline full-featured chat (thinking / tools / response) — no navigation. -->
                                           <template x-if="item.kind === 'agent'">
-                                            <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px;min-height:0;max-height:min(56vh,460px)" x-init="boardAgentChatEnsure(item)" @click.stop>
+                                            <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px;min-height:0;max-height:min(56vh,460px)" x-init="boardAgentChatEnsure(item); boardAgentChatResume(item)" @click.stop>
                                               <div class="board-agent-chat-stream" style="display:flex;flex-direction:column;gap:8px;flex:1 1 auto;min-height:0;overflow:auto">
                                                 <template x-if="!(boardAgentChatState(item) && (boardAgentChatState(item).messages.length || boardAgentChatState(item).live))">
                                                   <div class="hint" style="padding:2px">Ask <strong x-text="item.label || item.refId"></strong> anything — replies show its thinking, tools, and answer right here.</div>
@@ -35821,6 +35821,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.boardAgentChats[item.refId];
         },
         boardAgentChatState(item) { return (item && item.refId && this.boardAgentChats[item.refId]) || null; },
+        // Re-attach to an in-flight turn after a refresh. On reload we restore the
+        // transcript + sessionId but not the live poller, so a turn that was still running
+        // when the page reloaded would otherwise leave a dangling user message with no
+        // reply. If the last stored message is a user turn and we have a sessionId, re-run
+        // the shared poller: it streams the in-flight turn (or, if it already settled while
+        // we were away, fires onDone immediately with the completed answer). Runs once per
+        // card mount via x-init; the guard keeps view-switches from re-triggering it.
+        boardAgentChatResume(item) {
+          const st = this.boardAgentChatState(item);
+          if (!st || st._resumed || st.running) return;
+          st._resumed = true;
+          if (!st.sessionId) return;
+          const msgs = Array.isArray(st.messages) ? st.messages : [];
+          const last = msgs[msgs.length - 1];
+          if (!last || last.role !== 'user') return; // only resume when a reply is pending
+          st.running = true; st.error = ''; st.live = { status: 'Reconnecting…', steps: [] };
+          this.pollSessionTurn(st.sessionId, {
+            onActivity: ({ steps, elapsed, lastAssistant }) => {
+              const live = this.caLiveSteps(steps);
+              const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
+              st.live = { status: phase + '… ' + elapsed + 's', steps: live };
+            },
+            onError: (m) => { st.live = null; st.running = false; st.error = m || 'Chat failed'; },
+            onDone: ({ response, steps, model }) => {
+              const activity = this.mapAgentSteps(steps);
+              st.messages.push({
+                role: 'agent',
+                content: response || '_(The agent finished without a text response. Try rephrasing your message.)_',
+                activity, model: model || '', timestamp: Date.now(),
+              });
+              st.live = null; st.running = false;
+              this._saveBoardAgentChats();
+            },
+          }).catch(() => { st.live = null; st.running = false; });
+        },
         // Persist agent-card transcripts so they survive a refresh. Stores only the last
         // ~40 messages + sessionId per agent; on quota failure, retries without the
         // (potentially large) per-message activity/reasoning so the text at least survives.
