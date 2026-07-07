@@ -14336,7 +14336,35 @@ function _meAiEmitProgress(date, phase, label) {
   try { broadcastSSE('me-ai-progress', { date: String(date || '').slice(0, 10), phase, label, at: Date.now() }); } catch (_) {}
 }
 
-async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
+// Dates with an in-flight (re)generation → START TIME. Every build path (foreground
+// generate, background future-days, override re-plan) funnels through the wrapper below,
+// so this map is the single source of truth for "the day is under construction". The
+// agenda GET reports it so the client can HOLD its current clean view (and show a calm
+// "updating" indicator) instead of painting a half-settled day mid-rebuild.
+//
+// SELF-HEAL: a build can hang (e.g. a gather/LLM turn that never resolves), which would
+// otherwise leave the day marked building forever and strand the client's "Updating…"
+// indicator with no swap. _meAiIsBuilding() treats an entry older than _MEAI_BUILD_STALE_MS
+// as no-longer-building, so a hung build self-heals server-side (mirrors the client's own
+// safety timer). The finally still deletes the entry on a normal/errored return.
+const _meAiBuilding = new Map();
+const _MEAI_BUILD_STALE_MS = 3 * 60 * 1000;
+function _meAiIsBuilding(day) {
+  const started = _meAiBuilding.get(day);
+  if (!started) return false;
+  if (Date.now() - started > _MEAI_BUILD_STALE_MS) { _meAiBuilding.delete(day); return false; }
+  return true;
+}
+async function generateMeAiAgenda(opts = {}) {
+  const _day = String((opts && opts.date) || '').slice(0, 10) || _meAiLocalDay();
+  _meAiBuilding.set(_day, Date.now());
+  try {
+    return await _generateMeAiAgendaImpl(opts);
+  } finally {
+    _meAiBuilding.delete(_day);
+  }
+}
+async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
   const day = String(date || '').slice(0, 10) || _meAiLocalDay();
@@ -14858,7 +14886,7 @@ app.put('/api/me-ai/settings', (req, res) => {
 app.get('/api/me-ai/agenda', (req, res) => {
   try {
     const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
-    res.json({ ok: true, date, agenda: loadAgendaForDate(date), config: _meAiConfig() });
+    res.json({ ok: true, date, agenda: loadAgendaForDate(date), config: _meAiConfig(), building: _meAiIsBuilding(date) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

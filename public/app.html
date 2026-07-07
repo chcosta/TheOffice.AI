@@ -11788,6 +11788,12 @@
               .meai-auto { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cp-text-muted); }
               .meai-auto-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-success); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-success) 22%, transparent); }
               .meai-auto-flash { font-size:12px; font-weight:600; color:var(--cp-success); }
+              /* Background-rebuild indicator: calm amber, gently pulsing, so a mid-rebuild day
+                 reads as "settling" (not alarming) while the current clean view is held. */
+              .meai-auto-building { color:color-mix(in srgb, var(--cp-warning, #d9930a) 62%, var(--cp-text)); font-weight:600; }
+              .meai-building-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-warning, #d9930a); box-shadow:0 0 0 0 color-mix(in srgb, var(--cp-warning, #d9930a) 45%, transparent); animation:meaiBuildPulse 1.4s ease-out infinite; }
+              @keyframes meaiBuildPulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--cp-warning, #d9930a) 45%, transparent); } 70% { box-shadow:0 0 0 6px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+              @media (prefers-reduced-motion: reduce) { .meai-building-dot { animation:none; box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning, #d9930a) 22%, transparent); } }
               .meai-dayshape { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:5px 12px; font-size:12.5px; cursor:pointer; }
               .meai-dayshape:hover { border-color:var(--cp-accent); }
               .meai-dayshape.shape-fragmented { border-left:3px solid var(--cp-danger, #e5534b); }
@@ -12817,10 +12823,14 @@
 
               <!-- REQ-7 auto-regen + change tracking + end-of-day day-shape report -->
               <div class="meai-daybar" x-show="meai.loaded && meai.agenda && (meai.agenda.blocks||[]).length">
-                <span class="meai-auto" x-show="meai.date===meai.today" title="Me.AI re-plans today automatically when your work changes — no need to regenerate by hand.">
+                <span class="meai-auto" x-show="meai.date===meai.today && !meai.rebuilding" title="Me.AI re-plans today automatically when your work changes — no need to regenerate by hand.">
                   <span class="meai-auto-dot"></span>Auto-updates on
                 </span>
-                <span class="meai-auto-flash" x-show="meai.justUpdated" x-transition>Agenda updated</span>
+                <span class="meai-auto meai-auto-building" x-show="meai.rebuilding" x-transition
+                      title="Me.AI is re-planning this day in the background. Your current agenda stays put until the new plan is ready.">
+                  <span class="meai-building-dot"></span><span x-text="meai.rebuildLabel || 'Updating your agenda…'"></span>
+                </span>
+                <span class="meai-auto-flash" x-show="meai.justUpdated && !meai.rebuilding" x-transition>Agenda updated</span>
                 <template x-if="meai.agenda?.meta?.churn">
                   <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Calm').toLowerCase()"
                           @click="meai.changesOpen=!meai.changesOpen"
@@ -22484,6 +22494,9 @@
           loading: false,
           generating: false,
           progress: { phase: '', label: '', at: 0 },  // live planning heartbeat (SSE me-ai-progress)
+          rebuilding: false,          // a BACKGROUND regen is touching the viewed day — hold the clean view
+          rebuildLabel: '',           // the current build phase label, shown in the "updating" indicator
+          _rebuildTimer: null,        // safety net that clears `rebuilding` if a 'done' event is missed
           savingSettings: false,
           config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {}, autoTriage: { enabled: false, thresholds: { safe: 80, agenda: 90 }, actionTiers: {} } },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
@@ -24482,9 +24495,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             source.addEventListener('me-ai-progress', (event) => {
               try {
                 const d = JSON.parse(event.data || '{}');
-                if (!d || d.date !== this.meai.date || !this.meai.generating) return;
-                if (d.phase === 'done') return;  // response arrival clears the state
-                this.meai.progress = { phase: d.phase || '', label: d.label || '', at: d.at || Date.now() };
+                if (!d || d.date !== this.meai.date) return;
+                // The user's OWN generate drives the button label (existing behavior).
+                if (this.meai.generating) {
+                  if (d.phase === 'done') return;  // response arrival clears the state
+                  this.meai.progress = { phase: d.phase || '', label: d.label || '', at: d.at || Date.now() };
+                  return;
+                }
+                // A BACKGROUND (re)generation is touching the day we're viewing. Don't paint the
+                // half-settled result — hold the current clean agenda, show a calm "updating"
+                // indicator, and only swap in the finished day once the build reports 'done'.
+                if (d.phase === 'done') { this._meAiFinishRebuild(); return; }
+                this.meai.rebuilding = true;
+                this.meai.rebuildLabel = d.label || 'Updating your agenda…';
+                clearTimeout(this.meai._rebuildTimer);
+                // Safety net: never get stuck "updating" if a 'done' is dropped.
+                this.meai._rebuildTimer = setTimeout(() => { this.meai.rebuilding = false; }, 120000);
               } catch {}
             });
             const _resilienceRefresh = (event) => {
@@ -29105,12 +29131,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this._meAiSyncTodos(this.meai.agenda);
             this.meai.dayShape = null;
             this.meai.justUpdated = false;
+            // Returning to the page mid-rebuild: the loaded snapshot is the last CLEAN day
+            // (a mid-flight build hasn't persisted yet), so show it and flag "updating" so
+            // the indicator appears; the progress 'done' / next poll swaps in the settled day.
+            if (r && r.building) {
+              this.meai.rebuilding = true;
+              if (!this.meai.rebuildLabel) this.meai.rebuildLabel = 'Updating your agenda…';
+            } else {
+              this.meai.rebuilding = false;
+            }
             await this.meAiLoadChanges();
             await this.meAiLoadLookback();
             this.meAiStartAutoPoll();
           } catch (e) {
             this.meai.agenda = null;
           }
+        },
+        // A background agenda rebuild for the viewed day just settled — pull the finished,
+        // deduped snapshot once and swap it in cleanly, then drop the "updating" indicator.
+        async _meAiFinishRebuild() {
+          clearTimeout(this.meai._rebuildTimer);
+          try {
+            const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
+            const a = (r && r.agenda) ? r.agenda : null;
+            if (a && a.generatedAt) {
+              this.meai.agenda = a;
+              this.meai._lastGeneratedAt = a.generatedAt;
+              this._meAiSyncTodos(a);
+              this.meai.justUpdated = true;
+              setTimeout(() => { this.meai.justUpdated = false; }, 6000);
+              this.meAiLoadChanges();
+            }
+          } catch (_) { /* transient — the auto-poll will catch up */ }
+          this.meai.rebuilding = false;
         },
         // Week-ahead strip: the next 5 work days with a light per-day summary. Read-only
         // (never generates); a day with no cached agenda shows "not planned yet".
@@ -29356,7 +29409,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               // day) so a server re-plan surfaces automatically.
               const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
               const a = (r && r.agenda) ? r.agenda : null;
-              if (a && a.generatedAt && a.generatedAt !== this.meai._lastGeneratedAt) {
+              // A rebuild is in flight for this day — hold the current clean view and show
+              // the "updating" indicator; the progress 'done' event does the settled swap
+              // (this poll only handles the case where an SSE event was missed).
+              if (r && r.building) {
+                this.meai.rebuilding = true;
+                if (!this.meai.rebuildLabel) this.meai.rebuildLabel = 'Updating your agenda…';
+              } else if (this.meai.rebuilding && a && a.generatedAt && a.generatedAt !== this.meai._lastGeneratedAt) {
+                // Build finished but we missed the 'done' — settle now.
+                this._meAiFinishRebuild();
+              } else if (!this.meai.rebuilding && a && a.generatedAt && a.generatedAt !== this.meai._lastGeneratedAt) {
                 this.meai.agenda = a;
                 this.meai._lastGeneratedAt = a.generatedAt;
                 this.meai.justUpdated = true;
