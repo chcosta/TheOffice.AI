@@ -6164,7 +6164,7 @@
                     <button class="conn-pop-cta" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening sign-in…' : 'Sign in with GitHub CLI'"></button>
                     <div class="conn-pop-or">or paste a Personal Access Token</div>
                     <div class="conn-pop-pat">
-                      <form style="display:contents" autocomplete="off" onsubmit="return false"><input type="password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" /></form>
+                      <form style="display:contents" autocomplete="off" onsubmit="return false"><input type="password" autocomplete="new-password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" /></form>
                       <button type="button" @click="connectGithubPat()" :disabled="ghBusy || !ghPat">Save</button>
                     </div>
                     <div class="conn-pop-err" x-show="ghErr" x-text="ghErr"></div>
@@ -20903,7 +20903,7 @@
           </div>
           <div>
             <div class="field-label">Connection String <span class="hint">(alternative to namespace)</span></div>
-            <form style="display:contents" autocomplete="off" onsubmit="return false"><input class="field-input" type="password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" /></form>
+            <form style="display:contents" autocomplete="off" onsubmit="return false"><input class="field-input" type="password" autocomplete="new-password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" /></form>
             <span class="hint" x-show="eventsConfig.connectionString && eventsConfig.connectionString.includes('•••••')">🔒 Stored securely (masked)</span>
           </div>
           <div>
@@ -21102,7 +21102,7 @@
         <div x-show="!pairingPayload" style="text-align:left">
           <p style="margin:0 0 12px;color:var(--text-muted)">Enter the Service Bus SAS key to embed in the pairing code for <strong x-text="pairingUser"></strong>:</p>
           <div class="field-label">SAS Key</div>
-          <form style="display:contents" autocomplete="off" onsubmit="return false"><input class="field-input" type="password" x-model="pairingSasKey" placeholder="Paste your SharedAccessKey here" style="margin-bottom:10px;font-family:var(--font-mono);font-size:0.85rem" /></form>
+          <form style="display:contents" autocomplete="off" onsubmit="return false"><input class="field-input" type="password" autocomplete="new-password" x-model="pairingSasKey" placeholder="Paste your SharedAccessKey here" style="margin-bottom:10px;font-family:var(--font-mono);font-size:0.85rem" /></form>
           <div class="field-label">Key Name</div>
           <input class="field-input" type="text" x-model="pairingSasKeyName" placeholder="RootManageSharedAccessKey" style="margin-bottom:16px" />
           <button class="btn primary" type="button" style="width:100%" @click="generatePairingQRWithKey()">Generate QR Code</button>
