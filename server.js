@@ -16720,6 +16720,36 @@ function _meAiTreeDispatch(t) {
   });
 }
 
+// Rebuild the console's ask/approve buttons from the tree's CURRENTLY-OPEN stops.
+// Called after any stop is resolved so a just-denied/answered/acted stop can never
+// leave a stale "Approve: …" button pointing at a stop that is no longer open (the
+// server guard already refuses to re-fire it, but the button must not linger). If
+// another needs-auth stop is still open it is surfaced next; otherwise a clean
+// finish/continue pair is shown. Best-effort; never throws into the caller.
+function _meAiReconcileAsks(t, tree) {
+  try {
+    tree = tree || meAiTrees.get(t.id) || _meAiFoldJournal(t.id);
+    const openAuth = (tree.stops || []).filter(s => s && s.status === 'open' && s.type === 'needs-auth' && s.action);
+    if (openAuth.length) {
+      const s = openAuth[0]; const a = s.action || {};
+      t.nextActions = [
+        { label: 'Approve: ' + (a.op || 'action'), intent: 'approve', primary: true, risk: a.risk === 'external' ? 'external' : 'write', detail: a.summary || s.prompt || '', _stopId: s.id },
+        { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: s.id },
+        { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' },
+      ];
+      t.question = null;
+    } else {
+      const openInfo = (tree.stops || []).filter(s => s && s.status === 'open' && s.type !== 'needs-auth');
+      t.nextActions = [
+        { label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' },
+        { label: 'Continue', intent: 'continue', primary: false, risk: 'none' },
+      ];
+      t.question = openInfo.length ? (openInfo[0].prompt || t.question || null) : null;
+    }
+    try { _meAiEmit(t, { kind: 'report', summary: (t.report && t.report.summary) || '', findings: (t.report && t.report.findings) || [] }); } catch (_) {}
+  } catch (_) { /* best-effort */ }
+}
+
 // Resolve a pending stop (approve/deny an auth gate, or answer needs-info/decision).
 // Approving a needs-auth stop fires the outbox EXACTLY ONCE (no double-post on
 // crash), then merges that leg back and reroutes the spine.
@@ -16728,11 +16758,19 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
     const id = t.id;
     const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
     const stop = (tree.stops || []).find(s => s.id === stopId);
-    if (!stop || stop.status !== 'open') { _meAiTreeMirror(t, 'That approval is no longer pending.'); return; }
+    if (!stop || stop.status !== 'open') {
+      // Already resolved (e.g. a double-submit / stale button). Self-heal the
+      // console so the no-longer-pending buttons drop instead of re-appearing.
+      _meAiReconcileAsks(t, tree);
+      _meAiTreeMirror(t, 'That approval is no longer pending.');
+      return;
+    }
     if (decision === 'deny') {
       _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'deny', note: note || null });
       if (stop.legId) _meAiTreeEmit(id, 'leg_invalidate', { legId: stop.legId });
       _meAiTreeEmit(id, 'rootstate', { patch: { constraint: 'Denied: ' + (stop.prompt || stop.action && stop.action.op || 'action') } });
+      // Drop the denied stop's Approve/Deny buttons; surface the next open ask if any.
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
       _meAiTreeMirror(t, 'Denied — dropped that angle and noted the constraint.');
       _meAiSetStage(t, 'awaiting', 'awaiting');
       return;
@@ -16742,6 +16780,7 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
       _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
       _meAiTreeEmit(id, 'rootstate', { patch: { answer: note || 'answered' } });
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
       _meAiTreeMirror(t, 'Thanks — folding that in.');
       _meAiSetStage(t, 'awaiting', 'awaiting');
       return;
@@ -16776,8 +16815,7 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
       _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Acted', summary: (action.summary || 'Action completed') + ' — merged back and re-planned.', confidence: 'high', interesting: true }) });
       _meAiTreeMirror(t, 'Done — ' + (action.summary || action.op) + '. Merged back and re-planned.');
       t.report = { summary: (t.report && t.report.summary || '') + ' ✔ ' + (action.summary || action.op), findings: (t.report && t.report.findings) || [] };
-      t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
-      _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
       _meAiSetStage(t, 'awaiting', 'awaiting');
     } catch (e) {
       _meAiTreeMirror(t, 'That action failed: ' + String(e.message || e) + ' — you can retry.');
