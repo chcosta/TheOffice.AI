@@ -18298,8 +18298,46 @@ app.post('/api/me-ai/task/:id/dismiss', (req, res) => {
     const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
     if (!t) return res.status(404).json({ error: 'Task not found' });
     t.archived = true;
+    t.archivedAt = new Date().toISOString();
     _meAiEmit(t, { kind: 'note', text: 'Dismissed from the lane.' });
     if (meAiTasks.has(t.id)) meAiTasks.set(t.id, t);
+    _meAiSaveTask(t); // persist so it stays archived (and shows in the Archived view) across restarts
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/tasks/archived → the "Archived agents" view: every dismissed/archived
+// Me-agent pursuit (across dates, most-recently-archived first). Lightweight rows only;
+// open the task for the full report/map. Kept in sync with the ~2-week hydrate window.
+app.get('/api/me-ai/tasks/archived', (req, res) => {
+  try {
+    const items = [];
+    for (const t of meAiTasks.values()) {
+      if (!t || !t.archived) continue;
+      items.push({
+        id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status,
+        mode: t.mode || 'single', background: !!t.background,
+        date: t.date, updatedAt: t.updatedAt,
+        archivedAt: t.archivedAt || null, finishedAt: t.finishedAt || null,
+        completedToDiary: !!t.completedToDiary,
+      });
+    }
+    items.sort((a, b) => String(b.archivedAt || b.updatedAt || '').localeCompare(String(a.archivedAt || a.updatedAt || '')));
+    res.json({ ok: true, tasks: items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/restore → un-archive: bring a dismissed pursuit back onto the
+// active "Me agents at work" lane (persisted). The inverse of /dismiss.
+app.post('/api/me-ai/task/:id/restore', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    t.archived = false;
+    t.archivedAt = null;
+    _meAiEmit(t, { kind: 'note', text: 'Restored to the lane.' });
+    if (!meAiTasks.has(t.id)) meAiTasks.set(t.id, t); // rehydrate into the live map
+    _meAiSaveTask(t);
     res.json({ ok: true, task: _meAiTaskPublic(t) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

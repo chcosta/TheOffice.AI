@@ -12216,6 +12216,11 @@
               .meai-lane-spin { display:inline-block; width:9px; height:9px; border:2px solid var(--cp-border); border-top-color:var(--cp-accent); border-radius:999px; animation:meaiSpin .7s linear infinite; }
               .meai-lane-wait { display:inline-block; width:9px; height:9px; border-radius:999px; background:var(--cp-warning,#d97706); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning,#d97706) 22%, transparent); }
               .meai-lane-waited { font-size:10.5px; font-weight:600; opacity:.8; font-variant-numeric:tabular-nums; }
+              .meai-arch-item { display:flex; align-items:center; gap:10px; padding:7px 2px; border-top:1px solid var(--cp-border); }
+              .meai-arch-item:first-child { border-top:0; }
+              .meai-arch-acts { display:flex; gap:6px; flex-shrink:0; }
+              .meai-arch-btn { font-size:11.5px; font-weight:600; color:var(--cp-text-muted); background:transparent; border:1px solid var(--cp-border); border-radius:8px; padding:3px 9px; cursor:pointer; }
+              .meai-arch-btn:hover { color:var(--cp-text); border-color:var(--cp-accent); background:color-mix(in srgb, var(--cp-accent) 8%, transparent); }
               @keyframes meaiSpin { to { transform:rotate(360deg); } }
               .meai-drawer-scrim { position:fixed; inset:0; background:rgba(0,0,0,.32); z-index:60; }
               .meai-drawer-scrim.locked { background:transparent; pointer-events:none; }
@@ -13287,6 +13292,42 @@
                       No agents running. Launch one from a review block, or
                       <a href="#" @click.prevent="meAiLaunchReview()">review the repo now</a>.
                     </div>
+                    </div>
+                  </div>
+
+                  <!-- Archived agents: dismissed pursuits, browsable + restorable. Lazy —
+                       collapsed by default, list fetched the first time it's expanded. -->
+                  <div class="meai-card">
+                    <div class="meai-card-head" @click="meAiRailToggle('archived')" :title="meai.railCollapsed.archived ? 'Show archived agents' : 'Collapse'">
+                      <span class="meai-caret" x-text="meai.railCollapsed.archived ? '▸' : '▾'"></span>
+                      <h4>Archived agents</h4>
+                      <span class="meai-card-count" x-show="meai.archivedLoaded" x-text="(meai.archived||[]).length"></span>
+                    </div>
+                    <div x-show="!meai.railCollapsed.archived" x-transition>
+                      <div x-show="meai.archivedBusy && !meai.archivedLoaded" style="font-size:12.5px;color:var(--cp-text-muted)">Loading…</div>
+                      <template x-if="meai.archivedLoaded && (meai.archived||[]).length">
+                        <div>
+                          <template x-for="tk in meai.archived" :key="tk.id">
+                            <div class="meai-arch-item">
+                              <div style="min-width:0;flex:1">
+                                <div class="meai-lane-t" x-text="tk.title"></div>
+                                <div class="meai-lane-m">
+                                  <span x-text="tk.playbook + ' · ' + meAiTaskStageLabel(tk.stage)"></span>
+                                  <span x-show="tk.date" x-text="'· ' + tk.date"></span>
+                                  <a x-show="tk.mode==='tree'" href="#" class="meai-lane-map" @click.stop.prevent="meAiPursuitOpen(tk.id)" title="Open the live pursuit map">🗺 map</a>
+                                </div>
+                              </div>
+                              <div class="meai-arch-acts">
+                                <button type="button" class="meai-arch-btn" @click.stop="meAiOpenArchived(tk)" title="Open the console for this pursuit">Open</button>
+                                <button type="button" class="meai-arch-btn" @click.stop="meAiRestoreTask(tk)" title="Bring this agent back onto the lane">Restore</button>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                      <div x-show="meai.archivedLoaded && !(meai.archived||[]).length" style="font-size:12.5px;color:var(--cp-text-muted)">
+                        Nothing archived. Dismissed agents show up here so you can revisit or restore them.
+                      </div>
                     </div>
                   </div>
 
@@ -22454,6 +22495,9 @@
           nowMin: (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })(),
           // M2 — Me-agent console + delegation lane.
           tasks: [],             // live "Me agents at work" lane (lightweight rows)
+          archived: [],          // dismissed/archived pursuits (Archived agents card)
+          archivedLoaded: false, // lazy-load guard for the archived list
+          archivedBusy: false,   // an archived load / restore is in flight
           adhocGoal: '',         // free-form "ask a Me agent to…" composer
           // Launch-time depth: 'auto' lets the block type decide (investigative work
           // fans out, simple work runs flat), 'deep' always fans out into a live
@@ -30085,6 +30129,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiRailToggle(key) {
           this.meai.railCollapsed[key] = !this.meai.railCollapsed[key];
           try { localStorage.setItem('meAiRailCollapsed', JSON.stringify(this.meai.railCollapsed)); } catch (_) {}
+          // Archived list is lazy — fetch the first time it's expanded.
+          if (key === 'archived' && !this.meai.railCollapsed.archived && !this.meai.archivedLoaded) {
+            this.meAiLoadArchived();
+          }
         },
         // Peek switcher: click a tab to slide its panel into col 2 (replacing the
         // daily-work column); click the active tab again to slide back.
@@ -30289,6 +30337,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // ===== Me.AI M2 — Me-agent console (dispatch / stream / decide / complete) =====
         async meAiLoadTasks() {
           try {
+            if (this.meai.railCollapsed.archived === undefined) this.meai.railCollapsed.archived = true; // Archived card starts collapsed
             const r = await this.request('/api/me-ai/tasks?date=' + encodeURIComponent(this.meai.date));
             this.meai.tasks = (r && Array.isArray(r.tasks)) ? r.tasks : [];
           } catch (_) { /* lane is best-effort */ }
@@ -30608,7 +30657,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             await this.request('/api/me-ai/task/' + tk.id + '/dismiss', { method: 'POST' });
           } catch (e) { this.toast('Could not finish task', 'error'); this.meAiLoadTasks(); }
+          if (m.archivedLoaded) this.meAiLoadArchived(); // keep the Archived view fresh
         },
+        // Load the Archived agents list (dismissed pursuits). Lazy + best-effort.
+        async meAiLoadArchived() {
+          if (this.meai.archivedBusy) return;
+          this.meai.archivedBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/tasks/archived');
+            this.meai.archived = (r && Array.isArray(r.tasks)) ? r.tasks : [];
+            this.meai.archivedLoaded = true;
+          } catch (_) { /* archived view is best-effort */ }
+          finally { this.meai.archivedBusy = false; }
+        },
+        // Restore a dismissed pursuit back onto the active lane.
+        async meAiRestoreTask(tk) {
+          const m = this.meai;
+          m.archived = (m.archived || []).filter(x => x.id !== tk.id); // optimistic
+          try {
+            const r = await this.request('/api/me-ai/task/' + tk.id + '/restore', { method: 'POST' });
+            if (r && r.task) { m._taskById[r.task.id] = r.task; }
+            this.meAiLoadTasks();
+            this.toast('Restored to the lane', 'success');
+          } catch (e) { this.toast('Could not restore', 'error'); this.meAiLoadArchived(); }
+        },
+        // Open a dismissed task's console straight from the Archived view.
+        meAiOpenArchived(tk) { this.meAiOpenTask(tk.id); },
         // True when a lane row is paused with something for you to approve/decide —
         // either a mid-run question or proposed next actions. Drives the inline panel.
         meAiLanePending(tk) {
