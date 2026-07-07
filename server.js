@@ -15094,7 +15094,248 @@ function _meAiHydrateTasks() {
 }
 _meAiHydrateTasks();
 
-// #3 Keep today's signal cache warm while Me.AI is being used, so generate/re-plan
+// ============================================================================
+// Me-agent P0 backbone — durable fan-out task tree (event journal + outbox)
+// ----------------------------------------------------------------------------
+// Additive + backward compatible. Legacy tasks (mode !== 'tree') keep using the
+// flat me-ai/tasks/<id>.json store above and the single-loop runner untouched.
+// Fan-out tasks (mode 'tree') additionally get a per-task directory:
+//   me-ai/tasks/<id>/journal.ndjson    append-only SOURCE OF TRUTH (fold -> tree)
+//   me-ai/tasks/<id>/state.json        derived snapshot cache (fast cold load)
+//   me-ai/tasks/<id>/outbox/<key>.json two-phase side-effect intents (idempotent)
+// The in-memory tree is a FOLD over the journal; state.json is only a cache; the
+// outbox lets a crash-resume verify a side effect before retrying (no double post).
+// This block defines the data model, journal writer/fold, outbox, and rehydrate.
+// The orchestrator that USES it (fan-out) is the P0 vertical slice, wired next.
+// ============================================================================
+const meAiTrees = new Map();  // taskId -> in-memory folded tree state
+function _meAiTreeDir(id) { return path.join(ME_AI_TASKS_DIR, String(id).replace(/[^a-z0-9_-]/gi, '') + '.tree'); }
+function _meAiJournalPath(id) { return path.join(_meAiTreeDir(id), 'journal.ndjson'); }
+function _meAiTreeStatePath(id) { return path.join(_meAiTreeDir(id), 'state.json'); }
+function _meAiOutboxDir(id) { return path.join(_meAiTreeDir(id), 'outbox'); }
+
+// ---- Data-shape factories (§9). Plain serializable objects. ----
+function _meAiNewLeg(o = {}) {
+  return {
+    id: o.id || ('leg-' + Math.random().toString(36).slice(2, 9)),
+    parentId: o.parentId || null,      // spine leg has null; branches point at their fork
+    kind: o.kind || 'branch',          // spine | branch | scout | reroute
+    title: o.title || 'Leg',
+    goal: o.goal || '',
+    status: o.status || 'planned',     // planned|running|blocked|needs-auth|needs-decision|needs-info|merging|done|invalidated|cancelled|error
+    baseEpoch: (o.baseEpoch != null ? o.baseEpoch : 0),  // task epoch this leg started from (§5a staleness)
+    lane: o.lane || null,              // UI lane hint (spine/l1/l2/r1..) — presentation only
+    confidence: (o.confidence != null ? o.confidence : null),
+    invalidated: false,
+    sessionId: o.sessionId || null,    // SDK session for durable resume
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+function _meAiNewCheckpoint(o = {}) {
+  return {
+    id: o.id || ('ckpt-' + Math.random().toString(36).slice(2, 9)),
+    legId: o.legId || null, epoch: (o.epoch != null ? o.epoch : 0),
+    title: o.title || 'Checkpoint', summary: o.summary || '',
+    confidence: o.confidence || null,  // low|medium|high
+    interesting: !!o.interesting, at: new Date().toISOString(),
+  };
+}
+function _meAiNewArtifact(o = {}) {
+  return {
+    id: o.id || ('art-' + Math.random().toString(36).slice(2, 9)),
+    legId: o.legId || null, kind: o.kind || 'report',   // report|chart|table|diff|link
+    title: o.title || 'Artifact', path: o.path || null, link: o.link || null,
+    body: o.body || null, at: new Date().toISOString(),
+  };
+}
+function _meAiNewStop(o = {}) {
+  // Three stop types (§4): needs-info | needs-auth | needs-decision.
+  return {
+    id: o.id || ('stop-' + Math.random().toString(36).slice(2, 9)),
+    type: o.type || 'needs-decision', legId: o.legId || null,
+    prompt: o.prompt || '', options: o.options || null,   // for needs-decision
+    risk: o.risk || null,                                 // for needs-auth: write|external|spend|destructive
+    action: o.action || null,                             // the gated action payload
+    status: o.status || 'open',                           // open|resolved|denied|expired
+    resolution: o.resolution || null, note: o.note || null,
+    createdAt: new Date().toISOString(), resolvedAt: null,
+  };
+}
+function _meAiNewMergeCandidate(o = {}) {
+  return {
+    id: o.id || ('merge-' + Math.random().toString(36).slice(2, 9)),
+    legId: o.legId || null, baseEpoch: (o.baseEpoch != null ? o.baseEpoch : 0),
+    findings: o.findings || [],           // [{claim,evidenceRefs,source,freshness,confidence,contradiction?}]
+    constraints: o.constraints || [], artifacts: o.artifacts || [],
+    proposedActions: o.proposedActions || [], invalidatesLegIds: o.invalidatesLegIds || [],
+    confidence: o.confidence || null, cost: o.cost || null,
+    requiresUserDecision: !!o.requiresUserDecision, at: new Date().toISOString(),
+  };
+}
+function _meAiNewSideEffectIntent(o = {}) {
+  // Two-phase: written BEFORE the external call; reconciled on crash-resume.
+  return {
+    key: o.key || ('se-' + Math.random().toString(36).slice(2, 9)),  // idempotency key
+    legId: o.legId || null, kind: o.kind || 'external',              // external|write|spend
+    op: o.op || '', target: o.target || null, summary: o.summary || '',
+    phase: 'intent',                    // intent -> started -> succeeded|failed
+    providerId: null,                   // verifiable ref once succeeded (msg id, PR comment URL…)
+    error: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+}
+
+// ---- Event journal (append-only source of truth) ----
+function _meAiJournalAppend(id, kind, data) {
+  try {
+    fs.mkdirSync(_meAiTreeDir(id), { recursive: true });
+    const rec = Object.assign({ kind, at: new Date().toISOString() }, data || {});
+    fs.appendFileSync(_meAiJournalPath(id), JSON.stringify(rec) + '\n');
+    return rec;
+  } catch (_) { return null; }
+}
+// Build (or rebuild) the in-memory tree by folding every journal record.
+function _meAiFoldJournal(id) {
+  const state = {
+    id, epoch: 0, rootState: { constraints: [], answers: [] }, stops: [], stage: 'working',
+    legs: {}, order: [], checkpoints: [], artifacts: [], merges: [], conflicts: [],
+    heartbeatAt: null,
+  };
+  let raw = '';
+  try { raw = fs.readFileSync(_meAiJournalPath(id), 'utf-8'); } catch { return state; }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let r; try { r = JSON.parse(line); } catch { continue; }
+    switch (r.kind) {
+      case 'epoch_bump': state.epoch = (r.epoch != null ? r.epoch : state.epoch + 1); break;
+      case 'leg_spawn': {
+        const leg = r.leg || {}; state.legs[leg.id] = Object.assign({}, leg);
+        if (!state.order.includes(leg.id)) state.order.push(leg.id); break;
+      }
+      case 'leg_status': {
+        const leg = state.legs[r.legId]; if (leg) { leg.status = r.status; if (r.confidence != null) leg.confidence = r.confidence; leg.updatedAt = r.at; } break;
+      }
+      case 'leg_invalidate': { const leg = state.legs[r.legId]; if (leg) { leg.invalidated = true; leg.status = 'invalidated'; } break; }
+      case 'checkpoint': state.checkpoints.push(r.checkpoint || {}); break;
+      case 'artifact': state.artifacts.push(r.artifact || {}); break;
+      case 'merge': state.merges.push(r.merge || {}); break;
+      case 'conflict': state.conflicts.push(r.conflict || {}); break;
+      case 'rootstate': {
+        const patch = r.patch || {};
+        // constraint / answer accumulate into arrays (multiple denials + answers
+        // must all be honored by merge/report + downstream legs, not clobbered).
+        if (patch.constraint) {
+          if (!Array.isArray(state.rootState.constraints)) state.rootState.constraints = [];
+          state.rootState.constraints.push(patch.constraint);
+        }
+        if (patch.answer) {
+          if (!Array.isArray(state.rootState.answers)) state.rootState.answers = [];
+          state.rootState.answers.push(patch.answer);
+        }
+        const rest = Object.assign({}, patch); delete rest.constraint; delete rest.answer;
+        state.rootState = Object.assign({}, state.rootState, rest);
+        break;
+      }
+      case 'stop': {
+        const s = r.stop || {}; const i = state.stops.findIndex(x => x.id === s.id);
+        if (i >= 0) state.stops[i] = s; else state.stops.push(s); break;
+      }
+      case 'auth_decision': {
+        const s = state.stops.find(x => x.id === r.stopId);
+        if (s) { s.status = r.decision === 'approve' ? 'resolved' : 'denied'; s.resolution = r.decision; s.note = r.note || null; s.resolvedAt = r.at; } break;
+      }
+      case 'heartbeat': state.heartbeatAt = r.at; break;
+      case 'stage': state.stage = r.stage || state.stage; break;
+      default: break;
+    }
+  }
+  return state;
+}
+// Persist the derived snapshot cache (best-effort; journal remains source of truth).
+function _meAiWriteTreeState(id, state) {
+  try { fs.mkdirSync(_meAiTreeDir(id), { recursive: true }); fs.writeFileSync(_meAiTreeStatePath(id), JSON.stringify(state, null, 2)); } catch (_) {}
+}
+// Emit one journal record, re-fold into the live tree, refresh the cache, stream SSE.
+function _meAiTreeEmit(id, kind, data) {
+  const rec = _meAiJournalAppend(id, kind, data);
+  const state = _meAiFoldJournal(id);
+  meAiTrees.set(id, state);
+  _meAiWriteTreeState(id, state);
+  try { broadcastSSE('me-ai-task', { taskId: id, tree: true, ev: rec }); } catch (_) {}
+  return state;
+}
+function _meAiTreeHeartbeat(id) { return _meAiTreeEmit(id, 'heartbeat', {}); }
+
+// ---- Side-effect outbox (two-phase; verify-before-retry on resume) ----
+function _meAiOutboxPath(id, key) { return path.join(_meAiOutboxDir(id), String(key).replace(/[^a-z0-9_-]/gi, '') + '.json'); }
+function _meAiOutboxWrite(id, intent) {
+  try { fs.mkdirSync(_meAiOutboxDir(id), { recursive: true }); intent.updatedAt = new Date().toISOString(); fs.writeFileSync(_meAiOutboxPath(id, intent.key), JSON.stringify(intent, null, 2)); } catch (_) {}
+  return intent;
+}
+function _meAiOutboxRead(id, key) { try { return JSON.parse(fs.readFileSync(_meAiOutboxPath(id, key), 'utf-8')); } catch { return null; }
+}
+function _meAiOutboxList(id) {
+  try { return fs.readdirSync(_meAiOutboxDir(id)).filter(f => f.endsWith('.json')).map(f => { try { return JSON.parse(fs.readFileSync(path.join(_meAiOutboxDir(id), f), 'utf-8')); } catch { return null; } }).filter(Boolean); } catch { return []; }
+}
+// Perform a side effect exactly once. `fn` runs the real external call and must
+// return a verifiable providerId. On crash-resume, `verify` (optional) checks the
+// provider so an intent stuck at 'started' is reconciled instead of blindly retried.
+async function _meAiOutboxRun(id, intent, fn) {
+  const existing = _meAiOutboxRead(id, intent.key) || intent;
+  if (existing.phase === 'succeeded') return existing;            // already done — idempotent
+  existing.phase = 'started'; _meAiOutboxWrite(id, existing);
+  _meAiJournalAppend(id, 'sideeffect_intent', { intent: { key: existing.key, op: existing.op, phase: 'started' } });
+  try {
+    const providerId = await fn();
+    existing.phase = 'succeeded'; existing.providerId = providerId || 'ok'; existing.error = null;
+    _meAiOutboxWrite(id, existing);
+    _meAiTreeEmit(id, 'sideeffect_result', { key: existing.key, phase: 'succeeded', providerId: existing.providerId });
+    return existing;
+  } catch (e) {
+    existing.phase = 'failed'; existing.error = String((e && e.message) || e);
+    _meAiOutboxWrite(id, existing);
+    _meAiTreeEmit(id, 'sideeffect_result', { key: existing.key, phase: 'failed', error: existing.error });
+    throw e;
+  }
+}
+// On boot: reconcile any outbox intent left mid-flight ('started') so a crashed
+// side effect isn't silently retried. Without a provider verifier we downgrade it
+// to a needs-decision-worthy 'unverified' record the orchestrator can reconcile.
+function _meAiOutboxReconcile(id) {
+  for (const it of _meAiOutboxList(id)) {
+    if (it.phase === 'started') {
+      it.phase = 'unverified'; it.error = 'Interrupted mid-send; verify before retrying.';
+      _meAiOutboxWrite(id, it);
+      _meAiJournalAppend(id, 'sideeffect_result', { key: it.key, phase: 'unverified' });
+    }
+  }
+}
+// Rehydrate tree tasks on boot: fold each journal, reconcile its outbox, re-arm.
+function _meAiHydrateTrees() {
+  try {
+    if (!fs.existsSync(ME_AI_TASKS_DIR)) return;
+    const dirs = fs.readdirSync(ME_AI_TASKS_DIR, { withFileTypes: true }).filter(d => d.isDirectory() && d.name.endsWith('.tree'));
+    for (const d of dirs) {
+      const id = d.name.replace(/\.tree$/, '');
+      try {
+        if (!fs.existsSync(_meAiJournalPath(id))) continue;
+        _meAiOutboxReconcile(id);
+        const state = _meAiFoldJournal(id);
+        meAiTrees.set(id, state);
+        _meAiWriteTreeState(id, state);
+        // Any leg left 'running' lost its in-memory loop — mark blocked-recoverable so
+        // the orchestrator (or the user) can resume it; never a phantom spinner.
+        for (const legId of state.order) {
+          const leg = state.legs[legId];
+          if (leg && leg.status === 'running') _meAiTreeEmit(id, 'leg_status', { legId, status: 'blocked' });
+        }
+      } catch (_) { /* skip corrupt tree */ }
+    }
+  } catch (_) { /* best-effort */ }
+}
+_meAiHydrateTrees();
+
+
 // stays fast. Leader-gated (avoid duplicate collector spawns across machines) and
 // only fires when Me.AI was touched recently — no point spawning the M365 collector
 // when nobody is looking at the page.
@@ -15299,6 +15540,7 @@ function _meAiTaskPublic(t) {
   return {
     id: t.id, date: t.date, playbook: t.playbook, title: t.title, scope: t.scope || 'work',
     goal: t.goal || _meAiGoalFor(t),
+    mode: t.mode || 'single',
     stage: t.stage, status: t.status, background: !!t.background, archived: !!t.archived,
     events: (t.events || []).slice(-200), report: t.report || null,
     nextActions: t.nextActions || [], question: t.question || null,
@@ -16014,6 +16256,334 @@ function _meAiActRun(t, intent, text, label, opts = {}) {
     }
   });
 }
+
+// ============================================================================
+// P0 FAN-OUT ORCHESTRATOR (the "Chief of Staff" pursuit tree) — vertical slice
+// ----------------------------------------------------------------------------
+// Uses the durable backbone above (journal + outbox + fold). A tree task runs a
+// root SPINE leg plus up to 3 candidate legs in parallel (scouts first), each a
+// real agent turn investigating one hypothesis. Legs checkpoint, get culled or
+// merged; a gated action (post a PR/Teams comment) becomes a non-blocking
+// needs-auth stop; approving it fires the outbox exactly-once and reroutes the
+// spine. Produces one artifact: the PR blocker report. Legacy single-loop tasks
+// (mode !== 'tree') are untouched. Deep per-substep canvas streaming is P2; P0
+// journals the structural layer (legs, checkpoints, stops, merges, reroute).
+// ============================================================================
+const ME_AI_TREE_BUDGET = { maxLegs: 12, maxDepth: 4, maxParallel: 3, wallMs: 15 * 60 * 1000, toolCalls: 200 };
+const _meAiUuid = () => require('crypto').randomUUID();
+
+// Mirror a one-line milestone into the FLAT task transcript so the "at work"
+// lane + legacy console keep showing progress while the tree holds structure.
+function _meAiTreeMirror(t, text) { try { _meAiEmit(t, { kind: 'note', text: String(text || '').slice(0, 400) }); } catch (_) {} }
+
+// Candidate legs per playbook. P0 ships the steward-PR set (§14). Other playbooks
+// fall back to a single spine (no fan-out yet) — widened in P1.
+function _meAiTreeCandidates(t) {
+  if (t.playbook === 'steward') {
+    return [
+      { kind: 'branch', lane: 'l1', title: 'Unblock the failing gate', goal: 'Determine why the PR\'s required checks are failing and whether it is flaky infrastructure or a real failure, then identify the single best way to unblock it. Read the PR status and the failing check\'s log. Do NOT edit code or post anything.' },
+      { kind: 'branch', lane: 'l2', title: 'Address review comments', goal: 'Read the PR threads and any unresolved reviewer comments. Work out what the reviewer is actually asking for, what is already handled, and what remains. If a reply is warranted, draft it but propose it as a gated action — do NOT post.' },
+      { kind: 'scout', lane: 'r1', title: 'Rebase / related-items theory', goal: 'Cheaply test whether the failure predates the latest push (a rebase would not help) and whether any related ADO/GitHub work items block merge. This is a scout: be fast, and if the theory is a dead end say so plainly.' },
+    ];
+  }
+  return [];
+}
+
+// The per-leg agent prompt: one hypothesis, read-only by default, ends with a
+// single fenced JSON LEG_RESULT the orchestrator folds into the tree.
+function _meAiTreeLegPrompt(t, leg) {
+  const internal = _meAiInternalDirectory();
+  const ctx = (t.context && typeof t.context === 'object') ? t.context : {};
+  const ref = [ctx.prNumber ? `PR #${ctx.prNumber}` : '', ctx.repo ? `repo ${ctx.repo}` : '', ctx.org ? `org ${ctx.org}` : '', ctx.url || '']
+    .filter(Boolean).join(' · ');
+  return [
+    `You are ONE pursuit leg of a Chief-of-Staff agent working on this goal for me:`,
+    `TASK GOAL: ${t.goal || _meAiGoalFor(t)}`,
+    ref ? `SUBJECT: ${ref}` : '',
+    ``,
+    `YOUR LEG — "${leg.title}": ${leg.goal}`,
+    ``,
+    `Rules for this leg:`,
+    `- Pursue ONLY this hypothesis. Be cheap and decisive; if it is a dead end, say so — a killed path is a recorded result, not a failure.`,
+    `- READ-ONLY. You may read PR status/threads/logs, ADO/GitHub items, and internal briefings. Do NOT edit code, push, comment, post, or send anything. If an action like that is warranted, PROPOSE it (see proposedAction) — I approve gated actions separately.`,
+    `- Prefer what we already know internally before reaching outside:`,
+    internal ? internal.slice(0, 1200) : '(no internal directory available)',
+    ``,
+    `End your reply with a single fenced \`\`\`json block (and nothing after it):`,
+    `{`,
+    `  "summary": "<2-3 sentence result of THIS leg>",`,
+    `  "confidence": "low|medium|high",`,
+    `  "outcome": "done|dead-end|needs-auth|needs-info|needs-decision",`,
+    `  "findings": [ { "claim": "<one specific claim>", "confidence": "low|medium|high" } ],`,
+    `  "proposedAction": { "risk": "external|write|spend", "op": "<short id e.g. post-pr-comment>", "target": "<what/where>", "summary": "<one line: exactly what approving does>", "body": "<the message/comment text if any>" }  (or null),`,
+    `  "question": "<for needs-info/needs-decision: one specific question, WITH your recommendation>"  (or null),`,
+    `  "invalidates": [ "<name of any sibling hypothesis this result makes moot>" ]`,
+    `}`,
+    `Use "dead-end" when the hypothesis is disproven; "needs-auth" (with proposedAction) when the only next step is a gated action; "needs-info"/"needs-decision" only when you truly cannot proceed without me; otherwise "done".`,
+  ].filter(x => x !== '').join('\n');
+}
+
+// Lenient parse of a leg's JSON result (reuses connect's tolerant extractor).
+function _meAiParseLegResult(out) {
+  const raw = String(out || '');
+  let p = null; try { p = _connectExtractJson(raw); } catch (_) { p = null; }
+  const prose = raw.replace(/```json[\s\S]*?```\s*$/i, '').trim();
+  const okConf = c => (['low', 'medium', 'high'].includes(c) ? c : 'medium');
+  const okOut = o => (['done', 'dead-end', 'needs-auth', 'needs-info', 'needs-decision'].includes(o) ? o : 'done');
+  if (!p || typeof p !== 'object') {
+    return { summary: prose.slice(0, 600) || 'Leg complete.', confidence: 'medium', outcome: 'done', findings: [], proposedAction: null, question: null, invalidates: [] };
+  }
+  let pa = null;
+  if (p.proposedAction && typeof p.proposedAction === 'object') {
+    pa = {
+      risk: ['external', 'write', 'spend', 'destructive'].includes(p.proposedAction.risk) ? p.proposedAction.risk : 'external',
+      op: String(p.proposedAction.op || 'action').slice(0, 60),
+      target: String(p.proposedAction.target || '').slice(0, 200),
+      summary: String(p.proposedAction.summary || '').slice(0, 400),
+      body: String(p.proposedAction.body || '').slice(0, 8000),
+    };
+  }
+  const outcome = pa && okOut(p.outcome) === 'done' ? 'needs-auth' : okOut(p.outcome);
+  return {
+    summary: String(p.summary || prose.slice(0, 400) || 'Leg complete.').slice(0, 800),
+    confidence: okConf(p.confidence),
+    outcome,
+    findings: Array.isArray(p.findings) ? p.findings.slice(0, 12).map(f => ({ claim: String((f && f.claim) || f || '').slice(0, 300), confidence: okConf(f && f.confidence) })).filter(f => f.claim) : [],
+    proposedAction: pa,
+    question: p.question ? String(p.question).slice(0, 600) : null,
+    invalidates: Array.isArray(p.invalidates) ? p.invalidates.map(s => String(s).slice(0, 120)).filter(Boolean) : [],
+  };
+}
+
+// Bounded async pool (fan-out at maxParallel without touching the global gate).
+async function _meAiPool(items, n, fn) {
+  const q = items.slice(); let active = 0;
+  return new Promise(resolve => {
+    const pump = () => {
+      if (!q.length && active === 0) return resolve();
+      while (active < n && q.length) {
+        const it = q.shift(); active++;
+        Promise.resolve().then(() => fn(it)).catch(() => {}).finally(() => { active--; pump(); });
+      }
+    };
+    pump();
+  });
+}
+
+// Run one leg end-to-end: running -> agent turn -> checkpoint -> {done|dead-end|
+// needs-auth|needs-info|needs-decision}. Siblings keep running regardless (pool).
+async function _meAiRunLeg(t, leg) {
+  const id = t.id;
+  _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'running' });
+  _meAiTreeHeartbeat(id);
+  // Leg turn runs on the leg's OWN session (durable resume) and is _ephemeral so
+  // its raw substeps don't flood the flat transcript; the tree keeps the structure.
+  const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true });
+  let out = '', err = null;
+  try { out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, leg), { resume: false }); }
+  catch (e) { err = e; }
+  if (err) {
+    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: 'Failed: ' + String(err.message || err).slice(0, 300), confidence: 'low' }) });
+    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'error' });
+    return;
+  }
+  const r = _meAiParseLegResult(out);
+  leg._result = r;
+  _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: r.summary, confidence: r.confidence, interesting: r.confidence === 'high' }) });
+  if (r.confidence === 'high') _meAiTreeMirror(t, `Interesting — ${leg.title}: ${r.summary}`.slice(0, 300));
+  if (r.outcome === 'dead-end') { _meAiTreeEmit(id, 'leg_invalidate', { legId: leg.id }); return; }
+  if (r.proposedAction) {
+    const stop = _meAiNewStop({ type: 'needs-auth', legId: leg.id, risk: r.proposedAction.risk, action: r.proposedAction, prompt: r.proposedAction.summary || ('Approve: ' + leg.title) });
+    leg._stopId = stop.id;
+    _meAiTreeEmit(id, 'stop', { stop });
+    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'needs-auth' });
+    return;
+  }
+  if (r.outcome === 'needs-info' || r.outcome === 'needs-decision') {
+    const stop = _meAiNewStop({ type: r.outcome, legId: leg.id, prompt: r.question || ('Decision on ' + leg.title) });
+    leg._stopId = stop.id;
+    _meAiTreeEmit(id, 'stop', { stop });
+    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: r.outcome });
+    return;
+  }
+  _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'done', confidence: r.confidence });
+}
+
+// Assemble the ONE artifact (PR blocker report) from merged findings, journal the
+// merges, reroute the spine if the merge is strong, and park the task awaiting.
+async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
+  const id = t.id;
+  const done = legs.filter(l => l._result && l._result.outcome !== 'dead-end');
+  const dead = legs.filter(l => l._result && l._result.outcome === 'dead-end');
+  // A pending AUTH leg carries a proposedAction (drives Approve/Deny); a pending
+  // INFO/DECISION leg only carries a question (drives an ask, never an approve).
+  const pendingAuth = legs.filter(l => l._stopId && l._result && l._result.proposedAction);
+  const pendingInfo = legs.filter(l => l._stopId && (!l._result || !l._result.proposedAction));
+  // Fold each non-dead leg into the root as a merge record.
+  for (const l of done) {
+    _meAiTreeEmit(id, 'merge', { merge: _meAiNewMergeCandidate({ legId: l.id, baseEpoch: 0, confidence: l._result.confidence, findings: l._result.findings, invalidatesLegIds: [] }) });
+  }
+  // Build the blocker report markdown.
+  const lines = [`# PR blocker report`, ``, `**Goal:** ${t.goal || _meAiGoalFor(t)}`, ``];
+  for (const l of legs) {
+    const r = l._result;
+    const glyph = !r ? '·' : r.outcome === 'dead-end' ? '✖' : l._stopId ? '⏸' : '✔';
+    lines.push(`## ${glyph} ${l.title}`);
+    lines.push(r ? r.summary : '(no result)');
+    if (r && r.findings.length) { lines.push(''); for (const f of r.findings) lines.push(`- ${f.claim} _(${f.confidence})_`); }
+    lines.push('');
+  }
+  // Single best next move: prefer a pending gated action, else the highest-confidence done leg.
+  const rank = { high: 3, medium: 2, low: 1 };
+  let best = null;
+  if (pendingAuth.length) best = { text: (pendingAuth[0]._result.proposedAction.summary) || pendingAuth[0].title, stopId: pendingAuth[0]._stopId, kind: 'approve' };
+  else if (done.length) { const top = done.slice().sort((a, b) => (rank[b._result.confidence] || 0) - (rank[a._result.confidence] || 0))[0]; best = { text: top._result.summary, kind: 'info' }; }
+  else if (pendingInfo.length) best = { text: (pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title), kind: 'ask' };
+  lines.push(`---`, `**Recommended next move:** ${best ? best.text : 'Review findings.'}`);
+  const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: 'PR blocker report', body: lines.join('\n') });
+  try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + '.md'); fs.writeFileSync(art.path, art.body); } catch (_) {}
+  _meAiTreeEmit(id, 'artifact', { artifact: art });
+  // Reroute: a strong merged recommendation changes the plan -> bump epoch + a
+  // visible reroute spine leg (the mock's "approved/merged -> reroute -> new spine").
+  const strong = done.some(l => l._result.confidence === 'high') || pendingAuth.length > 0;
+  if (strong) {
+    const epoch = 1;
+    _meAiTreeEmit(id, 'epoch_bump', { epoch });
+    const reroute = _meAiNewLeg({ kind: 'reroute', parentId: spine.id, lane: 'spine', baseEpoch: epoch, status: pendingAuth.length ? 'blocked' : 'done', title: 'Re-route: ' + (best ? best.text : 'act on findings').slice(0, 80), goal: best ? best.text : '' });
+    _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
+    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Re-plan', summary: pendingAuth.length ? 'Recommendation ready; one action awaits your approval.' : 'Findings merged; recommendation ready.', confidence: 'high', interesting: true }) });
+  }
+  _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: pendingAuth.length ? 'needs-auth' : (pendingInfo.length ? 'needs-info' : 'done') });
+  // Flat report so the legacy console + lane reflect the outcome, with approve
+  // buttons for any pending gated action.
+  const findings = legs.filter(l => l._result).map(l => ({ title: l.title, detail: l._result.summary, severity: l._result.confidence === 'high' ? 'high' : 'medium' }));
+  t.report = { summary: best ? `Fanned out into ${legs.length} pursuits (${dead.length} dead-ended). ${best.text}` : `Fanned out into ${legs.length} pursuits.`, findings, markdown: art.body };
+  t.question = pendingInfo.length ? ((pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title)) : null;
+  const pa = pendingAuth[0];
+  t.nextActions = pendingAuth.length
+    ? [{ label: 'Approve: ' + ((pa._result.proposedAction && pa._result.proposedAction.op) || 'action'), intent: 'approve', primary: true, risk: (pa._result.proposedAction && pa._result.proposedAction.risk === 'external') ? 'external' : 'write', detail: (pa._result.proposedAction && pa._result.proposedAction.summary) || pa.title, _stopId: pa._stopId },
+       { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: pa._stopId },
+       { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' }]
+    : [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }, { label: 'Continue', intent: 'continue', primary: false, risk: 'none' }];
+  _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
+  _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
+  _meAiSetStage(t, 'awaiting', 'awaiting');
+}
+
+// Top-level tree orchestration for a fresh tree task.
+async function _meAiTreeOrchestrate(t, spine) {
+  const id = t.id;
+  const startedMs = Date.now();
+  try {
+    const cands = _meAiTreeCandidates(t);
+    if (!cands.length) {
+      // No fan-out playbook yet -> single spine turn (still journaled as a tree).
+      const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true });
+      const out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, spine), { resume: false }).catch(e => 'Error: ' + (e.message || e));
+      const r = _meAiParseLegResult(out); spine._result = r;
+      _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: spine.id, title: spine.title, summary: r.summary, confidence: r.confidence }) });
+      return await _meAiTreeMergeReport(t, spine, startedMs, [spine]);
+    }
+    _meAiTreeMirror(t, `Fanning out into ${cands.length} parallel pursuits…`);
+    const legs = cands.map(c => _meAiNewLeg({ parentId: spine.id, kind: c.kind, lane: c.lane, title: c.title, goal: c.goal, status: 'planned', baseEpoch: 0, sessionId: _meAiUuid() }));
+    for (const lg of legs) _meAiTreeEmit(id, 'leg_spawn', { leg: lg });
+    // Scouts first (cheap culling before the expensive branches).
+    const ordered = legs.slice().sort((a, b) => (a.kind === 'scout' ? -1 : 1) - (b.kind === 'scout' ? -1 : 1));
+    await _meAiPool(ordered, ME_AI_TREE_BUDGET.maxParallel, lg => _meAiRunLeg(t, lg));
+    // Budget/loop guard: if we blew the wall clock, don't expand further.
+    if (Date.now() - startedMs > ME_AI_TREE_BUDGET.wallMs) _meAiTreeMirror(t, 'Wall-clock budget reached — consolidating what I have.');
+    await _meAiTreeMergeReport(t, spine, startedMs, legs);
+  } catch (e) {
+    _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: 'error' });
+    _meAiTreeMirror(t, 'Orchestrator error: ' + String(e.message || e));
+    t.error = String(e.message || e);
+    _meAiTreeEmit(id, 'stage', { stage: 'error' });
+    _meAiSetStage(t, 'error', 'error');
+  }
+}
+
+// Entry point for a tree task (mode:'tree'), analogous to _meAiDispatchRun.
+function _meAiTreeDispatch(t) {
+  _meAiSchedule(async () => {
+    t.startedAt = new Date().toISOString();
+    _meAiResolveRepoContext(t);
+    _meAiSetStage(t, 'working', 'running');
+    _meAiTreeMirror(t, 'Dispatching Chief-of-Staff agent (fan-out mode)…');
+    // Initialize the journal: epoch 0 + the root spine leg.
+    _meAiTreeEmit(t.id, 'epoch_bump', { epoch: 0 });
+    const spine = _meAiNewLeg({ kind: 'spine', lane: 'spine', title: 'Steward ' + (t.title || 'the PR'), goal: t.goal || _meAiGoalFor(t), status: 'running', baseEpoch: 0, sessionId: t.sessionId || _meAiUuid() });
+    t._spineId = spine.id;
+    _meAiTreeEmit(t.id, 'leg_spawn', { leg: spine });
+    await _meAiTreeOrchestrate(t, spine);
+  });
+}
+
+// Resolve a pending stop (approve/deny an auth gate, or answer needs-info/decision).
+// Approving a needs-auth stop fires the outbox EXACTLY ONCE (no double-post on
+// crash), then merges that leg back and reroutes the spine.
+function _meAiTreeResolveStop(t, stopId, decision, note) {
+  _meAiSchedule(async () => {
+    const id = t.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const stop = (tree.stops || []).find(s => s.id === stopId);
+    if (!stop || stop.status !== 'open') { _meAiTreeMirror(t, 'That approval is no longer pending.'); return; }
+    if (decision === 'deny') {
+      _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'deny', note: note || null });
+      if (stop.legId) _meAiTreeEmit(id, 'leg_invalidate', { legId: stop.legId });
+      _meAiTreeEmit(id, 'rootstate', { patch: { constraint: 'Denied: ' + (stop.prompt || stop.action && stop.action.op || 'action') } });
+      _meAiTreeMirror(t, 'Denied — dropped that angle and noted the constraint.');
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+      return;
+    }
+    if (stop.type !== 'needs-auth') {
+      // needs-info / needs-decision: fold the answer, refresh, continue.
+      _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
+      if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
+      _meAiTreeEmit(id, 'rootstate', { patch: { answer: note || 'answered' } });
+      _meAiTreeMirror(t, 'Thanks — folding that in.');
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+      return;
+    }
+    // needs-auth approve: perform the gated action via the outbox, exactly once.
+    _meAiSetStage(t, 'working', 'running');
+    const action = stop.action || {};
+    const intent = _meAiNewSideEffectIntent({ key: 'stop-' + stopId, legId: stop.legId, kind: action.risk || 'external', op: action.op || 'action', target: action.target, summary: action.summary });
+    _meAiOutboxWrite(id, intent);
+    try {
+      await _meAiOutboxRun(id, intent, async () => {
+        // Carry out the approved external action on a fresh WorkIQ session (same
+        // mechanism as the legacy external act path). Returns a verifiable ref.
+        const prompt = [
+          'I have APPROVED this action. Carry it out for real now using my tools:',
+          `ACTION: ${action.summary || action.op}`,
+          action.target ? `TARGET: ${action.target}` : '',
+          action.body ? `CONTENT:\n${action.body}` : '',
+          'Do exactly this one action and nothing else. Then reply with one line confirming it was done and any reference id/url.',
+        ].filter(Boolean).join('\n');
+        const out = await _meAiRunTurn(t, prompt, { workiq: true });
+        return String(out || 'done').slice(0, 200);
+      });
+      _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
+      if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
+      _meAiTreeEmit(id, 'merge', { merge: _meAiNewMergeCandidate({ legId: stop.legId, baseEpoch: tree.epoch || 0, confidence: 'high', proposedActions: [action] }) });
+      // Reroute: the action landed -> bump epoch + a new spine leg for what's next.
+      const epoch = (tree.epoch || 0) + 1;
+      _meAiTreeEmit(id, 'epoch_bump', { epoch });
+      const reroute = _meAiNewLeg({ kind: 'reroute', parentId: t._spineId || null, lane: 'spine', baseEpoch: epoch, status: 'done', title: 'Re-route: acted — ' + (action.op || 'action'), goal: '' });
+      _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
+      _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Acted', summary: (action.summary || 'Action completed') + ' — merged back and re-planned.', confidence: 'high', interesting: true }) });
+      _meAiTreeMirror(t, 'Done — ' + (action.summary || action.op) + '. Merged back and re-planned.');
+      t.report = { summary: (t.report && t.report.summary || '') + ' ✔ ' + (action.summary || action.op), findings: (t.report && t.report.findings) || [] };
+      t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+      _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+    } catch (e) {
+      _meAiTreeMirror(t, 'That action failed: ' + String(e.message || e) + ' — you can retry.');
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+    }
+  });
+}
+
 // Dedup-aware diary write-back on completion (§9.1). Only writes what a passive
 // collector wouldn't capture (a Me-agent-driven task outcome), keyed by ext tag.
 function _meAiWriteDiary(t) {
@@ -16216,6 +16786,7 @@ app.post('/api/me-ai/task/dispatch', (req, res) => {
       title: String(b.title || '').slice(0, 200) || (playbook === 'review' ? 'Code review' : playbook),
       context: (b.context && typeof b.context === 'object') ? b.context : {},
       scope: (b.scope === 'personal') ? 'personal' : 'work',
+      mode: (b.tree === true || b.mode === 'tree') ? 'tree' : 'single',
       stage: 'dispatch',
       status: 'queued',
       background: !!b.background,
@@ -16235,7 +16806,7 @@ app.post('/api/me-ai/task/dispatch', (req, res) => {
     meAiTasks.set(id, t);
     t.goal = _meAiGoalFor(t);
     _meAiEmit(t, { kind: 'stage', stage: 'dispatch', status: 'queued' });
-    _meAiDispatchRun(t);
+    if (t.mode === 'tree') _meAiTreeDispatch(t); else _meAiDispatchRun(t);
     res.json({ ok: true, task: _meAiTaskPublic(t) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -16245,6 +16816,48 @@ app.get('/api/me-ai/task/:id', (req, res) => {
   try {
     const t = _meAiLoadTask(req.params.id);
     if (!t) return res.status(404).json({ error: 'Task not found' });
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/task/:id/tree → the folded pursuit tree (legs/checkpoints/stops/
+// merges/artifacts) for the live canvas. Cheap: in-memory fold, rebuilt from the
+// journal on a cold cache.
+app.get('/api/me-ai/task/:id/tree', (req, res) => {
+  try {
+    const id = req.params.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    if (!tree) return res.status(404).json({ error: 'No tree for this task' });
+    res.json({ ok: true, tree });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/stop/:stopId/resolve { decision:'approve'|'deny', note }
+// → resolve a pending auth/decision stop. Approving a needs-auth stop fires the
+// gated action exactly once (outbox) and reroutes the spine.
+app.post('/api/me-ai/task/:id/stop/:stopId/resolve', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found or no longer live' });
+    const b = req.body || {};
+    const decision = (b.decision === 'deny') ? 'deny' : 'approve';
+    const note = (typeof b.note === 'string') ? b.note.slice(0, 600) : null;
+    _meAiTreeResolveStop(t, String(req.params.stopId), decision, note);
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/answer { stopId, text } → answer a needs-info stop
+// (convenience alias that resolves the stop with the answer text as the note).
+app.post('/api/me-ai/task/:id/answer', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found or no longer live' });
+    const b = req.body || {};
+    const stopId = String(b.stopId || '');
+    const text = (typeof b.text === 'string') ? b.text.slice(0, 600) : '';
+    if (!stopId) return res.status(400).json({ error: 'stopId required' });
+    _meAiTreeResolveStop(t, stopId, 'approve', text);
     res.json({ ok: true, task: _meAiTaskPublic(t) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
