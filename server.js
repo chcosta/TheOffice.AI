@@ -13100,7 +13100,54 @@ function _meAiImminentPins(priorSnapshot, nowMin, cfg) {
       meta: Object.assign({}, pb.meta || {}, { pinned: true, imminent: true }),
     });
   }
-  return pins;
+  return _meAiDedupePins(pins);
+}
+// A prior snapshot can already contain N overlapping blocks for the same work (a review
+// carried by the pin AND re-emitted by the gather; or several near-identical focus/wrap-up
+// blocks whose titles drifted). Deriving one pin per prior block then re-asserts every one of
+// those duplicates via _meAiEnforcePins (exact-title match else push) — so the day keeps
+// growing a stack of "held in place" clones. Collapse the PINS at the source: never emit two
+// that share a work-item identity, nor two flexible pins of the same type on a substantially
+// overlapping window. Keep the earliest start, widen to the union, adopt the freshest title,
+// and preserve any pinned/imminent/past flag. This self-heals an already-duplicated snapshot
+// on the very next real generate, regardless of who created the duplicates.
+function _meAiDedupePins(pins) {
+  if (!Array.isArray(pins) || pins.length < 2) return pins || [];
+  const idOf = p => _meAiWorkItemIdentity({ type: p.type, title: p.title, link: p.link });
+  const drop = new Set();
+  for (let i = 0; i < pins.length; i++) {
+    if (drop.has(i)) continue;
+    const a = pins[i], aid = idOf(a), aty = String(a.type || '').toLowerCase();
+    const aManual = !!(a.meta && a.meta.manual);
+    for (let j = i + 1; j < pins.length; j++) {
+      if (drop.has(j)) continue;
+      const b = pins[j], bid = idOf(b);
+      let same = false;
+      if (aid && bid) same = (aid === bid);                     // same PR / work item
+      else if (!aid && !bid && aty === String(b.type || '').toLowerCase()) {
+        // both non-identity flexible pins of one type: merge only when they overlap a lot
+        // (protects genuinely distinct sessions at different times).
+        if (aManual && b.meta && b.meta.manual) continue;       // two deliberate reservations stay
+        const ov = Math.min(a.end, b.end) - Math.max(a.start, b.start);
+        const minDur = Math.min(a.end - a.start, b.end - b.start) || 1;
+        same = ov > 0 && (ov / minDur) >= 0.6;
+      }
+      if (!same) continue;
+      if (b.start < a.start) a.start = b.start;
+      a.end = Math.max(a.end, b.end);
+      if (b.title) a.title = b.title;                           // freshest label wins
+      if (b.detail) a.detail = b.detail;
+      if (b.link && !a.link) a.link = b.link;
+      a.meta = Object.assign({}, a.meta || {}, {
+        pinned: true,
+        imminent: !!((a.meta && a.meta.imminent) || (b.meta && b.meta.imminent)),
+        past: !!((a.meta && a.meta.past) || (b.meta && b.meta.past)),
+      });
+      drop.add(j);
+    }
+  }
+  if (!drop.size) return pins;
+  return pins.filter((_, i) => !drop.has(i));
 }
 // D: past blocks stay PUT. On a re-plan of TODAY, anything that already finished
 // (be <= nowMin) is history — the user lived it, so a regenerate must NOT quietly drop it
@@ -13127,7 +13174,7 @@ function _meAiPastPins(priorSnapshot, nowMin, cfg) {
       meta: Object.assign({}, pb.meta || {}, { pinned: true, past: true }),
     });
   }
-  return pins;
+  return _meAiDedupePins(pins);
 }
 // time (the refine can drift it), then cascade any non-pinned block that now overlaps a
 // pin to just after it (preserving duration), and de-clump so shifted flexible blocks
@@ -13295,7 +13342,70 @@ function _meAiDedupeWorkItems(blocks) {
   return blocks.filter((_, i) => !drop.has(i));
 }
 
-// Make the planner meeting-aware. Fixed meetings you're attending are hard anchors — nothing
+// Second-pass collapse for blocks that _meAiDedupeWorkItems CAN'T touch — flexible blocks with
+// no PR/work-item identity (focus / comms / admin / prep). Title drift through _meAiEnforcePins
+// (exact-title match else push) plus non-deduped imminent pins can leave several near-identical
+// "wrap-up" / "late-day triage" focus blocks stacked on the same window. Identity dedup skips
+// them (identity ''), so they'd persist and read as bogus "Overlaps another item" conflicts.
+// Merge same-type flexible blocks whose windows overlap substantially into one (keep the
+// pinned/imminent/earliest survivor, widen to the union, adopt the freshest sibling's title).
+// Guardrails: only collapse SUBSTANTIAL overlap (distinct-time sessions survive); never touch
+// identity-bearing types (two different PRs overlapping is a real conflict for the detector,
+// not a merge); never merge two deliberate manual reservations.
+function _meAiCollapseOverlaps(blocks) {
+  if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
+  const FLEX = new Set(['focus', 'comms', 'admin', 'prep']);
+  const drop = new Set();
+  for (let i = 0; i < blocks.length; i++) {
+    if (drop.has(i)) continue;
+    const a = blocks[i], aty = String(a.type || '').toLowerCase();
+    if (!FLEX.has(aty)) continue;
+    if (_meAiWorkItemIdentity(a)) continue;                     // identity dedup owns these
+    let as = _hmToMin(a.start), ae = _hmToMin(a.end);
+    if (as == null || ae == null) continue;
+    const aManual = !!(a.meta && a.meta.manual);
+    for (let j = i + 1; j < blocks.length; j++) {
+      if (drop.has(j)) continue;
+      const b = blocks[j];
+      if (String(b.type || '').toLowerCase() !== aty) continue;
+      if (_meAiWorkItemIdentity(b)) continue;
+      if (aManual && b.meta && b.meta.manual) continue;         // two deliberate reservations stay
+      const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+      if (bs == null || be == null) continue;
+      const ov = Math.min(ae, be) - Math.max(as, bs);
+      if (ov <= 0) continue;
+      const minDur = Math.min(ae - as, be - bs) || 1;
+      if ((ov / minDur) < 0.6) continue;                        // not substantially overlapping
+      // Survivor = a (earlier index). Adopt a fresher live (non-pinned) sibling's content.
+      const bPinned = !!(b.meta && (b.meta.pinned || b.meta.imminent));
+      if (!bPinned) {
+        if (b.title) a.title = b.title;
+        if (b.detail) a.detail = b.detail;
+        if (b.link) a.link = b.link;
+      }
+      a.end = _minToHm(Math.max(ae, be)); ae = Math.max(ae, be);
+      a.meta = Object.assign({}, a.meta || {}, {
+        pinned: !!((a.meta && a.meta.pinned) || bPinned),
+        imminent: !!((a.meta && a.meta.imminent) || (b.meta && b.meta.imminent)),
+      });
+      drop.add(j);
+    }
+  }
+  if (!drop.size) return blocks;
+  return blocks.filter((_, i) => !drop.has(i));
+}
+
+// One-call snapshot de-duplication for the mutate-and-save routes (todo patch / suggestion
+// dismiss / item dismiss / undismiss). Those routes re-save the in-memory snapshot verbatim
+// WITHOUT re-running generate, so a snapshot that already carries duplicate review/focus blocks
+// keeps persisting them on every in-place edit. Running the same two collapse passes generate
+// uses lets any user interaction with TODAY quietly self-heal a stale duplicate set.
+function _meAiCleanSnapshotBlocks(snap) {
+  if (snap && Array.isArray(snap.blocks) && snap.blocks.length > 1) {
+    snap.blocks = _meAiCollapseOverlaps(_meAiDedupeWorkItems(snap.blocks));
+  }
+  return snap;
+}
 // flexible should sit on top of one. Two moves:
 //   (1) a "prep" block must PRECEDE its meeting. The LLM refine inserts prep in "free time
 //       just before" a meeting, but it can drift so the prep overlaps (or even lands after)
@@ -14395,6 +14505,11 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // re-emitted by the fresh gather (different title variants). One block per PR so it isn't
   // flagged as a bogus conflict and can be rescheduled/dismissed independently.
   finalBlocks = _meAiDedupeWorkItems(finalBlocks);
+  // Second pass: collapse duplicate FLEXIBLE blocks the identity dedup can't see (focus/comms/
+  // admin/prep have no PR identity). Title drift + non-deduped pins can stack several
+  // near-identical wrap-up/triage blocks on one window; merge substantially-overlapping
+  // same-type ones so the day doesn't grow a pile of bogus "Overlaps another item" clones.
+  finalBlocks = _meAiCollapseOverlaps(finalBlocks);
   // Meeting-aware placement: nothing flexible sits on a fixed meeting. Re-slot prep before its
   // meeting (or drop stale prep), and slide movable work off any meeting it overlaps. Pinned/
   // manual work that truly clashes is left for the conflict detector to surface.
@@ -14786,7 +14901,7 @@ app.post('/api/me-ai/agenda/todos', (req, res) => {
     saveMeAiTodoTomb(date, Array.from(tomb));
     saveMeAiTodoStore(date, todos);
     const snap = loadAgendaForDate(date);
-    if (snap) { snap.todos = todos; saveAgendaForDate(date, snap); }
+    if (snap) { snap.todos = todos; _meAiCleanSnapshotBlocks(snap); saveAgendaForDate(date, snap); }
     res.json({ ok: true, date, todos, persisted: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -14807,6 +14922,7 @@ app.post('/api/me-ai/suggestion/dismiss', (req, res) => {
     const snap = loadAgendaForDate(date);
     if (snap && Array.isArray(snap.suggestions)) {
       snap.suggestions = snap.suggestions.filter(sg => sg.id !== id);
+      _meAiCleanSnapshotBlocks(snap);
       saveAgendaForDate(date, snap);
       suggestions = snap.suggestions;
     }
@@ -14996,6 +15112,21 @@ app.get('/api/me-ai/reports', (req, res) => {
           if (v && v.reason === 'wontfix') wontFix++; else notMine++;
         }
       } catch (_) { /* best-effort */ }
+      // Manual vs auto triage — how many attention-inbox items you dispositioned by
+      // hand vs. how many Me.AI's learned rules handled automatically. Powers the
+      // Reports "Triage automation" trend (is the auto share climbing, and how much
+      // manual review did it save). Counts by the inbox file's own date, consistent
+      // with how notMine/wontFix are counted above.
+      let autoTriaged = 0, manualTriaged = 0;
+      try {
+        const inbx = loadInboxForDate(date);
+        const RESOLVED = new Set(['later', 'now', 'today', 'dismissed', 'wontfix', 'done']);
+        for (const it of (inbx.items || [])) {
+          if (!it) continue;
+          if (it.auto) autoTriaged++;                                   // handled for you
+          else if (RESOLVED.has(String(it.triage || ''))) manualTriaged++; // you decided
+        }
+      } catch (_) { /* best-effort */ }
       const ta = taskByDate[date] || { launched: 0, done: 0, unblock: 0, comms: 0, agentMs: 0 };
       const agentsLaunched = ta.launched;
       const agentDone = ta.done;
@@ -15014,6 +15145,7 @@ app.get('/api/me-ai/reports', (req, res) => {
         focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin,
         todos: todos.length, todosDone, todosCarried, backlog,
         agentsLaunched, agentDone, agentMin, tasksDone, notMine, wontFix,
+        autoTriaged, manualTriaged,
         delivered, unblocked, responded,
       });
     }
@@ -15024,12 +15156,14 @@ app.get('/api/me-ai/reports', (req, res) => {
     let reschedule = 0, slip = 0, add = 0, planned = 0, agentsLaunched = 0, agentDone = 0, agentMin = 0, tasksDone = 0, todosDone = 0, todosCarried = 0, notMine = 0, wontFix = 0, focusDays = 0;
     let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0;
     let delivered = 0, unblocked = 0;
+    let autoTriaged = 0, manualTriaged = 0;
     for (const d of active) {
       if (d.shape && shapeCounts[d.shape] != null) shapeCounts[d.shape]++;
       reschedule += d.reschedule; slip += d.slip; add += d.add; planned += d.planned;
       agentsLaunched += d.agentsLaunched; agentDone += d.agentDone; agentMin += d.agentMin;
       tasksDone += d.tasksDone; todosDone += d.todosDone; todosCarried += d.todosCarried;
       notMine += d.notMine; wontFix += d.wontFix;
+      autoTriaged += d.autoTriaged; manualTriaged += d.manualTriaged;
       focusMin += d.focusMin; meetingMin += d.meetingMin; commsMin += d.commsMin;
       reviewMin += d.reviewMin; stewardMin += d.stewardMin; prepMin += d.prepMin; adminMin += d.adminMin;
       delivered += d.delivered; unblocked += d.unblocked;
@@ -15051,6 +15185,12 @@ app.get('/api/me-ai/reports', (req, res) => {
       });
     } catch (_) { /* best-effort */ }
     const focusRatio = active.length ? focusDays / active.length : 0;
+    // Triage automation roll-up. Each hand-triaged item costs ~40s of read-decide-click;
+    // an auto-handled one saves that. autoRate = share of triaged items handled for you.
+    const TRIAGE_SAVED_SECS = 40;
+    const triageTotal = autoTriaged + manualTriaged;
+    const triageAutoRate = triageTotal ? autoTriaged / triageTotal : 0;
+    const triageSavedMin = Math.round((autoTriaged * TRIAGE_SAVED_SECS) / 60);
     // A short, honest prose summary of the window — "summarize the findings" (owner).
     const hrs = (m) => Math.round((m / 60) * 10) / 10;
     const findings = [];
@@ -15062,6 +15202,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       if (todosCarried) findings.push(`${todosCarried} todo${todosCarried === 1 ? '' : 's'} carried across days without getting done.`);
       if (agentsLaunched) findings.push(`Me-agents ran ${agentsLaunched} task${agentsLaunched === 1 ? '' : 's'}${agentMin ? ` (~${hrs(agentMin)}h of delegated work)` : ''}.`);
       if (notMine || wontFix) findings.push(`You set aside ${notMine} ask${notMine === 1 ? '' : 's'} as not yours and declined ${wontFix} as won't-fix.`);
+      if (triageTotal) findings.push(`${autoTriaged} of ${triageTotal} attention item${triageTotal === 1 ? '' : 's'} auto-handled (${Math.round(triageAutoRate * 100)}%)${triageSavedMin ? `, saving ~${triageSavedMin}m of manual triage` : ''}.`);
     }
     if (future.horizon) findings.push(`${future.planned} of the next ${future.horizon} work day${future.horizon === 1 ? '' : 's'} already pre-planned ahead.`);
     const summary = {
@@ -15069,6 +15210,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       focusDays, focusRatio,
       shapeCounts, reschedule, slip, add, planned,
       agentsLaunched, agentDone, agentMin, tasksDone, todosDone, todosCarried, notMine, wontFix,
+      autoTriaged, manualTriaged, triageTotal, triageAutoRate, triageSavedMin,
       focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin, workMin,
       // Impact roll-ups
       delivered, unblocked,
@@ -15342,6 +15484,7 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
       agenda.backlog = (agenda.backlog || []).filter(keep);
       agenda.needsAttention = (agenda.needsAttention || []).filter(keep);
       agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
+      _meAiCleanSnapshotBlocks(agenda);
       saveAgendaForDate(date, agenda);
     }
     res.json({ ok: true, date, agenda });
@@ -15360,6 +15503,7 @@ app.post('/api/me-ai/agenda/undismiss', (req, res) => {
     const agenda = loadAgendaForDate(date);
     if (agenda) {
       agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
+      _meAiCleanSnapshotBlocks(agenda);
       saveAgendaForDate(date, agenda);
     }
     res.json({ ok: true, date, agenda, dismissed: agenda ? agenda.dismissed : [] });
