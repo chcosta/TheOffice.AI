@@ -43973,7 +43973,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         flowCanvasDrop(ev) {
           ev.preventDefault();
-          const ctl = this._flowCanvas; if (!ctl || !this.chainDraft) return;
+          if (!this.chainDraft) return;
+          // Belt-and-suspenders: if the initial mount raced ahead of the x-if
+          // render, the controller may be null even though the canvas is on
+          // screen. Mount it now (elements exist by drop time) so the drop lands.
+          if (!this._flowCanvas) this.mountFlowCanvas();
+          const ctl = this._flowCanvas; if (!ctl) return;
           let payload; try { payload = JSON.parse(ev.dataTransfer.getData('text/plain')); } catch { return; }
           if (!payload || !payload.kind) return;
           const p = this._flowPt(ev);
@@ -44008,11 +44013,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._closeFlowPop();
           this.renderFlowNodes(); this.drawFlowWires();
         },
-        mountFlowCanvas() {
+        mountFlowCanvas(_tries = 0) {
+          if (!this.chainDraft) return;
           const wrap = document.getElementById('flow-canvas-wrap');
           const canvas = document.getElementById('flow-canvas');
           const wires = document.getElementById('flow-wires');
-          if (!wrap || !canvas || !wires || !this.chainDraft) return;
+          if (!wrap || !canvas || !wires) {
+            // The canvas lives inside an x-if; its DOM may not be inserted yet
+            // when this fires. Retry on the next frame instead of silently
+            // leaving _flowCanvas null (which makes every drop a no-op).
+            if (_tries < 30) requestAnimationFrame(() => this.mountFlowCanvas(_tries + 1));
+            return;
+          }
+          if (this._flowCanvas && this._flowCanvas.wrap === wrap) return; // already wired to this element
           const self = this;
           const ctl = { wrap, canvas, wires, pop: null, selEdge: null, zoom: 1, panX: 0, panY: 0 };
           this._flowCanvas = ctl;
