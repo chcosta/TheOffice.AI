@@ -22195,7 +22195,27 @@
         // Left toolbox tray width (px) — user-draggable splitter, persisted globally.
         boardTbxW: (() => { try { const v = parseInt(localStorage.getItem('board-tbx-w'), 10); return (isFinite(v) && v >= 150 && v <= 460) ? v : 216; } catch (e) { return 216; } })(),
         boardChatCache: {},
-        boardAgentChats: {},
+        // Inline agent-card chats, keyed by agent refId. Persisted to localStorage so a
+        // page refresh REPAINTS the conversation (and keeps the server sessionId, so the
+        // next message continues the same session) instead of dropping the transcript.
+        // Only messages + sessionId are stored; live/running/error/input are transient.
+        boardAgentChats: (() => {
+          try {
+            const raw = localStorage.getItem('board-agent-chats');
+            if (!raw) return {};
+            const saved = JSON.parse(raw) || {};
+            const out = {};
+            for (const k of Object.keys(saved)) {
+              const s = saved[k] || {};
+              out[k] = {
+                messages: Array.isArray(s.messages) ? s.messages : [],
+                input: '', sessionId: s.sessionId || null,
+                live: null, running: false, error: '',
+              };
+            }
+            return out;
+          } catch (e) { return {}; }
+        })(),
         activeChat: null,
         chatDraft: '',
         // Shared image-attach state for ALL chat composers, keyed by surface id
@@ -35801,6 +35821,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.boardAgentChats[item.refId];
         },
         boardAgentChatState(item) { return (item && item.refId && this.boardAgentChats[item.refId]) || null; },
+        // Persist agent-card transcripts so they survive a refresh. Stores only the last
+        // ~40 messages + sessionId per agent; on quota failure, retries without the
+        // (potentially large) per-message activity/reasoning so the text at least survives.
+        _saveBoardAgentChats() {
+          const build = (withActivity) => {
+            const out = {};
+            for (const k of Object.keys(this.boardAgentChats || {})) {
+              const s = this.boardAgentChats[k];
+              if (!s) continue;
+              let msgs = Array.isArray(s.messages) ? s.messages.slice(-40) : [];
+              if (!withActivity) msgs = msgs.map(m => ({ ...m, activity: [] }));
+              if (!msgs.length && !s.sessionId) continue;
+              out[k] = { messages: msgs, sessionId: s.sessionId || null };
+            }
+            return JSON.stringify(out);
+          };
+          try {
+            try { localStorage.setItem('board-agent-chats', build(true)); }
+            catch (e) { localStorage.setItem('board-agent-chats', build(false)); }
+          } catch (e) { /* quota exhausted — degrade quietly */ }
+        },
         async boardAgentSend(item) {
           const st = this.boardAgentChatEnsure(item);
           if (!st) return;
@@ -35812,12 +35853,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const msg = prompt;
           st.messages.push({ role: 'user', content: display, activity: [], timestamp: Date.now() });
           st.running = true; st.live = { status: 'Thinking…', steps: [] };
+          this._saveBoardAgentChats();
           try {
             const r = await this.request('/api/agents/' + encodeURIComponent(item.refId) + '/chat', {
               method: 'POST',
               body: JSON.stringify({ message: msg, sessionId: st.sessionId || null }),
             });
-            if (r && r.sessionId) st.sessionId = r.sessionId;
+            if (r && r.sessionId) { st.sessionId = r.sessionId; this._saveBoardAgentChats(); }
             if (!st.sessionId) { st.running = false; st.live = null; st.error = 'Could not start the agent session.'; return; }
             await this.pollSessionTurn(st.sessionId, {
               onActivity: ({ steps, elapsed, lastAssistant }) => {
@@ -35834,6 +35876,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   activity, model: model || '', timestamp: Date.now(),
                 });
                 st.live = null; st.running = false;
+                this._saveBoardAgentChats();
               },
             });
           } catch (e) {
