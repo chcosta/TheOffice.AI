@@ -16430,6 +16430,27 @@ function _meAiTreeCandidates(t) {
       { kind: 'scout', lane: 'r1', title: 'Rebase / related-items theory', goal: 'Cheaply test whether the failure predates the latest push (a rebase would not help) and whether any related ADO/GitHub work items block merge. This is a scout: be fast, and if the theory is a dead end say so plainly.' },
     ];
   }
+  if (t.playbook === 'review') {
+    return [
+      { kind: 'branch', lane: 'l1', title: 'Correctness & logic', goal: 'Inspect the changed code (git status / diff, read the changed files) for correctness bugs, broken edge cases, and regressions. Be specific with file:line references. Read-only — do NOT edit or commit.' },
+      { kind: 'branch', lane: 'l2', title: 'Security & data safety', goal: 'Examine the same changes for security issues, unsafe input handling, secrets, injection, authz/permission gaps, and data-loss risks. Cite file:line for anything you flag. Read-only.' },
+      { kind: 'scout', lane: 'r1', title: 'Test-coverage gap', goal: 'Cheaply check whether the change is covered by tests: are there new/updated tests, and do they exercise the risky paths? Fast scout — if coverage looks adequate, say so plainly and stop.' },
+    ];
+  }
+  if (t.playbook === 'comms') {
+    return [
+      { kind: 'branch', lane: 'l1', title: 'What is actually being asked', goal: 'Open the message/thread (or PR comment) and work out precisely what is being asked, who is asking, and what a good outcome looks like. If a reply is warranted, DRAFT it (ready to paste) but propose it as a gated action — do NOT send or post.' },
+      { kind: 'branch', lane: 'l2', title: 'Context to answer well', goal: 'Gather the context needed to reply accurately — CONSULT MY INTERNAL RESOURCES FIRST (diary, workspaces/Boards, related PRs/issues/threads) then fill gaps with tools. Surface the facts the reply should be grounded in. Read-only.' },
+      { kind: 'scout', lane: 'r1', title: 'Already handled?', goal: 'Cheaply check whether this ask is already resolved, stale, or owned by someone else (a later reply on the thread, a merged PR, a closed item). Fast scout — if it needs no action, say so and stop.' },
+    ];
+  }
+  if (t.playbook === 'prep') {
+    return [
+      { kind: 'branch', lane: 'l1', title: 'Purpose & decisions', goal: 'Work out the purpose of the meeting and what I need to know or decide — the goal, the decisions on the table, and the questions I should raise. Read-only.' },
+      { kind: 'branch', lane: 'l2', title: 'Internal context first', goal: 'Gather the relevant context, CONSULTING MY INTERNAL RESOURCES FIRST (workspaces/Boards and specialist agents; if a registered agent maps to this meeting, e.g. a standup facilitator for the same team/epic, treat its briefing as the primary source). Read-only.' },
+      { kind: 'scout', lane: 'r1', title: 'Recent related activity', goal: 'Cheaply pull the recent related PRs/issues/threads since this topic was last touched, so the brief reflects the latest state. Fast scout — surface only what changed the picture.' },
+    ];
+  }
   return [];
 }
 

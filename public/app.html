@@ -12051,13 +12051,14 @@
             .meai-tp-when { color:var(--cp-text-muted); white-space:nowrap; }
             .meai-tp-when.set { color:var(--cp-accent); font-weight:600; }
               /* --- M2: Me-agent launch, at-work lane, console drawer --- */
-              .meai-block-launch { margin-top:8px; opacity:0; transition:opacity .12s ease; }
+              .meai-block-launch { margin-top:8px; opacity:0; transition:opacity .12s ease; display:flex; gap:6px; flex-wrap:wrap; }
               .meai-block-conflict { margin-top:5px; font-size:11.5px; color:var(--cp-danger); }
               .meai-conflict-banner { margin:0 0 12px; padding:9px 13px; border:1px solid var(--cp-danger); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:rgba(248,81,73,.08); color:var(--cp-text); font-size:12.5px; }
               .meai-conflict-banner .cf-pair { color:var(--cp-text-muted); }
               .meai-block-body:hover .meai-block-launch, .meai-block-body:focus-within .meai-block-launch { opacity:1; }
               .meai-mini-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:12px; padding:4px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; }
               .meai-mini-btn:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
+              .meai-mini-btn-ghost { background:transparent; border-color:var(--cp-border); color:var(--cp-text-muted, var(--cp-text)); }
               .meai-adhoc { display:flex; gap:8px; align-items:center; margin:0 0 12px; }
               .meai-adhoc-in { flex:1 1 auto; min-width:0; }
               .meai-lane-swipe { position:relative; overflow:hidden; }
@@ -12896,6 +12897,9 @@
                             <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus'">
                               <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
                                 🤖 <span x-text="b.type==='review' ? 'Launch review agent' : 'Launch Me agent'"></span>
+                              </button>
+                              <button class="meai-mini-btn meai-mini-btn-ghost" type="button" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='steward'" @click="meAiPursueBlock(b)" :disabled="meai.pursuit.busy" title="Fan out into parallel investigation legs on the live canvas">
+                                🕸 Pursue
                               </button>
                             </div>
                           </div>
@@ -29570,6 +29574,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
           this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
+        // Pursue a curated playbook (review/comms/prep/steward) as a fan-out on the
+        // live canvas — the server seeds the tree with its curated candidate angles.
+        meAiPursueBlock(block) {
+          if (!block) return;
+          const curated = ['review', 'comms', 'prep', 'steward'];
+          const pb = curated.includes(block.playbook) ? block.playbook : (curated.includes(block.type) ? block.type : 'review');
+          const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
+          this.meAiLaunchPursuit(null, {
+            playbook: pb,
+            title: block.title || (pb + ' pursuit'),
+            scope,
+            context: { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' },
+          });
+        },
         // Swipe-to-finish on the "Me agents at work" lane (mirrors the board toolbox swipe).
         meAiLaneStyle(tk) {
           const m = this.meai;
@@ -29905,20 +29923,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // lanes with an SVG edge layer, a leg-chat tab, and an approvals/
         // artifacts rail. Dynamic (SSE-driven), not just an audit tool.
         // ============================================================
-        // Launch a NEW dogged pursuit (fan-out me-agent) against a free-form goal.
-        async meAiLaunchPursuit(goal) {
+        // Launch a NEW dogged pursuit (fan-out me-agent). Free-form goal by default;
+        // pass opts {playbook, title, context} to pursue a curated playbook (review/
+        // comms/prep/steward) so the server seeds the fan-out with its candidate angles.
+        async meAiLaunchPursuit(goal, opts) {
+          opts = opts || {};
+          const playbook = opts.playbook || 'adhoc';
           const raw = String(goal == null ? this.meai.adhocGoal : goal || '').trim();
-          if (!raw) { this.toast('Give the pursuit a goal first', 'info'); return; }
+          if (playbook === 'adhoc' && !raw) { this.toast('Give the pursuit a goal first', 'info'); return; }
           if (this.meai.pursuit.busy) return;
           this.meai.pursuit.busy = true;
           try {
+            const ctx = Object.assign({ date: this.meai.date }, opts.context || {});
+            if (playbook === 'adhoc') ctx.goal = raw;
+            const title = String(opts.title || raw || (playbook + ' pursuit')).slice(0, 120);
             const r = await this.request('/api/me-ai/task/dispatch', {
               method: 'POST',
-              body: JSON.stringify({ playbook: 'adhoc', title: raw.slice(0, 120), context: { goal: raw, date: this.meai.date }, date: this.meai.date, scope: 'work', tree: true }),
+              body: JSON.stringify({ playbook, title, context: ctx, date: this.meai.date, scope: opts.scope === 'personal' ? 'personal' : 'work', tree: true }),
             });
             if (r && r.task) {
               this.meai._taskById[r.task.id] = r.task;
-              this.meai.adhocGoal = '';
+              if (playbook === 'adhoc') this.meai.adhocGoal = '';
               this.meAiLoadTasks();
               this.meAiPursuitOpen(r.task.id);
             }
