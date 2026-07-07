@@ -11898,6 +11898,24 @@
               .meai-auto-name { color:var(--cp-text); font-weight:500; }
               .meai-auto-why { color:var(--cp-text-muted); font-size:11px; }
               .meai-auto-undo { margin-left:auto; }
+              /* Request A: vertical, collapsible disposition sections for the attention inbox. */
+              .meai-sec { border-top:1px solid var(--cp-border); }
+              .meai-sec-head { display:flex; align-items:center; gap:8px; width:100%; padding:9px 14px; background:transparent; border:0; cursor:pointer; text-align:left; font:inherit; color:var(--cp-text); }
+              .meai-sec-head:hover { background:var(--cp-surface-2, rgba(127,127,127,.045)); }
+              .meai-sec-caret { width:12px; color:var(--cp-text-muted); font-size:11px; flex:0 0 auto; }
+              .meai-sec-label { font-size:12.5px; font-weight:600; }
+              .meai-sec-n { font-size:11.5px; color:var(--cp-text-muted); }
+              .meai-sec-flex { flex:1 1 auto; }
+              .meai-sec-approve { font-size:11.5px; font-weight:600; color:var(--cp-accent, var(--cp-text)); cursor:pointer; padding:2px 6px; border-radius:8px; }
+              .meai-sec-approve:hover { background:color-mix(in srgb, var(--cp-accent, #888) 14%, transparent); }
+              .meai-sec-body { padding:0 14px 10px; }
+              .meai-sec-hint { font-size:11px; color:var(--cp-text-muted); margin:0 0 8px; }
+              .meai-secitem { padding:8px 0; border-top:1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); }
+              .meai-secitem:first-of-type { border-top:0; }
+              .meai-secitem.is-auto { opacity:.92; }
+              .meai-secitem-why { font-size:11px; color:var(--cp-text-muted); margin-top:3px; }
+              .meai-secitem-done { font-size:12px; color:var(--cp-success); font-weight:600; }
+              .meai-sec-move { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface, transparent); color:var(--cp-text); cursor:pointer; }
               /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
                  column 2 = the daily-work side column (Me agents + todos) with the secondary
                  digests (Suggestions, Needs attention, Didn't fit, Removed, Rolled over)
@@ -12842,70 +12860,80 @@
                   </button>
                 </div>
                 <div class="meai-inbox-list" x-show="meai.inboxOpen" x-transition>
-                  <div class="meai-inbox-legend" x-show="(meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done').length">
+                  <div class="meai-inbox-legend" x-show="meAiInboxSections().length">
                     <span><b class="meai-lg-you">@you</b> mentioned by name</span>
-                    <span><b>On today</b> scheduled on your agenda</span>
-                    <span><b>Parked</b> saved for later</span>
-                    <span class="meai-lg-hint">hover an item for actions · swipe left to remove</span>
+                    <span class="meai-lg-hint">grouped by what to do next · collapse any section you don't need</span>
                   </div>
-                  <template x-if="meAiAutoHandled().length">
-                    <div class="meai-auto">
-                      <div class="meai-auto-head">
-                        <span class="meai-auto-title" x-text="'Me.AI handled ' + meAiAutoHandled().length + (meAiAutoHandled().length===1?' item for you':' items for you')"></span>
-                        <span class="meai-auto-sub">based on how you've triaged similar asks</span>
-                      </div>
-                      <template x-for="(it, ai) in meAiAutoHandled()" :key="it.id">
-                        <div class="meai-auto-item">
-                          <span class="meai-auto-verb" x-text="meAiAutoLabel(it)"></span>
-                          <span class="meai-auto-name clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
-                          <span class="meai-auto-why" x-show="it.autoReason && it.autoReason.why" x-text="it.autoReason.why + (typeof it.autoReason.confidence==='number' ? ' · ' + it.autoReason.confidence + '% sure' : '')"></span>
-                          <button type="button" class="meai-tri ghost meai-auto-undo" @click="meAiUndoAuto(it)" :disabled="meai.inboxBusy" title="Undo — I'll decide this one myself">Undo</button>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done')" :key="it.id">
-                    <div class="meai-inbox-swipe" :class="{ swiping: meai.inboxSwipeId===it.id && meai.inboxSwipeDx<0, open: meai.inboxSwipeOpen===it.id }">
-                      <div class="meai-inbox-swipe-act">
-                        <button type="button" class="meai-inbox-swipe-btn" @click="meai.inboxSwipeOpen=null; meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Remove this notification">Remove</button>
-                      </div>
-                      <div class="meai-inbox-item" :style="meAiInboxSwipeStyle(it)" @pointerdown="meAiInboxSwipeStart($event, it)" :class="{ fresh: it.triage==='new', parked: it.triage==='later' }">
-                        <div class="meai-inbox-head">
-                          <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
-                          <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
-                          <span class="meai-inbox-title clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
-                          <span class="meai-inbox-ts" x-show="meAiInboxTs(it)" :title="it.ts||''" x-text="meAiInboxTs(it)"></span>
-                          <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>
-                          <span class="meai-inbox-state" x-show="it.triage==='later'" title="Parked — saved on your attention rail for later; not on today's agenda">Parked</span>
-                          <span class="meai-inbox-state" x-show="it.triage==='today'" title="On today — this ask is scheduled into today's agenda">On today</span>
-                          <span class="meai-inbox-state" x-show="it.triage==='now'" title="A Me-agent is handling this for you right now">Handling</span>
-                        </div>
-                        <div class="meai-inbox-detail" x-show="it.detail" x-text="it.detail"></div>
-                        <div class="meai-conf" x-show="typeof it.confidence==='number' && (it.triage==='new' || it.triage==='seen')">
-                          <div class="meai-conf-meter" :title="(it.confidence||0) + '% confident'">
-                            <div class="meai-conf-fill" :class="meAiConfClass(it)" :style="'width:' + Math.max(3,Math.min(100, it.confidence||0)) + '%'"></div>
+                  <template x-for="sec in meAiInboxSections()" :key="sec.key">
+                    <div class="meai-sec" :class="'meai-sec--' + sec.key">
+                      <button type="button" class="meai-sec-head" @click="meAiToggleSec(sec)" :aria-expanded="!meAiSecCollapsed(sec)">
+                        <span class="meai-sec-caret" x-text="meAiSecCollapsed(sec) ? '\u25B8' : '\u25BE'"></span>
+                        <span class="meai-sec-label" x-text="sec.label"></span>
+                        <span class="meai-sec-n" x-text="sec.items.length"></span>
+                        <span class="meai-sec-flex"></span>
+                        <span class="meai-sec-approve" x-show="meAiSecPending(sec)" @click.stop="meAiApproveAll(sec)" role="button" tabindex="0" @keydown.enter.stop.prevent="meAiApproveAll(sec)" x-text="'Approve all ' + meAiSecPending(sec)"></span>
+                      </button>
+                      <div class="meai-sec-body" x-show="!meAiSecCollapsed(sec)" x-transition.opacity>
+                        <div class="meai-sec-hint" x-text="sec.hint"></div>
+                        <template x-for="row in sec.items" :key="row.it.id">
+                          <div class="meai-secitem" :class="{ 'is-auto': row.status==='auto', 'is-pending': row.status==='pending', 'is-decide': row.status==='decide' }">
+                            <div class="meai-inbox-head">
+                              <span class="meai-inbox-freshdot" x-show="row.it.triage==='new'"></span>
+                              <span class="meai-inbox-kind" x-text="(row.it.kind||'email')==='teams'?'Teams':'Email'"></span>
+                              <span class="meai-inbox-title clickable" :title="(row.it.link||row.it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(row.it)" x-text="row.it.title"></span>
+                              <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
+                              <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>
+                            </div>
+                            <div class="meai-inbox-detail" x-show="row.it.detail" x-text="row.it.detail"></div>
+                            <div class="meai-conf" x-show="typeof row.it.confidence==='number' && (row.status==='pending' || row.status==='decide')">
+                              <div class="meai-conf-meter" :title="(row.it.confidence||0) + '% confident'">
+                                <div class="meai-conf-fill" :class="meAiConfClass(row.it)" :style="'width:' + Math.max(3,Math.min(100, row.it.confidence||0)) + '%'"></div>
+                              </div>
+                              <span class="meai-conf-band" :class="meAiConfClass(row.it)" x-text="meAiConfBand(row.it) + ' confidence · ' + (row.it.confidence||0) + '%'"></span>
+                              <span class="meai-conf-why" x-show="row.it.confidenceWhy" x-text="row.it.confidenceWhy"></span>
+                            </div>
+                            <div class="meai-secitem-why" x-show="row.status==='auto' && row.it.autoReason && row.it.autoReason.why" x-text="row.it.autoReason.why + (typeof row.it.autoReason.confidence==='number' ? ' · ' + row.it.autoReason.confidence + '% sure' : '')"></div>
+                            <div class="meai-inbox-acts" x-show="row.status==='decide'">
+                              <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
+                              <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
+                              <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                              <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done">Mark as done</button>
+                              <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
+                              <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it">Won't fix</button>
+                            </div>
+                            <div class="meai-inbox-acts" x-show="row.status==='pending'">
+                              <button type="button" class="meai-tri meai-tri-sug" @click="meAiApprove(row.it)" :disabled="meai.inboxBusy" title="Apply the suggested disposition" x-text="'Approve · ' + sec.label"></button>
+                              <select class="meai-sec-move" @change="meAiMoveTo(row.it, $event.target.value); $event.target.value=''" :disabled="meai.inboxBusy" aria-label="Move to a different section">
+                                <option value="">Move to…</option>
+                                <option value="today">Fit into today</option>
+                                <option value="now">Handle now</option>
+                                <option value="later">Parked for later</option>
+                                <option value="dismiss">Set aside — not yours</option>
+                                <option value="wontfix">Won't fix</option>
+                              </select>
+                              <button type="button" class="meai-tri ghost" @click="meAiSendBack(row.it)" :disabled="meai.inboxBusy" title="Send back so you decide it yourself">Decide myself</button>
+                            </div>
+                            <div class="meai-inbox-acts" x-show="row.status==='placed'">
+                              <select class="meai-sec-move" @change="meAiMoveTo(row.it, $event.target.value); $event.target.value=''" :disabled="meai.inboxBusy" aria-label="Move to a different section">
+                                <option value="">Move to…</option>
+                                <option value="today">Fit into today</option>
+                                <option value="now">Handle now</option>
+                                <option value="later">Parked for later</option>
+                                <option value="dismiss">Set aside — not yours</option>
+                                <option value="wontfix">Won't fix</option>
+                              </select>
+                              <button type="button" class="meai-tri ghost" @click="meAiSendBack(row.it)" :disabled="meai.inboxBusy" title="Send back so you decide it yourself">Decide myself</button>
+                            </div>
+                            <div class="meai-inbox-acts" x-show="row.status==='auto'">
+                              <span class="meai-secitem-done">Handled for you</span>
+                              <button type="button" class="meai-tri ghost" @click="meAiUndoAuto(row.it)" :disabled="meai.inboxBusy" title="Undo — I'll decide this one myself">Undo</button>
+                            </div>
                           </div>
-                          <span class="meai-conf-band" :class="meAiConfClass(it)" x-text="meAiConfBand(it) + ' confidence · ' + (it.confidence||0) + '%'"></span>
-                          <span class="meai-conf-why" x-show="it.confidenceWhy" x-text="it.confidenceWhy"></span>
-                        </div>
-                        <div class="meai-inbox-acts" x-show="it.triage==='new' || it.triage==='seen'">
-                          <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': it.suggested==='today' }" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
-                          <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': it.suggested==='now' }" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
-                          <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': it.suggested==='later' }" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
-                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">Mark as done</button>
-                          <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': it.suggested==='dismiss' }" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
-                          <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': it.suggested==='wontfix' }" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
-                        </div>
-                        <div class="meai-inbox-acts" x-show="it.triage==='later'">
-                          <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
-                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">Mark as done</button>
-                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
-                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
-                        </div>
+                        </template>
                       </div>
                     </div>
                   </template>
-                  <div class="meai-inbox-empty" x-show="!meAiAutoHandled().length && !(meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done').length">
+                  <div class="meai-inbox-empty" x-show="!meAiInboxSections().length">
                     Nothing waiting — email &amp; Teams are quiet. <span class="meai-status-detail">New asks appear here automatically while you work.</span>
                   </div>
                 </div>
@@ -22246,6 +22274,7 @@
           // Working hours & grid flyout.
           hoursOpen: false,
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
+          inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
           // Agenda time display: '12' (AM/PM) or '24' (military). Persisted.
           clock: (() => { try { return localStorage.getItem('meai-clock') === '24' ? '24' : '12'; } catch (_) { return '12'; } })(),
           // Per-day work-window override ("I started early/late today") — a quick edit that
@@ -29092,26 +29121,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Triage a single inbox item. 'now' also launches a comms Me-agent; 'today'
         // re-plans the day (server returns the fresh agenda).
-        async meAiTriage(item, action) {
+        async meAiTriage(item, action, opts) {
           if (!item || this.meai.inboxBusy) return;
+          const silent = !!(opts && opts.silent);
           this.meai.inboxBusy = true;
           try {
             const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id, action, title: item.title || '', link: item.link || item.prLink || '' }) });
             if (r && r.items) this.meai.inbox = { items: r.items, newCount: r.newCount || 0, polledAt: this.meai.inbox.polledAt };
             if (action === 'today') {
               if (r && r.agenda) { this.meai.agenda = r.agenda; this.meai._lastGeneratedAt = r.agenda.generatedAt || ''; this.meAiLoadChanges(); }
-              this.toast('Fitted into today\u2019s agenda', 'success');
+              if (!silent) this.toast('Fitted into today\u2019s agenda', 'success');
             } else if (action === 'later') {
-              this.toast('Parked — it\u2019ll stay on your attention rail', 'info');
+              if (!silent) this.toast('Parked — it\u2019ll stay on your attention rail', 'info');
             } else if (action === 'dismiss') {
-              this.toast('Removed from your attention inbox', 'info');
+              if (!silent) this.toast('Removed from your attention inbox', 'info');
             } else if (action === 'wontfix') {
-              this.toast('Marked won\u2019t-fix — recorded for your report', 'info');
+              if (!silent) this.toast('Marked won\u2019t-fix — recorded for your report', 'info');
             } else if (action === 'done') {
-              this.toast('Marked done — nice work', 'success');
+              if (!silent) this.toast('Marked done — nice work', 'success');
+            } else if (action === 'seen' && !silent) {
+              this.toast('Back to decide — you\u2019ll choose this one', 'info');
             }
           } catch (e) {
-            this.toast('Triage failed: ' + (e.message || e), 'error');
+            if (!silent) this.toast('Triage failed: ' + (e.message || e), 'error');
           } finally { this.meai.inboxBusy = false; }
           // 'now' → hand it to a comms Me-agent (outside the busy guard so the drawer opens cleanly).
           if (action === 'now') {
@@ -29231,7 +29263,81 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast('Undo failed: ' + (e.message || e), 'error');
           } finally { this.meai.inboxBusy = false; }
         },
-        // Compact absolute timestamp for an attention-inbox item (email received /
+        // Request A: group all live attention-inbox items into ordered, collapsible
+        // disposition sections (vertical, not a horizontal strip). Auto-handled items sit
+        // in their outcome section (reviewable + Undo); confident suggestions sit pending
+        // in their proposed section (Approve / Move / Decide-myself); low-confidence items
+        // land in "Needs your decision" with the full triage buttons. Nothing is lost.
+        meAiInboxSections() {
+          const items = (this.meai.inbox.items || []);
+          const defs = [
+            { key: 'decision', label: 'Needs your decision', hint: 'Not confident enough to suggest — you choose.', action: null },
+            { key: 'today', label: 'Fit into today', hint: 'Slotted into today\u2019s agenda.', action: 'today' },
+            { key: 'now', label: 'Handle now', hint: 'A Me-agent takes these on right away.', action: 'now' },
+            { key: 'later', label: 'Parked for later', hint: 'Kept on your rail, off today\u2019s plan.', action: 'later' },
+            { key: 'dismiss', label: 'Set aside — not yours', hint: 'Someone else owns these.', action: 'dismiss' },
+            { key: 'wontfix', label: 'Won\u2019t fix', hint: 'Yours, but consciously declined.', action: 'wontfix' }
+          ];
+          const byKey = {};
+          defs.forEach(d => { d.items = []; byKey[d.key] = d; });
+          const SUGG_MIN = 60; // Medium+ confidence pre-files an item into its suggested section
+          for (const it of items) {
+            let key, status;
+            if (it.auto) {
+              const a = (it.autoReason && it.autoReason.action) || it.triage;
+              key = byKey[a] ? a : 'later';
+              status = 'auto';
+            } else if (it.triage === 'dismiss' || it.triage === 'wontfix' || it.triage === 'done') {
+              continue; // manually resolved → hidden (auto ones stay above, reviewable)
+            } else if (it.triage === 'today' || it.triage === 'now' || it.triage === 'later') {
+              key = it.triage;
+              status = 'placed';
+            } else {
+              const c = typeof it.confidence === 'number' ? it.confidence : 0;
+              const sug = it.suggested;
+              if (sug && byKey[sug] && byKey[sug].action && c >= SUGG_MIN) { key = sug; status = 'pending'; }
+              else { key = 'decision'; status = 'decide'; }
+            }
+            byKey[key].items.push({ it, status });
+          }
+          return defs.filter(d => d.items.length);
+        },
+        meAiSecPending(sec) {
+          return (sec && sec.items || []).filter(x => x.status === 'pending').length;
+        },
+        meAiSecCollapsed(sec) {
+          const key = sec && sec.key;
+          const m = this.meai.inboxSecCollapsed || {};
+          if (key in m) return !!m[key];
+          // Default: keep the decision desk and any section with pending approvals open;
+          // collapse purely-handled sections so the surface stays calm.
+          if (key === 'decision') return false;
+          return this.meAiSecPending(sec) === 0;
+        },
+        meAiToggleSec(sec) {
+          const key = sec && sec.key; if (!key) return;
+          const cur = this.meAiSecCollapsed(sec);
+          this.meai.inboxSecCollapsed = Object.assign({}, this.meai.inboxSecCollapsed, { [key]: !cur });
+        },
+        async meAiApprove(it) {
+          if (it && it.suggested) await this.meAiTriage(it, it.suggested);
+        },
+        async meAiMoveTo(it, action) {
+          if (it && action) await this.meAiTriage(it, action);
+        },
+        async meAiSendBack(it) {
+          if (it) await this.meAiTriage(it, 'seen');
+        },
+        async meAiApproveAll(sec) {
+          const pend = (sec && sec.items || []).filter(x => x.status === 'pending' && x.it && x.it.suggested);
+          if (!pend.length) return;
+          let n = 0;
+          for (const row of pend) {
+            await this.meAiTriage(row.it, row.it.suggested, { silent: true });
+            n++;
+          }
+          this.toast('Approved ' + n + ' item' + (n === 1 ? '' : 's'), 'success');
+        },
         // Teams sent). Absolute (not relative) on purpose — the app's world clock and
         // the browser clock differ, so relative math would mislead.
         meAiInboxTs(it) {
