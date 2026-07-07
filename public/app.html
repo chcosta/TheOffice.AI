@@ -12185,10 +12185,14 @@
               .meai-pu-legend-r { display:flex; align-items:center; gap:8px; color:var(--cp-text); font-size:11.5px; padding:1px 0; }
               .meai-pu-lg-line { width:22px; flex:none; border-top:2.5px solid var(--cp-accent); }
               .meai-pu-lg-line.ln-branch { border-top:2px dashed var(--cp-text-muted); }
+              .meai-pu-lg-line.ln-gate { border-top:2px dashed #d29922; }
+              .meai-pu-lg-line.ln-cull { border-top:2px dashed #cf222e; }
               .meai-pu-lg-line.ln-merge { border-top-color:#2ea043; }
               .meai-pu-lg-dot { width:10px; height:10px; border-radius:999px; flex:none; }
+              .meai-pu-lg-dot.d-run { background:var(--cp-accent); }
               .meai-pu-lg-dot.d-done { background:#2ea043; }
               .meai-pu-lg-dot.d-auth { background:#d29922; }
+              .meai-pu-lg-dot.d-gate { background:transparent; border:1.5px dashed #d29922; }
               .meai-pu-lg-dot.d-dead { background:transparent; border:1.5px dashed #cf222e; }
               .meai-pu-legchat { flex:1; min-height:0; display:flex; flex-direction:column; }
               .meai-pu-legpick { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); overflow-x:auto; flex-wrap:nowrap; flex:0 0 auto; }
@@ -30156,7 +30160,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // elements in the SVG (not x-for) so they live in the SVG namespace and
           // actually render — Alpine x-for inside <svg> creates HTML-namespaced
           // nodes that never paint.
-          const dByType = { spine: '', branch: '', merge: '', converge: '' };
+          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
@@ -30183,6 +30187,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               dByType.converge += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
             });
           }
+          // Increment 3 — gating legibility. Scouts run first; a branch is gated on
+          // its sibling scouts until they resolve, and a scout can cull a branch before
+          // it ever runs. A wide fan-out alone hides this, so make both relationships
+          // explicit: a dashed amber gate edge (scout -> still-waiting branch) while any
+          // sibling scout is unresolved, and a persistent dashed red cull edge
+          // (scout -> culled branch) that stays to explain the dead-end.
+          const nodeById = {};
+          for (const n of nodes) nodeById[n.id] = n;
+          const kidsByParent = {};
+          order.forEach((id) => {
+            const leg = legs[id]; if (!leg || !leg.parentId) return;
+            (kidsByParent[leg.parentId] = kidsByParent[leg.parentId] || []).push(leg);
+          });
+          Object.keys(kidsByParent).forEach((pid) => {
+            const kids = kidsByParent[pid];
+            const scouts = kids.filter(l => l.kind === 'scout');
+            if (!scouts.length) return;
+            const branches = kids.filter(l => l.kind !== 'scout' && l.kind !== 'reroute');
+            if (!branches.length) return;
+            const resolved = (l) => l.status === 'done' || l.invalidated || l.status === 'invalidated';
+            const openScouts = scouts.filter(s => !resolved(s));
+            const ranScout = scouts.find(s => s.status === 'done') || scouts[0];
+            branches.forEach((br) => {
+              const b = pos[br.id]; if (!b) return;
+              if (br.invalidated || br.status === 'invalidated') {
+                const a = ranScout && pos[ranScout.id];
+                if (a) dByType.cull += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+                return;
+              }
+              const started = br.status === 'running' || br.status === 'done';
+              if (openScouts.length && !started) {
+                const bn = nodeById[br.id];
+                if (bn) { bn.gated = true; if (!/\bpgate\b/.test(bn.cls)) bn.cls += ' pgate'; }
+                openScouts.forEach((s) => {
+                  const a = pos[s.id];
+                  if (a) dByType.gate += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+                });
+              }
+            });
+          });
           p._nodes = nodes; p._edgeD = dByType;
           p._w = maxX + W + 120; p._h = maxY + ROWH + 80;
         },
@@ -30569,6 +30613,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (leg.status === 'done') return { cls: 'done', label: 'Done' };
           if (leg.invalidated || leg.status === 'invalidated' || leg.status === 'cancelled') return { cls: 'dead', label: 'Ended — did not pan out' };
           if (leg.status === 'blocked' || String(leg.status || '').startsWith('needs')) return { cls: 'wait', label: 'Blocked' };
+          if (n && n.gated) return { cls: 'gate', label: 'Waiting on a scout' };
           return { cls: 'idle', label: leg.status || 'Planned' };
         },
         // Item 3 — node detail overlay (full untruncated text + timestamps + artifacts).
