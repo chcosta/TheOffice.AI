@@ -11852,6 +11852,41 @@
               .meai-tri:hover { border-color:var(--cp-accent); }
               .meai-tri.ghost { color:var(--cp-text-muted); }
               .meai-tri:disabled { opacity:.5; cursor:default; }
+              /* Phase 2: suggested-action highlight (the tier Me.AI would pick). Accent ring,
+                 not a filled pill. */
+              .meai-tri-sug { border-color:var(--cp-accent); box-shadow:0 0 0 1px var(--cp-accent) inset; color:var(--cp-text); font-weight:600; }
+              .meai-tri-sug.ghost { color:var(--cp-text); }
+              /* Phase 2: per-item confidence meter + band + why-line. */
+              .meai-conf { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px; }
+              .meai-conf-meter { flex:0 0 84px; height:5px; border-radius:999px; background:var(--cp-border); overflow:hidden; }
+              .meai-conf-fill { height:100%; border-radius:999px; transition:width .25s cubic-bezier(.22,1,.36,1); }
+              .meai-conf-fill.conf-hi { background:var(--cp-success, #2fa66b); }
+              .meai-conf-fill.conf-md { background:var(--cp-accent); }
+              .meai-conf-fill.conf-lo { background:var(--cp-text-muted); }
+              .meai-conf-band { font-size:11px; font-weight:600; }
+              .meai-conf-band.conf-hi { color:var(--cp-success, #2fa66b); }
+              .meai-conf-band.conf-md { color:var(--cp-accent); }
+              .meai-conf-band.conf-lo { color:var(--cp-text-muted); }
+              .meai-conf-why { font-size:11px; color:var(--cp-text-muted); }
+              /* Phase 2: auto-triage settings block (in the Hours & grid modal). */
+              .meai-autotri { margin-top:16px; padding-top:14px; border-top:1px solid var(--cp-border); }
+              .meai-at-toggle { display:flex; gap:10px; align-items:flex-start; cursor:pointer; }
+              .meai-at-toggle input { margin-top:3px; flex:0 0 auto; }
+              .meai-at-title { display:block; font-size:13px; font-weight:600; color:var(--cp-text); }
+              .meai-at-sub { display:block; font-size:11.5px; color:var(--cp-text-muted); line-height:1.45; margin-top:2px; }
+              .meai-at-body { margin:12px 0 0 26px; display:flex; flex-direction:column; gap:14px; }
+              .meai-at-slider { display:flex; flex-direction:column; gap:5px; }
+              .meai-at-slabel { display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px; color:var(--cp-text); }
+              .meai-at-slabel strong { font-variant-numeric:tabular-nums; color:var(--cp-accent); }
+              .meai-at-slider input[type=range] { width:100%; accent-color:var(--cp-accent); }
+              .meai-at-hint { font-size:11px; color:var(--cp-text-muted); line-height:1.4; }
+              .meai-at-adv-toggle { align-self:flex-start; appearance:none; background:none; border:none; color:var(--cp-text-muted); font-size:12px; cursor:pointer; padding:2px 0; }
+              .meai-at-adv-toggle:hover { color:var(--cp-text); }
+              .meai-at-adv { display:flex; flex-direction:column; gap:8px; }
+              .meai-at-arow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+              .meai-at-aname { font-size:12.5px; color:var(--cp-text); }
+              .meai-at-arow select { max-width:200px; }
+              .meai-at-arow.locked .meai-at-locked { font-size:11.5px; color:var(--cp-text-muted); }
               .meai-inbox-empty { padding:12px 14px; border-top:1px solid var(--cp-border); font-size:12.5px; color:var(--cp-text-muted); }
               /* REQ-9: auto-handled strip — calm, no pills; sits atop the inbox list. */
               .meai-auto { border-top:1px solid var(--cp-border); background:var(--cp-surface-2, rgba(127,127,127,.05)); padding:8px 14px 10px; }
@@ -12823,7 +12858,7 @@
                         <div class="meai-auto-item">
                           <span class="meai-auto-verb" x-text="meAiAutoLabel(it)"></span>
                           <span class="meai-auto-name clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
-                          <span class="meai-auto-why" x-show="it.autoReason" x-text="'you did this to ' + (it.autoReason?it.autoReason.n:0) + ' of ' + (it.autoReason?it.autoReason.total:0) + ' similar'"></span>
+                          <span class="meai-auto-why" x-show="it.autoReason && it.autoReason.why" x-text="it.autoReason.why + (typeof it.autoReason.confidence==='number' ? ' · ' + it.autoReason.confidence + '% sure' : '')"></span>
                           <button type="button" class="meai-tri ghost meai-auto-undo" @click="meAiUndoAuto(it)" :disabled="meai.inboxBusy" title="Undo — I'll decide this one myself">Undo</button>
                         </div>
                       </template>
@@ -12846,13 +12881,20 @@
                           <span class="meai-inbox-state" x-show="it.triage==='now'" title="A Me-agent is handling this for you right now">Handling</span>
                         </div>
                         <div class="meai-inbox-detail" x-show="it.detail" x-text="it.detail"></div>
+                        <div class="meai-conf" x-show="typeof it.confidence==='number' && (it.triage==='new' || it.triage==='seen')">
+                          <div class="meai-conf-meter" :title="(it.confidence||0) + '% confident'">
+                            <div class="meai-conf-fill" :class="meAiConfClass(it)" :style="'width:' + Math.max(3,Math.min(100, it.confidence||0)) + '%'"></div>
+                          </div>
+                          <span class="meai-conf-band" :class="meAiConfClass(it)" x-text="meAiConfBand(it) + ' confidence · ' + (it.confidence||0) + '%'"></span>
+                          <span class="meai-conf-why" x-show="it.confidenceWhy" x-text="it.confidenceWhy"></span>
+                        </div>
                         <div class="meai-inbox-acts" x-show="it.triage==='new' || it.triage==='seen'">
-                          <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
-                          <button type="button" class="meai-tri" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
-                          <button type="button" class="meai-tri" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                          <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': it.suggested==='today' }" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
+                          <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': it.suggested==='now' }" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
+                          <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': it.suggested==='later' }" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
                           <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">Mark as done</button>
-                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
-                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
+                          <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': it.suggested==='dismiss' }" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
+                          <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': it.suggested==='wontfix' }" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
                         </div>
                         <div class="meai-inbox-acts" x-show="it.triage==='later'">
                           <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
@@ -14033,10 +14075,56 @@
                         <span class="meai-tp-when" :class="{ set: meAiTimePref(tp[0]) }"
                           x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
                       </button>
-                    </template>
+                </div>
+                <!-- Phase 2: confidence-scored auto-triage. Opt-in, hands-off handling of
+                     high-confidence attention items. NO pills; --cp-* tokens; standard controls. -->
+                <div class="meai-autotri" x-show="meai.config.consent">
+                  <label class="meai-at-toggle">
+                    <input type="checkbox" x-model="meai.config.autoTriage.enabled">
+                    <span>
+                      <span class="meai-at-title">Auto-triage high-confidence items</span>
+                      <span class="meai-at-sub">Let Me.AI quietly file the asks it's sure about, and tell you what it did (always undoable). Off by default.</span>
+                    </span>
+                  </label>
+                  <div class="meai-at-body" x-show="meai.config.autoTriage.enabled" x-transition.opacity>
+                    <div class="meai-at-slider">
+                      <div class="meai-at-slabel">
+                        <span>Set-aside confidence</span>
+                        <strong x-text="(meai.config.autoTriage.thresholds.safe|0) + '%'"></strong>
+                      </div>
+                      <input type="range" min="50" max="100" step="1" x-model.number="meai.config.autoTriage.thresholds.safe">
+                      <div class="meai-at-hint">How sure it must be to park / set aside on its own (Later, Not mine, Won't fix).</div>
+                    </div>
+                    <div class="meai-at-slider">
+                      <div class="meai-at-slabel">
+                        <span>Fit-into-today confidence</span>
+                        <strong x-text="(meai.config.autoTriage.thresholds.agenda|0) + '%'"></strong>
+                      </div>
+                      <input type="range" min="50" max="100" step="1" x-model.number="meai.config.autoTriage.thresholds.agenda">
+                      <div class="meai-at-hint">How sure it must be to add something to today's plan on its own. Handling something <em>now</em> always needs you.</div>
+                    </div>
+                    <button type="button" class="meai-at-adv-toggle" @click="meai.autoTriageAdvOpen = !meai.autoTriageAdvOpen">
+                      <span x-text="meai.autoTriageAdvOpen ? '▾' : '▸'"></span> Per-action control
+                    </button>
+                    <div class="meai-at-adv" x-show="meai.autoTriageAdvOpen" x-transition.opacity>
+                      <div class="meai-at-hint" style="margin-bottom:8px">Choose how sure Me.AI must be before it does each thing on its own.</div>
+                      <template x-for="row in [['later','Park for later'],['today','Fit into today'],['dismiss','Not mine'],['wontfix','Won\u2019t fix']]" :key="row[0]">
+                        <div class="meai-at-arow">
+                          <span class="meai-at-aname" x-text="row[1]"></span>
+                          <select class="field-input" x-model="meai.config.autoTriage.actionTiers[row[0]]">
+                            <option value="safe">When set-aside sure</option>
+                            <option value="agenda">When fit-in sure</option>
+                            <option value="off">Always ask me</option>
+                          </select>
+                        </div>
+                      </template>
+                      <div class="meai-at-arow locked">
+                        <span class="meai-at-aname">Handle now</span>
+                        <span class="meai-at-locked">Always asks you 🔒</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <button class="btn primary" type="button" style="margin-top:12px" @click="meAiSaveHoursGrid()" :disabled="meai.savingSettings || meai.generating">Save preferences</button>
                 <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
                   Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
                 </div>
@@ -22082,7 +22170,7 @@
           generating: false,
           progress: { phase: '', label: '', at: 0 },  // live planning heartbeat (SSE me-ai-progress)
           savingSettings: false,
-          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {} },
+          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {}, autoTriage: { enabled: false, thresholds: { safe: 80, agenda: 90 }, actionTiers: {} } },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           today: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
@@ -22155,6 +22243,7 @@
           peekPinned: (() => { try { return JSON.parse(localStorage.getItem('meai-peek-pinned') || '{}') || {}; } catch (_) { return {}; } })(),
           // Working hours & grid flyout.
           hoursOpen: false,
+          autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           // Agenda time display: '12' (AM/PM) or '24' (military). Persisted.
           clock: (() => { try { return localStorage.getItem('meai-clock') === '24' ? '24' : '12'; } catch (_) { return '12'; } })(),
           // Per-day work-window override ("I started early/late today") — a quick edit that
@@ -29118,6 +29207,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a === 'dismiss') return 'Set aside (not yours)';
           return 'Handled';
         },
+        // Phase 2: soft confidence band for an inbox item (Low < 60 / Med 60–84 / High ≥ 85).
+        meAiConfBand(it) {
+          const c = it && typeof it.confidence === 'number' ? it.confidence : 0;
+          if (c >= 85) return 'High';
+          if (c >= 60) return 'Medium';
+          return 'Low';
+        },
+        meAiConfClass(it) {
+          const b = this.meAiConfBand(it);
+          return b === 'High' ? 'conf-hi' : (b === 'Medium' ? 'conf-md' : 'conf-lo');
+        },
         async meAiUndoAuto(item) {
           if (!item || this.meai.inboxBusy) return;
           this.meai.inboxBusy = true;
@@ -29192,6 +29292,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 weeklyHours: (c.weeklyHours && typeof c.weeklyHours === 'object' && !Array.isArray(c.weeklyHours)) ? c.weeklyHours : {},
                 mode: c.mode || 'balanced',
                 timePrefs: (c.timePrefs && typeof c.timePrefs === 'object') ? c.timePrefs : {},
+                autoTriage: !!(c.autoTriage && c.autoTriage.enabled),
+                autoTriageSafe: (c.autoTriage && c.autoTriage.thresholds) ? Number(c.autoTriage.thresholds.safe) : 80,
+                autoTriageAgenda: (c.autoTriage && c.autoTriage.thresholds) ? Number(c.autoTriage.thresholds.agenda) : 90,
+                actionTiers: (c.autoTriage && c.autoTriage.actionTiers && typeof c.autoTriage.actionTiers === 'object') ? c.autoTriage.actionTiers : {},
               }),
             });
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
@@ -29215,6 +29319,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.meai.config.consent && this.meai.agenda) {
             this.meAiGenerate({ reindex: false, cause: 'hours' }).catch(() => {});
           }
+          // Phase 2: auto-triage thresholds/tiers may have changed — re-score the inbox so
+          // confidence + suggested actions reflect the new settings (base-only, instant).
+          if (this.meai.config.consent) { this.meAiReeval().catch(() => {}); }
+        },
+        // Phase 2: recompute confidence for every inbox item (base-only, no AI) and re-apply
+        // auto-triage under the current settings. Cheap + instant; refreshes the inbox in place.
+        async meAiReeval() {
+          try {
+            const r = await this.request('/api/me-ai/inbox/reeval', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date }),
+            });
+            if (r && Array.isArray(r.items)) {
+              this.meai.inbox.items = r.items;
+              this.meai.inbox.newCount = Number(r.newCount) || 0;
+            }
+          } catch (_) {}
         },
         // --- Per-day work window ("started early / staying late today") ---
         // A quick one-off start/end for the VIEWED date that supersedes the standing

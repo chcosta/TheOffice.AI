@@ -11608,6 +11608,21 @@ function _meAiConfig(s) {
   const mode = MODES.includes(String(s.meAiMode)) ? String(s.meAiMode) : 'balanced';
   const timePrefs = (s.meAiTimePrefs && typeof s.meAiTimePrefs === 'object' && !Array.isArray(s.meAiTimePrefs)) ? s.meAiTimePrefs : {};
   const weeklyHours = _meAiSanitizeWeeklyHours(s.meAiWeeklyHours);
+  // Phase 2: confidence-scored auto-triage config.
+  const _clampPct = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : d; };
+  const DEFAULT_TIERS = { later: 'safe', dismiss: 'safe', wontfix: 'safe', today: 'agenda', now: 'acting' };
+  const tierOverrides = (s.meAiActionTiers && typeof s.meAiActionTiers === 'object' && !Array.isArray(s.meAiActionTiers)) ? s.meAiActionTiers : {};
+  const actionTiers = {};
+  for (const [act, def] of Object.entries(DEFAULT_TIERS)) {
+    if (act === 'now') { actionTiers[act] = 'acting'; continue; } // Handle now is locked — never auto
+    const ov = tierOverrides[act];
+    actionTiers[act] = ['safe', 'agenda', 'off'].includes(ov) ? ov : def;
+  }
+  const autoTriage = {
+    enabled: !!s.meAiAutoTriage,
+    thresholds: { safe: _clampPct(s.meAiAutoTriageSafe, 80), agenda: _clampPct(s.meAiAutoTriageAgenda, 90) },
+    actionTiers,
+  };
   return {
     consent: !!s.meAiConsent,
     workStart: s.meAiWorkStart || '08:00',
@@ -11620,6 +11635,7 @@ function _meAiConfig(s) {
     weeklyHours,
     mode,
     timePrefs,
+    autoTriage,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
     hasGithub: (() => {
@@ -12063,6 +12079,156 @@ function _meAiTriageDecide(it) {
   return { action: best, n: bestN, total: rule.total, share: Math.round(share * 100), sig };
 }
 
+// --- Phase 2: confidence-scored triage -------------------------------------------
+// The signature model above is an EXACT match — too rigid for emails/alerts that vary
+// in shape. Phase 2 scores every new item 0-100 by FUZZILY retrieving relevant past
+// decisions across ALL learned rules, weighting each by closeness + recency, and
+// Wilson-bounding the leading action's weighted share. An optional per-item AI nudge
+// reads the actual content and adjusts the deterministic base. High-confidence, low-risk
+// decisions can then auto-apply (settings-gated) instead of waiting for the user.
+function _meAiActionLabel(a) {
+  return { later: 'Later', dismiss: 'Not mine', wontfix: "Won't fix", today: 'Fit into today', now: 'Handle now' }[a] || a;
+}
+// Tokenize a subject the same way the signature does, but return the token list so a
+// NEW item can be matched against the tokens stored inside every learned rule key.
+function _meAiTitleTokens(title) {
+  let t = String(title || '').toLowerCase();
+  t = t.replace(/https?:\/\/\S+/g, ' ')
+       .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+/g, ' ')
+       .replace(/[#!]\d+/g, ' ').replace(/\d+/g, ' ').replace(/[^a-z\s]/g, ' ');
+  return Array.from(new Set(t.split(/\s+/).filter(w => w.length > 2 && !ME_AI_TRIAGE_STOP.has(w))));
+}
+// Parse a stored rule key (source|kind|dm|tok tok ...) back into its features + tokens.
+function _meAiParseRuleKey(key) {
+  const parts = String(key || '').split('|');
+  if (parts.length < 4) return null;
+  return { source: parts[0], kind: parts[1], dm: parts[2] === 'dm', tokens: parts.slice(3).join('|').split(/\s+/).filter(Boolean) };
+}
+// Wilson score lower bound (~95%) for a positive rate — penalizes small samples so an
+// 80% agreement over 3 asks scores well below 80% over 30 (fractional n is fine).
+function _meAiWilsonLower(pos, n) {
+  if (!(n > 0) || pos < 0) return 0;
+  const z = 1.96, phat = Math.min(1, pos / n);
+  const denom = 1 + (z * z) / n;
+  const centre = phat + (z * z) / (2 * n);
+  const margin = z * Math.sqrt((phat * (1 - phat) + (z * z) / (4 * n)) / n);
+  return Math.max(0, (centre - margin) / denom);
+}
+// Deterministic base confidence: fuzzy-retrieve relevant learned rules, weight by
+// token closeness (Jaccard) × source/kind/dm match × recency decay, tally weighted
+// votes per action, and Wilson-bound the leader's weighted share. Returns null on cold
+// start (no usable history → nothing auto-fires by construction).
+function _meAiTriageBase(it) {
+  const itToks = _meAiTitleTokens(it && it.title);
+  if (itToks.length < 2) return null;
+  const itSet = new Set(itToks);
+  const src = String((it && it.source) || 'm365').toLowerCase();
+  const kind = String((it && it.kind) || 'email').toLowerCase();
+  const dm = !!(it && it.directMention);
+  const store = loadTriageRules();
+  const nowMs = Date.now();
+  const votes = {}; let totalW = 0, matched = 0;
+  for (const [key, rule] of Object.entries((store && store.rules) || {})) {
+    if (!rule || !(rule.total > 0)) continue;
+    const pk = _meAiParseRuleKey(key);
+    if (!pk || !pk.tokens.length) continue;
+    const rSet = new Set(pk.tokens);
+    let inter = 0; for (const tk of rSet) if (itSet.has(tk)) inter++;
+    if (!inter) continue; // unrelated subject
+    const union = itSet.size + rSet.size - inter;
+    let rel = union > 0 ? inter / union : 0; // Jaccard closeness
+    rel *= (pk.source === src ? 1 : 0.6);
+    rel *= (pk.kind === kind ? 1 : 0.75);
+    rel *= (pk.dm === dm ? 1 : 0.85);
+    const ageDays = rule.lastAt ? Math.max(0, (nowMs - Date.parse(rule.lastAt)) / 86400000) : 90;
+    rel *= Math.pow(0.5, ageDays / 45); // ~45-day half-life
+    if (!(rel >= 0.05)) continue;
+    matched++;
+    for (const [act, n] of Object.entries(rule.counts || {})) {
+      if (!(n > 0)) continue;
+      votes[act] = (votes[act] || 0) + n * rel;
+      totalW += n * rel;
+    }
+  }
+  if (!(totalW > 0) || !matched) return null;
+  let best = null, bestW = 0;
+  for (const [act, w] of Object.entries(votes)) if (w > bestW) { best = act; bestW = w; }
+  if (!best) return null;
+  const share = bestW / totalW;
+  const confidence = Math.round(_meAiWilsonLower(bestW, totalW) * 100);
+  const why = `matches ${matched} similar ask${matched === 1 ? '' : 's'} — mostly “${_meAiActionLabel(best)}” (${Math.round(share * 100)}%)`;
+  return { action: best, confidence, share, matched, why };
+}
+// Per-item AI nudge — reads the ACTUAL item + the base guess and adjusts the score by a
+// bounded delta. Best-effort: any failure (model unavailable / timeout / bad JSON)
+// leaves the base untouched. Guarded by a timeout so a slow model can't stall a merge.
+async function _meAiTriageAiNudge(it, base) {
+  try {
+    const acts = 'later (deal with it later) | dismiss (not mine, someone else owns it) | wontfix (mine but I am declining to act) | today (fit into my agenda) | now (handle immediately)';
+    const prompt = `You help triage my attention inbox. From my past behaviour the deterministic guess for this item is action="${base.action}" at ${base.confidence}/100 confidence (${base.why}).\n\nITEM\n- source: ${(it.source || 'm365')} / ${(it.kind || 'email')}${it.directMention ? ' (directly mentions me)' : ''}\n- subject: ${String(it.title || '').slice(0, 200)}\n- detail: ${String(it.detail || '').slice(0, 300)}\n\nActions: ${acts}\nDoes the item's ACTUAL content support that guessed action, or does it look different or risky (e.g. an urgent direct ask must NOT be auto-dismissed)? Return ONLY JSON: {"delta": <integer -25..25 to add to the confidence>, "why": "<=90 char reason"}. NEGATIVE when the content makes the guessed action look risky, POSITIVE when it strongly confirms it, 0 when neutral.`;
+    let acc = '';
+    const run = sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'me-ai', category: 'me-ai' },
+    });
+    const result = await Promise.race([run, new Promise(r => setTimeout(() => r({ fallback: true }), 8000))]);
+    if (!result || result.fallback) return null;
+    const raw = (acc.trim() || (result && result.output) || '').trim();
+    const obj = _connectExtractJson(raw);
+    if (!obj || typeof obj.delta === 'undefined') return null;
+    let delta = Math.round(Number(obj.delta));
+    if (!Number.isFinite(delta)) return null;
+    delta = Math.max(-25, Math.min(25, delta));
+    return { delta, why: String(obj.why || '').slice(0, 90) };
+  } catch { return null; }
+}
+// Combine base + optional AI nudge → { action, confidence, why, base, ai, share, matched }.
+// opts.allowAi=false skips the model call (fast reeval); opts.budget caps AI calls/merge.
+async function _meAiTriageConfidence(it, opts = {}) {
+  const base = _meAiTriageBase(it);
+  if (!base) return null;
+  let confidence = base.confidence, why = base.why, aiDelta = 0;
+  const inBand = base.confidence >= 35 && base.confidence <= 97; // where a nudge can flip the outcome
+  const hasBudget = !opts.budget || opts.budget.n > 0;
+  if (opts.allowAi !== false && inBand && hasBudget) {
+    if (opts.budget) opts.budget.n--;
+    const ai = await _meAiTriageAiNudge(it, base);
+    if (ai) { confidence = Math.max(0, Math.min(100, base.confidence + ai.delta)); if (ai.why) why = ai.why; aiDelta = ai.delta; }
+  }
+  return { action: base.action, confidence, why, base: base.confidence, ai: aiDelta, share: base.share, matched: base.matched };
+}
+// Score one inbox item and, when settings permit, auto-apply the decision. Always sets
+// it.confidence / it.confidenceWhy / it.suggested. Auto-fires only for still-untriaged
+// ('new'/'seen') items whose action's tier is safe|agenda and whose confidence clears
+// that tier's threshold. 'now' (acting) is never auto. Returns true when it auto-fired.
+async function _meAiScoreAndMaybeAuto(it, cfg, date, now, opts = {}) {
+  const conf = await _meAiTriageConfidence(it, opts);
+  it.confidence = conf ? conf.confidence : 0;
+  it.confidenceWhy = conf ? conf.why : '';
+  it.suggested = conf ? conf.action : '';
+  if (!conf) return false;
+  if (it.triage && it.triage !== 'new' && it.triage !== 'seen') return false; // already decided
+  const at = cfg && cfg.autoTriage;
+  if (!at || !at.enabled) return false;
+  const tier = at.actionTiers[conf.action];
+  if (tier !== 'safe' && tier !== 'agenda') return false; // off / acting / unknown → ask
+  const th = tier === 'safe' ? at.thresholds.safe : at.thresholds.agenda;
+  if (!(it.confidence >= th)) return false;
+  it.triage = conf.action === 'dismiss' ? 'dismissed' : conf.action;
+  it.auto = true;
+  it.autoReason = { action: conf.action, confidence: it.confidence, why: conf.why, share: Math.round((conf.share || 0) * 100), tier, at: now };
+  it.triagedAt = now;
+  if (conf.action === 'dismiss' || conf.action === 'wontfix') {
+    try {
+      const dm = loadDismissForDate(date);
+      dm[_meAiDismissKey(it)] = { title: it.title, note: '', at: now, reason: conf.action, auto: true };
+      saveDismissForDate(date, dm);
+    } catch (_) { /* best-effort */ }
+  }
+  return true;
+}
+
 // REQ-8 Proactive attention inbox. A leader-gated poller keeps this fresh so that
 // email/Teams items needing your reply or action surface even while you're head-down,
 // WITHOUT silently reshuffling your focus. Each newly-arrived item is flagged 'new'
@@ -12096,13 +12262,15 @@ function saveInboxForDate(date, inbox) {
 // items keep their triage state + first-seen; genuinely new asks arrive as 'new'.
 // Meetings are excluded (calendar anchors, not asks); pure-FYI items (urgency < 3
 // and no direct mention) don't interrupt. Dismissed items are never re-added.
-function _meAiMergeInbox(date, signals) {
+async function _meAiMergeInbox(date, signals, cfg) {
+  cfg = cfg || _meAiConfig();
   const inbox = loadInboxForDate(date);
   const byId = new Map(inbox.items.map(it => [it.id, it]));
   const dismissedKeys = new Set(Object.keys(loadDismissForDate(date)));
   const now = new Date().toISOString();
   let added = 0;
   let autoHandled = 0;
+  const budget = { n: 6 }; // cap per-item AI nudges per merge so a poll can't fan out N model calls
   for (const sig of (signals || [])) {
     if (!sig || sig.kind === 'meeting' || sig.type !== 'comms') continue;
     if (!((Number(sig.urgency) || 0) >= 3 || sig.directMention)) continue; // FYI → no interrupt
@@ -12116,25 +12284,17 @@ function _meAiMergeInbox(date, signals) {
     };
     const ex = byId.get(id);
     if (ex) {
-      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason });
+      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested });
+      // Backfill a confidence score cheaply (no AI) for items that predate Phase 2 so the
+      // inbox always surfaces one; an untriaged backfill may also auto-fire under settings.
+      if (typeof ex.confidence !== 'number') {
+        try { if (await _meAiScoreAndMaybeAuto(ex, cfg, date, now, { allowAi: false })) autoHandled++; } catch (_) { /* best-effort */ }
+      }
     } else {
       const it = Object.assign(base, { firstSeen: now, triage: 'new', triagedAt: '', note: '' });
-      // REQ-9: auto-apply a confident, safe, reversible past decision instead of asking.
-      const auto = _meAiTriageDecide(it);
-      if (auto) {
-        it.triage = auto.action === 'dismiss' ? 'dismissed' : auto.action; // canonical inbox state
-        it.auto = true;
-        it.autoReason = { action: auto.action, n: auto.n, total: auto.total, share: auto.share, at: now };
-        it.triagedAt = now;
-        if (auto.action === 'dismiss' || auto.action === 'wontfix') {
-          try {
-            const dm = loadDismissForDate(date);
-            dm[_meAiDismissKey(it)] = { title: it.title, note: '', at: now, reason: auto.action, auto: true };
-            saveDismissForDate(date, dm);
-          } catch (_) { /* best-effort */ }
-        }
-        autoHandled++;
-      }
+      // Phase 2: confidence-score the new ask; auto-apply the confident, in-tier decision
+      // instead of asking (settings-gated). Falls back to leaving it 'new' to triage.
+      try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { budget })) autoHandled++; } catch (_) { /* best-effort */ }
       inbox.items.push(it); byId.set(id, it); added++;
     }
   }
@@ -12149,7 +12309,7 @@ function _meAiMergeInbox(date, signals) {
 async function _meAiRefreshInbox(s, cfg, date, { force = false } = {}) {
   if (!cfg.consent) return { inbox: loadInboxForDate(date), added: 0, autoHandled: 0, consent: false };
   const gathered = await _meAiGatherSignals(s, cfg, date, { force });
-  const r = _meAiMergeInbox(date, gathered.signals);
+  const r = await _meAiMergeInbox(date, gathered.signals, cfg);
   return { inbox: r.inbox, added: r.added, autoHandled: r.autoHandled || 0, consent: true };
 }
 // Apply triage decisions to the live signal list before planning: 'today' pins an
@@ -14464,6 +14624,20 @@ app.put('/api/me-ai/settings', (req, res) => {
       }
       patch.meAiTimePrefs = clean;
     }
+    // Phase 2: auto-triage config.
+    if (typeof b.autoTriage === 'boolean') patch.meAiAutoTriage = b.autoTriage;
+    const clampPct = v => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null; };
+    if (b.autoTriageSafe !== undefined) { const n = clampPct(b.autoTriageSafe); if (n != null) patch.meAiAutoTriageSafe = n; }
+    if (b.autoTriageAgenda !== undefined) { const n = clampPct(b.autoTriageAgenda); if (n != null) patch.meAiAutoTriageAgenda = n; }
+    if (b.actionTiers && typeof b.actionTiers === 'object' && !Array.isArray(b.actionTiers)) {
+      const allowAct = ['later', 'dismiss', 'wontfix', 'today']; // 'now' is locked → never persisted
+      const allowTier = ['safe', 'agenda', 'off'];
+      const clean = {};
+      for (const [k, v] of Object.entries(b.actionTiers)) {
+        if (allowAct.includes(k) && allowTier.includes(String(v))) clean[k] = String(v);
+      }
+      patch.meAiActionTiers = clean;
+    }
     settings.updateSettings(patch);
     res.json({ ok: true, config: _meAiConfig() });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -14893,6 +15067,26 @@ app.post('/api/me-ai/inbox/refresh', async (req, res) => {
     const r = await _meAiRefreshInbox(s, cfg, date, { force: true });
     const newCount = r.inbox.items.filter(i => i.triage === 'new').length;
     res.json({ ok: true, date, items: r.inbox.items, newCount, added: r.added, autoHandled: r.autoHandled || 0, consent: r.consent, polledAt: r.inbox.polledAt || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/inbox/reeval { date? } → recompute confidence scores (base-only, no
+// AI, instant) for every item and auto-apply any that now clear their tier's threshold.
+// Called after a settings/threshold change so the inbox reflects the new gate live.
+app.post('/api/me-ai/inbox/reeval', async (req, res) => {
+  try {
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
+    const s = settings.getSettings();
+    const cfg = _meAiConfig(s);
+    const inbox = loadInboxForDate(date);
+    const now = new Date().toISOString();
+    let autoHandled = 0;
+    for (const it of inbox.items) {
+      try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { allowAi: false })) autoHandled++; } catch (_) { /* best-effort */ }
+    }
+    saveInboxForDate(date, inbox);
+    const newCount = inbox.items.filter(i => i.triage === 'new').length;
+    res.json({ ok: true, date, items: inbox.items, newCount, autoHandled });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

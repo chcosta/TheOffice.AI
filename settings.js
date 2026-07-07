@@ -197,6 +197,17 @@ const DEFAULTS = {
   // (review|steward|focus|comms|admin|prep) → 'morning' | 'afternoon' | ''.
   // Biases ordering so preferred-morning work lands earlier; also fed to refine.
   meAiTimePrefs: {},
+  // --- Phase 2: confidence-scored auto-triage ------------------------------
+  // When enabled, high-confidence attention-inbox decisions auto-apply (with
+  // one-click undo) instead of asking. Per-action tiers map each triage action
+  // to a confidence tier — 'safe' (reversible: Later/Not mine/Won't fix),
+  // 'agenda' (schedules work: Fit into today) or 'off' (never auto). 'now'
+  // (Handle now) is always locked to acting and never auto-runs. Thresholds are
+  // the min confidence (0-100) each tier needs to fire.
+  meAiAutoTriage: false,
+  meAiAutoTriageSafe: 80,
+  meAiAutoTriageAgenda: 90,
+  meAiActionTiers: {},
   // --- System agents: per-agent behavior overrides -------------------------
   // The app ships several built-in AI "system agents" (Connect assistant,
   // Newsletter writer/editor, Me.AI agent + external-act, Agenda assistant,
