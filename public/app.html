@@ -12330,6 +12330,25 @@
               .meai-pu-chat-goal { padding:11px 13px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*calc(var(--cp-radius-scale,1)*10px)); background:var(--cp-bg); margin-bottom:12px; }
               .meai-pu-chat-goal-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin-bottom:4px; }
               .meai-pu-chat-goal-t { font-size:13.5px; color:var(--cp-text); line-height:1.5; font-weight:600; }
+              /* Chat transcript: you-vs-agent turns + a single composer pinned to the bottom */
+              .meai-pu-chat { display:flex; flex-direction:column; min-height:100%; }
+              .meai-pu-thread { display:flex; flex-direction:column; gap:12px; }
+              .meai-pu-turn { display:flex; flex-direction:column; gap:4px; }
+              .meai-pu-turn.you { align-items:flex-end; }
+              .meai-pu-turn-who { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pu-bubble { max-width:88%; padding:10px 13px; border-radius:calc(var(--cp-radius-scale,1)*12px); font-size:13.5px; line-height:1.5; }
+              .meai-pu-turn.you .meai-pu-bubble { background:color-mix(in srgb,var(--cp-accent) 12%, var(--cp-bg)); border:1px solid color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); color:var(--cp-text); font-weight:600; }
+              .meai-pu-turn.agent { align-items:stretch; }
+              .meai-pu-turn.agent .meai-pu-outcome { margin-bottom:0; }
+              .meai-pu-ev.side-you { flex-direction:row-reverse; }
+              .meai-pu-ev.side-you .meai-pu-ev-b { align-items:flex-end; text-align:right; }
+              .meai-pu-composer { position:sticky; bottom:-12px; margin:12px -12px -12px; margin-top:auto; padding:12px; background:var(--cp-surface); border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:8px; }
+              .meai-pu-composer-in { width:100%; resize:vertical; font-size:13px; line-height:1.45; }
+              .meai-pu-composer-row { display:flex; align-items:center; gap:10px; }
+              .meai-pu-composer-sp { flex:1; }
+              .meai-pu-composer-note { font-size:12px; color:var(--cp-text-muted); }
+              .meai-pu-composer-done { appearance:none; background:none; border:0; padding:0; cursor:pointer; color:var(--cp-text-muted); font-size:12px; font-weight:600; }
+              .meai-pu-composer-done:hover { color:var(--cp-text); text-decoration:underline; }
               /* Drag splitter between nav and view */
               .meai-pu-split { flex:0 0 6px; cursor:col-resize; background:transparent; position:relative; touch-action:none; }
               .meai-pu-split::before { content:''; position:absolute; inset:0 2px; border-radius:999px; background:transparent; transition:background .15s; }
@@ -13491,85 +13510,83 @@
                     <div class="meai-pu-navbody">
                       <!-- CHAT: the main-thread conversation (goal → reasoning → outcome + steer) -->
                       <template x-if="meai.pursuit.nav==='chat'">
-                        <div>
-                          <!-- Original goal, framed as the opening request -->
-                          <div class="meai-pu-chat-goal">
-                            <div class="meai-pu-chat-goal-h">You asked</div>
-                            <div class="meai-pu-chat-goal-t" x-text="(meai._taskById[meai.pursuit.tid] && (meai._taskById[meai.pursuit.tid].goal || meai._taskById[meai.pursuit.tid].title)) || 'Pursuit'"></div>
-                          </div>
-                          <!-- Conclusion / outcome — surfaces when the pursuit reaches a recommendation -->
-                          <template x-if="meAiPursuitConcluded()">
-                            <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done') }">
-                              <div class="meai-pu-outcome-h">
-                                <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
-                                <span x-text="meAiPursuitOutcome().title"></span>
-                              </div>
-                              <div class="meai-pu-outcome-sum" x-show="meAiPursuitOutcome().summary" x-text="meAiPursuitOutcome().summary"></div>
-                              <div class="meai-pu-outcome-meta">
-                                <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
-                                <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
-                              </div>
-                              <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
-                                <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
-                              </div>
-                              <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
-                                <div class="meai-pu-outcome-nexth">Recommended next</div>
-                                <template x-for="(a, ai) in meAiPursuitSteerActions()" :key="'na-'+ai">
-                                  <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meAiPursuitBusy()" @click="meAiPursuitAct(a)">
-                                    <span x-text="a.label || a.intent"></span>
-                                    <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
-                                  </button>
-                                </template>
-                              </div>
-                              <!-- Chat with your Chief of Staff: ask about what it found, revise the
-                                   report in place (calm one-turn), or pursue a new thread (re-forks
-                                   the fan-out). Available whether the pursuit is awaiting or done. -->
-                              <div class="meai-pu-steer">
-                                <div class="meai-pu-steer-h">Chat with your Chief of Staff</div>
-                                <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.steer"
-                                  placeholder="Ask what it found, request a change to the report, or send it after a new thread…"
-                                  :disabled="meAiPursuitBusy()"
-                                  @keydown.enter.meta.prevent="meAiPursuitAsk()"
-                                  @keydown.enter.ctrl.prevent="meAiPursuitAsk()"></textarea>
-                                <div class="meai-pu-steer-row">
-                                  <button type="button" class="btn primary" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" @click="meAiPursuitAsk()">Ask →</button>
-                                  <button type="button" class="btn ghost" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" x-show="meAiPursuitReport()" @click="meAiPursuitRevise()">Revise the report</button>
-                                  <button type="button" class="btn ghost" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('continue')" title="Sends the agent after a new thread — grows the map">Pursue further</button>
-                                </div>
-                                <div class="meai-pu-steer-quick">
-                                  <span class="meai-pu-steer-qh">Or quickly:</span>
-                                  <button type="button" :disabled="meAiPursuitBusy()" @click="meAiPursuitAsk('What did you find? Give me the short version.')">What it found</button>
-                                  <span aria-hidden="true">·</span>
-                                  <button type="button" :disabled="meAiPursuitBusy()" x-show="meAiPursuitReport()" @click="meAiPursuitRevise('Rewrite the report in a warmer, more human tone.')">Warmer tone</button>
-                                  <span aria-hidden="true" x-show="meAiPursuitReport()">·</span>
-                                  <button type="button" :disabled="meAiPursuitBusy()" @click="meAiPursuitSteer('change-approach','Try a fundamentally different angle on this.')">Different angle</button>
-                                  <span aria-hidden="true">·</span>
-                                  <button type="button" :disabled="meAiPursuitBusy()" @click="meAiPursuitSteer('continue','Gather more data and sources before concluding.')">More data</button>
-                                </div>
-                                <button type="button" class="meai-pu-steer-done" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')" :disabled="meAiPursuitBusy()" @click="meAiPursuitFinish()">Looks good — I'm done here ✓</button>
-                              </div>
+                        <div class="meai-pu-chat">
+                          <!-- Scrolling transcript: your goal → the agent's reasoning/tools/responses → its conclusion -->
+                          <div class="meai-pu-thread">
+                            <!-- Original goal, framed as your opening request -->
+                            <div class="meai-pu-turn you">
+                              <div class="meai-pu-turn-who">You</div>
+                              <div class="meai-pu-bubble" x-text="(meai._taskById[meai.pursuit.tid] && (meai._taskById[meai.pursuit.tid].goal || meai._taskById[meai.pursuit.tid].title)) || 'Pursuit'"></div>
                             </div>
-                          </template>
 
-                          <template x-for="(ev, ei) in meAiPursuitChatEvents()" :key="'pe-'+ei">
-                            <div class="meai-pu-ev" :class="['ev-'+ev.kind, meAiPursuitEvHasDetail(ev)?'has-detail':'']">
-                              <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
-                              <div class="meai-pu-ev-b">
-                                <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('spine',ei,ev))">
-                                  <span class="meai-pu-ev-k" x-text="ev.kind"></span>
-                                  <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
-                                  <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)] ? '▾' : '▸'"></span>
-                                </button>
-                                <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)]">
-                                  <div class="meai-pu-ev-d">
-                                    <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
-                                    <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
-                                  </div>
-                                </template>
+                            <!-- The agent's work, as an aligned transcript (reasoning/tools collapse inline) -->
+                            <template x-for="(ev, ei) in meAiPursuitChatEvents()" :key="'pe-'+ei">
+                              <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                                <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                                <div class="meai-pu-ev-b">
+                                  <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('spine',ei,ev))">
+                                    <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                                    <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                                    <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)] ? '▾' : '▸'"></span>
+                                  </button>
+                                  <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)]">
+                                    <div class="meai-pu-ev-d">
+                                      <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                      <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                                    </div>
+                                  </template>
+                                </div>
                               </div>
+                            </template>
+
+                            <!-- Conclusion / recommendation — the latest message from your Chief of Staff -->
+                            <template x-if="meAiPursuitConcluded()">
+                              <div class="meai-pu-turn agent">
+                                <div class="meai-pu-turn-who">Chief of Staff</div>
+                                <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done') }">
+                                  <div class="meai-pu-outcome-h">
+                                    <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
+                                    <span x-text="meAiPursuitOutcome().title"></span>
+                                  </div>
+                                  <div class="meai-pu-outcome-sum" x-show="meAiPursuitOutcome().summary" x-text="meAiPursuitOutcome().summary"></div>
+                                  <div class="meai-pu-outcome-meta">
+                                    <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
+                                    <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
+                                  </div>
+                                  <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
+                                    <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
+                                  </div>
+                                  <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
+                                    <div class="meai-pu-outcome-nexth">Recommended next</div>
+                                    <template x-for="(a, ai) in meAiPursuitSteerActions()" :key="'na-'+ai">
+                                      <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meAiPursuitBusy()" @click="meAiPursuitAct(a)">
+                                        <span x-text="a.label || a.intent"></span>
+                                        <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
+                                      </button>
+                                    </template>
+                                  </div>
+                                </div>
+                              </div>
+                            </template>
+
+                            <div x-show="!meAiPursuitChatEvents().length && !meAiPursuitConcluded()" class="meai-pu-empty">The main thread fills in as the agent plans and forks legs. Click any node on the map to dive into that leg.</div>
+                          </div>
+
+                          <!-- One composer, pinned to the bottom. The agent intuits from what you say:
+                               a quick answer, a change to the report, or a deeper follow-up. -->
+                          <div class="meai-pu-composer">
+                            <textarea class="field-input meai-pu-composer-in" rows="2" x-model="meai.pursuit.steer"
+                              :placeholder="meAiPursuitBusy() ? 'The agent is working…' : 'Ask what it found, request a change to the report, or send it further…'"
+                              :disabled="meAiPursuitBusy()"
+                              @keydown.enter.meta.prevent="meAiPursuitSend()"
+                              @keydown.enter.ctrl.prevent="meAiPursuitSend()"></textarea>
+                            <div class="meai-pu-composer-row">
+                              <span class="meai-pu-composer-note" x-show="meAiPursuitBusy()">Working… you can chat as soon as it pauses.</span>
+                              <button type="button" class="meai-pu-composer-done" x-show="!meAiPursuitBusy() && meAiPursuitConcluded() && !(meai.pursuit.tree && meai.pursuit.tree.stage==='done')" @click="meAiPursuitFinish()">Looks good — done ✓</button>
+                              <span class="meai-pu-composer-sp"></span>
+                              <button type="button" class="btn primary" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" @click="meAiPursuitSend()">Send →</button>
                             </div>
-                          </template>
-                          <div x-show="!meAiPursuitChatEvents().length && !meAiPursuitConcluded()" class="meai-pu-empty">The main thread fills in as the agent plans and forks legs. Click any node on the map to dive into that leg.</div>
+                          </div>
                         </div>
                       </template>
 
@@ -30707,6 +30724,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!text) { this.toast('Say how you want the report changed', 'info'); return; }
           const ok = await this._meAiPursuitPost('converse', text, 'revise');
           if (ok) { if (!quick) p.steer = ''; this.toast('On it — revising the report', 'success'); setTimeout(() => this.meAiPursuitLoad(), 600); }
+        },
+        // Single Send: the ONE composer in the chat. Routes to converse mode 'auto' so
+        // the agent intuits what to do — answer from what it found, change the report in
+        // place, or run a focused follow-up — rather than making the user pick a verb.
+        async meAiPursuitSend() {
+          const p = this.meai.pursuit;
+          const text = String(p.steer || '').trim();
+          if (!text) return;
+          if (this.meAiPursuitBusy()) { this.toast("The agent is still working — it'll be ready in a moment", 'info'); return; }
+          const ok = await this._meAiPursuitPost('converse', text, 'auto');
+          if (ok) { p.steer = ''; this.toast('Sent — the reply streams into the chat', 'success'); setTimeout(() => this.meAiPursuitLoad(), 600); }
+        },
+        // Which side of the transcript an event sits on: your own asides ("You asked…")
+        // hang right like a chat message; everything the agent does hangs left.
+        meAiPursuitEvSide(ev) {
+          const t = String((ev && ev.text) || '').trim();
+          if (ev && ev.kind === 'note' && /^you\s+(asked|told|said|requested|wanted)/i.test(t)) return 'you';
+          return 'agent';
         },
         // "That's it — I'm done" → truly completes the pursuit via /complete (gated
         // finish + diary write-back). Posting /act approve only ran a generic turn and
