@@ -12879,7 +12879,7 @@
                           <div class="meai-secitem" :class="{ 'is-auto': row.status==='auto', 'is-pending': row.status==='pending', 'is-decide': row.status==='decide' }">
                             <div class="meai-inbox-head">
                               <span class="meai-inbox-freshdot" x-show="row.it.triage==='new'"></span>
-                              <span class="meai-inbox-kind" x-text="(row.it.kind||'email')==='teams'?'Teams':'Email'"></span>
+                              <span class="meai-inbox-kind" x-text="(row.it.kind==='meeting-action')?'Meeting':((row.it.kind||'email')==='teams'?'Teams':'Email')"></span>
                               <span class="meai-inbox-title clickable" :title="(row.it.link||row.it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(row.it)" x-text="row.it.title"></span>
                               <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
                               <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>

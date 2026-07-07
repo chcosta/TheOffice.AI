@@ -12241,7 +12241,7 @@ function _meAiInboxPath(date) {
   return path.join(ME_AI_INBOX_DIR, `${safe}.json`);
 }
 function _meAiInboxId(sig) {
-  const basis = String((sig && (sig.link || sig.prLink || sig.title)) || '').trim().toLowerCase();
+  const basis = String((sig && (sig.dedupeKey || sig.link || sig.prLink || sig.title)) || '').trim().toLowerCase();
   return require('crypto').createHash('sha1').update(basis).digest('hex').slice(0, 16);
 }
 function loadInboxForDate(date) {
@@ -12257,6 +12257,87 @@ function saveInboxForDate(date, inbox) {
   fs.mkdirSync(ME_AI_INBOX_DIR, { recursive: true });
   fs.writeFileSync(_meAiInboxPath(date), JSON.stringify(inbox || { date, items: [] }, null, 2));
   return inbox;
+}
+// Request B: recorded-meeting action-item capture. After a meeting ends, its recording
+// / transcript often lands minutes-to-hours later. We poll WorkIQ for ended meetings that
+// have a recording, extract the action items assigned to ME, and fold them into the
+// attention inbox so they aren't lost. A per-day processed store de-dupes by meeting id
+// (each meeting extracted at most once) and throttles the collector spawn, and gives up on
+// a meeting whose recording never appears so we don't poll it forever.
+const ME_AI_MTGACT_DIR = path.join(dataPath('me-ai'), 'meeting-actions');
+const ME_AI_MTGACT_MAX_ATTEMPTS = 6;          // stop retrying a never-recorded meeting after ~6 polls
+const ME_AI_MTGACT_THROTTLE_MS = 25 * 60 * 1000; // don't re-spawn the collector more than ~every 25 min
+function _meAiMtgActPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_MTGACT_DIR, `${safe}.json`);
+}
+function loadMtgActStore(date) {
+  try {
+    const p = _meAiMtgActPath(date);
+    if (!fs.existsSync(p)) return { date, processed: {}, lastGatherAt: '' };
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (v && v.processed && typeof v.processed === 'object') return v;
+    return { date, processed: {}, lastGatherAt: '' };
+  } catch { return { date, processed: {}, lastGatherAt: '' }; }
+}
+function saveMtgActStore(date, store) {
+  fs.mkdirSync(ME_AI_MTGACT_DIR, { recursive: true });
+  fs.writeFileSync(_meAiMtgActPath(date), JSON.stringify(store || { date, processed: {} }, null, 2));
+  return store;
+}
+async function _meAiGatherMeetingActions(date, { force = false } = {}) {
+  const crypto = require('crypto');
+  const store = loadMtgActStore(date);
+  try {
+    const now = Date.now();
+    if (!force && store.lastGatherAt) {
+      const last = Date.parse(store.lastGatherAt);
+      if (isFinite(last) && (now - last) < ME_AI_MTGACT_THROTTLE_MS) return { signals: [], store, changed: false };
+    }
+    const nowIso = new Date(now).toISOString();
+    const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each such meeting, extract the action items / follow-ups assigned to ME (owner = me, or clearly-mine unassigned items). Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"recordingUrl":string|null,"hasRecording":boolean,"actions":[{"text":string,"due":string|null}]}. "meetingId" is a STABLE unique id for the meeting (the calendar event id or iCalUId). ONLY include meetings that have ENDED. If a meeting has ended but has no recording/transcript YET, still list it with "hasRecording":false and empty "actions" so I know to check later. If there is nothing, return [].`;
+    const text = await _connectRunAgent('collector', prompt);
+    const arr = _connectExtractJson(text);
+    store.lastGatherAt = nowIso;
+    let changed = true; // lastGatherAt moved
+    if (!Array.isArray(arr)) { saveMtgActStore(date, store); return { signals: [], store, changed }; }
+    const signals = [];
+    for (const m of arr) {
+      if (!m || typeof m !== 'object') continue;
+      const mid = String(m.meetingId || m.meeting || '').trim().toLowerCase();
+      if (!mid) continue;
+      const rec = store.processed[mid] || { attempts: 0, done: false, firstSeen: nowIso, count: 0 };
+      if (rec.done) continue; // this meeting's actions already captured (or gave up)
+      rec.attempts = (rec.attempts || 0) + 1;
+      rec.lastAt = nowIso;
+      const hasRec = !!m.hasRecording;
+      const actions = Array.isArray(m.actions) ? m.actions : [];
+      if (hasRec) {
+        actions.forEach((a, idx) => {
+          const atext = String((a && a.text) || '').trim();
+          if (!atext) return;
+          const due = (a && typeof a.due === 'string' && a.due.trim()) ? a.due.trim() : '';
+          const h = crypto.createHash('sha1').update(atext.toLowerCase()).digest('hex').slice(0, 8);
+          signals.push({
+            kind: 'meeting-action', type: 'comms',
+            title: atext.slice(0, 200),
+            detail: (`Action from \u201C${String(m.meeting || 'a meeting').slice(0, 80)}\u201D` + (due ? ` \u00B7 due ${due}` : '')).slice(0, 200),
+            start: null, end: null,
+            link: (m.recordingUrl && typeof m.recordingUrl === 'string') ? m.recordingUrl : '',
+            prLink: '', ts: nowIso,
+            dedupeKey: `mtgact:${mid}:${idx}:${h}`,
+            directMention: true, urgency: 4, source: 'meeting',
+          });
+        });
+        rec.done = true; rec.count = actions.length;
+      } else if (rec.attempts >= ME_AI_MTGACT_MAX_ATTEMPTS) {
+        rec.done = true; rec.count = 0; rec.gaveUp = true; // recording never showed → stop polling it
+      }
+      store.processed[mid] = rec;
+    }
+    saveMtgActStore(date, store);
+    return { signals, store, changed };
+  } catch { return { signals: [], store, changed: false }; }
 }
 // Merge freshly gathered comms signals into the day's attention inbox. Existing
 // items keep their triage state + first-seen; genuinely new asks arrive as 'new'.
@@ -12279,7 +12360,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
     const base = {
       id, kind: sig.kind || 'email', title: String(sig.title || '').slice(0, 200),
       detail: String(sig.detail || '').slice(0, 200), link: sig.link || '', prLink: sig.prLink || '',
-      ts: sig.ts || '',
+      ts: sig.ts || '', dedupeKey: sig.dedupeKey || '',
       directMention: !!sig.directMention, urgency: Number(sig.urgency) || 3, source: sig.source || 'm365',
     };
     const ex = byId.get(id);
@@ -12309,7 +12390,14 @@ async function _meAiMergeInbox(date, signals, cfg) {
 async function _meAiRefreshInbox(s, cfg, date, { force = false } = {}) {
   if (!cfg.consent) return { inbox: loadInboxForDate(date), added: 0, autoHandled: 0, consent: false };
   const gathered = await _meAiGatherSignals(s, cfg, date, { force });
-  const r = await _meAiMergeInbox(date, gathered.signals, cfg);
+  let sigs = gathered.signals;
+  // Request B: fold in action items extracted from ended, recorded meetings (throttled +
+  // de-duped internally) so a meeting's follow-ups reach the inbox instead of being lost.
+  try {
+    const ma = await _meAiGatherMeetingActions(date, { force });
+    if (ma.signals && ma.signals.length) sigs = sigs.concat(ma.signals);
+  } catch (_) { /* best-effort */ }
+  const r = await _meAiMergeInbox(date, sigs, cfg);
   return { inbox: r.inbox, added: r.added, autoHandled: r.autoHandled || 0, consent: true };
 }
 // Apply triage decisions to the live signal list before planning: 'today' pins an
