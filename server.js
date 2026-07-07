@@ -12265,8 +12265,9 @@ function saveInboxForDate(date, inbox) {
 // (each meeting extracted at most once) and throttles the collector spawn, and gives up on
 // a meeting whose recording never appears so we don't poll it forever.
 const ME_AI_MTGACT_DIR = path.join(dataPath('me-ai'), 'meeting-actions');
-const ME_AI_MTGACT_MAX_ATTEMPTS = 6;          // stop retrying a never-recorded meeting after ~6 polls
+const ME_AI_MTGACT_MAX_ATTEMPTS = 12;         // hard cap on polls for a never-recorded meeting
 const ME_AI_MTGACT_THROTTLE_MS = 25 * 60 * 1000; // don't re-spawn the collector more than ~every 25 min
+const ME_AI_MTGACT_GIVEUP_MS = 6 * 60 * 60 * 1000; // keep checking a meeting for up to ~6h before giving up (recordings/transcripts can lag)
 function _meAiMtgActPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
   return path.join(ME_AI_MTGACT_DIR, `${safe}.json`);
@@ -12330,8 +12331,15 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
           });
         });
         rec.done = true; rec.count = actions.length;
-      } else if (rec.attempts >= ME_AI_MTGACT_MAX_ATTEMPTS) {
-        rec.done = true; rec.count = 0; rec.gaveUp = true; // recording never showed → stop polling it
+      } else {
+        // No recording/transcript yet. Recordings can take a while to appear, so keep
+        // polling over a longer window: give up only when we've either exceeded the
+        // attempt cap OR the meeting was first seen more than GIVEUP_MS ago.
+        const firstSeenMs = Date.parse(rec.firstSeen || nowIso);
+        const elapsed = isFinite(firstSeenMs) ? (now - firstSeenMs) : 0;
+        if (rec.attempts >= ME_AI_MTGACT_MAX_ATTEMPTS || elapsed > ME_AI_MTGACT_GIVEUP_MS) {
+          rec.done = true; rec.count = 0; rec.gaveUp = true; // recording never showed → stop polling it
+        }
       }
       store.processed[mid] = rec;
     }
