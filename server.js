@@ -16447,6 +16447,7 @@ async function _meAiTreePlan(t, spine) {
     `You are the PLANNER for a Chief-of-Staff agent pursuing this goal for me:`,
     `TASK GOAL: ${t.goal || _meAiGoalFor(t)}`,
     ref ? `SUBJECT: ${ref}` : '',
+    _meAiSteerBlock(t),
     ``,
     `Break this into 2-4 INDEPENDENT angles that separate agents can investigate IN`,
     `PARALLEL. Each angle is a distinct hypothesis, sub-question, or workstream that`,
@@ -16496,6 +16497,7 @@ function _meAiTreeLegPrompt(t, leg) {
     ref ? `SUBJECT: ${ref}` : '',
     ``,
     `YOUR LEG — "${leg.title}": ${leg.goal}`,
+    _meAiSteerBlock(t),
     ``,
     `Rules for this leg:`,
     `- Pursue ONLY this hypothesis. Be cheap and decisive; if it is a dead end, say so — a killed path is a recorded result, not a failure.`,
@@ -16668,14 +16670,71 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   _meAiSetStage(t, 'awaiting', 'awaiting');
 }
 
+// Build the "my latest steer + standing constraints" block that gets folded into
+// the planner and every leg prompt on a re-engagement, so a redirect actually
+// changes what the fan-out pursues (and never repeats an action I already denied).
+function _meAiSteerBlock(t) {
+  const lines = [];
+  try { if (t && t._steerNote) lines.push('MY LATEST STEER (take this as the new priority): ' + String(t._steerNote)); } catch (_) {}
+  try {
+    const tree = meAiTrees.get(t.id);
+    const cons = (tree && tree.rootState && Array.isArray(tree.rootState.constraints)) ? tree.rootState.constraints : [];
+    if (cons.length) lines.push('CONSTRAINTS I set earlier (honor ALL of these): ' + cons.slice(-6).map(c => String((c && c.text) || c)).filter(Boolean).map(s => '• ' + s).join('  '));
+  } catch (_) {}
+  return lines.length ? ('\n' + lines.join('\n')) : '';
+}
+
+// Re-engage an EXISTING tree pursuit with a steer (a follow-up "dig deeper / get
+// more data" or a "try a different approach" redirect, optionally with free text).
+// Unlike _meAiActRun (a flat single turn that never touches the canvas), this bumps
+// the epoch, spawns a fresh spine leg carrying the steer, and re-runs the fan-out
+// orchestrator in replan mode so the map keeps growing and the report reflects it.
+function _meAiTreeReAct(t, intent, text, label) {
+  const id = t.id;
+  const steer = (text && String(text).trim()) ? String(text).trim().slice(0, 1200) : '';
+  _meAiSchedule(async () => {
+    try {
+      const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+      const epoch = (tree.epoch || 0) + 1;
+      t.question = null; t.error = null; t._lastError = null;
+      _meAiSetStage(t, 'working', 'running');
+      _meAiTreeEmit(id, 'stage', { stage: 'working' });
+      const steerNote = steer
+        ? (intent === 'change-approach' ? 'Take a different approach: ' + steer : 'Follow-up from me: ' + steer)
+        : (intent === 'change-approach' ? 'Take a different approach on this.' : 'Keep going and dig deeper.');
+      t._steerNote = steerNote;
+      // Record the steer as a root answer so the fold + downstream prompts carry it.
+      _meAiTreeEmit(id, 'rootstate', { patch: { answer: steerNote } });
+      _meAiTreeMirror(t, 'You steered the pursuit — ' + steerNote);
+      _meAiTreeEmit(id, 'epoch_bump', { epoch });
+      const spine = _meAiNewLeg({
+        kind: 'spine', lane: 'spine', status: 'running', baseEpoch: epoch,
+        title: (intent === 'change-approach' ? 'New direction: ' : 'Follow-up: ') + (steer || t.title || 'continue').slice(0, 64),
+        goal: steer || (t.goal || _meAiGoalFor(t)),
+        sessionId: _meAiUuid(),
+      });
+      t._spineId = spine.id;
+      _meAiTreeEmit(id, 'leg_spawn', { leg: spine });
+      await _meAiTreeOrchestrate(t, spine, { replan: true });
+    } catch (e) {
+      _meAiTreeMirror(t, 'Re-engagement error: ' + String(e.message || e));
+      _meAiSetStage(t, 'error', 'error');
+      _meAiTreeEmit(id, 'stage', { stage: 'error' });
+    } finally { t._steerNote = null; }
+  });
+}
+
 // Top-level tree orchestration for a fresh tree task.
-async function _meAiTreeOrchestrate(t, spine) {
+async function _meAiTreeOrchestrate(t, spine, opts = {}) {
   const id = t.id;
   const startedMs = Date.now();
+  const replan = !!(opts && opts.replan);
   try {
-    let cands = _meAiTreeCandidates(t);
+    // On a re-engagement we skip the static playbook candidates and always re-plan
+    // around the steer; on a fresh task, curated candidates win when present.
+    let cands = replan ? [] : _meAiTreeCandidates(t);
     if (!cands.length) {
-      _meAiTreeMirror(t, 'Planning the angles worth pursuing in parallel…');
+      _meAiTreeMirror(t, replan ? 'Re-planning the angles around your steer…' : 'Planning the angles worth pursuing in parallel…');
       cands = await _meAiTreePlan(t, spine);
     }
     if (!cands.length) {
@@ -16687,7 +16746,7 @@ async function _meAiTreeOrchestrate(t, spine) {
       return await _meAiTreeMergeReport(t, spine, startedMs, [spine]);
     }
     _meAiTreeMirror(t, `Fanning out into ${cands.length} parallel pursuits…`);
-    const legs = cands.map(c => _meAiNewLeg({ parentId: spine.id, kind: c.kind, lane: c.lane, title: c.title, goal: c.goal, status: 'planned', baseEpoch: 0, sessionId: _meAiUuid() }));
+    const legs = cands.map(c => _meAiNewLeg({ parentId: spine.id, kind: c.kind, lane: c.lane, title: c.title, goal: c.goal, status: 'planned', baseEpoch: (spine.baseEpoch || 0), sessionId: _meAiUuid() }));
     for (const lg of legs) _meAiTreeEmit(id, 'leg_spawn', { leg: lg });
     // Scouts first (cheap culling before the expensive branches).
     const ordered = legs.slice().sort((a, b) => (a.kind === 'scout' ? -1 : 1) - (b.kind === 'scout' ? -1 : 1));
@@ -17151,6 +17210,14 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
         { label: 'Change approach', intent: 'change-approach', primary: false, risk: 'none' },
       ];
       _meAiSetStage(t, 'awaiting', 'awaiting');
+      return res.json({ ok: true, task: _meAiTaskPublic(t) });
+    }
+    // Tree pursuits: a steer ("keep going / dig deeper" = continue, or "try a
+    // different approach" = change-approach, with optional free text) re-engages the
+    // fan-out on the canvas instead of running a dead flat turn that never updates it.
+    if (t.mode === 'tree' && (intent === 'continue' || intent === 'change-approach')) {
+      _meAiTreeReAct(t, intent, b.text, b.label);
+      t.status = 'running';
       return res.json({ ok: true, task: _meAiTaskPublic(t) });
     }
     _meAiActRun(t, intent, b.text, b.label, { external: !!b.external || b.risk === 'external' });

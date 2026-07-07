@@ -12287,6 +12287,18 @@
               .meai-pu-outcome-nexth { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
               .meai-pu-nextbtn { justify-content:space-between; text-align:left; width:100%; display:flex; align-items:center; gap:8px; }
               .meai-pu-next-risk { color:#9a6700; font-weight:700; flex:0 0 auto; }
+              /* Steer composer — redirect / follow-up / finish on the recommendation card */
+              .meai-pu-steer { margin-top:14px; padding-top:14px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:9px; }
+              .meai-pu-steer-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pu-steer-in { width:100%; resize:vertical; font-size:13px; line-height:1.45; }
+              .meai-pu-steer-row { display:flex; flex-wrap:wrap; gap:8px; }
+              .meai-pu-steer-quick { display:flex; flex-wrap:wrap; align-items:center; gap:7px; font-size:12px; color:var(--cp-text-muted); }
+              .meai-pu-steer-qh { font-weight:600; }
+              .meai-pu-steer-quick > button { appearance:none; background:none; border:0; padding:0; cursor:pointer; color:var(--cp-accent); font-size:12px; font-weight:600; }
+              .meai-pu-steer-quick > button:hover { text-decoration:underline; }
+              .meai-pu-steer-quick > button:disabled { color:var(--cp-text-muted); cursor:default; text-decoration:none; }
+              .meai-pu-steer-done { align-self:flex-start; margin-top:3px; appearance:none; background:none; border:0; padding:2px 0; cursor:pointer; color:var(--cp-text-muted); font-size:12.5px; font-weight:600; }
+              .meai-pu-steer-done:hover { color:var(--cp-text); text-decoration:underline; }
               /* Node detail overlay */
               .meai-pu-detcard { width:min(680px,100%); }
               .meai-pu-detcard-body { flex:1; overflow:auto; padding:18px 22px; min-height:0; display:flex; flex-direction:column; gap:16px; }
@@ -13447,14 +13459,37 @@
                           <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
                             <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
                           </div>
-                          <div class="meai-pu-outcome-next" x-show="meAiPursuitOutcome().nextActions.length">
+                          <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
                             <div class="meai-pu-outcome-nexth">Recommended next</div>
-                            <template x-for="(a, ai) in meAiPursuitOutcome().nextActions" :key="'na-'+ai">
+                            <template x-for="(a, ai) in meAiPursuitSteerActions()" :key="'na-'+ai">
                               <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meai.pursuit.acting" @click="meAiPursuitAct(a)">
                                 <span x-text="a.label || a.intent"></span>
                                 <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
                               </button>
                             </template>
+                          </div>
+                          <!-- Steer composer: keep the pursuit going (dig deeper), send it a new
+                               angle, or wrap up. Re-engages the fan-out on the canvas. -->
+                          <div class="meai-pu-steer" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')">
+                            <div class="meai-pu-steer-h">Take it further</div>
+                            <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.steer"
+                              placeholder="Tell the agent what to pursue next — dig into a thread, chase a new angle, or ask for more data…"
+                              :disabled="meai.pursuit.acting"
+                              @keydown.enter.meta.prevent="meAiPursuitSteer('continue')"
+                              @keydown.enter.ctrl.prevent="meAiPursuitSteer('continue')"></textarea>
+                            <div class="meai-pu-steer-row">
+                              <button type="button" class="btn primary" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('continue')">Dig into this →</button>
+                              <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('change-approach')">Try a different angle</button>
+                            </div>
+                            <div class="meai-pu-steer-quick">
+                              <span class="meai-pu-steer-qh">Or quickly:</span>
+                              <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Dig deeper on the strongest thread and bring back more evidence.')">Dig deeper</button>
+                              <span aria-hidden="true">·</span>
+                              <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('change-approach','Try a fundamentally different approach to this.')">Different approach</button>
+                              <span aria-hidden="true">·</span>
+                              <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Gather more data and sources before concluding.')">Get more data</button>
+                            </div>
+                            <button type="button" class="meai-pu-steer-done" :disabled="meai.pursuit.acting" @click="meAiPursuitFinish()">Looks good — I'm done here ✓</button>
                           </div>
                         </div>
                       </template>
@@ -21949,6 +21984,7 @@
             nodeDetail: null,            // node opened in the detail overlay (full text)
             centerView: 'map',           // center pane: 'map' | 'report'
             acting: false,               // a next-action resume is in flight
+            steer: '',                   // free-text follow-up / redirect for the agent
             _intent: null,               // deep-link intent to apply once the tree loads
           },
         },
@@ -30386,7 +30422,47 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) { this.toast('Could not continue: ' + (e.message || e), 'error'); }
           finally { p.acting = false; }
         },
-        // Item 6 — apply a deep-link intent once the tree has loaded. Title/row →
+        // The recommendation card's finish + follow-up. The server's reconcile emits a
+        // vague [Looks good — done, Continue] pair when there's no open stop; we render
+        // a clear finish button + a real steer composer instead. Any OTHER next action
+        // (an AI-recommended external/write op) is still shown as its own button.
+        meAiPursuitSteerActions() {
+          const acts = this.meAiPursuitOutcome().nextActions || [];
+          const vague = new Set(['continue', 'change-approach', 'approve', 'retry']);
+          return acts.filter(a => a && (a.risk === 'external' || a.risk === 'write' || !vague.has(a.intent)));
+        },
+        async _meAiPursuitPost(intent, text) {
+          const p = this.meai.pursuit; if (!p.tid || p.acting) return;
+          p.acting = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/act', {
+              method: 'POST', body: JSON.stringify({ intent, text: text || '', label: '', risk: 'none' }),
+            });
+            if (r && r.task) { this.meai._taskById[p.tid] = r.task; if (this._meAiMergeTask) this._meAiMergeTask(r.task); }
+            return true;
+          } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); return false; }
+          finally { p.acting = false; }
+        },
+        // "That's it — I'm done" → completes the pursuit (approve with no open stop is the
+        // finish signal). Distinct from a redirect, which keeps the agent working.
+        async meAiPursuitFinish() {
+          const ok = await this._meAiPursuitPost('approve', '');
+          if (ok) { this.toast('Wrapped up — logged the outcome', 'success'); setTimeout(() => this.meAiPursuitLoad(), 600); }
+        },
+        // Redirect / follow-up: re-engage the fan-out with the user's steer. 'continue'
+        // = keep going along this thread (dig deeper); 'change-approach' = try a
+        // different angle. Both carry the free-text so the agent knows WHAT to pursue.
+        async meAiPursuitSteer(intent, quick) {
+          const p = this.meai.pursuit;
+          const text = quick || String(p.steer || '').trim();
+          if (!text && !quick) { this.toast('Say what you want the agent to pursue', 'info'); return; }
+          const ok = await this._meAiPursuitPost(intent, text);
+          if (ok) {
+            p.steer = '';
+            this.toast(intent === 'change-approach' ? 'New angle — re-planning the pursuit' : 'On it — digging deeper', 'success');
+            setTimeout(() => this.meAiPursuitLoad(), 600);
+          }
+        },
         // the map; an approval/question sub-item → approvals rail + focus the stop's
         // node; a "ready for review" sub-item → the report in the center (or the
         // recommendation card in the leg chat).
