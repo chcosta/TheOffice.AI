@@ -21749,7 +21749,12 @@
           skillQ: '',
           recOnly: false,        // skills filter: only recommended
           skillGroups: {},       // { sourceLabel: true } expanded source groups (collapsed by default)
-          tab: 'skills',         // right pane: 'skills' | 'chat' | 'other'
+          mcps: [],              // catalog MCP entries [{name,description,sourceLabel,sourceId,mcp,...}]
+          mcpsLoading: false,
+          mcpSelected: {},       // { mcpKey: entry } attached MCP servers
+          mcpQ: '',
+          mcpGroups: {},         // { source: true } expanded MCP source groups
+          tab: 'skills',         // right pane: 'skills' | 'tools' | 'chat' | 'other'
           // "Browse other source": preview a temporary ADO/GitHub repo's skills
           other: {
             kind: 'github',       // 'github' | 'azdo'
