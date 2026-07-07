@@ -10070,6 +10070,19 @@
                                        <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
                                       </div>
                                          </div>
+                                         <div class="cf-pane" x-show="devActivePane(d)==='boards'">
+                                           <div style="display:flex;flex-direction:column;gap:6px">
+                                             <span class="cal-caption">📌 Boards</span>
+                                             <template x-if="!devPinnedBoards(d).length">
+                                               <div class="hint" style="font-size:11px">Not on any board yet.</div>
+                                             </template>
+                                             <template x-for="b in devPinnedBoards(d)" :key="b.id">
+                                               <div class="cal-row">
+                                                 <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name"></a>
+                                               </div>
+                                             </template>
+                                           </div>
+                                         </div>
 
                                         </div>
                                       </div>
@@ -11292,6 +11305,19 @@
                                        <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
                                       </div>
                                     </div>
+                                    <div class="cf-pane" x-show="devActivePane(d)==='boards'">
+                                      <div style="display:flex;flex-direction:column;gap:6px">
+                                        <span class="cal-caption">📌 Boards</span>
+                                        <template x-if="!devPinnedBoards(d).length">
+                                          <div class="hint" style="font-size:11px">Not on any board yet.</div>
+                                        </template>
+                                        <template x-for="b in devPinnedBoards(d)" :key="b.id">
+                                          <div class="cal-row">
+                                            <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name"></a>
+                                          </div>
+                                        </template>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -11906,6 +11932,8 @@
               .meai-restore { border:0; background:transparent; color:var(--cp-accent); font-size:12px; cursor:pointer; padding:0; }
               .meai-restore:hover { text-decoration:underline; }
               .meai-block-body.is-now { box-shadow:0 0 0 1px var(--cp-accent); }
+              /* Meetings + locked/pinned/imminent items read as "held in place" with a faint tint. */
+              .meai-block-body.is-fixed { background:color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)); border-style:solid; }
               .meai-block-title { font-weight:600; color:var(--cp-text); font-size:14px; }
               .meai-block-meta { font-size:12px; color:var(--cp-text-muted); margin-top:3px; }
               .meai-block-why { font-size:12px; color:var(--cp-text-muted); margin-top:5px; font-style:italic; }
@@ -12573,7 +12601,7 @@
                               <button class="meai-block-act danger" type="button" @click.stop="meAiBlockDispose(b,'notmine',bi)" @pointerdown.stop title="Not mine — someone else owns it"><span class="meai-act-ico">✕</span><span>Not mine</span></button>
                             </div>
                             <div class="meai-block-body"
-                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end) }"
+                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end), 'is-fixed': meAiBlockFixed(b) }"
                                :style="'border-left-color:' + meAiBlockTypeColor(b.type) + ';' + meAiBlockSwipeStyle(b,bi)"
                                @pointerdown="meAiBlockSwipeStart($event,b,bi)">
                             <button class="meai-dismiss" type="button"
@@ -15053,6 +15081,23 @@
                             </div>
                           </template>
                         </div>
+                        </div>
+                      </div>
+                      <!-- Boards: every workspace this PR is pinned on, with a jump link + pin-to-more. -->
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'boards'">
+                        <div class="cf-subsec">
+                        <div class="cf-subhead">📌 Boards</div>
+                        <template x-if="!cfPrPinnedBoards(pr).length">
+                          <span class="cf-wt-history-ts">Not pinned to any workspace yet.</span>
+                        </template>
+                        <template x-for="b in cfPrPinnedBoards(pr)" :key="b.id">
+                          <div class="cf-wt-row" style="align-items:center">
+                            <span x-text="(b.emoji || '📌') + ' ' + b.name"></span>
+                            <a href="#" class="cf-wt-link" @click.prevent.stop="boardJumpToBoard(b)" style="margin-left:auto">Open ↗</a>
+                          </div>
+                        </template>
+                        <button class="btn ghost" type="button" style="font-size:0.72rem;margin-top:6px"
+                                @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to a board</button>
                         </div>
                       </div>
                       <!-- Worktree: Review agent + Git + Worktree rolled into ONE section (stacked sub-headers) -->
@@ -27837,15 +27882,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Week-ahead strip: the next 5 work days with a light per-day summary. Read-only
         // (never generates); a day with no cached agenda shows "not planned yet".
-        async meAiLoadLookahead() {
-          this.meai.lookaheadLoading = true;
+        async meAiLoadLookahead(silent) {
+          if (!silent) this.meai.lookaheadLoading = true;
           try {
             const r = await this.request('/api/me-ai/lookahead?days=5');
-            this.meai.lookahead = (r && Array.isArray(r.days)) ? r.days : [];
+            const days = (r && Array.isArray(r.days)) ? r.days : [];
+            // On a silent poll, only reassign when something actually changed (a day
+            // flipped planned/not-planned) so we don't churn the strip every tick.
+            if (silent && JSON.stringify(days) === JSON.stringify(this.meai.lookahead || [])) return;
+            this.meai.lookahead = days;
           } catch (e) {
-            this.meai.lookahead = [];
+            if (!silent) this.meai.lookahead = [];
           } finally {
-            this.meai.lookaheadLoading = false;
+            if (!silent) this.meai.lookaheadLoading = false;
           }
         },
         meAiLookaheadLabel(d) {
@@ -28051,7 +28100,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             try {
               if (this.route !== 'me-ai') { this.meAiStopAutoPoll(); return; }
               this.meai.nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })();
-              if (this.meai.date !== this.meai.today || this.meai.generating) return;
+              if (this.meai.generating) return;
+              // Keep the week-ahead day tabs live: the background planner regenerates
+              // future days on its own cadence, and the planned/not-planned dots should
+              // update here without the user reloading the page. (silent = no flicker)
+              try { await this.meAiLoadLookahead(true); } catch (_) { /* ignore */ }
+              // Refresh the agenda for whichever day is being viewed (today OR a future
+              // day) so a server re-plan surfaces automatically.
               const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
               const a = (r && r.agenda) ? r.agenda : null;
               if (a && a.generatedAt && a.generatedAt !== this.meai._lastGeneratedAt) {
@@ -28063,14 +28118,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }
               // REQ-8 refresh the attention inbox on the same tick (today only) so
               // newly-arrived asks surface without a full agenda regen.
-              try {
-                const ir = await this.request('/api/me-ai/inbox?date=' + encodeURIComponent(this.meai.date));
-                if (ir && ir.items) {
-                  const prevNew = this.meai.inbox.newCount || 0;
-                  this.meai.inbox = { items: ir.items, newCount: ir.newCount || 0, polledAt: ir.polledAt || '' };
-                  if ((ir.newCount || 0) > prevNew) { this.meai.inboxOpen = true; }
-                }
-              } catch (_) { /* ignore */ }
+              if (this.meai.date === this.meai.today) {
+                try {
+                  const ir = await this.request('/api/me-ai/inbox?date=' + encodeURIComponent(this.meai.date));
+                  if (ir && ir.items) {
+                    const prevNew = this.meai.inbox.newCount || 0;
+                    this.meai.inbox = { items: ir.items, newCount: ir.newCount || 0, polledAt: ir.polledAt || '' };
+                    if ((ir.newCount || 0) > prevNew) { this.meai.inboxOpen = true; }
+                  }
+                } catch (_) { /* ignore */ }
+              }
             } catch (_) { /* ignore transient poll errors */ }
           }, 60000);
         },
@@ -28549,6 +28606,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             admin: 'var(--cp-text-muted)', lunch: '#f59e0b',
           };
           return map[type] || 'var(--cp-border)';
+        },
+        // A meeting or otherwise pinned/held item gets a subtly tinted background so
+        // it reads as "fixed in place" vs a movable focus/task block.
+        meAiBlockFixed(b) {
+          if (!b) return false;
+          if (b.type === 'meeting' || b.source === 'meeting') return true;
+          const m = b.meta || {};
+          return !!(m.locked || m.pinned || m.imminent || m.manual);
         },
         // #5 Expandable agenda/backlog/attention items. Each item toggles a detail
         // panel; keyed by a stable-ish composite so re-renders preserve open state.
@@ -31546,6 +31611,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           s.push({ id: 'worktree', label: '🗃 Code', attn: wtAttn });
           const arts = (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) ? ((wt.reports || []).length || 1) : 0;
           s.push({ id: 'links', label: '🔗 Artifacts', count: arts || undefined, disabled: !arts });
+          const pinned = this.cfPrPinnedBoards(pr);
+          s.push({ id: 'boards', label: '📌 Boards', count: pinned.length || undefined, disabled: !pinned.length });
           return s;
         },
         cfSummaryAttn(pr) {
@@ -38193,6 +38260,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const b = (this.boards || []).find(x => x.id === d.homeBoardId);
           return b ? ((b.emoji || '📌') + ' ' + b.name) : 'a board';
         },
+        // ALL boards a dev card is on: its home board plus any board it's been pinned
+        // onto as an item. Mirrors cfPrPinnedBoards so both cards get a "📌 Boards" tab.
+        devPinnedBoards(d) {
+          if (!d) return [];
+          const out = [];
+          const seen = new Set();
+          if (d.homeBoardId) {
+            const hb = (this.boards || []).find(x => x.id === d.homeBoardId);
+            if (hb) { out.push(hb); seen.add(hb.id); }
+          }
+          for (const b of (this.boards || [])) {
+            if (seen.has(b.id)) continue;
+            if ((b.items || []).some(i => i.kind === 'dev' && String(i.refId) === String(d.id))) { out.push(b); seen.add(b.id); }
+          }
+          return out;
+        },
         // Which board (if any) a PR is currently pinned to — used to surface the
         // workspace name below the PR title once it's pinned (owner ask). Returns
         // null when boards aren't loaded yet or the PR isn't pinned.
@@ -38204,6 +38287,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfPrPinnedLabel(pr) {
           const b = this.cfPrPinnedBoard(pr);
           return b ? ((b.emoji || '📌') + ' ' + b.name) : '';
+        },
+        // ALL boards a PR is pinned to (a PR can live on several boards). Drives the
+        // "📌 Boards" tab so the user can see + jump to every workspace it's on.
+        cfPrPinnedBoards(pr) {
+          const ref = this.cfPrKey(pr);
+          if (!ref) return [];
+          return (this.boards || []).filter(b => (b.items || []).some(i => i.kind === 'pr' && i.refId === ref));
         },
         // ---- PR-card-style drawer: compact face + expandable rail/panes ----
         devDrawerIsOpen(d) { return !!(d && this.devDrawer[d.id]); },
@@ -38220,6 +38310,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           secs.push({ id: 'repos', label: '🗃 Code', count: slots.length, attn: repoAttn });
           const artCount = ((d && d.reports && d.reports.length) || 0) + ((d && d.links && d.links.length) || 0);
           secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount, disabled: !artCount });
+          const dPinned = this.devPinnedBoards(d);
+          secs.push({ id: 'boards', label: '📌 Boards', count: dPinned.length || undefined, disabled: !dPinned.length });
           return secs;
         },
         devActivePane(d) {
