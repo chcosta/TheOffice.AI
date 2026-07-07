@@ -12822,7 +12822,7 @@ function _meAiGatherDevCards() {
 async function _meAiGatherM365(date) {
   try {
     const mon = _meAiMonitoredRepos();
-    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean,"directMention":boolean,"prLink":string|null,"ts":string|null}. "directMention" is true ONLY if I am personally named / @mentioned or explicitly added as a required reviewer or attendee (NOT merely on a distribution list, CC line, or broad channel). "prLink" is the URL of the specific pull request this item is about, or null if it is not about a PR. "ts" is the ISO 8601 timestamp (local) when the email was received or the Teams message was sent, or null for meetings / when unknown. If there is nothing, return [].`;
+    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean,"directMention":boolean,"prLink":string|null,"ts":string|null}. "directMention" is true ONLY if I am personally named / @mentioned or explicitly added as a required reviewer or attendee (NOT merely on a distribution list, CC line, or broad channel). "prLink" is the URL of the specific pull request this item is about, or null if it is not about a PR. "ts" is the ISO 8601 timestamp (local) when the email was received or the Teams message was sent, or null for meetings / when unknown. CRITICAL — "link": it MUST be the exact deep-link that WorkIQ/Graph returns for THIS specific item (the "webUrl" field on the Teams chatMessage / channel message, the message's own webUrl for an email, or the event webUrl for a meeting), copied verbatim from the tool result. Do NOT guess, shorten, template, or construct a Teams/Outlook URL yourself, and never reuse another item's link — a wrong link opens the wrong conversation. If you did not get a real webUrl back from the tool for that exact item, set "link" to null. If there is nothing, return [].`;
     const text = await _connectRunAgent('collector', prompt);
     const arr = _connectExtractJson(text);
     if (!Array.isArray(arr)) return [];
@@ -17308,6 +17308,15 @@ async function _meAiTreePlan(t, spine) {
     `unreachable. Hold every leg to this bar:`,
     ..._meAiDoggedClause(),
     ``,
+    `TREAT BLOCKERS AS A FAN-OUT OPPORTUNITY. If the goal is likely gated by access,`,
+    `an unknown source location, or a missing capability, do NOT spend a single leg`,
+    `that gives up when it hits the wall — instead dedicate 2+ PARALLEL legs to`,
+    `DIFFERENT unblock routes so we attack the obstacle from several angles at once`,
+    `(e.g. one leg searches GitHub org-wide, one checks Azure DevOps, one tries a`,
+    `connected MCP/tool or the web, one delegates to — or stands up — a specialist`,
+    `agent with the needed access/skill). The point of fanning out is that one of the`,
+    `routes gets us through even when the obvious one is locked.`,
+    ``,
     `End your reply with a single fenced \`\`\`json block (and nothing after it):`,
     `{ "legs": [ { "kind": "scout|branch", "title": "<short label>", "goal": "<what THIS leg investigates; read-only; propose gated actions, don't take them>" } ] }`,
   ].filter(x => x !== '').join('\n');
@@ -17353,9 +17362,13 @@ function _meAiTreeLegPrompt(t, leg) {
     ``,
     ..._meAiDoggedClause(),
     ``,
-    `End your reply with a single fenced \`\`\`json block (and nothing after it):`,
-    `{`,
-    `  "summary": "<2-3 sentence result of THIS leg>",`,
+    `IF YOU HIT A WALL, FAN OUT before you park. Don't return blocked after a single`,
+    `failed approach — explore several alternate routes to get through (search the`,
+    `subject org-wide / in Azure DevOps / on the web, try a connected MCP or tool, or`,
+    `delegate to / stand up a specialist agent with the access or skill you're missing`,
+    `and run it). Only after those alternates are genuinely exhausted do you record a`,
+    `dead-end or propose a needs-auth unblock — and then name the exact one-click fix.`,
+    ``,
     `  "confidence": "low|medium|high",`,
     `  "outcome": "done|dead-end|needs-auth|needs-info|needs-decision",`,
     `  "findings": [ { "claim": "<one specific claim>", "confidence": "low|medium|high" } ],`,
