@@ -12103,18 +12103,18 @@
               /* ===== Live pursuit canvas (P2) ===== */
               .meai-pursuit { position:fixed; z-index:55; background:var(--cp-bg); display:flex; flex-direction:column; overflow:hidden; }
               .meai-pu-top { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); flex:0 0 auto; }
-              .meai-pu-back { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); border-radius:8px; padding:6px 12px; cursor:pointer; font-weight:600; }
+              .meai-pu-back { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:6px 12px; cursor:pointer; font-weight:600; }
               .meai-pu-back:hover { border-color:var(--cp-accent); }
               .meai-pu-title { min-width:0; }
               .meai-pu-goal { font-weight:700; color:var(--cp-text); font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:46vw; }
               .meai-pu-status { font-size:12px; color:var(--cp-text-muted); display:flex; align-items:center; gap:6px; }
-              .meai-pu-icon { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:8px; width:34px; height:32px; cursor:pointer; }
+              .meai-pu-icon { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); width:34px; height:32px; cursor:pointer; }
               .meai-pu-icon.on { color:var(--cp-accent); border-color:var(--cp-accent); }
               .meai-pu-body { flex:1; min-height:0; display:flex; }
               .meai-pu-left { flex:0 0 340px; border-right:1px solid var(--cp-border); background:var(--cp-surface); display:flex; flex-direction:column; min-height:0; }
               .meai-pu-filter { width:100%; font-size:12px; padding:6px 8px; margin-bottom:8px; }
               .meai-pu-legend { flex:1; overflow:auto; padding:4px 8px 12px; }
-              .meai-pu-legrow { display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:0; background:transparent; padding:8px 8px; border-radius:8px; cursor:pointer; color:var(--cp-text); }
+              .meai-pu-legrow { display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:0; background:transparent; padding:8px 8px; border-radius:calc(var(--cp-radius-scale,1)*8px); cursor:pointer; color:var(--cp-text); }
               .meai-pu-legrow:hover { background:var(--cp-bg); }
               .meai-pu-legdot { width:9px; height:9px; border-radius:999px; background:var(--cp-text-muted); flex:0 0 auto; }
               .meai-pu-legrow.lg-done .meai-pu-legdot { background:#2ea043; }
@@ -12131,11 +12131,11 @@
               .meai-pu-ctabs { display:flex; align-items:center; gap:4px; padding:6px 12px; border-bottom:1px solid var(--cp-border); }
               .meai-pu-ctab { border:0; background:transparent; color:var(--cp-text-muted); padding:6px 10px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; }
               .meai-pu-ctab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
-              .meai-pu-zoom { position:absolute; top:12px; right:12px; z-index:4; display:flex; align-items:center; gap:2px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:3px; box-shadow:0 2px 10px rgba(0,0,0,.12); }
+              .meai-pu-zoom { position:absolute; top:12px; right:12px; z-index:4; display:flex; align-items:center; gap:2px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:3px; box-shadow:0 2px 10px rgba(0,0,0,.12); }
               .meai-pu-zoom > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); min-width:32px; height:28px; cursor:pointer; }
-              .meai-pu-zoom > button:first-child { border-radius:8px 0 0 8px; }
-              .meai-pu-zoom > button:nth-child(3) { border-radius:0 8px 8px 0; }
-              .meai-pu-follow { margin-left:6px; border-radius:8px !important; font-size:12px; padding:0 10px; color:var(--cp-text-muted) !important; }
+              .meai-pu-zoom > button:first-child { border-radius:calc(var(--cp-radius-scale,1)*8px) 0 0 calc(var(--cp-radius-scale,1)*8px); }
+              .meai-pu-zoom > button:nth-child(3) { border-radius:0 calc(var(--cp-radius-scale,1)*8px) calc(var(--cp-radius-scale,1)*8px) 0; }
+              .meai-pu-follow { margin-left:6px; border-radius:calc(var(--cp-radius-scale,1)*8px) !important; font-size:12px; padding:0 10px; color:var(--cp-text-muted) !important; }
               .meai-pu-follow.on { color:var(--cp-accent) !important; border-color:var(--cp-accent) !important; }
               .meai-pcanvas { flex:1; min-height:0; position:relative; overflow:hidden; background:
                 radial-gradient(circle, var(--cp-border) 1px, transparent 1px) 0 0 / 28px 28px; cursor:grab; }
@@ -12147,7 +12147,7 @@
               .meai-pedges .pe-branch { stroke:var(--cp-text-muted); stroke-dasharray:5 4; }
               .meai-pedges .pe-merge { stroke:#2ea043; stroke-width:2.5; }
               .meai-pedges .pe-converge { stroke:#2ea043; stroke-width:2; stroke-dasharray:2 5; opacity:.55; }
-              .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; }
+              .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; }
               .meai-pnode:hover { border-color:var(--cp-accent); box-shadow:0 4px 14px rgba(0,0,0,.18); }
               .meai-pnode.kind-spine { border-left:3px solid var(--cp-accent); }
               .meai-pnode.prun { box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
@@ -12163,7 +12163,7 @@
               .meai-pnode-g { font-size:12px; color:var(--cp-text-muted); margin-top:4px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-pnode-foot { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
               .meai-pnode-st { font-size:11px; color:var(--cp-text-muted); }
-              .meai-pnode-badge { font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:6px; border:1px solid var(--cp-border); color:var(--cp-text-muted); }
+              .meai-pnode-badge { font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:calc(var(--cp-radius-scale,1)*6px); border:1px solid var(--cp-border); color:var(--cp-text-muted); }
               .meai-pnode-badge.auth { color:#9a6700; border-color:#d29922; background:color-mix(in srgb,#d29922 12%, transparent); }
               .meai-pnode-badge.stop { color:#9a6700; border-color:#d29922; }
               .meai-pnode-badge.art { color:#6639ba; border-color:#8957e5; }
@@ -12177,7 +12177,7 @@
                 100% { box-shadow:0 1px 3px rgba(0,0,0,.12); }
               }
               @media (prefers-reduced-motion: reduce) { .meai-pnode.pflash { animation:none; border-color:var(--cp-accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-accent) 45%, transparent); } }
-              .meai-pu-legend-map { position:absolute; left:12px; bottom:12px; z-index:3; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; box-shadow:0 2px 12px rgba(0,0,0,.14); max-width:190px; }
+              .meai-pu-legend-map { position:absolute; left:12px; bottom:12px; z-index:3; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); max-width:190px; }
               .meai-pu-legend-h { display:flex; align-items:center; gap:6px; width:100%; border:0; background:transparent; color:var(--cp-text-muted); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:7px 11px; cursor:pointer; }
               .meai-pu-legend-body { padding:0 11px 10px; display:flex; flex-direction:column; gap:10px; }
               .meai-pu-legend-grp { display:flex; flex-direction:column; gap:3px; }
@@ -12196,11 +12196,11 @@
               .meai-pu-lg-dot.d-dead { background:transparent; border:1.5px dashed #cf222e; }
               .meai-pu-legchat { flex:1; min-height:0; display:flex; flex-direction:column; }
               .meai-pu-legpick { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); overflow-x:auto; flex-wrap:nowrap; flex:0 0 auto; }
-              .meai-pu-legpick > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12px; white-space:nowrap; }
+              .meai-pu-legpick > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:4px 10px; cursor:pointer; font-size:12px; white-space:nowrap; }
               .meai-pu-legpick > button.on { color:var(--cp-accent); border-color:var(--cp-accent); }
               .meai-pu-legscroll { flex:1; overflow:auto; padding:12px 14px; min-height:0; }
               /* Conclusion / outcome card at the top of the main thread */
-              .meai-pu-outcome { border:1px solid var(--cp-accent); border-radius:10px; padding:14px; margin-bottom:14px; background:color-mix(in srgb,var(--cp-accent) 6%, var(--cp-bg)); }
+              .meai-pu-outcome { border:1px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:14px; margin-bottom:14px; background:color-mix(in srgb,var(--cp-accent) 6%, var(--cp-bg)); }
               .meai-pu-outcome.done { border-color:#2ea043; background:color-mix(in srgb,#2ea043 8%, var(--cp-bg)); }
               .meai-pu-outcome-h { display:flex; align-items:center; gap:8px; font-weight:700; color:var(--cp-text); font-size:14px; }
               .meai-pu-outcome-ic { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:var(--cp-accent); color:#fff; font-size:12px; }
@@ -12218,7 +12218,7 @@
               .meai-pu-ev-car { color:var(--cp-text-muted); font-size:11px; flex:0 0 auto; }
               .meai-pu-ev.ev-thinking .meai-pu-ev-s { color:var(--cp-text-muted); font-style:italic; }
               .meai-pu-ev-d { margin-top:6px; }
-              .meai-pu-ev-pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--cp-text); background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:9px 11px; white-space:pre-wrap; word-break:break-word; max-height:280px; overflow:auto; line-height:1.5; }
+              .meai-pu-ev-pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--cp-text); background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:9px 11px; white-space:pre-wrap; word-break:break-word; max-height:280px; overflow:auto; line-height:1.5; }
               .meai-pu-ev-d .md-output { font-size:13px; }
               .meai-pu-right { flex:0 0 300px; border-left:1px solid var(--cp-border); background:var(--cp-surface); display:flex; flex-direction:column; min-height:0; }
               .meai-pu-rtabs { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); }
@@ -12226,7 +12226,7 @@
               .meai-pu-rtabs > button.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
               .meai-pu-rc { color:var(--cp-text-muted); font-weight:600; font-size:12px; }
               .meai-pu-rbody { flex:1; overflow:auto; padding:12px; }
-              .meai-pu-stop { border:1px solid var(--cp-border); border-radius:10px; padding:12px; margin-bottom:10px; background:var(--cp-bg); }
+              .meai-pu-stop { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:12px; margin-bottom:10px; background:var(--cp-bg); }
               .meai-pu-stop.st-needs-auth { border-color:#d29922; }
               .meai-pu-stop-k { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; }
               .meai-pu-stop-p { font-size:13px; color:var(--cp-text); margin-top:4px; line-height:1.45; }
@@ -12236,7 +12236,7 @@
               .meai-pu-constraints { margin-top:14px; }
               .meai-pu-constraints-h { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; margin-bottom:6px; }
               .meai-pu-constraint { font-size:12px; color:var(--cp-text); padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
-              .meai-pu-art { display:block; width:100%; text-align:left; border:1px solid var(--cp-border); border-radius:10px; padding:11px; margin-bottom:10px; background:var(--cp-bg); cursor:pointer; transition:border-color .15s; }
+              .meai-pu-art { display:block; width:100%; text-align:left; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:11px; margin-bottom:10px; background:var(--cp-bg); cursor:pointer; transition:border-color .15s; }
               .meai-pu-art:hover { border-color:var(--cp-accent); }
               .meai-pu-art-h { display:flex; align-items:baseline; gap:8px; }
               .meai-pu-art-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:#6639ba; font-weight:700; flex:0 0 auto; }
@@ -12245,13 +12245,13 @@
               .meai-pu-art-open { font-size:12px; color:var(--cp-accent); font-weight:600; margin-top:8px; }
               /* Expanded artifact reader */
               .meai-pu-artmodal { position:absolute; inset:0; z-index:20; background:color-mix(in srgb,#000 42%, transparent); display:flex; align-items:center; justify-content:center; padding:34px; }
-              .meai-pu-artcard { width:min(860px,100%); max-height:100%; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 18px 50px rgba(0,0,0,.35); display:flex; flex-direction:column; min-height:0; }
+              .meai-pu-artcard { width:min(860px,100%); max-height:100%; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*14px); box-shadow:0 18px 50px rgba(0,0,0,.35); display:flex; flex-direction:column; min-height:0; }
               .meai-pu-artcard-h { display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--cp-border); flex:0 0 auto; }
               .meai-pu-artcard-ti { display:flex; align-items:baseline; gap:8px; min-width:0; flex:1; }
               .meai-pu-artcard-t { font-weight:700; color:var(--cp-text); font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .meai-pu-artcard-link { color:var(--cp-accent); text-decoration:none; font-size:12.5px; font-weight:600; white-space:nowrap; }
               .meai-pu-artcard-link:hover { text-decoration:underline; }
-              .meai-pu-artcard-x { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; width:30px; height:30px; cursor:pointer; }
+              .meai-pu-artcard-x { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); width:30px; height:30px; cursor:pointer; }
               .meai-pu-artcard-x:hover { border-color:var(--cp-accent); color:var(--cp-text); }
               .meai-pu-artcard-body { flex:1; overflow:auto; padding:20px 24px; min-height:0; }
               .meai-pu-artcard-foot { display:flex; gap:8px; padding:12px 18px; border-top:1px solid var(--cp-border); flex:0 0 auto; }
@@ -12273,17 +12273,17 @@
               @media (prefers-reduced-motion: reduce) { .meai-pnode-dot.run { animation:none; } }
               .meai-pnode-ago { font-size:11px; color:var(--cp-text-muted); margin-left:auto; }
               /* Panel collapse chevrons */
-              .meai-pu-panx { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; width:24px; height:24px; line-height:1; cursor:pointer; flex:0 0 auto; font-size:13px; }
+              .meai-pu-panx { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); width:24px; height:24px; line-height:1; cursor:pointer; flex:0 0 auto; font-size:13px; }
               .meai-pu-panx:hover { border-color:var(--cp-accent); color:var(--cp-text); }
               /* Reopen tabs when a side panel is collapsed */
               .meai-pu-reopen { position:absolute; top:50%; transform:translateY(-50%); z-index:6; width:22px; height:64px; display:flex; align-items:center; justify-content:center; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.12); }
               .meai-pu-reopen:hover { border-color:var(--cp-accent); color:var(--cp-text); }
-              .meai-pu-reopen.left { left:0; border-left:0; border-radius:0 10px 10px 0; }
-              .meai-pu-reopen.right { right:0; border-right:0; border-radius:10px 0 0 10px; }
+              .meai-pu-reopen.left { left:0; border-left:0; border-radius:0 calc(var(--cp-radius-scale,1)*10px) calc(var(--cp-radius-scale,1)*10px) 0; }
+              .meai-pu-reopen.right { right:0; border-right:0; border-radius:calc(var(--cp-radius-scale,1)*10px) 0 0 calc(var(--cp-radius-scale,1)*10px); }
               /* Report reader (center) */
               .meai-pu-report { position:absolute; inset:0; z-index:8; background:var(--cp-bg); display:flex; flex-direction:column; min-height:0; }
               .meai-pu-report-top { display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid var(--cp-border); flex:0 0 auto; }
-              .meai-pu-report-back { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; padding:5px 12px; cursor:pointer; font-weight:600; font-size:12.5px; }
+              .meai-pu-report-back { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:5px 12px; cursor:pointer; font-weight:600; font-size:12.5px; }
               .meai-pu-report-back:hover { border-color:var(--cp-accent); color:var(--cp-text); }
               .meai-pu-report-ti { font-weight:700; color:var(--cp-text); font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-pu-report-body { flex:1; overflow:auto; padding:22px 28px; min-height:0; }
@@ -12311,7 +12311,7 @@
               .meai-pu-det-ts { color:var(--cp-text-muted); font-weight:400; }
               .meai-pu-det-lbl { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin-bottom:5px; }
               .meai-pu-det-goal, .meai-pu-det-stop { font-size:13px; color:var(--cp-text); line-height:1.5; }
-              .meai-pu-det-stop { padding:11px 13px; border:1px solid #d29922; border-radius:10px; background:color-mix(in srgb,#d29922 7%, transparent); }
+              .meai-pu-det-stop { padding:11px 13px; border:1px solid #d29922; border-radius:calc(var(--cp-radius-scale,1)*10px); background:color-mix(in srgb,#d29922 7%, transparent); }
               /* Pursuit launcher on the lane */
               .meai-pursue-launch { display:flex; gap:8px; margin-bottom:10px; }
               .meai-pursue-input { flex:1; font-size:12.5px; }
@@ -12325,7 +12325,7 @@
               .meai-pu-navtabs > button.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
               .meai-pu-nc { color:var(--cp-text-muted); font-weight:600; font-size:11px; }
               .meai-pu-navbody { flex:1; overflow:auto; padding:12px; min-height:0; }
-              .meai-pu-chat-goal { padding:11px 13px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); background:var(--cp-bg); margin-bottom:12px; }
+              .meai-pu-chat-goal { padding:11px 13px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*calc(var(--cp-radius-scale,1)*10px)); background:var(--cp-bg); margin-bottom:12px; }
               .meai-pu-chat-goal-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin-bottom:4px; }
               .meai-pu-chat-goal-t { font-size:13.5px; color:var(--cp-text); line-height:1.5; font-weight:600; }
               /* Drag splitter between nav and view */
