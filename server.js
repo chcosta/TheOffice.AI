@@ -16828,6 +16828,9 @@ function _meAiTreeConverse(t, mode, text) {
       _meAiSetStage(t, 'awaiting', 'awaiting');
     } catch (e) {
       _meAiEmit(t, { kind: 'response', text: 'Sorry — that follow-up failed: ' + String(e.message || e) });
+      // Match the success path: fold the tree stage back to awaiting too, or the
+      // canvas/header keep showing "Working" after the follow-up recovers.
+      _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
       _meAiSetStage(t, 'awaiting', 'awaiting');
     }
   });
@@ -17408,6 +17411,9 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
     t.nextActions = [];
     if (meAiTasks.has(t.id)) meAiTasks.set(t.id, t);
     _meAiSetStage(t, 'done', 'complete');
+    // Tree pursuits carry their own journal-folded stage that powers the canvas +
+    // outcome card; emit 'done' so the map/header/finish-button agree with the task.
+    if (t.mode === 'tree') { try { _meAiTreeEmit(t.id, 'stage', { stage: 'done' }); } catch (_) { /* best-effort */ } }
     if (diary && diary.written) _meAiEmit(t, { kind: 'note', text: 'Logged to your diary.' });
     else if (diary && diary.reason === 'consent-off') _meAiEmit(t, { kind: 'note', text: 'Diary write-back is off (turn on personal signals to log outcomes).' });
     // REQ-1: reflect completion onto the My Day board note bound to this task.

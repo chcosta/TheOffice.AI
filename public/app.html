@@ -13515,7 +13515,7 @@
                               <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
                                 <div class="meai-pu-outcome-nexth">Recommended next</div>
                                 <template x-for="(a, ai) in meAiPursuitSteerActions()" :key="'na-'+ai">
-                                  <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meai.pursuit.acting" @click="meAiPursuitAct(a)">
+                                  <button type="button" class="btn ghost meai-pu-nextbtn" :disabled="meAiPursuitBusy()" @click="meAiPursuitAct(a)">
                                     <span x-text="a.label || a.intent"></span>
                                     <span x-show="a.risk==='external'" class="meai-pu-next-risk" title="Sends or posts externally">↗</span>
                                   </button>
@@ -13528,25 +13528,25 @@
                                 <div class="meai-pu-steer-h">Chat with your Chief of Staff</div>
                                 <textarea class="field-input meai-pu-steer-in" rows="2" x-model="meai.pursuit.steer"
                                   placeholder="Ask what it found, request a change to the report, or send it after a new thread…"
-                                  :disabled="meai.pursuit.acting"
+                                  :disabled="meAiPursuitBusy()"
                                   @keydown.enter.meta.prevent="meAiPursuitAsk()"
                                   @keydown.enter.ctrl.prevent="meAiPursuitAsk()"></textarea>
                                 <div class="meai-pu-steer-row">
-                                  <button type="button" class="btn primary" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitAsk()">Ask →</button>
-                                  <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" x-show="meAiPursuitReport()" @click="meAiPursuitRevise()">Revise the report</button>
-                                  <button type="button" class="btn ghost" :disabled="meai.pursuit.acting || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('continue')" title="Sends the agent after a new thread — grows the map">Pursue further</button>
+                                  <button type="button" class="btn primary" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" @click="meAiPursuitAsk()">Ask →</button>
+                                  <button type="button" class="btn ghost" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" x-show="meAiPursuitReport()" @click="meAiPursuitRevise()">Revise the report</button>
+                                  <button type="button" class="btn ghost" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" @click="meAiPursuitSteer('continue')" title="Sends the agent after a new thread — grows the map">Pursue further</button>
                                 </div>
                                 <div class="meai-pu-steer-quick">
                                   <span class="meai-pu-steer-qh">Or quickly:</span>
-                                  <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitAsk('What did you find? Give me the short version.')">What it found</button>
+                                  <button type="button" :disabled="meAiPursuitBusy()" @click="meAiPursuitAsk('What did you find? Give me the short version.')">What it found</button>
                                   <span aria-hidden="true">·</span>
-                                  <button type="button" :disabled="meai.pursuit.acting" x-show="meAiPursuitReport()" @click="meAiPursuitRevise('Rewrite the report in a warmer, more human tone.')">Warmer tone</button>
+                                  <button type="button" :disabled="meAiPursuitBusy()" x-show="meAiPursuitReport()" @click="meAiPursuitRevise('Rewrite the report in a warmer, more human tone.')">Warmer tone</button>
                                   <span aria-hidden="true" x-show="meAiPursuitReport()">·</span>
-                                  <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('change-approach','Try a fundamentally different angle on this.')">Different angle</button>
+                                  <button type="button" :disabled="meAiPursuitBusy()" @click="meAiPursuitSteer('change-approach','Try a fundamentally different angle on this.')">Different angle</button>
                                   <span aria-hidden="true">·</span>
-                                  <button type="button" :disabled="meai.pursuit.acting" @click="meAiPursuitSteer('continue','Gather more data and sources before concluding.')">More data</button>
+                                  <button type="button" :disabled="meAiPursuitBusy()" @click="meAiPursuitSteer('continue','Gather more data and sources before concluding.')">More data</button>
                                 </div>
-                                <button type="button" class="meai-pu-steer-done" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')" :disabled="meai.pursuit.acting" @click="meAiPursuitFinish()">Looks good — I'm done here ✓</button>
+                                <button type="button" class="meai-pu-steer-done" x-show="!(meai.pursuit.tree && meai.pursuit.tree.stage==='done')" :disabled="meAiPursuitBusy()" @click="meAiPursuitFinish()">Looks good — I'm done here ✓</button>
                               </div>
                             </div>
                           </template>
@@ -30460,6 +30460,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const arts = this.meAiPursuitArtifacts();
           return arts.find(a => a.kind === 'report') || null;
         },
+        // Busy = the composer POST is in flight (acting) OR the server-side follow-up
+        // turn is still running. The tree's journal-folded stage ('working') is
+        // refreshed on every /tree poll, so gating on it stops a second Ask/Revise
+        // from racing in and hitting a 409 "Task is still working".
+        meAiPursuitBusy() {
+          const p = this.meai.pursuit;
+          return !!(p.acting || (p.tree && p.tree.stage === 'working'));
+        },
         // How many legs merged back into the spine (visible reroute of the spine).
         meAiPursuitMergeCount() {
           const p = this.meai.pursuit; const tree = p.tree; if (!tree || !tree.legs) return 0;
@@ -30522,7 +30530,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!ans) { this.toast('Type an answer first', 'info'); return; }
           try {
             await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/answer', {
-              method: 'POST', body: JSON.stringify({ stopId: stop.id, answer: ans }),
+              method: 'POST', body: JSON.stringify({ stopId: stop.id, text: ans }),
             });
             p.note = ''; p.answering = null;
             this.toast('Sent — the agent will fold your answer in', 'success');
@@ -30644,6 +30652,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiPursuitAct(a) {
           const p = this.meai.pursuit; if (!p.tid || p.acting || !a) return;
           if (a.risk === 'external' && !confirm('This will actually carry out: "' + (a.label || a.intent) + '".\n\nContinue?')) return;
+          // A gated approve/deny carries a journal stop (_stopId). It must RESOLVE that
+          // stop, not run a generic /act turn — otherwise the stop stays open and the
+          // Approvals rail/map keep waiting on you after you've already acted.
+          if (a._stopId) { return this.meAiPursuitResolve({ id: a._stopId }, a.intent === 'abandon' ? 'deny' : 'approve'); }
           p.acting = true;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/act', {
@@ -30696,11 +30708,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ok = await this._meAiPursuitPost('converse', text, 'revise');
           if (ok) { if (!quick) p.steer = ''; this.toast('On it — revising the report', 'success'); setTimeout(() => this.meAiPursuitLoad(), 600); }
         },
-        // "That's it — I'm done" → completes the pursuit (approve with no open stop is the
-        // finish signal). Distinct from a redirect, which keeps the agent working.
+        // "That's it — I'm done" → truly completes the pursuit via /complete (gated
+        // finish + diary write-back). Posting /act approve only ran a generic turn and
+        // left the pursuit awaiting, so the finish button never went away.
         async meAiPursuitFinish() {
-          const ok = await this._meAiPursuitPost('approve', '');
-          if (ok) { this.toast('Wrapped up — logged the outcome', 'success'); setTimeout(() => this.meAiPursuitLoad(), 600); }
+          const p = this.meai.pursuit; if (!p.tid || p.acting) return;
+          p.acting = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/complete', { method: 'POST', body: '{}' });
+            if (r && r.task) { this.meai._taskById[p.tid] = r.task; if (this._meAiMergeTask) this._meAiMergeTask(r.task); }
+            this.toast('Wrapped up — logged the outcome', 'success');
+            setTimeout(() => this.meAiPursuitLoad(), 600);
+          } catch (e) { this.toast('Could not wrap up: ' + (e.message || e), 'error'); }
+          finally { p.acting = false; }
         },
         // Dismiss: archive this Me-agent (drops from the lane; stays browsable under
         // Archived). A calm confirm — the pursuit + its artifacts are preserved.
@@ -30711,6 +30731,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/dismiss', { method: 'POST', body: '{}' });
             if (r && r.task) { this.meai._taskById[p.tid] = r.task; if (this._meAiMergeTask) this._meAiMergeTask(r.task); }
             this.toast('Dismissed — find it under Archived', 'success');
+            if (this.meAiLoadTasks) this.meAiLoadTasks();
             this.meAiPursuitClose();
           } catch (e) { this.toast('Could not dismiss: ' + (e.message || e), 'error'); }
         },
