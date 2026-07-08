@@ -12328,10 +12328,21 @@
               .meai-group-n { font-size:11.5px; color:var(--cp-text-muted); }
               .meai-group-flex { flex:1 1 auto; }
               .meai-group-reason { font-size:11.5px; color:var(--cp-text-muted); font-style:italic; text-align:right; }
-              .meai-group-items { display:flex; flex-direction:column; gap:4px; }
-              .meai-group-item { display:flex; align-items:center; gap:8px; font-size:12.5px; }
-              .meai-group-it-title { color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-group-items { display:flex; flex-direction:column; gap:2px; }
+              .meai-group-item { display:flex; flex-direction:column; font-size:12.5px; border-radius:6px; }
+              .meai-group-item.is-open { background:color-mix(in srgb, var(--cp-accent) 5%, transparent); }
+              .meai-group-it-main { display:flex; align-items:center; gap:8px; padding:3px 4px; }
+              .meai-group-it-title { color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
               .meai-group-item .meai-inbox-mention { flex:0 0 auto; }
+              .meai-conf-band.sm { font-size:10.5px; font-weight:600; white-space:nowrap; flex:0 0 auto; }
+              .meai-group-it-toggle { flex:0 0 auto; appearance:none; border:0; background:transparent; color:var(--cp-text-muted); font-size:11px; padding:2px 4px; border-radius:6px; cursor:pointer; opacity:0; transition:opacity .12s ease; }
+              .meai-group-it-main:hover .meai-group-it-toggle, .meai-group-item.is-open .meai-group-it-toggle { opacity:1; }
+              .meai-group-it-toggle:hover { color:var(--cp-accent); }
+              .meai-group-it-tri { padding:2px 4px 8px 20px; display:flex; flex-direction:column; gap:6px; }
+              .meai-group-it-acts { display:flex; flex-wrap:wrap; gap:8px; }
+              .meai-group-acts-lbl { font-size:11px; font-weight:600; color:var(--cp-text-muted); align-self:center; margin-right:2px; }
+              .meai-grouped-loose-lbl { margin:14px 0 6px; font-size:11.5px; font-weight:600; color:var(--cp-text-muted); }
+              .meai-grouped-loose-hint { font-weight:400; font-style:italic; }
               .meai-inbox-list { border:1px solid var(--cp-border); border-top:0; border-radius:0 0 10px 10px; margin-top:-1px; background:var(--cp-surface); display:flex; flex-direction:column; }
               .meai-inbox-item { padding:10px 14px; }
               .meai-inbox-item:first-child { border-top:0; }
@@ -13762,20 +13773,42 @@
                       <div class="meai-group">
                         <div class="meai-group-head">
                           <span class="meai-group-label" x-text="g.label"></span>
-                          <span class="meai-group-n" x-text="g.ids.length"></span>
+                          <span class="meai-group-n" x-text="meAiGroupItems(g).length"></span>
                           <span class="meai-group-flex"></span>
                           <span class="meai-group-reason" x-show="g.reason" x-text="g.reason"></span>
                         </div>
                         <div class="meai-group-items">
-                          <template x-for="it in meAiGroupItems(g)" :key="it.id">
-                            <div class="meai-group-item">
-                              <span class="meai-inbox-typedot" :class="meAiKindClass(it)"></span>
-                              <span class="meai-group-it-title clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
-                              <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned by name">@you</span>
+                          <template x-for="row in meAiGroupItemRows(g)" :key="row.it.id">
+                            <div class="meai-group-item" :class="{ 'is-open': !!meai.inboxItemOpen[row.it.id] }">
+                              <div class="meai-group-it-main">
+                                <span class="meai-inbox-typedot" :class="[meAiKindClass(row.it), { 'is-new': row.it.triage==='new' }]"></span>
+                                <span class="meai-group-it-title clickable" :title="(row.it.link||row.it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(row.it)" x-text="row.it.title"></span>
+                                <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name">@you</span>
+                                <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
+                                <span class="meai-group-flex"></span>
+                                <span class="meai-conf-band sm" x-show="typeof row.it.confidence==='number'" :class="meAiConfClass(row.it)" x-text="meAiConfBand(row.it) + ' \u00b7 ' + (row.it.confidence||0) + '%'"></span>
+                                <button type="button" class="meai-group-it-toggle" @click="meAiToggleGroupItem(row.it.id)" :aria-expanded="!!meai.inboxItemOpen[row.it.id]"
+                                        x-text="(!!meai.inboxItemOpen[row.it.id] ? 'Triage on its own \u25BE' : 'Triage on its own \u25B8')"></button>
+                              </div>
+                              <div class="meai-group-it-tri" x-show="!!meai.inboxItemOpen[row.it.id]" x-transition>
+                                <div class="meai-inbox-detail" x-show="row.it.detail" x-text="row.it.detail"></div>
+                                <div class="meai-conf" x-show="typeof row.it.confidence==='number' && row.it.confidenceWhy">
+                                  <span class="meai-conf-why" x-text="row.it.confidenceWhy"></span>
+                                </div>
+                                <div class="meai-group-it-acts">
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                                  <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="Already handled">Mark as done</button>
+                                  <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine">Not mine</button>
+                                  <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Declining">Won't fix</button>
+                                </div>
+                              </div>
                             </div>
                           </template>
                         </div>
                         <div class="meai-group-acts">
+                          <span class="meai-group-acts-lbl">All together</span>
                           <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'today')" :disabled="meai.inboxBusy" title="Fit all into today's agenda">Fit all into today</button>
                           <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'later')" :disabled="meai.inboxBusy" title="Park all for later">Later</button>
                           <button type="button" class="meai-tri ghost" @click="meAiGroupTriage(g,'done')" :disabled="meai.inboxBusy" title="Mark all as already handled">Mark all done</button>
@@ -13786,8 +13819,9 @@
                     </template>
                   </div>
 
-                  <div class="meai-inbox-secs" x-show="!meai.inboxGrouping">
-                  <template x-for="sec in meAiInboxSections()" :key="sec.key">
+                  <div class="meai-grouped-loose-lbl" x-show="meai.inboxGrouping && meAiVisibleSections().length">On their own <span class="meai-grouped-loose-hint">— nothing else clearly related; triage individually</span></div>
+                  <div class="meai-inbox-secs">
+                  <template x-for="sec in meAiVisibleSections()" :key="sec.key">
                     <div class="meai-sec" :class="{ ['meai-sec--' + sec.key]: true, 'is-pinned': !meAiSecCollapsed(sec) }" :id="'meai-sec-' + sec.key">
                       <button type="button" class="meai-sec-head" @click="meAiToggleSec(sec)" :aria-expanded="!meAiSecCollapsed(sec)">
                         <span class="meai-sec-caret" x-text="meAiSecCollapsed(sec) ? '\u25B8' : '\u25BE'"></span>
@@ -23896,6 +23930,7 @@
           inboxGrouping: false,   // grouped view toggled on
           inboxGroupBusy: false,  // group fetch in flight
           inboxGroups: [],        // [{id,label,reason,ids[]}]
+          inboxItemOpen: {},      // per-item expand state inside a group (id -> bool)
           conflictsDismissKey: '', // signature of the currently-dismissed scheduling-conflict banner
           _conflDismDate: null,    // date the dismiss signature was hydrated for
           _eodAutoTried: {},       // per-date guard so lookback AI commentary auto-generates once
@@ -31810,6 +31845,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const by = {}; (this.meai.inbox.items || []).forEach(i => { by[i.id] = i; });
           return g.ids.map(id => by[id]).filter(it => it && ['new', 'seen', 'later'].includes(it.triage));
         },
+        // Set of every item id currently living inside a group, so the flat sections can
+        // exclude them (grouped view) and the count always adds up (groups + loose = all).
+        _meAiGroupedIdSet() {
+          const s = new Set();
+          (this.meai.inboxGroups || []).forEach(g => (g.ids || []).forEach(id => s.add(id)));
+          return s;
+        },
+        // Flat sections to render right now: all items when flat; only the ungrouped
+        // remainder when grouping (the grouped ones render inside their group card).
+        meAiVisibleSections() {
+          return this.meAiInboxSections(this.meai.inboxGrouping ? { excludeGrouped: true } : undefined);
+        },
+        // Group members as rich rows ({it,status}) so each carries confidence, timestamp
+        // and its own suggested disposition — matching the flat view's richness.
+        meAiGroupItemRows(g) {
+          const SUGG_MIN = 60;
+          return this.meAiGroupItems(g).map(it => {
+            const c = typeof it.confidence === 'number' ? it.confidence : 0;
+            const sug = it.suggested;
+            const status = (sug && ['today', 'now', 'later', 'dismiss', 'wontfix'].includes(sug) && c >= SUGG_MIN) ? 'pending' : 'decide';
+            return { it, status };
+          });
+        },
+        meAiToggleGroupItem(id) {
+          if (!id) return;
+          this.meai.inboxItemOpen = Object.assign({}, this.meai.inboxItemOpen, { [id]: !this.meai.inboxItemOpen[id] });
+        },
         // Apply ONE triage action to every member of a group in a single request.
         async meAiGroupTriage(g, action) {
           if (!g || this.meai.inboxBusy) return;
@@ -31951,8 +32013,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (k === 'teams') return 'k-teams';
           return 'k-email';
         },
-        meAiInboxSections() {
+        meAiInboxSections(opts) {
           const items = (this.meai.inbox.items || []);
+          const excl = (opts && opts.excludeGrouped) ? this._meAiGroupedIdSet() : null;
           const defs = [
             { key: 'decision', label: 'Needs your decision', hint: 'Not confident enough to suggest — you choose.', action: null },
             { key: 'today', label: 'Fit into today', hint: 'Suggested for today\u2019s agenda — approve to slot it in.', action: 'today' },
@@ -31965,6 +32028,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           defs.forEach(d => { d.items = []; byKey[d.key] = d; });
           const SUGG_MIN = 60; // Medium+ confidence pre-files an item into its suggested section
           for (const it of items) {
+            if (excl && excl.has(it.id)) continue; // shown inside its group instead
             // Active flow only surfaces items that still need a call: low-confidence items you
             // must decide, and confident suggestions awaiting a one-tap approve. Everything you
             // (or auto-triage) already dispositioned lives in the discrete Triaged area below.
