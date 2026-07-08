@@ -14629,6 +14629,39 @@ function _meAiNormTodos(list) {
     .filter(Boolean);
 }
 
+// Reconcile the in-memory todo list with the durable store right before a save. A long
+// generate (gather + LLM refine can take ~2min) loads the store at the START of the run;
+// if the user checks/updates a goal DURING that window their POST /todos writes the store,
+// but the final save would otherwise clobber it with the pre-refine snapshot (losing the
+// check). Overlay the store's freshest user-completion state (done/status/note) onto the
+// matching in-memory entries by stable key so a mid-generate check is never lost. Seeding
+// only ADDS items, so overlaying completion state is always safe — the store is the
+// authoritative record of what the user has marked done/partial/missed.
+function _meAiReconcileTodoStore(day, todos) {
+  try {
+    const stored = loadMeAiTodoStore(day);
+    if (!Array.isArray(stored) || !stored.length) return todos;
+    const keyOf = (t) => String((t && (t.origin || t.link || t.title)) || '').trim().toLowerCase();
+    const titleOf = (t) => String((t && t.title) || '').trim().toLowerCase();
+    const byKey = new Map();
+    const byTitle = new Map();
+    for (const s of stored) { byKey.set(keyOf(s), s); byTitle.set(titleOf(s), s); }
+    for (const t of (todos || [])) {
+      if (!t || typeof t !== 'object') continue;
+      const s = byKey.get(keyOf(t)) || byTitle.get(titleOf(t));
+      if (!s) continue;
+      if (typeof s.status === 'string' && ['open', 'done', 'partial', 'missed'].includes(s.status)) {
+        t.status = s.status;
+        t.done = (s.status === 'done');
+      } else if (typeof s.done === 'boolean') {
+        t.done = s.done;
+      }
+      if (typeof s.note === 'string' && s.note) t.note = s.note;
+    }
+  } catch (_) { /* best-effort */ }
+  return todos;
+}
+
 // REQ-3 carry-over: find the most recent prior WORK day (walking back, respecting the
 // configured work-week) that has a saved agenda, and return its uncompleted todos tagged
 // as carried-over. Stops at the first planned day found so week-old todos don't resurrect
@@ -15549,7 +15582,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // list as checklist-kind so they need MANUAL completion + carry forward. agenda.todos is
   // the same array ref as effTodos, so seeding it mutates the snapshot; re-save the durable
   // store so seeded items persist + become carry-forward-eligible.
-  try { _meAiSeedChecklist(agenda, agenda.todos, day); saveMeAiTodoStore(day, agenda.todos); } catch (_) { /* best-effort */ }
+  try { _meAiSeedChecklist(agenda, agenda.todos, day); _meAiReconcileTodoStore(day, agenda.todos); saveMeAiTodoStore(day, agenda.todos); } catch (_) { /* best-effort */ }
   // Surface real double-books. Two committed blocks sharing time is a conflict the user
   // should see — EXCEPT overlapping a meeting they did not explicitly opt into (declined /
   // not-attending meetings are informational and may be worked over). Flexible open-focus

@@ -32199,7 +32199,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.notice = '';
           try {
             const todos = (this.meai.todos || [])
-              .map(t => (typeof t === 'string' ? { title: t, scope: 'work', done: false } : { title: t.title || '', scope: t.scope === 'personal' ? 'personal' : 'work', done: !!t.done, carried: !!t.carried, carriedFrom: t.carriedFrom || '' }))
+              .map(t => {
+                if (typeof t === 'string') return { title: t, scope: 'work', done: false };
+                const out = { title: t.title || '', scope: t.scope === 'personal' ? 'personal' : 'work', done: !!t.done, carried: !!t.carried, carriedFrom: t.carriedFrom || '' };
+                // Preserve checklist-kind fields so a mid-generate payload can't strip the
+                // user's completion state (server store is authoritative, but keep the client
+                // payload faithful in case the store is absent for the day).
+                if (t.kind === 'checklist') { out.kind = 'checklist'; if (t.status) out.status = t.status; if (t.live) out.live = true; }
+                if (t.origin) out.origin = t.origin;
+                if (t.link) out.link = t.link;
+                if (t.note) out.note = t.note;
+                return out;
+              })
               .filter(t => t.title);
             const r = await this.request('/api/me-ai/agenda/generate', {
               method: 'POST',
