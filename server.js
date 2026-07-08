@@ -14432,6 +14432,35 @@ function _meAiCarryOverTodos(cfg, day) {
 // Excludes meetings, personal items, lunch/open-focus fillers. Deduped against the existing
 // todos (title + origin) AND the per-day tombstone so a user-removed item stays gone.
 // Mutates effTodos in place (which is agenda.todos by ref).
+// Normalized signature for goal dedup: strips a leading "label:" verb, PR/work-item
+// words + sigils, punctuation and whitespace so "Review PR !61251" and
+// "review pr #61251" collapse to one goal — catching near-dups the exact-title
+// check misses.
+function _meAiGoalSig(s) {
+  let t = String(s || '').trim().toLowerCase();
+  t = t.replace(/^[^:]{2,40}:\s*/, '');
+  t = t.replace(/\b(pr|pull request|work item|issue)\b/g, '');
+  t = t.replace(/[!#]/g, '');
+  t = t.replace(/[^a-z0-9]+/g, ' ').trim();
+  return t;
+}
+// Split a compound leaf title ("Review PRs: !A & !B & !C") into its constituent
+// goals so the checklist tracks the SOURCE items, not the aggregate. Very
+// conservative: only splits on explicit list separators, and only when every part
+// looks like a discrete item (carries a PR/work-item token or is reasonably long),
+// so ordinary prose titles are never butchered.
+function _meAiSplitGoalTitle(title) {
+  const t = String(title || '').trim();
+  if (!t) return [];
+  const m = t.match(/^([^:]{2,40}:\s*)(.+)$/);
+  const prefix = m ? m[1] : '';
+  const body = m ? m[2] : t;
+  const parts = body.split(/\s+(?:&|\+|and)\s+|\s*[,;]\s+/i).map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) return [t];
+  const tokenish = (s) => /[!#]\d|\bpr\b|\d{4,}/i.test(s) || s.length >= 8;
+  if (!parts.every(tokenish)) return [t];
+  return parts.map(p => (prefix + p).trim());
+}
 function _meAiSeedChecklist(agenda, effTodos, day) {
   try {
     if (!agenda || !Array.isArray(effTodos)) return;
@@ -14446,6 +14475,7 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
     const norm = (s) => String(s || '').trim().toLowerCase();
     const haveTitle = new Set(effTodos.map(t => norm(t && t.title)));
     const haveOrigin = new Set(effTodos.map(t => norm(t && t.origin)).filter(Boolean));
+    const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
     // Expand merged blocks into leaves (one PR / PAT / reply per row).
     const leaves = [];
     for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
@@ -14453,7 +14483,15 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       if (Array.isArray(b.items) && b.items.length > 1) {
         for (const it of b.items) leaves.push({ title: it.title || b.title, link: it.link || '', meta: it.meta || null });
       } else {
-        leaves.push({ title: b.title, link: b.link || '', meta: b.meta || null });
+        // A single block whose title is itself a compound list ("Review PRs: !A & !B")
+        // still needs splitting into its constituent goals — track the SOURCE items,
+        // not the aggregate agenda entry.
+        const split = _meAiSplitGoalTitle(b.title);
+        if (split.length > 1) {
+          for (const st of split) leaves.push({ title: st, link: b.link || '', meta: b.meta || null });
+        } else {
+          leaves.push({ title: b.title, link: b.link || '', meta: b.meta || null });
+        }
       }
     }
     for (const lf of leaves) {
@@ -14465,10 +14503,15 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       const isLive = !!(lf.meta && lf.meta.prId) || !!_meAiParseWorkItem(link);
       const origin = norm(link || title).slice(0, 300);
       const tKey = norm(title);
+      const sig = _meAiGoalSig(title);
       if (haveTitle.has(tKey) || (origin && haveOrigin.has(origin))) continue;
+      // Signature dedup only when there's no distinguishing link (two live entities
+      // with different links are genuinely different goals even if titles collapse).
+      if (sig && !link && haveSig.has(sig)) continue;
       if (tomb[tKey] || (origin && tomb[origin])) continue; // user removed it before — keep it gone
       haveTitle.add(tKey);
       if (origin) haveOrigin.add(origin);
+      if (sig) haveSig.add(sig);
       const row = { title, scope: 'work', done: false, status: 'open', kind: 'checklist', origin: (link || title).slice(0, 300), link };
       if (isLive) row.live = true;
       effTodos.push(row);
