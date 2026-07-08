@@ -13079,7 +13079,16 @@ function _meAiWriteDayShape(date) {
   if (!s.meAiConsent) return { written: false, reason: 'consent-off' };
   const day = String(date || '').slice(0, 10) || _meAiLocalDay();
   const churn = _meAiChurnSummary(loadChangesForDate(day).events);
-  const detail = _meAiDayShapeText(churn);
+  // Prefer the richer EOD narrative summary when it's already been generated+cached for the
+  // day; otherwise fall back to the terse churn sentence. Never triggers an LLM turn here.
+  let detail = _meAiDayShapeText(churn);
+  try {
+    const cached = _meAiLoadEodCache(day);
+    if (cached && cached.narrative) {
+      const n = cached.narrative;
+      detail = [n.summary, n.howItWent].filter(Boolean).join(' ').trim() || detail;
+    }
+  } catch (_) {}
   const extTag = 'ext:me-ai:dayshape:' + day;
   try {
     const existing = connect.listEvidence({ includeHidden: true }) || [];
@@ -13096,6 +13105,179 @@ function _meAiWriteDayShape(date) {
   } catch (e) {
     return { written: false, reason: e.message, churn, detail };
   }
+}
+
+// ── End-of-day report (folds the old "day shape" churn chip into a richer retro) ──
+// Deterministic + cheap (NO gather / NO LLM): assembles planned-vs-actual for a date —
+// planned agenda work blocks + goals (todos, done/carried) + rhythm/churn + Me.AI task
+// completions + declined/handed-off outcomes + backlog spill. Personal items surface only
+// as aggregate "personal time" (never leak a personal title). This is the single source of
+// truth shared by /api/me-ai/lookback and /api/me-ai/eod so both stay in lockstep.
+function _meAiEodData(date) {
+  const today = _meAiLocalDay();
+  const day = String(date || '').slice(0, 10) || today;
+  const agenda = loadAgendaForDate(day);
+  const churn = _meAiChurnSummary(loadChangesForDate(day).events);
+  const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+  const personalBlocks = blocks.filter(b => b && _meAiIsPersonal(b));
+  const personalMin = personalBlocks.reduce((s, b) => {
+    const a = _hmToMin(b && b.start), z = _hmToMin(b && b.end);
+    return s + (a != null && z != null && z > a ? (z - a) : 0);
+  }, 0);
+  const plannedBlocks = blocks
+    .filter(b => b && !_meAiIsPersonal(b))
+    .map(b => ({ time: b.start || '', title: b.title || '', type: b.type || '' }));
+  const focusPlanned = blocks.filter(b => b && (b.type === 'focus') && !_meAiIsPersonal(b)).length;
+  const meetingsPlanned = blocks.filter(b => b && (b.type === 'meeting') && !_meAiIsPersonal(b)).length;
+  const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos : [];
+  const workTodos = todos.filter(t => t && (t.scope !== 'personal'));
+  const goals = workTodos.map(t => ({ title: t.title || '', done: !!t.done, carried: !!t.carried }));
+  const todosDone = workTodos.filter(t => t && t.done).length;
+  const todosCarried = workTodos.filter(t => t && t.carried).length;
+  const backlogCount = (agenda && Array.isArray(agenda.backlog)) ? agenda.backlog.length : 0;
+  // Actual side: Me.AI task completions recorded in the Diary for this date.
+  let completions = [];
+  try {
+    const ev = connect.listEvidence({ includeHidden: true }) || [];
+    completions = ev
+      .filter(e => e && String(e.date || '').slice(0, 10) === day && (e.tags || []).some(t => String(t) === 'me-ai'))
+      .filter(e => !(e.tags || []).some(t => String(t).startsWith('ext:me-ai:dayshape')))
+      .map(e => ({ title: e.title || '', detail: e.detail || '', source: e.source || '', links: e.links || [] }));
+  } catch (_) { completions = []; }
+  // Reconcile completions against the triage dismiss store (won't-fix vs not-mine).
+  let declined = [], handedOff = [];
+  try {
+    const dm = loadDismissForDate(day) || {};
+    const norm = s => String(s || '').toLowerCase()
+      .replace(/^\s*action(\s+required)?\s*[:\-]?\s*/i, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/[^a-z0-9]+/g, ' ').trim();
+    const wontFixKeys = [], notMineKeys = [];
+    for (const v of Object.values(dm)) {
+      const k = norm(v && v.title);
+      if (!k) continue;
+      if (v && v.reason === 'wontfix') { wontFixKeys.push(k); declined.push({ title: (v && v.title) || '' }); }
+      else { notMineKeys.push(k); handedOff.push({ title: (v && v.title) || '' }); }
+    }
+    const hit = (title, keys) => {
+      const k = norm(title); if (!k) return false;
+      return keys.some(x => x && (x === k || (x.length >= 8 && k.length >= 8 && (k.includes(x) || x.includes(k)))));
+    };
+    if (wontFixKeys.length || notMineKeys.length) {
+      completions = completions.filter(c => !hit(c.title, wontFixKeys) && !hit(c.title, notMineKeys));
+    }
+  } catch (_) { declined = []; handedOff = []; }
+  // Derive a short, honest retro (deterministic).
+  const insights = [];
+  if (plannedBlocks.length) insights.push(`Planned ${plannedBlocks.length} work block(s)` + (focusPlanned ? `, incl. ${focusPlanned} focus block(s)` : '') + '.');
+  if (completions.length) insights.push(`Completed ${completions.length} Me.AI task(s).`);
+  if (workTodos.length) insights.push(`${todosDone}/${workTodos.length} work goal(s) done` + (todosCarried ? `, ${todosCarried} carried over` : '') + '.');
+  if (churn.total) insights.push(`${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) — day shape: ${churn.shape}.`);
+  else if (plannedBlocks.length) insights.push('No organic churn — the plan held.');
+  if (backlogCount) insights.push(`${backlogCount} item(s) didn\u2019t fit and rolled over.`);
+  if (declined.length) insights.push(`${declined.length} ask(s) declined \u2014 won\u2019t fix.`);
+  if (handedOff.length) insights.push(`${handedOff.length} ask(s) handed off \u2014 not mine.`);
+  if (personalMin >= 15) insights.push(`${Math.round(personalMin / 60 * 10) / 10}h personal time.`);
+  const summary = agenda ? _meAiDayShapeText(churn) : 'No agenda was planned for this day.';
+  return {
+    date: day, today, isPast: day < today, hasAgenda: !!agenda,
+    rhythm: { shape: churn.shape, score: churn.score, reschedule: churn.reschedule, slip: churn.slip, add: churn.add, total: churn.total, planned: churn.planned },
+    planned: { blocks: plannedBlocks, focusPlanned, meetingsPlanned, goals, backlogCount, personalMin },
+    actual: { completions, todosDone, todosCarried, churn, declined, handedOff },
+    retro: { summary, insights },
+  };
+}
+
+// EOD AI-commentary cache (on-demand, per-day, invalidated by an input fingerprint) so
+// the always-on look-back stays LLM-free — the narrative only runs when the user asks and
+// is reused until the day's inputs change.
+const ME_AI_EOD_DIR = path.join(dataPath('me-ai'), 'eod');
+function _meAiEodPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_EOD_DIR, `${safe}.json`);
+}
+function _meAiEodFingerprint(data) {
+  try {
+    const salient = {
+      rhythm: data.rhythm,
+      blocks: (data.planned.blocks || []).map(b => `${b.time}|${b.title}|${b.type}`),
+      goals: (data.planned.goals || []).map(g => `${g.title}|${g.done ? 1 : 0}|${g.carried ? 1 : 0}`),
+      backlog: data.planned.backlogCount, personalMin: data.planned.personalMin,
+      completions: (data.actual.completions || []).map(c => c.title),
+      declined: (data.actual.declined || []).length, handedOff: (data.actual.handedOff || []).length,
+    };
+    return require('crypto').createHash('sha1').update(JSON.stringify(salient)).digest('hex').slice(0, 16);
+  } catch { return ''; }
+}
+function _meAiLoadEodCache(date) {
+  try {
+    const p = _meAiEodPath(date);
+    if (!fs.existsSync(p)) return null;
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return (v && v.narrative) ? v : null;
+  } catch { return null; }
+}
+function _meAiSaveEodCache(date, fp, narrative) {
+  try {
+    fs.mkdirSync(ME_AI_EOD_DIR, { recursive: true });
+    fs.writeFileSync(_meAiEodPath(date), JSON.stringify({ date, fp, narrative, at: new Date().toISOString() }, null, 2));
+  } catch (_) { /* best-effort */ }
+}
+// Deterministic fallback narrative when the LLM is unavailable — never fabricates.
+function _meAiEodFallbackNarrative(data) {
+  const tips = [];
+  if ((data.rhythm.reschedule + data.rhythm.slip) >= 4) tips.push('Reserve a buffer between meetings so a late add doesn\u2019t cascade into reschedules.');
+  if (data.planned.backlogCount >= 4) tips.push('The backlog is spilling — consider triaging lower-priority items off the day earlier.');
+  if (data.planned.focusPlanned === 0 && data.planned.blocks.length) tips.push('No focus block was planned — protect at least one contiguous deep-work slot tomorrow.');
+  if (data.actual.todosCarried >= 3) tips.push('Several goals carried over — start the day with the one that unblocks the most.');
+  if (!tips.length) tips.push('The plan held well — keep the same shape tomorrow.');
+  return { summary: data.retro.summary, howItWent: (data.retro.insights || []).join(' '), tips: tips.slice(0, 3), source: 'fallback' };
+}
+async function _meAiEodNarrative(date, data, opts) {
+  opts = opts || {};
+  const fp = _meAiEodFingerprint(data);
+  if (!opts.force) {
+    const cached = _meAiLoadEodCache(date);
+    if (cached && cached.fp === fp) return { ...cached.narrative, cached: true, fp };
+  }
+  // Build a compact, honest brief for the model — comparing rhythm vs agenda vs goals.
+  let narrative;
+  try {
+    const brief = {
+      date: data.date,
+      rhythm: data.rhythm,
+      plannedBlocks: (data.planned.blocks || []).length,
+      focusPlanned: data.planned.focusPlanned, meetingsPlanned: data.planned.meetingsPlanned,
+      goals: data.planned.goals, goalsDone: data.actual.todosDone, goalsCarried: data.actual.todosCarried,
+      completions: (data.actual.completions || []).map(c => c.title),
+      backlog: data.planned.backlogCount,
+      declined: (data.actual.declined || []).length, handedOff: (data.actual.handedOff || []).length,
+      personalHours: Math.round((data.planned.personalMin || 0) / 60 * 10) / 10,
+    };
+    const prompt = `You are my personal chief of staff writing a short, honest end-of-day reflection for ${data.date}. Here is the factual record of the day (planned agenda rhythm, my goals with done/carried state, tasks completed, and what slipped or was declined):\n${JSON.stringify(brief, null, 2)}\n\nCompare how the day actually went (rhythm/churn) against what I planned (agenda) and what I set out to accomplish (goals). Be warm but direct, specific to THIS data — never generic, never fabricate anything not in the record. Return ONLY a JSON object: {"summary": one calm sentence on how the day went, "howItWent": 2-3 sentences comparing rhythm vs agenda vs goals (call out the biggest win and the biggest drag), "tips": [2-3 concrete, actionable productivity tips for future days, each grounded in what happened today]}.`;
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'me-ai', category: 'me-ai' },
+    });
+    if (result && result.fallback) { narrative = _meAiEodFallbackNarrative(data); }
+    else {
+      const raw = (acc.trim() || (result && result.output) || '').trim();
+      const obj = _connectExtractJson(raw);
+      if (obj && (obj.summary || obj.howItWent || Array.isArray(obj.tips))) {
+        narrative = {
+          summary: String(obj.summary || data.retro.summary).slice(0, 300),
+          howItWent: String(obj.howItWent || '').slice(0, 800),
+          tips: (Array.isArray(obj.tips) ? obj.tips : []).map(t => String(t || '').slice(0, 240)).filter(Boolean).slice(0, 3),
+          source: 'ai',
+        };
+        if (!narrative.tips.length) narrative.tips = _meAiEodFallbackNarrative(data).tips;
+      } else { narrative = _meAiEodFallbackNarrative(data); }
+    }
+  } catch (_) { narrative = _meAiEodFallbackNarrative(data); }
+  _meAiSaveEodCache(date, fp, narrative);
+  return { ...narrative, cached: false, fp };
 }
 
 function _hmToMin(hm) {
@@ -15956,74 +16138,38 @@ app.post('/api/me-ai/agenda/dayshape', (req, res) => {
 // GET /api/me-ai/lookback?date=YYYY-MM-DD
 app.get('/api/me-ai/lookback', (req, res) => {
   try {
-    const today = _meAiLocalDay();
-    const date = String(req.query.date || '').slice(0, 10) || today;
-    const agenda = loadAgendaForDate(date);
-    const churn = _meAiChurnSummary(loadChangesForDate(date).events);
-    // Planned side (from the frozen snapshot).
-    const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
-    const plannedBlocks = blocks
-      .filter(b => b && !_meAiIsPersonal(b))
-      .map(b => ({ time: b.start || '', title: b.title || '', type: b.type || '' }));
-    const focusPlanned = blocks.filter(b => b && (b.type === 'focus') && !_meAiIsPersonal(b)).length;
-    const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos : [];
-    const workTodos = todos.filter(t => t && (t.scope !== 'personal'));
-    const todosDone = workTodos.filter(t => t && t.done).length;
-    const todosCarried = workTodos.filter(t => t && t.carried).length;
-    const backlogCount = (agenda && Array.isArray(agenda.backlog)) ? agenda.backlog.length : 0;
-    // Actual side: Me.AI task completions recorded in the Diary for this date.
-    let completions = [];
-    try {
-      const ev = connect.listEvidence({ includeHidden: true }) || [];
-      completions = ev
-        .filter(e => e && String(e.date || '').slice(0, 10) === date && (e.tags || []).some(t => String(t) === 'me-ai'))
-        .filter(e => !(e.tags || []).some(t => String(t).startsWith('ext:me-ai:dayshape'))) // exclude the day-shape note itself
-        .map(e => ({ title: e.title || '', detail: e.detail || '', source: e.source || '', links: e.links || [] }));
-    } catch (_) { completions = []; }
-    // Fidelity (owner ask): a completed Me-agent task writes a `me-ai` diary entry,
-    // but that must NOT read as "done" if the underlying ask was consciously declined
-    // (won't-fix) or handed off (not-mine). Reconcile completions against the triage
-    // dismiss store for the day and surface those as their own outcomes instead.
-    let declined = [], handedOff = [];
-    try {
-      const dm = loadDismissForDate(date) || {};
-      const norm = s => String(s || '').toLowerCase()
-        .replace(/^\s*action(\s+required)?\s*[:\-]?\s*/i, '')
-        .replace(/\([^)]*\)/g, '')            // drop "(expires in 30 days)" etc.
-        .replace(/[^a-z0-9]+/g, ' ').trim();
-      const wontFixKeys = [], notMineKeys = [];
-      for (const v of Object.values(dm)) {
-        const k = norm(v && v.title);
-        if (!k) continue;
-        if (v && v.reason === 'wontfix') { wontFixKeys.push(k); declined.push({ title: (v && v.title) || '' }); }
-        else { notMineKeys.push(k); handedOff.push({ title: (v && v.title) || '' }); }
-      }
-      const hit = (title, keys) => {
-        const k = norm(title); if (!k) return false;
-        return keys.some(x => x && (x === k || (x.length >= 8 && k.length >= 8 && (k.includes(x) || x.includes(k)))));
-      };
-      if (wontFixKeys.length || notMineKeys.length) {
-        completions = completions.filter(c => !hit(c.title, wontFixKeys) && !hit(c.title, notMineKeys));
-      }
-    } catch (_) { declined = []; handedOff = []; }
-    // Derive a short, honest retro.
-    const insights = [];
-    if (plannedBlocks.length) {
-      insights.push(`Planned ${plannedBlocks.length} work block(s)` + (focusPlanned ? `, incl. ${focusPlanned} focus block(s)` : '') + '.');
-    }
-    if (completions.length) insights.push(`Completed ${completions.length} Me.AI task(s).`);
-    if (workTodos.length) insights.push(`${todosDone}/${workTodos.length} work todo(s) done` + (todosCarried ? `, ${todosCarried} carried over` : '') + '.');
-    if (churn.total) insights.push(`${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) — day shape: ${churn.shape}.`);
-    else if (plannedBlocks.length) insights.push('No organic churn — the plan held (Focused).');
-    if (backlogCount) insights.push(`${backlogCount} item(s) didn\u2019t fit and rolled over.`);
-    if (declined.length) insights.push(`${declined.length} ask(s) declined \u2014 won\u2019t fix.`);
-    if (handedOff.length) insights.push(`${handedOff.length} ask(s) handed off \u2014 not mine.`);
-    const summary = agenda ? _meAiDayShapeText(churn) : 'No agenda was planned for this day.';
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
+    const data = _meAiEodData(date);
+    // Preserve the existing lookback response shape (client depends on planned.todos).
     res.json({
-      ok: true, date, today, isPast: date < today, hasAgenda: !!agenda,
-      planned: { blocks: plannedBlocks, focusPlanned, todos: workTodos.map(t => ({ title: t.title || '', done: !!t.done, carried: !!t.carried })), backlogCount },
-      actual: { completions, todosDone, todosCarried, churn, declined, handedOff },
-      retro: { summary, insights },
+      ok: true, date: data.date, today: data.today, isPast: data.isPast, hasAgenda: data.hasAgenda,
+      planned: { blocks: data.planned.blocks, focusPlanned: data.planned.focusPlanned, todos: data.planned.goals, backlogCount: data.planned.backlogCount },
+      actual: data.actual, retro: data.retro,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/eod?date=&ai=1 → the richer End-of-day report (folds the old rhythm
+// chip). Always returns the deterministic planned-vs-actual data + rhythm cheaply. AI
+// commentary is on-demand + cached: if ai=1 (and the cache is stale/missing) we run ONE
+// LLM turn and cache it keyed by an input fingerprint; otherwise we return any cached
+// narrative plus an `aiStale` flag so the client can offer "Generate AI commentary".
+app.get('/api/me-ai/eod', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
+    const wantAi = req.query.ai === '1' || req.query.ai === 'true';
+    const data = _meAiEodData(date);
+    const fp = _meAiEodFingerprint(data);
+    const cached = _meAiLoadEodCache(date);
+    const fresh = cached && cached.fp === fp;
+    if (wantAi) {
+      const narrative = await _meAiEodNarrative(date, data, { force: !fresh });
+      return res.json({ ok: true, ...data, narrative, aiStale: false });
+    }
+    return res.json({
+      ok: true, ...data,
+      narrative: fresh ? { ...cached.narrative, cached: true, fp } : null,
+      aiStale: !fresh,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -16187,6 +16333,24 @@ app.get('/api/me-ai/reports', (req, res) => {
         return { date: d, planned: isPlanned };
       });
     } catch (_) { /* best-effort */ }
+    // End-of-day AI narratives already cached within the window (no LLM here — cheap
+    // collation only). Surfaces recent reflections + an aggregate view of the tips the
+    // chief-of-staff has been giving, so the Reports page can show "what to improve".
+    const eod = { days: [], tips: [], count: 0 };
+    try {
+      const tipCounts = {};
+      for (const d of out) {
+        const c = _meAiLoadEodCache(d.date);
+        if (!c || !c.narrative) continue;
+        eod.count++;
+        eod.days.push({ date: d.date, shape: d.shape, summary: c.narrative.summary || '', howItWent: c.narrative.howItWent || '', tips: c.narrative.tips || [] });
+        for (const t of (c.narrative.tips || [])) {
+          const key = String(t || '').trim();
+          if (key) tipCounts[key] = (tipCounts[key] || 0) + 1;
+        }
+      }
+      eod.tips = Object.entries(tipCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([text, n]) => ({ text, count: n }));
+    } catch (_) { /* best-effort */ }
     const focusRatio = active.length ? focusDays / active.length : 0;
     // Triage automation roll-up. Each hand-triaged item costs ~40s of read-decide-click;
     // an auto-handled one saves that. autoRate = share of triaged items handled for you.
@@ -16224,7 +16388,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       meetingShare: workMin ? meetingMin / workMin : 0,         // share lost to meetings
       future, findings,
     };
-    res.json({ ok: true, today, days, series: out, summary });
+    res.json({ ok: true, today, days, series: out, summary, eod });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

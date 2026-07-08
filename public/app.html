@@ -12714,6 +12714,20 @@
               .meai-lb-mark { flex:0 0 auto; font-size:12px; }
               .meai-lb-mark.wf { color:var(--cp-text-soft); }
               .meai-lb-mark.nm { color:var(--cp-accent); }
+              .meai-lb-strike { text-decoration:line-through; color:var(--cp-text-muted); }
+              .meai-lb-personal { margin-top:6px; font-size:11.5px; color:var(--cp-text-muted); font-style:italic; }
+              .meai-lb-shape { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-text-muted); }
+              .meai-lb-shape.shape-reactive { color:var(--cp-warning,#d29922); }
+              .meai-lb-shape.shape-fragmented { color:var(--cp-danger,#f85149); }
+              .meai-eod-ai { margin:0 0 12px; padding:10px 12px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-surface-2,rgba(128,128,128,.06)); }
+              .meai-eod-howwent { margin:0; font-size:13px; line-height:1.6; color:var(--cp-text); }
+              .meai-eod-tips { margin-top:8px; }
+              .meai-eod-tips h5 { margin:0 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); }
+              .meai-eod-tips ul { margin:0; padding-left:18px; font-size:12.5px; color:var(--cp-text); line-height:1.6; }
+              .meai-eod-genrow { display:flex; align-items:center; gap:8px; margin:0 0 12px; }
+              .meai-eod-stale { font-size:11px; color:var(--cp-warning,#d29922); }
+              .meai-eod-goals { margin:0 0 12px; }
+              .meai-eod-goals h5 { margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); }
               .meai-card { border:1px solid rgba(128,128,128,.16); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
               .meai-na-item:last-child { border-bottom:0; }
@@ -13568,8 +13582,6 @@
                           @click="meai.changesOpen=!meai.changesOpen"
                           title="Today's rhythm = how much the day actually churned on its own (Calm → Steady → Reactive → Fragmented), measured from reschedules/slips/late-adds. It is NOT your Day mode — Day mode (Balanced/Focused/…) is the planning strategy you choose; this rhythm is the observed outcome. Click to see what changed today.">
                     <span x-text="'Today\'s rhythm: ' + (meai.agenda.meta.churn.shape||'Calm')"></span>
-                    <span class="meai-dayshape-n" x-show="meai.agenda.meta.churn.total"
-                          x-text="'· ' + meai.agenda.meta.churn.reschedule + ' resched · ' + meai.agenda.meta.churn.slip + ' slipped · ' + meai.agenda.meta.churn.add + ' added'"></span>
                     <span class="meai-dayshape-planned" x-show="meai.agenda.meta.churn.planned"
                           x-text="'· ' + meai.agenda.meta.churn.planned + ' planning'"
                           title="Deliberate re-plans (day mode, time prefs, fit-into-today) — recorded but not counted against today's rhythm"></span>
@@ -13581,11 +13593,6 @@
                         x-show="meai.date===meai.today"
                         title="Today's actionable work is mirrored to a 'My Day' board so it lives alongside your other workspaces.">
                   📅 My Day board
-                </button>
-                <button type="button" class="btn ghost meai-eod" @click="meAiDayShapeReport()" :disabled="meai.dayShapeBusy"
-                        title="Summarise today's churn into your diary for look-back">
-                  <span x-show="!meai.dayShapeBusy">End-of-day report</span>
-                  <span x-show="meai.dayShapeBusy">Writing…</span>
                 </button>
               </div>
               <!-- What changed panel -->
@@ -13604,27 +13611,66 @@
                 </template>
                 <div class="meai-change-empty" x-show="!meai.changes.length">No changes yet today — a steady plan.</div>
               </div>
-              <div class="meai-dayshape-out" x-show="meai.dayShape && meai.dayShape.detail" x-transition>
-                <span x-text="meai.dayShape?.detail"></span>
-                <span class="meai-status-detail" x-show="meai.dayShape?.written"> · saved to diary</span>
-              </div>
-
-              <!-- M5 look-back / retro: planned-vs-actual for a PAST date. Read-only. -->
+              <!-- M5 look-back / retro + End-of-day report: planned-vs-actual for a PAST
+                   date, with optional AI commentary. Read-only + cheap by default. -->
               <div class="meai-lookback" x-show="meai.lookback" x-transition>
                 <div class="meai-card-head" @click="meai.lookbackOpen=!meai.lookbackOpen">
                   <span class="meai-caret" x-text="meai.lookbackOpen?'▾':'▸'"></span>
-                  <strong>Look back</strong>
-                  <span class="meai-lb-sum" x-show="meai.lookback" x-text="meai.lookback && meai.lookback.retro ? meai.lookback.retro.summary : ''"></span>
+                  <strong>End-of-day report</strong>
+                  <span class="meai-lb-shape" x-show="meai.eod && meai.eod.rhythm && meai.eod.rhythm.shape"
+                        :class="'shape-' + ((meai.eod && meai.eod.rhythm && meai.eod.rhythm.shape ? meai.eod.rhythm.shape : 'Calm')).toLowerCase()"
+                        x-text="meai.eod && meai.eod.rhythm ? meai.eod.rhythm.shape : ''"
+                        title="Today's rhythm — how much the day churned on its own"></span>
+                  <span class="meai-lb-sum" x-show="meai.lookback" x-text="meai.eod && meai.eod.retro ? meai.eod.retro.summary : (meai.lookback && meai.lookback.retro ? meai.lookback.retro.summary : '')"></span>
                 </div>
                 <div class="meai-lb-body" x-show="meai.lookbackOpen && meai.lookback" x-transition>
                   <div class="meai-lb-empty" x-show="meai.lookback && !meai.lookback.hasAgenda">No agenda was planned for this day.</div>
                   <template x-if="meai.lookback && meai.lookback.hasAgenda">
                     <div>
+                      <!-- AI commentary — how the day went + productivity tips. On-demand
+                           (cached); the default report stays LLM-free. -->
+                      <div class="meai-eod-ai" x-show="meai.eod && meai.eod.narrative && meai.eod.narrative.howItWent">
+                        <p class="meai-eod-howwent" x-text="meai.eod && meai.eod.narrative ? meai.eod.narrative.howItWent : ''"></p>
+                        <template x-if="meai.eod && meai.eod.narrative && (meai.eod.narrative.tips||[]).length">
+                          <div class="meai-eod-tips">
+                            <h5>To do better tomorrow</h5>
+                            <ul>
+                              <template x-for="(t, ti) in (meai.eod.narrative.tips||[])" :key="ti">
+                                <li x-text="t"></li>
+                              </template>
+                            </ul>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="meai-eod-genrow">
+                        <button type="button" class="btn ghost meai-eod-gen" @click="meAiGenerateEod()" :disabled="meai.eodBusy"
+                                title="Ask your chief of staff to reflect on how the day went and suggest what to improve. Cached so it only runs once per day.">
+                          <span x-show="meai.eodBusy">Reflecting…</span>
+                          <span x-show="!meai.eodBusy && meai.eod && meai.eod.narrative && meai.eod.narrative.howItWent" x-text="meai.eod && meai.eod.aiStale ? 'Refresh AI commentary' : 'Regenerate AI commentary'"></span>
+                          <span x-show="!meai.eodBusy && !(meai.eod && meai.eod.narrative && meai.eod.narrative.howItWent)">✦ Generate AI commentary</span>
+                        </button>
+                        <span class="meai-eod-stale" x-show="meai.eod && meai.eod.aiStale && meai.eod.narrative && meai.eod.narrative.howItWent"
+                              title="The day changed since this commentary was written">· out of date</span>
+                      </div>
                       <ul class="meai-lb-insights">
-                        <template x-for="(ins, ii) in (meai.lookback.retro.insights||[])" :key="ii">
+                        <template x-for="(ins, ii) in ((meai.eod && meai.eod.retro ? meai.eod.retro.insights : meai.lookback.retro.insights)||[])" :key="ii">
                           <li x-text="ins"></li>
                         </template>
                       </ul>
+                      <!-- Goals status (work todos: done / carried) -->
+                      <template x-if="meai.eod && (meai.eod.planned.goals||[]).length">
+                        <div class="meai-eod-goals">
+                          <h5>Goals</h5>
+                          <template x-for="(g, gi) in (meai.eod.planned.goals||[])" :key="gi">
+                            <div class="meai-lb-row">
+                              <span class="meai-lb-done" x-show="g.done">✓</span>
+                              <span class="meai-lb-mark" x-show="!g.done && g.carried" title="carried to another day">↻</span>
+                              <span class="meai-lb-mark" x-show="!g.done && !g.carried" title="not completed">·</span>
+                              <span class="meai-lb-title" :class="g.done ? 'meai-lb-strike' : ''" x-text="g.title"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
                       <div class="meai-lb-cols">
                         <div class="meai-lb-col">
                           <h5>Planned</h5>
@@ -13636,6 +13682,9 @@
                             </div>
                           </template>
                           <div class="meai-lb-none" x-show="!(meai.lookback.planned.blocks||[]).length">No work blocks planned.</div>
+                          <div class="meai-lb-personal" x-show="meai.eod && meai.eod.planned.personalMin"
+                               x-text="'+ ' + Math.round((meai.eod.planned.personalMin||0)/6)/10 + 'h personal time'"
+                               title="Personal blocks are shown only as aggregate time"></div>
                         </div>
                         <div class="meai-lb-col">
                           <h5>Actually done</h5>
@@ -21738,6 +21787,35 @@
                     <div class="report-chart" x-html="meaiChurnChart()"></div>
                   </div>
 
+                  <!-- End-of-day reflections: cached AI commentary per day + recurring tips -->
+                  <div class="card" style="margin-bottom:20px" x-show="meaiReport.eod && meaiReport.eod.count">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                     <h3 style="margin:0">End-of-day reflections</h3>
+                     <span class="hint">AI commentary you generated on how days went</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">Only days where you generated an end-of-day reflection appear here. Open any past day on Me.AI to add one.</p>
+                    <template x-if="meaiReport.eod.tips && meaiReport.eod.tips.length">
+                     <div class="meai-eod-tips" style="margin:0 0 16px">
+                       <h5>Recurring suggestions</h5>
+                       <ul>
+                         <template x-for="(t, ti) in meaiReport.eod.tips" :key="ti">
+                           <li><span x-text="t.text"></span><span class="hint" x-show="t.count > 1" x-text="' · ' + t.count + '×'"></span></li>
+                         </template>
+                       </ul>
+                     </div>
+                    </template>
+                    <template x-for="(d, di) in (meaiReport.eod.days||[])" :key="d.date">
+                     <div style="padding:10px 0;border-top:1px solid var(--cp-border)">
+                       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px">
+                         <strong x-text="meaiDayLabel(d.date)"></strong>
+                         <span class="meai-lb-shape" :class="'shape-' + (d.shape||'Calm').toLowerCase()" x-text="d.shape"></span>
+                       </div>
+                       <p class="meai-eod-howwent" x-show="d.howItWent" x-text="d.howItWent"></p>
+                       <p class="hint" style="margin:2px 0 0" x-show="!d.howItWent && d.summary" x-text="d.summary"></p>
+                     </div>
+                    </template>
+                  </div>
+
                   <!-- Triage decisions -->
                   <div class="card" style="margin-bottom:20px">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
@@ -23803,10 +23881,10 @@
           // REQ-7 auto-regen + change tracking + day-shape report.
           changesOpen: false,    // "what changed today" panel expanded
           changes: [],           // recent change events {kind,title,from,to,at}
-          dayShapeBusy: false,   // end-of-day report request in flight
-          dayShape: null,        // { detail, churn } after an end-of-day report
           lookback: null,        // M5 planned-vs-actual retro for a PAST date
           lookbackOpen: true,    // collapse state for the look-back card
+          eod: null,             // richer End-of-day report (rhythm+goals+AI commentary)
+          eodBusy: false,        // AI-commentary generation in flight
           _autoTimer: null,      // client poll for auto-regenerated agenda (today only)
           _lastGeneratedAt: '',  // last agenda.generatedAt we rendered (detect silent regen)
           justUpdated: false,    // brief "agenda updated" flash after a silent regen
@@ -31242,7 +31320,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
             this.meai._lastGeneratedAt = (this.meai.agenda && this.meai.agenda.generatedAt) || '';
             this._meAiSyncTodos(this.meai.agenda);
-            this.meai.dayShape = null;
             this.meai.justUpdated = false;
             // Returning to the page mid-rebuild: the loaded snapshot is the last CLEAN day
             // (a mid-flight build hasn't persisted yet), so show it and flag "updating" so
@@ -31524,6 +31601,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/me-ai/lookback?date=' + encodeURIComponent(this.meai.date));
             this.meai.lookback = (r && r.ok && r.isPast) ? r : null;
           } catch (_) { this.meai.lookback = null; }
+          // Richer End-of-day report (rhythm + goals + cached AI commentary). Cheap: ai=0
+          // never triggers an LLM turn — it only returns already-cached narrative if present.
+          if (this.meai.lookback) {
+            try {
+              const e = await this.request('/api/me-ai/eod?date=' + encodeURIComponent(this.meai.date));
+              this.meai.eod = (e && e.ok) ? e : null;
+            } catch (_) { this.meai.eod = null; }
+          } else { this.meai.eod = null; }
+        },
+        // Generate (or refresh) the AI commentary for the End-of-day report. Runs ONE
+        // one-shot LLM turn server-side and caches it keyed by the day's fingerprint, so
+        // the default report load stays LLM-free.
+        async meAiGenerateEod() {
+          if (this.meai.eodBusy) return;
+          this.meai.eodBusy = true;
+          try {
+            const e = await this.request('/api/me-ai/eod?ai=1&date=' + encodeURIComponent(this.meai.date));
+            if (e && e.ok) {
+              this.meai.eod = e;
+              if (e.narrative && e.narrative.howItWent) this.toast('End-of-day reflection ready', 'success');
+              else this.toast('Could not generate commentary right now', 'info');
+            }
+          } catch (err) {
+            this.toast('Failed to generate commentary: ' + (err.message || err), 'error');
+          } finally { this.meai.eodBusy = false; }
         },
         // REQ-7 auto-regenerate: poll TODAY's agenda so a silent server re-plan
         // (triggered by new signals) shows up without the user hitting Regenerate.
@@ -31582,20 +31684,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try { localStorage.setItem('meai-auto-updates', this.meai.autoUpdates ? '1' : '0'); } catch (_) {}
           if (this.meai.autoUpdates) { this.meAiStartAutoPoll(); }
           else { this.meAiStopAutoPoll(); this.meai.rebuilding = false; }
-        },
-        // REQ-7 write an end-of-day "day shape" note into the diary on demand.
-        async meAiDayShapeReport() {
-          if (this.meai.dayShapeBusy) return;
-          this.meai.dayShapeBusy = true;
-          try {
-            const r = await this.request('/api/me-ai/agenda/dayshape', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) });
-            this.meai.dayShape = r ? { detail: r.detail || '', churn: r.churn || null, written: !!r.written, reason: r.reason || '' } : null;
-            if (r && r.written) this.toast('Day-shape report added to your diary', 'success');
-            else if (r && r.reason === 'already-logged') this.toast('Day-shape already logged for this day', 'info');
-            else if (r && r.reason === 'consent-off') this.toast('Enable Me.AI to write to your diary', 'error');
-          } catch (e) {
-            this.toast('Failed to write day-shape report: ' + (e.message || e), 'error');
-          } finally { this.meai.dayShapeBusy = false; }
         },
         // REQ-8 attention inbox — surface newly-arrived email/Teams asks + triage.
         async meAiLoadInbox() {
