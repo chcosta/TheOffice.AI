@@ -13433,7 +13433,10 @@
               /* Owner ask: the goal row itself is the primary target — clicking the title
                  navigates to its agenda block (or opens its link). Reads as a link. */
               .meai-chk-title-nav { cursor:pointer; }
-              .meai-chk-title-nav:hover span:last-child { text-decoration:underline; text-underline-offset:2px; }
+              .meai-chk-title-nav:hover span:not(.meai-chk-pri):not(.meai-chk-noagenda) { text-decoration:underline; text-underline-offset:2px; }
+              /* Muted marker for a goal not tied to any block on today's agenda — it's
+                 an audit-only entry, so it isn't clickable and shouldn't look like a link. */
+              .meai-chk-noagenda { margin-left:6px; font-size:11px; color:var(--cp-ink-3, #8a8f98); font-style:italic; white-space:nowrap; }
               /* Action lines (meta + status) stay quiet until the row is hovered, so the
                  goals list reads as a calm checklist at rest. Opacity (not display) to
                  avoid a layout jump on hover — matches the status-toggle pattern. */
@@ -14414,7 +14417,7 @@
                           <div class="meai-chk-row" :class="{ done: t.done }">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
-                              <div class="meai-chk-title meai-chk-title-nav" @click="meAiGoalOpen(t)" :title="meAiGoalHasBlock(t) ? 'Go to the agenda block that gets this done' : (t.link ? 'Open' : '')"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span></div>
+                              <div class="meai-chk-title" :class="{ 'meai-chk-title-nav': meAiGoalActionable(t) }" @click="meAiGoalActionable(t) && meAiGoalOpen(t)" :title="meAiGoalHasBlock(t) ? 'Go to the agenda block that gets this done' : (t.link ? 'Open' : 'Not on today\\'s agenda — an audit-only goal')"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span><span class="meai-chk-noagenda" x-show="!meAiGoalActionable(t)" title="This goal isn't tied to a block on today's agenda — it's here for tracking only">not on today's agenda</span></div>
                               <div class="meai-chk-meta meai-chk-hoveracts" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
                                 <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
                                 <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
@@ -32941,9 +32944,56 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             .replace(/[^a-z0-9]+/g, ' ')
             .trim();
         },
+        // Extract stable entity tokens (PR / work-item ids) from ANY link form —
+        // a raw GitHub/AzDO URL, an in-app "#/codeflow/<key>" deep-link, or a bare
+        // cf key (org|project|repo|prId). Lets a PR goal (whose link is a raw PR URL)
+        // line up with its agenda block (whose link is the in-app Code Flow deep-link)
+        // even though the two URLs never share a prefix. Returns e.g.
+        // ['pr:arcade#61251','pr#61251'] or ['wi#9674'].
+        _meAiLinkTokens(link) {
+          const out = [];
+          let s = String(link || '').trim();
+          if (!s) return out;
+          const cf = s.match(/#\/codeflow\/([^?#]+)/i);
+          if (cf) { try { s = 'key:' + decodeURIComponent(cf[1]); } catch (_) { s = 'key:' + cf[1]; } }
+          const pushPr = (repo, n) => {
+            if (!/^\d+$/.test(String(n || ''))) return;
+            if (repo) out.push(('pr:' + String(repo) + '#' + n).toLowerCase());
+            out.push('pr#' + n);
+          };
+          // Bare / deep-link cf key: provider?|org|project|repo|prId
+          if (s.indexOf('key:') === 0 || (s.indexOf('|') >= 0 && !/^https?:/i.test(s))) {
+            const parts = s.replace(/^key:/, '').split('|').filter(x => x !== '');
+            const n = parts[parts.length - 1];
+            pushPr(parts[parts.length - 2] || '', n);
+          }
+          // Raw PR URL (reuse the existing parser -> provider?|org|project|repo|prId)
+          const k = this._meAiPrKeyFromUrl(s);
+          if (k) { const parts = k.split('|').filter(x => x !== ''); pushPr(parts[parts.length - 2] || '', parts[parts.length - 1]); }
+          // Work item URLs
+          let m = s.match(/_workitems\/edit\/(\d+)/i); if (m) out.push('wi#' + m[1]);
+          m = s.match(/[?&]workitem=(\d+)/i); if (m) out.push('wi#' + m[1]);
+          return out;
+        },
+        // Pull PR/work-item ids named in a free-text title. "!123" -> pr#123 (AzDO PR);
+        // "#123" is ambiguous (PR or work item) so emit both pr# and wi#; "wi 9674" /
+        // "workitem 9674" -> wi#9674. Used to bridge a goal to a merged agenda block
+        // whose only id lives in its title text (no structured link survived the merge).
+        _meAiTitleIds(title) {
+          const out = [];
+          const t = String(title || '');
+          let m; const re = /([!#])(\d{2,})/g;
+          while ((m = re.exec(t))) {
+            out.push('pr#' + m[2]);
+            if (m[1] === '#') out.push('wi#' + m[2]);
+          }
+          const wi = /\b(?:wi|work\s*item|workitem)\s*#?\s*(\d{3,})/gi;
+          while ((m = wi.exec(t))) out.push('wi#' + m[1]);
+          return out;
+        },
         // Index of the agenda block that a goal maps to, or -1. Match on link first
-        // (goal.link vs block link/prLink or any constituent item), then normalized
-        // title (equality or containment either direction).
+        // (goal.link vs block link/prLink or any constituent item), then by extracted
+        // PR/work-item entity id, then normalized title (equality or containment).
         meAiGoalBlockIdx(goal) {
           const blocks = (this.meai.agenda && this.meai.agenda.blocks) || [];
           if (!goal || !blocks.length) return -1;
@@ -32960,6 +33010,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (linksOf(blocks[i]).some(l => l && (l === gLink || l.indexOf(gLink) === 0 || gLink.indexOf(l) === 0))) return i;
             }
           }
+          // Entity-id match: a PR goal's raw URL vs the block's in-app Code Flow key.
+          const gTokens = this._meAiLinkTokens(gLink);
+          // Fold in ids named in the goal's own title (e.g. "Review !61251").
+          this._meAiTitleIds(goal.title).forEach(x => { if (gTokens.indexOf(x) < 0) gTokens.push(x); });
+          if (gTokens.length) {
+            for (let i = 0; i < blocks.length; i++) {
+              const bt = [];
+              linksOf(blocks[i]).forEach(l => { this._meAiLinkTokens(l).forEach(x => bt.push(x)); });
+              [blocks[i].title].concat((blocks[i].items || []).map(it => it.title))
+                .forEach(t => this._meAiTitleIds(t).forEach(x => bt.push(x)));
+              if (bt.some(x => x.indexOf('#') > 0 && x.split('#')[1] && gTokens.indexOf(x) >= 0)) return i;
+            }
+          }
           const gt = this._meAiGoalNorm(goal.title);
           if (!gt) return -1;
           for (let i = 0; i < blocks.length; i++) {
@@ -32974,6 +33037,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return -1;
         },
         meAiGoalHasBlock(goal) { return this.meAiGoalBlockIdx(goal) >= 0; },
+        // A goal is actionable when clicking it goes SOMEWHERE — its agenda block or a
+        // direct link. Non-actionable goals ("reply to drew timeline", "missy wi 9674"
+        // with no link + no matching block) get a muted "not on today's agenda" marker
+        // and a default cursor instead of a dead click.
+        meAiGoalActionable(goal) { return this.meAiGoalHasBlock(goal) || !!(goal && (goal.link || goal.prLink)); },
         // Owner ask: clicking the goal row itself navigates — to its agenda block when
         // one exists (the agenda item then owns Open), else straight to its link. Lets
         // us hide the explicit "On today's agenda / Open" action line until hover.
