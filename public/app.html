@@ -13975,7 +13975,7 @@
                       <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
                         <div class="meai-block"
                              :id="'meai-blk-'+bi"
-                             :class="{ 'meai-drop-hi': meai.dragBlockKey && meai.dragBlockKey!==meAiItemKey('b',b,bi) && meai.dropTargetKey===meAiItemKey('b',b,bi), 'meai-locked': b.meta && b.meta.locked }"
+                             :class="{ 'meai-drop-hi': meai.dragBlockKey && meai.dragBlockKey!==meAiItemKey('b',b,bi) && meai.dropTargetKey===meAiItemKey('b',b,bi), 'meai-locked': b.meta && b.meta.locked, 'meai-launch-open': meAiLaunchMenuOpen(b) }"
                              @dragover.prevent="meAiBlockDragOver($event,b,bi)" @drop.prevent="meAiBlockDrop($event,b,bi)">
                           <div class="meai-block-time" x-text="_meAiFmtHm(b.start)"
                                draggable="true" @dragstart="meAiBlockDragStart($event,b,bi)" @dragend="meAiBlockDragEnd()"
