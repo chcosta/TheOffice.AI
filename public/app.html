@@ -3575,18 +3575,18 @@
     .ag-cap-head .ag-cap-title { font-size: 0.85rem; font-weight: 700; display: flex; align-items: center; gap: 7px; }
     .ag-cap-head .ag-cap-n { font-size: 0.72rem; color: var(--cp-text-muted); }
     .ag-section-sub { font-size: 0.72rem; font-weight: 700; color: var(--cp-text-soft); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 10px; }
-    .ag-rail .detail-row { flex-direction: column; align-items: stretch; gap: 2px; }
-    .ag-rail .detail-label { flex: none; }
-    .ag-rail .detail-value { width: 100%; min-width: 0; word-break: break-word; }
-    .ag-rail .detail-value .field-input { width: 100% !important; min-width: 0 !important; box-sizing: border-box; }
-    .ag-rail .detail-value select.field-input { width: 100% !important; }
+    .ag-studio .nlx-rail .detail-row { flex-direction: column; align-items: stretch; gap: 2px; }
+    .ag-studio .nlx-rail .detail-label { flex: none; }
+    .ag-studio .nlx-rail .detail-value { width: 100%; min-width: 0; word-break: break-word; }
+    .ag-studio .nlx-rail .detail-value .field-input,
+    .ag-studio .nlx-rail .mg-inline-select { width: 100% !important; min-width: 0 !important; max-width: 100%; box-sizing: border-box; }
     /* ===== List pages (Agents / Managers) redesign ===== */
-    .lp-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 14px; }
-    .lp-chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--cp-border); background: var(--cp-surface); cursor: pointer; font-weight: 600; font-size: 0.84rem; color: var(--cp-text); }
-    .lp-chip:hover { border-color: var(--cp-border-strong); }
-    .lp-chip.on { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
-    .lp-chip .n { font-size: 0.78rem; background: var(--cp-surface-soft); border-radius: 999px; padding: 1px 8px; color: var(--cp-text-muted); }
-    .lp-chip.on .n { background: var(--cp-accent); color: var(--cp-accent-fg); }
+    .lp-chips { display: flex; gap: 18px; flex-wrap: wrap; margin: 16px 0 14px; }
+    .lp-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 2px; border-radius: 0; border: none; border-bottom: 2px solid transparent; background: transparent; cursor: pointer; font-weight: 600; font-size: 0.84rem; color: var(--cp-text-muted); transition: color .12s, border-color .12s; }
+    .lp-chip:hover { color: var(--cp-text); }
+    .lp-chip.on { background: transparent; border-bottom-color: var(--cp-accent); color: var(--cp-accent); }
+    .lp-chip .n { font-size: 0.78rem; background: transparent; border-radius: 0; padding: 0; color: var(--cp-text-soft); font-weight: 700; }
+    .lp-chip.on .n { background: transparent; color: var(--cp-accent); }
     .lp-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
     .lp-dot.run { background: var(--cp-warning); box-shadow: 0 0 0 3px rgba(245,158,11,.18); }
     .lp-dot.sched { background: var(--cp-link); }
@@ -3604,7 +3604,7 @@
     .lp-gsec { margin-bottom: 20px; }
     .lp-ghead { display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; cursor: pointer; user-select: none; }
     .lp-ghead .gt { font-size: 0.74rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--cp-text-soft); }
-    .lp-ghead .gn { font-size: 0.7rem; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 999px; padding: 0 8px; color: var(--cp-text-muted); }
+    .lp-ghead .gn { font-size: 0.7rem; background: transparent; border: none; border-radius: 0; padding: 0; color: var(--cp-text-muted); font-weight: 700; }
     .lp-ghead .gline { flex: 1; height: 1px; background: var(--cp-border); }
     .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
     .lp-card { position: relative; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 14px); padding: 15px 16px; cursor: pointer; transition: border-color .12s, transform .12s; }
@@ -3616,7 +3616,8 @@
     .lp-sdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
     .lp-desc { font-size: 0.83rem; color: var(--cp-text-soft); margin: 11px 0; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.4em; }
     .lp-cmeta { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
-    .lp-tag { font-size: 0.72rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-muted); }
+    .lp-tag { font-size: 0.72rem; padding: 0; border-radius: 0; border: none; background: transparent; color: var(--cp-text-muted); }
+    .lp-cmeta .lp-tag:not(:first-child)::before { content: '·'; margin-right: 7px; color: var(--cp-text-soft); }
     .lp-tag.run { color: var(--cp-warning); border-color: var(--cp-warning); }
     .lp-tag.active { color: var(--cp-success); border-color: var(--cp-success); }
     .lp-avstack { display: flex; align-items: center; }
@@ -4110,6 +4111,21 @@
       background: var(--cp-accent);
       color: var(--cp-accent-fg);
       border-color: color-mix(in srgb, var(--cp-accent) 60%, var(--cp-border));
+    }
+    /* Inside a chat bubble the bubble IS the container — the markdown wrapper must not
+       paint its own card chrome (surface-soft bg + border + padding + scroll cap). That
+       nested box made the USER bubble render dark accent-fg text on a dark surface-soft
+       box (unreadable), and is a banned nested-card look. Render inline, inherit color. */
+    .message-bubble .md-output {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      max-height: none;
+      overflow: visible;
+      color: inherit;
+      font-size: inherit;
+      line-height: inherit;
     }
     .message-meta {
       margin-top: 8px;
@@ -7383,40 +7399,26 @@
 
           <template x-if="!loading && !errorMessage && route === 'agent-detail' && selectedAgent">
           <section x-transition.opacity.duration.180ms>
-            <div class="ag-hero">
-              <div class="ag-avatar">🤖</div>
-              <div class="ag-hero-main">
+            <div class="nlx-top ag-top">
+              <div class="ag-top-main">
                 <div class="ag-crumb"><a class="md-link" href="#/agents">← Agents</a></div>
                 <h1 x-text="selectedAgent.name"></h1>
-                <div class="ag-badges">
-                  <span class="tiny-badge" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></span>
-                  <span class="tiny-badge" x-show="selectedAgent.config.group" x-text="'Group · ' + (selectedAgent.config.group || '')"></span>
-                  <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
-                  <template x-if="selectedAgent.config.source && selectedAgent.config.source.type === 'azdo'">
-                    <span class="source-badge source-plugin" :title="'objectId ' + (selectedAgent.config.source.objectId || '')">
-                      ☁ Azure DevOps · <span x-text="selectedAgent.config.source.org + '/' + selectedAgent.config.source.project + '/' + selectedAgent.config.source.repo"></span> @ <span x-text="selectedAgent.config.source.branch"></span> · <span class="mono" x-text="selectedAgent.config.source.path"></span> · <span x-text="selectedAgent.config.source.kind"></span>
-                    </span>
-                  </template>
-                  <template x-if="selectedAgent.config.source && selectedAgent.config.source.type !== 'azdo' && typeof selectedAgent.config.source === 'object'">
-                    <span class="source-badge" x-text="'Source: ' + (selectedAgent.config.source.source || selectedAgent.config.source.type || 'local')"></span>
-                  </template>
-                </div>
+                <p class="ag-top-sub" x-show="selectedAgent.descriptionDraft && selectedAgent.descriptionDraft.trim()" x-text="selectedAgent.descriptionDraft"></p>
               </div>
-              <div class="ag-hero-actions">
+              <div class="ag-top-actions nlx-actions">
                 <template x-if="selectedAgent.status === 'running'">
                   <button class="btn" type="button" @click="hydrateLiveOutput(selectedAgent.id, true)" style="display:flex;align-items:center;gap:6px;border-color:var(--cp-accent);color:var(--cp-accent)">
                     <span class="pulse-dot"></span> Running — View live
                   </button>
                 </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
-                <button class="btn" type="button" @click="openQuickPin('agent', selectedAgent.id, selectedAgent.name, selectedAgent.config?.group || 'Agent')" title="Pin to workspace">📌 Pin</button>
-                <button class="btn" type="button" @click="quickStarEmp(selectedAgent.id, selectedAgent.name, 'agent', selectedAgent.config?.pluginDir ? '🧩' : '🤖', selectedAgent.teamId)" :title="empStarred(selectedAgent.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedAgent.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedAgent.id) ? 'Starred' : 'Star'"></span></button>
-                <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="openAgentCliSession(selectedAgent.id)" title="Open an interactive Copilot CLI terminal wired with this agent; the conversation mirrors here as a chat">⌨ CLI session</button>
+                <button class="btn ghost ag-top-hover" type="button" @click="openQuickPin('agent', selectedAgent.id, selectedAgent.name, selectedAgent.config?.group || 'Agent')" title="Pin to workspace">📌 Pin</button>
+                <button class="btn ghost ag-top-hover" type="button" @click="quickStarEmp(selectedAgent.id, selectedAgent.name, 'agent', selectedAgent.config?.pluginDir ? '🧩' : '🤖', selectedAgent.teamId)" :title="empStarred(selectedAgent.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedAgent.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedAgent.id) ? 'Starred' : 'Star'"></span></button>
+                <button class="btn ghost ag-top-hover" type="button" @click="openAgentCliSession(selectedAgent.id)" title="Open an interactive Copilot CLI terminal wired with this agent; the conversation mirrors here as a chat">⌨ CLI</button>
                 <button class="btn ghost" type="button" @click="selectedAgent._menu = !selectedAgent._menu" title="More actions">⋯</button>
                 <div class="ag-menu" x-show="selectedAgent._menu" @click.outside="selectedAgent._menu = false" x-transition style="display:none">
                   <button type="button" @click="editAgentSource(selectedAgent.id); selectedAgent._menu = false">📝 Edit in VSCode</button>
-                  <button type="button" @click="focusConfigSection('agent-config'); selectedAgent._menu = false">ℹ Jump to details</button>
+                  <button type="button" @click="openOrCreateChat('agent', selectedAgent.id); selectedAgent._menu = false">💬 Open chat page</button>
                   <button type="button" @click="agentTab = 'tools'; validateCaps(); selectedAgent._menu = false">✓ Validate capabilities</button>
                   <button type="button" @click="openExport(); selectedAgent._menu = false">⤴ Export to AzDO</button>
                   <div class="ag-menu-sep"></div>
@@ -7501,129 +7503,123 @@
                 </template>
               </div>
             </div>
-            <div class="ag-stack">
-                <section class="detail-panel ag-identity" id="agent-config">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Identity</h2>
-                      <div class="hint">Source &amp; capabilities.</div>
-                    </div>
-                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing' : '🔒 Unlock'"></button>
-                  </div>
-                  <div class="ag-identity-grid">
-                    <div class="detail-table">
-                      <div class="detail-row"><span class="detail-label">Display Name</span><span class="detail-value">
-                        <span x-show="!selectedAgent.capsUnlocked" x-text="selectedAgent.name"></span>
-                        <input x-show="selectedAgent.capsUnlocked" class="field-input" style="display:inline-block;width:auto;min-width:240px;padding:2px 8px;font-size:0.9em" type="text" x-model="selectedAgent.nameDraft" placeholder="e.g. Email Sender" />
-                      </span></div>
-                      <div class="detail-row"><span class="detail-label">Backing Agent</span><span class="detail-value" x-text="selectedAgent.config?.agent || selectedAgent.config?.name || selectedAgent.id"></span></div>
-                      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedAgent.id"></span></div>
-                      <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Source Location</span><span class="detail-value mono" style="font-size:0.82em;word-break:break-all" x-text="selectedAgent.config?.source?.type === 'azdo' ? (selectedAgent.config.source.org + '/' + selectedAgent.config.source.project + '/' + selectedAgent.config.source.repo + ' @ ' + selectedAgent.config.source.branch + ' · ' + selectedAgent.config.source.path) : (selectedAgent.config?.pluginDir || (selectedAgent.config?.cwd ? selectedAgent.config.cwd + '\\.github\\agents\\' + selectedAgent.id + '.agent.md' : '—'))"></span></div>
-                      <div class="detail-row"><span class="detail-label">Installation</span><span class="detail-value" x-text="selectedAgent.config?.source?.type === 'azdo' ? '☁ Azure DevOps' : (selectedAgent.config?.source?.type === 'local' ? (selectedAgent.config?.pluginDir ? '📁 Local plugin' : '📁 Local repository') : (selectedAgent.config?.pluginDir ? 'Local plugin directory' : (selectedAgent.config?.cwd ? 'Local repository' : 'Marketplace')))"></span></div>
-                      <div class="detail-row" x-show="selectedAgent.config?.source?.installedAt"><span class="detail-label">Last installed</span><span class="detail-value" x-text="formatRelative(selectedAgent.config?.source?.installedAt)"></span></div>
-                      <div class="detail-row"><span class="detail-label">Group</span><span class="detail-value">
-                        <select class="field-input" style="display:inline;width:auto;padding:2px 8px;font-size:0.85em" :value="selectedAgent.config?.group || ''" @change="onAgentGroupSelect(selectedAgent.id, $event)">
-                          <option value="">Ungrouped</option>
-                          <template x-for="g in allGroupNames()" :key="g">
-                            <option :value="g" x-text="g" :selected="g === selectedAgent.config?.group"></option>
-                          </template>
-                          <option value="__new__">+ New group…</option>
-                        </select>
-                      </span></div>
-                    </div>
-
-                    <div class="ag-caps-col">
-                    <div class="caps-divider">
-                      <span class="caps-divider-label">Capabilities</span>
-                      <span class="hint">Description &amp; skills help managers decide when to route requests to this agent.</span>
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Description</span><span class="hint">What this agent does, in plain language</span></div>
-                      <textarea class="ag-desc" x-model="selectedAgent.descriptionDraft" :disabled="!selectedAgent.capsUnlocked" x-effect="selectedAgent.descriptionDraft; $el.style.height='auto'; $el.style.height=($el.scrollHeight)+'px'" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Skills</span><span class="hint">Comma-separated keywords (e.g. azure, monitoring, email)</span></div>
-                      <input class="field-input" type="text" x-model="selectedAgent.skillsDraft" :disabled="!selectedAgent.capsUnlocked" placeholder="azure, status, monitoring" />
-                      <div class="split-meta" style="margin-top:8px;flex-wrap:wrap;gap:6px" x-show="selectedAgent.skillsDraft && selectedAgent.skillsDraft.trim()">
-                        <template x-for="s in selectedAgent.skillsDraft.split(',').map(x => x.trim()).filter(Boolean)" :key="s">
-                          <span class="tiny-badge" x-text="s"></span>
-                        </template>
+            <div class="nlx-studio ag-studio">
+              <!-- LEFT rail: identity definition + where it's used -->
+              <div class="nlx-rail">
+                <div class="nlx-card" id="agent-config">
+                  <div class="mg-idhead">
+                    <div class="mg-avatar" x-text="selectedAgent.config?.pluginDir ? '🧩' : '🤖'"></div>
+                    <div style="min-width:0;flex:1">
+                      <div class="mg-idname">
+                        <span class="mg-dot" :class="selectedAgent.status === 'running' ? 'run' : (selectedAgent.status === 'error' ? 'off' : 'on')"></span>
+                        <strong x-show="!selectedAgent.capsUnlocked" x-text="selectedAgent.name"></strong>
+                        <input x-show="selectedAgent.capsUnlocked" class="field-input mg-name-in" type="text" x-model="selectedAgent.nameDraft" placeholder="Display name" />
                       </div>
+                      <div class="mg-sub" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></div>
                     </div>
-                    <div class="toolbar" x-show="selectedAgent.capsUnlocked">
-                      <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save changes</button>
-                      <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = false">Cancel</button>
-                    </div>
-                    </div>
+                    <button class="btn ghost mg-edit" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? 'Done' : 'Edit'"></button>
                   </div>
-                </section>
-              <div class="ag-main">
-                <div class="ag-tabs">
-                  <button class="ag-tab" type="button" :class="agentTab === 'runs' ? 'active' : ''" @click="agentTab = 'runs'">🏃 Recent Runs <span class="ag-count" x-text="agentHistory.length"></span></button>
-                  <button class="ag-tab" type="button" :class="agentTab === 'tasks' ? 'active' : ''" @click="agentTab = 'tasks'">🗂 Tasks &amp; Runs <span class="ag-count" x-text="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length + ' · ' + agentHistory.length"></span></button>
-                  <button class="ag-tab" type="button" :class="agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'tools'">🧩 Tools &amp; Skills <span class="ag-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
-                  <button class="ag-tab" type="button" x-show="selectedAgent.config?.pluginDir" :class="agentTab === 'files' ? 'active' : ''" @click="agentTab = 'files'; loadAgentFiles(selectedAgent.id)">📁 Files <span class="ag-count" x-text="agentFiles.loaded ? agentFiles.files.length : '…'"></span></button>
-                  <button class="ag-tab" type="button" x-show="managersForAgent(selectedAgent.id).length" :class="agentTab === 'managers' ? 'active' : ''" @click="agentTab = 'managers'">👔 Managers <span class="ag-count" x-text="managersForAgent(selectedAgent.id).length"></span></button>
+                  <div class="detail-table mg-meta">
+                    <div class="detail-row"><span class="detail-label">Group</span><span class="detail-value">
+                      <select class="mg-inline-select" :value="selectedAgent.config?.group || ''" @change="onAgentGroupSelect(selectedAgent.id, $event)">
+                        <option value="">Ungrouped</option>
+                        <template x-for="g in allGroupNames()" :key="g">
+                          <option :value="g" x-text="g" :selected="g === selectedAgent.config?.group"></option>
+                        </template>
+                        <option value="__new__">+ New group…</option>
+                      </select>
+                    </span></div>
+                    <div class="detail-row"><span class="detail-label">Backing agent</span><span class="detail-value" x-text="selectedAgent.config?.agent || selectedAgent.config?.name || selectedAgent.id"></span></div>
+                    <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedAgent.id"></span></div>
+                    <div class="detail-row"><span class="detail-label">Installation</span><span class="detail-value" x-text="selectedAgent.config?.source?.type === 'azdo' ? '☁ Azure DevOps' : (selectedAgent.config?.source?.type === 'local' ? (selectedAgent.config?.pluginDir ? '📁 Local plugin' : '📁 Local repository') : (selectedAgent.config?.pluginDir ? 'Local plugin directory' : (selectedAgent.config?.cwd ? 'Local repository' : 'Marketplace')))"></span></div>
+                    <div class="detail-row"><span class="detail-label">Source</span><span class="detail-value mono" style="font-size:0.8em;word-break:break-all" x-text="selectedAgent.config?.source?.type === 'azdo' ? (selectedAgent.config.source.org + '/' + selectedAgent.config.source.project + '/' + selectedAgent.config.source.repo + ' @ ' + selectedAgent.config.source.branch + ' · ' + selectedAgent.config.source.path) : (selectedAgent.config?.pluginDir || (selectedAgent.config?.cwd ? selectedAgent.config.cwd + '\\.github\\agents\\' + selectedAgent.id + '.agent.md' : '—'))"></span></div>
+                    <div class="detail-row" x-show="selectedAgent.config?.source?.installedAt"><span class="detail-label">Last installed</span><span class="detail-value" x-text="formatRelative(selectedAgent.config?.source?.installedAt)"></span></div>
+                  </div>
+                  <div class="toolbar" x-show="selectedAgent.capsUnlocked" style="margin-top:12px">
+                    <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save changes</button>
+                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = false">Cancel</button>
+                  </div>
                 </div>
 
-                <div class="panel-stack" x-show="agentTab === 'runs'">
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Recent Runs</h2>
-                      <div class="hint">Last 10 executions with expandable output, reasoning &amp; steps.</div>
+                <!-- Where it's used -->
+                <div class="nlx-card">
+                  <div class="mg-card-h">Where it's used</div>
+                  <template x-if="!managersForAgent(selectedAgent.id).length && !tasksForAgent(selectedAgent.id).length">
+                    <div class="hint">Not on any team or task yet.</div>
+                  </template>
+                  <template x-if="managersForAgent(selectedAgent.id).length">
+                    <div class="mg-wu-group">
+                      <div class="mg-wu-lbl">Managers <span class="mg-count" x-text="managersForAgent(selectedAgent.id).length"></span></div>
+                      <template x-for="mgr in managersForAgent(selectedAgent.id)" :key="mgr.id">
+                        <div class="mg-wu-item">
+                          <span class="mg-dot" :class="mgr.status === 'running' ? 'run' : 'on'"></span>
+                          <a :href="'#/managers/' + mgr.id" class="md-link mg-wu-name" x-text="mgr.name"></a>
+                          <span class="mg-wu-sub" x-text="(mgr.config?.assignments || []).length + ' assign'"></span>
+                        </div>
+                      </template>
                     </div>
+                  </template>
+                  <template x-if="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">
+                    <div class="mg-wu-group">
+                      <div class="mg-wu-lbl">Tasks <span class="mg-count" x-text="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length"></span></div>
+                      <template x-for="task in tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent')" :key="task.taskKey">
+                        <div class="mg-wu-item">
+                          <a :href="'#/tasks'" class="md-link mg-wu-name" x-text="task.name"></a>
+                          <button class="btn ghost mg-wu-run" type="button" @click="runTask(task)" title="Run now">▶</button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment').length">
+                    <div class="mg-wu-group">
+                      <div class="mg-wu-lbl">Assignments <span class="mg-count" x-text="tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment').length"></span></div>
+                      <template x-for="task in tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment')" :key="task.taskKey">
+                        <div class="mg-wu-item">
+                          <span class="mg-wu-name" x-text="task.name"></span>
+                          <span class="mg-wu-sub" x-text="task.ownerName"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- CENTER stage: definition (overview / tools / files) -->
+              <div class="nlx-stage">
+                <div class="nlx-stage-bar">
+                  <div class="nlx-seg">
+                    <button type="button" :class="agentTab === 'overview' ? 'active' : ''" @click="agentTab = 'overview'">Overview</button>
+                    <button type="button" :class="agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'tools'">Tools &amp; skills <span class="mg-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
+                    <button type="button" x-show="selectedAgent.config?.pluginDir" :class="agentTab === 'files' ? 'active' : ''" @click="agentTab = 'files'; loadAgentFiles(selectedAgent.id)">Files <span class="mg-count" x-text="agentFiles.loaded ? agentFiles.files.length : '…'"></span></button>
+                    <button type="button" :class="agentTab === 'chat' ? 'active' : ''" @click="agentTab = 'chat'; openAgentChatTab()">Chat<span class="mg-dot" style="margin-left:7px" :class="(boardAgentChatState(agentChatItem()) && boardAgentChatState(agentChatItem()).running) ? 'run' : ''" x-show="boardAgentChatState(agentChatItem()) && boardAgentChatState(agentChatItem()).running"></span></button>
                   </div>
-                  <div class="run-list" x-show="agentHistory.length">
-                    <template x-for="run in agentHistory" :key="'agent-run2-' + run.id">
-                      <div class="run-item">
-                        <div class="split-meta">
-                          <div>
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <strong x-text="formatDateTime(run.started_at)"></strong>
-                              <span class="status-badge" :class="statusClass(agentRunStatus(run))" x-text="statusLabel(agentRunStatus(run))"></span>
-                              <template x-if="run.model">
-                                <span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span>
-                              </template>
-                              <span class="hint" x-show="(run.steps || []).length" x-text="(run.steps || []).length + ' steps'"></span>
-                            </div>
-                            <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
-                          </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click="toggleExpanded('agentruns-' + run.id)">Output</button>
-                            <button class="btn ghost" type="button" @click="openShareModal(run.output || run.error, 'Agent run — ' + formatDateTime(run.started_at), 'run-output')">📤</button>
-                          </div>
-                        </div>
-                        <div x-show="isExpanded('agentruns-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                          <div class="md-output" x-html="renderMarkdown(run.output || run.error || 'No output captured.')"></div>
-                          <template x-if="(run.steps || []).length">
-                            <details class="msg-activity">
-                              <summary>🔎 Reasoning &amp; steps (<span x-text="(run.steps || []).length"></span>)</summary>
-                              <div class="msg-activity-body">
-                                <template x-for="(st, ai) in (run.steps || [])" :key="'arstep-' + run.id + '-' + ai">
-                                  <div class="msg-activity-step" :class="st.type">
-                                    <template x-if="st.text">
-                                      <details class="msg-activity-substep">
-                                        <summary x-text="st.label"></summary>
-                                        <pre class="live-stream-pre" x-text="st.text"></pre>
-                                      </details>
-                                    </template>
-                                    <template x-if="!st.text">
-                                      <div class="msg-activity-label" x-text="st.label"></div>
-                                    </template>
-                                  </div>
-                                </template>
-                              </div>
-                            </details>
-                          </template>
-                        </div>
-                      </div>
+                  <div class="nlx-stage-actions">
+                    <template x-if="selectedAgent.status === 'running'">
+                      <span class="mg-run-ind"><span class="pulse-dot"></span> Running</span>
                     </template>
                   </div>
-                  <div class="empty-state" x-show="!agentHistory.length">No run history recorded yet.</div>
-                </section>
                 </div>
+                <div class="nlx-scroll">
+                  <div class="panel-stack" x-show="agentTab === 'overview'">
+                    <section class="detail-panel">
+                      <div class="panel-header">
+                        <div>
+                          <h2 class="panel-title">What this agent does</h2>
+                          <div class="hint">Description &amp; skills help managers decide when to route requests here.</div>
+                        </div>
+                        <button class="btn ghost mg-edit" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? 'Done' : 'Edit'"></button>
+                      </div>
+                      <div class="field-label"><span>Description</span><span class="hint">What this agent does, in plain language</span></div>
+                      <textarea class="ag-desc" x-model="selectedAgent.descriptionDraft" :disabled="!selectedAgent.capsUnlocked" x-effect="selectedAgent.descriptionDraft; $el.style.height='auto'; $el.style.height=($el.scrollHeight)+'px'" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
+                      <div class="field-label" style="margin-top:16px"><span>Skills</span><span class="hint">Comma-separated keywords (e.g. azure, monitoring, email)</span></div>
+                      <input class="field-input" type="text" x-model="selectedAgent.skillsDraft" :disabled="!selectedAgent.capsUnlocked" placeholder="azure, status, monitoring" />
+                      <div class="mg-skills hint" x-show="selectedAgent.skillsDraft && selectedAgent.skillsDraft.trim()" x-text="selectedAgent.skillsDraft.split(',').map(x => x.trim()).filter(Boolean).join('   ·   ')"></div>
+                      <div class="toolbar" x-show="selectedAgent.capsUnlocked" style="margin-top:16px">
+                        <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save changes</button>
+                        <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = false">Cancel</button>
+                      </div>
+                    </section>
+                  </div>
 
                 <div class="panel-stack" x-show="agentTab === 'tools'">
                 <section class="detail-panel">
@@ -7790,89 +7786,154 @@
                 </section>
                 </div>
 
-                <div class="panel-stack" x-show="agentTab === 'tasks'">
-
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Tasks</h2>
-                      <div class="hint">Direct workloads for this agent.</div>
-                    </div>
-                  </div>
-                  <div class="assignment-list" x-show="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">
-                    <template x-for="task in tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent')" :key="task.taskKey">
-                      <div class="assignment-item">
-                        <div class="assignment-top">
-                          <div>
-                            <a :href="'#/tasks'" class="md-link" style="font-weight:700" x-text="task.name"></a>
-                            <div class="hint" style="margin-top:6px" x-text="task.scheduleSummary"></div>
-                          </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click="openTaskModal(task)">✏️</button>
-                            <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
-                          </div>
+                <!-- Chat tab: full-height talk-to-agent (thinking/tools/reasoning) + real session history -->
+                <div class="panel-stack ag-chatpanel" x-show="agentTab === 'chat'">
+                  <template x-for="item in [agentChatItem()]" :key="item.id">
+                    <div class="ag-chatwrap" x-init="boardAgentChatEnsure(item); $nextTick(() => boardAgentChatResume(item))" x-effect="agentTab === 'chat' && $nextTick(() => sizeAgentChat($el))" @resize.window="sizeAgentChat($el)">
+                      <div class="ag-chatbar">
+                        <button class="ag-chatbar-btn" type="button" @click="agentChatReset(item)" title="Start a fresh conversation">＋ New chat</button>
+                        <div class="ag-chatbar-title">
+                          <span class="mg-dot" :class="(boardAgentChatState(item) && boardAgentChatState(item).running) ? 'run' : 'on'"></span>
+                          <strong x-text="item.name"></strong>
+                          <span class="hint" x-show="boardAgentChatState(item) && boardAgentChatState(item).running">thinking…</span>
                         </div>
+                        <button class="ag-chatbar-btn" type="button" :class="agentSess.panel ? 'on' : ''" @click="agentSess.panel = !agentSess.panel" x-text="(agentSess.panel ? '✕ Hide sessions' : ('🗂 Sessions & search' + (agentSessionsAll().length ? ' · ' + agentSessionsAll().length : '')))"></button>
                       </div>
-                    </template>
-                  </div>
-                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">No tasks yet. Click <strong>＋ New Task</strong> at the top to create one.</div>
-                </section>
-
-                <section class="detail-panel" x-show="tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment').length">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Assignments</h2>
-                      <div class="hint">Manager assignments that use this agent.</div>
-                    </div>
-                  </div>
-                  <div class="assignment-list">
-                    <template x-for="task in tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment')" :key="task.taskKey">
-                      <div class="assignment-item">
-                        <div class="assignment-top">
-                          <div>
-                            <span style="font-weight:700" x-text="task.name"></span>
-                            <div class="hint" style="margin-top:6px">
-                              <span x-text="'Via ' + task.ownerName + ' • ' + task.scheduleSummary"></span>
+                      <div class="ag-chatbody">
+                        <!-- LIVE chat -->
+                        <div class="ag-chatlog" x-ref="agChatLog" x-effect="(boardAgentChatState(item) && (boardAgentChatState(item).messages.length || boardAgentChatState(item).live)); $nextTick(() => { if ($refs.agChatLog) $refs.agChatLog.scrollTop = $refs.agChatLog.scrollHeight; })">
+                          <template x-if="!(boardAgentChatState(item) && (boardAgentChatState(item).messages.length || boardAgentChatState(item).live))">
+                            <div class="ag-chat-empty">
+                              <div class="ag-chat-empty-mark" x-text="selectedAgent.config?.pluginDir ? '🧩' : '🤖'"></div>
+                              <div class="ag-chat-empty-h">Talk to <strong x-text="item.name"></strong></div>
+                              <p>A real conversation — you'll see its reasoning, thinking, and every tool call as it works. Resume a past session from <strong>🗂 Sessions</strong>, or just start typing.</p>
                             </div>
+                          </template>
+                          <template x-for="(message, mi) in (boardAgentChatState(item) ? boardAgentChatState(item).messages : [])" :key="'agc-' + item.id + '-' + mi">
+                            <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
+                              <div class="message-bubble-wrap">
+                                <div class="message-bubble">
+                                  <div class="md-output" x-html="renderMarkdown(message.content || '')"></div>
+                                  <template x-if="message.role !== 'user' && message.activity && message.activity.length">
+                                    <details class="msg-activity">
+                                      <summary>🔎 Reasoning &amp; steps (<span x-text="message.activity.length"></span>)</summary>
+                                      <div class="msg-activity-body">
+                                        <template x-for="(st, ai) in message.activity" :key="'agcs-' + item.id + '-' + mi + '-' + ai">
+                                          <div class="msg-activity-step" :class="st.type">
+                                            <template x-if="st.text">
+                                              <details class="msg-activity-substep">
+                                                <summary x-text="st.label"></summary>
+                                                <pre class="live-stream-pre" x-text="st.text"></pre>
+                                              </details>
+                                            </template>
+                                            <template x-if="!st.text">
+                                              <div class="msg-activity-label" x-text="st.label"></div>
+                                            </template>
+                                          </div>
+                                        </template>
+                                      </div>
+                                    </details>
+                                  </template>
+                                  <div class="message-meta">
+                                    <span x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></span>
+                                    <template x-if="message.role !== 'user' && message.model">
+                                      <span class="model-badge" :title="'Model: ' + message.model" x-text="'🧠 ' + formatModelName(message.model)"></span>
+                                    </template>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="boardAgentChatState(item) && boardAgentChatState(item).live">
+                            <div class="agent-activity">
+                              <div class="activity-header">
+                                <span class="activity-pulse"></span>
+                                <strong x-text="boardAgentChatState(item).live.status || 'Running…'"></strong>
+                              </div>
+                              <template x-for="(step, si) in (boardAgentChatState(item).live.steps || [])" :key="'agcl-' + item.id + '-' + si">
+                                <div class="activity-step" :class="step.type">
+                                  <template x-if="step.type === 'tool'">
+                                    <div class="tool-step">
+                                      <span class="tool-icon">🔧</span>
+                                      <span class="tool-name" x-text="step.tool"></span>
+                                      <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                                    </div>
+                                  </template>
+                                  <template x-if="step.type === 'thinking'">
+                                    <div class="thinking-step">
+                                      <span>💭</span>
+                                      <span class="thinking-text" x-text="step.content"></span>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="boardAgentChatState(item) && boardAgentChatState(item).error">
+                            <div class="hint" style="color:var(--cp-danger,#c0392b);padding:2px" x-text="boardAgentChatState(item).error"></div>
+                          </template>
+                        </div>
+                        <!-- SESSIONS side panel: real CLI sessions for this agent + AI finder -->
+                        <div class="ag-sesspane" x-show="agentSess.panel" x-transition.opacity.duration.150ms>
+                          <div class="ag-sess-find">
+                            <input class="ag-sess-input" type="text" x-model="agentSess.input" placeholder="Find sessions — describe the work, repo, or branch…"
+                              @keydown.enter.prevent="agentSessionSearch()" />
+                            <button class="ag-sess-go" type="button" :disabled="agentSess.busy || !agentSess.input.trim()" @click="agentSessionSearch()" x-text="agentSess.busy ? '…' : 'Search'"></button>
                           </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
+                          <div class="ag-sess-banner" x-show="agentSess.matchActive">
+                            <span>🔍 <strong x-text="agentSess.matchIds.length"></strong> AI match<span x-show="agentSess.matchIds.length !== 1">es</span></span>
+                            <button type="button" @click="agentSessionsClear()">✕ Clear</button>
+                          </div>
+                          <div class="ag-sess-scroll">
+                            <div class="ag-sess-empty" x-show="!cliSessionsLoading && !agentSessions().length" x-text="cliSessions.length ? 'No sessions for this agent yet.' : 'No CLI sessions found.'"></div>
+                            <div class="ag-sess-empty" x-show="cliSessionsLoading">Loading sessions…</div>
+                            <template x-for="s in agentSessions()" :key="'agsess-' + s.id">
+                              <div class="ag-sess-card">
+                                <div class="ag-sess-h">
+                                  <span class="ag-sess-t" x-text="s.title"></span>
+                                  <button class="ag-sess-resume" type="button" @click="resumeCliSession(s)" title="Open a terminal and resume this session">▶ Resume</button>
+                                </div>
+                                <div class="ag-sess-m">
+                                  <span x-show="s.turnCount" x-text="s.turnCount + ' turn' + (s.turnCount === 1 ? '' : 's')"></span>
+                                  <span x-show="s.repository" x-text="'🌿 ' + s.repository + (s.branch ? (' @ ' + s.branch) : '')"></span>
+                                  <span x-text="'🕑 ' + formatRelative(s.lastModified)"></span>
+                                </div>
+                                <div class="ag-sess-reason" x-show="agentSess.reasons[s.id]" x-text="'🔍 ' + agentSess.reasons[s.id]"></div>
+                                <div class="ag-sess-prev" x-show="s.summary || s.lastUserPreview" x-text="s.summary || ('Last: ' + s.lastUserPreview)"></div>
+                              </div>
+                            </template>
                           </div>
                         </div>
                       </div>
-                    </template>
-                  </div>
-                </section>
-
-                </div>
-
-                <div class="panel-stack" x-show="agentTab === 'managers'">
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Managers</h2>
-                      <div class="hint">Managers that include this agent on their team.</div>
+                      <div class="ag-composer">
+                        <template x-if="chatAttHas('boardagent:' + item.id)">
+                          <div class="chat-att-strip">
+                            <template x-for="a in chatAttList('boardagent:' + item.id)" :key="a.id">
+                              <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('boardagent:' + item.id, a.id)" title="Remove">✕</button></div>
+                            </template>
+                          </div>
+                        </template>
+                        <div class="ag-composer-row">
+                          <textarea rows="1" placeholder="Message this agent…"
+                                    :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
+                                    x-model="boardAgentChats[item.refId].input"
+                                    @keydown.enter.prevent="boardAgentSend(item)"
+                                    @paste="chatAttPaste('boardagent:' + item.id, $event)"
+                                    @drop.prevent="chatAttDrop('boardagent:' + item.id, $event)"
+                                    @dragover.prevent></textarea>
+                          <button class="btn primary" type="button"
+                                  :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
+                                  @click.stop="boardAgentSend(item)"
+                                  x-text="(boardAgentChatState(item) && boardAgentChatState(item).running) ? '…' : 'Send'"></button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div class="assignment-list">
-                    <template x-for="mgr in managersForAgent(selectedAgent.id)" :key="mgr.id">
-                      <div class="assignment-item">
-                        <div class="assignment-top">
-                          <div>
-                            <a :href="'#/managers/' + mgr.id" class="md-link" style="font-weight:700" x-text="mgr.name"></a>
-                            <div class="hint" style="margin-top:6px" x-text="(mgr.orgDetails || []).length + ' agents in org • ' + (mgr.config?.assignments || []).length + ' assignments'"></div>
-                          </div>
-                          <div class="toolbar">
-                            <span class="status-badge" :class="statusClass(mgr.status)" x-text="statusLabel(mgr.status)"></span>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </section>
+                  </template>
                 </div>
-              </div>
-            </div>
+
+                </div><!-- /nlx-scroll -->
+              </div><!-- /nlx-stage -->
+            </div><!-- /nlx-studio -->
           </section>
           </template>
 
@@ -15577,6 +15638,137 @@
               /* history list */
               .nlx-hist { padding:18px; display:flex; flex-direction:column; gap:10px; }
 
+              /* ===== Management (Agents/Managers) definition+chat studio helpers ===== */
+              .ag-studio { align-items:start; grid-template-columns:320px minmax(0,1fr); }
+              .ag-top-main { min-width:0; }
+              /* Top bar: hover-reveal secondary actions */
+              .ag-top .ag-top-hover { opacity:0; transform:translateY(1px); transition:opacity .16s ease, transform .16s ease; }
+              .ag-top:hover .ag-top-hover, .ag-top:focus-within .ag-top-hover { opacity:1; transform:none; }
+              .ag-top-sub { color:var(--cp-text-muted); font-size:13px; margin-top:4px; max-width:70ch; }
+              .ag-top-actions { display:flex; align-items:center; gap:8px; }
+
+              /* Identity card head */
+              .mg-idhead { display:flex; align-items:center; gap:10px; }
+              .mg-avatar { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:19px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); flex:0 0 auto; }
+              .mg-idname { font-weight:700; font-size:15px; line-height:1.2; min-width:0; display:flex; align-items:center; gap:7px; }
+              .mg-idname strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+              .mg-name-in { width:100%; font-size:14px; padding:6px 8px; background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); color:var(--cp-text); border-radius:8px; font-family:inherit; }
+              .mg-sub { color:var(--cp-text-muted); font-size:12px; }
+              .mg-edit { opacity:0; background:transparent; border:0; color:var(--cp-text-muted); cursor:pointer; font-size:12.5px; padding:2px 4px; border-radius:6px; transition:opacity .15s ease, color .15s ease; }
+              .nlx-card:hover .mg-edit, .nlx-card:focus-within .mg-edit { opacity:1; }
+              .mg-edit:hover { color:var(--cp-text); background:var(--cp-surface-soft); }
+
+              /* status dot */
+              .mg-dot { width:8px; height:8px; border-radius:999px; background:var(--cp-text-muted); flex:0 0 auto; display:inline-block; }
+              .mg-dot.on { background:#2e9e5b; }
+              .mg-dot.run { background:#d9a13a; animation:mgPulse 1.4s ease-in-out infinite; }
+              .mg-dot.off { background:var(--cp-text-muted); opacity:.5; }
+              @keyframes mgPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+              @media (prefers-reduced-motion: reduce) { .mg-dot.run { animation:none; } }
+
+              /* meta table + inline select */
+              .mg-meta { margin-top:12px; }
+              .mg-inline-select { background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); color:var(--cp-text); border-radius:8px; padding:4px 6px; font-size:12.5px; font-family:inherit; max-width:100%; }
+
+              /* calm card header (not an uppercase eyebrow) */
+              .mg-card-h { font-weight:650; font-size:12.5px; color:var(--cp-text); margin-bottom:8px; letter-spacing:0; }
+
+              /* "Where it's used" rows */
+              .mg-wu-group + .mg-wu-group { margin-top:12px; }
+              .mg-wu-lbl { font-size:11px; color:var(--cp-text-muted); margin-bottom:6px; }
+              .mg-wu-item { display:flex; align-items:center; gap:8px; padding:5px 0; min-width:0; }
+              .mg-wu-name { font-size:12.5px; color:var(--cp-text); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .mg-wu-name:hover { text-decoration:underline; }
+              .mg-wu-sub { font-size:11px; color:var(--cp-text-muted); margin-left:auto; flex:0 0 auto; }
+              .mg-wu-run { opacity:0; background:transparent; border:0; color:var(--cp-text-muted); cursor:pointer; font-size:12px; padding:2px 4px; border-radius:6px; margin-left:auto; flex:0 0 auto; transition:opacity .15s ease; }
+              .mg-wu-item:hover .mg-wu-run, .mg-wu-item:focus-within .mg-wu-run { opacity:1; }
+              .mg-wu-run:hover { color:var(--cp-text); background:var(--cp-surface-soft); }
+              .mg-wu-item:hover .mg-wu-run + .mg-wu-sub, .mg-wu-item:focus-within .mg-wu-run + .mg-wu-sub { display:none; }
+
+              /* seg count + running indicator */
+              .mg-count { color:var(--cp-text-muted); font-weight:500; font-size:11px; margin-left:3px; }
+              .mg-run-ind { display:inline-flex; align-items:center; gap:6px; color:var(--cp-text-muted); font-size:12px; }
+
+              /* skills as plain muted middot text (never chips) */
+              .mg-skills { color:var(--cp-text-muted); font-size:12.5px; line-height:1.5; }
+
+              /* embedded chat empty state */
+              .mg-chat-empty { color:var(--cp-text-muted); font-size:12.5px; line-height:1.55; padding:6px 2px; }
+
+              /* the chat log is the ONE necessary scroll — thin + hover-reveal */
+              .ag-chat .nlx-chat-log { scrollbar-width:thin; scrollbar-color:transparent transparent; }
+              .ag-chat .nlx-chat-log:hover, .ag-chat .nlx-chat-log:focus-within { scrollbar-color:var(--cp-border) transparent; }
+              .ag-chat .nlx-chat-log::-webkit-scrollbar { width:8px; }
+              .ag-chat .nlx-chat-log::-webkit-scrollbar-thumb { background:transparent; border-radius:8px; }
+              .ag-chat .nlx-chat-log:hover::-webkit-scrollbar-thumb, .ag-chat .nlx-chat-log:focus-within::-webkit-scrollbar-thumb { background:var(--cp-border); }
+              .ag-chat .nlx-chat-in textarea { min-height:34px; max-height:120px; resize:vertical; }
+
+              /* ===== Agent-detail Chat tab (full-height talk-to-agent + session finder) ===== */
+              .ag-chatpanel { display:block; }
+              .ag-chatwrap { display:flex; flex-direction:column; height:calc(100vh - 320px); min-height:360px; }
+              .ag-chatbar { display:flex; align-items:center; gap:12px; padding:0 2px 12px; border-bottom:1px solid var(--cp-border); }
+              .ag-chatbar-title { display:flex; align-items:center; gap:8px; min-width:0; flex:1 1 auto; }
+              .ag-chatbar-title strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13.5px; }
+              .ag-chatbar-title .hint { font-size:11.5px; color:var(--cp-text-muted); }
+              .ag-chatbar-btn { background:transparent; border:1px solid var(--cp-border); color:var(--cp-text-muted); cursor:pointer; font-size:12px; padding:5px 10px; border-radius:8px; transition:color .15s ease, background .15s ease, border-color .15s ease; white-space:nowrap; }
+              .ag-chatbar-btn:hover { color:var(--cp-text); background:var(--cp-surface-soft); }
+              .ag-chatbar-btn.on { color:var(--cp-text); border-color:var(--cp-text-muted); background:var(--cp-surface-soft); }
+
+              .ag-chatbody { flex:1 1 auto; display:flex; min-height:0; gap:0; }
+              /* the chat log is the ONE necessary scroll — thin + hover-reveal */
+              .ag-chatlog { flex:1 1 auto; min-width:0; overflow-y:auto; overflow-x:hidden; padding:16px 4px 8px; scrollbar-width:thin; scrollbar-color:transparent transparent; }
+              .ag-chatlog:hover, .ag-chatlog:focus-within { scrollbar-color:var(--cp-border) transparent; }
+              .ag-chatlog::-webkit-scrollbar { width:8px; }
+              .ag-chatlog::-webkit-scrollbar-thumb { background:transparent; border-radius:8px; }
+              .ag-chatlog:hover::-webkit-scrollbar-thumb, .ag-chatlog:focus-within::-webkit-scrollbar-thumb { background:var(--cp-border); }
+
+              .ag-chat-empty { max-width:52ch; margin:24px auto; text-align:center; color:var(--cp-text-muted); }
+              .ag-chat-empty-mark { font-size:30px; margin-bottom:10px; }
+              .ag-chat-empty-h { font-size:15px; color:var(--cp-text); margin-bottom:8px; }
+              .ag-chat-empty p { font-size:12.5px; line-height:1.6; margin:0; }
+
+              /* Sessions side panel */
+              .ag-sesspane { flex:0 0 320px; width:320px; border-left:1px solid var(--cp-border); padding:14px 4px 8px 16px; display:flex; flex-direction:column; min-height:0; }
+              .ag-sess-find { display:flex; gap:8px; align-items:center; }
+              .ag-sess-input { flex:1 1 auto; min-width:0; font-size:12px; padding:7px 9px; background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); color:var(--cp-text); border-radius:8px; font-family:inherit; }
+              .ag-sess-input:focus { outline:none; border-color:var(--cp-text-muted); }
+              .ag-sess-go { flex:0 0 auto; font-size:12px; padding:7px 11px; border:1px solid var(--cp-border); background:var(--cp-surface-soft); color:var(--cp-text); border-radius:8px; cursor:pointer; }
+              .ag-sess-go:disabled { opacity:.5; cursor:default; }
+              .ag-sess-banner { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; font-size:11.5px; color:var(--cp-text-muted); }
+              .ag-sess-banner button { background:transparent; border:0; color:var(--cp-text-muted); cursor:pointer; font-size:11.5px; padding:2px 4px; border-radius:6px; }
+              .ag-sess-banner button:hover { color:var(--cp-text); background:var(--cp-surface-soft); }
+              .ag-sess-scroll { flex:1 1 auto; overflow-y:auto; margin-top:10px; min-height:0; scrollbar-width:thin; scrollbar-color:transparent transparent; }
+              .ag-sess-scroll:hover { scrollbar-color:var(--cp-border) transparent; }
+              .ag-sess-scroll::-webkit-scrollbar { width:8px; }
+              .ag-sess-scroll::-webkit-scrollbar-thumb { background:transparent; border-radius:8px; }
+              .ag-sess-scroll:hover::-webkit-scrollbar-thumb { background:var(--cp-border); }
+              .ag-sess-empty { color:var(--cp-text-muted); font-size:12px; padding:14px 2px; text-align:center; }
+              .ag-sess-card { padding:10px 8px; border-radius:8px; border:1px solid transparent; transition:border-color .15s ease, background .15s ease; }
+              .ag-sess-card:hover { border-color:var(--cp-border); background:var(--cp-surface-soft); }
+              .ag-sess-h { display:flex; align-items:center; gap:8px; }
+              .ag-sess-t { font-size:12.5px; font-weight:600; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1 1 auto; min-width:0; }
+              .ag-sess-resume { flex:0 0 auto; opacity:0; background:transparent; border:1px solid var(--cp-border); color:var(--cp-text-muted); cursor:pointer; font-size:11px; padding:3px 8px; border-radius:6px; transition:opacity .15s ease, color .15s ease; }
+              .ag-sess-card:hover .ag-sess-resume, .ag-sess-card:focus-within .ag-sess-resume { opacity:1; }
+              .ag-sess-resume:hover { color:var(--cp-text); background:var(--cp-surface); }
+              .ag-sess-m { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:5px; font-size:11px; color:var(--cp-text-muted); }
+              .ag-sess-reason { margin-top:6px; font-size:11px; color:var(--cp-text-muted); font-style:italic; line-height:1.4; }
+              .ag-sess-prev { margin-top:5px; font-size:11px; color:var(--cp-text-muted); line-height:1.45; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+
+              /* Composer pinned at the bottom of the chat panel */
+              .ag-composer { flex:0 0 auto; border-top:1px solid var(--cp-border); padding:12px 2px 2px; }
+              .ag-composer-row { display:flex; gap:8px; align-items:flex-end; }
+              .ag-composer-row textarea { flex:1 1 auto; min-height:38px; max-height:160px; resize:vertical; font-size:13px; padding:9px 11px; background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); color:var(--cp-text); border-radius:10px; font-family:inherit; line-height:1.45; }
+              .ag-composer-row textarea:focus { outline:none; border-color:var(--cp-text-muted); }
+              .ag-composer-row .btn { flex:0 0 auto; }
+
+              @media (max-width:1100px) {
+                .ag-chatwrap { height:auto; }
+                .ag-chatbody { flex-direction:column; }
+                .ag-chatlog { max-height:52vh; }
+                .ag-sesspane { flex:1 1 auto; width:auto; border-left:0; border-top:1px solid var(--cp-border); padding:14px 4px 8px; }
+                .ag-sess-scroll { max-height:40vh; }
+              }
+
               @media (max-width:1100px) {
                 .nlx-studio, .nlx-studio.chat-open { grid-template-columns:1fr; }
                 .nlx-rail, .nlx-chat { position:static; max-height:none; }
@@ -22442,7 +22634,9 @@
         templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false }, assistant: { active: false, sessionId: null, busy: false, input: '', messages: [] } },
         execAi: { loading: false, error: '', hint: '', focusAgentId: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
-        agentTab: 'runs',
+        agentTab: 'overview',
+        _agentChatItem: null,
+        agentSess: { panel: false, input: '', busy: false, matchIds: [], reasons: {}, matchActive: false },
         agentFiles: { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false },
         managerTab: 'runs',
         liveOutput: {},
@@ -24233,7 +24427,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.selectedAgent.showMcpForm = false;
               this.selectedAgent.capCatalogFilter = '';
               this.selectedAgent._menu = false;
-              this.agentTab = 'runs';
+              this.agentTab = 'overview';
               this.mcpProbe = {};
               this.agentFiles = { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false };
             }
@@ -36460,6 +36654,102 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.boardAgentChats[item.refId];
         },
         boardAgentChatState(item) { return (item && item.refId && this.boardAgentChats[item.refId]) || null; },
+        // Stable chat "item" for the agent-detail studio's embedded chat pane. Memoized per
+        // agent id so x-init/x-model bindings get the SAME object every render (Alpine reactivity
+        // + the boardAgentChats map key both rely on identity). refId === agent id, so the detail
+        // chat and a board agent-card chat for the same agent SHARE transcript + server session.
+        agentChatItem(agent) {
+          const a = agent || this.selectedAgent;
+          if (!a || !a.id) return null;
+          if (!this._agentChatItem) this._agentChatItem = {};
+          if (!this._agentChatItem[a.id]) {
+            this._agentChatItem[a.id] = { id: 'agentdetail:' + a.id, refId: a.id, name: a.name || 'agent' };
+          }
+          return this._agentChatItem[a.id];
+        },
+        // ── Agent-detail Chat tab (full-height talk-to-agent + real session history) ──
+        // Entering the Chat tab: ensure the shared chat state exists and warm the CLI
+        // session list (the agent-detail route may not have loaded it) so the Sessions
+        // side panel can show this agent's real history.
+        openAgentChatTab() {
+          const item = this.agentChatItem();
+          if (item) this.boardAgentChatEnsure(item);
+          if (!this.cliSessions.length && !this.cliSessionsLoading) this.loadCliSessions();
+        },
+        // Size the agent chat panel to fill from its own top to the viewport bottom, so the
+        // page itself never scrolls just to show an (often empty) chat. Re-measured when the
+        // Chat tab becomes visible and on window resize; adapts to the description length above.
+        sizeAgentChat(el) {
+          if (!el) return;
+          try {
+            const top = el.getBoundingClientRect().top;
+            if (top <= 0) return; // hidden / not yet laid out — skip a stale measure
+            el.style.height = Math.max(360, Math.round(window.innerHeight - top - 48)) + 'px';
+          } catch {}
+        },
+        // All CLI sessions belonging to this agent (matched by agentName), newest first.
+        agentSessionsAll() {
+          const a = this.selectedAgent;
+          const name = a && (a.name || (a.config && a.config.name));
+          if (!name) return [];
+          return (this.cliSessions || [])
+            .filter(s => s && s.agentName === name)
+            .sort((x, y) => new Date(y.lastModified || 0) - new Date(x.lastModified || 0));
+        },
+        // The list the Sessions panel renders — all of this agent's sessions, or, when an
+        // AI search is active, only the matched ones ordered by the model's ranking.
+        agentSessions() {
+          const all = this.agentSessionsAll();
+          if (!this.agentSess.matchActive) return all;
+          const order = this.agentSess.matchIds;
+          const set = new Set(order);
+          return all.filter(s => set.has(s.id))
+            .sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
+        },
+        // AI session finder scoped to this agent: reuse the CLI search endpoint, then
+        // post-filter the returned matches down to sessions that belong to this agent.
+        async agentSessionSearch() {
+          const q = (this.agentSess.input || '').trim();
+          if (!q || this.agentSess.busy) return;
+          if (!this.cliSessions.length) await this.loadCliSessions();
+          this.agentSess.busy = true;
+          try {
+            const r = await this.request('/api/cli/sessions/search', {
+              method: 'POST',
+              body: JSON.stringify({ query: q, history: [] }),
+              timeoutMs: 120000
+            });
+            const matches = Array.isArray(r.matches) ? r.matches : [];
+            const mine = new Set(this.agentSessionsAll().map(s => s.id));
+            const scoped = matches.filter(m => mine.has(m.id));
+            this.agentSess.matchIds = scoped.map(m => m.id);
+            this.agentSess.reasons = {};
+            for (const m of scoped) this.agentSess.reasons[m.id] = m.reason || '';
+            this.agentSess.matchActive = true;
+            if (!scoped.length) this.showToast('No matching sessions', 'No sessions for this agent matched that search.', 'info');
+          } catch (e) {
+            this.showToast('Search failed', e.message || 'unknown error', 'error');
+          } finally {
+            this.agentSess.busy = false;
+          }
+        },
+        agentSessionsClear() {
+          this.agentSess.input = '';
+          this.agentSess.matchIds = [];
+          this.agentSess.reasons = {};
+          this.agentSess.matchActive = false;
+        },
+        // Start a fresh conversation with this agent (new server session, empty transcript).
+        agentChatReset(item) {
+          if (!item || !item.refId) return;
+          const st = this.boardAgentChatState(item);
+          if (st && st.running) { this.showToast('Still working', 'Wait for the current turn to finish first.', 'info'); return; }
+          this.boardAgentChats = {
+            ...this.boardAgentChats,
+            [item.refId]: { messages: [], input: '', sessionId: null, live: null, running: false, error: '' },
+          };
+          try { this._saveBoardAgentChats(); } catch {}
+        },
         // Re-attach to an in-flight turn after a refresh. On reload we restore the
         // transcript + sessionId but not the live poller, so a turn that was still running
         // when the page reloaded would otherwise leave a dangling user message with no
