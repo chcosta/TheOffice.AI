@@ -12619,6 +12619,7 @@
               .meai-block.meai-drop-hi > .meai-block-swipe > .meai-block-body { box-shadow:0 0 0 2px var(--cp-accent); }
               .meai-title-wrap { display:inline-flex; align-items:center; gap:6px; }
               .meai-lock-badge { font-size:11px; cursor:pointer; opacity:.85; }
+              .meai-personal-badge { font-size:11px; color:var(--cp-text-muted); background:var(--cp-surface-2,rgba(120,120,140,.1)); border-radius:6px; padding:1px 6px; white-space:nowrap; }
               .meai-lock-badge:hover { opacity:1; }
               .meai-title-edit { border:0; background:transparent; color:var(--cp-text-muted); font-size:12px; cursor:pointer; padding:0 2px; opacity:0; transition:opacity .12s; }
               .meai-block:hover .meai-title-edit { opacity:.7; }
@@ -13877,6 +13878,7 @@
                             <div class="meai-block-acts">
                               <button class="meai-block-act" type="button" @click.stop="meAiBlockDispose(b,'later',bi)" @pointerdown.stop title="Reschedule later today"><span class="meai-act-ico">↻</span><span>Later</span></button>
                               <button class="meai-block-act" type="button" @click.stop="meAiBlockDispose(b,'future',bi)" @pointerdown.stop title="Move to a future work day"><span class="meai-act-ico">→</span><span>Future</span></button>
+                              <button x-show="meAiCanLabel(b)" class="meai-block-act" type="button" @click.stop="meAiToggleLabel(b,bi)" @pointerdown.stop :title="meAiIsPersonalTime(b) ? 'Mark as work — include in reports' : 'Mark as personal — reported only as personal time, no details'"><span class="meai-act-ico" x-text="meAiIsPersonalTime(b) ? '💼' : '🏠'"></span><span x-text="meAiIsPersonalTime(b) ? 'Work' : 'Personal'"></span></button>
                               <button class="meai-block-act" type="button" @click.stop="meAiBlockDispose(b,'wontfix',bi)" @pointerdown.stop title="Won't fix — a deliberate no-op (recorded for your report)"><span class="meai-act-ico">⊘</span><span>Won't fix</span></button>
                               <button class="meai-block-act danger" type="button" @click.stop="meAiBlockDispose(b,'notmine',bi)" @pointerdown.stop title="Not mine — someone else owns it"><span class="meai-act-ico">✕</span><span>Not mine</span></button>
                             </div>
@@ -13895,6 +13897,7 @@
                                   <span x-show="b.meta && b.meta.todoDone" title="Completed — time you committed stays reserved" style="color:var(--cp-success,#16a34a);margin-right:2px">✓</span>
                                   <span x-text="b.title" :style="(b.meta && b.meta.todoDone) ? 'text-decoration:line-through;text-decoration-thickness:1px;color:var(--cp-text-muted)' : ''"></span>
                                   <span x-show="b.meta && b.meta.locked" class="meai-lock-badge" title="Locked to this time — click to unlock" @click.stop="meAiUnlockBlock(b,bi)" @pointerdown.stop>🔒</span>
+                                  <span x-show="meAiIsPersonalTime(b)" class="meai-personal-badge" title="Personal — reported only as personal time (no details). Use the row actions to switch back to work.">🏠 Personal</span>
                                   <button class="meai-title-edit" type="button" title="Rename this item" @click.stop="meAiStartRename(b,bi)" @pointerdown.stop>✎</button>
                                 </span>
                               </template>
@@ -21688,6 +21691,7 @@
                         </span>
                       </template>
                     </div>
+                    <p class="hint" style="margin:12px 0 0" x-show="(meaiReport.summary.personalMin||0) > 0" x-text="'🏠 Personal time: ' + meaiHrs(meaiReport.summary.personalMin) + ' — reported as personal time only, no details.'"></p>
                   </div>
 
                   <!-- Time allocation trend -->
@@ -33086,6 +33090,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && r.agenda) m.agenda = r.agenda;
             this.toast('Unlocked — free to re-plan', 'success');
           } catch (e) { this.toast('Could not unlock: ' + (e.message || e), 'error'); }
+        },
+        // ── Personal/work LABEL (orthogonal to block type) ──────────────────────────
+        // Mirrors server _meAiIsPersonal: explicit label wins, else derived-personal.
+        meAiIsPersonalTime(b) {
+          const lab = b && b.meta && b.meta.personalLabel;
+          if (lab === 'personal') return true;
+          if (lab === 'work') return false;
+          return !!(b && (b.type === 'personal' || (b.meta && b.meta.personalTodo)));
+        },
+        meAiCanLabel(b) {
+          if (!b) return false;
+          const t = String(b.type || '').toLowerCase();
+          return t !== 'lunch' && t !== 'open' && t !== 'open-focus';
+        },
+        async meAiToggleLabel(b, bi) {
+          const m = this.meai;
+          m.blockSwipeOpen = null;
+          const key = String((b.link || b.title) || '').trim();
+          if (!key) return;
+          const toPersonal = !this.meAiIsPersonalTime(b);
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify({ date: m.date, op: 'set_label', key, label: toPersonal ? 'personal' : 'work' }),
+            });
+            if (r && r.agenda) m.agenda = r.agenda;
+            this.toast(toPersonal ? 'Marked personal — reported as personal time only' : 'Marked work — included in reports', 'success');
+          } catch (e) { this.toast('Could not update: ' + (e.message || e), 'error'); }
         },
         // ── I3 rename an agenda item ────────────────────────────────────────────────
         meAiIsEditing(b, bi) { return this.meai.editBlockKey === this.meAiItemKey('b', b, bi); },

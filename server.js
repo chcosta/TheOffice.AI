@@ -11998,7 +11998,7 @@ function _meAiOverridesPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
   return path.join(ME_AI_OVERRIDES_DIR, `${safe}.json`);
 }
-function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], renames: [], locks: [], constraints: [], dayStart: '', dayEnd: '' }; }
+function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], renames: [], locks: [], constraints: [], labels: [], dayStart: '', dayEnd: '' }; }
 function loadMeAiOverrides(date) {
   try {
     const p = _meAiOverridesPath(date);
@@ -12013,6 +12013,7 @@ function loadMeAiOverrides(date) {
       renames: Array.isArray(v.renames) ? v.renames : [],
       locks: Array.isArray(v.locks) ? v.locks : [],
       constraints: Array.isArray(v.constraints) ? v.constraints : [],
+      labels: Array.isArray(v.labels) ? v.labels : [],
       dayStart: typeof v.dayStart === 'string' ? v.dayStart : '',
       dayEnd: typeof v.dayEnd === 'string' ? v.dayEnd : '',
     };
@@ -12028,6 +12029,7 @@ function saveMeAiOverrides(date, ov) {
     renames: Array.isArray(ov && ov.renames) ? ov.renames : [],
     locks: Array.isArray(ov && ov.locks) ? ov.locks : [],
     constraints: Array.isArray(ov && ov.constraints) ? ov.constraints : [],
+    labels: Array.isArray(ov && ov.labels) ? ov.labels : [],
     dayStart: (ov && typeof ov.dayStart === 'string') ? ov.dayStart : '',
     dayEnd: (ov && typeof ov.dayEnd === 'string') ? ov.dayEnd : '',
   };
@@ -12179,6 +12181,35 @@ function _meAiApplyRenames(blocks, ov) {
     if (map.has(k)) { b.meta = Object.assign({}, b.meta || {}, { renamed: true }); b.title = map.get(k); }
   }
   return blocks;
+}
+// Personal/work LABEL override. Orthogonal to block `type`: a "meeting" block can be
+// tagged personal (e.g. a doctor's appointment) so reporting shows it only as "personal
+// time" with no details, and a `personal`-type block can be forced back to work. Keyed by
+// the block's stable identity (link || title). Stamps meta.personalLabel ('personal'|'work')
+// so downstream report/EOD logic can honor an explicit user choice over the derived type.
+function _meAiApplyLabels(blocks, ov) {
+  const map = new Map();
+  for (const l of ((ov && ov.labels) || [])) {
+    const k = String((l && l.key) || '').trim().toLowerCase();
+    const lab = String((l && l.label) || '').trim().toLowerCase();
+    if (k && (lab === 'personal' || lab === 'work')) map.set(k, lab);
+  }
+  if (!map.size) return blocks;
+  for (const b of (blocks || [])) {
+    const k = String((b.link || b.title) || '').trim().toLowerCase();
+    if (map.has(k)) b.meta = Object.assign({}, b.meta || {}, { personalLabel: map.get(k) });
+  }
+  return blocks;
+}
+// Is this block "personal time" for reporting/EOD? An explicit personal/work LABEL wins;
+// otherwise fall back to the derived type (personal-type block or a personal-todo). Used to
+// mask personal items in reports so only "personal time" (no title/detail) is reported.
+function _meAiIsPersonal(b) {
+  if (!b) return false;
+  const lab = b.meta && b.meta.personalLabel;
+  if (lab === 'personal') return true;
+  if (lab === 'work') return false;
+  return b.type === 'personal' || !!(b.meta && b.meta.personalTodo);
 }
 // Rollover / deferrals store. When the user marks an item "not done — move to a future
 // day" (defer_future) or a "reschedule later today" can't fit, the item is carried to a
@@ -15252,6 +15283,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // holds its exact slot; others reflow around it. I3: apply title overrides.
   if (lockReservations.length) finalBlocks = _meAiEnforcePins(finalBlocks, lockReservations);
   finalBlocks = _meAiApplyRenames(finalBlocks, overridesForPlan);
+  finalBlocks = _meAiApplyLabels(finalBlocks, overridesForPlan);
   // Collapse any personal commitment that ended up scheduled twice (pin + todo re-insert).
   finalBlocks = _meAiDedupePersonal(finalBlocks);
   // Collapse duplicate work items — the same PR/work item carried by the imminent pin AND
@@ -15931,9 +15963,9 @@ app.get('/api/me-ai/lookback', (req, res) => {
     // Planned side (from the frozen snapshot).
     const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
     const plannedBlocks = blocks
-      .filter(b => b && (b.type !== 'personal'))
+      .filter(b => b && !_meAiIsPersonal(b))
       .map(b => ({ time: b.start || '', title: b.title || '', type: b.type || '' }));
-    const focusPlanned = blocks.filter(b => b && (b.type === 'focus')).length;
+    const focusPlanned = blocks.filter(b => b && (b.type === 'focus') && !_meAiIsPersonal(b)).length;
     const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos : [];
     const workTodos = todos.filter(t => t && (t.scope !== 'personal'));
     const todosDone = workTodos.filter(t => t && t.done).length;
@@ -16048,15 +16080,18 @@ app.get('/api/me-ai/reports', (req, res) => {
       const churn = _meAiChurnSummary(loadChangesForDate(date).events);
       const agenda = loadAgendaForDate(date);
       const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
-      const workBlocks = blocks.filter(b => b && b.type !== 'personal' && b.type !== 'lunch' && b.type !== 'open');
-      const focus = blocks.filter(b => b && b.type === 'focus').length;
-      const meetings = blocks.filter(b => b && b.type === 'meeting').length;
+      const workBlocks = blocks.filter(b => b && b.type !== 'personal' && b.type !== 'lunch' && b.type !== 'open' && !_meAiIsPersonal(b));
+      const focus = blocks.filter(b => b && b.type === 'focus' && !_meAiIsPersonal(b)).length;
+      const meetings = blocks.filter(b => b && b.type === 'meeting' && !_meAiIsPersonal(b)).length;
       // Minutes by block type (blocks carry HH:MM start/end) → time spent / protected.
       const minOf = (b) => { try { const a = _hmToMin(b.start), z = _hmToMin(b.end); return (z > a) ? (z - a) : 0; } catch (_) { return 0; } };
-      let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0;
+      let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0, personalMin = 0;
       for (const b of blocks) {
         if (!b) continue;
         const m = minOf(b);
+        // Personal-labeled (or personal-type) time is reported ONLY as "personal time" — no
+        // work-type breakdown, no title/detail leaks into the report.
+        if (_meAiIsPersonal(b)) { personalMin += m; continue; }
         if (b.type === 'focus') focusMin += m;
         else if (b.type === 'meeting') meetingMin += m;
         else if (b.type === 'comms') commsMin += m;
@@ -16109,7 +16144,7 @@ app.get('/api/me-ai/reports', (req, res) => {
         shape: agenda ? churn.shape : '', score: churn.score,
         reschedule: churn.reschedule, slip: churn.slip, add: churn.add, planned: churn.planned,
         blocks: workBlocks.length, focus, meetings,
-        focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin,
+        focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin, personalMin,
         todos: todos.length, todosDone, todosCarried, backlog,
         agentsLaunched, agentDone, agentMin, tasksDone, notMine, wontFix,
         autoTriaged, manualTriaged,
@@ -16121,7 +16156,7 @@ app.get('/api/me-ai/reports', (req, res) => {
     const active = out.filter(d => d.hasActivity);
     const shapeCounts = { Calm: 0, Steady: 0, Reactive: 0, Fragmented: 0 };
     let reschedule = 0, slip = 0, add = 0, planned = 0, agentsLaunched = 0, agentDone = 0, agentMin = 0, tasksDone = 0, todosDone = 0, todosCarried = 0, notMine = 0, wontFix = 0, focusDays = 0;
-    let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0;
+    let focusMin = 0, meetingMin = 0, commsMin = 0, reviewMin = 0, stewardMin = 0, prepMin = 0, adminMin = 0, personalMin = 0;
     let delivered = 0, unblocked = 0;
     let autoTriaged = 0, manualTriaged = 0;
     for (const d of active) {
@@ -16133,6 +16168,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       autoTriaged += d.autoTriaged; manualTriaged += d.manualTriaged;
       focusMin += d.focusMin; meetingMin += d.meetingMin; commsMin += d.commsMin;
       reviewMin += d.reviewMin; stewardMin += d.stewardMin; prepMin += d.prepMin; adminMin += d.adminMin;
+      personalMin += d.personalMin || 0;
       delivered += d.delivered; unblocked += d.unblocked;
       if (d.shape === 'Calm' || d.shape === 'Steady') focusDays++;
     }
@@ -16178,7 +16214,7 @@ app.get('/api/me-ai/reports', (req, res) => {
       shapeCounts, reschedule, slip, add, planned,
       agentsLaunched, agentDone, agentMin, tasksDone, todosDone, todosCarried, notMine, wontFix,
       autoTriaged, manualTriaged, triageTotal, triageAutoRate, triageSavedMin,
-      focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin, workMin,
+      focusMin, meetingMin, commsMin, reviewMin, stewardMin, prepMin, adminMin, personalMin, workMin,
       // Impact roll-ups
       delivered, unblocked,
       multipliedMin: agentMin,                                  // agent wall-clock working for you
@@ -16800,6 +16836,21 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
         if (subject) return String((c && c.subject) || '').trim().toLowerCase() !== subject;
         return true;
       });
+    } else if (op === 'set_label') {
+      // Tag an agenda item as personal or work (orthogonal to its type). Persisted per-day
+      // and re-applied across regenerates by stable key so reporting can mask personal items.
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      const label = String(b.label || '').trim().toLowerCase();
+      if (!key) return res.status(400).json({ error: 'key required' });
+      if (label !== 'personal' && label !== 'work') return res.status(400).json({ error: 'label must be personal or work' });
+      ov.labels = Array.isArray(ov.labels) ? ov.labels : [];
+      ov.labels = ov.labels.filter(l => String((l && l.key) || '').trim().toLowerCase() !== key.toLowerCase());
+      ov.labels.push({ key, label });
+    } else if (op === 'clear_label') {
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      if (!key) return res.status(400).json({ error: 'key required' });
+      ov.labels = Array.isArray(ov.labels) ? ov.labels : [];
+      ov.labels = ov.labels.filter(l => String((l && l.key) || '').trim().toLowerCase() !== key.toLowerCase());
     } else {
       return res.status(400).json({ error: 'unknown op' });
     }
