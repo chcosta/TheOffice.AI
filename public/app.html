@@ -12648,6 +12648,10 @@
               .meai-detail-link:hover { text-decoration:underline; }
               .meai-detail-items { display:flex; flex-direction:column; gap:8px; }
               .meai-detail-single { display:flex; flex-direction:column; gap:3px; }
+              .meai-detail-subjects { margin:4px 0 2px; }
+              .meai-detail-subjects-h { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); margin:0 0 3px; }
+              .meai-detail-subject { font-size:12px; color:var(--cp-text); line-height:1.5; padding-left:12px; position:relative; }
+              .meai-detail-subject::before { content:'·'; position:absolute; left:3px; color:var(--cp-text-muted); }
               .meai-detail-item { display:flex; flex-direction:column; gap:3px; padding:8px 10px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-surface-soft); }
               .meai-detail-item-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
               .meai-detail-item-title { font-size:12.5px; font-weight:600; color:var(--cp-text); min-width:0; overflow:hidden; text-overflow:ellipsis; }
@@ -14061,7 +14065,17 @@
                                   <template x-for="row in meAiMetaRows(b)" :key="row[0]">
                                     <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
                                   </template>
-                                  <a class="meai-detail-link" x-show="b.link || b.prLink" :href="meAiCfKey(b) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(b))) : (b.link || b.prLink)" :target="meAiCfKey(b) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(b)" x-text="meAiCfKey(b) ? 'Open in Code Flow →' : (b.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
+                                  <!-- Residual comms aggregate we couldn't split into per-item links: list the named subjects
+                                       read-only so the single Open (below) is understood to reach only the primary thread. -->
+                                  <template x-if="meAiCommsSubjects(b).length">
+                                    <div class="meai-detail-subjects">
+                                      <div class="meai-detail-subjects-h">Covers several threads</div>
+                                      <template x-for="(sub, si) in meAiCommsSubjects(b)" :key="si">
+                                        <div class="meai-detail-subject" x-text="sub"></div>
+                                      </template>
+                                    </div>
+                                  </template>
+                                  <a class="meai-detail-link" x-show="b.link || b.prLink" :href="meAiCfKey(b) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(b))) : (b.link || b.prLink)" :target="meAiCfKey(b) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(b)" x-text="meAiCfKey(b) ? 'Open in Code Flow →' : (b.type==='comms' ? (meAiCommsSubjects(b).length ? 'Open primary thread ↗' : 'Open to reply ↗') : 'Open ↗')"></a>
                                 </div>
                               </template>
                               <!-- Related day-goals — mark them without leaving the agenda (Phase B). -->
@@ -32779,6 +32793,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (key) { this.goTo('#/codeflow/' + encodeURIComponent(key)); return; }
           const link = (it && (it.link || it.prLink)) || '';
           if (link) window.open(link, '_blank', 'noopener');
+        },
+        // A comms block whose title names several subjects ("Mega Triage + Epsitha
+        // voicemail + PAT migration") but that the server couldn't split into per-item
+        // links (items <= 1) would otherwise present ONE arbitrary "Open to reply" that
+        // opens the wrong thread. Detect that residual aggregate so the detail view can
+        // list the named subjects read-only and label the single Open honestly.
+        meAiCommsSubjects(b) {
+          if (!b || b.type !== 'comms') return [];
+          if (Array.isArray(b.items) && b.items.length > 1) return [];
+          const t = String(b.title || '').trim();
+          if (!t) return [];
+          const body = t.replace(/^\s*[a-z][a-z0-9 /&+-]{1,28}:\s*/i, '');
+          const parts = body.split(/\s+(?:&|\+|and)\s+|\s*[,;]\s+/).map(s => s.trim()).filter(Boolean);
+          if (parts.length < 2) return [];
+          const tokenish = p => /[!#]\d|\bpr\b|\d{4,}/i.test(p) || p.replace(/[^a-z0-9]/gi, '').length >= 8;
+          return parts.every(tokenish) ? parts : [];
         },
         // --- Goal <-> agenda correlation (Phase B) ---
         // Normalize a title/label for fuzzy matching: lowercase, drop a leading

@@ -14498,6 +14498,35 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
           if (pid && refs.includes(pid)) pushItem(pb);
         }
       }
+      // Comms aggregates ("Mega Triage + Epsitha voicemail + PAT migration") are merged
+      // from several email/Teams asks, but the LLM emits ONE block with a single link — so
+      // the block otherwise surfaces one arbitrary "Open to reply" (the wrong thread; owner
+      // saw a random Teams conversation). The PR pass above can't help: comms asks aren't
+      // PRs and frequently live in the backlog / needs-attention rail with no time window,
+      // so the time-overlap pass misses them too. Recover the constituents by matching each
+      // named subject in the compound title back to its source comms item (each carries its
+      // own correct link). Conservative: only genuine compound titles, only strong (distinct
+      // multi-char token) matches — otherwise leave items unset (no regression).
+      if (b.type === 'comms' && items.length <= 1) {
+          const frags = _meAiSplitGoalTitle(b.title);
+          if (frags.length > 1) {
+            const pool = (pre.blocks || []).concat(pre.backlog || [], pre.needsAttention || [])
+              .filter(pb => pb && pb.type === 'comms' && (pb.link || pb.title));
+            const STOP = new Set(['reply', 'replies', 'email', 'emails', 'teams', 'thread', 'threads', 'message', 'messages', 'follow', 'followup', 'discussion', 'discuss', 'about', 'regarding', 'from']);
+            const sig = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ')
+              .split(/\s+/).filter(w => w.length >= 4 && !STOP.has(w));
+            for (const frag of frags) {
+              const ftok = new Set(sig(frag));
+              if (!ftok.size) continue;
+              let best = null, bestN = 0;
+              for (const pb of pool) {
+                let n = 0; for (const w of sig(pb.title)) if (ftok.has(w)) n++;
+                if (n > bestN) { bestN = n; best = pb; }
+              }
+              if (best && bestN >= 1) pushItem(best);
+            }
+          }
+      }
       if (items.length > 1) b.items = items;
     }
     return clean.length ? clean : null;
