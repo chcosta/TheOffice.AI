@@ -3779,6 +3779,187 @@
     .schedule-picker select {
       max-width: 320px;
     }
+    /* ---- Water cooler studio (Groups / Chats index rail) ---- */
+    .wc-sidebar { padding: 8px 6px 12px; }
+    .wc-section { margin-bottom: 4px; }
+    .wc-section-head {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 8px 8px; background: transparent; border: 0;
+      cursor: pointer; text-align: left; color: var(--cp-ink);
+      font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .wc-section-head:hover { color: var(--cp-accent); }
+    .wc-sec-chev { font-size: 10px; color: var(--cp-muted); width: 10px; }
+    .wc-sec-name { flex: 1; }
+    .wc-sec-count { color: var(--cp-muted); font-weight: 600; font-size: 11px; letter-spacing: 0; }
+    .wc-section-body { padding: 2px 0 6px; }
+
+    .wc-group-row {
+      position: relative; display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 8px 10px; margin: 1px 0;
+      background: transparent; border: 0; border-radius: var(--radius-md, 8px);
+      cursor: pointer; text-align: left; color: var(--cp-ink);
+    }
+    .wc-group-row:hover { background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+    .wc-group-row.active { background: color-mix(in srgb, var(--cp-accent) 14%, transparent); }
+    .wc-group-row.active::before {
+      content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+      width: 3px; border-radius: 3px; background: var(--cp-accent);
+    }
+    .wc-faces { display: inline-flex; flex-shrink: 0; }
+    .wc-face {
+      width: 22px; height: 22px; border-radius: 999px; margin-left: -7px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; color: #12222f;
+      box-shadow: 0 0 0 2px var(--cp-surface);
+    }
+    .wc-faces .wc-face:first-child { margin-left: 0; }
+    .wc-face-solo { margin-left: 0; box-shadow: none; width: 20px; height: 20px; }
+    .wc-group-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .wc-group-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wc-group-sub { font-size: 11px; color: var(--cp-muted); }
+    .wc-group-time { color: var(--cp-muted); }
+    .wc-roster-pop {
+      position: absolute; left: 12px; top: calc(100% - 2px); z-index: 40;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: var(--radius-md, 8px); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      padding: 6px 8px; min-width: 160px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .wc-roster-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--cp-ink); }
+    .wc-roster-item .wc-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+
+    .wc-subgroup { margin: 1px 0; }
+    .wc-subgroup-head {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 6px 8px; background: transparent; border: 0;
+      cursor: pointer; text-align: left; color: var(--cp-ink); font-size: 12px;
+    }
+    .wc-subgroup-head:hover { background: color-mix(in srgb, var(--cp-accent) 6%, transparent); border-radius: var(--radius-md, 8px); }
+    .wc-sub-chev { font-size: 9px; color: var(--cp-muted); width: 9px; }
+    .wc-sub-name { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wc-subgroup-body { padding-left: 6px; }
+    .wc-chat-row {
+      position: relative; display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 6px 8px 6px 22px; margin: 1px 0;
+      background: transparent; border: 0; border-radius: var(--radius-md, 8px);
+      cursor: pointer; text-align: left; color: var(--cp-ink);
+    }
+    .wc-chat-row:hover { background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+    .wc-chat-row.active { background: color-mix(in srgb, var(--cp-accent) 14%, transparent); }
+    .wc-chat-title { flex: 1; min-width: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wc-chat-time { font-size: 11px; color: var(--cp-muted); flex-shrink: 0; }
+    .wc-chat-row .cli-badge { font-size: 11px; }
+    .wc-empty { padding: 8px 12px; font-size: 12px; color: var(--cp-muted); line-height: 1.5; }
+
+    /* Group roster strip in the chat header */
+    .wc-roster-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .wc-roster-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--cp-ink); padding: 2px 4px; border-radius: var(--radius-md, 8px); }
+    .wc-roster-chip:hover { background: color-mix(in srgb, var(--cp-accent) 7%, transparent); }
+    .wc-dot {
+      width: 18px; height: 18px; border-radius: 999px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; color: #12222f;
+    }
+    .wc-roster-name { white-space: nowrap; }
+    .wc-roster-x { border: 0; background: transparent; color: var(--cp-muted); cursor: pointer; font-size: 10px; padding: 0 2px; opacity: 0; transition: opacity .12s ease; }
+    .wc-roster-chip:hover .wc-roster-x { opacity: 1; }
+    .wc-roster-x:hover { color: var(--cp-danger, #d05a5a); }
+    .wc-add-wrap { position: relative; display: inline-flex; }
+    .wc-add-btn { border: 1px dashed var(--cp-border); background: transparent; color: var(--cp-muted); cursor: pointer; font-size: 12px; padding: 3px 8px; border-radius: var(--radius-md, 8px); }
+    .wc-add-btn:hover { color: var(--cp-accent); border-color: var(--cp-accent); }
+    .wc-add-menu {
+      position: absolute; left: 0; top: calc(100% + 4px); z-index: 50;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: var(--radius-md, 8px); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      padding: 4px; min-width: 190px; max-height: 280px; overflow: auto;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .wc-add-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: var(--radius-md, 8px); cursor: pointer; text-align: left; color: var(--cp-ink); font-size: 13px; }
+    .wc-add-item:hover { background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+    .wc-add-empty { padding: 8px 10px; font-size: 12px; color: var(--cp-muted); }
+
+    /* Flat one-row-per-agent Chats rail */
+    .wc-agent-row { padding-left: 8px; align-items: center; }
+    .wc-agent-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .wc-agent-main .wc-chat-title { font-size: 13px; }
+    .wc-agent-sub { font-size: 11px; color: var(--cp-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* In-chat session switcher (current conversation + dropdown of this agent's threads) */
+    .wc-session-btn {
+      display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+      background: transparent; border: 1px solid transparent; cursor: pointer;
+      padding: 3px 8px; border-radius: var(--radius-md, 8px); color: var(--cp-ink);
+      text-align: left;
+    }
+    .wc-session-btn:hover { border-color: var(--cp-border); background: color-mix(in srgb, var(--cp-accent) 5%, transparent); }
+    .wc-session-cur { font-size: 13px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wc-session-meta { font-size: 11px; color: var(--cp-muted); flex-shrink: 0; }
+    .wc-session-caret { font-size: 10px; color: var(--cp-muted); flex-shrink: 0; opacity: 0; transition: opacity .12s ease; }
+    .wc-session-btn:hover .wc-session-caret { opacity: 1; }
+    .wc-session-menu { min-width: 260px; max-width: 340px; }
+    .wc-session-item {
+      display: flex; flex-direction: row; align-items: center; gap: 10px; justify-content: space-between;
+      width: 100%; padding: 6px 8px; background: transparent; border: 0;
+      border-radius: var(--radius-md, 8px); cursor: pointer; text-align: left; color: var(--cp-ink);
+    }
+    .wc-session-item-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+    .wc-session-item:hover { background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+    .wc-session-item.active { background: color-mix(in srgb, var(--cp-accent) 14%, transparent); }
+    .wc-session-item-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .wc-session-item-sub { font-size: 11px; color: var(--cp-muted); }
+    /* Issue 2: compact live-run notice in the chat top bar (replaces the intrusive inline card) */
+    .wc-live-notice {
+      display: flex; align-items: center; gap: 8px;
+      margin: 8px 0 0; padding: 6px 10px;
+      background: color-mix(in srgb, var(--cp-accent) 8%, var(--cp-surface));
+      border: 1px solid color-mix(in srgb, var(--cp-accent) 40%, transparent);
+      border-radius: var(--radius-md, 8px); font-size: 12.5px; color: var(--cp-ink);
+    }
+    .wc-live-notice.done {
+      background: color-mix(in srgb, var(--cp-success) 8%, var(--cp-surface));
+      border-color: color-mix(in srgb, var(--cp-success) 40%, transparent);
+    }
+    .wc-live-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
+    .wc-live-dot.running { background: var(--cp-accent); animation: wcLivePulse 1.6s ease-in-out infinite; }
+    .wc-live-dot.idle { background: var(--cp-success); }
+    .wc-live-text { flex: 1; min-width: 0; }
+    .wc-live-switch {
+      background: transparent; border: 0; padding: 2px 4px; cursor: pointer;
+      color: var(--cp-accent); font-size: 12.5px; font-weight: 600; white-space: nowrap;
+    }
+    .wc-live-switch:hover { text-decoration: underline; }
+    .wc-live-x {
+      background: transparent; border: 0; padding: 2px 4px; cursor: pointer;
+      color: var(--cp-muted); font-size: 12px; opacity: 0; transition: opacity .12s ease;
+    }
+    .wc-live-notice:hover .wc-live-x { opacity: 1; }
+    .wc-live-x:hover { color: var(--cp-ink); }
+    @keyframes wcLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    @media (prefers-reduced-motion: reduce) { .wc-live-dot.running { animation: none; } }
+    .wc-session-new { color: var(--cp-accent); font-size: 13px; border-top: 1px solid var(--cp-border); border-radius: 0; margin-top: 2px; padding-top: 8px; }
+    .wc-session-new:hover { background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+
+    /* New-conversation multi-select agent picker */
+    .wc-newchat-search { margin: 0 0 10px; }
+    .wc-newchat-list { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow: auto; margin: 0 -4px; padding: 0 4px; }
+    .wc-pick-row {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 8px 10px; background: transparent; border: 1px solid transparent;
+      border-radius: var(--radius-md, 8px); cursor: pointer; text-align: left; color: var(--cp-ink);
+    }
+    .wc-pick-row:hover { background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+    .wc-pick-row.selected { background: color-mix(in srgb, var(--cp-accent) 12%, transparent); border-color: color-mix(in srgb, var(--cp-accent) 40%, transparent); }
+    .wc-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .wc-pick-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wc-pick-desc { font-size: 12px; color: var(--cp-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wc-pick-check { flex-shrink: 0; width: 18px; text-align: center; font-size: 13px; font-weight: 700; color: var(--cp-accent); }
+    .wc-newchat-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .wc-newchat-count { font-size: 12px; color: var(--cp-muted); }
+
+    /* Per-speaker label above a group message bubble */
+    .wc-speaker { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .wc-speaker-name { font-size: 12px; font-weight: 700; }
+
     .chat-shell {
       height: calc(100vh - 210px);
       min-height: 480px;
@@ -18383,59 +18564,79 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Water cooler</h1>
-                <p>Talk to managers today, keep notes with agents, and keep persistent conversations in one place.</p>
+                <p>Your intentional conversations — chat one-to-one with an agent, or bring several together in a group.</p>
               </div>
               <div class="toolbar">
-                <button class="btn primary" type="button" @click="chatPickerOpen = true">＋ New chat</button>
+                <button class="btn primary" type="button" @click="openChatPicker()">＋ New chat</button>
               </div>
             </div>
             <section class="chat-shell" :class="{ 'chat-focused': chatFocused }" :style="'--chat-sb-w:' + chatSidebarW + 'px'">
-              <aside class="chat-sidebar">
-                <div class="chat-sidebar-top">
-                  <strong>Conversations</strong>
-                  <span class="badge-count" x-text="data.chats.length"></span>
-                </div>
+              <aside class="chat-sidebar wc-sidebar">
                 <div class="chat-toolbar">
                   <input class="chat-search" type="search" placeholder="Search conversations…" x-model="chatSearch" aria-label="Search conversations" />
                 </div>
                 <div class="chat-scroll">
-                  <div class="chat-list">
-                    <template x-for="group in visibleChatGroups()" :key="group.key">
-                      <div class="chat-group" :class="{ 'is-single': group.chats.length === 1 }">
-                        <template x-if="group.chats.length === 1">
-                          <button class="chat-list-item chat-row-solo" type="button" :class="{ active: activeChat && activeChat.id === group.chats[0].id }" @click="openChat(group.chats[0].id)" :title="group.targetType + ' • ' + group.name">
-                            <span class="chat-group-icon" x-text="group.icon"></span>
-                            <span class="nav-dot" :class="chatStatusClass(group.chats[0])"></span>
-                            <span class="chat-item-title" x-text="group.chats[0].title"></span>
-                            <template x-if="group.chats[0].source === 'cli'"><span class="cli-badge" title="Mirrors an interactive Copilot CLI terminal">⌨ CLI</span></template>
-                            <span class="chat-item-time" x-text="group.chats[0].updatedAt ? formatRelative(group.chats[0].updatedAt) : 'new'"></span>
-                          </button>
-                        </template>
-                        <template x-if="group.chats.length > 1">
-                          <div>
-                            <button class="chat-group-header" type="button" @click="chatGroupCollapsed[group.key] = !chatGroupCollapsed[group.key]" :title="group.targetType + ' • ' + group.name">
-                              <span class="chat-group-icon" x-text="group.icon"></span>
-                              <span class="chat-group-name" x-text="group.name"></span>
-                              <span class="badge-count" x-text="group.chats.length"></span>
-                              <span class="chat-group-chevron" x-text="isGroupOpen(group) ? '▾' : '▸'"></span>
-                            </button>
-                            <div class="chat-group-items" x-show="isGroupOpen(group)" x-transition.opacity>
-                              <template x-for="chat in group.chats" :key="chat.id">
-                                <button class="chat-list-item" type="button" :class="{ active: activeChat && activeChat.id === chat.id }" @click="openChat(chat.id)">
-                                  <span class="nav-dot" :class="chatStatusClass(chat)"></span>
-                                  <span class="chat-item-title" x-text="chat.title"></span>
-                                  <template x-if="chat.source === 'cli'"><span class="cli-badge" title="Mirrors an interactive Copilot CLI terminal">⌨ CLI</span></template>
-                                  <span class="chat-item-time" x-text="chat.updatedAt ? formatRelative(chat.updatedAt) : 'new'"></span>
-                                </button>
-                              </template>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                    <div class="empty-state" x-show="!data.chats.length">No conversations yet.</div>
-                    <div class="empty-state" x-show="data.chats.length && !visibleChatGroups().length">No conversations match “<span x-text="chatSearch"></span>”.</div>
+                  <!-- GROUPS: multi-agent, self-managing conversations -->
+                  <div class="wc-section">
+                    <button class="wc-section-head" type="button" @click="toggleSection('groups')">
+                      <span class="wc-sec-chev" x-text="isSectionOpen('groups') ? '▾' : '▸'"></span>
+                      <span class="wc-sec-name">Groups</span>
+                      <span class="wc-sec-count" x-text="wcGroups().length"></span>
+                    </button>
+                    <div class="wc-section-body" x-show="isSectionOpen('groups')" x-transition.opacity>
+                      <template x-for="chat in wcGroups()" :key="chat.id">
+                        <button class="wc-group-row" type="button" :class="{ active: activeChat && activeChat.id === chat.id }" @click="openChat(chat.id)" @mouseenter="wcRosterHover = chat.id" @mouseleave="wcRosterHover = null">
+                          <span class="wc-faces">
+                            <template x-for="(m, i) in chatRoster(chat).slice(0, 4)" :key="m.id">
+                              <span class="wc-face" :style="'background:' + wcColor(m.id) + ';z-index:' + (10 - i)" x-text="wcInitial(m.name)"></span>
+                            </template>
+                          </span>
+                          <span class="wc-group-main">
+                            <span class="wc-group-title" x-text="chat.title"></span>
+                            <span class="wc-group-sub"><span x-text="chatRoster(chat).length"></span> agents<span class="wc-group-time" x-text="chat.updatedAt ? ' · ' + formatRelative(chat.updatedAt) : ''"></span></span>
+                          </span>
+                          <span class="nav-dot" :class="chatStatusClass(chat)"></span>
+                          <!-- hover-reveal identities -->
+                          <span class="wc-roster-pop" x-show="wcRosterHover === chat.id" x-transition.opacity>
+                            <template x-for="m in chatRoster(chat)" :key="m.id">
+                              <span class="wc-roster-item"><span class="wc-dot" :style="'background:' + wcColor(m.id)"></span><span x-text="m.name"></span></span>
+                            </template>
+                          </span>
+                        </button>
+                      </template>
+                      <div class="wc-empty" x-show="!wcGroups().length && !chatSearch.trim()">No group conversations yet. Add agents to a chat to start one.</div>
+                    </div>
                   </div>
+
+                  <!-- CHATS: 1:1 direct messages — one row per agent (most-recent session). -->
+                  <div class="wc-section">
+                    <button class="wc-section-head" type="button" @click="toggleSection('chats')">
+                      <span class="wc-sec-chev" x-text="isSectionOpen('chats') ? '▾' : '▸'"></span>
+                      <span class="wc-sec-name">Chats</span>
+                      <span class="wc-sec-count" x-text="wcDirectSubgroups().length"></span>
+                    </button>
+                    <div class="wc-section-body" x-show="isSectionOpen('chats')" x-transition.opacity>
+                      <template x-for="group in wcDirectSubgroups()" :key="group.key">
+                        <button class="wc-chat-row wc-agent-row" type="button"
+                          :class="{ active: activeChat && !chatIsGroup(activeChat) && activeChat.targetType === group.targetType && activeChat.target === group.target }"
+                          @click="openChat(group.chats[0].id)" :title="group.name">
+                          <span class="wc-face wc-face-solo" :style="'background:' + wcColor(group.target)" x-text="wcInitial(group.name)"></span>
+                          <span class="wc-agent-main">
+                            <span class="wc-chat-title" x-text="group.name"></span>
+                            <span class="wc-agent-sub">
+                              <span x-text="group.chats[0].updatedAt ? formatRelative(group.chats[0].updatedAt) : 'new'"></span>
+                              <span x-show="group.chats.length > 1" x-text="' · ' + group.chats.length + ' sessions'"></span>
+                            </span>
+                          </span>
+                          <span class="nav-dot" :class="chatStatusClass(group.chats[0])"></span>
+                        </button>
+                      </template>
+                      <div class="wc-empty" x-show="!wcDirectSubgroups().length && !chatSearch.trim()">No direct chats yet.</div>
+                    </div>
+                  </div>
+
+                  <div class="wc-empty" x-show="data.chats.length && chatSearch.trim() && !wcGroups().length && !wcDirectSubgroups().length">No conversations match “<span x-text="chatSearch"></span>”.</div>
+                  <div class="empty-state" x-show="!data.chats.length">No conversations yet.</div>
                 </div>
               </aside>
 
@@ -18446,16 +18647,55 @@
                   <div>
                     <strong x-text="activeChat ? activeChat.title : ''"></strong>
                     <div class="hint" style="margin-top:6px" x-text="activeChat ? chatHeaderSubtitle(activeChat) : ''"></div>
+                    <!-- Group roster strip: member dots (hover to remove) + Add agents -->
+                    <template x-if="activeChat && chatIsGroup(activeChat)">
+                      <div class="wc-roster-strip">
+                        <template x-for="(m, mi) in wcEffectiveRoster(activeChat)" :key="m.id">
+                          <span class="wc-roster-chip" :title="m.name">
+                            <span class="wc-dot" :style="'background:' + wcColor(m.id)" x-text="wcInitial(m.name)"></span>
+                            <span class="wc-roster-name" x-text="m.name"></span>
+                            <button class="wc-roster-x" type="button" x-show="mi > 0" @click="wcRemoveAgentFromChat(activeChat, m.id)" title="Remove from group">✕</button>
+                          </span>
+                        </template>
+                        <span class="wc-add-wrap">
+                          <button class="wc-add-btn" type="button" @click="wcAddOpen = !wcAddOpen" title="Add an agent to this conversation">＋ Add agents</button>
+                          <div class="wc-add-menu" x-show="wcAddOpen" @click.outside="wcAddOpen = false" x-transition.opacity>
+                            <template x-if="wcAvailableToAdd(activeChat).length === 0">
+                              <div class="wc-add-empty">No other agents to add.</div>
+                            </template>
+                            <template x-for="a in wcAvailableToAdd(activeChat)" :key="a.id">
+                              <button class="wc-add-item" type="button" @click="wcAddAgents(activeChat, a.id)">
+                                <span class="wc-dot" :style="'background:' + wcColor(a.id)" x-text="wcInitial(a.name)"></span>
+                                <span x-text="a.name"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </span>
+                      </div>
+                    </template>
                   </div>
                   <div class="toolbar" x-show="activeChat">
-                    <template x-if="threadsForActive().length > 1">
-                      <select class="btn ghost" style="max-width:220px" @change="openChat($event.target.value)" title="Switch to a previous conversation for this target">
-                        <template x-for="t in threadsForActive()" :key="t.id">
-                          <option :value="t.id" :selected="activeChat && activeChat.id === t.id" x-text="t.title + ' • ' + (t.updatedAt ? formatRelative(t.updatedAt) : 'new')"></option>
-                        </template>
-                      </select>
+                    <template x-if="activeChat && !chatIsGroup(activeChat)">
+                      <span class="wc-add-wrap">
+                        <button class="wc-session-btn" type="button" @click="wcSessionOpen = !wcSessionOpen" :title="'Switch between this agent\'s conversations'">
+                          <span class="wc-session-cur" x-text="activeChat.title"></span>
+                          <span class="wc-session-meta" x-text="threadsForActive().length > 1 ? threadsForActive().length + ' sessions' : '1 session'"></span>
+                          <span class="wc-session-caret">▾</span>
+                        </button>
+                        <div class="wc-add-menu wc-session-menu" x-show="wcSessionOpen" @click.outside="wcSessionOpen = false" x-transition.opacity>
+                          <template x-for="t in threadsForActive()" :key="'sw-' + t.id">
+                            <button class="wc-session-item" type="button" :class="{ active: activeChat && activeChat.id === t.id }" @click="wcSessionOpen = false; openChat(t.id)">
+                              <span class="wc-session-item-main">
+                                <span class="wc-session-item-title" x-text="t.title"></span>
+                                <span class="wc-session-item-sub" x-text="((t.messages ? t.messages.length : (t.messageCount || 0)) + ' msgs · ' + (t.updatedAt ? formatRelative(t.updatedAt) : 'new'))"></span>
+                              </span>
+                              <span class="nav-dot" :class="chatStatusClass(t)" :title="chatStatusClass(t) === 'running' ? 'Live now' : 'Idle'"></span>
+                            </button>
+                          </template>
+                          <button class="wc-session-item wc-session-new" type="button" @click="wcSessionOpen = false; newConversationForActive()">＋ New conversation</button>
+                        </div>
+                      </span>
                     </template>
-                    <button class="btn ghost" type="button" @click="newConversationForActive()" title="Start a fresh conversation thread with this manager/agent">＋ New conversation</button>
                     <button class="btn ghost" type="button" @click="renameChat(activeChat)" title="Rename this conversation">✏️ Rename</button>
                     <button class="btn ghost" type="button" :disabled="titlingChatId === (activeChat && activeChat.id)" @click="regenChatTitle(activeChat)" title="Generate a fresh AI title from the conversation" x-text="titlingChatId === (activeChat && activeChat.id) ? '⏳ Titling…' : '🏷️ Auto-title'"></button>
                     <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
@@ -18463,6 +18703,17 @@
                     <button class="btn ghost" type="button" @click="openQuickPin('chat', activeChat.id, activeChat.title, activeChat.targetName || activeChat.target)" title="Pin this conversation to a board">📌 Pin</button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
                   </div>
+                  <!-- Live-run notice: a task/other session is running live for this agent.
+                       We keep it out of the transcript — just a compact top-bar notice with
+                       a switch action (which refreshes the session list). -->
+                  <template x-if="activeChat && !chatIsGroup(activeChat) && liveOutput[activeChat.target]">
+                    <div class="wc-live-notice" :class="{ done: !liveOutput[activeChat.target]?.active }">
+                      <span class="wc-live-dot" :class="liveOutput[activeChat.target]?.active ? 'running' : 'idle'"></span>
+                      <span class="wc-live-text" x-text="liveOutput[activeChat.target]?.active ? 'A live run is active for this agent in another session.' : 'A run just finished for this agent in another session.'"></span>
+                      <button class="wc-live-switch" type="button" @click="wcSwitchToLive()" x-text="liveOutput[activeChat.target]?.active ? 'Switch to it →' : 'View it →'"></button>
+                      <button class="wc-live-x" type="button" @click="delete liveOutput[activeChat.target]; liveOutput = {...liveOutput}" title="Dismiss">✕</button>
+                    </div>
+                  </template>
                 </div>
 
                 <div class="chat-main-messages" x-show="activeChat">
@@ -18471,6 +18722,12 @@
                       <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
                         <div class="message-bubble-wrap">
                           <div class="message-bubble">
+                            <template x-if="message.role !== 'user' && chatIsGroup(activeChat) && wcMsgSpeaker(message)">
+                              <div class="wc-speaker">
+                                <span class="wc-dot" :style="'background:' + wcMsgColor(message)" x-text="wcInitial(wcMsgSpeaker(message))"></span>
+                                <span class="wc-speaker-name" :style="'color:' + wcMsgColor(message)" x-text="wcMsgSpeaker(message)"></span>
+                              </div>
+                            </template>
                             <div x-html="renderMessageContent(message)"></div>
                             <template x-if="message.role !== 'user' && message.activity && message.activity.length">
                               <details class="msg-activity">
@@ -18533,64 +18790,6 @@
                         </template>
                       </div>
                     </template>
-                  </div>
-                  <!-- Live task execution output -->
-                  <div class="live-exec-chat" x-show="activeChat && liveOutput[activeChat?.target]">
-                    <div class="message-row">
-                      <div class="message-bubble-wrap">
-                        <template x-if="liveOutput[activeChat?.target]?.active">
-                          <!-- Streaming view: raw deltas, auto-scrolling -->
-                          <div class="message-bubble" style="border: 1px solid var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 4%, var(--cp-surface))">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                              <span class="pulse-dot"></span>
-                              <strong>⚡ Executing…</strong>
-                              <span class="hint" x-text="'started ' + formatRelative(liveOutput[activeChat?.target]?.startedAt)"></span>
-                            </div>
-                            <div class="live-output-container">
-                              <pre class="live-output-pre" x-text="liveOutput[activeChat?.target]?.text || 'Waiting for output…'" x-effect="liveOutput[activeChat?.target]?.text; $el.scrollTop = $el.scrollHeight"></pre>
-                            </div>
-                          </div>
-                        </template>
-                        <template x-if="!liveOutput[activeChat?.target]?.active">
-                          <!-- Completed view: clean final response + drill-down (parity with chat) -->
-                          <div class="message-bubble" :style="liveOutput[activeChat?.target]?.code === 0 ? 'border: 1px solid var(--cp-success); background: color-mix(in srgb, var(--cp-success) 5%, var(--cp-surface))' : 'border: 1px solid var(--cp-danger); background: color-mix(in srgb, var(--cp-danger) 5%, var(--cp-surface))'">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                              <strong x-text="liveOutput[activeChat?.target]?.code === 0 ? '✓ Execution Complete' : '✕ Execution Failed'"></strong>
-                              <span class="hint" x-text="'Exit ' + (liveOutput[activeChat?.target]?.code ?? '?')"></span>
-                              <button class="btn ghost" style="margin-left:auto;padding:2px 8px" type="button" @click="delete liveOutput[activeChat.target]; liveOutput = {...liveOutput}" title="Dismiss this execution result">✕ Dismiss</button>
-                            </div>
-                            <div class="md-output" x-html="renderMarkdown(liveOutput[activeChat?.target]?.finalOutput || liveOutput[activeChat?.target]?.text || 'No output captured.')"></div>
-                            <template x-if="(liveOutput[activeChat?.target]?.steps || []).length">
-                              <details class="msg-activity">
-                                <summary>🔎 Reasoning &amp; steps (<span x-text="liveOutput[activeChat?.target]?.steps?.length"></span>)</summary>
-                                <div class="msg-activity-body">
-                                  <template x-for="(st, ai) in (liveOutput[activeChat?.target]?.steps || [])" :key="'xstep-' + ai">
-                                    <div class="msg-activity-step" :class="st.type">
-                                      <template x-if="st.text">
-                                        <details class="msg-activity-substep">
-                                          <summary x-text="st.label"></summary>
-                                          <pre class="live-stream-pre" x-text="st.text"></pre>
-                                        </details>
-                                      </template>
-                                      <template x-if="!st.text">
-                                        <div class="msg-activity-label" x-text="st.label"></div>
-                                      </template>
-                                    </div>
-                                  </template>
-                                </div>
-                              </details>
-                            </template>
-                            <details class="msg-activity">
-                              <summary>📜 Raw stream</summary>
-                              <div class="msg-activity-body">
-                                <pre class="live-stream-pre" style="max-height:260px" x-text="liveOutput[activeChat?.target]?.text || '(no streamed output)'"></pre>
-                              </div>
-                            </details>
-                            <div class="message-meta" x-text="'started ' + formatDateTime(liveOutput[activeChat?.target]?.startedAt) + (liveOutput[activeChat?.target]?.finishedAt ? ' • finished ' + formatDateTime(liveOutput[activeChat?.target]?.finishedAt) : '')"></div>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
                   </div>
                   <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id] && !chatActivity[activeChat?.id]">
                     <span>Waiting for response</span>
@@ -22120,43 +22319,34 @@
 
 
   <div class="modal-backdrop" x-show="chatPickerOpen" x-transition.opacity.duration.150ms @click.self="chatPickerOpen = false" x-cloak>
-    <section class="modal-card" style="max-width:760px">
+    <section class="modal-card wc-newchat-card" style="max-width:560px">
       <div class="modal-header">
         <div>
-          <strong>Start a chat</strong>
-          <div class="hint" style="margin-top:6px">Choose an agent or manager to open a conversation.</div>
+          <strong>New conversation</strong>
+          <div class="hint" style="margin-top:6px">Pick one agent for a direct chat, or several to start a group.</div>
         </div>
         <button class="icon-button" type="button" @click="chatPickerOpen = false">✕</button>
       </div>
       <div class="modal-body">
-        <div class="cards-grid">
-          <div class="card">
-            <div class="card-header"><h3 class="card-title">Managers</h3></div>
-            <div class="stack">
-              <template x-for="manager in data.managers" :key="'pick-mgr-' + manager.id">
-                <button class="selector-button" type="button" @click="openOrCreateChat('manager', manager.id); chatPickerOpen = false">
-                  <div class="split-meta">
-                    <span x-text="manager.name"></span>
-                    <span class="nav-dot" :class="manager.status === 'running' ? 'running' : 'idle'"></span>
-                  </div>
-                </button>
-              </template>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h3 class="card-title">Agents</h3></div>
-            <div class="stack">
-              <template x-for="agent in data.agents" :key="'pick-agent-' + agent.id">
-                <button class="selector-button" type="button" @click="openOrCreateChat('agent', agent.id); chatPickerOpen = false">
-                  <div class="split-meta">
-                    <span x-text="agent.name"></span>
-                    <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
-                  </div>
-                </button>
-              </template>
-            </div>
-          </div>
+        <input class="field-input wc-newchat-search" type="search" x-model="chatPicker.search" placeholder="Search agents…" aria-label="Search agents" />
+        <div class="wc-newchat-list">
+          <template x-for="agent in wcPickerAgents()" :key="'pick-agent-' + agent.id">
+            <button class="wc-pick-row" type="button" :class="{ selected: wcPickSelected(agent.id) }" @click="wcPickToggle(agent.id)">
+              <span class="wc-face wc-face-solo" :style="'background:' + wcColor(agent.id)" x-text="wcInitial(agent.name)"></span>
+              <span class="wc-pick-main">
+                <span class="wc-pick-name" x-text="agent.name"></span>
+                <span class="wc-pick-desc" x-show="wcPickDesc(agent)" x-text="wcPickDesc(agent)"></span>
+              </span>
+              <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
+              <span class="wc-pick-check" x-text="wcPickSelected(agent.id) ? '✓' : ''"></span>
+            </button>
+          </template>
+          <div class="wc-empty" x-show="!wcPickerAgents().length">No agents match “<span x-text="chatPicker.search"></span>”.</div>
         </div>
+      </div>
+      <div class="modal-footer wc-newchat-foot">
+        <span class="wc-newchat-count" x-text="wcPickSummary()"></span>
+        <button class="btn primary" type="button" :disabled="!chatPicker.selected.length" @click="wcStartFromPicker()" x-text="wcPickCta()"></button>
       </div>
     </section>
   </div>
@@ -23318,6 +23508,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         flowZoomLevel: 1,
         _flowCanvas: null,
         chatPickerOpen: false,
+        chatPicker: { search: '', selected: [] },
+        wcSessionOpen: false,
         orgPickerOpen: false,
         agentDiscoveryOpen: false,
         agentDiscoveryLoading: false,
@@ -23363,7 +23555,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         chatLive: true,
         chatSessions: {},
         chatGroupCollapsed: {},
+        chatSectionCollapsed: { groups: false, chats: false },
+        chatSubgroupCollapsed: {},
         chatSearch: '',
+        wcAddOpen: false,
+        wcRosterHover: null,
+        wcGroupSessions: {},
+        wcGroupLive: {},
         titlingChatId: null,
         runDetailOpen: false,
         runDetailLoading: false,
@@ -24224,6 +24422,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadManagerDetail(this.app.routeParam);
           } else if (this.route === 'chat-detail' && this.app.routeParam) {
             await this.openChat(this.app.routeParam);
+          } else if (this.route === 'chat' && !this.activeChat) {
+            await this.wcResumeLast();
           } else if ((this.route === 'task-detail' || this.route === 'assignment-detail') && this.app.routeParam) {
             await this.loadOpDetail(this.app.routeParam);
           } else if (this.route === 'chain-detail' && this.app.routeParam) {
@@ -29163,6 +29363,418 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         isGroupOpen(group) {
           if (this.chatSearch.trim()) return true;
           return !this.chatGroupCollapsed[group.key];
+        },
+
+        // ---- Water cooler: intentional-conversation model ----------------
+        // A chat is a "group" when it carries a roster of 2+ agents; everything
+        // else is a 1:1 direct message shown under its agent in "Chats".
+        chatIsGroup(chat) {
+          return !!(chat && Array.isArray(chat.roster) && chat.roster.length >= 2);
+        },
+        chatRoster(chat) {
+          return (chat && Array.isArray(chat.roster)) ? chat.roster : [];
+        },
+        // Calm 7-colour identity palette (matches the board macColor set) so an
+        // agent keeps the same dot/face colour everywhere.
+        wcColor(id) {
+          const pal = ['#6ea8fe', '#63d2a4', '#e6a15b', '#c58bf0', '#e78ab0', '#6fd0d6', '#d0c060'];
+          let h = 0; const s = String(id || '');
+          for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+          return pal[h % pal.length];
+        },
+        wcInitial(name) {
+          const s = String(name || '?').trim();
+          return (s[0] || '?').toUpperCase();
+        },
+        wcAgentName(id) {
+          return this.data.agents.find((a) => a.id === id)?.name
+            || this.data.managers.find((m) => m.id === id)?.name || id;
+        },
+
+        // Group conversations (roster >= 2), most-recent first, org-scoped.
+        wcGroups() {
+          const q = this.chatSearch.trim().toLowerCase();
+          const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
+          return this.data.chats
+            .filter((c) => this.idInCurrentOrg(c.target) && this.chatIsGroup(c))
+            .filter((c) => {
+              if (!q) return true;
+              if ((c.title || '').toLowerCase().includes(q)) return true;
+              return this.chatRoster(c).some((r) => (r.name || '').toLowerCase().includes(q));
+            })
+            .sort((a, b) => ts(b) - ts(a));
+        },
+
+        // Direct-message subgroups: reuse the per-agent grouping but drop any
+        // group conversations (those live in the Groups section only).
+        wcDirectSubgroups() {
+          const q = this.chatSearch.trim().toLowerCase();
+          const map = new Map();
+          for (const chat of this.data.chats) {
+            if (!this.idInCurrentOrg(chat.target)) continue;
+            if (this.chatIsGroup(chat)) continue;
+            const key = chat.targetType + ':' + chat.target;
+            if (!map.has(key)) {
+              const name = chat.targetType === 'manager'
+                ? (this.data.managers.find((m) => m.id === chat.target)?.name || chat.target)
+                : (this.data.agents.find((a) => a.id === chat.target)?.name || chat.target);
+              map.set(key, { key, targetType: chat.targetType, target: chat.target, name, chats: [] });
+            }
+            map.get(key).chats.push(chat);
+          }
+          const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
+          let groups = [...map.values()];
+          for (const g of groups) g.chats.sort((a, b) => ts(b) - ts(a));
+          if (q) {
+            groups = groups
+              .map((g) => g.name.toLowerCase().includes(q) ? g
+                : { ...g, chats: g.chats.filter((c) => (c.title || '').toLowerCase().includes(q)) })
+              .filter((g) => g.chats.length);
+          }
+          groups.sort((a, b) => Math.max(0, ...b.chats.map(ts)) - Math.max(0, ...a.chats.map(ts)));
+          return groups;
+        },
+
+        // The two top-level sections (Groups / Chats) collapse independently.
+        // Search forces both open so matches are always visible.
+        isSectionOpen(name) {
+          if (this.chatSearch.trim()) return true;
+          return !this.chatSectionCollapsed[name];
+        },
+        toggleSection(name) {
+          this.chatSectionCollapsed[name] = !this.chatSectionCollapsed[name];
+        },
+        // Per-agent DM subgroup collapse (open by default; search forces open).
+        isSubgroupOpen(key) {
+          if (this.chatSearch.trim()) return true;
+          return !this.chatSubgroupCollapsed[key];
+        },
+        toggleSubgroup(key) {
+          this.chatSubgroupCollapsed[key] = !this.chatSubgroupCollapsed[key];
+        },
+
+        // ── Water Cooler multi-agent (group) send ─────────────────────────────
+        // A chat is a "group" when roster >= 2. The roster is authored on the chat
+        // (server-persisted); for a plain 1:1 chat we synthesize a single-member
+        // roster from its target so the same code paths work either way.
+        _wcAgentDesc(id) {
+          const a = this.data.agents.find((x) => String(x.id) === String(id));
+          return (a && (a.description || (a.config && a.config.description))) || '';
+        },
+        // The effective roster for any chat (>=1). Falls back to the chat target.
+        wcEffectiveRoster(chat) {
+          const r = this.chatRoster(chat);
+          if (r.length) return r;
+          if (!chat) return [];
+          return [{ id: chat.target, name: this.wcAgentName(chat.target) }];
+        },
+        // Speaker label + colour for a rendered message (group chats only surface a
+        // per-speaker label; 1:1 chats keep the plain role meta).
+        wcMsgSpeaker(message) {
+          if (!message) return '';
+          if (message.role === 'user') return 'You';
+          return message.speaker || '';
+        },
+        wcMsgColor(message) {
+          if (!message) return 'var(--cp-accent)';
+          if (message.role === 'user') return 'var(--cp-muted)';
+          return this.wcColor(message.agentId || message.speaker || '');
+        },
+        // Agents not already in the chat's roster (candidates for "Add agents").
+        wcAvailableToAdd(chat) {
+          const have = new Set(this.wcEffectiveRoster(chat).map((a) => String(a.id)));
+          return (this.data.agents || [])
+            .filter((a) => a && a.id && !have.has(String(a.id)) && this.idInCurrentOrg(a.id))
+            .map((a) => ({ id: a.id, name: a.name || 'agent' }))
+            .sort((x, y) => x.name.localeCompare(y.name));
+        },
+        // Stable signature for a roster (order-independent) so we can match an
+        // existing group conversation exactly.
+        _wcRosterSig(roster) {
+          return (roster || []).map((a) => String(a.id)).sort().join('|');
+        },
+        // Add an agent to the conversation. Does NOT mutate the current chat — it
+        // resumes the most-recent existing conversation whose roster matches the new
+        // set exactly, or creates a fresh group chat if none exists.
+        async wcAddAgents(chat, agentId) {
+          this.wcAddOpen = false;
+          const a = this.data.agents.find((x) => String(x.id) === String(agentId));
+          if (!a || !chat) return;
+          const current = this.wcEffectiveRoster(chat);
+          if (current.some((r) => String(r.id) === String(a.id))) return;
+          const target = [...current, { id: a.id, name: a.name || 'agent' }];
+          await this._wcOpenOrCreateGroup(target);
+        },
+        // Remove a member from a group conversation (base/first member stays).
+        async wcRemoveAgentFromChat(chat, agentId) {
+          if (!chat || !this.chatIsGroup(chat)) return;
+          const roster = this.chatRoster(chat);
+          if (roster.length <= 2) { this.showToast('Group chat', 'A group needs at least two agents.', 'info'); return; }
+          if (String(roster[0].id) === String(agentId)) return; // base is permanent
+          const next = roster.filter((r) => String(r.id) !== String(agentId));
+          try {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ roster: next }),
+            });
+            if (this.wcGroupSessions[chat.id]) delete this.wcGroupSessions[chat.id][String(agentId)];
+            await this.openChat(chat.id, false);
+          } catch (e) {
+            this.showToast('Group chat', 'Could not update group: ' + (e.message || 'error'), 'error');
+          }
+        },
+        // On opening the Water Cooler with no active chat, auto-resume the most-recent
+        // user-initiated conversation (never a system/task-initiated one).
+        async wcResumeLast() {
+          try {
+            if (!this.data.chats || !this.data.chats.length) {
+              try { this.data.chats = await this.request('/api/chats'); } catch { /* ignore */ }
+            }
+            const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
+            const last = (this.data.chats || [])
+              .filter((c) => c && c.initiatedBy !== 'system')
+              .sort((x, y) => ts(y) - ts(x))[0];
+            if (last && last.id) await this.openChat(last.id, false);
+          } catch { /* ignore */ }
+        },
+
+        // ── New-conversation picker (multi-select agents) ─────────────────────
+        openChatPicker() {
+          this.chatPicker = { search: '', selected: [] };
+          this.chatPickerOpen = true;
+        },
+        wcPickerAgents() {
+          const q = (this.chatPicker.search || '').trim().toLowerCase();
+          return (this.data.agents || [])
+            .filter((a) => a && a.id && this.idInCurrentOrg(a.id))
+            .filter((a) => !q || (a.name || '').toLowerCase().includes(q) || (this._wcAgentDesc(a.id) || '').toLowerCase().includes(q))
+            .sort((x, y) => (x.name || '').localeCompare(y.name || ''));
+        },
+        wcPickDesc(agent) {
+          const d = (agent && (agent.description || (agent.config && agent.config.description))) || '';
+          return d ? String(d).slice(0, 90) : '';
+        },
+        wcPickSelected(id) {
+          return this.chatPicker.selected.some((x) => String(x) === String(id));
+        },
+        wcPickToggle(id) {
+          const s = this.chatPicker.selected;
+          const i = s.findIndex((x) => String(x) === String(id));
+          if (i >= 0) s.splice(i, 1); else s.push(String(id));
+        },
+        wcPickSummary() {
+          const n = this.chatPicker.selected.length;
+          if (!n) return 'Select one or more agents';
+          if (n === 1) return '1 agent — direct chat';
+          return n + ' agents — group chat';
+        },
+        // The CTA reflects intent: open a 1:1, resume an existing exact-roster group,
+        // or start a new group.
+        wcPickCta() {
+          const n = this.chatPicker.selected.length;
+          if (n <= 1) return 'Open chat';
+          const sig = this._wcRosterSig(this.chatPicker.selected.map((id) => ({ id })));
+          const existing = this.data.chats.some((c) => this.chatIsGroup(c) && this._wcRosterSig(this.chatRoster(c)) === sig);
+          return existing ? 'Resume group' : ('Start group chat (' + n + ')');
+        },
+        async wcStartFromPicker() {
+          const ids = [...this.chatPicker.selected];
+          if (!ids.length) return;
+          this.chatPickerOpen = false;
+          if (ids.length === 1) { await this.openOrCreateChat('agent', ids[0]); return; }
+          const roster = ids.map((id) => ({ id, name: this.wcAgentName(id) }));
+          await this._wcOpenOrCreateGroup(roster);
+        },
+        // Resume the most-recent group whose roster matches exactly, else create one.
+        async _wcOpenOrCreateGroup(roster) {
+          const sig = this._wcRosterSig(roster);
+          const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
+          const existing = this.data.chats
+            .filter((c) => this.chatIsGroup(c) && this._wcRosterSig(this.chatRoster(c)) === sig)
+            .sort((x, y) => ts(y) - ts(x))[0];
+          if (existing) { await this.openChat(existing.id); return existing; }
+          const title = 'Group: ' + roster.map((r) => r.name).join(', ');
+          const id = 'group-' + this._wcRosterSig(roster).replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40) + '-' + Date.now().toString(36);
+          try {
+            const created = await this.request('/api/chats', {
+              method: 'POST',
+              body: JSON.stringify({ id, title, target: roster[0].id, targetType: 'agent', roster, initiatedBy: 'user' }),
+            });
+            try { this.data.chats = await this.request('/api/chats'); } catch { /* ignore */ }
+            if (created && created.id) { await this.openChat(created.id); return created; }
+          } catch (e) {
+            this.showToast('Group chat', 'Could not start group: ' + (e.message || 'error'), 'error');
+          }
+        },
+        _wcParseMentions(chat, text) {
+          const roster = this.wcEffectiveRoster(chat);
+          const ids = new Set();
+          const re = /@([\w-]+)/g; let mm;
+          while ((mm = re.exec(text || ''))) {
+            const tok = mm[1].toLowerCase();
+            for (const a of roster) {
+              const nm = String(a.name || '').toLowerCase().replace(/\s+/g, '');
+              if (nm && (nm === tok || nm.startsWith(tok))) ids.add(String(a.id));
+            }
+          }
+          return [...ids];
+        },
+        // Issue 2: instead of dumping another session's live run into this chat, switch
+        // the user over to it. Refresh the chat list, then open the newest OTHER thread
+        // for the same target; fall back to the agent/manager detail page.
+        async wcSwitchToLive() {
+          const chat = this.activeChat;
+          if (!chat || !chat.target) return;
+          const target = chat.target, tt = chat.targetType || 'agent';
+          try { this.data.chats = await this.request('/api/chats'); } catch {}
+          const other = (this.data.chats || [])
+            .filter((c) => c && c.target === target && (c.targetType || 'agent') === tt && c.id !== chat.id && !this.chatIsGroup(c))
+            .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))[0];
+          if (other) { await this.openChat(other.id); return; }
+          this.goTo((tt === 'manager' ? '#/managers/' : '#/agents/') + encodeURIComponent(target));
+        },
+        // Orchestrate ONE user turn across a group roster: ask the router who should
+        // respond, then run those responders SEQUENTIALLY so each later agent sees the
+        // earlier replies. The user message is already posted + refreshed by sendChat.
+        async _wcGroupSend(chat, prompt) {
+          const roster = this.wcEffectiveRoster(chat);
+          const mentioned = this._wcParseMentions(chat, prompt);
+          this.chatActivity[chat.id] = { status: 'Deciding who should respond…', steps: [] };
+          try {
+            const transcript = (chat.messages || []).slice(-8)
+              .map((m) => ({ speaker: this.wcMsgSpeaker(m) || 'agent', content: m.content }));
+            let responders = [];
+            try {
+              const route = await this.request('/api/multi-agent/route', {
+                method: 'POST',
+                body: JSON.stringify({
+                  message: prompt,
+                  mentioned,
+                  agents: roster.map((a) => ({ id: a.id, name: a.name, description: this._wcAgentDesc(a.id) })),
+                  transcript,
+                }),
+              });
+              responders = (route && Array.isArray(route.responders)) ? route.responders : [];
+            } catch { responders = []; }
+            if (!responders.length) responders = [{ id: roster[0].id }];
+            for (const r of responders) {
+              const a = roster.find((x) => String(x.id) === String(r.id));
+              if (!a) continue;
+              await this._wcRunResponder(chat, a, prompt);
+            }
+          } catch (e) {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: `Error: ${e.message || 'group send failed'}` }),
+            });
+          } finally {
+            delete this.chatActivity[chat.id];
+            this.typingChats[chat.id] = false;
+            await this.openChat(chat.id, false);
+          }
+        },
+        // Run one roster member's turn: a group-context prompt (persona + recent
+        // labeled transcript) → the agent's own chat session (reused per chat/agent) →
+        // pollSessionTurn → append a speaker-labeled assistant message on the server.
+        // A group conversation is "stale" (start members fresh instead of resuming)
+        // when it has grown large or gone cold — keeps resumed context manageable.
+        _wcGroupStale(chat) {
+          if (!chat) return false;
+          const n = (chat.messages || []).length;
+          if (n > 60) return true;
+          const last = new Date(chat.updatedAt || chat.createdAt || 0).getTime();
+          return last > 0 && (Date.now() - last) > 7 * 864e5;
+        },
+        // Full labeled transcript for a group chat, bounded to a char budget from the
+        // end so every responder sees the whole conversation (not just a tail window).
+        _wcTranscript(chat, budget = 8000) {
+          const lines = (chat.messages || [])
+            .map((m) => `${this.wcMsgSpeaker(m) || 'agent'}: ${String(m.content || '').replace(/\s+/g, ' ').trim()}`)
+            .filter((l) => l.length > (l.indexOf(':') + 2));
+          let out = [];
+          let used = 0;
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const len = lines[i].length + 1;
+            if (used + len > budget && out.length) break;
+            out.unshift(lines[i]);
+            used += len;
+          }
+          return out.join('\n');
+        },
+        // Persist the per-agent session map onto the group chat (fire-and-forget) so
+        // members resume their own threads after a reload.
+        async _wcPersistSessions(chat) {
+          try {
+            const map = this.wcGroupSessions[chat.id] || {};
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ agentSessions: map }),
+            });
+            if (chat) chat.agentSessions = { ...map };
+          } catch { /* non-fatal: in-memory map still drives this session */ }
+        },
+        async _wcRunResponder(chat, agent, userPrompt) {
+          if (!this.wcGroupSessions[chat.id]) {
+            // Seed each member's persisted session so they resume their own thread
+            // across reloads — unless the conversation is stale (very large or old),
+            // in which case start everyone fresh so context stays manageable.
+            this.wcGroupSessions[chat.id] = this._wcGroupStale(chat) ? {} : { ...(chat.agentSessions || {}) };
+          }
+          const sessions = this.wcGroupSessions[chat.id];
+          const roster = this.wcEffectiveRoster(chat);
+          const others = roster.filter((x) => String(x.id) !== String(agent.id)).map((x) => x.name).filter(Boolean);
+          const recent = this._wcTranscript(chat);
+          const ctx = [
+            `You are "${agent.name}", one of several agents in a group chat with a user${others.length ? ' (other members: ' + others.join(', ') + ')' : ''}.`,
+            'Respond ONLY as yourself, in your own voice and area of expertise. Do not speak for the other agents or restate what they already said. Be concise and add your distinct value. If the latest message is not for you, briefly defer.',
+            recent ? '\nFull group transcript so far:\n' + recent : '',
+            `\nLatest user message: ${userPrompt}`,
+          ].filter(Boolean).join('\n');
+          this.chatActivity[chat.id] = { status: agent.name + ' is thinking…', steps: [] };
+          let resp;
+          try {
+            resp = await this.request('/api/agents/' + encodeURIComponent(agent.id) + '/chat', {
+              method: 'POST',
+              body: JSON.stringify({ message: ctx, sessionId: sessions[String(agent.id)] || null }),
+            });
+          } catch (e) {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: `_(Could not start ${agent.name}: ${e.message || 'error'})_`, speaker: agent.name, agentId: agent.id }),
+            });
+            return;
+          }
+          if (resp && resp.sessionId && sessions[String(agent.id)] !== resp.sessionId) {
+            sessions[String(agent.id)] = resp.sessionId;
+            this._wcPersistSessions(chat);
+          }
+          if (!sessions[String(agent.id)]) {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: `_(Could not start ${agent.name}.)_`, speaker: agent.name, agentId: agent.id }),
+            });
+            return;
+          }
+          await this.pollSessionTurn(sessions[String(agent.id)], {
+            onActivity: ({ steps, elapsed, lastAssistant }) => {
+              const live = this.caLiveSteps(steps);
+              const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
+              this.chatActivity[chat.id] = { status: agent.name + ': ' + phase + '… ' + elapsed + 's', steps: live };
+            },
+            onError: async (m) => {
+              await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'assistant', content: `_(${agent.name} failed: ${m || 'error'})_`, speaker: agent.name, agentId: agent.id }),
+              });
+            },
+            onDone: async ({ response, steps, model }) => {
+              await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'assistant', content: response || '_(No response.)_', speaker: agent.name, agentId: agent.id, activity: this.mapAgentSteps(steps), model: model || '' }),
+              });
+              await this.openChat(chat.id, false);
+            },
+          });
         },
 
         // A title is "default" (auto-upgradeable) when it is still the generated
@@ -44150,7 +44762,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         threadsForActive() {
           if (!this.activeChat) return [];
           return this.data.chats
-            .filter((chat) => chat.targetType === this.activeChat.targetType && chat.target === this.activeChat.target)
+            .filter((chat) => chat.targetType === this.activeChat.targetType && chat.target === this.activeChat.target && !this.chatIsGroup(chat))
             .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
         },
 
@@ -44625,6 +45237,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // turn and backfill the manager's previous run as a stale assistant reply.
           this.typingChats[this.activeChat.id] = true;
           await this.openChat(this.activeChat.id, false);
+
+          // Group conversation (roster >= 2): self-managing multi-agent turn.
+          if (this.chatIsGroup(this.activeChat)) {
+            await this._wcGroupSend(this.activeChat, content);
+            return;
+          }
 
           if (this.activeChat.targetType === 'manager') {
             try {

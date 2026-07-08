@@ -25115,7 +25115,7 @@ app.get('/api/chats', (req, res) => {
   const chats = files.map(f => {
     try {
       const data = JSON.parse(fs.readFileSync(path.join(CHATS_DIR, f), 'utf-8'));
-      return { id: data.id, title: data.title, target: data.target, targetType: data.targetType, source: data.source || null, cliSessionId: data.cliSessionId || null, updatedAt: data.updatedAt, messageCount: (data.messages || []).length };
+      return { id: data.id, title: data.title, target: data.target, targetType: data.targetType, roster: Array.isArray(data.roster) ? data.roster : null, initiatedBy: data.initiatedBy || null, source: data.source || null, cliSessionId: data.cliSessionId || null, updatedAt: data.updatedAt, messageCount: (data.messages || []).length };
     } catch { return null; }
   }).filter(Boolean).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   res.json(chats);
@@ -25131,9 +25131,17 @@ app.get('/api/chats/:id', (req, res) => {
 });
 
 app.post('/api/chats', (req, res) => {
-  const { id, title, target, targetType } = req.body;
+  const { id, title, target, targetType, roster, initiatedBy } = req.body;
   if (!id || !target) return res.status(400).json({ error: 'id and target required' });
   const chat = { id, title: title || `Chat with ${target}`, target, targetType: targetType || 'agent', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  // Group conversations carry a roster of participating agents ([{id,name}]).
+  // A roster with 2+ members marks the chat as a "group" in the Water cooler.
+  if (Array.isArray(roster) && roster.length) {
+    chat.roster = roster.filter(r => r && r.id).map(r => ({ id: String(r.id), name: r.name || String(r.id) }));
+  }
+  // Track who started the thread so the Water cooler can resume the last
+  // *user-initiated* conversation and skip system/task-initiated ones.
+  chat.initiatedBy = initiatedBy === 'system' ? 'system' : 'user';
   fs.writeFileSync(path.join(CHATS_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
   res.json(chat);
 });
@@ -25148,6 +25156,10 @@ app.post('/api/chats/:id/messages', (req, res) => {
   if (req.body.activity && Array.isArray(req.body.activity) && req.body.activity.length) msg.activity = req.body.activity;
   if (req.body.runId) msg.runId = req.body.runId;
   if (req.body.model) msg.model = req.body.model;
+  // Group conversations: label each assistant turn with the agent that spoke so the
+  // Water cooler can render per-speaker attribution across a multi-agent roster.
+  if (req.body.speaker) msg.speaker = String(req.body.speaker).slice(0, 80);
+  if (req.body.agentId) msg.agentId = String(req.body.agentId);
   chat.messages.push(msg);
   chat.updatedAt = msg.timestamp;
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
@@ -25164,9 +25176,28 @@ app.patch('/api/chats/:id', (req, res) => {
     const t = req.body.title.trim();
     if (t) chat.title = t.slice(0, 120);
   }
+  // Update the group roster (add/remove agents). An empty array clears it back
+  // to a single-agent chat.
+  if (Array.isArray(req.body.roster)) {
+    const clean = req.body.roster.filter(r => r && r.id).map(r => ({ id: String(r.id), name: r.name || String(r.id) }));
+    if (clean.length) chat.roster = clean; else delete chat.roster;
+    chat.updatedAt = new Date().toISOString();
+  }
+  // Per-agent CLI/agent session ids for a group chat, so each roster member can
+  // resume its own thread across reloads. Shape: { [agentId]: sessionId }.
+  if (req.body.agentSessions && typeof req.body.agentSessions === 'object') {
+    const src = req.body.agentSessions;
+    const clean = {};
+    for (const k of Object.keys(src)) {
+      const v = src[k];
+      if (v == null) continue;
+      clean[String(k)] = String(v).slice(0, 200);
+    }
+    chat.agentSessions = clean;
+  }
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
   broadcastSSE('chat-updated', { chatId: chat.id, title: chat.title });
-  res.json({ id: chat.id, title: chat.title });
+  res.json({ id: chat.id, title: chat.title, roster: chat.roster || null, agentSessions: chat.agentSessions || null });
 });
 
 // Ask the model for a short, topic-specific title once a conversation has a
