@@ -12371,6 +12371,9 @@
               .meai-inbox-item:focus-within .meai-inbox-acts,
               .meai-secitem:hover .meai-inbox-acts,
               .meai-secitem:focus-within .meai-inbox-acts { max-height:120px; opacity:1; margin-top:8px; pointer-events:auto; }
+              /* Group triage actions are ALWAYS visible (the group card has no per-item hover
+                 parent, and the whole point is to triage a group in one gesture). */
+              .meai-group-acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid color-mix(in srgb, var(--cp-border) 60%, transparent); }
               .meai-tri { border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:4px 12px; font-size:12.5px; cursor:pointer; }
               .meai-tri:hover { border-color:var(--cp-accent); }
               .meai-tri.ghost { color:var(--cp-text-muted); }
@@ -13676,7 +13679,7 @@
                             </div>
                           </template>
                         </div>
-                        <div class="meai-inbox-acts">
+                        <div class="meai-group-acts">
                           <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'today')" :disabled="meai.inboxBusy" title="Fit all into today's agenda">Fit all into today</button>
                           <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'later')" :disabled="meai.inboxBusy" title="Park all for later">Later</button>
                           <button type="button" class="meai-tri ghost" @click="meAiGroupTriage(g,'done')" :disabled="meai.inboxBusy" title="Mark all as already handled">Mark all done</button>
@@ -31117,6 +31120,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.meAiLoadTasks();
             await this.meAiLoadInbox();
             this.meAiLoadLookahead();
+            // Restore the persisted "group similar" preference (owner ask) — auto-cluster
+            // the freshly-loaded inbox when it was on.
+            try {
+              if (localStorage.getItem('meai-inbox-grouping') === '1') {
+                this.meai.inboxGrouping = true;
+                this.meAiLoadGroups();
+              }
+            } catch (_) {}
             // #3 Warm the signal cache for the viewed date in the background so a
             // later generate / mode-change re-plan is fast. Consent-gated server-side.
             if (this.meai.config.consent) {
@@ -31524,10 +31535,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Toggle the grouped view; fetch groups the first time it's turned on.
         async meAiToggleGrouping() {
           if (this.meai.inboxGroupBusy) return;
-          if (this.meai.inboxGrouping) { this.meai.inboxGrouping = false; return; }
+          if (this.meai.inboxGrouping) { this.meai.inboxGrouping = false; this._meAiPersistGrouping(false); return; }
           await this.meAiLoadGroups();
           this.meai.inboxGrouping = true;
+          this._meAiPersistGrouping(true);
         },
+        // Persist the group-similar preference so it survives reloads (owner ask).
+        _meAiPersistGrouping(on) { try { localStorage.setItem('meai-inbox-grouping', on ? '1' : '0'); } catch (_) {} },
         // Ask the server to cluster related inbox items (deterministic + bounded AI refine).
         async meAiLoadGroups() {
           this.meai.inboxGroupBusy = true;
