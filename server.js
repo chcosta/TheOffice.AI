@@ -12641,6 +12641,91 @@ async function _meAiScoreAndMaybeAuto(it, cfg, date, now, opts = {}) {
   return true;
 }
 
+// --- Item 3: AI grouping of related inbox items --------------------------------------
+// Cluster the still-actionable inbox items so the user can triage a whole group in one
+// gesture (e.g. "these 4 dn-bot PAT alerts → Not mine"). Deterministic first (shared
+// signature OR same source+kind with high token overlap), then a best-effort AI refine
+// that can merge/label groups by MEANING ("all refer to the same incident"). The AI pass
+// is bounded + falls back to the deterministic clusters so grouping never blocks triage.
+function _meAiJaccard(a, b) {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+function _meAiClusterInbox(items) {
+  // Only cluster items that still need a decision.
+  const pool = (items || []).filter(it => it && (it.triage === 'new' || it.triage === 'seen' || it.triage === 'later'));
+  const nodes = pool.map(it => ({ it, tok: new Set(_meAiTitleTokens(it.title)), sig: _meAiTriageSignature(it) }));
+  const parent = nodes.map((_, i) => i);
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const A = nodes[i], B = nodes[j];
+      const sameSig = A.sig && B.sig && A.sig === B.sig;
+      const sameChan = (A.it.source || '') === (B.it.source || '') && (A.it.kind || '') === (B.it.kind || '');
+      const overlap = _meAiJaccard(A.tok, B.tok);
+      if (sameSig || (sameChan && overlap >= 0.5) || overlap >= 0.7) union(i, j);
+    }
+  }
+  const groups = new Map();
+  nodes.forEach((n, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(n.it); });
+  const out = [];
+  for (const members of groups.values()) {
+    if (members.length < 2) continue; // singletons don't need group actions
+    // Label from the most common significant token across the members.
+    const freq = {};
+    for (const m of members) for (const t of _meAiTitleTokens(m.title)) freq[t] = (freq[t] || 0) + 1;
+    const top = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]);
+    out.push({
+      id: 'grp:' + require('crypto').createHash('md5').update(members.map(m => m.id).sort().join('|')).digest('hex').slice(0, 10),
+      label: top.length ? (top.join(' · ')) : `${members.length} related items`,
+      reason: `Similar ${members[0].kind || 'items'} that look related`,
+      ids: members.map(m => m.id),
+      suggested: members[0].suggested || '',
+    });
+  }
+  return out;
+}
+async function _meAiGroupInbox(items, opts = {}) {
+  const det = _meAiClusterInbox(items);
+  const pool = (items || []).filter(it => it && (it.triage === 'new' || it.triage === 'seen' || it.triage === 'later'));
+  if (opts.allowAi === false || pool.length < 3) return det;
+  try {
+    const list = pool.slice(0, 40).map(it => `- ${it.id} | ${(it.source || 'm365')}/${(it.kind || 'email')}${it.directMention ? ' @you' : ''} | ${String(it.title || '').slice(0, 120)}`).join('\n');
+    const prompt = `You group my attention-inbox items so I can triage related ones together. Group items that clearly refer to the SAME thing (same PR, same incident, same sender/thread) OR should obviously be handled the same way (e.g. a batch of identical automated alerts). Do NOT force unrelated items together; a group needs a genuine reason and at least 2 items. Leave anything ambiguous ungrouped.\n\nITEMS\n${list}\n\nReturn ONLY JSON: {"groups":[{"ids":["<id>","<id>"...],"label":"<=40 char name","reason":"<=80 char why"}]}. Use the exact ids shown. Omit singletons.`;
+    let acc = '';
+    const run = sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'me-ai', category: 'me-ai' },
+    });
+    const result = await Promise.race([run, new Promise(r => setTimeout(() => r({ fallback: true }), 12000))]);
+    if (!result || result.fallback) return det;
+    const raw = (acc.trim() || (result && result.output) || '').trim();
+    const obj = _connectExtractJson(raw);
+    if (!obj || !Array.isArray(obj.groups)) return det;
+    const valid = new Set(pool.map(it => it.id));
+    const out = [];
+    const seen = new Set();
+    for (const g of obj.groups) {
+      const ids = Array.from(new Set((g.ids || []).map(String).filter(x => valid.has(x) && !seen.has(x))));
+      if (ids.length < 2) continue;
+      ids.forEach(x => seen.add(x));
+      const first = pool.find(it => it.id === ids[0]) || {};
+      out.push({
+        id: 'grp:' + require('crypto').createHash('md5').update(ids.slice().sort().join('|')).digest('hex').slice(0, 10),
+        label: String(g.label || '').slice(0, 40) || `${ids.length} related items`,
+        reason: String(g.reason || '').slice(0, 80),
+        ids,
+        suggested: first.suggested || '',
+      });
+    }
+    return out.length ? out : det;
+  } catch { return det; }
+}
+
 // REQ-8 Proactive attention inbox. A leader-gated poller keeps this fresh so that
 // email/Teams items needing your reply or action surface even while you're head-down,
 // WITHOUT silently reshuffling your focus. Each newly-arrived item is flagged 'new'
@@ -14282,6 +14367,25 @@ function _meAiNormTodos(list) {
       if (!title) return null;
       const scope = (t && t.scope === 'personal') ? 'personal' : 'work';
       const out = { title, scope, done: !!(t && t.done) };
+      // Item 4 (floating checklist): a `checklist`-kind todo is a triage/alert-type item
+      // seeded from the agenda that needs MANUAL completion (no live-entity lifecycle).
+      // `origin` is a stable seed key (block link||title) used to dedupe re-seeds; `link`
+      // deep-links it; `note` carries any user annotation. Preserve all so they persist +
+      // carry forward like any other todo.
+      if (t && t.kind === 'checklist') {
+        out.kind = 'checklist';
+        // status: open | done | partial (need more time) | missed (didn't get to it).
+        // Keep the `done` boolean in sync so all legacy logic (carry-over on !done,
+        // open-count, strike-through) keeps working unchanged.
+        let status = (t && typeof t.status === 'string' && ['open', 'done', 'partial', 'missed'].includes(t.status))
+          ? t.status : (out.done ? 'done' : 'open');
+        out.status = status;
+        out.done = (status === 'done');
+        if (t && t.live) out.live = true; // PR / work-item-backed goal (may reappear)
+      }
+      if (t && t.origin) out.origin = String(t.origin).slice(0, 300);
+      if (t && t.link) out.link = String(t.link).slice(0, 400);
+      if (t && t.note) out.note = String(t.note).slice(0, 300);
       if (t && t.carried) { out.carried = true; if (t.carriedFrom) out.carriedFrom = String(t.carriedFrom).slice(0, 10); }
       return out;
     })
@@ -14304,13 +14408,73 @@ function _meAiCarryOverTodos(cfg, day) {
       const snap = loadAgendaForDate(prevDate);
       if (!snap) continue; // no plan that day — keep walking to the last worked day
       const open = _meAiNormTodos(snap.todos).filter(t => !t.done);
-      return open.map(t => ({ title: t.title, scope: t.scope, done: false, carried: true, carriedFrom: prevDate }));
+      // Preserve checklist-kind + its seed keys so a carried triage item (e.g. an
+      // unrotated PAT) STAYS a checklist item and keeps deep-linking as it rolls forward.
+      return open.map(t => {
+        const c = { title: t.title, scope: t.scope, done: false, carried: true, carriedFrom: prevDate };
+        if (t.kind === 'checklist') { c.kind = 'checklist'; c.status = 'open'; if (t.live) c.live = true; }
+        if (t.origin) c.origin = t.origin;
+        if (t.link) c.link = t.link;
+        if (t.note) c.note = t.note;
+        return c;
+      });
     }
   } catch (_) { /* best-effort */ }
   return [];
 }
 
-// Suggestions engine (design §12): proactive, dismissible nudges derived from the day's
+// Item 4 (floating checklist / "today's goals"): seed the day's substantive WORK
+// blocks into the day's todo list as `checklist`-kind items so they double as a record
+// of what you hoped to accomplish and never silently drop when the agenda regenerates.
+// We seed admin/comms/review/focus/prep/steward blocks — including live-entity work
+// (PRs / work items), which are flagged `live:true` so the UI can note they may reappear
+// while still letting you mark one done or flag that you need more time / didn't get to it.
+// Excludes meetings, personal items, lunch/open-focus fillers. Deduped against the existing
+// todos (title + origin) AND the per-day tombstone so a user-removed item stays gone.
+// Mutates effTodos in place (which is agenda.todos by ref).
+function _meAiSeedChecklist(agenda, effTodos, day) {
+  try {
+    if (!agenda || !Array.isArray(effTodos)) return;
+    // Seed the whole day's intended WORK into the checklist so it doubles as a
+    // "today's goals" tracker — a record of what you hoped to accomplish. We include
+    // live-entity work (PRs / work items) too: even though those self-correct on the
+    // agenda, tracking them here lets you mark one done (with a note that survives even
+    // if it reappears) or honestly flag that you didn't get to it / need more time.
+    const SEED_TYPES = { admin: 1, comms: 1, review: 1, focus: 1, prep: 1, steward: 1 };
+    const SKIP_TITLE = /^(open focus|lunch|break)$/i;
+    const tomb = (typeof loadMeAiTodoTomb === 'function') ? (loadMeAiTodoTomb(day) || {}) : {};
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const haveTitle = new Set(effTodos.map(t => norm(t && t.title)));
+    const haveOrigin = new Set(effTodos.map(t => norm(t && t.origin)).filter(Boolean));
+    // Expand merged blocks into leaves (one PR / PAT / reply per row).
+    const leaves = [];
+    for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
+      if (!b || !SEED_TYPES[b.type]) continue;
+      if (Array.isArray(b.items) && b.items.length > 1) {
+        for (const it of b.items) leaves.push({ title: it.title || b.title, link: it.link || '', meta: it.meta || null });
+      } else {
+        leaves.push({ title: b.title, link: b.link || '', meta: b.meta || null });
+      }
+    }
+    for (const lf of leaves) {
+      const title = String(lf.title || '').trim();
+      if (!title || SKIP_TITLE.test(title)) continue;
+      const link = lf.link || '';
+      // A PR / work item is a "live" goal — it has its own lifecycle, so we flag it as
+      // such (the UI notes it may reappear) but still track it as a goal for the day.
+      const isLive = !!(lf.meta && lf.meta.prId) || !!_meAiParseWorkItem(link);
+      const origin = norm(link || title).slice(0, 300);
+      const tKey = norm(title);
+      if (haveTitle.has(tKey) || (origin && haveOrigin.has(origin))) continue;
+      if (tomb[tKey] || (origin && tomb[origin])) continue; // user removed it before — keep it gone
+      haveTitle.add(tKey);
+      if (origin) haveOrigin.add(origin);
+      const row = { title, scope: 'work', done: false, status: 'open', kind: 'checklist', origin: (link || title).slice(0, 300), link };
+      if (isLive) row.live = true;
+      effTodos.push(row);
+    }
+  } catch (_) { /* best-effort — never block agenda generation */ }
+}
 // built agenda. Deterministic + bounded; each nudge carries a stable id so a dismissal
 // (me-ai/sugg-dismiss/<date>.json) sticks for the day. Recomputed on every generate.
 const ME_AI_SUGG_DISMISS_DIR = path.join(dataPath('me-ai'), 'sugg-dismiss');
@@ -14654,8 +14818,11 @@ function _meAiClassifyDay(agenda) {
     rows.push({ id: key, text: lf.link ? '[' + title + '](' + lf.link + ')' : title, done: false });
   }
   // Work todos → checklist rows too (personal todos stay off the work board).
+  // Skip `checklist`-kind todos: those were SEEDED from admin/comms blocks above and
+  // already produced a row via the block loop (keyed on link||title), so re-emitting
+  // them here — keyed on title only — would duplicate the row on the My Day board.
   for (const td of (Array.isArray(agenda.todos) ? agenda.todos : [])) {
-    if (!td || td.scope === 'personal') continue;
+    if (!td || td.scope === 'personal' || td.kind === 'checklist') continue;
     const t = String(td.title || '').trim();
     if (!t) continue;
     const key = _meAiDayRowKey(t);
@@ -15047,6 +15214,11 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // merged-item splits, per-item removals) on top of the planned schedule so they
   // survive every regenerate. Done before suggestions so nudges see the real day.
   try { _meAiApplyOverrides(agenda, day); } catch (_) { /* best-effort */ }
+  // Item 4 (floating checklist): seed triage/alert-type admin+comms items into the todo
+  // list as checklist-kind so they need MANUAL completion + carry forward. agenda.todos is
+  // the same array ref as effTodos, so seeding it mutates the snapshot; re-save the durable
+  // store so seeded items persist + become carry-forward-eligible.
+  try { _meAiSeedChecklist(agenda, agenda.todos, day); saveMeAiTodoStore(day, agenda.todos); } catch (_) { /* best-effort */ }
   // Surface real double-books. Two committed blocks sharing time is a conflict the user
   // should see — EXCEPT overlapping a meeting they did not explicitly opt into (declined /
   // not-attending meetings are informational and may be worked over). Flexible open-focus
@@ -16123,6 +16295,81 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     }
     const newCount = inbox.items.filter(i => i.triage === 'new').length;
     res.json({ ok: true, date, items: inbox.items, newCount, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Item 3: apply a triage decision to one item IN-PLACE (mutates it + dismiss store +
+// learned model) without saving/replanning — shared by the single + batch routes.
+function _meAiTriageItemInPlace(date, it, action, now) {
+  const wasAuto = !!it.auto;
+  const overridden = (wasAuto && it.autoReason && it.autoReason.action) ? it.autoReason.action : null;
+  if (action === 'dismiss' || action === 'wontfix') {
+    try {
+      const dm = loadDismissForDate(date);
+      dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now, reason: action };
+      saveDismissForDate(date, dm);
+    } catch (_) { /* best-effort */ }
+    it.triage = action === 'wontfix' ? 'wontfix' : 'dismissed';
+  } else if (action === 'done') {
+    it.triage = 'done'; it.doneAt = now;
+  } else if (action === 'seen') {
+    if (it.triage === 'new') it.triage = 'seen';
+  } else {
+    it.triage = action; // 'later' | 'now' | 'today'
+  }
+  if (overridden && (overridden === 'dismiss' || overridden === 'wontfix') && action !== 'dismiss' && action !== 'wontfix') {
+    try { const dm = loadDismissForDate(date); delete dm[_meAiDismissKey(it)]; saveDismissForDate(date, dm); } catch (_) { /* best-effort */ }
+  }
+  it.auto = false;
+  it.triagedAt = now;
+  if (action !== 'seen' && action !== 'done') {
+    try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
+  }
+}
+
+// POST /api/me-ai/inbox/group { date? } → AI-group the still-actionable inbox items so
+// related ones can be triaged together. Read-only (no mutation); returns [{id,label,
+// reason,ids,suggested}]. Bounded AI refine with a deterministic fallback.
+app.post('/api/me-ai/inbox/group', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    const inbox = loadInboxForDate(date);
+    const groups = await _meAiGroupInbox(inbox.items, { allowAi: b.allowAi !== false });
+    res.json({ ok: true, date, groups });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/inbox/triage-batch { date?, ids[], action } → apply one triage action
+// to a group of items at once. Learns from each. Re-plans once if action is 'today'.
+app.post('/api/me-ai/inbox/triage-batch', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    const ids = Array.from(new Set((b.ids || []).map(x => String(x).trim()).filter(Boolean)));
+    const action = String(b.action || '').trim();
+    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done'];
+    if (!ids.length || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
+    const inbox = loadInboxForDate(date);
+    const now = new Date().toISOString();
+    let applied = 0;
+    for (const id of ids) {
+      const it = inbox.items.find(x => x.id === id);
+      if (!it) continue;
+      _meAiTriageItemInPlace(date, it, action, now);
+      applied++;
+    }
+    saveInboxForDate(date, inbox);
+    let agenda = null;
+    if (action === 'today' && applied) {
+      try {
+        const prev = loadAgendaForDate(date);
+        const todos = (prev && Array.isArray(prev.todos)) ? prev.todos.map(t => ({ title: t.title, scope: t.scope })) : [];
+        agenda = await generateMeAiAgenda({ date, todos, reindex: false, cause: 'triage' });
+      } catch (_) { /* best-effort */ }
+    }
+    const newCount = inbox.items.filter(i => i.triage === 'new').length;
+    res.json({ ok: true, date, items: inbox.items, newCount, applied, agenda });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -17409,7 +17656,8 @@ function _meAiJsonContract() {
     '  "report": { "summary": "<2-4 sentence outcome>", "findings": [ { "title": "<short>", "detail": "<what & where>", "severity": "high|medium|low" } ] },',
     '  "nextActions": [ { "label": "<button text>", "intent": "<one of: apply-fix, comment, push, approve, request-review, retry, change-approach, continue, abandon>", "primary": true|false, "risk": "none|write|external", "detail": "<for write/external only: one line saying EXACTLY what this will do and why — the target + the gist>" } ]',
     '}',
-    'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. When the outcome is a written briefing/prep document, ALSO add "brief" inside report — the full briefing body as Markdown. Include these ONLY when they apply; omit them otherwise. They are rendered as inspectable previews.',
+    'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. When the outcome is a written briefing, a document, a set of instructions, or any prose deliverable I am meant to read, ALSO add "brief" inside report — the COMPLETE deliverable body as Markdown (headings/steps/bullets). Include these ONLY when they apply; omit them otherwise. They are rendered as inspectable previews.',
+    'NO PHANTOM REFERENCES: I only ever see report.summary, report.findings, report.diff, report.draft, report.brief, and your prose above the JSON block — there is no other "brief", "attachment", "document below", or "section below" unless YOU put its full text in one of those fields. So NEVER write "see below", "provided below", "in the brief", "step-by-step instructions below", "attached", or similar in report.summary or a finding.detail unless that content is actually present in report.brief/report.draft/report.diff or fully written in your prose. A finding.detail like "instructions provided below in the brief" while report.brief is empty shows me NOTHING and is a bug. If your deliverable is instructions or a write-up, put the entire thing in report.brief; keep findings to short pointers, not promises.',
     'HONESTY ABOUT DRAFTS: on this turn you have NO ability to save an Outlook/Teams draft, send mail, or post a message — you can only produce the text. Do NOT try to work around this by calling internal server HTTP endpoints (e.g. POST /api/share/email, /api/share/teams, anything on localhost:3847) or by any shell/script trick — those only write a local .eml file or need a webhook, they do NOT actually send the message and they bypass my approval. The ONE correct way to send an email or post a message is to put the ready text in report.draft and offer a nextAction (e.g. "Send email", "Post to Teams") with "risk":"external"; when I approve it, it is carried out for real using my WorkIQ tools (do_action /me/sendMail, etc.). So never claim in report.summary that you "created/prepared/saved N drafts" (that reads as items in my Outlook Drafts folder, which will not exist). Say instead that you "drafted reply text below for my review" and put the actual text in report.draft. If there are several, put each in a clearly-labelled section of report.draft.',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human. For any nextAction whose risk is "write" or "external" (it changes something or sends/posts on my behalf), you MUST fill in "detail" with one plain-language line stating exactly what it will do and why — e.g. name the recipient and the gist ("Reply to Alex on the PR thread saying the two items are duplicates and I\'ll close #123") — so I can approve it informed without opening the draft. In report.summary, also explicitly name each write/external action you are asking me to approve and the reason, so the request is never a surprise.',
     'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. ALWAYS include your own recommendation inside the question text — end it with what you would do and why (e.g. "… I recommend the 30s default since most callers are interactive."), so I can accept your call quickly. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
