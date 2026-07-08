@@ -5766,8 +5766,9 @@ async function runFacilitator(prompt) {
 }
 
 // Facilitator routing: one holistic decision (sees every agent at once) so it can
-// choose the minimum best-fit set, OR declare it can't route and ask the user to
-// clarify. Richer than /route's per-agent gate — this is the group's facilitator.
+// choose the minimum best-fit set. When it can't confidently narrow the message
+// down it fans out to the whole roster rather than stalling — it never asks the
+// user to clarify. Richer than /route's per-agent gate — this is the group's facilitator.
 app.post('/api/multi-agent/facilitate', async (req, res) => {
   const message = String((req.body && req.body.message) || '').trim();
   const agents = Array.isArray(req.body && req.body.agents) ? req.body.agents : [];
@@ -5788,12 +5789,14 @@ app.post('/api/multi-agent/facilitate', async (req, res) => {
 
   const prompt = [
     'You are the Facilitator of a group chat between a user and several AI agents.',
-    'Your job: decide which agent(s) should answer the user\'s latest message. Pick the SMALLEST set that fully covers it — one agent when it is clearly their domain, several only when the question genuinely spans areas.',
-    'If no agent is a good fit, or the request is too vague to route confidently, set "uncertain" to true and write a short, friendly "note" asking the user to clarify or @mention someone (mention the relevant agents and their specialties). When uncertain, leave "responders" empty.',
+    'Your job: decide which agent(s) should answer the user\'s latest message.',
+    'When the message clearly targets a specific domain, pick the SMALLEST set that fully covers it — one agent when it is clearly their area, several only when it genuinely spans areas.',
+    'When you CANNOT confidently narrow it down — the message is vague, general, conversational, or could reasonably apply to more than one agent — route to ALL agents rather than guessing. Put every agent id in "responders". Do NOT ask the user to clarify and do NOT leave responders empty.',
+    'Always set "uncertain" to false and leave "note" empty — you route silently and let the agents speak for themselves.',
     '\nAgents (use the EXACT id in brackets):\n' + roster,
     convo ? '\nConversation so far:\n' + convo : '',
     `\nLatest user message: ${message}`,
-    '\nRespond with STRICT JSON only (no prose, no code fence): {"responders":[{"id":"<exact agent id>","reason":"<=12 words"}],"uncertain":true|false,"note":"<message to the user, only when uncertain; else empty>"}',
+    '\nRespond with STRICT JSON only (no prose, no code fence): {"responders":[{"id":"<exact agent id>","reason":"<=12 words"}],"uncertain":false,"note":""}',
   ].filter(Boolean).join('\n');
 
   try {
@@ -5807,10 +5810,11 @@ app.post('/api/multi-agent/facilitate', async (req, res) => {
     const seen = new Set();
     responders = responders.filter(r => (seen.has(String(r.id)) ? false : (seen.add(String(r.id)), true)))
       .sort((x, y) => (order.get(String(x.id)) ?? 99) - (order.get(String(y.id)) ?? 99));
-    const uncertain = !!(parsed && parsed.uncertain) && !responders.length;
-    const note = String((parsed && parsed.note) || '').slice(0, 600);
-    if (uncertain) return res.json({ responders: [], uncertain: true, note });
-    if (!responders.length) responders = [{ id: agents[0].id, reason: 'default' }];
+    // Aggressive routing: never stall on "uncertain". If the facilitator didn't
+    // confidently pick anyone, fan out to the whole roster so every agent gets a
+    // chance to respond — the facilitator stays quiet here and only speaks up
+    // during synthesis when 2+ agents answer.
+    if (!responders.length) responders = agents.map(a => ({ id: a.id, reason: 'fan-out' }));
     res.json({ responders, uncertain: false, note: '' });
   } catch (e) {
     res.status(500).json({ error: (e && e.message) || 'facilitate failed' });

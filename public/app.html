@@ -18739,8 +18739,10 @@
                   </template>
                 </div>
 
-                <div class="chat-main-messages" x-show="activeChat">
-                  <div class="messages-stack">
+                <div class="chat-main-messages" x-show="activeChat" x-ref="chatScroll"
+                     @scroll="_chatAtBottom = (($refs.chatScroll.scrollHeight - $refs.chatScroll.scrollTop - $refs.chatScroll.clientHeight) < 80)">
+                  <div class="messages-stack"
+                       x-effect="activeChat?.id; activeChat?.messages?.length; chatActivity[activeChat?.id]?.status; chatActivity[activeChat?.id]?.steps?.length; _wcAutoScroll()">
                     <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
                       <div class="message-row" :class="{ 'user': message.role === 'user', 'facilitator': message.agentId === '__facilitator__' }">
                         <div class="message-bubble-wrap">
@@ -23583,6 +23585,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         toasts: [],
         typingChats: {},
         chatActivity: {},
+        _chatAtBottom: true,
         chatVerbose: true,
         liveReasonOpen: true,
         chatLive: true,
@@ -29673,6 +29676,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Orchestrate ONE user turn across a group roster: ask the router who should
         // respond, then run those responders SEQUENTIALLY so each later agent sees the
         // earlier replies. The user message is already posted + refreshed by sendChat.
+        // Auto-scroll the chat transcript to the bottom, but only when the user is
+        // already parked near the bottom. If they've scrolled up to read history we
+        // leave their position alone so new content doesn't yank them down.
+        _wcAutoScroll() {
+          if (this._chatAtBottom === false) return;
+          this.$nextTick(() => {
+            const el = this.$refs?.chatScroll || document.querySelector('.chat-main-messages');
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        },
         async _wcGroupSend(chat, prompt) {
           const roster = this.wcEffectiveRoster(chat);
           const mentioned = this._wcParseMentions(chat, prompt);
@@ -29695,13 +29708,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               uncertain = !!(route && route.uncertain);
               note = (route && route.note) || '';
             } catch { responders = []; }
-            // Facilitator couldn't route: speak up and ask the user to clarify —
-            // don't force a random agent to answer something that isn't for them.
-            if (uncertain && !responders.length) {
-              await this._wcPostFacilitator(chat, note || "I'm not sure which teammate is the best fit here. Could you add a little more detail, or @mention the agent you want?");
-              return;
-            }
-            if (!responders.length) responders = [{ id: roster[0].id }];
+            // Route aggressively: when the facilitator can confidently pick specific
+            // agent(s) it does; otherwise fan the message out to everyone and stay
+            // out of the way (no facilitator routing note). The facilitator only
+            // speaks up later, during synthesis, when 2+ agents answer and it can
+            // add real clarity.
+            if (!responders.length) responders = roster.map((a) => ({ id: a.id }));
             // Run each responder and capture what they said, so the facilitator can
             // synthesise / reconcile once everyone has spoken.
             const collected = [];
@@ -44941,11 +44953,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // CLI-backed chats mirror an interactive terminal — poll for new turns.
             this.stopCliPoll();
             if (chat.source === 'cli') this.startCliPoll(chatId);
-            // Auto-scroll to bottom of chat
-            this.$nextTick(() => {
-              const el = document.querySelector('.chat-main-messages');
-              if (el) el.scrollTop = el.scrollHeight;
-            });
+            // A user-initiated open jumps to the newest message and re-arms
+            // auto-follow; a background refresh (navigate=false) respects wherever
+            // the user has scrolled to.
+            if (navigate) this._chatAtBottom = true;
+            if (navigate || this._chatAtBottom) {
+              this.$nextTick(() => {
+                const el = this.$refs?.chatScroll || document.querySelector('.chat-main-messages');
+                if (el) el.scrollTop = el.scrollHeight;
+              });
+            }
             // Recovery: if manager chat's last message is user with no assistant reply, check for completed run
             if (chat.targetType === 'manager' && chat.messages && chat.messages.length > 0) {
               const lastMsg = chat.messages[chat.messages.length - 1];
