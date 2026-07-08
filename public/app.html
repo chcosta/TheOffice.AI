@@ -12249,7 +12249,9 @@
               .meai-week-day.is-active .meai-week-dow { color:var(--cp-accent); }
               .meai-week-day .meai-week-sub { font-size:11px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .meai-week-day.is-unplanned .meai-week-sub { font-style:italic; opacity:.75; }
-              .meai-week-auto { flex:none; align-self:center; white-space:nowrap; font-size:12px; color:var(--cp-text-muted); font-style:italic; margin-left:auto; }
+              .meai-week-day.is-past { opacity:.72; }
+              .meai-week-day.is-past:hover { opacity:1; }
+              .meai-week-day.is-past.is-active { opacity:1; }
               .meai-daywin-dot { display:inline-block; width:6px; height:6px; border-radius:999px; background:var(--cp-accent); margin-left:6px; vertical-align:middle; }
               .meai-daywin-pop { position:absolute; top:calc(100% + 6px); right:0; z-index:40; min-width:230px;
                 border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:12px;
@@ -13455,14 +13457,13 @@
               <!-- Week-ahead strip: the next 5 work days at a glance. Read-only; click a
                    day to view/plan it. Active day gets an accent underline (no pills). -->
               <div class="meai-week" x-show="meai.loaded && meai.lookahead.length">
-                <template x-for="d in meai.lookahead" :key="d.date">
-                  <button type="button" class="meai-week-day" :class="{ 'is-active': d.date === meai.date, 'is-unplanned': !d.planned }"
-                          @click="meAiSetDate(d.date)" :title="d.planned ? '' : 'Not planned yet — click to view'">
+                <template x-for="d in meAiWeekDays()" :key="d.date">
+                  <button type="button" class="meai-week-day" :class="{ 'is-active': d.date === meai.date, 'is-unplanned': !d.planned, 'is-past': d.isPast }"
+                          @click="meAiSetDate(d.date)" :title="d.isPast ? 'Look back at this day' : (d.planned ? '' : 'Not planned yet — click to view')">
                     <span class="meai-week-dow" x-text="meAiLookaheadLabel(d)"></span>
                     <span class="meai-week-sub" x-text="meAiLookaheadSub(d)"></span>
                   </button>
                 </template>
-                <span class="meai-week-auto" title="Upcoming days re-plan on their own whenever today changes — no manual refresh needed.">Upcoming days update automatically</span>
               </div>
 
               <!-- Consent (off) banner -->
@@ -31238,6 +31239,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!silent) this.meai.lookaheadLoading = false;
           }
         },
+        // Week strip = two lookback days (quick access to recent days) + the next work days.
+        // The lookback entries are synthesized client-side (calendar prior 2 days) and are
+        // read-only quick-nav — clicking one views that day's frozen snapshot.
+        meAiWeekDays() {
+          const out = [];
+          try {
+            const base = new Date(String(this.meai.today) + 'T00:00:00');
+            for (let i = 2; i >= 1; i--) {
+              const d = new Date(base); d.setDate(base.getDate() - i);
+              const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+              out.push({ date: iso, isPast: true, planned: true, daysAgo: i });
+            }
+          } catch (_) {}
+          return out.concat(this.meai.lookahead || []);
+        },
         meAiLookaheadLabel(d) {
           try {
             const dt = new Date(String(d.date) + 'T00:00:00');
@@ -31246,6 +31262,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (_) { return String(d.date || ''); }
         },
         meAiLookaheadSub(d) {
+          if (d && d.isPast) return d.daysAgo === 1 ? 'yesterday' : `${d.daysAgo} days ago`;
           if (!d || !d.planned) return 'not planned yet';
           const h = (m) => { const v = Math.round((m / 60) * 10) / 10; return (v % 1 === 0) ? String(v) : v.toFixed(1); };
           const bits = [];
