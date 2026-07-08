@@ -25215,8 +25215,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               home,
               { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
                 { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
-                { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] },
-                { key: 'playbooks', title: 'Playbooks', icon: '📓', href: '#/playbooks', routeGroup: 'playbooks', items: [] }
+                { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
               ]},
               { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
                 { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
@@ -25234,6 +25233,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             scope,
             home,
             { key: 'me-ai', label: 'Me.AI', title: 'Me.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false },
+            { key: 'playbooks', label: 'Playbooks', title: 'Playbooks', icon: '📓', href: '#/playbooks', routeGroup: 'playbooks', items: [], collapsible: false },
             { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
@@ -25406,8 +25406,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary'].includes(r)) return 'workspace';
-          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions', 'playbooks',
+          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks'].includes(r)) return 'workspace';
+          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
           return null;
