@@ -14676,7 +14676,11 @@ function _meAiSplitGoalTitle(title) {
   const m = t.match(/^([^:]{2,40}:\s*)(.+)$/);
   const prefix = m ? m[1] : '';
   const body = m ? m[2] : t;
-  const parts = body.split(/\s+(?:&|\+|and)\s+|\s*[,;]\s+/i).map(s => s.trim()).filter(Boolean);
+  const parts = body.split(/\s+(?:&|\+|and)\s+|\s*[,;]\s+/i)
+    // Strip a residual leading conjunction left by a ", and" / "; and" split
+    // ("regenerate PAT, and update runbook" → "update runbook", not "and update runbook").
+    .map(s => s.trim().replace(/^(?:&|\+|and)\s+/i, '').trim())
+    .filter(Boolean);
   if (parts.length < 2) return [t];
   const tokenish = (s) => /[!#]\d|\bpr\b|\d{4,}/i.test(s) || s.length >= 8;
   if (!parts.every(tokenish)) return [t];
@@ -14692,8 +14696,12 @@ function _meAiSplitStoredGoals(todos) {
   const seen = new Set(todos.map(t => String(t && t.title || '').trim().toLowerCase()).filter(Boolean));
   let changed = false;
   for (const t of todos) {
-    if (!t || t.kind !== 'checklist' || t.done || (t.status && t.status !== 'open') || t.live || (t.link && String(t.link).trim())) {
-      out.push(t); continue; // only split plain, open, link-less goal rows
+    // Split plain OPEN goal rows. A generic doc link (e.g. a PAT-rotation runbook) does
+    // NOT make a compound goal atomic, so we still split link-carrying rows — but never a
+    // LIVE PR / work item, which is a single entity with its own lifecycle.
+    const isLiveEntity = !!(t && (t.live || _meAiParseWorkItem(t && t.link)));
+    if (!t || t.kind !== 'checklist' || t.done || (t.status && t.status !== 'open') || isLiveEntity) {
+      out.push(t); continue;
     }
     const parts = _meAiSplitGoalTitle(t.title);
     if (parts.length < 2) { out.push(t); continue; }
@@ -14722,6 +14730,16 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
     const haveTitle = new Set(effTodos.map(t => norm(t && t.title)));
     const haveOrigin = new Set(effTodos.map(t => norm(t && t.origin)).filter(Boolean));
     const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
+    // Live-entity identity (work-item / PR id): collapses two goals that track the SAME
+    // work item or PR even when their titles/links differ slightly (owner: #10734 twice).
+    const entKey = (link, meta) => {
+      const wi = _meAiParseWorkItem(link);
+      if (wi) return 'wi:' + _meAiDevKey(wi.provider, wi.org, wi.project, wi.workItemId);
+      const prId = meta && meta.prId;
+      if (prId) return 'pr:' + String(prId).toLowerCase();
+      return '';
+    };
+    const haveEnt = new Set(effTodos.map(t => entKey(t && t.link, t && t.meta)).filter(Boolean));
     // Expand merged blocks into leaves (one PR / PAT / reply per row).
     const leaves = [];
     for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
@@ -14750,7 +14768,10 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       const origin = norm(link || title).slice(0, 300);
       const tKey = norm(title);
       const sig = _meAiGoalSig(title);
+      const ent = entKey(link, lf.meta);
       if (haveTitle.has(tKey) || (origin && haveOrigin.has(origin))) continue;
+      // Same live entity (work item / PR) already tracked → collapse, even if titles differ.
+      if (ent && haveEnt.has(ent)) continue;
       // Signature dedup only when there's no distinguishing link (two live entities
       // with different links are genuinely different goals even if titles collapse).
       if (sig && !link && haveSig.has(sig)) continue;
@@ -14758,6 +14779,7 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       haveTitle.add(tKey);
       if (origin) haveOrigin.add(origin);
       if (sig) haveSig.add(sig);
+      if (ent) haveEnt.add(ent);
       const row = { title, scope: 'work', done: false, status: 'open', kind: 'checklist', origin: (link || title).slice(0, 300), link };
       if (isLive) row.live = true;
       effTodos.push(row);

@@ -13458,6 +13458,14 @@
               .meai-chk-big:hover { background:var(--cp-accent-soft, rgba(31,111,177,0.12)); }
               .meai-chk-big .meai-chk-title { font-size:13.5px; font-weight:600; }
               .meai-chk-autobig { color:var(--cp-text-muted); font-style:italic; }
+              .meai-chk-bigown { display:flex; gap:7px; margin:8px 0 4px; padding:8px 0 0; }
+              .meai-chk-bigown-in { flex:1 1 auto; min-width:0; appearance:none; border:1px dashed var(--cp-border); background:var(--cp-bg);
+                color:var(--cp-text); font-size:12px; padding:6px 9px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
+              .meai-chk-bigown-in:focus { outline:none; border-style:solid; border-color:var(--cp-accent); }
+              .meai-chk-bigown-add { flex:none; appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text);
+                font-size:12px; font-weight:600; padding:6px 11px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; }
+              .meai-chk-bigown-add:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
+              .meai-chk-bigown-add:disabled { opacity:.5; cursor:default; }
               .meai-chk-add { display:flex; gap:7px; margin-top:12px; padding-top:12px; border-top:1px solid var(--cp-border); }
               .meai-chk-add input { flex:1 1 auto; min-width:0; appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg);
                 color:var(--cp-text); font-size:12.5px; padding:7px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
@@ -14313,7 +14321,11 @@
                           </div>
                         </template>
                       </div>
-                      <!-- Today's goals (checklist-kind: the day's intended work, incl. live PR/dev items) -->
+                      <!-- Owner-typed override: set your own "one big thing" if you disagree with the auto-pick -->
+                      <div class="meai-chk-bigown" x-show="meai.goalsTab === 'open'">
+                        <input type="text" class="meai-chk-bigown-in" x-model="meai.newBigGoal" placeholder="Set your own big thing for today…" @keydown.enter="meAiAddCustomBigGoal()">
+                        <button class="meai-chk-bigown-add" type="button" @click="meAiAddCustomBigGoal()" :disabled="!(meai.newBigGoal||'').trim()">Make it the big thing</button>
+                      </div>
                       <div class="meai-chk-group" x-show="meAiRegularGoalsTab().length">
                         <div class="meai-chk-glabel"><span x-text="meai.goalsTab === 'open' ? \"Today's goals\" : 'Goals'"></span> <span class="meai-chk-gn" x-text="meai.goalsTab === 'open' ? (meAiRegularOpenCount() + ' open') : (meAiRegularGoalsTab().length + '')"></span></div>
                         <template x-for="(t, i) in meAiRegularGoalsTab()" :key="'chk-'+i+'-'+(t.title||'')">
@@ -23914,6 +23926,7 @@
           today: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
           newTodo: '',
+          newBigGoal: '',  // owner-typed "one big thing" override
           todos: [],             // draft todos for the day (title strings), fed into generate
           notice: '',
           nowMin: (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })(),
@@ -32582,6 +32595,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
         },
         meAiClearBigGoal() { try { localStorage.removeItem(this._meAiBigPinKey()); } catch (_) {} this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1; },
+        // Owner ask: if you disagree with the auto-picked "one big thing", type your own.
+        // Adds it as a real checklist goal (so it persists + tracks done/need-more-time/missed
+        // like any goal) and immediately pins it as the day's big thing.
+        meAiAddCustomBigGoal() {
+          const title = (this.meai.newBigGoal || '').trim();
+          if (!title) return;
+          const todo = { title, scope: 'work', done: false, status: 'open', kind: 'checklist', origin: title.slice(0, 300), link: '' };
+          this.meai.todos.push(todo);
+          this.meai.newBigGoal = '';
+          try { localStorage.setItem(this._meAiBigPinKey(), this._meAiGoalKey(todo)); } catch (_) {}
+          this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
+          this.meAiPersistTodos();
+        },
         // REQ-3: persist the day's todo list onto the snapshot (if one exists) so
         // done/scope/carry-over edits survive navigation without a full re-plan.
         async meAiPersistTodos() {
