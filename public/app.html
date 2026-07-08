@@ -12467,7 +12467,7 @@
               .meai-jump-btn.is-sub { padding-left:18px; font-size:11.5px; }
               .meai-jump-btn.is-now { color:var(--cp-accent); font-weight:600; }
               .meai-jump-sep { height:1px; margin:4px 6px; background:color-mix(in srgb, var(--cp-border) 70%, transparent); }
-              @media (max-width: 1180px) { .meai-lrail .meai-jump { display:none; } }
+              @media (max-width: 1180px) { .meai-jump { display:none; } }
               /* Left rail (wide screens): quick-nav docked on top, today's goals below, using the
                  empty left gutter. Below 1300px it collapses to a left slide-over toggled by the
                  corner "Today's goals" button. */
@@ -12486,10 +12486,11 @@
                 .meai-chk-fab { left:16px; }
               }
               @media (prefers-reduced-motion: reduce) { .meai-lrail { transition:none; } }
-              /* Wide screens: dock the agenda column to the right of the rail (fills the formerly
-                 empty left gutter) instead of centering it under the rail. */
-              @media (min-width: 1301px) {
-                .meai-wrap { margin-left: calc(clamp(300px, 22vw, 372px) + 28px); margin-right:auto; }
+              /* Wide screens: the quick-nav sits fixed at the left; offset the agenda just
+                 past it so the two sit side by side (nav-anchored), leaving the rest of the
+                 width for the agenda + right-column goals. */
+              @media (min-width: 1181px) {
+                .meai-wrap { margin-left: 218px; margin-right:auto; }
               }
               /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
                  column 2 = the daily-work side column (Me agents + todos) with the secondary
@@ -13297,6 +13298,9 @@
               .meai-chk-panel { position:fixed; right:24px; bottom:132px; z-index:57; width:min(400px, calc(100vw - 48px)); max-height:min(70vh, 640px);
                 display:flex; flex-direction:column; background:var(--cp-surface); border:1px solid var(--cp-border);
                 border-radius:calc(var(--cp-radius-scale, 1) * 12px); box-shadow:0 18px 48px rgba(0,0,0,.24); overflow:hidden; }
+              /* Docked: sits inline in the right column (normal flow), grows with content. */
+              .meai-chk-panel.is-docked { position:static; right:auto; bottom:auto; z-index:auto; width:auto; max-height:none; box-shadow:none; }
+              .meai-chk-headacts { display:inline-flex; align-items:center; gap:2px; }
               .meai-chk-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:13px 15px 11px;
                 border-bottom:1px solid var(--cp-border); }
               .meai-chk-head h4 { margin:0; font-size:14px; font-weight:700; color:var(--cp-text); }
@@ -14098,20 +14102,73 @@
                     </div>
                   </div>
 
-                  <!-- Today's goals for the day — management folded into the floating goals
-                       tracker (Item 4). This card is now a compact status + launcher. -->
-                  <div class="meai-card">
-                    <div class="meai-card-head" @click="meAiChecklistToggle(true)" title="Open today's goals">
-                      <span class="meai-caret">☑</span>
-                      <h4>Today's goals</h4>
-                      <span class="meai-card-count" x-text="(meai.todos||[]).filter(t => !(t && typeof t!=='string' && t.done)).length"></span>
+                  <!-- Today's goals — docks inline here in the right column by default, or floats
+                       over the page when undocked. Hidden while a Me-agent console / pursuit is
+                       open so it never overlaps that workspace. -->
+                  <div class="meai-chk-panel" :class="{ 'is-docked': meai.checklistDocked }"
+                       x-show="(meai.checklistDocked || meai.checklistOpen) && !meai.console && !meai.pursuit.open"
+                       x-transition.opacity.duration.150ms>
+                    <div class="meai-chk-head">
+                      <div>
+                        <h4>Today's goals</h4>
+                        <div class="meai-chk-sub">What you set out to do today. Mark each done, needing more time, or not-gotten-to — open goals carry forward.</div>
+                      </div>
+                      <div class="meai-chk-headacts">
+                        <button class="meai-chk-x" type="button" @click="meAiChecklistDock(!meai.checklistDocked)"
+                          :title="meai.checklistDocked ? 'Float over the page' : 'Dock into the page'"
+                          :aria-label="meai.checklistDocked ? 'Undock goals' : 'Dock goals'"
+                          x-text="meai.checklistDocked ? '⧉' : '⇲'"></button>
+                        <button class="meai-chk-x" type="button" x-show="!meai.checklistDocked" @click="meAiChecklistToggle(false)" aria-label="Close checklist">✕</button>
+                      </div>
                     </div>
-                    <div style="padding:2px 2px 4px">
-                      <p class="meai-na-m" style="margin:0 0 8px" x-show="meAiChecklistOpenCount() > 0">
-                        <span x-text="meAiChecklistOpenCount()"></span> goal(s) still open — mark each done, needing more time, or not-gotten-to. Open goals carry forward.
-                      </p>
-                      <button class="btn ghost" type="button" style="width:100%" @click="meAiChecklistToggle(true)">Open today's goals</button>
-                      <p class="meai-na-m" style="margin-top:8px">Your goals are folded into the next agenda you generate. Anything left open carries over to your next work day.</p>
+                    <div class="meai-chk-body">
+                      <!-- Today's goals (checklist-kind: the day's intended work, incl. live PR/dev items) -->
+                      <div class="meai-chk-group" x-show="meAiChecklistItems().length">
+                        <div class="meai-chk-glabel">Today's goals <span class="meai-chk-gn" x-text="meAiChecklistItems().filter(t => !t.done).length + ' open'"></span></div>
+                        <template x-for="(t, i) in meAiChecklistItems()" :key="'chk-'+i+'-'+(t.title||'')">
+                          <div class="meai-chk-row" :class="{ done: t.done }">
+                            <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
+                            <div class="meai-chk-main">
+                              <div class="meai-chk-title" x-text="t.title"></div>
+                              <div class="meai-chk-meta" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
+                                <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
+                                <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
+                                <a class="meai-chk-open" x-show="t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
+                                <span class="meai-chk-live" x-show="t.live" title="Backed by a live PR or work item — it may reappear on your agenda; your note here still sticks">live · may reappear</span>
+                              </div>
+                              <div class="meai-chk-status">
+                                <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='partial' }" @click="meAiSetTodoStatus(t, 'partial')">Need more time</button>
+                                <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='missed' }" @click="meAiSetTodoStatus(t, 'missed')">Didn't get to it</button>
+                              </div>
+                            </div>
+                            <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove from goals" aria-label="Remove">✕</button>
+                          </div>
+                        </template>
+                      </div>
+                      <!-- Today's todos (folded in from the inline card) -->
+                      <div class="meai-chk-group">
+                        <div class="meai-chk-glabel">Today's todos <span class="meai-chk-gn" x-text="meAiPlainTodos().filter(t => !t.done).length + ' open'"></span></div>
+                        <template x-for="(t, i) in meAiPlainTodos()" :key="'td-'+i+'-'+((typeof t==='string'?t:t.title)||'')">
+                          <div class="meai-chk-row" :class="{ done: (typeof t!=='string' && t.done) }">
+                            <input class="meai-chk-cb" type="checkbox" :checked="(typeof t!=='string' && t.done)" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + ((typeof t==='string'?t:t.title)||'item') + ' done'">
+                            <div class="meai-chk-main">
+                              <div class="meai-chk-title" x-text="(typeof t==='string') ? t : t.title"></div>
+                              <div class="meai-chk-meta" x-show="typeof t!=='string' && (t.carried || t.scope==='personal')">
+                                <span class="meai-chk-carried" x-show="typeof t!=='string' && t.carried">↷ carried over</span>
+                                <span x-show="typeof t!=='string' && t.scope==='personal'">personal</span>
+                              </div>
+                            </div>
+                            <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove todo" aria-label="Remove">✕</button>
+                          </div>
+                        </template>
+                        <div class="meai-chk-empty" x-show="!meAiPlainTodos().length && !meAiChecklistItems().length">
+                          Nothing to track yet. Add a todo below — or triage-type items (like PAT rotations or housekeeping) will land here automatically so they don't quietly fall off your day.
+                        </div>
+                        <div class="meai-chk-add">
+                          <input type="text" x-model="meai.newTodo" placeholder="Add a todo…" @keydown.enter="meAiAddTodo()">
+                          <button type="button" @click="meAiAddTodo()" :disabled="!(meai.newTodo||'').trim()">Add</button>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -15108,9 +15165,10 @@
             <!-- Floating agenda-assistant launcher (matches board/connect FABs) -->
             <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
 
-            <!-- Item 4: floating today's-goals FAB (stacked above the assistant) -->
+            <!-- Item 4: floating today's-goals FAB (stacked above the assistant). Shown only
+                 when the goals panel is neither docked nor floating open, and no console/pursuit. -->
             <button class="meai-chk-fab" :class="{ 'has-open': meAiChecklistOpenCount() > 0 }" type="button"
-              x-show="route==='me-ai' && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+              x-show="route==='me-ai' && !meai.checklistDocked && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
               @click="meAiChecklistToggle(true)"
               :title="meAiChecklistOpenCount() > 0 ? (meAiChecklistOpenCount() + ' goal(s) still open') : 'Today\'s goals'"
               aria-label="Open today's goals">
@@ -15119,79 +15177,18 @@
               <span class="meai-chk-n" x-show="meAiChecklistOpenCount() > 0" x-text="meAiChecklistOpenCount()"></span>
             </button>
 
-            <!-- Item 4: left rail — quick-nav docked above today's goals (expanded by default).
-                 On wide screens this uses the empty left gutter; below 1300px it's a slide-over
-                 toggled by the corner "Today's goals" button. -->
-            <div class="meai-lrail" x-show="route==='me-ai' && meai.loaded" :class="{ 'is-open': meai.checklistOpen }" x-cloak>
-              <nav class="meai-jump" aria-label="Jump to section">
-                <div class="meai-jump-t">Jump to</div>
-                <button type="button" class="meai-jump-btn" @click="meAiJump('meaiInbox')" x-show="meAiInboxSections().length">Attention inbox</button>
-                <template x-for="sec in meAiInboxSections()" :key="'j-' + sec.key">
-                  <button type="button" class="meai-jump-btn is-sub" @click="meAiJump('meai-sec-' + sec.key)" x-text="sec.label + ' · ' + sec.items.length"></button>
-                </template>
-                <div class="meai-jump-sep"></div>
-                <button type="button" class="meai-jump-btn" @click="meAiJump('meaiAgenda')">Agenda</button>
-                <button type="button" class="meai-jump-btn is-now" @click="meAiJump('meaiNow')" x-show="meai.date===meai.today">Right now</button>
-              </nav>
-              <div class="meai-chk-panel" x-show="meai.checklistOpen" x-transition.opacity.duration.150ms>
-              <div class="meai-chk-head">
-                <div>
-                  <h4>Today's goals</h4>
-                  <div class="meai-chk-sub">What you set out to do today. Mark each done, needing more time, or not-gotten-to — open goals carry forward.</div>
-                </div>
-                <button class="meai-chk-x" type="button" @click="meAiChecklistToggle(false)" aria-label="Close checklist">✕</button>
-              </div>
-              <div class="meai-chk-body">
-                <!-- Today's goals (checklist-kind: the day's intended work, incl. live PR/dev items) -->
-                <div class="meai-chk-group" x-show="meAiChecklistItems().length">
-                  <div class="meai-chk-glabel">Today's goals <span class="meai-chk-gn" x-text="meAiChecklistItems().filter(t => !t.done).length + ' open'"></span></div>
-                  <template x-for="(t, i) in meAiChecklistItems()" :key="'chk-'+i+'-'+(t.title||'')">
-                    <div class="meai-chk-row" :class="{ done: t.done }">
-                      <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
-                      <div class="meai-chk-main">
-                        <div class="meai-chk-title" x-text="t.title"></div>
-                        <div class="meai-chk-meta" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
-                          <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
-                          <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
-                          <a class="meai-chk-open" x-show="t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
-                          <span class="meai-chk-live" x-show="t.live" title="Backed by a live PR or work item — it may reappear on your agenda; your note here still sticks">live · may reappear</span>
-                        </div>
-                        <div class="meai-chk-status">
-                          <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='partial' }" @click="meAiSetTodoStatus(t, 'partial')">Need more time</button>
-                          <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='missed' }" @click="meAiSetTodoStatus(t, 'missed')">Didn't get to it</button>
-                        </div>
-                      </div>
-                      <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove from goals" aria-label="Remove">✕</button>
-                    </div>
-                  </template>
-                </div>
-                <!-- Today's todos (folded in from the inline card) -->
-                <div class="meai-chk-group">
-                  <div class="meai-chk-glabel">Today's todos <span class="meai-chk-gn" x-text="meAiPlainTodos().filter(t => !t.done).length + ' open'"></span></div>
-                  <template x-for="(t, i) in meAiPlainTodos()" :key="'td-'+i+'-'+((typeof t==='string'?t:t.title)||'')">
-                    <div class="meai-chk-row" :class="{ done: (typeof t!=='string' && t.done) }">
-                      <input class="meai-chk-cb" type="checkbox" :checked="(typeof t!=='string' && t.done)" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + ((typeof t==='string'?t:t.title)||'item') + ' done'">
-                      <div class="meai-chk-main">
-                        <div class="meai-chk-title" x-text="(typeof t==='string') ? t : t.title"></div>
-                        <div class="meai-chk-meta" x-show="typeof t!=='string' && (t.carried || t.scope==='personal')">
-                          <span class="meai-chk-carried" x-show="typeof t!=='string' && t.carried">↷ carried over</span>
-                          <span x-show="typeof t!=='string' && t.scope==='personal'">personal</span>
-                        </div>
-                      </div>
-                      <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove todo" aria-label="Remove">✕</button>
-                    </div>
-                  </template>
-                  <div class="meai-chk-empty" x-show="!meAiPlainTodos().length && !meAiChecklistItems().length">
-                    Nothing to track yet. Add a todo below — or triage-type items (like PAT rotations or housekeeping) will land here automatically so they don't quietly fall off your day.
-                  </div>
-                  <div class="meai-chk-add">
-                    <input type="text" x-model="meai.newTodo" placeholder="Add a todo…" @keydown.enter="meAiAddTodo()">
-                    <button type="button" @click="meAiAddTodo()" :disabled="!(meai.newTodo||'').trim()">Add</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            </div>
+            <!-- Quick-nav: fixed at the left, vertically centered. Hidden while a Me-agent
+                 console / pursuit is open so it never overlaps that workspace. -->
+            <nav class="meai-jump" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open" x-cloak>
+              <div class="meai-jump-t">Jump to</div>
+              <button type="button" class="meai-jump-btn" @click="meAiJump('meaiInbox')" x-show="meAiInboxSections().length">Attention inbox</button>
+              <template x-for="sec in meAiInboxSections()" :key="'j-' + sec.key">
+                <button type="button" class="meai-jump-btn is-sub" @click="meAiJump('meai-sec-' + sec.key)" x-text="sec.label + ' · ' + sec.items.length"></button>
+              </template>
+              <div class="meai-jump-sep"></div>
+              <button type="button" class="meai-jump-btn" @click="meAiJump('meaiAgenda')">Agenda</button>
+              <button type="button" class="meai-jump-btn is-now" @click="meAiJump('meaiNow')" x-show="meai.date===meai.today">Right now</button>
+            </nav>
 
             <!-- Working hours & grid modal (moved out of the side rail) -->
             <div class="meai-hours-modal" x-show="meai.hoursOpen" x-transition.opacity.duration.150ms x-cloak @click.self="meai.hoursOpen=false">
@@ -23752,6 +23749,8 @@
           hoursOpen: false,
           // Item 4: floating checklist panel (triage-alert-type items needing manual close-out).
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
+          // Dock the goals panel inline in the right column (default) vs float it over the page.
+          checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
           triagedPinned: false,      // discrete Triaged area: pinned-open state (else hover-peek)
@@ -32130,6 +32129,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiChecklistToggle(open) {
           this.meai.checklistOpen = (open === undefined) ? !this.meai.checklistOpen : !!open;
           try { localStorage.setItem('meai-checklist-open', this.meai.checklistOpen ? '1' : '0'); } catch (_) {}
+        },
+        // Dock (inline in the right column) vs float the goals panel. Undocking opens the
+        // floating panel so it stays visible; docking pins it back into the page flow.
+        meAiChecklistDock(on) {
+          this.meai.checklistDocked = (on === undefined) ? !this.meai.checklistDocked : !!on;
+          try { localStorage.setItem('meai-checklist-docked', this.meai.checklistDocked ? '1' : '0'); } catch (_) {}
+          if (!this.meai.checklistDocked) this.meAiChecklistToggle(true);
         },
         meAiChecklistItems() { return (this.meai.todos || []).filter(t => t && typeof t !== 'string' && t.kind === 'checklist'); },
         meAiPlainTodos() { return (this.meai.todos || []).filter(t => !(t && typeof t !== 'string' && t.kind === 'checklist')); },
