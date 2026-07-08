@@ -4162,6 +4162,14 @@
     .message-row.facilitator { justify-content: center; }
     .message-row.facilitator .message-bubble-wrap { max-width: min(88%, 640px); }
     .message-row.facilitator .message-bubble { width: 100%; }
+    /* Facilitator routing trace — a quiet, centered micro-line, not a bubble. */
+    .message-row.wc-route { justify-content: center; }
+    .wc-route-line {
+      font-size: 0.74rem; color: var(--cp-text-muted);
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 1px 2px; letter-spacing: 0.01em;
+    }
+    .wc-route-line .wc-route-arrow { opacity: 0.7; }
     .message-bubble {
       max-width: min(78%, 760px);
       border-radius: calc(var(--cp-radius-scale, 1) * 16px);
@@ -4424,6 +4432,11 @@
     .wc-agent-activity {
       background: color-mix(in srgb, var(--wc-agent) 10%, var(--cp-surface-soft));
       border-color: color-mix(in srgb, var(--wc-agent) 38%, var(--cp-border));
+    }
+    /* Stack multiple parallel-responder cards with breathing room. */
+    .wc-agent-activity + .wc-agent-activity { margin-top: 8px; }
+    .activity-header .activity-substatus {
+      font-size: 0.78rem; font-weight: 500; color: var(--cp-text-muted); margin-left: 2px;
     }
     .wc-agent-activity .activity-header { color: color-mix(in srgb, var(--wc-agent) 55%, var(--cp-ink)); }
     .wc-agent-activity .activity-pulse { background: var(--wc-agent); }
@@ -18742,9 +18755,13 @@
                 <div class="chat-main-messages" x-show="activeChat" x-ref="chatScroll"
                      @scroll="_chatAtBottom = (($refs.chatScroll.scrollHeight - $refs.chatScroll.scrollTop - $refs.chatScroll.clientHeight) < 80)">
                   <div class="messages-stack"
-                       x-effect="activeChat?.id; activeChat?.messages?.length; chatActivity[activeChat?.id]?.status; chatActivity[activeChat?.id]?.steps?.length; _wcAutoScroll()">
+                       x-effect="activeChat?.id; activeChat?.messages?.length; chatActivity[activeChat?.id]?.status; chatActivity[activeChat?.id]?.steps?.length; _wcBusyCount(activeChat?.id); JSON.stringify(Object.values(wcBusy[activeChat?.id]||{}).map(a=>a.status)); _wcAutoScroll()">
                     <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
-                      <div class="message-row" :class="{ 'user': message.role === 'user', 'facilitator': message.agentId === '__facilitator__' }">
+                      <div class="message-row" :class="{ 'user': message.role === 'user', 'facilitator': message.agentId === '__facilitator__', 'wc-route': message.kind === 'route' }">
+                        <template x-if="message.kind === 'route'">
+                          <div class="wc-route-line"><span class="wc-route-arrow">↳</span> <span x-text="message.content"></span></div>
+                        </template>
+                        <template x-if="message.kind !== 'route'">
                         <div class="message-bubble-wrap">
                           <div class="message-bubble"
                                :class="{ 'wc-agent-bubble': message.role !== 'user' && chatIsGroup(activeChat) && wcMsgSpeaker(message) }"
@@ -18788,6 +18805,7 @@
                             <button class="btn ghost message-share-btn" type="button" title="Share this message" @click="openShareModal(message.content || '', 'Chat message — ' + formatDateTime(message.timestamp), 'chat-message')">📤</button>
                           </div>
                         </div>
+                        </template>
                       </div>
                     </template>
                   </div>
@@ -18825,7 +18843,43 @@
                       </div>
                     </template>
                   </div>
-                  <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id] && !chatActivity[activeChat?.id]">
+                  <!-- Parallel group responders: one live card per concurrently-running
+                       agent, each with its own expandable reasoning/steps stream. -->
+                  <template x-for="[busyId, act] in Object.entries(wcBusy[activeChat?.id] || {})" :key="'busy-' + busyId">
+                    <div class="agent-activity wc-agent-activity" :style="'--wc-agent:' + (act.color || 'var(--cp-accent)')">
+                      <div class="activity-header"
+                           :style="(act.steps?.length) ? 'cursor:pointer' : ''"
+                           @click="(act.steps?.length) && (act.open = !(act.open !== false))"
+                           :title="(act.steps?.length) ? ((act.open !== false) ? 'Collapse reasoning' : 'Expand reasoning') : ''">
+                        <span class="wc-dot" :style="'background:' + (act.color || '')" x-text="act.initial || ''"></span>
+                        <span class="activity-pulse"></span>
+                        <strong x-text="act.name"></strong>
+                        <span class="activity-substatus" x-text="act.status || 'working…'"></span>
+                        <span class="reason-caret" x-show="act.steps?.length" x-text="(act.open !== false) ? '▾' : '▸'"></span>
+                      </div>
+                      <template x-for="(step, si) in ((act.open !== false) ? (act.steps || []) : [])" :key="'bstep-' + busyId + '-' + si">
+                        <div class="activity-step" :class="step.type">
+                          <template x-if="step.type === 'tool' || step.type === 'tool_start'">
+                            <div class="tool-step">
+                              <span class="tool-icon">🔧</span>
+                              <span class="tool-name" x-text="step.tool"></span>
+                              <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                            </div>
+                          </template>
+                          <template x-if="step.type === 'thinking'">
+                            <div class="thinking-step">
+                              <span>💭</span>
+                              <span class="thinking-text" x-text="step.content"></span>
+                            </div>
+                          </template>
+                          <template x-if="step.partial">
+                            <pre class="live-stream-pre" x-text="step.partial" x-effect="step.partial; $el.scrollTop = $el.scrollHeight"></pre>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id] && !chatActivity[activeChat?.id] && !_wcBusyCount(activeChat?.id)">
                     <span>Waiting for response</span>
                     <span class="typing-dot"></span>
                     <span class="typing-dot"></span>
@@ -23586,6 +23640,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         typingChats: {},
         chatActivity: {},
         _chatAtBottom: true,
+        wcBusy: {},
         chatVerbose: true,
         liveReasonOpen: true,
         chatLive: true,
@@ -29673,9 +29728,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (other) { await this.openChat(other.id); return; }
           this.goTo((tt === 'manager' ? '#/managers/' : '#/agents/') + encodeURIComponent(target));
         },
-        // Orchestrate ONE user turn across a group roster: ask the router who should
-        // respond, then run those responders SEQUENTIALLY so each later agent sees the
-        // earlier replies. The user message is already posted + refreshed by sendChat.
+        // Orchestrate ONE user turn across a group roster: ask the facilitator who should
+        // respond, then run those responders IN PARALLEL so multiple agents can work at
+        // once. Each responder renders its own live card (wcBusy) with expandable reasoning.
+        // The user message is already posted + refreshed by sendChat.
         // Auto-scroll the chat transcript to the bottom, but only when the user is
         // already parked near the bottom. If they've scrolled up to read history we
         // leave their position alone so new content doesn't yank them down.
@@ -29685,6 +29741,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const el = this.$refs?.chatScroll || document.querySelector('.chat-main-messages');
             if (el) el.scrollTop = el.scrollHeight;
           });
+        },
+        // Per-agent live-activity tracking for parallel group responders. Unlike the
+        // single-slot chatActivity (used by the facilitator + single-agent chats),
+        // wcBusy holds one entry per concurrently-running agent so each renders its
+        // own live card + reasoning stream. Reassign the map so Alpine reacts; keep
+        // any user-set `open` (reasoning expand/collapse) across status updates.
+        _wcSetBusy(chatId, agent, patch) {
+          const cur = { ...(this.wcBusy[chatId] || {}) };
+          const prev = cur[agent.id] || {
+            name: agent.name,
+            initial: this.wcInitial(agent.name),
+            color: this.wcColor(agent.id),
+            steps: [],
+          };
+          cur[agent.id] = { ...prev, ...patch };
+          this.wcBusy[chatId] = cur;
+        },
+        _wcClearBusy(chatId, agentId) {
+          const cur = { ...(this.wcBusy[chatId] || {}) };
+          if (!(agentId in cur)) return;
+          delete cur[agentId];
+          if (Object.keys(cur).length) this.wcBusy[chatId] = cur;
+          else delete this.wcBusy[chatId];
+        },
+        _wcBusyCount(chatId) {
+          const m = this.wcBusy[chatId];
+          return m ? Object.keys(m).length : 0;
         },
         async _wcGroupSend(chat, prompt) {
           const roster = this.wcEffectiveRoster(chat);
@@ -29714,15 +29797,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // speaks up later, during synthesis, when 2+ agents answer and it can
             // add real clarity.
             if (!responders.length) responders = roster.map((a) => ({ id: a.id }));
-            // Run each responder and capture what they said, so the facilitator can
-            // synthesise / reconcile once everyone has spoken.
-            const collected = [];
-            for (const r of responders) {
-              const a = roster.find((x) => String(x.id) === String(r.id));
-              if (!a) continue;
-              const text = await this._wcRunResponder(chat, a, prompt);
-              collected.push({ id: a.id, name: a.name, text: text || '' });
+            // Small facilitator indication: when it narrowed to a specific subset
+            // (a real routing decision — not the vague fan-out-to-all case), leave a
+            // compact trace of where it sent the message. On full fan-out it stays
+            // silent and out of the way.
+            const chosen = responders
+              .map((r) => roster.find((x) => String(x.id) === String(r.id)))
+              .filter(Boolean);
+            if (chosen.length && chosen.length < roster.length) {
+              await this._wcPostRoute(chat, chosen.map((a) => a.name));
             }
+            // Responders no longer own the facilitator's single activity slot — clear
+            // it so the per-agent live cards (wcBusy) are the only running indicator.
+            delete this.chatActivity[chat.id];
+            // Run responders in PARALLEL — each agent has its own session, so they
+            // work concurrently and each streams into its own live card. The
+            // facilitator reconciles afterward during synthesis.
+            const results = await Promise.all(chosen.map(async (a) => {
+              const text = await this._wcRunResponder(chat, a, prompt);
+              return { id: a.id, name: a.name, text: text || '' };
+            }));
+            const collected = results.filter(Boolean);
             const spoke = collected.filter((c) => c.text && !/^_\(/.test(c.text));
             if (spoke.length >= 2) await this._wcSynthesize(chat, prompt, spoke);
           } catch (e) {
@@ -29732,6 +29827,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
           } finally {
             delete this.chatActivity[chat.id];
+            delete this.wcBusy[chat.id];
             this.typingChats[chat.id] = false;
             await this.openChat(chat.id, false);
           }
@@ -29743,6 +29839,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content, speaker: 'Facilitator', agentId: '__facilitator__' }),
+            });
+            await this.openChat(chat.id, false);
+          } catch { /* non-fatal */ }
+        },
+        // A tiny, muted facilitator trace of a routing decision. kind:'route' makes
+        // it render as a compact centered micro-line (not a full bubble) so the user
+        // can see where the facilitator sent the message without it being noisy.
+        async _wcPostRoute(chat, names) {
+          const list = (names || []).filter(Boolean);
+          if (!list.length) return;
+          try {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: 'Routed to ' + list.join(' · '), speaker: 'Facilitator', agentId: '__facilitator__', kind: 'route' }),
             });
             await this.openChat(chat.id, false);
           } catch { /* non-fatal */ }
@@ -29837,7 +29947,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             recent ? '\nFull group transcript so far:\n' + recent : '',
             `\nLatest user message: ${userPrompt}`,
           ].filter(Boolean).join('\n');
-          this.chatActivity[chat.id] = { status: agent.name + ' is thinking…', steps: [], agentId: agent.id, initial: this.wcInitial(agent.name) };
+          this._wcSetBusy(chat.id, agent, { status: 'thinking…', phase: 'Thinking', steps: [] });
           let resp;
           let finalText = '';
           try {
@@ -29850,6 +29960,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content: `_(Could not start ${agent.name}: ${e.message || 'error'})_`, speaker: agent.name, agentId: agent.id }),
             });
+            this._wcClearBusy(chat.id, agent.id);
             return '';
           }
           if (resp && resp.sessionId && sessions[String(agent.id)] !== resp.sessionId) {
@@ -29861,19 +29972,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content: `_(Could not start ${agent.name}.)_`, speaker: agent.name, agentId: agent.id }),
             });
+            this._wcClearBusy(chat.id, agent.id);
             return '';
           }
           await this.pollSessionTurn(sessions[String(agent.id)], {
             onActivity: ({ steps, elapsed, lastAssistant }) => {
               const live = this.caLiveSteps(steps);
               const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
-              this.chatActivity[chat.id] = { status: agent.name + ': ' + phase + '… ' + elapsed + 's', steps: live, agentId: agent.id, initial: this.wcInitial(agent.name) };
+              this._wcSetBusy(chat.id, agent, { status: phase + '… ' + elapsed + 's', phase, steps: live });
             },
             onError: async (m) => {
               await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({ role: 'assistant', content: `_(${agent.name} failed: ${m || 'error'})_`, speaker: agent.name, agentId: agent.id }),
               });
+              this._wcClearBusy(chat.id, agent.id);
             },
             onDone: async ({ response, steps, model }) => {
               finalText = response || '';
@@ -29881,9 +29994,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 method: 'POST',
                 body: JSON.stringify({ role: 'assistant', content: response || '_(No response.)_', speaker: agent.name, agentId: agent.id, activity: this.mapAgentSteps(steps), model: model || '' }),
               });
+              this._wcClearBusy(chat.id, agent.id);
               await this.openChat(chat.id, false);
             },
           });
+          this._wcClearBusy(chat.id, agent.id);
           return finalText;
         },
 

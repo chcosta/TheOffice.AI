@@ -25271,6 +25271,9 @@ app.post('/api/chats/:id/messages', (req, res) => {
   // Water cooler can render per-speaker attribution across a multi-agent roster.
   if (req.body.speaker) msg.speaker = String(req.body.speaker).slice(0, 80);
   if (req.body.agentId) msg.agentId = String(req.body.agentId);
+  // Optional lightweight message kind (e.g. 'route' for the facilitator's compact
+  // routing trace) so the UI can render it as a micro-line instead of a full bubble.
+  if (req.body.kind) msg.kind = String(req.body.kind).slice(0, 32);
   chat.messages.push(msg);
   chat.updatedAt = msg.timestamp;
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
