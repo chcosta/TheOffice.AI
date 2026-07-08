@@ -5822,6 +5822,92 @@ app.post('/api/multi-agent/facilitate', async (req, res) => {
   }
 });
 
+// Facilitator PLAN: a richer, visible orchestration than /facilitate. The
+// facilitator reads the user's message + roster + transcript and returns an
+// ordered PLAN of steps. Each step assigns ONE agent a specific sub-ask; a step
+// may DEPEND on earlier steps (e.g. "once the others answer, summarize"), which
+// the client runs in dependency waves — independent steps in parallel, dependent
+// steps after their inputs land. An optional @-addressing "intro" line and per-
+// step "note" make the routing visible in the chat ("@Monitor health? @Planner
+// next steps?" then "@Planner, summarize those for us"). This is the chaining
+// the owner asked for.
+app.post('/api/multi-agent/plan', async (req, res) => {
+  const message = String((req.body && req.body.message) || '').trim();
+  const agents = Array.isArray(req.body && req.body.agents) ? req.body.agents : [];
+  const mentioned = new Set((Array.isArray(req.body && req.body.mentioned) ? req.body.mentioned : []).map(String));
+  const transcript = Array.isArray(req.body && req.body.transcript) ? req.body.transcript : [];
+  if (!message || !agents.length) return res.status(400).json({ error: 'message and agents required' });
+
+  const validIds = new Set(agents.map(a => String(a.id)));
+  const nameById = new Map(agents.map(a => [String(a.id), String(a.name || 'Agent')]));
+
+  // Fan out to a flat set of independent steps (no intro, no deps) — used as the
+  // fallback whenever the planner is empty/invalid, and for explicit @mentions.
+  const fanOut = (ids) => (ids && ids.length ? ids : agents.map(a => String(a.id)))
+    .filter(id => validIds.has(String(id)))
+    .filter((id, i, arr) => arr.indexOf(id) === i)
+    .map((id, i) => ({ id: 's' + (i + 1), agentId: String(id), ask: message, note: '', dependsOn: [] }));
+
+  // Explicit @mentions win: restrict to the mentioned agents as flat independent steps.
+  if (mentioned.size) {
+    const ids = agents.map(a => String(a.id)).filter(id => mentioned.has(id));
+    if (ids.length) return res.json({ intro: '', steps: fanOut(ids) });
+  }
+
+  const convo = transcript.slice(-10)
+    .map(m => `${m.speaker || (m.role === 'user' ? 'User' : 'Agent')}: ${String(m.content || '').replace(/\s+/g, ' ').slice(0, 400)}`)
+    .join('\n');
+  const roster = agents.map(a => `- [${a.id}] ${a.name}${a.description ? ' — ' + String(a.description).replace(/\s+/g, ' ').slice(0, 300) : ''}`).join('\n');
+
+  const prompt = [
+    'You are the Facilitator of a group chat between a user and several AI agents. Plan how to get the user the best answer.',
+    'You produce an ORDERED PLAN of steps. Each step assigns exactly ONE agent a specific "ask" (the precise sub-question that agent should answer). A step may DEPEND on earlier steps when it needs their answers first.',
+    'RULES:',
+    '- Simple message for one clear domain → ONE step, that agent, "ask" = the message, empty "intro".',
+    '- Vague / general / conversational / could apply to several → one INDEPENDENT step per agent (each "ask" = the whole message), empty "intro", NO dependsOn.',
+    '- Compound message (multiple distinct sub-requests across different agents) → one INDEPENDENT step per relevant agent, each "ask" = just that agent\'s slice. Set "intro" to a short @-addressing line making the split visible, e.g. "@Monitor can you check production health? @Planner what should they work on next?" Use @Name with NO spaces in the name.',
+    '- If the results must be BROUGHT TOGETHER (the user asked to summarize/synthesize/"once that is available, summarize", or the sub-answers clearly need a combined conclusion) → add ONE FINAL step assigned to the single best agent, with "dependsOn" listing the ids of the steps it needs, and a "note" @-addressing that agent, e.g. "@Planner, can you summarize those results for us?" That agent will be given the other agents\' answers.',
+    '- Max 5 steps. "dependsOn" may reference ONLY ids of EARLIER steps. No cycles.',
+    '- Give each step a short unique id ("s1","s2",...). Use the EXACT agent id from the roster brackets.',
+    '\nAgents (use the EXACT id in brackets):\n' + roster,
+    convo ? '\nConversation so far:\n' + convo : '',
+    `\nLatest user message: ${message}`,
+    '\nRespond with STRICT JSON only (no prose, no code fence): {"intro":"<optional @-addressing line, empty unless a compound split>","steps":[{"id":"s1","agentId":"<exact agent id>","ask":"<specific sub-question for this agent>","note":"<optional @-addressing line shown before this step runs, usually only for a dependent summary step>","dependsOn":["<earlier step id>"]}]}',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const parsed = await runFacilitator(prompt);
+    let rawSteps = (parsed && Array.isArray(parsed.steps)) ? parsed.steps : [];
+    // Validate: known agent, cap 5, unique step ids, deps reference EARLIER ids only.
+    const seenIds = new Set();
+    const steps = [];
+    for (const s of rawSteps) {
+      if (steps.length >= 5) break;
+      if (!s || !validIds.has(String(s.agentId))) continue;
+      let id = String(s.id || '').trim() || ('s' + (steps.length + 1));
+      if (seenIds.has(id)) id = id + '_' + (steps.length + 1);
+      const earlier = new Set(steps.map(x => x.id));
+      const dependsOn = (Array.isArray(s.dependsOn) ? s.dependsOn : [])
+        .map(String).filter(d => earlier.has(d));
+      seenIds.add(id);
+      steps.push({
+        id,
+        agentId: String(s.agentId),
+        ask: String(s.ask || message).replace(/\s+/g, ' ').trim().slice(0, 1200) || message,
+        note: String(s.note || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+        dependsOn,
+      });
+    }
+    if (!steps.length) return res.json({ intro: '', steps: fanOut(null) });
+    // Only keep intro when the plan actually splits work across 2+ independent agents.
+    const independent = steps.filter(s => !s.dependsOn.length);
+    const intro = (independent.length >= 2) ? String((parsed && parsed.intro) || '').replace(/\s+/g, ' ').trim().slice(0, 400) : '';
+    res.json({ intro, steps });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'plan failed' });
+  }
+});
+
 // Facilitator synthesis: after 2+ agents answer the same user turn, produce an
 // insightful summary, flag genuine conflicts, and pose a specific clarifying
 // question to each conflicting agent so the group can reconcile.

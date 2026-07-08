@@ -18849,15 +18849,15 @@
                     <div class="agent-activity wc-agent-activity" :style="'--wc-agent:' + (act.color || 'var(--cp-accent)')">
                       <div class="activity-header"
                            :style="(act.steps?.length) ? 'cursor:pointer' : ''"
-                           @click="(act.steps?.length) && (act.open = !(act.open !== false))"
-                           :title="(act.steps?.length) ? ((act.open !== false) ? 'Collapse reasoning' : 'Expand reasoning') : ''">
+                           @click="(act.steps?.length) && (act.open = !(act.open === true))"
+                           :title="(act.steps?.length) ? ((act.open === true) ? 'Collapse reasoning' : 'Expand reasoning') : ''">
                         <span class="wc-dot" :style="'background:' + (act.color || '')" x-text="act.initial || ''"></span>
                         <span class="activity-pulse"></span>
                         <strong x-text="act.name"></strong>
                         <span class="activity-substatus" x-text="act.status || 'working…'"></span>
-                        <span class="reason-caret" x-show="act.steps?.length" x-text="(act.open !== false) ? '▾' : '▸'"></span>
+                        <span class="reason-caret" x-show="act.steps?.length" x-text="(act.open === true) ? '▾' : '▸'"></span>
                       </div>
-                      <template x-for="(step, si) in ((act.open !== false) ? (act.steps || []) : [])" :key="'bstep-' + busyId + '-' + si">
+                      <template x-for="(step, si) in ((act.open === true) ? (act.steps || []) : [])" :key="'bstep-' + busyId + '-' + si">
                         <div class="activity-step" :class="step.type">
                           <template x-if="step.type === 'tool' || step.type === 'tool_start'">
                             <div class="tool-step">
@@ -23641,8 +23641,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         chatActivity: {},
         _chatAtBottom: true,
         wcBusy: {},
+        _chatPolling: {},
         chatVerbose: true,
-        liveReasonOpen: true,
+        liveReasonOpen: false,
         chatLive: true,
         chatSessions: {},
         chatGroupCollapsed: {},
@@ -23764,7 +23765,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.applyNavDuration();
           try {
             this.chatVerbose = localStorage.getItem('chatVerbose') !== '0';
-            this.liveReasonOpen = this.chatVerbose;
+            this.liveReasonOpen = false;
             this.chatLive = localStorage.getItem('chatLive') !== '0';
           } catch {}
           try {
@@ -29769,16 +29770,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = this.wcBusy[chatId];
           return m ? Object.keys(m).length : 0;
         },
+        // Definitively end a chat's live indicators. Clears the active-poller flag,
+        // the typing indicator, and the live-activity card (with a reactive reassign
+        // so Alpine repaints). Called at every genuine terminal point of a chat turn.
+        _endChatBusy(chatId) {
+          if (this._chatPolling && this._chatPolling[chatId]) {
+            delete this._chatPolling[chatId];
+            this._chatPolling = { ...this._chatPolling };
+          }
+          if (this.typingChats[chatId]) this.typingChats[chatId] = false;
+          if (this.chatActivity[chatId]) {
+            delete this.chatActivity[chatId];
+            this.chatActivity = { ...this.chatActivity };
+          }
+        },
         async _wcGroupSend(chat, prompt) {
           const roster = this.wcEffectiveRoster(chat);
           const mentioned = this._wcParseMentions(chat, prompt);
-          this.chatActivity[chat.id] = { status: 'Facilitator is routing…', steps: [], agentId: '__facilitator__', initial: 'F' };
+          this.chatActivity[chat.id] = { status: 'Facilitator is planning…', steps: [], agentId: '__facilitator__', initial: 'F' };
           try {
-            const transcript = (chat.messages || []).slice(-8)
+            const transcript = (chat.messages || []).slice(-10)
               .map((m) => ({ speaker: this.wcMsgSpeaker(m) || 'agent', content: m.content }));
-            let responders = [], uncertain = false, note = '';
+            // Ask the facilitator for an ORDERED PLAN: independent steps run in
+            // parallel; a dependent step (e.g. "summarize those") runs after its
+            // inputs land, and is fed the other agents' answers.
+            let plan = null;
             try {
-              const route = await this.request('/api/multi-agent/facilitate', {
+              plan = await this.request('/api/multi-agent/plan', {
                 method: 'POST',
                 body: JSON.stringify({
                   message: prompt,
@@ -29787,59 +29805,86 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   transcript,
                 }),
               });
-              responders = (route && Array.isArray(route.responders)) ? route.responders : [];
-              uncertain = !!(route && route.uncertain);
-              note = (route && route.note) || '';
-            } catch { responders = []; }
-            // Route aggressively: when the facilitator can confidently pick specific
-            // agent(s) it does; otherwise fan the message out to everyone and stay
-            // out of the way (no facilitator routing note). The facilitator only
-            // speaks up later, during synthesis, when 2+ agents answer and it can
-            // add real clarity.
-            if (!responders.length) responders = roster.map((a) => ({ id: a.id }));
-            // Each chosen entry carries its roster agent plus an optional `focus` — the
-            // slice of a compound message the facilitator decomposed to that agent.
-            const chosen = responders
-              .map((r) => {
-                const agent = roster.find((x) => String(x.id) === String(r.id));
-                return agent ? { agent, focus: String(r.focus || '').trim() } : null;
+            } catch { plan = null; }
+            let steps = (plan && Array.isArray(plan.steps)) ? plan.steps : [];
+            // Bind each step to a live roster agent; drop any that no longer resolve.
+            steps = steps
+              .map((s) => {
+                const agent = roster.find((x) => String(x.id) === String(s.agentId));
+                return agent ? { ...s, agent } : null;
               })
               .filter(Boolean);
-            // Small facilitator indication of where it sent the message:
-            //  • Decomposed a compound ask across 2+ agents → show the split
-            //    ("system health → Monitor · next steps → Planner").
-            //  • Narrowed to a subset (no per-agent focus) → "Routed to A · B".
-            //  • Full vague fan-out → stay silent and out of the way.
-            const focused = chosen.filter((c) => c.focus);
-            if (focused.length >= 2) {
-              await this._wcPostRoute(chat, focused.map((c) => this._wcShortFocus(c.focus) + ' → ' + c.agent.name).join(' · '));
-            } else if (chosen.length && chosen.length < roster.length) {
-              await this._wcPostRoute(chat, 'Routed to ' + chosen.map((c) => c.agent.name).join(' · '));
+            // Fallback: no usable plan → fan out to everyone as independent steps.
+            if (!steps.length) {
+              steps = roster.map((a, i) => ({ id: 's' + (i + 1), agentId: a.id, ask: prompt, note: '', dependsOn: [], agent: a }));
             }
-            // Responders no longer own the facilitator's single activity slot — clear
-            // it so the per-agent live cards (wcBusy) are the only running indicator.
+            const hasDependent = steps.some((s) => (s.dependsOn || []).length);
+            // Visible facilitator intro when it split a compound ask across agents.
+            const introLine = String((plan && plan.intro) || '').trim();
+            if (introLine && steps.filter((s) => !(s.dependsOn || []).length).length >= 2) {
+              await this._wcPostFacilitator(chat, introLine);
+            }
+            // Facilitator no longer owns the single activity slot — the per-agent
+            // live cards (wcBusy) are the only running indicator from here.
             delete this.chatActivity[chat.id];
-            // Run responders in PARALLEL — each agent has its own session, so they
-            // work concurrently and each streams into its own live card. When the
-            // facilitator decomposed the message, each agent gets its focus slice.
-            const results = await Promise.all(chosen.map(async ({ agent, focus }) => {
-              const text = await this._wcRunResponder(chat, agent, prompt, focus);
-              return { id: agent.id, name: agent.name, text: text || '' };
-            }));
-            const collected = results.filter(Boolean);
-            const spoke = collected.filter((c) => c.text && !/^_\(/.test(c.text));
-            if (spoke.length >= 2) await this._wcSynthesize(chat, prompt, spoke);
+
+            // Execute steps in dependency WAVES (Kahn-style): each wave is the set
+            // of not-yet-run steps whose dependencies have all completed. Steps in a
+            // wave run in PARALLEL (each agent has its own session). A dependent
+            // step is fed the prior steps' answers via _wcBuildAsk.
+            const results = {};      // stepId -> { id, name, text }
+            const done = new Set();
+            let guard = 0;
+            while (done.size < steps.length && guard++ < 12) {
+              const wave = steps.filter((s) => !done.has(s.id) && (s.dependsOn || []).every((d) => done.has(d)));
+              if (!wave.length) break; // unmet deps / cycle — stop cleanly
+              // Post any per-step facilitator notes for this wave (e.g. "@Planner,
+              // summarize those for us") BEFORE the dependent step runs.
+              for (const s of wave) {
+                if (s.note && (s.dependsOn || []).length) await this._wcPostFacilitator(chat, s.note);
+              }
+              await Promise.all(wave.map(async (s) => {
+                const ask = this._wcBuildAsk(s, results);
+                const text = await this._wcRunResponder(chat, s.agent, prompt, ask.focus, ask.override);
+                results[s.id] = { id: s.agent.id, name: s.agent.name, text: text || '' };
+                done.add(s.id);
+              }));
+            }
+            // Auto-synthesize only when the facilitator did NOT already plan a
+            // dependent "bring it together" step — otherwise that step IS the
+            // synthesis and a second summary would be redundant.
+            if (!hasDependent) {
+              const spoke = Object.values(results).filter((c) => c.text && !/^_\(/.test(c.text));
+              if (spoke.length >= 2) await this._wcSynthesize(chat, prompt, spoke);
+            }
           } catch (e) {
             await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content: `Error: ${e.message || 'group send failed'}` }),
             });
           } finally {
-            delete this.chatActivity[chat.id];
+            this._endChatBusy(chat.id);
             delete this.wcBusy[chat.id];
-            this.typingChats[chat.id] = false;
             await this.openChat(chat.id, false);
           }
+        },
+        // Build the actual ask for a plan step. Independent steps just carry their
+        // focus slice (the responder still sees the full user message + transcript).
+        // A DEPENDENT step (e.g. a summary) needs the OTHER agents' answers injected
+        // directly, because that agent's own session doesn't contain them and the
+        // in-memory transcript passed in is stale — so we hand it an explicit
+        // override prompt containing the prior results.
+        _wcBuildAsk(step, results) {
+          const deps = (step.dependsOn || []).map((d) => results[d]).filter((r) => r && r.text && !/^_\(/.test(r.text));
+          if (!deps.length) return { focus: String(step.ask || '').trim(), override: '' };
+          const block = deps.map((r) => `### ${r.name}\n${String(r.text).replace(/\s+/g, ' ').trim()}`).join('\n\n');
+          const override = [
+            `You are "${step.agent.name}" in a group chat. The facilitator has asked you to: ${step.ask}`,
+            'Here are the other agents\' answers to work from:',
+            '', block, '',
+            'Produce a clear, combined response for the user based on the above. Be concise and do not just restate each answer verbatim.',
+          ].join('\n');
+          return { focus: '', override };
         },
         // Post a message as the Facilitator (a fixed system participant). Renders with
         // its own speaker header + slate bubble via the standard group-speaker path.
@@ -29946,7 +29991,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (chat) chat.agentSessions = { ...map };
           } catch { /* non-fatal: in-memory map still drives this session */ }
         },
-        async _wcRunResponder(chat, agent, userPrompt, focus) {
+        async _wcRunResponder(chat, agent, userPrompt, focus, override) {
           if (!this.wcGroupSessions[chat.id]) {
             // Seed each member's persisted session so they resume their own thread
             // across reloads — unless the conversation is stale (very large or old),
@@ -29958,7 +30003,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const others = roster.filter((x) => String(x.id) !== String(agent.id)).map((x) => x.name).filter(Boolean);
           const recent = this._wcTranscript(chat);
           const focusText = String(focus || '').trim();
-          const ctx = [
+          const overrideText = String(override || '').trim();
+          // An override (a dependent/summary step) is a fully-formed prompt carrying
+          // the other agents' answers — send it as-is instead of the normal persona
+          // wrapper so the summarizing agent actually has the material to work from.
+          const ctx = overrideText ? [
+            `You are "${agent.name}", one of several agents in a group chat with a user${others.length ? ' (other members: ' + others.join(', ') + ')' : ''}.`,
+            recent ? '\nFull group transcript so far:\n' + recent : '',
+            '\n' + overrideText,
+          ].filter(Boolean).join('\n') : [
             `You are "${agent.name}", one of several agents in a group chat with a user${others.length ? ' (other members: ' + others.join(', ') + ')' : ''}.`,
             'Respond ONLY as yourself, in your own voice and area of expertise. Do not speak for the other agents or restate what they already said. Be concise and add your distinct value. If the latest message is not for you, briefly defer.',
             recent ? '\nFull group transcript so far:\n' + recent : '',
@@ -45077,11 +45130,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
             this.activeChat = chat;
-            // Self-heal: a live-activity entry with no in-flight turn is a phantom
-            // (a leaked "Running…" indicator). Clear it so we never show activity for
-            // a chat that isn't actually processing. Mid-turn calls keep typingChats
-            // true, so a genuine live run is never cleared here.
-            if (!this.typingChats[chatId] && this.chatActivity[chatId]) delete this.chatActivity[chatId];
+            // Self-heal: a live-activity/typing entry with no in-flight turn is a
+            // phantom (a leaked "Running…" indicator). When no active poller owns this
+            // chat, force-clear both typingChats AND chatActivity (with a reactive
+            // reassign so Alpine repaints). openChat runs after every post / on nav /
+            // on background refresh, so a stranded phantom self-heals within a cycle.
+            // A genuine live run keeps _chatPolling[chatId] true, so it's never cleared.
+            if (!(this._chatPolling && this._chatPolling[chatId])) {
+              if (this.typingChats[chatId]) this.typingChats[chatId] = false;
+              if (this.chatActivity[chatId]) { delete this.chatActivity[chatId]; this.chatActivity = { ...this.chatActivity }; }
+            }
             if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
             // CLI-backed chats mirror an interactive terminal — poll for new turns.
             this.stopCliPoll();
@@ -45489,6 +45547,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // openChat() doesn't mistake the just-posted user message for a dangling
           // turn and backfill the manager's previous run as a stale assistant reply.
           this.typingChats[this.activeChat.id] = true;
+          // Guard this chat's live indicators from the openChat self-heal for the
+          // whole turn — cleared only at a genuine terminal point via _endChatBusy.
+          this._chatPolling = { ...this._chatPolling, [this.activeChat.id]: true };
           await this.openChat(this.activeChat.id, false);
 
           // Group conversation (roster >= 2): self-managing multi-agent turn.
@@ -45506,7 +45567,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               });
               this.pollManagerRun(this.activeChat.target, run.runId, this.activeChat.id);
             } catch (error) {
-              this.typingChats[this.activeChat.id] = false;
+              this._endChatBusy(this.activeChat.id);
               await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({ role: 'assistant', content: `Error: ${error.message}` })
@@ -45529,8 +45590,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               // Start polling for the agent session
               this.pollAgentChat(this.activeChat.target, this.activeChat.id, 0, chatResp && chatResp.sessionId);
             } catch (error) {
-              this.typingChats[this.activeChat.id] = false;
-              delete this.chatActivity[this.activeChat.id];
+              this._endChatBusy(this.activeChat.id);
               await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({ role: 'assistant', content: `Error: ${error.message}` })
@@ -45625,8 +45685,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           
           if (!sessionInfo || !sessionInfo.sessionId) {
-            this.typingChats[chatId] = false;
-            delete this.chatActivity[chatId];
+            this._endChatBusy(chatId);
             await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content: 'Could not find agent session. The agent may not have started correctly.' })
@@ -45659,8 +45718,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }
             },
             onError: async (msg) => {
-              this.typingChats[chatId] = false;
-              delete this.chatActivity[chatId];
+              this._endChatBusy(chatId);
               await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({ role: 'assistant', content: msg })
@@ -45707,8 +45765,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
               // Build final response — attach a structured activity trace so agent
               // chat gets the same "Reasoning & steps" drill-down managers have.
-              this.typingChats[chatId] = false;
-              delete this.chatActivity[chatId];
+              this._endChatBusy(chatId);
               const activity = this.mapAgentSteps(lastTurn?.steps);
               let richResponse = '';
               if (response && !isIncomplete) {
@@ -45766,9 +45823,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 this.chatActivity = { ...this.chatActivity, [chatId]: { status, steps: activitySteps } };
               }
               if (run.status === 'completed' || run.status === 'error') {
-                delete this.chatActivity[chatId];
-                this.chatActivity = { ...this.chatActivity };
-                this.typingChats[chatId] = false;
+                this._endChatBusy(chatId);
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
                   body: JSON.stringify({ role: 'assistant', content: run.result || run.error || 'Run finished.', runId, activity: this.mapRunSteps(run.steps), model: run.model || '' })
@@ -45783,9 +45838,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           }
           // Timeout — clean up
-          delete this.chatActivity[chatId];
-          this.chatActivity = { ...this.chatActivity };
-          this.typingChats[chatId] = false;
+          this._endChatBusy(chatId);
           delete this.pollers[key];
         },
 
