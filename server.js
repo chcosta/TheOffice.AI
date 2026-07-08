@@ -5755,6 +5755,106 @@ app.post('/api/multi-agent/route', async (req, res) => {
   }
 });
 
+// Shared helper: one Facilitator LLM call that returns parsed STRICT JSON.
+async function runFacilitator(prompt) {
+  let acc = '';
+  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
+  let raw = (acc.trim() || (result && result.output) || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+  if (s >= 0 && e > s) { try { return JSON.parse(raw.slice(s, e + 1)); } catch {} }
+  return null;
+}
+
+// Facilitator routing: one holistic decision (sees every agent at once) so it can
+// choose the minimum best-fit set, OR declare it can't route and ask the user to
+// clarify. Richer than /route's per-agent gate — this is the group's facilitator.
+app.post('/api/multi-agent/facilitate', async (req, res) => {
+  const message = String((req.body && req.body.message) || '').trim();
+  const agents = Array.isArray(req.body && req.body.agents) ? req.body.agents : [];
+  const mentioned = new Set((Array.isArray(req.body && req.body.mentioned) ? req.body.mentioned : []).map(String));
+  const transcript = Array.isArray(req.body && req.body.transcript) ? req.body.transcript : [];
+  if (!message || !agents.length) return res.status(400).json({ error: 'message and agents required' });
+
+  // Explicit @mentions always win — the facilitator defers to the user's choice.
+  if (mentioned.size) {
+    const responders = agents.filter(a => mentioned.has(String(a.id))).map(a => ({ id: a.id, reason: '@mentioned' }));
+    if (responders.length) return res.json({ responders, uncertain: false, note: '' });
+  }
+
+  const convo = transcript.slice(-8)
+    .map(m => `${m.speaker || (m.role === 'user' ? 'User' : 'Agent')}: ${String(m.content || '').replace(/\s+/g, ' ').slice(0, 400)}`)
+    .join('\n');
+  const roster = agents.map(a => `- [${a.id}] ${a.name}${a.description ? ' — ' + String(a.description).replace(/\s+/g, ' ').slice(0, 300) : ''}`).join('\n');
+
+  const prompt = [
+    'You are the Facilitator of a group chat between a user and several AI agents.',
+    'Your job: decide which agent(s) should answer the user\'s latest message. Pick the SMALLEST set that fully covers it — one agent when it is clearly their domain, several only when the question genuinely spans areas.',
+    'If no agent is a good fit, or the request is too vague to route confidently, set "uncertain" to true and write a short, friendly "note" asking the user to clarify or @mention someone (mention the relevant agents and their specialties). When uncertain, leave "responders" empty.',
+    '\nAgents (use the EXACT id in brackets):\n' + roster,
+    convo ? '\nConversation so far:\n' + convo : '',
+    `\nLatest user message: ${message}`,
+    '\nRespond with STRICT JSON only (no prose, no code fence): {"responders":[{"id":"<exact agent id>","reason":"<=12 words"}],"uncertain":true|false,"note":"<message to the user, only when uncertain; else empty>"}',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const parsed = await runFacilitator(prompt);
+    const valid = new Set(agents.map(a => String(a.id)));
+    let responders = (parsed && Array.isArray(parsed.responders) ? parsed.responders : [])
+      .filter(r => r && valid.has(String(r.id)))
+      .map(r => ({ id: r.id, reason: String(r.reason || '').slice(0, 120) }));
+    // De-dupe while preserving the roster order.
+    const order = new Map(agents.map((a, i) => [String(a.id), i]));
+    const seen = new Set();
+    responders = responders.filter(r => (seen.has(String(r.id)) ? false : (seen.add(String(r.id)), true)))
+      .sort((x, y) => (order.get(String(x.id)) ?? 99) - (order.get(String(y.id)) ?? 99));
+    const uncertain = !!(parsed && parsed.uncertain) && !responders.length;
+    const note = String((parsed && parsed.note) || '').slice(0, 600);
+    if (uncertain) return res.json({ responders: [], uncertain: true, note });
+    if (!responders.length) responders = [{ id: agents[0].id, reason: 'default' }];
+    res.json({ responders, uncertain: false, note: '' });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'facilitate failed' });
+  }
+});
+
+// Facilitator synthesis: after 2+ agents answer the same user turn, produce an
+// insightful summary, flag genuine conflicts, and pose a specific clarifying
+// question to each conflicting agent so the group can reconcile.
+app.post('/api/multi-agent/synthesize', async (req, res) => {
+  const message = String((req.body && req.body.message) || '').trim();
+  const responses = (Array.isArray(req.body && req.body.responses) ? req.body.responses : [])
+    .filter(r => r && r.text)
+    .map(r => ({ id: r.id, name: String(r.name || 'Agent'), text: String(r.text).slice(0, 2000) }));
+  if (responses.length < 2) return res.json({ summary: '', conflict: false, conflictNote: '', clarify: [] });
+
+  const block = responses.map(r => `### ${r.name} [${r.id}]\n${r.text.replace(/\s+/g, ' ').trim()}`).join('\n\n');
+  const prompt = [
+    'You are the Facilitator of a group chat. The user asked a question and multiple agents answered.',
+    'Produce a brief, insightful synthesis for the user: pull together the key points, note where the agents agree, and surface anything actionable. Keep it tight (2–5 sentences), plain and readable — no filler.',
+    'If — and only if — the agents genuinely CONFLICT (contradict each other on a fact, recommendation, or number), set "conflict" to true, describe it in one sentence in "conflictNote", and add a "clarify" entry for EACH conflicting agent with a specific question that references what the other said, so they can reconcile. If there is no real conflict, set conflict=false and clarify=[].',
+    `\nUser question: ${message}`,
+    '\nAgent responses:\n' + block,
+    '\nRespond with STRICT JSON only (no prose, no code fence): {"summary":"<2-5 sentence synthesis, markdown allowed>","conflict":true|false,"conflictNote":"<one sentence, else empty>","clarify":[{"id":"<exact agent id>","name":"<agent name>","question":"<specific question to this agent>"}]}',
+  ].join('\n');
+
+  try {
+    const parsed = await runFacilitator(prompt);
+    const valid = new Map(responses.map(r => [String(r.id), r.name]));
+    const clarify = (parsed && Array.isArray(parsed.clarify) ? parsed.clarify : [])
+      .filter(c => c && valid.has(String(c.id)) && c.question)
+      .map(c => ({ id: c.id, name: valid.get(String(c.id)) || String(c.name || 'Agent'), question: String(c.question).slice(0, 300) }));
+    const conflict = !!(parsed && parsed.conflict) && clarify.length > 0;
+    res.json({
+      summary: String((parsed && parsed.summary) || '').slice(0, 1500),
+      conflict,
+      conflictNote: conflict ? String((parsed && parsed.conflictNote) || '').slice(0, 300) : '',
+      clarify: conflict ? clarify : [],
+    });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'synthesize failed' });
+  }
+});
+
 // Open a real, interactive `copilot` CLI terminal for an agent and bind it to a
 // chat in our system. We pin a fresh session UUID via --session-id so the CLI
 // writes events to ~/.copilot/session-state/<uuid>/events.jsonl, which we mirror

@@ -4412,6 +4412,8 @@
       background: var(--cp-accent);
       animation: pulse 1.5s infinite;
     }
+    .reason-caret { margin-left: auto; font-size: 11px; opacity: .55; transition: opacity .15s; }
+    .activity-header:hover .reason-caret { opacity: .9; }
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.5; transform: scale(1.3); }
@@ -18788,12 +18790,16 @@
                   <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id]"
                        :class="{ 'wc-agent-activity': chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId }"
                        :style="chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId ? ('--wc-agent:' + wcColor(chatActivity[activeChat?.id]?.agentId)) : ''">
-                    <div class="activity-header">
+                    <div class="activity-header"
+                         :style="(chatActivity[activeChat?.id]?.steps?.length) ? 'cursor:pointer' : ''"
+                         @click="(chatActivity[activeChat?.id]?.steps?.length) && (liveReasonOpen = !liveReasonOpen)"
+                         :title="(chatActivity[activeChat?.id]?.steps?.length) ? (liveReasonOpen ? 'Collapse reasoning' : 'Expand reasoning') : ''">
                       <span class="wc-dot" x-show="chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId" :style="'background:' + wcColor(chatActivity[activeChat?.id]?.agentId)" x-text="chatActivity[activeChat?.id]?.initial || ''"></span>
                       <span class="activity-pulse"></span>
                       <strong x-text="chatActivity[activeChat?.id]?.status || 'Running...'"></strong>
+                      <span class="reason-caret" x-show="chatActivity[activeChat?.id]?.steps?.length" x-text="liveReasonOpen ? '▾' : '▸'"></span>
                     </div>
-                    <template x-for="(step, si) in (chatVerbose ? (chatActivity[activeChat?.id]?.steps || []) : [])" :key="'step-' + si">
+                    <template x-for="(step, si) in (liveReasonOpen ? (chatActivity[activeChat?.id]?.steps || []) : [])" :key="'step-' + si">
                       <div class="activity-step" :class="step.type">
                         <template x-if="step.type === 'tool' || step.type === 'tool_start'">
                           <div class="tool-step">
@@ -23575,6 +23581,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         typingChats: {},
         chatActivity: {},
         chatVerbose: true,
+        liveReasonOpen: true,
         chatLive: true,
         chatSessions: {},
         chatGroupCollapsed: {},
@@ -23696,6 +23703,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.applyNavDuration();
           try {
             this.chatVerbose = localStorage.getItem('chatVerbose') !== '0';
+            this.liveReasonOpen = this.chatVerbose;
             this.chatLive = localStorage.getItem('chatLive') !== '0';
           } catch {}
           try {
@@ -29400,6 +29408,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Calm 7-colour identity palette (matches the board macColor set) so an
         // agent keeps the same dot/face colour everywhere.
         wcColor(id) {
+          // The Facilitator is a fixed system participant — give it a calm, distinct
+          // slate/indigo so it never collides with an agent's palette colour.
+          if (String(id || '') === '__facilitator__') return '#8a8fb5';
           const pal = ['#6ea8fe', '#63d2a4', '#e6a15b', '#c58bf0', '#e78ab0', '#6fd0d6', '#d0c060'];
           let h = 0; const s = String(id || '');
           for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
@@ -29662,13 +29673,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async _wcGroupSend(chat, prompt) {
           const roster = this.wcEffectiveRoster(chat);
           const mentioned = this._wcParseMentions(chat, prompt);
-          this.chatActivity[chat.id] = { status: 'Deciding who should respond…', steps: [] };
+          this.chatActivity[chat.id] = { status: 'Facilitator is routing…', steps: [], agentId: '__facilitator__', initial: 'F' };
           try {
             const transcript = (chat.messages || []).slice(-8)
               .map((m) => ({ speaker: this.wcMsgSpeaker(m) || 'agent', content: m.content }));
-            let responders = [];
+            let responders = [], uncertain = false, note = '';
             try {
-              const route = await this.request('/api/multi-agent/route', {
+              const route = await this.request('/api/multi-agent/facilitate', {
                 method: 'POST',
                 body: JSON.stringify({
                   message: prompt,
@@ -29678,13 +29689,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 }),
               });
               responders = (route && Array.isArray(route.responders)) ? route.responders : [];
+              uncertain = !!(route && route.uncertain);
+              note = (route && route.note) || '';
             } catch { responders = []; }
+            // Facilitator couldn't route: speak up and ask the user to clarify —
+            // don't force a random agent to answer something that isn't for them.
+            if (uncertain && !responders.length) {
+              await this._wcPostFacilitator(chat, note || "I'm not sure which teammate is the best fit here. Could you add a little more detail, or @mention the agent you want?");
+              return;
+            }
             if (!responders.length) responders = [{ id: roster[0].id }];
+            // Run each responder and capture what they said, so the facilitator can
+            // synthesise / reconcile once everyone has spoken.
+            const collected = [];
             for (const r of responders) {
               const a = roster.find((x) => String(x.id) === String(r.id));
               if (!a) continue;
-              await this._wcRunResponder(chat, a, prompt);
+              const text = await this._wcRunResponder(chat, a, prompt);
+              collected.push({ id: a.id, name: a.name, text: text || '' });
             }
+            const spoke = collected.filter((c) => c.text && !/^_\(/.test(c.text));
+            if (spoke.length >= 2) await this._wcSynthesize(chat, prompt, spoke);
           } catch (e) {
             await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
               method: 'POST',
@@ -29694,6 +29719,48 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             delete this.chatActivity[chat.id];
             this.typingChats[chat.id] = false;
             await this.openChat(chat.id, false);
+          }
+        },
+        // Post a message as the Facilitator (a fixed system participant). Renders with
+        // its own speaker header + slate bubble via the standard group-speaker path.
+        async _wcPostFacilitator(chat, content) {
+          try {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content, speaker: 'Facilitator', agentId: '__facilitator__' }),
+            });
+            await this.openChat(chat.id, false);
+          } catch { /* non-fatal */ }
+        },
+        // After 2+ agents answer one turn, let the facilitator synthesise: post an
+        // insightful summary, flag genuine conflicts, and (on conflict) run ONE
+        // bounded clarification round asking each conflicting agent to reconcile.
+        async _wcSynthesize(chat, userPrompt, responses) {
+          this.chatActivity[chat.id] = { status: 'Facilitator is reviewing…', steps: [], agentId: '__facilitator__', initial: 'F' };
+          let out;
+          try {
+            out = await this.request('/api/multi-agent/synthesize', {
+              method: 'POST',
+              body: JSON.stringify({ message: userPrompt, responses: responses.map((x) => ({ id: x.id, name: x.name, text: x.text })) }),
+            });
+          } catch { return; }
+          if (!out) return;
+          let body = '';
+          if (out.conflict && out.conflictNote) body += '⚠️ **Conflicting responses** — ' + out.conflictNote + '\n\n';
+          if (out.summary) body += out.summary;
+          if (out.conflict && Array.isArray(out.clarify) && out.clarify.length) {
+            body += '\n\n**Getting clarity from:** ' + out.clarify.map((c) => c.name).join(', ');
+          }
+          if (body.trim()) await this._wcPostFacilitator(chat, body.trim());
+          // Bounded, single clarification round for the conflicting agents only. Each
+          // re-runs with the transcript (which now includes the others' answers) plus
+          // the facilitator's specific question — no recursion into the facilitator.
+          if (out.conflict && Array.isArray(out.clarify) && out.clarify.length) {
+            for (const c of out.clarify) {
+              const a = this.wcEffectiveRoster(chat).find((x) => String(x.id) === String(c.id));
+              if (!a) continue;
+              await this._wcRunResponder(chat, a, `The facilitator flagged a conflict with another teammate's answer. ${c.question} Please reconcile or clarify your position, referencing the group transcript.`);
+            }
           }
         },
         // Run one roster member's turn: a group-context prompt (persona + recent
@@ -29755,6 +29822,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           ].filter(Boolean).join('\n');
           this.chatActivity[chat.id] = { status: agent.name + ' is thinking…', steps: [], agentId: agent.id, initial: this.wcInitial(agent.name) };
           let resp;
+          let finalText = '';
           try {
             resp = await this.request('/api/agents/' + encodeURIComponent(agent.id) + '/chat', {
               method: 'POST',
@@ -29765,7 +29833,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content: `_(Could not start ${agent.name}: ${e.message || 'error'})_`, speaker: agent.name, agentId: agent.id }),
             });
-            return;
+            return '';
           }
           if (resp && resp.sessionId && sessions[String(agent.id)] !== resp.sessionId) {
             sessions[String(agent.id)] = resp.sessionId;
@@ -29776,7 +29844,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               method: 'POST',
               body: JSON.stringify({ role: 'assistant', content: `_(Could not start ${agent.name}.)_`, speaker: agent.name, agentId: agent.id }),
             });
-            return;
+            return '';
           }
           await this.pollSessionTurn(sessions[String(agent.id)], {
             onActivity: ({ steps, elapsed, lastAssistant }) => {
@@ -29791,6 +29859,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               });
             },
             onDone: async ({ response, steps, model }) => {
+              finalText = response || '';
               await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({ role: 'assistant', content: response || '_(No response.)_', speaker: agent.name, agentId: agent.id, activity: this.mapAgentSteps(steps), model: model || '' }),
@@ -29798,6 +29867,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               await this.openChat(chat.id, false);
             },
           });
+          return finalText;
         },
 
         // A title is "default" (auto-upgradeable) when it is still the generated
