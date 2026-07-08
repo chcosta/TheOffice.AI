@@ -14146,7 +14146,10 @@ function _meAiYieldOffMeetings(blocks, cfg) {
   const meetings = blocks.filter(attendingMeeting)
     .map(m => [_hmToMin(m.start), _hmToMin(m.end)]).filter(r => r[0] != null && r[1] != null)
     .sort((a, b) => a[0] - b[0]);
-  if (!meetings.length) return blocks;
+  // Prep-ordering (1) can now target non-meeting blocks, so only bail when there is nothing
+  // to move: no meetings AND no prep blocks to re-order.
+  const hasPrep = blocks.some(b => String(b && b.type || '') === 'prep');
+  if (!meetings.length && !hasPrep) return blocks;
   const overlapsMeeting = (s, e) => meetings.some(([ms, me]) => s < me && e > ms);
   const drop = new Set();
   const tokens = t => new Set(String(t || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []);
@@ -14168,26 +14171,39 @@ function _meAiYieldOffMeetings(blocks, cfg) {
     }
     return null;
   };
-  // (1) prep blocks — must sit before their meeting.
+  // (1) prep blocks — must sit before the item they prep for. The item may be a meeting OR
+  //     any other work block (e.g. "Prep for self epic review" before a "self epic review"
+  //     review/focus block). Trigger a re-slot when the prep OVERLAPS a meeting OR starts at/
+  //     after the block it preps for (the "prep scheduled after its own item" bug).
+  const prepTargets = blocks.filter(b => String(b.type || '') !== 'prep' && !FLEX.has(String(b.type || '')))
+    .map(b => ({ b, s: _hmToMin(b.start), e: _hmToMin(b.end), tok: tokens(b.title) }))
+    .filter(x => x.s != null && x.e != null)
+    .sort((a, z) => a.s - z.s);
   for (const b of blocks) {
     if (String(b.type || '') !== 'prep' || anchored(b)) continue;
     const bs = _hmToMin(b.start), be = _hmToMin(b.end);
-    if (bs == null || be == null || !overlapsMeeting(bs, be)) continue;
+    if (bs == null || be == null) continue;
     const dur = be - bs;
     const ptok = tokens(b.title);
-    let target = null, best = 0;                               // best title-token match
-    for (const [ms, me] of meetings) {
-      const mb = blocks.find(x => attendingMeeting(x) && _hmToMin(x.start) === ms && _hmToMin(x.end) === me);
-      let sc = 0; const mtok = tokens(mb && mb.title); for (const w of ptok) if (mtok.has(w)) sc++;
-      if (sc > best) { best = sc; target = ms; }
+    // Best title-token match among all prep targets (meetings + work blocks), preferring one
+    // the prep is currently at/after (the mis-ordered one) then the nearest later item.
+    let target = null, best = 0;
+    for (const t of prepTargets) {
+      if (t.b === b) continue;
+      let sc = 0; for (const w of ptok) if (t.tok.has(w)) sc++;
+      if (sc > best) { best = sc; target = t; }
     }
-    if (target == null) { const later = meetings.find(([ms]) => ms >= bs); target = later ? later[0] : null; }
+    const misordered = target && bs >= target.s;                 // prep sits at/after its own item
+    if (!misordered && !overlapsMeeting(bs, be)) continue;       // correctly-placed prep -> leave it
+    // Prefer the title-matched target; else the nearest later meeting.
+    let anchorStart = target ? target.s : null;
+    if (anchorStart == null) { const later = meetings.find(([ms]) => ms >= bs); anchorStart = later ? later[0] : null; }
     let placed = false;
-    if (target != null) {
-      const ds = target - dur, de = target;
+    if (anchorStart != null) {
+      const ds = anchorStart - dur, de = anchorStart;
       if (ds >= wStart && slotFree(ds, de, b)) { b.start = _minToHm(ds); b.end = _minToHm(de); placed = true; }
     }
-    if (!placed) drop.add(b);                                  // no room before the meeting -> noise
+    if (!placed) drop.add(b);                                    // no room before the item -> noise
   }
   // (2) movable work blocks — slide off any meeting they overlap.
   const MOVABLE = new Set(['review', 'steward', 'comms', 'admin', 'pr', 'dev', 'work', 'task']);
