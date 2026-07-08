@@ -18276,6 +18276,69 @@ function _meAiDispatchRun(t) {
     }
   });
 }
+
+// --- Approval-decision memory (console gate) -----------------------------------
+// When the user reviews the proposed write/external actions and DECLINES some, we
+// remember those declines on the task so the agent never re-proposes or re-performs
+// them (killing the "keeps asking for the same approval" loop), and so we can render
+// a clean, durable record of the decision in the transcript.
+function _meAiNormLabel(s) {
+  return String(s || '')
+    .toLowerCase()
+    // strip a leading verb/prefix that varies between proposal and re-proposal
+    .replace(/^\s*(approve|approved|decline|declined|deny|do|please)\b[:\s]*/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+// Fold a set of just-declined action labels into t.declinedActions (deduped, bounded).
+function _meAiRecordDeclines(t, declined) {
+  if (!t || !Array.isArray(declined) || !declined.length) return;
+  const kept = Array.isArray(t.declinedActions) ? t.declinedActions.slice() : [];
+  const seen = new Set(kept.map(_meAiNormLabel));
+  for (const d of declined) {
+    const n = _meAiNormLabel(d);
+    if (n && !seen.has(n)) { seen.add(n); kept.push(String(d).slice(0, 160)); }
+  }
+  t.declinedActions = kept.slice(-24);
+}
+// Drop any freshly-parsed write/external nextAction that matches something the user
+// already declined — belt-and-suspenders in case the agent re-proposes it anyway.
+function _meAiFilterDeclined(t) {
+  if (!t || !Array.isArray(t.nextActions) || !Array.isArray(t.declinedActions) || !t.declinedActions.length) return;
+  const declined = new Set(t.declinedActions.map(_meAiNormLabel));
+  t.nextActions = t.nextActions.filter(a => {
+    if (!a) return false;
+    if (a.risk !== 'write' && a.risk !== 'external') return true; // never strip neutral actions (retry/done/continue)
+    return !declined.has(_meAiNormLabel(a.label));
+  });
+}
+// A firm prompt block listing what the user already declined, so the agent stops
+// re-surfacing it and instead reports the work as blocked/paused on that decision.
+function _meAiDeclineDirective(t) {
+  const d = (t && Array.isArray(t.declinedActions)) ? t.declinedActions : [];
+  if (!d.length) return '';
+  return '\n\nDECLINED ACTIONS — the user has already reviewed and DECLINED the following, so do NOT propose them again, do NOT perform them, and do NOT ask for approval on them again: '
+    + d.map(x => '"' + String(x) + '"').join(', ')
+    + '. If the only remaining move would be one of these declined actions, STOP and report that the work is paused on the user\'s decision instead of re-asking.';
+}
+// Build + emit a clean, durable transcript record of an approval-gate decision from
+// the structured {approved, declined, note} the client sends on Proceed. Renders as a
+// proper "You reviewed the approval — …" bubble (Bug: no captured record after Proceed).
+function _meAiEmitDecisionRecord(t, decisions) {
+  if (!t || !decisions || typeof decisions !== 'object') return false;
+  const ap = (Array.isArray(decisions.approved) ? decisions.approved : []).filter(Boolean).map(String);
+  const de = (Array.isArray(decisions.declined) ? decisions.declined : []).filter(Boolean).map(String);
+  if (!ap.length && !de.length) return false;
+  const parts = [];
+  if (ap.length) parts.push('Approved: ' + ap.map(x => '“' + x + '”').join(', '));
+  if (de.length) parts.push('Declined: ' + de.map(x => '“' + x + '”').join(', '));
+  let rec = 'You reviewed the approval — ' + parts.join(' · ');
+  const note = String(decisions.note || '').trim();
+  if (note) rec += '. Note: “' + note + '”';
+  _meAiEmit(t, { kind: 'note', text: rec });
+  return true;
+}
+
 // Continue the loop when the user picks an intent (§7.2). Resumes the same session.
 // `label` is the human-readable text of the button the user clicked (when they picked a
 // generated action rather than typing) — recorded verbatim so the transcript shows what
@@ -18284,9 +18347,9 @@ function _meAiActRun(t, intent, text, label, opts = {}) {
   const external = !!opts.external;
   _meAiSchedule(async () => {
     let attempt = 0;
-    const basePrompt = external
+    const basePrompt = (external
       ? _meAiExternalActPrompt(t, intent, text, label)
-      : _meAiActPrompt(intent, text, label);
+      : _meAiActPrompt(intent, text, label)) + _meAiDeclineDirective(t);
     t.question = null; // a new turn is starting; any prior mid-run question is resolved
     // What to show in the timeline for this choice: prefer the clicked button's label,
     // then a typed answer/reply, then the raw intent as a last resort.
@@ -18297,12 +18360,16 @@ function _meAiActRun(t, intent, text, label, opts = {}) {
     else if (intent === 'ask-user' && txt) choiceNote = `You answered: ${txt}`;
     else if (txt) choiceNote = `You replied: ${txt}`;
     else choiceNote = `You chose: ${intent}`;
+    // When the user came through the approval gate we already emitted a clean decision
+    // record ("You reviewed the approval — …"), so suppress the verbose machine reply
+    // here to avoid a duplicate wall-of-text bubble.
+    const skipNote = !!t._skipChoiceNote; t._skipChoiceNote = false;
     while (true) {
       attempt++;
       try {
         _meAiSetStage(t, 'working', 'running');
         const selfCorrect = attempt > 1 && t._lastError;
-        _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : choiceNote });
+        if (!(skipNote && !selfCorrect)) _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : choiceNote });
         const prompt = selfCorrect
           ? (external
               ? (basePrompt + '\n\nNOTE: a previous attempt failed with: "' + String(t._lastError).slice(0, 500) + '". Diagnose what went wrong, self-correct, and carry out the approved action — or, if it is genuinely blocked (no access / WorkIQ unavailable), report that honestly and stop.')
@@ -18311,6 +18378,7 @@ function _meAiActRun(t, intent, text, label, opts = {}) {
         const out = await _meAiRunTurn(t, prompt, { resume: !external, workiq: external });
         const { report, nextActions, question } = _meAiParseReport(out);
         t.report = report; t.nextActions = nextActions; t.error = null; t.question = question || null; t._lastError = null;
+        _meAiFilterDeclined(t);
         _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
         if (question) _meAiEmit(t, { kind: 'question', text: question });
         _meAiSetStage(t, 'awaiting', 'awaiting');
@@ -18788,6 +18856,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   } else {
     t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
   }
+  _meAiFilterDeclined(t);
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
   _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
   _meAiSetStage(t, 'awaiting', 'awaiting');
@@ -18804,7 +18873,9 @@ function _meAiSteerBlock(t) {
     const cons = (tree && tree.rootState && Array.isArray(tree.rootState.constraints)) ? tree.rootState.constraints : [];
     if (cons.length) lines.push('CONSTRAINTS I set earlier (honor ALL of these): ' + cons.slice(-6).map(c => String((c && c.text) || c)).filter(Boolean).map(s => '• ' + s).join('  '));
   } catch (_) {}
-  return lines.length ? ('\n' + lines.join('\n')) : '';
+  let out = lines.length ? ('\n' + lines.join('\n')) : '';
+  try { out += _meAiDeclineDirective(t); } catch (_) {}
+  return out;
 }
 
 // Re-engage an EXISTING tree pursuit with a steer (a follow-up "dig deeper / get
@@ -18828,7 +18899,8 @@ function _meAiTreeReAct(t, intent, text, label) {
       t._steerNote = steerNote;
       // Record the steer as a root answer so the fold + downstream prompts carry it.
       _meAiTreeEmit(id, 'rootstate', { patch: { answer: steerNote } });
-      _meAiTreeMirror(t, 'You steered the pursuit — ' + steerNote);
+      if (t._skipChoiceNote) { t._skipChoiceNote = false; }
+      else _meAiTreeMirror(t, 'You steered the pursuit — ' + steerNote);
       _meAiTreeEmit(id, 'epoch_bump', { epoch });
       const spine = _meAiNewLeg({
         kind: 'spine', lane: 'spine', status: 'running', baseEpoch: epoch,
@@ -19039,6 +19111,7 @@ function _meAiReconcileAsks(t, tree) {
       ];
       t.question = openInfo.length ? (openInfo[0].prompt || t.question || null) : null;
     }
+    _meAiFilterDeclined(t);
     try { _meAiEmit(t, { kind: 'report', summary: (t.report && t.report.summary) || '', findings: (t.report && t.report.findings) || [] }); } catch (_) {}
   } catch (_) { /* best-effort */ }
 }
@@ -19573,6 +19646,17 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
     const intent = String(b.intent || '').trim();
     if (!ME_AI_INTENTS.includes(intent)) return res.status(400).json({ error: 'Unknown intent: ' + intent });
     if (t.status === 'running') return res.status(409).json({ error: 'Task is still working' });
+    // Structured approval-gate decisions from the console Proceed button. Record the
+    // declines so the agent stops re-proposing them (kills the decline loop), emit ONE
+    // clean transcript record, and suppress the verbose machine reply on the next turn.
+    if (b.decisions && typeof b.decisions === 'object') {
+      try {
+        _meAiRecordDeclines(t, b.decisions.declined);
+        _meAiFilterDeclined(t);
+        if (_meAiEmitDecisionRecord(t, b.decisions)) t._skipChoiceNote = true;
+        _meAiSaveTask(t);
+      } catch (_) { /* best-effort */ }
+    }
     if (intent === 'abandon') {
       _meAiEmit(t, { kind: 'note', text: 'Task abandoned.' });
       t.nextActions = [];

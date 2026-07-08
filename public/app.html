@@ -14400,9 +14400,9 @@
                           </div>
                           <!-- Stage transitions + system narration → quiet centered route line -->
                           <template x-if="ev.kind==='stage'"><div class="meai-msg-route" x-text="meAiTaskStageLabel(ev.stage)"></div></template>
-                          <template x-if="ev.kind==='note' && !/^You (chose|answered|replied)/.test(ev.text||'')"><div class="meai-msg-route" x-text="ev.text"></div></template>
+                          <template x-if="ev.kind==='note' && !/^You (chose|answered|replied|reviewed)/.test(ev.text||'')"><div class="meai-msg-route" x-text="ev.text"></div></template>
                           <!-- Your responses / choices / approvals → right-aligned accent bubble -->
-                          <template x-if="ev.kind==='note' && /^You (chose|answered|replied)/.test(ev.text||'')">
+                          <template x-if="ev.kind==='note' && /^You (chose|answered|replied|reviewed)/.test(ev.text||'')">
                             <div class="meai-msg user"><div class="meai-bubble"><div class="meai-bubble-h">You</div><span x-text="(ev.text||'').replace(/^You (chose|answered|replied):\s*/,'')"></span></div></div>
                           </template>
                           <!-- Agent asked you a question → left agent bubble -->
@@ -15050,11 +15050,11 @@
             </div>
 
             <!-- Floating agenda-assistant launcher (matches board/connect FABs) -->
-            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
+            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
 
             <!-- Item 4: floating today's-goals FAB (stacked above the assistant) -->
             <button class="meai-chk-fab" :class="{ 'has-open': meAiChecklistOpenCount() > 0 }" type="button"
-              x-show="route==='me-ai' && !meai.checklistOpen && !meai.asst.open" x-transition.opacity.duration.150ms
+              x-show="route==='me-ai' && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
               @click="meAiChecklistToggle(true)"
               :title="meAiChecklistOpenCount() > 0 ? (meAiChecklistOpenCount() + ' goal(s) still open') : 'Today\'s goals'"
               aria-label="Open today's goals">
@@ -32929,10 +32929,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           lines.push('Then report what you did.');
           const text = lines.join('\n');
           const anyExternal = ext.length > 0;
+          // Structured decisions for the server: record declines (so the agent stops
+          // re-proposing them → kills the decline loop) + emit ONE clean transcript record.
+          const decisions = {
+            approved: approved.map(a => a.label),
+            declined: declined.map(a => a.label),
+            note,
+          };
           // Clear the recorded decisions — they've been consumed by this resume.
           this.meai.approvalDecisions[t.id] = {};
           this.meai.consoleReply = '';
-          await this.meAiAct('continue', text, '', anyExternal ? 'external' : 'write', { skipConfirm: true });
+          await this.meAiAct('continue', text, '', anyExternal ? 'external' : 'write', { skipConfirm: true, decisions });
         },
         // Approve/choose an action straight from the lane (the click IS the confirmation).
         // Reuses the same /act path as the console; merges the result into lane + console.
@@ -33914,9 +33921,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (risk === 'external' && !(opts && opts.skipConfirm) && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
           this.meai.consoleBusy = true;
           try {
+            const body = { intent, text: text || '', label: label || '', risk: risk || 'none' };
+            if (opts && opts.decisions) body.decisions = opts.decisions;
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/act', {
               method: 'POST',
-              body: JSON.stringify({ intent, text: text || '', label: label || '', risk: risk || 'none' }),
+              body: JSON.stringify(body),
             });
             if (r && r.task) this._meAiMergeTask(r.task);
             this.meai.consoleReply = '';
