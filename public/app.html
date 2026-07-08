@@ -13494,6 +13494,24 @@
               .meai-chk-big:hover { background:var(--cp-accent-soft, rgba(31,111,177,0.12)); }
               .meai-chk-big .meai-chk-title { font-size:13.5px; font-weight:600; }
               .meai-chk-autobig { color:var(--cp-text-muted); font-style:italic; }
+              /* Accomplishment banner: your one big thing is done — persists on the Open tab. */
+              .meai-chk-accomplished { margin-bottom:12px; }
+              .meai-acc-inner { display:flex; align-items:center; gap:11px; padding:11px 12px;
+                border:1px solid color-mix(in oklab, var(--cp-success,#16a34a) 34%, transparent);
+                background:color-mix(in oklab, var(--cp-success,#16a34a) 12%, var(--cp-surface));
+                border-radius:calc(var(--cp-radius-scale, 1) * 10px); }
+              .meai-acc-burst { font-size:22px; line-height:1; animation:meaiAccPop .5s cubic-bezier(.22,1,.36,1); }
+              .meai-acc-body { flex:1 1 auto; min-width:0; }
+              .meai-acc-head { font-size:11.5px; font-weight:600; letter-spacing:.02em;
+                color:color-mix(in oklab, var(--cp-success,#16a34a) 72%, var(--cp-text)); }
+              .meai-acc-title { font-size:13.5px; font-weight:600; color:var(--cp-text); margin-top:1px;
+                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-acc-undo { appearance:none; border:1px solid var(--cp-border); background:transparent;
+                color:var(--cp-text-muted); font-size:11.5px; cursor:pointer; padding:4px 9px;
+                border-radius:calc(var(--cp-radius-scale, 1) * 7px); transition:color .12s, border-color .12s; flex:0 0 auto; }
+              .meai-acc-undo:hover { color:var(--cp-text); border-color:var(--cp-text-muted); }
+              @keyframes meaiAccPop { 0%{transform:scale(.4);opacity:0;} 60%{transform:scale(1.25);} 100%{transform:scale(1);opacity:1;} }
+              @media (prefers-reduced-motion: reduce) { .meai-acc-burst { animation:none; } }
               .meai-chk-bigown { display:flex; gap:7px; margin:8px 0 4px; padding:8px 0 0; }
               .meai-chk-bigown-in { flex:1 1 auto; min-width:0; appearance:none; border:1px dashed var(--cp-border); background:var(--cp-bg);
                 color:var(--cp-text); font-size:12px; padding:6px 9px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
@@ -14347,6 +14365,19 @@
                             @click="meAiSetGoalsTab(tb.key)">
                             <span x-text="tb.label"></span><span class="meai-goals-tab-n" x-show="tb.n" x-text="tb.n"></span>
                           </button>
+                        </template>
+                      </div>
+                      <!-- Accomplishment: your one big thing is done — celebrated + kept visible on the Open tab -->
+                      <div class="meai-chk-accomplished" x-show="meai.goalsTab === 'open' && meAiBigGoalDone()" x-transition>
+                        <template x-for="t in meAiBigGoalList()" :key="'acc-'+(_meAiGoalKey(t)||'x')">
+                          <div class="meai-acc-inner" x-show="t.done">
+                            <span class="meai-acc-burst" aria-hidden="true">🎉</span>
+                            <div class="meai-acc-body">
+                              <div class="meai-acc-head">You nailed your one big thing today</div>
+                              <div class="meai-acc-title" x-text="t.title"></div>
+                            </div>
+                            <button class="meai-acc-undo" type="button" @click="meAiToggleTodoDone(t)" title="Reopen the big thing">Undo</button>
+                          </div>
                         </template>
                       </div>
                       <!-- The day's ONE big thing: a single headline goal to feel accomplished by end of day -->
@@ -32627,14 +32658,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPriLabel(p) { return p === 'high' ? 'High priority' : (p === 'med' ? 'Medium priority' : 'Low priority'); },
         _meAiBigPinKey() { return 'meai-big-goal-' + (this.meai.date || ''); },
         _meAiBigPin() { try { return localStorage.getItem(this._meAiBigPinKey()) || ''; } catch (_) { return ''; } },
-        // The day's ONE big thing: a user-pinned goal (per date) if it still exists, else the
-        // highest-priority goal (prefer open; tie-break carried, then block-backed, then order).
-        meAiBigGoal() {
-          void this.meai.bigGoalNonce;
-          const all = this.meAiChecklistItems();
-          if (!all.length) return null;
-          const pin = this._meAiBigPin();
-          if (pin) { const hit = all.find(t => this._meAiGoalKey(t) === pin); if (hit) return hit; }
+        // The day's auto-picked big thing is PERSISTED once (at start of day / first render)
+        // so it does NOT change when checked off. Owner ask: checking the big thing off must
+        // be celebrated, not silently replaced by "another big thing to work on" — the big
+        // thing only changes when the user explicitly pins a different one, or a fresh day
+        // auto-picks at the start.
+        _meAiBigAutoKey() { return 'meai-big-auto-' + (this.meai.date || ''); },
+        _meAiBigAuto() { try { return localStorage.getItem(this._meAiBigAutoKey()) || ''; } catch (_) { return ''; } },
+        _meAiSetBigAuto(k) { try { if (k) localStorage.setItem(this._meAiBigAutoKey(), k); else localStorage.removeItem(this._meAiBigAutoKey()); } catch (_) {} },
+        // Compute the highest-priority goal to nominate as the day's big thing (prefer open;
+        // tie-break carried, then block-backed, then order). Used ONLY when no big thing has
+        // been chosen/auto-set yet for the day.
+        _meAiComputeBigGoal(all) {
           const open = all.filter(t => !t.done);
           const pool = open.length ? open : all;
           let best = null, bestScore = -Infinity;
@@ -32647,8 +32682,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           return best;
         },
+        // The day's ONE big thing: (1) a user-pinned goal (manual, wins even when done);
+        // (2) else the day's persisted auto-pick (set once, stays put across done/undone);
+        // (3) else compute a fresh auto-pick AND persist it so it won't drift.
+        meAiBigGoal() {
+          void this.meai.bigGoalNonce;
+          const all = this.meAiChecklistItems();
+          if (!all.length) return null;
+          const pin = this._meAiBigPin();
+          if (pin) { const hit = all.find(t => this._meAiGoalKey(t) === pin); if (hit) return hit; this._meAiSetBigAuto(''); }
+          const auto = this._meAiBigAuto();
+          if (auto) { const hit = all.find(t => this._meAiGoalKey(t) === auto); if (hit) return hit; }
+          const best = this._meAiComputeBigGoal(all);
+          if (best) this._meAiSetBigAuto(this._meAiGoalKey(best));
+          return best;
+        },
         meAiBigGoalList() { const b = this.meAiBigGoal(); return b ? [b] : []; },
         meAiBigGoalManual() { const k = this._meAiBigPin(); if (!k) return false; const b = this.meAiBigGoal(); return !!(b && this._meAiGoalKey(b) === k); },
+        // The day's big thing, but only when it's been accomplished — for the celebratory
+        // banner that persists on the Open tab so you can see you nailed your one big thing.
+        meAiBigGoalDone() { const b = this.meAiBigGoal(); return (b && b.done) ? b : null; },
         meAiIsBigGoal(t) { const b = this.meAiBigGoal(); return !!(b && t && this._meAiGoalKey(b) === this._meAiGoalKey(t)); },
         // Regular goals = all checklist goals except the current big one (shown separately on top).
         meAiRegularGoals() {
