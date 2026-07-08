@@ -13319,6 +13319,25 @@
               .meai-chk-open { color:var(--cp-accent); text-decoration:none; }
               .meai-chk-open:hover { text-decoration:underline; }
               .meai-chk-live { color:var(--cp-text-muted); font-style:italic; }
+              /* Goal → agenda jump — quiet text button (no pill), reads as a link. */
+              .meai-chk-goto { appearance:none; border:none; background:transparent; padding:0; cursor:pointer;
+                font-size:11px; font-weight:600; color:var(--cp-accent); border-bottom:1px solid transparent; line-height:1.4; }
+              .meai-chk-goto:hover { border-bottom-color:var(--cp-accent); }
+              /* Related day-goals rendered inside an agenda block's detail panel. */
+              .meai-block-goals { margin-top:12px; padding-top:10px; border-top:1px solid var(--cp-border); }
+              .meai-block-goals-h { font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase;
+                color:var(--cp-text-muted); margin-bottom:7px; }
+              .meai-bg-row { display:flex; align-items:flex-start; gap:9px; padding:4px 0; }
+              .meai-bg-main { flex:1 1 auto; min-width:0; }
+              .meai-bg-title { font-size:12.5px; color:var(--cp-text); line-height:1.4; }
+              .meai-bg-row.done .meai-bg-title { text-decoration:line-through; color:var(--cp-text-muted); }
+              .meai-bg-row .meai-chk-st { opacity:.85; }
+              .meai-bg-row.done .meai-chk-status { display:none; }
+              /* Flash pulse when a goal click scrolls to its agenda block. */
+              @keyframes meaiBlkFlash { 0% { box-shadow:0 0 0 0 var(--cp-accent); background:color-mix(in oklab, var(--cp-accent) 14%, transparent); }
+                100% { box-shadow:0 0 0 0 transparent; background:transparent; } }
+              .meai-blk-flash { animation:meaiBlkFlash 1.4s ease-out; border-radius:calc(var(--cp-radius-scale, 1) * 10px); }
+              @media (prefers-reduced-motion: reduce) { .meai-blk-flash { animation:none; outline:2px solid var(--cp-accent); outline-offset:2px; } }
               /* Today's-goals status toggles — calm text buttons, no pills. Revealed on row
                  hover; the active state stays visible so a set status reads at a glance. */
               .meai-chk-status { display:flex; align-items:center; gap:10px; margin-top:5px; }
@@ -13793,6 +13812,7 @@
                       </div>
                       <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
                         <div class="meai-block"
+                             :id="'meai-blk-'+bi"
                              :class="{ 'meai-drop-hi': meai.dragBlockKey && meai.dragBlockKey!==meAiItemKey('b',b,bi) && meai.dropTargetKey===meAiItemKey('b',b,bi), 'meai-locked': b.meta && b.meta.locked }"
                              @dragover.prevent="meAiBlockDragOver($event,b,bi)" @drop.prevent="meAiBlockDrop($event,b,bi)">
                           <div class="meai-block-time" x-text="_meAiFmtHm(b.start)"
@@ -13872,8 +13892,25 @@
                                   <a class="meai-detail-link" x-show="b.link || b.prLink" :href="meAiCfKey(b) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(b))) : (b.link || b.prLink)" :target="meAiCfKey(b) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(b)" x-text="meAiCfKey(b) ? 'Open in Code Flow →' : (b.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
                                 </div>
                               </template>
+                              <!-- Related day-goals — mark them without leaving the agenda (Phase B). -->
+                              <template x-if="meAiBlockGoals(b).length">
+                                <div class="meai-block-goals">
+                                  <div class="meai-block-goals-h">Today's goals for this item</div>
+                                  <template x-for="(g, gi) in meAiBlockGoals(b)" :key="'bg-'+gi+'-'+(g.title||'')">
+                                    <div class="meai-bg-row" :class="{ done: g.done }">
+                                      <input class="meai-chk-cb" type="checkbox" :checked="g.done" @change.stop="meAiToggleTodoDone(g)" @click.stop :aria-label="'Mark ' + (g.title||'goal') + ' done'">
+                                      <div class="meai-bg-main">
+                                        <div class="meai-bg-title" x-text="g.title"></div>
+                                        <div class="meai-chk-status">
+                                          <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(g)==='partial' }" @click.stop="meAiSetTodoStatus(g, 'partial')">Need more time</button>
+                                          <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(g)==='missed' }" @click.stop="meAiSetTodoStatus(g, 'missed')">Didn't get to it</button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
                             </div>
-                            <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus' || b.type==='meeting'" @click.outside="meai.launchMenuFor=null">
                               <div class="meai-launch-split">
                                 <button class="meai-mini-btn meai-launch-main" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy || meai.pursuit.busy" :title="meAiBlockLaunchTitle(b)">
                                   🤖 <span x-text="meAiBlockLaunchLabel(b)"></span>
@@ -15110,8 +15147,9 @@
                       <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                       <div class="meai-chk-main">
                         <div class="meai-chk-title" x-text="t.title"></div>
-                        <div class="meai-chk-meta" x-show="t.carried || t.link || t.live">
+                        <div class="meai-chk-meta" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
                           <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
+                          <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
                           <a class="meai-chk-open" x-show="t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
                           <span class="meai-chk-live" x-show="t.live" title="Backed by a live PR or work item — it may reappear on your agenda; your note here still sticks">live · may reappear</span>
                         </div>
@@ -32196,6 +32234,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (it.link) return true;
           if (this.meAiMetaRows(it).length) return true;
           if (it.detail && String(it.detail).trim()) return true;
+          if (this.meAiBlockGoals(it).length) return true;
           return false;
         },
         // Build a Code Flow PR key (org|project|repo|prId, GitHub prefixed) from an
@@ -32241,6 +32280,81 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (key) { this.goTo('#/codeflow/' + encodeURIComponent(key)); return; }
           const link = (it && (it.link || it.prLink)) || '';
           if (link) window.open(link, '_blank', 'noopener');
+        },
+        // --- Goal <-> agenda correlation (Phase B) ---
+        // Normalize a title/label for fuzzy matching: lowercase, drop a leading
+        // "category:" label (e.g. "Housekeeping:"), strip PR/work-item punctuation,
+        // collapse whitespace. Used to line up a day-goal with the agenda block that
+        // will actually get it done.
+        _meAiGoalNorm(s) {
+          return String(s || '')
+            .toLowerCase()
+            .replace(/^\s*[a-z][a-z0-9 /&+-]{1,28}:\s*/i, '')  // leading "label:" prefix
+            .replace(/[#!]/g, ' ')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
+        },
+        // Index of the agenda block that a goal maps to, or -1. Match on link first
+        // (goal.link vs block link/prLink or any constituent item), then normalized
+        // title (equality or containment either direction).
+        meAiGoalBlockIdx(goal) {
+          const blocks = (this.meai.agenda && this.meai.agenda.blocks) || [];
+          if (!goal || !blocks.length) return -1;
+          const gLink = String(goal.link || goal.origin || '').trim();
+          const linksOf = (b) => {
+            const out = [];
+            if (b.link) out.push(String(b.link));
+            if (b.prLink) out.push(String(b.prLink));
+            (b.items || []).forEach(it => { if (it.link) out.push(String(it.link)); if (it.prLink) out.push(String(it.prLink)); });
+            return out;
+          };
+          if (gLink && /^https?:|^#\//i.test(gLink)) {
+            for (let i = 0; i < blocks.length; i++) {
+              if (linksOf(blocks[i]).some(l => l && (l === gLink || l.indexOf(gLink) === 0 || gLink.indexOf(l) === 0))) return i;
+            }
+          }
+          const gt = this._meAiGoalNorm(goal.title);
+          if (!gt) return -1;
+          for (let i = 0; i < blocks.length; i++) {
+            const b = blocks[i];
+            const cand = [b.title].concat((b.items || []).map(it => it.title));
+            for (const c of cand) {
+              const ct = this._meAiGoalNorm(c);
+              if (!ct) continue;
+              if (ct === gt || (ct.length > 6 && (ct.indexOf(gt) >= 0 || gt.indexOf(ct) >= 0))) return i;
+            }
+          }
+          return -1;
+        },
+        meAiGoalHasBlock(goal) { return this.meAiGoalBlockIdx(goal) >= 0; },
+        // Goal click -> scroll to its agenda block, expand it, and flash it. On narrow
+        // screens the goals rail is a slide-over covering the agenda, so close it first.
+        meAiGoalToAgenda(goal) {
+          const idx = this.meAiGoalBlockIdx(goal);
+          if (idx < 0) return;
+          const b = (this.meai.agenda.blocks || [])[idx];
+          if (window.innerWidth <= 1300 && this.meai.checklistOpen) this.meAiChecklistToggle(false);
+          if (b && this.meAiHasDetail(b)) {
+            const key = this.meAiItemKey('b', b, idx);
+            if (!this.meAiExpanded(key)) this.meAiToggle(key);
+          }
+          this.$nextTick(() => {
+            const el = document.getElementById('meai-blk-' + idx);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('meai-blk-flash');
+            setTimeout(() => el.classList.remove('meai-blk-flash'), 1400);
+          });
+        },
+        // Inverse: day-goals that map to THIS agenda block, for inline display + status
+        // toggles inside the block detail.
+        meAiBlockGoals(b) {
+          if (!b) return [];
+          const goals = this.meAiChecklistItems();
+          if (!goals.length) return [];
+          const blocks = (this.meai.agenda && this.meai.agenda.blocks) || [];
+          const myIdx = blocks.indexOf(b);
+          return goals.filter(g => this.meAiGoalBlockIdx(g) === myIdx && myIdx >= 0);
         },
         // Collapse/expand a side-rail card (persisted) so heavy lists can shrink
         // to a one-line status indicator when the user wants the space back.
