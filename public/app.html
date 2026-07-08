@@ -4416,6 +4416,17 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.5; transform: scale(1.3); }
     }
+    .wc-agent-activity {
+      background: color-mix(in srgb, var(--wc-agent) 10%, var(--cp-surface-soft));
+      border-color: color-mix(in srgb, var(--wc-agent) 38%, var(--cp-border));
+    }
+    .wc-agent-activity .activity-header { color: color-mix(in srgb, var(--wc-agent) 55%, var(--cp-ink)); }
+    .wc-agent-activity .activity-pulse { background: var(--wc-agent); }
+    .wc-agent-activity .activity-header .wc-dot {
+      width: 18px; height: 18px; border-radius: 999px; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; color: #fff;
+    }
     .activity-step {
       padding: 4px 0;
       display: flex;
@@ -18774,8 +18785,11 @@
                     </template>
                   </div>
                   <!-- Live activity stream while agent is running -->
-                  <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id]">
+                  <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id]"
+                       :class="{ 'wc-agent-activity': chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId }"
+                       :style="chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId ? ('--wc-agent:' + wcColor(chatActivity[activeChat?.id]?.agentId)) : ''">
                     <div class="activity-header">
+                      <span class="wc-dot" x-show="chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId" :style="'background:' + wcColor(chatActivity[activeChat?.id]?.agentId)" x-text="chatActivity[activeChat?.id]?.initial || ''"></span>
                       <span class="activity-pulse"></span>
                       <strong x-text="chatActivity[activeChat?.id]?.status || 'Running...'"></strong>
                     </div>
@@ -29739,7 +29753,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             recent ? '\nFull group transcript so far:\n' + recent : '',
             `\nLatest user message: ${userPrompt}`,
           ].filter(Boolean).join('\n');
-          this.chatActivity[chat.id] = { status: agent.name + ' is thinking…', steps: [] };
+          this.chatActivity[chat.id] = { status: agent.name + ' is thinking…', steps: [], agentId: agent.id, initial: this.wcInitial(agent.name) };
           let resp;
           try {
             resp = await this.request('/api/agents/' + encodeURIComponent(agent.id) + '/chat', {
@@ -29768,7 +29782,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             onActivity: ({ steps, elapsed, lastAssistant }) => {
               const live = this.caLiveSteps(steps);
               const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
-              this.chatActivity[chat.id] = { status: agent.name + ': ' + phase + '… ' + elapsed + 's', steps: live };
+              this.chatActivity[chat.id] = { status: agent.name + ': ' + phase + '… ' + elapsed + 's', steps: live, agentId: agent.id, initial: this.wcInitial(agent.name) };
             },
             onError: async (m) => {
               await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
