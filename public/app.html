@@ -13256,6 +13256,15 @@
               /* Inline footer variant — the approval gate now lives in the conversation, not a side panel. */
               .meai-apprv-inline { margin:0 0 4px; }
               .meai-apprv-ico { color:var(--cp-accent); margin-right:2px; }
+              /* Read-only record of a passed approval gate, placed in the transcript. Narrower
+                 than the active gate, no Proceed, decisions shown as they were made. */
+              .meai-gate-rec-wrap { display:flex; justify-content:center; margin:10px 0; }
+              .meai-apprv-record { max-width:520px; width:100%; margin-bottom:0; background:color-mix(in srgb, var(--cp-accent) 4%, var(--cp-surface)); }
+              .meai-apprv-record .meai-apprv-flag { font-size:12px; }
+              .meai-apprv-record .meai-apprv-row.approved .meai-apprv-flag { color:var(--cp-good, #2e7d32); }
+              .meai-apprv-record .meai-apprv-row.declined .meai-apprv-flag { color:var(--cp-danger, #c62828); }
+              .meai-apprv-noterec { margin-top:8px; font-size:12.5px; color:var(--cp-text); line-height:1.45; }
+              .meai-apprv-notelbl { font-weight:700; margin-right:6px; color:var(--cp-text-muted); }
               /* REQ-13 Agenda Assistant drawer */
               .meai-asst { position:fixed; top:0; right:0; bottom:0; width:min(440px, 92vw); z-index:9600;
                 display:flex; flex-direction:column; background:var(--cp-bg); border-left:1px solid var(--cp-border);
@@ -14541,6 +14550,30 @@
                           <!-- Errors → left agent bubble, danger-tinted -->
                           <template x-if="ev.kind==='error'">
                             <div class="meai-msg agent"><div class="meai-bubble meai-bubble-error"><div class="meai-bubble-h">Agent · problem</div><span x-text="ev.text"></span></div></div>
+                          </template>
+                          <!-- Passed approval gate → read-only record card at this point in the transcript
+                               (mirrors the active footer gate: approve/decline highlighted, note shown, no Proceed). -->
+                          <template x-if="ev.kind==='gate'">
+                            <div class="meai-gate-rec-wrap">
+                              <div class="meai-apprv meai-apprv-record">
+                                <div class="meai-apprv-h"><span class="meai-apprv-ico">✋</span> You reviewed the approval</div>
+                                <template x-for="(lbl, li) in (ev.approved||[])" :key="'a'+li">
+                                  <div class="meai-apprv-row approved">
+                                    <span class="meai-apprv-flag" title="You approved this">✓</span>
+                                    <span class="meai-apprv-label" x-text="lbl"></span>
+                                  </div>
+                                </template>
+                                <template x-for="(lbl, li) in (ev.declined||[])" :key="'d'+li">
+                                  <div class="meai-apprv-row declined">
+                                    <span class="meai-apprv-flag" title="You declined this">✕</span>
+                                    <span class="meai-apprv-label" x-text="lbl"></span>
+                                  </div>
+                                </template>
+                                <div class="meai-apprv-noterec" x-show="ev.note">
+                                  <span class="meai-apprv-notelbl">Your note</span><span x-text="ev.note"></span>
+                                </div>
+                              </div>
+                            </div>
                           </template>
                         </div>
                       </template>

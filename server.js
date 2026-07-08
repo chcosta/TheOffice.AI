@@ -18386,7 +18386,10 @@ function _meAiEmitDecisionRecord(t, decisions) {
   let rec = 'You reviewed the approval — ' + parts.join(' · ');
   const note = String(decisions.note || '').trim();
   if (note) rec += '. Note: “' + note + '”';
-  _meAiEmit(t, { kind: 'note', text: rec });
+  // Structured gate record so the console can render a read-only approval card at this
+  // point in the transcript (mirrors the active gate). `text` stays as a compact fallback
+  // for surfaces that don't special-case kind:'gate'.
+  _meAiEmit(t, { kind: 'gate', approved: ap, declined: de, note, text: rec });
   return true;
 }
 
