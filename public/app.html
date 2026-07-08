@@ -12464,7 +12464,30 @@
               .meai-jump-btn.is-sub { padding-left:18px; font-size:11.5px; }
               .meai-jump-btn.is-now { color:var(--cp-accent); font-weight:600; }
               .meai-jump-sep { height:1px; margin:4px 6px; background:color-mix(in srgb, var(--cp-border) 70%, transparent); }
-              @media (max-width: 1180px) { .meai-jump { display:none; } }
+              @media (max-width: 1180px) { .meai-lrail .meai-jump { display:none; } }
+              /* Left rail (wide screens): quick-nav docked on top, today's goals below, using the
+                 empty left gutter. Below 1300px it collapses to a left slide-over toggled by the
+                 corner "Today's goals" button. */
+              .meai-lrail { position:fixed; left:calc(var(--sidebar-width, 240px) + 12px); top:96px; bottom:20px; z-index:44;
+                width:clamp(300px, 22vw, 372px); display:flex; flex-direction:column; gap:12px; pointer-events:none; }
+              .meai-lrail > * { pointer-events:auto; }
+              .meai-lrail .meai-jump { position:static; transform:none; left:auto; top:auto; z-index:auto; max-height:none; flex:0 0 auto; }
+              .meai-lrail .meai-chk-panel { position:static; right:auto; bottom:auto; z-index:auto; width:auto;
+                max-height:none; flex:1 1 auto; min-height:0; box-shadow:none; }
+              @media (max-width: 1300px) {
+                .meai-lrail { left:16px; top:76px; width:min(360px, calc(100vw - 32px)); background:var(--cp-bg);
+                  border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*12px); padding:10px;
+                  box-shadow:0 18px 48px rgba(0,0,0,.28); transform:translateX(calc(-100% - 28px));
+                  transition:transform .2s cubic-bezier(.22,1,.36,1); }
+                .meai-lrail.is-open { transform:none; }
+                .meai-chk-fab { left:16px; }
+              }
+              @media (prefers-reduced-motion: reduce) { .meai-lrail { transition:none; } }
+              /* Wide screens: dock the agenda column to the right of the rail (fills the formerly
+                 empty left gutter) instead of centering it under the rail. */
+              @media (min-width: 1301px) {
+                .meai-wrap { margin-left: calc(clamp(300px, 22vw, 372px) + 28px); margin-right:auto; }
+              }
               /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
                  column 2 = the daily-work side column (Me agents + todos) with the secondary
                  digests (Suggestions, Needs attention, Didn't fit, Removed, Rolled over)
@@ -12533,6 +12556,10 @@
               .meai-restore { border:0; background:transparent; color:var(--cp-accent); font-size:12px; cursor:pointer; padding:0; }
               .meai-restore:hover { text-decoration:underline; }
               .meai-block-body.is-now { box-shadow:0 0 0 1px var(--cp-accent); }
+              /* When a block's Quick/Deep launch menu is open, lift the whole block above
+                 later siblings so the absolutely-positioned dropdown isn't painted under the
+                 next agenda entry (equal z-index + later DOM order was clipping it). */
+              .meai-block-body.meai-launch-open { z-index:42; }
               /* Meetings + locked/pinned/imminent items read as "held in place" with a faint tint. */
               .meai-block-body.is-fixed { background:color-mix(in srgb, var(--cp-text-muted) 8%, var(--cp-surface)); border-style:solid; }
               /* B: past = a finished block earlier today. Recede it WITHOUT dimming the
@@ -13255,7 +13282,7 @@
               /* Floating agenda-assistant launcher (matches board/connect FABs) */
               .meai-ai-fab { z-index:56; }
               /* Item 4: floating close-out checklist (stacked above the assistant FAB). */
-              .meai-chk-fab { position:fixed; right:24px; bottom:84px; z-index:56; display:inline-flex; align-items:center; gap:8px;
+              .meai-chk-fab { position:fixed; left:calc(var(--sidebar-width, 240px) + 12px); bottom:20px; z-index:56; display:inline-flex; align-items:center; gap:8px;
                 border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:13px; font-weight:600;
                 padding:9px 13px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.14);
                 transition:transform .16s cubic-bezier(.22,1,.36,1), border-color .16s; }
@@ -13370,19 +13397,8 @@
             </style>
 
             <div class="meai-wrap">
-              <!-- Left floating jump-nav: the Me.AI page runs long, so quiet anchor links let
-                   you leap to the attention inbox (and each active subsection), the triaged
-                   area, the top of the agenda, or wherever "now" falls on the timeline. -->
-              <nav class="meai-jump" x-show="meai.loaded" aria-label="Jump to section">
-                <div class="meai-jump-t">Jump to</div>
-                <button type="button" class="meai-jump-btn" @click="meAiJump('meaiInbox')" x-show="meAiInboxSections().length">Attention inbox</button>
-                <template x-for="sec in meAiInboxSections()" :key="'j-' + sec.key">
-                  <button type="button" class="meai-jump-btn is-sub" @click="meAiJump('meai-sec-' + sec.key)" x-text="sec.label + ' · ' + sec.items.length"></button>
-                </template>
-                <div class="meai-jump-sep"></div>
-                <button type="button" class="meai-jump-btn" @click="meAiJump('meaiAgenda')">Agenda</button>
-                <button type="button" class="meai-jump-btn is-now" @click="meAiJump('meaiNow')" x-show="meai.date===meai.today">Right now</button>
-              </nav>
+              <!-- Quick-nav ("Jump to") now lives in the left rail (.meai-lrail), docked above
+                   Today's goals — see the rail block near the goals panel below. -->
               <div class="meai-head">
                 <div>
                   <h1 class="meai-title">🧭 Me.AI</h1>
@@ -13795,7 +13811,7 @@
                             </div>
                             <div class="meai-block-body"
                                :id="(meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end)) ? 'meaiNow' : null"
-                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end), 'is-fixed': meAiBlockFixed(b), 'meai-past': meAiBlockPast(b), 'meai-imminent': meAiBlockImminent(b) }"
+                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end), 'is-fixed': meAiBlockFixed(b), 'meai-past': meAiBlockPast(b), 'meai-imminent': meAiBlockImminent(b), 'meai-launch-open': meAiLaunchMenuOpen(b) }"
                                :style="'border-left-color:' + meAiBlockTypeColor(b.type) + ';' + meAiBlockSwipeStyle(b,bi)"
                                @pointerdown="meAiBlockSwipeStart($event,b,bi)">
                             <button class="meai-dismiss" type="button"
@@ -15063,8 +15079,21 @@
               <span class="meai-chk-n" x-show="meAiChecklistOpenCount() > 0" x-text="meAiChecklistOpenCount()"></span>
             </button>
 
-            <!-- Item 4: floating today's-goals panel -->
-            <div class="meai-chk-panel" x-show="route==='me-ai' && meai.checklistOpen" x-transition.opacity.duration.150ms x-cloak>
+            <!-- Item 4: left rail — quick-nav docked above today's goals (expanded by default).
+                 On wide screens this uses the empty left gutter; below 1300px it's a slide-over
+                 toggled by the corner "Today's goals" button. -->
+            <div class="meai-lrail" x-show="route==='me-ai' && meai.loaded" :class="{ 'is-open': meai.checklistOpen }" x-cloak>
+              <nav class="meai-jump" aria-label="Jump to section">
+                <div class="meai-jump-t">Jump to</div>
+                <button type="button" class="meai-jump-btn" @click="meAiJump('meaiInbox')" x-show="meAiInboxSections().length">Attention inbox</button>
+                <template x-for="sec in meAiInboxSections()" :key="'j-' + sec.key">
+                  <button type="button" class="meai-jump-btn is-sub" @click="meAiJump('meai-sec-' + sec.key)" x-text="sec.label + ' · ' + sec.items.length"></button>
+                </template>
+                <div class="meai-jump-sep"></div>
+                <button type="button" class="meai-jump-btn" @click="meAiJump('meaiAgenda')">Agenda</button>
+                <button type="button" class="meai-jump-btn is-now" @click="meAiJump('meaiNow')" x-show="meai.date===meai.today">Right now</button>
+              </nav>
+              <div class="meai-chk-panel" x-show="meai.checklistOpen" x-transition.opacity.duration.150ms>
               <div class="meai-chk-head">
                 <div>
                   <h4>Today's goals</h4>
@@ -15120,6 +15149,7 @@
                   </div>
                 </div>
               </div>
+            </div>
             </div>
 
             <!-- Working hours & grid modal (moved out of the side rail) -->
@@ -23680,7 +23710,7 @@
           // Working hours & grid flyout.
           hoursOpen: false,
           // Item 4: floating checklist panel (triage-alert-type items needing manual close-out).
-          checklistOpen: (() => { try { return localStorage.getItem('meai-checklist-open') === '1'; } catch (_) { return false; } })(),
+          checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
           triagedPinned: false,      // discrete Triaged area: pinned-open state (else hover-peek)
