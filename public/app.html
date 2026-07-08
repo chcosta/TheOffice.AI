@@ -12504,17 +12504,22 @@
                 .meai-chk-fab { left:16px; }
               }
               @media (prefers-reduced-motion: reduce) { .meai-lrail { transition:none; } }
-              /* Wide screens: the quick-nav sits fixed at the left; offset the agenda just
-                 past it so the two sit side by side (nav-anchored), leaving the rest of the
-                 width for the agenda + right-column goals. */
+              /* Wide screens: the quick-nav is fixed at the left and (when open) the goals
+                 panel floats at the right. Center the agenda column WITHIN that track so it
+                 sits balanced between the two instead of hugging the nav with a big empty gap
+                 on the goals side. --nav-clear reserves the fixed nav; --goals-clear reserves
+                 the right gutter (widened when the goals panel floats open). The wrap is capped
+                 to the track width and the leftover slack is split evenly on both sides. */
               @media (min-width: 1181px) {
-                .meai-wrap { margin-left: 218px; margin-right:auto; }
-              }
-              /* Very wide screens: when the goals panel floats open on the right, reserve
-                 room for it so the agenda sits balanced between the left quick-nav and the
-                 right goals column instead of hiding behind the panel. */
-              @media (min-width: 1500px) {
-                .meai-wrap.goals-float { margin-right: 496px; }
+                .meai-wrap {
+                  --nav-clear: 218px; --goals-clear: 32px;
+                  --meai-track: calc(100vw - var(--nav-clear) - var(--goals-clear));
+                  --meai-wrapw: min(1100px, calc(var(--meai-track) - 32px));
+                  max-width: var(--meai-wrapw);
+                  margin-left: calc(var(--nav-clear) + max(0px, (var(--meai-track) - var(--meai-wrapw)) / 2));
+                  margin-right: auto;
+                }
+                .meai-wrap.goals-float { --goals-clear: 496px; }
               }
               /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
                  column 2 = the daily-work side column (Me agents + todos) with the secondary
