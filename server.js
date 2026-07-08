@@ -13065,6 +13065,32 @@ function _meAiSignalFingerprint(signals) {
     return require('crypto').createHash('sha1').update(keys.join('\n')).digest('hex').slice(0, 16);
   } catch { return ''; }
 }
+// Backbone-only fingerprint — the gate for the background auto-regen of TODAY. The owner's
+// core complaint: a new email/Teams ALERT arriving mid-day silently re-planned the whole
+// agenda (via the full-signal fingerprint tripping), fragmenting the afternoon. Alerts are
+// "future problems or not problems at all" until the user explicitly says "Fit into today";
+// they must NOT reshape the schedule on their own. So this fingerprint deliberately EXCLUDES
+// comms signals unless their inbox item is triaged 'today'. Backbone work (PRs, work items,
+// dev cards) and meetings still trip it, so the day re-plans when the real work changes — but
+// an incoming alert only refreshes the attention rail (the separate 12-min inbox poller),
+// never the agenda. This decouples the agenda from alert noise.
+function _meAiBackboneFingerprint(signals, date) {
+  try {
+    let todayIds = null;
+    const backbone = (signals || []).filter(sig => {
+      if (!sig || String(sig.type || '') !== 'comms') return true; // PRs / work items / meetings / dev cards
+      if (todayIds === null) {
+        todayIds = new Set();
+        try {
+          const inbox = loadInboxForDate(date);
+          for (const it of (inbox.items || [])) if (it && it.triage === 'today') todayIds.add(it.id);
+        } catch (_) { /* no inbox → treat all comms as non-scheduling */ }
+      }
+      return todayIds.has(_meAiInboxId(sig)); // only a "Fit into today" comms is backbone
+    });
+    return _meAiSignalFingerprint(backbone);
+  } catch { return _meAiSignalFingerprint(signals); }
+}
 function _meAiDayShapeText(churn) {
   const interp = churn.shape === 'Calm' ? 'A calm, low-churn day — the plan held.'
     : churn.shape === 'Steady' ? 'A steady day with only minor adjustments.'
@@ -15611,7 +15637,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     needsAttention: pre.needsAttention,
     dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
     todos: effTodos,
-    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals) },
+    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals), backboneFp: _meAiBackboneFingerprint(liveSignals, day) },
   };
   // REQ-7 change-tracking: diff this schedule against the prior snapshot (if any)
   // and log reschedules/slips/late-adds so the day's churn is visible and can be
@@ -17596,8 +17622,18 @@ setInterval(async () => {
     if (!prev || !Array.isArray(prev.blocks) || prev.meta && prev.meta.notWorkDay) return;
     const cfg = _meAiConfig(s);
     const gathered = await _meAiGatherSignals(s, cfg, today, { force: false });
-    const fp = _meAiSignalFingerprint(gathered.signals);
-    if (prev.meta && prev.meta.signalFp && prev.meta.signalFp === fp) return; // nothing changed
+    // Gate on the BACKBONE fingerprint: a new/changed alert alone must NOT trigger a re-plan
+    // of today (that fragmentation was the core complaint). Only backbone work (PRs/work
+    // items/dev cards) + meetings + a "Fit into today" comms change the agenda here. A legacy
+    // snapshot without backboneFp falls back to the old full-signal gate so we don't force a
+    // spurious regen on the first pass after upgrade.
+    const bbFp = _meAiBackboneFingerprint(gathered.signals, today);
+    if (prev.meta && prev.meta.backboneFp != null) {
+      if (prev.meta.backboneFp === bbFp) return;             // backbone unchanged — leave the day alone
+    } else {
+      const fp = _meAiSignalFingerprint(gathered.signals);
+      if (prev.meta && prev.meta.signalFp && prev.meta.signalFp === fp) return; // legacy fallback
+    }
     _meAiAutoRegenBusy = true;
     // Pass full-fidelity todos (done/carried/scope) so a background regen never drops a
     // completion or a carry marker; the durable todo store is authoritative regardless.
