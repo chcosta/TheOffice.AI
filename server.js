@@ -14469,6 +14469,31 @@ function _meAiSplitGoalTitle(title) {
   if (!parts.every(tokenish)) return [t];
   return parts.map(p => (prefix + p).trim());
 }
+// Migrate an already-persisted todo store: split any OPEN checklist-kind goal whose
+// title is a compound aggregate ("Note team OOFs & regenerate expired PAT") into its
+// constituent goals, so the SOURCE items are tracked rather than the aggregate. Done/
+// completed rows are historical records and are left untouched. Idempotent + dedup-safe.
+function _meAiSplitStoredGoals(todos) {
+  if (!Array.isArray(todos) || !todos.length) return todos;
+  const out = [];
+  const seen = new Set(todos.map(t => String(t && t.title || '').trim().toLowerCase()).filter(Boolean));
+  let changed = false;
+  for (const t of todos) {
+    if (!t || t.kind !== 'checklist' || t.done || (t.status && t.status !== 'open') || t.live || (t.link && String(t.link).trim())) {
+      out.push(t); continue; // only split plain, open, link-less goal rows
+    }
+    const parts = _meAiSplitGoalTitle(t.title);
+    if (parts.length < 2) { out.push(t); continue; }
+    changed = true;
+    for (const p of parts) {
+      const key = String(p).trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ title: p, scope: t.scope || 'work', done: false, status: 'open', kind: 'checklist', origin: p.slice(0, 300), link: '' });
+    }
+  }
+  return changed ? out : todos;
+}
 function _meAiSeedChecklist(agenda, effTodos, day) {
   try {
     if (!agenda || !Array.isArray(effTodos)) return;
@@ -15154,6 +15179,9 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
       }
     }
   }
+  // Split any persisted compound aggregate goals into their constituent source items
+  // (migration for stores created before goal-splitting existed).
+  effTodos = _meAiSplitStoredGoals(effTodos);
   // Persist the resolved list so it is durable from here on (creates the store on first use).
   saveMeAiTodoStore(day, effTodos);
   // Explicit user commitments (custom + recurring blocks) become fixed reservations so
@@ -18352,15 +18380,36 @@ function _meAiRecordDeclines(t, declined) {
   }
   t.declinedActions = kept.slice(-24);
 }
+// Significant-token set for a label: normalized, minus filler + the verbs that drift
+// between a proposal and its re-proposal ("create"/"open"/"review"…). Two labels that
+// mean the same action share most of these even when the surrounding wording changes.
+const _MEAI_LABEL_STOP = new Set(['the','a','an','to','in','on','for','of','and','or','please','create','open','make','do','add','send','post','you','your','my','me','it','this','that','with','from','into','via','then','can','could','would','want','need','get','set','new']);
+function _meAiLabelTokens(s) {
+  return new Set(_meAiNormLabel(s).split(' ').filter(w => w.length > 2 && !_MEAI_LABEL_STOP.has(w)));
+}
+// True when two action labels almost certainly refer to the same underlying action —
+// exact normalized match, one contains the other, or high token overlap (Jaccard ≥ .6).
+// This is what lets a decline stick even when the agent rewords the re-proposal.
+function _meAiLabelSimilar(a, b) {
+  const na = _meAiNormLabel(a), nb = _meAiNormLabel(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length >= 8 && (na.includes(nb) || nb.includes(na))) return true;
+  const ta = _meAiLabelTokens(a), tb = _meAiLabelTokens(b);
+  if (!ta.size || !tb.size) return false;
+  let inter = 0; for (const x of ta) if (tb.has(x)) inter++;
+  const uni = ta.size + tb.size - inter;
+  return uni > 0 && (inter / uni) >= 0.6;
+}
 // Drop any freshly-parsed write/external nextAction that matches something the user
-// already declined — belt-and-suspenders in case the agent re-proposes it anyway.
+// already declined — belt-and-suspenders in case the agent re-proposes it anyway
+// (fuzzy, so a reworded re-proposal of a declined action still gets stripped).
 function _meAiFilterDeclined(t) {
   if (!t || !Array.isArray(t.nextActions) || !Array.isArray(t.declinedActions) || !t.declinedActions.length) return;
-  const declined = new Set(t.declinedActions.map(_meAiNormLabel));
   t.nextActions = t.nextActions.filter(a => {
     if (!a) return false;
     if (a.risk !== 'write' && a.risk !== 'external') return true; // never strip neutral actions (retry/done/continue)
-    return !declined.has(_meAiNormLabel(a.label));
+    return !t.declinedActions.some(d => _meAiLabelSimilar(a.label, d));
   });
 }
 // A firm prompt block listing what the user already declined, so the agent stops
