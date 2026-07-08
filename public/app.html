@@ -12809,6 +12809,14 @@
               .meai-mini-btn-ghost { background:transparent; border-color:var(--cp-border); color:var(--cp-text-muted, var(--cp-text)); }
               /* Split launch: main action + caret that opens a per-item Quick/Deep chooser. */
               .meai-launch-split { display:inline-flex; align-items:stretch; }
+              /* Owner ask: the Me-agent launch controls stay quiet until the item is
+                 hovered/focused (or its menu is open), so the agenda reads calm at rest.
+                 Opacity — not display — so layout doesn't jump. */
+              .meai-block .meai-launch-split { opacity:0; transition:opacity .12s ease; }
+              .meai-block:hover .meai-launch-split,
+              .meai-block:focus-within .meai-launch-split,
+              .meai-block.meai-launch-open .meai-launch-split { opacity:1; }
+              @media (prefers-reduced-motion: reduce) { .meai-block .meai-launch-split { transition:none; } }
               .meai-launch-split .meai-launch-main { border-top-right-radius:0; border-bottom-right-radius:0; }
               .meai-launch-split .meai-launch-caret { border-left:0; border-top-left-radius:0; border-bottom-left-radius:0; padding:4px 7px; font-size:11px; }
               .meai-launch-menu { position:absolute; top:100%; left:0; margin-top:5px; z-index:40; min-width:230px; display:flex; flex-direction:column; gap:2px; padding:5px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); box-shadow:0 8px 24px rgba(0,0,0,.28); }
@@ -13386,6 +13394,17 @@
               .meai-chk-open { color:var(--cp-accent); text-decoration:none; }
               .meai-chk-open:hover { text-decoration:underline; }
               .meai-chk-live { color:var(--cp-text-muted); font-style:italic; }
+              /* Owner ask: the goal row itself is the primary target — clicking the title
+                 navigates to its agenda block (or opens its link). Reads as a link. */
+              .meai-chk-title-nav { cursor:pointer; }
+              .meai-chk-title-nav:hover span:last-child { text-decoration:underline; text-underline-offset:2px; }
+              /* Action lines (meta + status) stay quiet until the row is hovered, so the
+                 goals list reads as a calm checklist at rest. Opacity (not display) to
+                 avoid a layout jump on hover — matches the status-toggle pattern. */
+              .meai-chk-hoveracts { opacity:0; transition:opacity .12s ease; }
+              .meai-chk-row:hover .meai-chk-hoveracts,
+              .meai-chk-row:focus-within .meai-chk-hoveracts { opacity:1; }
+              @media (prefers-reduced-motion: reduce) { .meai-chk-hoveracts { transition:none; } }
               /* Goal → agenda jump — quiet text button (no pill), reads as a link. */
               .meai-chk-goto { appearance:none; border:none; background:transparent; padding:0; cursor:pointer;
                 font-size:11px; font-weight:600; color:var(--cp-accent); border-bottom:1px solid transparent; line-height:1.4; }
@@ -14301,14 +14320,14 @@
                           <div class="meai-chk-row" :class="{ done: t.done }">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
-                              <div class="meai-chk-title"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span></div>
-                              <div class="meai-chk-meta" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
+                              <div class="meai-chk-title meai-chk-title-nav" @click="meAiGoalOpen(t)" :title="meAiGoalHasBlock(t) ? 'Go to the agenda block that gets this done' : (t.link ? 'Open' : '')"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span></div>
+                              <div class="meai-chk-meta meai-chk-hoveracts" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
                                 <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
                                 <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
                                 <a class="meai-chk-open" x-show="t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
                                 <span class="meai-chk-live" x-show="t.live" title="Backed by a live PR or work item — it may reappear on your agenda; your note here still sticks">live · may reappear</span>
                               </div>
-                              <div class="meai-chk-status">
+                              <div class="meai-chk-status meai-chk-hoveracts">
                                 <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='partial' }" @click="meAiSetTodoStatus(t, 'partial')">Need more time</button>
                                 <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='missed' }" @click="meAiSetTodoStatus(t, 'missed')">Didn't get to it</button>
                               </div>
@@ -32770,6 +32789,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return -1;
         },
         meAiGoalHasBlock(goal) { return this.meAiGoalBlockIdx(goal) >= 0; },
+        // Owner ask: clicking the goal row itself navigates — to its agenda block when
+        // one exists (the agenda item then owns Open), else straight to its link. Lets
+        // us hide the explicit "On today's agenda / Open" action line until hover.
+        meAiGoalOpen(goal) {
+          if (this.meAiGoalHasBlock(goal)) { this.meAiGoalToAgenda(goal); return; }
+          const link = goal && (goal.link || goal.prLink);
+          if (link) { try { window.open(link, '_blank', 'noopener'); } catch (_) { location.href = link; } }
+        },
         // Goal click -> scroll to its agenda block, expand it, and flash it. On narrow
         // screens the goals rail is a slide-over covering the agenda, so close it first.
         meAiGoalToAgenda(goal) {
