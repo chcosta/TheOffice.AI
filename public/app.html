@@ -7799,6 +7799,29 @@
                         </div>
                         <button class="ag-chatbar-btn" type="button" :class="agentSess.panel ? 'on' : ''" @click="agentSess.panel = !agentSess.panel" x-text="(agentSess.panel ? '✕ Hide sessions' : ('🗂 Sessions & search' + (agentSessionsAll().length ? ' · ' + agentSessionsAll().length : '')))"></button>
                       </div>
+                      <!-- Roster: this chat's agents. Add more to make it a group chat; @mention forces a reply. -->
+                      <div class="mac-roster">
+                        <span class="mac-roster-lbl">Agents</span>
+                        <template x-for="a in macRoster(item)" :key="a.id">
+                          <span class="mac-member">
+                            <span class="mac-dot" :style="'background:' + macColor(a.id)"></span>
+                            <span class="mac-name" x-text="a.name"></span>
+                            <button class="mac-x" type="button" x-show="String(a.id) !== String(item.refId)" @click="macRemoveAgent(item, a.id)" title="Remove from chat">✕</button>
+                          </span>
+                        </template>
+                        <div class="mac-add-wrap">
+                          <button class="mac-add" type="button" @click="macAddOpen = !macAddOpen" x-show="macAvailableToAdd(item).length">+ agent</button>
+                          <div class="mac-add-menu" x-show="macAddOpen" @click.outside="macAddOpen = false" x-transition>
+                            <template x-for="a in macAvailableToAdd(item)" :key="a.id">
+                              <button class="mac-add-opt" type="button" @click="macAddAgent(item, a.id)">
+                                <span class="mac-dot" :style="'background:' + macColor(a.id)"></span>
+                                <span x-text="a.name"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                        <span class="mac-roster-hint" x-show="macIsMulti(item)">Type <strong>@</strong> to direct a message</span>
+                      </div>
                       <div class="ag-chatbody">
                         <!-- LIVE chat -->
                         <div class="ag-chatlog" x-ref="agChatLog" x-effect="(boardAgentChatState(item) && (boardAgentChatState(item).messages.length || boardAgentChatState(item).live)); $nextTick(() => { if ($refs.agChatLog) $refs.agChatLog.scrollTop = $refs.agChatLog.scrollHeight; })">
@@ -7813,6 +7836,12 @@
                             <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
                               <div class="message-bubble-wrap">
                                 <div class="message-bubble">
+                                  <template x-if="message.role !== 'user' && message.speaker && macIsMulti(item)">
+                                    <div class="mac-speaker">
+                                      <span class="mac-dot" :style="'background:' + macColor(message.agentId || message.speaker)"></span>
+                                      <span class="mac-speaker-name" x-text="message.speaker"></span>
+                                    </div>
+                                  </template>
                                   <div class="md-output" x-html="renderMarkdown(message.content || '')"></div>
                                   <template x-if="message.role !== 'user' && message.activity && message.activity.length">
                                     <details class="msg-activity">
@@ -7913,17 +7942,29 @@
                             </template>
                           </div>
                         </template>
-                        <div class="ag-composer-row">
-                          <textarea rows="1" placeholder="Message this agent…"
+                        <div class="ag-composer-row" style="position:relative;">
+                          <!-- @-mention autocomplete: ↑/↓ select, Tab/Enter complete -->
+                          <div class="mac-mention-menu" x-show="macMention.open" x-transition>
+                            <template x-for="(mm, idx) in macMention.matches" :key="'mm-' + mm.id">
+                              <button class="mac-mention-opt" type="button" :class="idx === macMention.index ? 'on' : ''"
+                                      @click="macMentionPick(item, $event)" @mouseenter="macMention.index = idx">
+                                <span class="mac-dot" :style="'background:' + macColor(mm.id)"></span>
+                                <span x-text="mm.name"></span>
+                              </button>
+                            </template>
+                          </div>
+                          <textarea rows="1" :placeholder="macIsMulti(item) ? 'Message the agents… (@name to direct)' : 'Message this agent…'"
                                     :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
                                     x-model="boardAgentChats[item.refId].input"
-                                    @keydown.enter.prevent="boardAgentSend(item)"
+                                    @keydown="macComposerKey(item, $event)"
+                                    @input="macMentionScan(item, $event)"
+                                    @click="macMentionScan(item, $event)"
                                     @paste="chatAttPaste('boardagent:' + item.id, $event)"
                                     @drop.prevent="chatAttDrop('boardagent:' + item.id, $event)"
                                     @dragover.prevent></textarea>
                           <button class="btn primary" type="button"
                                   :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
-                                  @click.stop="boardAgentSend(item)"
+                                  @click.stop="macSend(item)"
                                   x-text="(boardAgentChatState(item) && boardAgentChatState(item).running) ? '…' : 'Send'"></button>
                         </div>
                       </div>
@@ -15714,6 +15755,33 @@
               .ag-chatbar-btn:hover { color:var(--cp-text); background:var(--cp-surface-soft); }
               .ag-chatbar-btn.on { color:var(--cp-text); border-color:var(--cp-text-muted); background:var(--cp-surface-soft); }
 
+              /* Multi-agent roster: names + dots (no pills), hover-reveal remove, calm add menu */
+              .mac-roster { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; padding:9px 2px 0; font-size:12.5px; }
+              .mac-roster-lbl { color:var(--cp-text-muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+              .mac-member { display:inline-flex; align-items:center; gap:6px; color:var(--cp-text); }
+              .mac-member .mac-name { max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .mac-dot { width:8px; height:8px; border-radius:999px; flex:0 0 auto; }
+              .mac-x { opacity:0; background:transparent; border:0; color:var(--cp-text-muted); cursor:pointer; font-size:11px; line-height:1; padding:2px; transition:opacity .12s ease, color .12s ease; }
+              .mac-member:hover .mac-x { opacity:1; }
+              .mac-x:hover { color:var(--cp-danger, #d64545); }
+              .mac-add-wrap { position:relative; }
+              .mac-add { background:transparent; border:1px dashed var(--cp-border); color:var(--cp-text-muted); cursor:pointer; font-size:11.5px; padding:3px 9px; border-radius:8px; transition:color .12s ease, border-color .12s ease; }
+              .mac-add:hover { color:var(--cp-text); border-color:var(--cp-text-muted); }
+              .mac-add-menu { position:absolute; top:calc(100% + 6px); left:0; z-index:60; min-width:180px; max-height:260px; overflow-y:auto; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,.18); padding:5px; }
+              .mac-add-opt { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:transparent; border:0; color:var(--cp-text); cursor:pointer; font-size:12.5px; padding:7px 9px; border-radius:7px; }
+              .mac-add-opt:hover { background:var(--cp-surface-soft); }
+              .mac-roster-hint { color:var(--cp-text-muted); font-size:11px; margin-left:auto; }
+              .mac-roster-hint strong { color:var(--cp-text); }
+
+              /* Per-speaker label on agent bubbles in a group chat */
+              .mac-speaker { display:flex; align-items:center; gap:6px; margin-bottom:5px; font-size:12px; font-weight:600; }
+              .mac-speaker-name { color:var(--cp-text); }
+
+              /* @-mention autocomplete dropdown (escapes composer overflow via absolute+high z) */
+              .mac-mention-menu { position:absolute; bottom:calc(100% + 8px); left:0; z-index:70; min-width:200px; max-height:240px; overflow-y:auto; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,.2); padding:5px; }
+              .mac-mention-opt { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:transparent; border:0; color:var(--cp-text); cursor:pointer; font-size:12.5px; padding:7px 9px; border-radius:7px; }
+              .mac-mention-opt.on, .mac-mention-opt:hover { background:var(--cp-surface-soft); }
+
               .ag-chatbody { flex:1 1 auto; display:flex; min-height:0; gap:0; }
               /* the chat log is the ONE necessary scroll — thin + hover-reveal */
               .ag-chatlog { flex:1 1 auto; min-width:0; overflow-y:auto; overflow-x:hidden; padding:16px 4px 8px; scrollbar-width:thin; scrollbar-color:transparent transparent; }
@@ -22637,6 +22705,9 @@
         agentTab: 'overview',
         _agentChatItem: null,
         agentSess: { panel: false, input: '', busy: false, matchIds: [], reasons: {}, matchActive: false },
+        // Multi-agent chat: @-mention autocomplete + the "add agent" picker state.
+        macMention: { open: false, query: '', index: 0, matches: [], anchor: 0, caret: 0 },
+        macAddOpen: false,
         agentFiles: { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false },
         managerTab: 'runs',
         liveOutput: {},
@@ -22700,6 +22771,8 @@
               out[k] = {
                 messages: Array.isArray(s.messages) ? s.messages : [],
                 input: '', sessionId: s.sessionId || null,
+                roster: Array.isArray(s.roster) ? s.roster : null,
+                sessions: (s.sessions && typeof s.sessions === 'object') ? s.sessions : null,
                 live: null, running: false, error: '',
               };
             }
@@ -36796,8 +36869,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (!s) continue;
               let msgs = Array.isArray(s.messages) ? s.messages.slice(-40) : [];
               if (!withActivity) msgs = msgs.map(m => ({ ...m, activity: [] }));
-              if (!msgs.length && !s.sessionId) continue;
+              if (!msgs.length && !s.sessionId && !(s.roster && s.roster.length > 1)) continue;
               out[k] = { messages: msgs, sessionId: s.sessionId || null };
+              // Multi-agent chats also persist their roster + per-member sessions so a
+              // refresh repaints the group (and each member keeps continuing its session).
+              if (Array.isArray(s.roster) && s.roster.length) out[k].roster = s.roster.map(a => ({ id: a.id, name: a.name }));
+              if (s.sessions && typeof s.sessions === 'object') out[k].sessions = { ...s.sessions };
             }
             return JSON.stringify(out);
           };
@@ -36847,7 +36924,216 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             st.live = null; st.running = false; st.error = (e && e.message) || 'Chat failed';
           }
         },
-        // Expanded by default; collapsed only if the user collapsed this pin before.
+        // ── Multi-agent chat ────────────────────────────────────────────────
+        // A chat's roster: the base agent (item.refId, always present + non-removable)
+        // plus any additional agents the user added. Stored on the shared chat state so
+        // it persists + is shared between the board card chat and the detail-tab chat.
+        _agentById(id) { return (this.agents || []).find(a => String(a.id) === String(id)) || null; },
+        _agentDesc(id) {
+          const a = this._agentById(id);
+          if (!a) return '';
+          return a.description || (a.config && a.config.description) || '';
+        },
+        macRoster(item) {
+          const st = this.boardAgentChatState(item);
+          if (!st) return [];
+          if (!Array.isArray(st.roster) || !st.roster.length) {
+            const base = this._agentById(item.refId);
+            st.roster = [{ id: item.refId, name: (base && base.name) || item.name || 'agent' }];
+          }
+          return st.roster;
+        },
+        macIsMulti(item) { return this.macRoster(item).length > 1; },
+        macAvailableToAdd(item) {
+          const have = new Set(this.macRoster(item).map(a => String(a.id)));
+          return (this.agents || [])
+            .filter(a => a && a.id && !have.has(String(a.id)))
+            .map(a => ({ id: a.id, name: a.name || 'agent' }))
+            .sort((x, y) => x.name.localeCompare(y.name));
+        },
+        macAddAgent(item, agentId) {
+          const st = this.boardAgentChatEnsure(item);
+          if (!st) return;
+          const a = this._agentById(agentId);
+          if (!a) return;
+          const roster = this.macRoster(item);
+          if (roster.some(r => String(r.id) === String(a.id))) return;
+          roster.push({ id: a.id, name: a.name || 'agent' });
+          this.macAddOpen = false;
+          this._saveBoardAgentChats();
+        },
+        macRemoveAgent(item, agentId) {
+          const st = this.boardAgentChatState(item);
+          if (!st || String(agentId) === String(item.refId)) return; // base is permanent
+          st.roster = this.macRoster(item).filter(r => String(r.id) !== String(agentId));
+          if (st.sessions) delete st.sessions[String(agentId)];
+          this._saveBoardAgentChats();
+        },
+        // Deterministic calm accent per roster member so speaker labels read at a glance
+        // (dots/labels only — never a filled pill).
+        macColor(id) {
+          const palette = ['#6ea8fe', '#63d2a4', '#e6a15b', '#c58bf0', '#e78ab0', '#6fd0d6', '#d0c060'];
+          const s = String(id);
+          let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+          return palette[h % palette.length];
+        },
+        macSpeakerName(m) {
+          if (!m) return '';
+          if (m.role === 'user') return 'You';
+          return m.speaker || 'agent';
+        },
+        // Parse @mentions in the raw text against the current roster. Returns the ids of
+        // matched members (name match is case-insensitive, space-insensitive prefix on the
+        // token after '@'). Mentioned members are FORCED to respond.
+        _macParseMentions(item, text) {
+          const roster = this.macRoster(item);
+          const ids = new Set();
+          const re = /@([\w-]+)/g; let mm;
+          while ((mm = re.exec(text || ''))) {
+            const tok = mm[1].toLowerCase();
+            for (const a of roster) {
+              const nm = String(a.name || '').toLowerCase().replace(/\s+/g, '');
+              if (nm && (nm === tok || nm.startsWith(tok))) ids.add(String(a.id));
+            }
+          }
+          return [...ids];
+        },
+        // ── @-mention autocomplete on the composer ──────────────────────────
+        macMentionScan(item, ev) {
+          const st = this.boardAgentChatState(item);
+          if (!st) return;
+          const el = ev && ev.target;
+          const val = (el && typeof el.value === 'string') ? el.value : (st.input || '');
+          const caret = el && typeof el.selectionStart === 'number' ? el.selectionStart : val.length;
+          const before = val.slice(0, caret);
+          const m = /@([\w-]*)$/.exec(before);
+          if (!m || !this.macIsMulti(item)) { this.macMention.open = false; return; }
+          const q = m[1].toLowerCase();
+          const roster = this.macRoster(item);
+          const matches = roster
+            .filter(a => { const nm = String(a.name || '').toLowerCase().replace(/\s+/g, ''); return !q || nm.startsWith(q); })
+            .slice(0, 8);
+          if (!matches.length) { this.macMention.open = false; return; }
+          this.macMention = { open: true, query: q, index: 0, matches, anchor: caret - m[0].length, caret };
+        },
+        macMentionMove(dir) {
+          if (!this.macMention.open) return;
+          const n = this.macMention.matches.length;
+          this.macMention.index = (this.macMention.index + dir + n) % n;
+        },
+        macMentionPick(item, ev) {
+          const st = this.boardAgentChatState(item);
+          const mm = this.macMention;
+          if (!st || !mm.open || !mm.matches.length) return false;
+          const pick = mm.matches[mm.index] || mm.matches[0];
+          const val = st.input || '';
+          const name = String(pick.name || '').replace(/\s+/g, '');
+          const next = val.slice(0, mm.anchor) + '@' + name + ' ' + val.slice(mm.caret);
+          st.input = next;
+          this.macMention.open = false;
+          // Restore caret after the inserted mention.
+          this.$nextTick(() => {
+            const el = ev && ev.target;
+            if (el && typeof el.setSelectionRange === 'function') {
+              const pos = mm.anchor + name.length + 2;
+              try { el.setSelectionRange(pos, pos); } catch {}
+            }
+          });
+          return true;
+        },
+        // Composer key handler: when the mention dropdown is open, ↑/↓ navigate, Tab/Enter
+        // pick. Otherwise Enter sends (Shift+Enter = newline).
+        macComposerKey(item, ev) {
+          if (this.macMention.open) {
+            if (ev.key === 'ArrowDown') { ev.preventDefault(); this.macMentionMove(1); return; }
+            if (ev.key === 'ArrowUp') { ev.preventDefault(); this.macMentionMove(-1); return; }
+            if (ev.key === 'Escape') { ev.preventDefault(); this.macMention.open = false; return; }
+            if (ev.key === 'Tab' || ev.key === 'Enter') { ev.preventDefault(); this.macMentionPick(item, ev); return; }
+          }
+          if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); this.macSend(item); }
+        },
+        // Orchestrate one user turn across the roster. Single-agent chats fall straight
+        // through to the existing boardAgentSend path.
+        async macSend(item) {
+          const st = this.boardAgentChatEnsure(item);
+          if (!st) return;
+          if (!this.macIsMulti(item)) return this.boardAgentSend(item);
+          const key = 'boardagent:' + item.id;
+          const raw = (st.input || '').trim();
+          if ((!raw && !this.chatAttHas(key)) || st.running) return;
+          st.error = ''; st.input = ''; this.macMention.open = false;
+          const mentioned = this._macParseMentions(item, raw);
+          const { display, prompt } = await this.chatAttConsume(key, raw);
+          st.messages.push({ role: 'user', content: display, activity: [], timestamp: Date.now() });
+          st.running = true; st.live = { status: 'Deciding who should respond…', steps: [] };
+          this._saveBoardAgentChats();
+          try {
+            const roster = this.macRoster(item);
+            const route = await this.request('/api/multi-agent/route', {
+              method: 'POST',
+              body: JSON.stringify({
+                message: prompt,
+                mentioned,
+                agents: roster.map(a => ({ id: a.id, name: a.name, description: this._agentDesc(a.id) })),
+                transcript: st.messages.slice(-8).map(m => ({ speaker: this.macSpeakerName(m), content: m.content })),
+              }),
+            });
+            const responders = (route && Array.isArray(route.responders) && route.responders.length)
+              ? route.responders
+              : [{ id: roster[0].id }];
+            // Run responders SEQUENTIALLY so each later agent sees earlier replies in context.
+            for (const r of responders) {
+              const a = roster.find(x => String(x.id) === String(r.id));
+              if (!a) continue;
+              await this._macRunResponder(item, st, a, prompt);
+            }
+          } catch (e) {
+            st.error = (e && e.message) || 'Chat failed';
+          } finally {
+            st.live = null; st.running = false;
+            this._saveBoardAgentChats();
+          }
+        },
+        // Run ONE roster member's turn: compose a group-chat context block (its persona +
+        // the last several labeled messages) so it answers as one of several agents, POST
+        // to that agent's own chat session, poll, and append a speaker-labeled reply.
+        async _macRunResponder(item, st, agent, userPrompt) {
+          if (!st.sessions) st.sessions = {};
+          const roster = this.macRoster(item);
+          const others = roster.filter(x => String(x.id) !== String(agent.id)).map(x => x.name).filter(Boolean);
+          const recent = st.messages.slice(-10)
+            .map(m => `${this.macSpeakerName(m)}: ${String(m.content || '').replace(/\s+/g, ' ')}`)
+            .join('\n');
+          const ctx = [
+            `You are "${agent.name}", one of several agents in a group chat with a user${others.length ? ' (other members: ' + others.join(', ') + ')' : ''}.`,
+            'Respond ONLY as yourself, in your own voice and area of expertise. Do not speak for the other agents or restate what they already said. Be concise and add your distinct value. If the latest message is not for you, briefly defer.',
+            recent ? '\nConversation so far:\n' + recent : '',
+            `\nLatest user message: ${userPrompt}`,
+          ].filter(Boolean).join('\n');
+          st.live = { status: agent.name + ' is thinking…', steps: [] };
+          const r = await this.request('/api/agents/' + encodeURIComponent(agent.id) + '/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message: ctx, sessionId: st.sessions[String(agent.id)] || null }),
+          });
+          if (r && r.sessionId) { st.sessions[String(agent.id)] = r.sessionId; this._saveBoardAgentChats(); }
+          if (!st.sessions[String(agent.id)]) { st.messages.push({ role: 'agent', speaker: agent.name, agentId: agent.id, content: '_(Could not start ' + agent.name + '.)_', activity: [], timestamp: Date.now() }); return; }
+          await this.pollSessionTurn(st.sessions[String(agent.id)], {
+            onActivity: ({ steps, elapsed, lastAssistant }) => {
+              const live = this.caLiveSteps(steps);
+              const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
+              st.live = { status: agent.name + ': ' + phase + '… ' + elapsed + 's', steps: live };
+            },
+            onError: (m) => { st.messages.push({ role: 'agent', speaker: agent.name, agentId: agent.id, content: '_(' + agent.name + ' failed: ' + (m || 'error') + ')_', activity: [], timestamp: Date.now() }); },
+            onDone: ({ response, steps, model }) => {
+              st.messages.push({
+                role: 'agent', speaker: agent.name, agentId: agent.id,
+                content: response || '_(No response.)_',
+                activity: this.mapAgentSteps(steps), model: model || '', timestamp: Date.now(),
+              });
+              this._saveBoardAgentChats();
+            },
+          });
+        },
         boardPinIsExpanded(item) {
           return !!item && !this.boardPinCollapsed[item.id];
         },

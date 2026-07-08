@@ -5691,6 +5691,70 @@ app.post('/api/agents/:id/chat', (req, res) => {
   res.json({ ok: true, started: true, sessionId, existingSessionId: existingSessionId || null });
 });
 
+// ── Multi-agent chat routing ("who responds?") ──────────────────────────────
+// A chat can hold several agents. On each user message the client asks here who
+// should reply. Turn-taking rule (owner-chosen): any agent the user @mentioned
+// is FORCED to respond; every other member then self-decides, in parallel, via a
+// cheap tool-less one-shot classify grounded in that agent's OWN name+description
+// (so the decision reflects each agent's persona, not a single central router).
+// If nobody opts in and nobody was mentioned, the best-fit agent is picked so the
+// chat is never silent. Returns { responders:[{id, reason}] } ordered members-first.
+app.post('/api/multi-agent/route', async (req, res) => {
+  const message = String((req.body && req.body.message) || '').trim();
+  const agents = Array.isArray(req.body && req.body.agents) ? req.body.agents : [];
+  const mentioned = new Set((Array.isArray(req.body && req.body.mentioned) ? req.body.mentioned : []).map(String));
+  const transcript = Array.isArray(req.body && req.body.transcript) ? req.body.transcript : [];
+  if (!message || !agents.length) return res.status(400).json({ error: 'message and agents required' });
+
+  const convo = transcript.slice(-8)
+    .map(m => `${m.speaker || (m.role === 'user' ? 'User' : 'Agent')}: ${String(m.content || '').replace(/\s+/g, ' ').slice(0, 400)}`)
+    .join('\n');
+
+  // Per-agent self-decide gate: one cheap classify grounded in this agent's persona.
+  const gate = async (a) => {
+    if (mentioned.has(String(a.id))) return { id: a.id, respond: true, confidence: 1, reason: '@mentioned' };
+    const others = agents.filter(x => String(x.id) !== String(a.id)).map(x => x.name).filter(Boolean);
+    const prompt = [
+      `You are "${a.name}"${a.description ? ' — ' + String(a.description).replace(/\s+/g, ' ').slice(0, 400) : ''}.`,
+      `You are one of several agents in a group chat with a user${others.length ? ' (other members: ' + others.join(', ') + ')' : ''}.`,
+      'Decide whether YOU specifically should respond to the latest user message. Say yes ONLY if it is squarely in your area / you can add something the others cannot; otherwise stay quiet and let a better-fit member answer. Do not respond just to be polite.',
+      convo ? '\nConversation so far:\n' + convo : '',
+      `\nLatest user message: ${message}`,
+      '\nRespond with STRICT JSON only (no prose, no code fence): {"respond":true|false,"confidence":0.0-1.0,"reason":"<=12 words"}',
+    ].filter(Boolean).join('\n');
+    try {
+      let acc = '';
+      const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
+      let raw = (acc.trim() || (result && result.output) || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+      let parsed = null;
+      if (s >= 0 && e > s) { try { parsed = JSON.parse(raw.slice(s, e + 1)); } catch {} }
+      const respond = !!(parsed && parsed.respond);
+      const confidence = parsed && typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : (respond ? 0.6 : 0.2);
+      return { id: a.id, respond, confidence, reason: String((parsed && parsed.reason) || '').slice(0, 120) };
+    } catch (e) {
+      // On gate failure, don't force this agent in — but keep a low confidence so it
+      // can still win the fallback if literally nobody opted in.
+      return { id: a.id, respond: false, confidence: 0.15, reason: 'gate error' };
+    }
+  };
+
+  try {
+    const decisions = await Promise.all(agents.map(gate));
+    const order = new Map(agents.map((a, i) => [String(a.id), i]));
+    let responders = decisions.filter(d => d.respond);
+    if (!responders.length) {
+      // Nobody opted in and nobody was mentioned — pick the single best-fit member.
+      const best = decisions.slice().sort((x, y) => (y.confidence - x.confidence))[0];
+      if (best) responders = [{ ...best, reason: best.reason || 'best fit' }];
+    }
+    responders.sort((x, y) => (order.get(String(x.id)) ?? 99) - (order.get(String(y.id)) ?? 99));
+    res.json({ responders: responders.map(r => ({ id: r.id, reason: r.reason || '' })) });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'route failed' });
+  }
+});
+
 // Open a real, interactive `copilot` CLI terminal for an agent and bind it to a
 // chat in our system. We pin a fresh session UUID via --session-id so the CLI
 // writes events to ~/.copilot/session-state/<uuid>/events.jsonl, which we mirror
