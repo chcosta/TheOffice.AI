@@ -18790,7 +18790,7 @@
                     </template>
                   </div>
                   <!-- Live activity stream while agent is running -->
-                  <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id]"
+                  <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id] && typingChats[activeChat?.id]"
                        :class="{ 'wc-agent-activity': chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId }"
                        :style="chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId ? ('--wc-agent:' + wcColor(chatActivity[activeChat?.id]?.agentId)) : ''">
                     <div class="activity-header"
@@ -44932,6 +44932,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
             this.activeChat = chat;
+            // Self-heal: a live-activity entry with no in-flight turn is a phantom
+            // (a leaked "Running…" indicator). Clear it so we never show activity for
+            // a chat that isn't actually processing. Mid-turn calls keep typingChats
+            // true, so a genuine live run is never cleared here.
+            if (!this.typingChats[chatId] && this.chatActivity[chatId]) delete this.chatActivity[chatId];
             if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
             // CLI-backed chats mirror an interactive terminal — poll for new turns.
             this.stopCliPoll();
