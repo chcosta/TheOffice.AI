@@ -3957,8 +3957,8 @@
     .wc-newchat-count { font-size: 12px; color: var(--cp-muted); }
 
     /* Per-speaker label above a group message bubble */
-    .wc-speaker { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-    .wc-speaker-name { font-size: 12px; font-weight: 700; }
+    .wc-speaker { display: flex; align-items: center; gap: 7px; margin: -1px 0 8px; padding-bottom: 7px; border-bottom: 1px solid color-mix(in srgb, var(--wc-agent, var(--cp-border)) 28%, var(--cp-border)); }
+    .wc-speaker-name { font-size: 13px; font-weight: 700; letter-spacing: .01em; }
 
     .chat-shell {
       height: calc(100vh - 210px);
@@ -4292,6 +4292,13 @@
       background: var(--cp-accent);
       color: var(--cp-accent-fg);
       border-color: color-mix(in srgb, var(--cp-accent) 60%, var(--cp-border));
+    }
+    /* Group chats: tint each agent's bubble with its identity colour so multiple
+       speakers are distinguishable at a glance. Subtle enough to keep body text
+       (--cp-ink) readable; the coloured speaker header carries the name. */
+    .message-bubble.wc-agent-bubble {
+      background: color-mix(in srgb, var(--wc-agent) 13%, var(--cp-surface));
+      border-color: color-mix(in srgb, var(--wc-agent) 42%, var(--cp-border));
     }
     /* Inside a chat bubble the bubble IS the container — the markdown wrapper must not
        paint its own card chrome (surface-soft bg + border + padding + scroll cap). That
@@ -18721,7 +18728,9 @@
                     <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
                       <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
                         <div class="message-bubble-wrap">
-                          <div class="message-bubble">
+                          <div class="message-bubble"
+                               :class="{ 'wc-agent-bubble': message.role !== 'user' && chatIsGroup(activeChat) && wcMsgSpeaker(message) }"
+                               :style="(message.role !== 'user' && chatIsGroup(activeChat) && wcMsgSpeaker(message)) ? ('--wc-agent:' + wcMsgColor(message)) : ''">
                             <template x-if="message.role !== 'user' && chatIsGroup(activeChat) && wcMsgSpeaker(message)">
                               <div class="wc-speaker">
                                 <span class="wc-dot" :style="'background:' + wcMsgColor(message)" x-text="wcInitial(wcMsgSpeaker(message))"></span>
