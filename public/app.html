@@ -15507,8 +15507,13 @@
               </div>
             </div>
 
-            <!-- Floating agenda-assistant launcher (matches board/connect FABs) -->
-            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
+            <!-- Floating agenda-assistant launcher (matches board/connect FABs). When the
+                 floating "Today's goals" panel is open it occupies the bottom-right corner and
+                 would cover this icon, so shift the assistant to the bottom-left (the goals dock
+                 button is hidden while the panel is open, so that corner is free). -->
+            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+              :style="(meai.checklistOpen && !meai.checklistDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
+              @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
 
             <!-- Item 4: floating today's-goals FAB (stacked above the assistant). Shown only
                  when the goals panel is neither docked nor floating open, and no console/pursuit. -->
