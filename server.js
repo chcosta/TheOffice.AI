@@ -14802,7 +14802,21 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
     // agenda, tracking them here lets you mark one done (with a note that survives even
     // if it reappears) or honestly flag that you didn't get to it / need more time.
     const SEED_TYPES = { admin: 1, comms: 1, review: 1, focus: 1, prep: 1, steward: 1 };
-    const SKIP_TITLE = /^(open focus|lunch|break)$/i;
+    // Generic scaffolding blocks are time BUCKETS the planner lays down (open focus, an
+    // async-reply catch-up window, the end-of-day wrap-up ritual, buffers) — not concrete
+    // work. They must never become a "goal" to track / carry forward, or the goals list
+    // fills with un-actionable ritual rows the user can't do anything with.
+    const SKIP_TITLE = /^(open focus(\s*time)?|lunch|break|async replies?|end[\s-]*of[\s-]*day\s*wrap[\s-]*up|wrap[\s-]*up|catch[\s-]*up|buffer|focus time|deep work|open time|admin time|triage time)$/i;
+    // A block the planner authored itself (source 'me') with no deep-link and no live
+    // entity is a generic filler window even when its title drifted past SKIP_TITLE — it
+    // is not a trackable goal. Real housekeeping goals ("Note team OOFs & regenerate PAT")
+    // are admin/comms/steward with a concrete task, so this only catches focus fillers.
+    const isScaffold = (lf) => {
+      if (SKIP_TITLE.test(String(lf.title || '').trim())) return true;
+      if ((lf.source === 'me' || lf.source === '') && lf.type === 'focus'
+        && !lf.link && !(lf.meta && lf.meta.prId) && !_meAiParseWorkItem(lf.link)) return true;
+      return false;
+    };
     const tomb = (typeof loadMeAiTodoTomb === 'function') ? (loadMeAiTodoTomb(day) || {}) : {};
     const norm = (s) => String(s || '').trim().toLowerCase();
     const haveTitle = new Set(effTodos.map(t => norm(t && t.title)));
@@ -14823,22 +14837,22 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
     for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
       if (!b || !SEED_TYPES[b.type]) continue;
       if (Array.isArray(b.items) && b.items.length > 1) {
-        for (const it of b.items) leaves.push({ title: it.title || b.title, link: it.link || '', meta: it.meta || null });
+        for (const it of b.items) leaves.push({ title: it.title || b.title, link: it.link || '', meta: it.meta || null, source: it.source || b.source || '', type: b.type });
       } else {
         // A single block whose title is itself a compound list ("Review PRs: !A & !B")
         // still needs splitting into its constituent goals — track the SOURCE items,
         // not the aggregate agenda entry.
         const split = _meAiSplitGoalTitle(b.title);
         if (split.length > 1) {
-          for (const st of split) leaves.push({ title: st, link: b.link || '', meta: b.meta || null });
+          for (const st of split) leaves.push({ title: st, link: b.link || '', meta: b.meta || null, source: b.source || '', type: b.type });
         } else {
-          leaves.push({ title: b.title, link: b.link || '', meta: b.meta || null });
+          leaves.push({ title: b.title, link: b.link || '', meta: b.meta || null, source: b.source || '', type: b.type });
         }
       }
     }
     for (const lf of leaves) {
       const title = String(lf.title || '').trim();
-      if (!title || SKIP_TITLE.test(title)) continue;
+      if (!title || isScaffold(lf)) continue;
       const link = lf.link || '';
       // A PR / work item is a "live" goal — it has its own lifecycle, so we flag it as
       // such (the UI notes it may reappear) but still track it as a goal for the day.
@@ -15504,7 +15518,14 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // I2 drag-to-lock: blocks the user pinned to a specific time are fixed reservations too.
   // Drop the matching live signal / todo so a locked item isn't ALSO scheduled elsewhere.
   const lockReservations = _meAiLockReservations(overridesForPlan);
-  let planTodos = effTodos;
+  // Goals are an AUDIT tool, never an agenda source. checklist-kind todos are the
+  // "today's goals" record seeded FROM the built agenda (see _meAiSeedChecklist). Feeding
+  // them back into the scheduler makes a regenerate re-create a block for every goal
+  // (the "Note team OOFs & regenerate PAT" duplicates) and resurrect a goal whose slot
+  // merely ELAPSED un-checked — an elapsed un-checked goal means "haven't updated the
+  // audit", not "still to do". Only real, user-typed todos seed the schedule.
+  const schedulableTodos = effTodos.filter(t => !(t && t.kind === 'checklist'));
+  let planTodos = schedulableTodos;
   if (lockReservations.length) {
     const lockKeys = new Set(
       (overridesForPlan.locks || [])
@@ -15515,7 +15536,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
       const k = String((planSignals[i].link || planSignals[i].title) || '').trim().toLowerCase();
       if (k && lockKeys.has(k)) planSignals.splice(i, 1);
     }
-    planTodos = effTodos.filter(t => !lockKeys.has(String(t.title || '').trim().toLowerCase()));
+    planTodos = schedulableTodos.filter(t => !lockKeys.has(String(t.title || '').trim().toLowerCase()));
   }
   // Normalize urgency across signal types (PR vs dev card vs work item vs comms) on a
   // single scale BEFORE the deterministic scheduler runs, so prioritization is fair.
