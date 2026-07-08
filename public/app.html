@@ -13380,6 +13380,27 @@
               .meai-chk-rm { flex:none; appearance:none; border:none; background:transparent; color:var(--cp-text-muted); font-size:13px;
                 cursor:pointer; padding:2px 5px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); opacity:0; transition:opacity .12s, color .12s; }
               .meai-chk-rm:hover { color:var(--cp-danger,#dc2626); background:var(--cp-bg); }
+              /* Priority marker — a small leading dot (true dot, not a pill/badge) so a
+                 goal's urgency reads at a glance without stripes or coloured borders. */
+              .meai-chk-pri { display:inline-block; flex:none; width:8px; height:8px; border-radius:999px;
+                margin-right:7px; vertical-align:middle; background:var(--cp-text-muted); }
+              .meai-chk-pri.pri-high { background:var(--cp-danger,#dc2626); }
+              .meai-chk-pri.pri-med { background:var(--cp-warning,#f59e0b); }
+              .meai-chk-pri.pri-low { background:var(--cp-success,#16a34a); }
+              /* Promote-to-big star — quiet, hover-revealed on regular goal rows. */
+              .meai-chk-star { flex:none; appearance:none; border:none; background:transparent; color:var(--cp-text-muted);
+                font-size:13px; cursor:pointer; padding:2px 5px; border-radius:calc(var(--cp-radius-scale, 1) * 6px);
+                opacity:0; transition:opacity .12s, color .12s; line-height:1; }
+              .meai-chk-row:hover .meai-chk-star { opacity:.6; }
+              .meai-chk-star:hover { color:var(--cp-warning,#f59e0b); opacity:1; }
+              /* The day's ONE big thing — a distinct highlighted card at the top of the panel. */
+              .meai-chk-biggrp .meai-chk-glabel { color:var(--cp-accent); }
+              .meai-chk-big { background:var(--cp-accent-soft, rgba(31,111,177,0.08));
+                border:1px solid color-mix(in oklab, var(--cp-accent) 22%, transparent);
+                border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:9px 10px; }
+              .meai-chk-big:hover { background:var(--cp-accent-soft, rgba(31,111,177,0.12)); }
+              .meai-chk-big .meai-chk-title { font-size:13.5px; font-weight:600; }
+              .meai-chk-autobig { color:var(--cp-text-muted); font-style:italic; }
               .meai-chk-add { display:flex; gap:7px; margin-top:12px; padding-top:12px; border-top:1px solid var(--cp-border); }
               .meai-chk-add input { flex:1 1 auto; min-width:0; appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg);
                 color:var(--cp-text); font-size:12.5px; padding:7px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
@@ -14145,14 +14166,37 @@
                       </div>
                     </div>
                     <div class="meai-chk-body">
+                      <!-- The day's ONE big thing: a single headline goal to feel accomplished by end of day -->
+                      <div class="meai-chk-group meai-chk-biggrp" x-show="meAiBigGoal()">
+                        <div class="meai-chk-glabel">🎯 One big thing <span class="meai-chk-gn">the win for today</span></div>
+                        <template x-for="(t, i) in meAiBigGoalList()" :key="'big-'+(_meAiGoalKey(t)||i)">
+                          <div class="meai-chk-row meai-chk-big" :class="{ done: t.done }">
+                            <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
+                            <div class="meai-chk-main">
+                              <div class="meai-chk-title"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span></div>
+                              <div class="meai-chk-meta">
+                                <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
+                                <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
+                                <a class="meai-chk-open" x-show="t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
+                                <span class="meai-chk-autobig" x-show="!meAiBigGoalManual()">auto-picked</span>
+                                <button class="meai-chk-goto" type="button" x-show="meAiBigGoalManual()" @click="meAiClearBigGoal()" title="Let Me.AI pick the big thing automatically">use auto</button>
+                              </div>
+                              <div class="meai-chk-status">
+                                <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='partial' }" @click="meAiSetTodoStatus(t, 'partial')">Need more time</button>
+                                <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='missed' }" @click="meAiSetTodoStatus(t, 'missed')">Didn't get to it</button>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
                       <!-- Today's goals (checklist-kind: the day's intended work, incl. live PR/dev items) -->
-                      <div class="meai-chk-group" x-show="meAiChecklistItems().length">
-                        <div class="meai-chk-glabel">Today's goals <span class="meai-chk-gn" x-text="meAiChecklistItems().filter(t => !t.done).length + ' open'"></span></div>
-                        <template x-for="(t, i) in meAiChecklistItems()" :key="'chk-'+i+'-'+(t.title||'')">
+                      <div class="meai-chk-group" x-show="meAiRegularGoals().length">
+                        <div class="meai-chk-glabel">Today's goals <span class="meai-chk-gn" x-text="meAiRegularOpenCount() + ' open'"></span></div>
+                        <template x-for="(t, i) in meAiRegularGoals()" :key="'chk-'+i+'-'+(t.title||'')">
                           <div class="meai-chk-row" :class="{ done: t.done }">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
-                              <div class="meai-chk-title" x-text="t.title"></div>
+                              <div class="meai-chk-title"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span></div>
                               <div class="meai-chk-meta" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
                                 <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
                                 <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
@@ -14164,6 +14208,7 @@
                                 <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='missed' }" @click="meAiSetTodoStatus(t, 'missed')">Didn't get to it</button>
                               </div>
                             </div>
+                            <button class="meai-chk-star" type="button" @click="meAiSetBigGoal(t)" title="Make this the day's one big thing" aria-label="Make this the big thing">★</button>
                             <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove from goals" aria-label="Remove">✕</button>
                           </div>
                         </template>
@@ -23798,6 +23843,7 @@
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           // Dock the goals panel inline in the right column (default) vs float it over the page.
           checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? false : v === '1'; } catch (_) { return false; } })(),
+          bigGoalNonce: 0,  // bumped on big-goal pin/clear to force a reactive recompute
           autoUpdates: (() => { try { const v = localStorage.getItem('meai-auto-updates'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
@@ -32211,6 +32257,66 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiChecklistItems() { return (this.meai.todos || []).filter(t => t && typeof t !== 'string' && t.kind === 'checklist'); },
         meAiPlainTodos() { return (this.meai.todos || []).filter(t => !(t && typeof t !== 'string' && t.kind === 'checklist')); },
         meAiChecklistOpenCount() { return (this.meai.todos || []).filter(t => t && typeof t !== 'string' && t.kind === 'checklist' && !t.done).length; },
+        // --- Goal priority + the day's "one big thing" -----------------------------------
+        // Stable identity for a goal (link wins, else title) — used for the big-goal pin.
+        _meAiGoalKey(t) { return String((t && (t.link || t.origin || t.title)) || '').trim(); },
+        // Priority is DERIVED (goals carry no explicit priority): prefer the backing agenda
+        // block's urgency/type; fall back to the goal's own live/carried signals.
+        meAiGoalPriority(t) {
+          if (!t) return 'low';
+          const idx = this.meAiGoalBlockIdx(t);
+          const b = idx >= 0 ? (((this.meai.agenda && this.meai.agenda.blocks) || [])[idx]) : null;
+          if (b) {
+            const u = Number(b.urgency) || 0;
+            const type = String(b.type || '');
+            if (u >= 4) return 'high';
+            if (u >= 3 || type === 'steward' || type === 'review' || type === 'focus' || type === 'deep') return 'med';
+            return 'low';
+          }
+          if (t.live) return 'med';
+          if (t.carried) return 'med';
+          return 'low';
+        },
+        meAiPriRank(p) { return p === 'high' ? 3 : (p === 'med' ? 2 : 1); },
+        meAiPriLabel(p) { return p === 'high' ? 'High priority' : (p === 'med' ? 'Medium priority' : 'Low priority'); },
+        _meAiBigPinKey() { return 'meai-big-goal-' + (this.meai.date || ''); },
+        _meAiBigPin() { try { return localStorage.getItem(this._meAiBigPinKey()) || ''; } catch (_) { return ''; } },
+        // The day's ONE big thing: a user-pinned goal (per date) if it still exists, else the
+        // highest-priority goal (prefer open; tie-break carried, then block-backed, then order).
+        meAiBigGoal() {
+          void this.meai.bigGoalNonce;
+          const all = this.meAiChecklistItems();
+          if (!all.length) return null;
+          const pin = this._meAiBigPin();
+          if (pin) { const hit = all.find(t => this._meAiGoalKey(t) === pin); if (hit) return hit; }
+          const open = all.filter(t => !t.done);
+          const pool = open.length ? open : all;
+          let best = null, bestScore = -Infinity;
+          pool.forEach((t, i) => {
+            let s = this.meAiPriRank(this.meAiGoalPriority(t)) * 100;
+            if (t.carried) s += 10;
+            if (this.meAiGoalHasBlock(t)) s += 5;
+            s -= i;
+            if (s > bestScore) { bestScore = s; best = t; }
+          });
+          return best;
+        },
+        meAiBigGoalList() { const b = this.meAiBigGoal(); return b ? [b] : []; },
+        meAiBigGoalManual() { const k = this._meAiBigPin(); if (!k) return false; const b = this.meAiBigGoal(); return !!(b && this._meAiGoalKey(b) === k); },
+        meAiIsBigGoal(t) { const b = this.meAiBigGoal(); return !!(b && t && this._meAiGoalKey(b) === this._meAiGoalKey(t)); },
+        // Regular goals = all checklist goals except the current big one (shown separately on top).
+        meAiRegularGoals() {
+          const b = this.meAiBigGoal(); const bk = b ? this._meAiGoalKey(b) : '';
+          return this.meAiChecklistItems().filter(t => !bk || this._meAiGoalKey(t) !== bk);
+        },
+        meAiRegularOpenCount() { return this.meAiRegularGoals().filter(t => !t.done).length; },
+        // Promote a goal to the day's big thing (toggle off if it already is the manual pick).
+        meAiSetBigGoal(t) {
+          const k = this._meAiGoalKey(t); if (!k) return;
+          try { if (this._meAiBigPin() === k) localStorage.removeItem(this._meAiBigPinKey()); else localStorage.setItem(this._meAiBigPinKey(), k); } catch (_) {}
+          this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
+        },
+        meAiClearBigGoal() { try { localStorage.removeItem(this._meAiBigPinKey()); } catch (_) {} this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1; },
         // REQ-3: persist the day's todo list onto the snapshot (if one exists) so
         // done/scope/carry-over edits survive navigation without a full re-plan.
         async meAiPersistTodos() {
