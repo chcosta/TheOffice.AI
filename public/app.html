@@ -23788,6 +23788,7 @@
                 input: '', sessionId: s.sessionId || null,
                 roster: Array.isArray(s.roster) ? s.roster : null,
                 sessions: (s.sessions && typeof s.sessions === 'object') ? s.sessions : null,
+                chatId: s.chatId || null,
                 live: null, running: false, error: '',
               };
             }
@@ -39167,6 +39168,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (!withActivity) msgs = msgs.map(m => ({ ...m, activity: [] }));
               if (!msgs.length && !s.sessionId && !(s.roster && s.roster.length > 1)) continue;
               out[k] = { messages: msgs, sessionId: s.sessionId || null };
+              if (s.chatId) out[k].chatId = s.chatId;
               // Multi-agent chats also persist their roster + per-member sessions so a
               // refresh repaints the group (and each member keeps continuing its session).
               if (Array.isArray(s.roster) && s.roster.length) out[k].roster = s.roster.map(a => ({ id: a.id, name: a.name }));
@@ -39178,6 +39180,48 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             try { localStorage.setItem('board-agent-chats', build(true)); }
             catch (e) { localStorage.setItem('board-agent-chats', build(false)); }
           } catch (e) { /* quota exhausted — degrade quietly */ }
+        },
+        // Mirror an agent-detail / board-card chat into a persistent /api/chats thread
+        // so it shows up (and can be continued) on the Water cooler page. Single-agent
+        // only — group (roster>1) chats have their own model on the water cooler. The
+        // thread targets the agent id (targetType 'agent'), matching threadsForActive(),
+        // so continuing it there resumes the SAME underlying agent session (the server
+        // keys sessions by agentId; see /api/agents/:id/session recovery). Best-effort:
+        // never throws into the chat flow. Returns the chatId (or null).
+        async _boardAgentEnsureThread(item, st) {
+          try {
+            if (!item || !st) return null;
+            if (Array.isArray(st.roster) && st.roster.length > 1) return null; // group → skip
+            if (st.chatId) {
+              // Verify it still exists; if the file was deleted, fall through to recreate.
+              try { await this.request(`/api/chats/${encodeURIComponent(st.chatId)}`); return st.chatId; }
+              catch (e) { if (!/404/.test(String(e && e.message))) return st.chatId; st.chatId = null; }
+            }
+            // Reuse an already-loaded thread for this agent if one exists (avoids dupes
+            // across reloads before st.chatId rehydrates).
+            const existing = (this.data && Array.isArray(this.data.chats) ? this.data.chats : [])
+              .find(c => c && c.targetType === 'agent' && String(c.target) === String(item.refId));
+            if (existing && existing.id) { st.chatId = existing.id; this._saveBoardAgentChats(); return st.chatId; }
+            const id = 'agentdetail-' + String(item.refId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) + '-' + Date.now().toString(36);
+            const base = this._agentById(item.refId);
+            const title = (base && base.name) || item.name || 'Agent chat';
+            await this.request('/api/chats', {
+              method: 'POST',
+              body: JSON.stringify({ id, title, target: item.refId, targetType: 'agent' }),
+            });
+            st.chatId = id; this._saveBoardAgentChats();
+            return id;
+          } catch (e) { return null; }
+        },
+        // Append one message to the mirrored water-cooler thread. Best-effort / non-blocking.
+        async _boardAgentMirror(st, role, content, activity, model) {
+          try {
+            if (!st || !st.chatId || !content) return;
+            await this.request(`/api/chats/${encodeURIComponent(st.chatId)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role, content, activity: activity || [], model: model || '' }),
+            });
+          } catch (e) { /* mirroring is best-effort — never break the live chat */ }
         },
         async boardAgentSend(item) {
           const st = this.boardAgentChatEnsure(item);
@@ -39191,6 +39235,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           st.messages.push({ role: 'user', content: display, activity: [], timestamp: Date.now() });
           st.running = true; st.live = { status: 'Thinking…', steps: [] };
           this._saveBoardAgentChats();
+          // Surface this conversation on the Water cooler page (single-agent only).
+          this._boardAgentEnsureThread(item, st).then(() => this._boardAgentMirror(st, 'user', display));
           try {
             const r = await this.request('/api/agents/' + encodeURIComponent(item.refId) + '/chat', {
               method: 'POST',
@@ -39207,13 +39253,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               onError: (m) => { st.live = null; st.running = false; st.error = m || 'Chat failed'; },
               onDone: ({ response, steps, model }) => {
                 const activity = this.mapAgentSteps(steps);
+                const reply = response || '_(The agent finished without a text response. Try rephrasing your message.)_';
                 st.messages.push({
                   role: 'agent',
-                  content: response || '_(The agent finished without a text response. Try rephrasing your message.)_',
+                  content: reply,
                   activity, model: model || '', timestamp: Date.now(),
                 });
                 st.live = null; st.running = false;
                 this._saveBoardAgentChats();
+                this._boardAgentMirror(st, 'assistant', reply, activity, model || '');
               },
             });
           } catch (e) {
@@ -46966,7 +47014,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Agent chat — start a real copilot session
             try {
               this.typingChats[this.activeChat.id] = true;
-              const existingSession = this.chatSessions[this.activeChat.id] || null;
+              let existingSession = this.chatSessions[this.activeChat.id] || null;
+              // No in-memory session (e.g. fresh page load, or a thread mirrored from
+              // the agent-detail / board-card chat): recover the agent's most-recent
+              // tracked session so we CONTINUE it instead of minting a brand-new one.
+              // The server keys one live session per agentId, so this resumes the same
+              // conversation the user had on the agent-detail page.
+              if (!existingSession) {
+                try {
+                  const info = await this.request(`/api/agents/${encodeURIComponent(this.activeChat.target)}/session`);
+                  if (info && info.sessionId) { existingSession = info.sessionId; this.chatSessions[this.activeChat.id] = info.sessionId; }
+                } catch (e) { /* no tracked session — start fresh */ }
+              }
               this.chatActivity[this.activeChat.id] = { status: existingSession ? 'Agent is thinking...' : 'Starting agent...', steps: [] };
               const chatResp = await this.request(`/api/agents/${encodeURIComponent(this.activeChat.target)}/chat`, {
                 method: 'POST',
