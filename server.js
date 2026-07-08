@@ -18752,8 +18752,13 @@ function _meAiEmitDecisionRecord(t, decisions) {
   if (note) rec += '. Note: “' + note + '”';
   // Structured gate record so the console can render a read-only approval card at this
   // point in the transcript (mirrors the active gate). `text` stays as a compact fallback
-  // for surfaces that don't special-case kind:'gate'.
-  _meAiEmit(t, { kind: 'gate', approved: ap, declined: de, note, text: rec });
+  // for surfaces that don't special-case kind:'gate'. `items`/`goal` let the card EXPAND to
+  // show the original approval request (each action's detail + risk + the task goal).
+  const items = (Array.isArray(decisions.items) ? decisions.items : [])
+    .filter(x => x && x.label)
+    .map(x => ({ label: String(x.label), detail: String(x.detail || ''), risk: String(x.risk || 'write'), decision: (x.decision === 'decline' ? 'decline' : 'approve') }));
+  const goal = String(decisions.goal || '').trim();
+  _meAiEmit(t, { kind: 'gate', approved: ap, declined: de, note, text: rec, items, goal });
   return true;
 }
 

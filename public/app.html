@@ -13329,6 +13329,28 @@
               .meai-apprv-record .meai-apprv-row.declined .meai-apprv-flag { color:var(--cp-danger, #c62828); }
               .meai-apprv-noterec { margin-top:8px; font-size:12.5px; color:var(--cp-text); line-height:1.45; }
               .meai-apprv-notelbl { font-weight:700; margin-right:6px; color:var(--cp-text-muted); }
+              /* Read-only gate record — expand to show the original approval request */
+              .meai-apprv-record .meai-apprv-h { display:flex; align-items:center; gap:8px; }
+              .meai-apprv-expand { margin-left:auto; display:inline-flex; align-items:center; gap:4px; padding:2px 8px;
+                font-size:11.5px; font-weight:600; color:var(--cp-text-muted); background:transparent;
+                border:1px solid var(--cp-border); border-radius:8px; cursor:pointer; transition:color .14s ease, border-color .14s ease; }
+              .meai-apprv-expand:hover { color:var(--cp-text); border-color:var(--cp-accent); }
+              .meai-apprv-caret { display:inline-block; transition:transform .14s ease; }
+              .meai-apprv-caret.open { transform:rotate(90deg); }
+              .meai-apprv-detail { margin-top:10px; padding-top:10px; border-top:1px solid var(--cp-border);
+                display:flex; flex-direction:column; gap:10px; }
+              .meai-apprv-detail-goal { font-size:12.5px; color:var(--cp-text); line-height:1.5; }
+              .meai-apprv-detail-lbl { display:block; font-size:10.5px; font-weight:700; letter-spacing:.03em;
+                text-transform:uppercase; color:var(--cp-text-muted); margin-bottom:3px; }
+              .meai-apprv-detail-row { display:flex; gap:8px; align-items:flex-start; }
+              .meai-apprv-detail-row .meai-apprv-flag { font-size:12px; margin-top:1px; }
+              .meai-apprv-detail-row.approve .meai-apprv-flag { color:var(--cp-good, #2e7d32); }
+              .meai-apprv-detail-row.decline .meai-apprv-flag { color:var(--cp-danger, #c62828); }
+              .meai-apprv-detail-body { display:flex; flex-direction:column; gap:2px; min-width:0; }
+              .meai-apprv-detail-head { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--cp-text); }
+              .meai-apprv-detail-risk { font-size:11px; color:var(--cp-text-muted); }
+              .meai-apprv-detail-txt { font-size:12px; color:var(--cp-text-muted); line-height:1.45; }
+              @media (prefers-reduced-motion: reduce) { .meai-apprv-caret, .meai-apprv-expand { transition:none; } }
               /* REQ-13 Agenda Assistant drawer */
               .meai-asst { position:fixed; top:0; right:0; bottom:0; width:min(440px, 92vw); z-index:9600;
                 display:flex; flex-direction:column; background:var(--cp-bg); border-left:1px solid var(--cp-border);
@@ -14784,7 +14806,15 @@
                           <template x-if="ev.kind==='gate'">
                             <div class="meai-gate-rec-wrap">
                               <div class="meai-apprv meai-apprv-record">
-                                <div class="meai-apprv-h"><span class="meai-apprv-ico">✋</span> You reviewed the approval</div>
+                                <div class="meai-apprv-h">
+                                  <span class="meai-apprv-ico">✋</span> You reviewed the approval
+                                  <button type="button" class="meai-apprv-expand" x-show="(ev.items&&ev.items.length) || ev.goal"
+                                          @click="meAiToggleEvMd('gate:'+(ev.seq||ei))"
+                                          :aria-expanded="meAiEvMdOpen('gate:'+(ev.seq||ei))">
+                                    <span class="meai-apprv-caret" :class="{open:meAiEvMdOpen('gate:'+(ev.seq||ei))}">▸</span>
+                                    <span x-text="meAiEvMdOpen('gate:'+(ev.seq||ei)) ? 'Hide request' : 'Show request'"></span>
+                                  </button>
+                                </div>
                                 <template x-for="(lbl, li) in (ev.approved||[])" :key="'a'+li">
                                   <div class="meai-apprv-row approved">
                                     <span class="meai-apprv-flag" title="You approved this">✓</span>
@@ -14799,6 +14829,26 @@
                                 </template>
                                 <div class="meai-apprv-noterec" x-show="ev.note">
                                   <span class="meai-apprv-notelbl">Your note</span><span x-text="ev.note"></span>
+                                </div>
+                                <!-- Expanded: the original approval request — the task goal it served and each
+                                     proposed action's full detail + risk, so the record is auditable later. -->
+                                <div class="meai-apprv-detail" x-show="meAiEvMdOpen('gate:'+(ev.seq||ei))" x-cloak>
+                                  <div class="meai-apprv-detail-goal" x-show="ev.goal">
+                                    <span class="meai-apprv-detail-lbl">What was being worked on</span>
+                                    <span x-text="ev.goal"></span>
+                                  </div>
+                                  <template x-for="(it, ii) in (ev.items||[])" :key="'i'+ii">
+                                    <div class="meai-apprv-detail-row" :class="it.decision">
+                                      <span class="meai-apprv-flag" :title="it.decision==='approve' ? 'You approved this' : 'You declined this'" x-text="it.decision==='approve' ? '✓' : '✕'"></span>
+                                      <span class="meai-apprv-detail-body">
+                                        <span class="meai-apprv-detail-head">
+                                          <span class="meai-apprv-detail-risk" :title="it.risk==='external' ? 'Sends/posts externally' : 'Makes a change'" x-text="it.risk==='external' ? '↗' : '✎'"></span>
+                                          <span x-text="it.label"></span>
+                                        </span>
+                                        <span class="meai-apprv-detail-txt" x-show="it.detail" x-text="it.detail"></span>
+                                      </span>
+                                    </div>
+                                  </template>
                                 </div>
                               </div>
                             </div>
@@ -33659,6 +33709,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             approved: approved.map(a => a.label),
             declined: declined.map(a => a.label),
             note,
+            // Fuller per-item record so the read-only gate card can expand to show the
+            // ORIGINAL approval request (each action's detail + risk), not just its label.
+            items: approved.map(a => ({ label: a.label, detail: a.detail || '', risk: a.risk || 'write', decision: 'approve' }))
+              .concat(declined.map(a => ({ label: a.label, detail: a.detail || '', risk: a.risk || 'write', decision: 'decline' }))),
+            goal: (t && t.goal) || '',
           };
           // Clear the recorded decisions — they've been consumed by this resume.
           this.meai.approvalDecisions[t.id] = {};
