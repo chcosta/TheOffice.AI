@@ -12784,6 +12784,16 @@
             .meai-weekly-loc:hover { border-color:var(--cp-accent); }
             .meai-weekly-loc.set { background:var(--cp-accent-soft, rgba(88,166,255,.14)); color:var(--cp-text); border-color:var(--cp-accent); font-weight:600; }
             .meai-loc-badge { display:inline-flex; align-items:center; padding:4px 10px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; font-weight:600; white-space:nowrap; }
+            /* Declutter: quiet quick-access controls (per-day hours, WFH badge, inbox
+               "checked"/"Check now") stay out of the way until you hover their bar. Opacity
+               keeps layout stable (no reflow); pointer-events off while hidden so an invisible
+               control can't be clicked. Revealed on hover OR keyboard focus for accessibility. */
+            .meai-hover-item { opacity:0; pointer-events:none; transition:opacity .14s ease; }
+            .meai-datebar:hover .meai-hover-item, .meai-datebar:focus-within .meai-hover-item,
+            .meai-modebar:hover .meai-hover-item, .meai-modebar:focus-within .meai-hover-item,
+            .meai-inbox-bar:hover .meai-hover-item, .meai-inbox-bar:focus-within .meai-hover-item { opacity:1; pointer-events:auto; }
+            @media (prefers-reduced-motion: reduce) { .meai-hover-item { transition:none; } }
+            @media (hover: none) { .meai-hover-item { opacity:1; pointer-events:auto; } }
             /* #2 day mode segmented control + time-of-day prefs */
             .meai-modebar { display:flex; align-items:center; gap:10px; margin:2px 0 4px; flex-wrap:wrap; }
             .meai-mode-lbl { font-size:12px; color:var(--cp-text-muted); font-weight:600; }
@@ -13592,8 +13602,11 @@
                 </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
                 <span style="flex:1"></span>
-                <!-- Per-day work window: start early / stay late today without touching prefs -->
-                <div class="meai-daywin" x-show="meai.loaded && meai.agenda && meai.agenda.config" style="position:relative">
+                <!-- Per-day work window: start early / stay late today without touching prefs.
+                     Decluttered — hours are intuited from the agenda itself, so this quick
+                     access stays out of the way until you hover the bar (full editor lives in
+                     Hours & grid). -->
+                <div class="meai-daywin meai-hover-item" x-show="meai.loaded && meai.agenda && meai.agenda.config" style="position:relative">
                   <button class="btn ghost" type="button" @click="meAiOpenDayWin()"
                           :title="meAiDayWinOverridden() ? 'Custom hours for this day — click to edit' : 'Set a one-off start/end for this day'">
                     <span x-text="meAiDayWinLabel()"></span>
@@ -13611,8 +13624,6 @@
                     </div>
                   </div>
                 </div>
-                <span class="meai-loc-badge" x-show="meai.loaded && meAiDayLocation()" x-text="meAiDayLocation()"
-                      title="Where you're expected to work this day (from your per-day schedule)"></span>
                 <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
                         title="Working hours, work week, grid & time-of-day preferences">
                   ⚙ Hours &amp; grid
@@ -13784,14 +13795,14 @@
                     <span class="meai-caret" x-text="meai.inboxOpen?'▾':'▸'"></span>
                   </button>
                   <span style="flex:1"></span>
-                  <span class="meai-status-detail" x-show="meai.inbox.polledAt" x-text="'checked ' + (new Date(meai.inbox.polledAt)).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})"></span>
+                  <span class="meai-status-detail meai-hover-item" x-show="meai.inbox.polledAt" x-text="'checked ' + (new Date(meai.inbox.polledAt)).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})"></span>
                   <button type="button" class="meai-inbox-grouplink" x-show="meai.inboxOpen && (meai.inbox.items||[]).length>=2" @click="meAiToggleGrouping()" :disabled="meai.inboxGroupBusy"
                           :title="meai.inboxGrouping ? 'Show items individually' : 'Group related items so you can triage them together'">
                     <span x-show="!meai.inboxGrouping && !meai.inboxGroupBusy">Group similar</span>
                     <span x-show="meai.inboxGrouping && !meai.inboxGroupBusy">Ungroup</span>
                     <span x-show="meai.inboxGroupBusy">Grouping…</span>
                   </button>
-                  <button type="button" class="btn ghost meai-inbox-refresh" @click="meAiRefreshInbox()" :disabled="meai.inboxBusy"
+                  <button type="button" class="btn ghost meai-inbox-refresh meai-hover-item" @click="meAiRefreshInbox()" :disabled="meai.inboxBusy"
                           title="Check email & Teams for new asks now">
                     <span x-show="!meai.inboxBusy">Check now</span>
                     <span x-show="meai.inboxBusy">Checking…</span>
@@ -13945,6 +13956,10 @@
                     <button type="button" class="meai-seg-btn" :class="{ on: (meai.config.mode||'balanced')===m[0] }" @click="meAiSetMode(m[0])" :disabled="meai.generating || meai.savingSettings" x-text="m[1]"></button>
                   </template>
                 </div>
+                <!-- Where you're working today, folded in beside Day mode and revealed on hover
+                     (from your per-day schedule) so it doesn't clutter the datebar. -->
+                <span class="meai-loc-badge meai-hover-item" x-show="meai.loaded && meAiDayLocation()" x-text="meAiDayLocation()"
+                      style="margin-left:12px" title="Where you're expected to work this day (from your per-day schedule)"></span>
                 <span class="meai-status-detail" style="margin-left:auto">Reviews, focus &amp; comms are re-prioritised for your day.</span>
               </div>
 
