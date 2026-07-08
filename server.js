@@ -5792,11 +5792,12 @@ app.post('/api/multi-agent/facilitate', async (req, res) => {
     'Your job: decide which agent(s) should answer the user\'s latest message.',
     'When the message clearly targets a specific domain, pick the SMALLEST set that fully covers it — one agent when it is clearly their area, several only when it genuinely spans areas.',
     'When you CANNOT confidently narrow it down — the message is vague, general, conversational, or could reasonably apply to more than one agent — route to ALL agents rather than guessing. Put every agent id in "responders". Do NOT ask the user to clarify and do NOT leave responders empty.',
+    'DECOMPOSE compound messages: if the user bundles MULTIPLE distinct sub-requests that map to DIFFERENT agents (e.g. "what is the system health and what should I work on next?"), give each responder a "focus" naming just that agent\'s slice as a short phrase (<=10 words, e.g. "system health" / "what to work on next"). Only set "focus" when the message genuinely splits across agents; for a single ask, a shared question, or a vague message, leave "focus" empty so each agent sees the whole message.',
     'Always set "uncertain" to false and leave "note" empty — you route silently and let the agents speak for themselves.',
     '\nAgents (use the EXACT id in brackets):\n' + roster,
     convo ? '\nConversation so far:\n' + convo : '',
     `\nLatest user message: ${message}`,
-    '\nRespond with STRICT JSON only (no prose, no code fence): {"responders":[{"id":"<exact agent id>","reason":"<=12 words"}],"uncertain":false,"note":""}',
+    '\nRespond with STRICT JSON only (no prose, no code fence): {"responders":[{"id":"<exact agent id>","reason":"<=12 words","focus":"<optional short phrase, empty unless this is a compound message split across agents>"}],"uncertain":false,"note":""}',
   ].filter(Boolean).join('\n');
 
   try {
@@ -5804,7 +5805,7 @@ app.post('/api/multi-agent/facilitate', async (req, res) => {
     const valid = new Set(agents.map(a => String(a.id)));
     let responders = (parsed && Array.isArray(parsed.responders) ? parsed.responders : [])
       .filter(r => r && valid.has(String(r.id)))
-      .map(r => ({ id: r.id, reason: String(r.reason || '').slice(0, 120) }));
+      .map(r => ({ id: r.id, reason: String(r.reason || '').slice(0, 120), focus: String(r.focus || '').replace(/\s+/g, ' ').trim().slice(0, 160) }));
     // De-dupe while preserving the roster order.
     const order = new Map(agents.map((a, i) => [String(a.id), i]));
     const seen = new Set();

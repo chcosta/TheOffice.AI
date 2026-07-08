@@ -29797,25 +29797,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // speaks up later, during synthesis, when 2+ agents answer and it can
             // add real clarity.
             if (!responders.length) responders = roster.map((a) => ({ id: a.id }));
-            // Small facilitator indication: when it narrowed to a specific subset
-            // (a real routing decision — not the vague fan-out-to-all case), leave a
-            // compact trace of where it sent the message. On full fan-out it stays
-            // silent and out of the way.
+            // Each chosen entry carries its roster agent plus an optional `focus` — the
+            // slice of a compound message the facilitator decomposed to that agent.
             const chosen = responders
-              .map((r) => roster.find((x) => String(x.id) === String(r.id)))
+              .map((r) => {
+                const agent = roster.find((x) => String(x.id) === String(r.id));
+                return agent ? { agent, focus: String(r.focus || '').trim() } : null;
+              })
               .filter(Boolean);
-            if (chosen.length && chosen.length < roster.length) {
-              await this._wcPostRoute(chat, chosen.map((a) => a.name));
+            // Small facilitator indication of where it sent the message:
+            //  • Decomposed a compound ask across 2+ agents → show the split
+            //    ("system health → Monitor · next steps → Planner").
+            //  • Narrowed to a subset (no per-agent focus) → "Routed to A · B".
+            //  • Full vague fan-out → stay silent and out of the way.
+            const focused = chosen.filter((c) => c.focus);
+            if (focused.length >= 2) {
+              await this._wcPostRoute(chat, focused.map((c) => this._wcShortFocus(c.focus) + ' → ' + c.agent.name).join(' · '));
+            } else if (chosen.length && chosen.length < roster.length) {
+              await this._wcPostRoute(chat, 'Routed to ' + chosen.map((c) => c.agent.name).join(' · '));
             }
             // Responders no longer own the facilitator's single activity slot — clear
             // it so the per-agent live cards (wcBusy) are the only running indicator.
             delete this.chatActivity[chat.id];
             // Run responders in PARALLEL — each agent has its own session, so they
-            // work concurrently and each streams into its own live card. The
-            // facilitator reconciles afterward during synthesis.
-            const results = await Promise.all(chosen.map(async (a) => {
-              const text = await this._wcRunResponder(chat, a, prompt);
-              return { id: a.id, name: a.name, text: text || '' };
+            // work concurrently and each streams into its own live card. When the
+            // facilitator decomposed the message, each agent gets its focus slice.
+            const results = await Promise.all(chosen.map(async ({ agent, focus }) => {
+              const text = await this._wcRunResponder(chat, agent, prompt, focus);
+              return { id: agent.id, name: agent.name, text: text || '' };
             }));
             const collected = results.filter(Boolean);
             const spoke = collected.filter((c) => c.text && !/^_\(/.test(c.text));
@@ -29846,16 +29855,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // A tiny, muted facilitator trace of a routing decision. kind:'route' makes
         // it render as a compact centered micro-line (not a full bubble) so the user
         // can see where the facilitator sent the message without it being noisy.
-        async _wcPostRoute(chat, names) {
-          const list = (names || []).filter(Boolean);
-          if (!list.length) return;
+        // `content` is the pre-built line ("Routed to A · B" or a decomposition like
+        // "system health → Monitor · next steps → Planner").
+        async _wcPostRoute(chat, content) {
+          const text = String(content || '').trim();
+          if (!text) return;
           try {
             await this.request(`/api/chats/${encodeURIComponent(chat.id)}/messages`, {
               method: 'POST',
-              body: JSON.stringify({ role: 'assistant', content: 'Routed to ' + list.join(' · '), speaker: 'Facilitator', agentId: '__facilitator__', kind: 'route' }),
+              body: JSON.stringify({ role: 'assistant', content: text, speaker: 'Facilitator', agentId: '__facilitator__', kind: 'route' }),
             });
             await this.openChat(chat.id, false);
           } catch { /* non-fatal */ }
+        },
+        // Trim a decomposed focus phrase for the compact route micro-line.
+        _wcShortFocus(s) {
+          const t = String(s || '').replace(/\s+/g, ' ').trim().replace(/[.?!]+$/, '');
+          return t.length > 48 ? t.slice(0, 47).trimEnd() + '…' : t;
         },
         // After 2+ agents answer one turn, let the facilitator synthesise: post an
         // insightful summary, flag genuine conflicts, and (on conflict) run ONE
@@ -29930,7 +29946,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (chat) chat.agentSessions = { ...map };
           } catch { /* non-fatal: in-memory map still drives this session */ }
         },
-        async _wcRunResponder(chat, agent, userPrompt) {
+        async _wcRunResponder(chat, agent, userPrompt, focus) {
           if (!this.wcGroupSessions[chat.id]) {
             // Seed each member's persisted session so they resume their own thread
             // across reloads — unless the conversation is stale (very large or old),
@@ -29941,10 +29957,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const roster = this.wcEffectiveRoster(chat);
           const others = roster.filter((x) => String(x.id) !== String(agent.id)).map((x) => x.name).filter(Boolean);
           const recent = this._wcTranscript(chat);
+          const focusText = String(focus || '').trim();
           const ctx = [
             `You are "${agent.name}", one of several agents in a group chat with a user${others.length ? ' (other members: ' + others.join(', ') + ')' : ''}.`,
             'Respond ONLY as yourself, in your own voice and area of expertise. Do not speak for the other agents or restate what they already said. Be concise and add your distinct value. If the latest message is not for you, briefly defer.',
             recent ? '\nFull group transcript so far:\n' + recent : '',
+            focusText ? `\nThe user's message covers several areas and teammates are handling the rest. Focus your answer specifically on: ${focusText}. Do not answer the other parts.` : '',
             `\nLatest user message: ${userPrompt}`,
           ].filter(Boolean).join('\n');
           this._wcSetBusy(chat.id, agent, { status: 'thinking…', phase: 'Thinking', steps: [] });
