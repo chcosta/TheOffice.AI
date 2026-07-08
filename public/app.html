@@ -4159,6 +4159,9 @@
       display: flex;
     }
     .message-row.user { justify-content: flex-end; }
+    .message-row.facilitator { justify-content: center; }
+    .message-row.facilitator .message-bubble-wrap { max-width: min(88%, 640px); }
+    .message-row.facilitator .message-bubble { width: 100%; }
     .message-bubble {
       max-width: min(78%, 760px);
       border-radius: calc(var(--cp-radius-scale, 1) * 16px);
@@ -18739,7 +18742,7 @@
                 <div class="chat-main-messages" x-show="activeChat">
                   <div class="messages-stack">
                     <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
-                      <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
+                      <div class="message-row" :class="{ 'user': message.role === 'user', 'facilitator': message.agentId === '__facilitator__' }">
                         <div class="message-bubble-wrap">
                           <div class="message-bubble"
                                :class="{ 'wc-agent-bubble': message.role !== 'user' && chatIsGroup(activeChat) && wcMsgSpeaker(message) }"
@@ -29745,6 +29748,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
           } catch { return; }
           if (!out) return;
+          // Facilitator only speaks when it genuinely helps (server sets comment/conflict).
+          if (!out.comment && !out.conflict) return;
           let body = '';
           if (out.conflict && out.conflictNote) body += '⚠️ **Conflicting responses** — ' + out.conflictNote + '\n\n';
           if (out.summary) body += out.summary;

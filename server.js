@@ -5830,11 +5830,13 @@ app.post('/api/multi-agent/synthesize', async (req, res) => {
   const block = responses.map(r => `### ${r.name} [${r.id}]\n${r.text.replace(/\s+/g, ' ').trim()}`).join('\n\n');
   const prompt = [
     'You are the Facilitator of a group chat. The user asked a question and multiple agents answered.',
-    'Produce a brief, insightful synthesis for the user: pull together the key points, note where the agents agree, and surface anything actionable. Keep it tight (2–5 sentences), plain and readable — no filler.',
-    'If — and only if — the agents genuinely CONFLICT (contradict each other on a fact, recommendation, or number), set "conflict" to true, describe it in one sentence in "conflictNote", and add a "clarify" entry for EACH conflicting agent with a specific question that references what the other said, so they can reconcile. If there is no real conflict, set conflict=false and clarify=[].',
+    'Your job is to add value ONLY when it helps. Most of the time the agents\' own answers stand on their own and you should stay silent.',
+    'Decide whether a facilitator comment genuinely ADDS CLARITY beyond simply reading the answers — e.g. the answers overlap and need reconciling, together they form a combined recommendation worth distilling, or they conflict. If a summary would just restate what the agents already said clearly, set "comment" to false and leave "summary" empty.',
+    'When you do comment, keep it tight (2–4 sentences), plain and readable — no filler, no restating.',
+    'If — and only if — the agents genuinely CONFLICT (contradict each other on a fact, recommendation, or number), set "conflict" to true (this always warrants a comment), describe it in one sentence in "conflictNote", and add a "clarify" entry for EACH conflicting agent with a specific question that references what the other said, so they can reconcile. If there is no real conflict, set conflict=false and clarify=[].',
     `\nUser question: ${message}`,
     '\nAgent responses:\n' + block,
-    '\nRespond with STRICT JSON only (no prose, no code fence): {"summary":"<2-5 sentence synthesis, markdown allowed>","conflict":true|false,"conflictNote":"<one sentence, else empty>","clarify":[{"id":"<exact agent id>","name":"<agent name>","question":"<specific question to this agent>"}]}',
+    '\nRespond with STRICT JSON only (no prose, no code fence): {"comment":true|false,"summary":"<2-4 sentence synthesis when comment=true, else empty>","conflict":true|false,"conflictNote":"<one sentence, else empty>","clarify":[{"id":"<exact agent id>","name":"<agent name>","question":"<specific question to this agent>"}]}',
   ].join('\n');
 
   try {
@@ -5844,8 +5846,13 @@ app.post('/api/multi-agent/synthesize', async (req, res) => {
       .filter(c => c && valid.has(String(c.id)) && c.question)
       .map(c => ({ id: c.id, name: valid.get(String(c.id)) || String(c.name || 'Agent'), question: String(c.question).slice(0, 300) }));
     const conflict = !!(parsed && parsed.conflict) && clarify.length > 0;
+    const summary = String((parsed && parsed.summary) || '').slice(0, 1500);
+    // Facilitator stays silent unless it genuinely helps: an explicit comment=true,
+    // or a real conflict (which always warrants a heads-up).
+    const comment = conflict || (!!(parsed && parsed.comment) && !!summary.trim());
     res.json({
-      summary: String((parsed && parsed.summary) || '').slice(0, 1500),
+      comment,
+      summary: comment ? summary : '',
       conflict,
       conflictNote: conflict ? String((parsed && parsed.conflictNote) || '').slice(0, 300) : '',
       clarify: conflict ? clarify : [],
