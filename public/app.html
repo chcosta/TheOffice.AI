@@ -12273,6 +12273,11 @@
               .meai-daybar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:2px 0 10px; }
               .meai-auto { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cp-text-muted); }
               .meai-auto-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-success); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-success) 22%, transparent); }
+              .meai-auto-dot.is-off { background:var(--cp-text-muted); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-text-muted) 18%, transparent); }
+              .meai-auto-btn { border:none; background:transparent; cursor:pointer; padding:2px 4px; border-radius:6px; font:inherit; }
+              .meai-auto-btn:hover { background:color-mix(in srgb, var(--cp-text) 7%, transparent); }
+              .meai-auto-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cp-text-muted); border:none; background:transparent; cursor:pointer; padding:2px 6px; border-radius:6px; font:inherit; }
+              .meai-auto-toggle:hover { background:color-mix(in srgb, var(--cp-text) 7%, transparent); }
               .meai-auto-flash { font-size:12px; font-weight:600; color:var(--cp-success); }
               /* Background-rebuild indicator: calm amber, gently pulsing, so a mid-rebuild day
                  reads as "settling" (not alarming) while the current clean view is held. */
@@ -13519,9 +13524,11 @@
 
               <!-- REQ-7 auto-regen + change tracking + end-of-day day-shape report -->
               <div class="meai-daybar" x-show="meai.loaded && meai.agenda && (meai.agenda.blocks||[]).length">
-                <span class="meai-auto" x-show="meai.date===meai.today && !meai.rebuilding" title="Me.AI re-plans today automatically when your work changes — no need to regenerate by hand.">
-                  <span class="meai-auto-dot"></span>Auto-updates on
-                </span>
+                <button type="button" class="meai-auto-toggle" x-show="meai.date===meai.today && !meai.rebuilding"
+                        @click="meAiToggleAutoUpdates()"
+                        :title="meai.autoUpdates ? 'Auto-updates are on — Me.AI re-plans today automatically when your work changes. Click to turn off.' : 'Auto-updates are off — today will only change when you regenerate by hand. Click to turn on.'">
+                  <span class="meai-auto-dot" :class="{ 'is-off': !meai.autoUpdates }"></span><span x-text="meai.autoUpdates ? 'Auto-updates on' : 'Auto-updates off'"></span>
+                </button>
                 <span class="meai-auto meai-auto-building" x-show="meai.rebuilding" x-transition
                       title="Me.AI is re-planning this day in the background. Your current agenda stays put until the new plan is ready.">
                   <span class="meai-building-dot"></span><span x-text="meai.rebuildLabel || 'Updating your agenda…'"></span>
@@ -23783,7 +23790,8 @@
           // Item 4: floating checklist panel (triage-alert-type items needing manual close-out).
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           // Dock the goals panel inline in the right column (default) vs float it over the page.
-          checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
+          checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? false : v === '1'; } catch (_) { return false; } })(),
+          autoUpdates: (() => { try { const v = localStorage.getItem('meai-auto-updates'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
           triagedPinned: false,      // discrete Triaged area: pinned-open state (else hover-peek)
@@ -31447,6 +31455,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // REQ-7 auto-regenerate: poll TODAY's agenda so a silent server re-plan
         // (triggered by new signals) shows up without the user hitting Regenerate.
         meAiStartAutoPoll() {
+          if (!this.meai.autoUpdates) return;
           if (this.meai._autoTimer) return;
           this.meai._autoTimer = setInterval(async () => {
             try {
@@ -31494,6 +31503,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiStopAutoPoll() {
           if (this.meai._autoTimer) { clearInterval(this.meai._autoTimer); this.meai._autoTimer = null; }
+        },
+        meAiToggleAutoUpdates() {
+          this.meai.autoUpdates = !this.meai.autoUpdates;
+          try { localStorage.setItem('meai-auto-updates', this.meai.autoUpdates ? '1' : '0'); } catch (_) {}
+          if (this.meai.autoUpdates) { this.meAiStartAutoPoll(); }
+          else { this.meAiStopAutoPoll(); this.meai.rebuilding = false; }
         },
         // REQ-7 write an end-of-day "day shape" note into the diary on demand.
         async meAiDayShapeReport() {
