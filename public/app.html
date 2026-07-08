@@ -13360,6 +13360,15 @@
                 cursor:pointer; padding:4px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); }
               .meai-chk-x:hover { color:var(--cp-text); background:var(--cp-bg); }
               .meai-chk-body { flex:1 1 auto; min-height:0; overflow-y:auto; padding:8px 15px 14px; }
+              .meai-goals-tabs { display:flex; gap:2px; margin:0 0 10px; border-bottom:1px solid var(--cp-border); }
+              .meai-goals-tab { appearance:none; background:none; border:0; border-bottom:2px solid transparent; margin-bottom:-1px;
+                padding:6px 9px; font-size:12px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:5px;
+                border-radius:6px 6px 0 0; transition:color .12s ease, border-color .12s ease; }
+              .meai-goals-tab:hover { color:var(--cp-text); }
+              .meai-goals-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .meai-goals-tab-n { font-size:11px; font-weight:700; color:var(--cp-text-muted); min-width:14px; text-align:center; }
+              .meai-goals-tab.on .meai-goals-tab-n { color:var(--cp-accent); }
+              @media (prefers-reduced-motion: reduce) { .meai-goals-tab { transition:none; } }
               .meai-chk-group + .meai-chk-group { margin-top:14px; }
               .meai-chk-glabel { font-size:11px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-muted); text-transform:uppercase;
                 margin:6px 0 6px; display:flex; align-items:center; gap:6px; }
@@ -14251,8 +14260,19 @@
                       </div>
                     </div>
                     <div class="meai-chk-body">
+                      <!-- Owner ask: tabs so the working list shrinks as goals are closed out,
+                           while Done / Need-more-time / Didn't-get-to stay one click away. -->
+                      <div class="meai-goals-tabs" role="tablist" aria-label="Goals view">
+                        <template x-for="tb in meAiGoalTabs()" :key="'gtab-'+tb.key">
+                          <button class="meai-goals-tab" type="button" role="tab"
+                            :class="{ on: meai.goalsTab === tb.key }" :aria-selected="meai.goalsTab === tb.key"
+                            @click="meAiSetGoalsTab(tb.key)">
+                            <span x-text="tb.label"></span><span class="meai-goals-tab-n" x-show="tb.n" x-text="tb.n"></span>
+                          </button>
+                        </template>
+                      </div>
                       <!-- The day's ONE big thing: a single headline goal to feel accomplished by end of day -->
-                      <div class="meai-chk-group meai-chk-biggrp" x-show="meAiBigGoal()">
+                      <div class="meai-chk-group meai-chk-biggrp" x-show="meAiBigGoalInTab()">
                         <div class="meai-chk-glabel">🎯 One big thing <span class="meai-chk-gn">the win for today</span></div>
                         <template x-for="(t, i) in meAiBigGoalList()" :key="'big-'+(_meAiGoalKey(t)||i)">
                           <div class="meai-chk-row meai-chk-big" :class="{ done: t.done }">
@@ -14275,9 +14295,9 @@
                         </template>
                       </div>
                       <!-- Today's goals (checklist-kind: the day's intended work, incl. live PR/dev items) -->
-                      <div class="meai-chk-group" x-show="meAiRegularGoals().length">
-                        <div class="meai-chk-glabel">Today's goals <span class="meai-chk-gn" x-text="meAiRegularOpenCount() + ' open'"></span></div>
-                        <template x-for="(t, i) in meAiRegularGoals()" :key="'chk-'+i+'-'+(t.title||'')">
+                      <div class="meai-chk-group" x-show="meAiRegularGoalsTab().length">
+                        <div class="meai-chk-glabel"><span x-text="meai.goalsTab === 'open' ? \"Today's goals\" : 'Goals'"></span> <span class="meai-chk-gn" x-text="meai.goalsTab === 'open' ? (meAiRegularOpenCount() + ' open') : (meAiRegularGoalsTab().length + '')"></span></div>
+                        <template x-for="(t, i) in meAiRegularGoalsTab()" :key="'chk-'+i+'-'+(t.title||'')">
                           <div class="meai-chk-row" :class="{ done: t.done }">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
@@ -14298,8 +14318,12 @@
                           </div>
                         </template>
                       </div>
+                      <!-- Empty state when the active non-open tab has nothing -->
+                      <div class="meai-chk-empty" x-show="meai.goalsTab !== 'open' && !meAiRegularGoalsTab().length && !meAiBigGoalInTab()">
+                        <span x-text="meai.goalsTab === 'done' ? 'Nothing marked done yet.' : (meai.goalsTab === 'partial' ? 'Nothing needs more time.' : \"Nothing you've marked as missed.\")"></span>
+                      </div>
                       <!-- Today's todos (folded in from the inline card) -->
-                      <div class="meai-chk-group">
+                      <div class="meai-chk-group" x-show="meai.goalsTab === 'open'">
                         <div class="meai-chk-glabel">Today's todos <span class="meai-chk-gn" x-text="meAiPlainTodos().filter(t => !t.done).length + ' open'"></span></div>
                         <template x-for="(t, i) in meAiPlainTodos()" :key="'td-'+i+'-'+((typeof t==='string'?t:t.title)||'')">
                           <div class="meai-chk-row" :class="{ done: (typeof t!=='string' && t.done) }">
@@ -23959,6 +23983,7 @@
           // Working hours & grid flyout.
           hoursOpen: false,
           // Item 4: floating checklist panel (triage-alert-type items needing manual close-out).
+          goalsTab: 'open',          // goals panel tab: open | partial | missed | done
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           // Dock the goals panel inline in the right column (default) vs float it over the page.
           checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? false : v === '1'; } catch (_) { return false; } })(),
@@ -32509,6 +32534,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.meAiChecklistItems().filter(t => !bk || this._meAiGoalKey(t) !== bk);
         },
         meAiRegularOpenCount() { return this.meAiRegularGoals().filter(t => !t.done).length; },
+        // Goals panel tabs (owner ask): as goals are marked done / need-more-time /
+        // didn't-get-to, move them off the Open tab so the working list shrinks — but keep
+        // every bucket one click away for review or to pull something back.
+        _meAiGoalInTab(t, tab) {
+          const s = this.meAiTodoStatus(t);
+          if (tab === 'open') return s === 'open';
+          return s === tab; // 'partial' | 'missed' | 'done'
+        },
+        meAiGoalTabCount(tab) { return this.meAiChecklistItems().filter(t => this._meAiGoalInTab(t, tab)).length; },
+        meAiGoalTabs() {
+          return [
+            { key: 'open', label: 'Open' },
+            { key: 'partial', label: 'Need more time' },
+            { key: 'missed', label: "Didn't get to" },
+            { key: 'done', label: 'Done' }
+          ].map(x => Object.assign(x, { n: this.meAiGoalTabCount(x.key) }));
+        },
+        meAiSetGoalsTab(tab) { this.meai.goalsTab = tab; },
+        // Regular goals (non-big) filtered to the active tab.
+        meAiRegularGoalsTab() { return this.meAiRegularGoals().filter(t => this._meAiGoalInTab(t, this.meai.goalsTab)); },
+        // The big goal shows only when it belongs in the active tab.
+        meAiBigGoalInTab() { const b = this.meAiBigGoal(); return !!(b && this._meAiGoalInTab(b, this.meai.goalsTab)); },
         // Promote a goal to the day's big thing (toggle off if it already is the manual pick).
         meAiSetBigGoal(t) {
           const k = this._meAiGoalKey(t); if (!k) return;
