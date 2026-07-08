@@ -12772,6 +12772,8 @@
               .meai-cpage { position:fixed; z-index:55; background:var(--cp-bg); display:flex; flex-direction:column; overflow:hidden; }
               .meai-cpage-title { font-weight:650; font-size:15px; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-cpage-body { flex:1; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,460px); }
+              .meai-cpage-body.no-side { grid-template-columns:minmax(0,1fr); }
+              .meai-cpage-body.no-side .meai-cpage-conv { border-right:none; }
               .meai-cpage-conv, .meai-cpage-side { display:flex; flex-direction:column; min-width:0; min-height:0; }
               .meai-cpage-conv { border-right:1px solid var(--cp-border); }
               .meai-cpage-side { background:var(--cp-surface); }
@@ -13112,6 +13114,20 @@
               .meai-ev-milestone strong { color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
               .meai-ev-choice { color:var(--cp-text); }
               .meai-ev-choice strong { color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
+              /* Conversational bubbles — your messages, agent answers, reports and errors live in the flow. */
+              .meai-msg { display:flex; margin:10px 0; }
+              .meai-msg.user { justify-content:flex-end; }
+              .meai-msg.agent { justify-content:flex-start; }
+              .meai-bubble { max-width:min(84%,620px); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 14px); padding:9px 13px; background:var(--cp-surface); font-size:13.5px; line-height:1.55; color:var(--cp-text); }
+              .meai-msg.user .meai-bubble { background:var(--cp-accent); color:var(--cp-accent-fg, #fff); border-color:transparent; }
+              .meai-bubble-report { max-width:min(92%,720px); }
+              .meai-bubble-error { border-color:var(--cp-danger); }
+              .meai-bubble-error .meai-bubble-h { color:var(--cp-danger); }
+              .meai-bubble-h { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); margin-bottom:4px; }
+              .meai-msg.user .meai-bubble-h { color:color-mix(in srgb, var(--cp-accent-fg, #fff) 82%, transparent); }
+              .meai-msg-sum { font-size:13.5px; color:var(--cp-text); line-height:1.55; }
+              .meai-msg-route { text-align:center; font-size:12px; color:var(--cp-text-muted); padding:5px 8px; }
+              .meai-bubble .md-output { background:transparent; border:0; padding:0; margin-top:6px; }
               .meai-report { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:14px 16px; margin:12px 0; background:var(--cp-surface); }
               .meai-report.compact { padding:8px 12px; background:transparent; border-style:dashed; opacity:.85; }
               .meai-report-toggle { display:flex; align-items:center; gap:6px; width:100%; background:none; border:0; padding:2px 0; cursor:pointer; font-size:12.5px; color:var(--cp-text-muted); text-align:left; }
@@ -14043,6 +14059,35 @@
                         </div>
                       </div>
                     </template>
+                    <!-- Timing constraints you've set (honored across every re-plan) -->
+                    <template x-if="meAiConstraints().length">
+                      <div class="meai-peek-sec" :class="{ pinned: meAiPeekPinned('cons') }" :style="'order:'+meAiPeekPos('cons')">
+                        <div class="meai-peek-sec-head" @click="meAiPeekPinToggle('cons')">
+                          <span class="meai-peek-sec-ico">🔒</span>
+                          <span class="meai-peek-sec-title">Timing constraints</span>
+                          <span class="meai-peek-sec-count" x-text="meAiConstraints().length"></span>
+                          <span class="meai-peek-sec-ctl">
+                            <button type="button" class="meai-peek-sec-move" @click.stop="meAiPeekMove('cons',-1)" :disabled="meAiPeekFirst('cons')" title="Move up">▲</button>
+                            <button type="button" class="meai-peek-sec-move" @click.stop="meAiPeekMove('cons',1)" :disabled="meAiPeekLast('cons')" title="Move down">▼</button>
+                            <button type="button" class="meai-peek-sec-pin" @click.stop="meAiPeekPinToggle('cons')" :title="meAiPeekPinned('cons')?'Unpin':'Pin open'" x-text="meAiPeekPinned('cons')?'📌':'📍'"></button>
+                          </span>
+                        </div>
+                        <div class="meai-peek-sec-body">
+                          <div class="meai-sec-hint">Hard deadlines you've stated — enforced every time the day re-plans.</div>
+                          <template x-for="c in meAiConstraints()" :key="c.id">
+                            <div class="meai-dismissed-row">
+                              <span style="flex:1">
+                                <span x-text="meAiConstraintText(c)"></span>
+                                <span x-show="c.satisfied===false" style="color:var(--cp-danger,#c0392b)" title="Not honored in the current plan"> · not honored</span>
+                                <span x-show="c.satisfied===null" style="color:var(--cp-text-muted)" title="This work isn't on today's agenda"> · not scheduled today</span>
+                              </span>
+                              <button type="button" class="meai-restore" @click="meAiClearConstraint(c)">Clear</button>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
                     <!-- Removed today -->
                     <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
                       <div class="meai-peek-sec" :class="{ pinned: meAiPeekPinned('rm') }" :style="'order:'+meAiPeekPos('rm')">
@@ -14171,7 +14216,7 @@
                   <button class="btn ghost" type="button" @click="meAiAbandon()" :disabled="!meAiCanAbandon() || meai.consoleBusy" title="Close this Me agent without recording it as done — nothing is logged to your diary or agenda." x-show="meai.console.stage!=='done'">Abandon</button>
                   <button class="btn primary" type="button" @click="meAiComplete()" :disabled="!meAiCanComplete() || meai.consoleBusy" title="Mark the work done — logs the outcome to your diary and checks it off today's board. Use Abandon if the work wasn't actually delivered.">Mark task complete</button>
                 </div>
-                <div class="meai-cpage-body">
+                <div class="meai-cpage-body" :class="{ 'no-side': !meAiConsoleShowSide() }">
                   <!-- LEFT panel: Conversation -->
                   <div class="meai-cpage-conv">
                     <div class="meai-cpage-head">Conversation</div>
@@ -14208,27 +14253,124 @@
                           <div class="meai-attn-foot" x-text="meAiLaneApprovalNeeded(meai.console) ? 'Approve or decline on the right →' : 'Answer below ↓'"></div>
                         </div>
                       </template>
-                      <!-- Live transcript -->
+                      <!-- Live transcript — a real conversation: your messages, agent answers, reports and problems in the flow. -->
                       <template x-for="(ev, ei) in (meai.console.events||[])" :key="ev.seq || ei">
-                        <div class="meai-ev" x-show="meai.traceOpen || !['thinking','tool_start','tool_complete','agent'].includes(ev.kind)">
-                          <span class="meai-ev-ico" x-text="meAiEventIcon(ev.kind)"></span>
-                          <div>
-                            <template x-if="ev.kind==='thinking'"><span class="meai-ev-thinking" x-text="ev.text"></span></template>
-                            <template x-if="ev.kind==='tool_start'"><span class="meai-ev-tool"><span x-text="ev.tool"></span> <code x-show="ev.args" x-text="ev.args"></code></span></template>
-                            <template x-if="ev.kind==='tool_complete'"><span class="meai-ev-tool" :style="ev.success===false ? 'color:var(--cp-danger)' : ''"><span x-text="ev.tool"></span> <span x-text="ev.success===false ? 'failed' : 'done'"></span></span></template>
-                            <template x-if="ev.kind==='agent'"><span class="meai-ev-note">Using agent: <span x-text="ev.name"></span></span></template>
-                            <template x-if="ev.kind==='stage'"><span class="meai-ev-note" x-text="meAiTaskStageLabel(ev.stage)"></span></template>
-                            <template x-if="ev.kind==='note' && /^You (chose|answered|replied)/.test(ev.text||'')"><span class="meai-ev-choice"><strong>Your response:</strong> <span x-text="(ev.text||'').replace(/^You (chose|answered|replied):\s*/,'')"></span></span></template>
-                            <template x-if="ev.kind==='note' && !/^You (chose|answered|replied)/.test(ev.text||'')"><span class="meai-ev-note" x-text="ev.text"></span></template>
-                            <template x-if="ev.kind==='question'"><span class="meai-ev-ask"><strong>Asked you:</strong> <span x-text="ev.text"></span></span></template>
-                            <template x-if="ev.kind==='report'"><span class="meai-ev-milestone"><strong>What I did:</strong> <span x-text="ev.summary || 'Produced a report.'"></span></span></template>
-                            <template x-if="ev.kind==='error'"><span class="meai-ev-error" x-text="ev.text"></span></template>
+                        <div>
+                          <!-- Thinking / tool / sub-agent trace: compact rows, gated behind the toggle -->
+                          <div class="meai-ev" x-show="meai.traceOpen && ['thinking','tool_start','tool_complete','agent'].includes(ev.kind)">
+                            <span class="meai-ev-ico" x-text="meAiEventIcon(ev.kind)"></span>
+                            <div>
+                              <template x-if="ev.kind==='thinking'"><span class="meai-ev-thinking" x-text="ev.text"></span></template>
+                              <template x-if="ev.kind==='tool_start'"><span class="meai-ev-tool"><span x-text="ev.tool"></span> <code x-show="ev.args" x-text="ev.args"></code></span></template>
+                              <template x-if="ev.kind==='tool_complete'"><span class="meai-ev-tool" :style="ev.success===false ? 'color:var(--cp-danger)' : ''"><span x-text="ev.tool"></span> <span x-text="ev.success===false ? 'failed' : 'done'"></span></span></template>
+                              <template x-if="ev.kind==='agent'"><span class="meai-ev-note">Using agent: <span x-text="ev.name"></span></span></template>
+                            </div>
                           </div>
+                          <!-- Stage transitions + system narration → quiet centered route line -->
+                          <template x-if="ev.kind==='stage'"><div class="meai-msg-route" x-text="meAiTaskStageLabel(ev.stage)"></div></template>
+                          <template x-if="ev.kind==='note' && !/^You (chose|answered|replied)/.test(ev.text||'')"><div class="meai-msg-route" x-text="ev.text"></div></template>
+                          <!-- Your responses / choices / approvals → right-aligned accent bubble -->
+                          <template x-if="ev.kind==='note' && /^You (chose|answered|replied)/.test(ev.text||'')">
+                            <div class="meai-msg user"><div class="meai-bubble"><div class="meai-bubble-h">You</div><span x-text="(ev.text||'').replace(/^You (chose|answered|replied):\s*/,'')"></span></div></div>
+                          </template>
+                          <!-- Agent asked you a question → left agent bubble -->
+                          <template x-if="ev.kind==='question'">
+                            <div class="meai-msg agent"><div class="meai-bubble"><div class="meai-bubble-h">Agent · asked you</div><span x-text="ev.text"></span></div></div>
+                          </template>
+                          <!-- Report checkpoint → inline agent report bubble; click to read the full write-up (chronological history) -->
+                          <template x-if="ev.kind==='report'">
+                            <div class="meai-msg agent"><div class="meai-bubble meai-bubble-report">
+                              <div class="meai-bubble-h">Agent · report</div>
+                              <div class="meai-msg-sum" x-text="ev.summary || 'Produced a report.'"></div>
+                              <template x-if="ev.markdown && (ev.markdown||'').trim() && (ev.markdown||'').trim() !== (ev.summary||'').trim()">
+                                <div class="meai-prev">
+                                  <button type="button" class="meai-prev-h" @click="meAiToggleEvMd(ev.seq || ei)">
+                                    <span class="meai-prev-caret" :class="{open:meAiEvMdOpen(ev.seq || ei)}">▸</span>
+                                    <span>Full write-up</span>
+                                  </button>
+                                  <div class="meai-brief-body md-output" x-show="meAiEvMdOpen(ev.seq || ei)" x-html="renderMarkdown(ev.markdown)"></div>
+                                </div>
+                              </template>
+                            </div></div>
+                          </template>
+                          <!-- Errors → left agent bubble, danger-tinted -->
+                          <template x-if="ev.kind==='error'">
+                            <div class="meai-msg agent"><div class="meai-bubble meai-bubble-error"><div class="meai-bubble-h">Agent · problem</div><span x-text="ev.text"></span></div></div>
+                          </template>
                         </div>
                       </template>
                       <div class="meai-working" x-show="meai.console.status==='running'">
                         <span class="meai-lane-spin"></span> Me agent is working…<span x-show="meAiWorkingStatus()" x-text="' ' + meAiWorkingStatus()" style="color:var(--cp-text-muted);font-variant-numeric:tabular-nums"></span>
                       </div>
+                      <!-- Deliverable: the structured report (findings / changes / draft / brief / full response) lands
+                           inline as the agent's final message — a natural part of the conversation, not a side panel. -->
+                      <template x-if="meAiReportHasDetail()">
+                        <div class="meai-msg agent"><div class="meai-bubble meai-bubble-report">
+                          <div class="meai-bubble-h">Agent · what I found</div>
+                          <template x-for="(f, fi) in (meai.console.report.findings||[])" :key="fi">
+                            <div class="meai-finding">
+                              <div class="meai-finding-t"><span class="meai-sev" :class="f.severity" x-text="(f.severity||'').toUpperCase()"></span><span x-text="f.title"></span></div>
+                              <div class="meai-finding-d" x-show="f.detail" x-text="f.detail"></div>
+                            </div>
+                          </template>
+                          <!-- §7.4 diff preview: collapsed by default, expandable -->
+                          <template x-if="meai.console.report.diff">
+                            <div class="meai-prev">
+                              <button type="button" class="meai-prev-h" @click="meai.diffOpen=!meai.diffOpen">
+                                <span class="meai-prev-caret" :class="{open:meai.diffOpen}">▸</span>
+                                <span>Changes</span>
+                                <span class="meai-prev-stat" x-text="meAiDiffStat(meai.console.report.diff)"></span>
+                              </button>
+                              <div class="meai-diff" x-show="meai.diffOpen">
+                                <template x-for="(ln, li) in meAiDiffLines(meai.console.report.diff)" :key="li">
+                                  <div class="meai-diff-ln" :class="ln.t" x-text="ln.s"></div>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                          <!-- §7.4 draft preview (comms): collapsed by default, expandable -->
+                          <template x-if="meai.console.report.draft">
+                            <div class="meai-prev">
+                              <button type="button" class="meai-prev-h" @click="meai.draftOpen=!meai.draftOpen">
+                                <span class="meai-prev-caret" :class="{open:meai.draftOpen}">▸</span>
+                                <span>Draft</span>
+                                <span class="meai-prev-stat" x-text="(meai.console.report.draft||'').split(/\s+/).filter(Boolean).length + ' words'"></span>
+                              </button>
+                              <div class="meai-draft" x-show="meai.draftOpen">
+                                <pre class="meai-draft-body" x-text="meai.console.report.draft"></pre>
+                                <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyDraft()">Copy</button>
+                              </div>
+                            </div>
+                          </template>
+                          <!-- meeting-prep brief: the deliverable, rendered from Markdown, open by default -->
+                          <template x-if="meAiBriefText()">
+                            <div class="meai-prev">
+                              <button type="button" class="meai-prev-h" @click="meai.briefOpen=!meai.briefOpen">
+                                <span class="meai-prev-caret" :class="{open:meai.briefOpen}">▸</span>
+                                <span>Meeting brief</span>
+                                <span class="meai-prev-stat" x-text="meAiBriefText().split(/\s+/).filter(Boolean).length + ' words'"></span>
+                              </button>
+                              <div class="meai-brief" x-show="meai.briefOpen">
+                                <div class="meai-brief-body" x-html="meAiBriefHtml(meAiBriefText())"></div>
+                                <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyBrief()">Copy</button>
+                              </div>
+                            </div>
+                          </template>
+                          <!-- Full response: the agent's own prose (report.markdown). Surfaced whenever present and
+                               not already shown as the meeting brief — fixes the "provided below in the brief" mystery
+                               where instructions written into the report were never displayed. Open by default when it's
+                               the only detail the agent produced. -->
+                          <template x-if="meAiReportMarkdown()">
+                            <div class="meai-prev">
+                              <button type="button" class="meai-prev-h" @click="meai.mdOpen=!meai.mdOpen">
+                                <span class="meai-prev-caret" :class="{open:meai.mdOpen}">▸</span>
+                                <span>Full response</span>
+                              </button>
+                              <div class="meai-brief-body md-output" x-show="meai.mdOpen" x-html="renderMarkdown(meAiReportMarkdown())"></div>
+                            </div>
+                          </template>
+                        </div></div>
+                      </template>
                     </div>
                     <div class="meai-dr-foot">
                       <!-- Mid-run question gate (§7.3): the agent paused and needs an answer -->
@@ -14258,9 +14400,10 @@
                       </div>
                     </div>
                   </div>
-                  <!-- RIGHT panel: Report & approvals -->
-                  <div class="meai-cpage-side">
-                    <div class="meai-cpage-head">Report &amp; approvals</div>
+                  <!-- RIGHT panel: Approvals only (the report now lands inline in the conversation). Shown
+                       only when the agent is waiting on an approval; otherwise the console is full-width. -->
+                  <div class="meai-cpage-side" x-show="meAiConsoleShowSide()">
+                    <div class="meai-cpage-head">Approvals</div>
                     <div class="meai-cpage-scroll">
                       <!-- Approval gate: list proposed write/external actions; the agent WAITS until each
                            is addressed; Proceed carries out the approved ones (skipping declined) + note. -->
@@ -14290,70 +14433,6 @@
                             <button class="btn primary" type="button" @click="meAiProceed()" :disabled="meai.consoleBusy || !meAiCanProceed()">Proceed</button>
                           </div>
                         </div>
-                      </template>
-                      <!-- Report -->
-                      <template x-if="meAiHasReport()">
-                        <div class="meai-dr-reportview">
-                          <div class="meai-report">
-                            <h5>Report</h5>
-                            <div>
-                            <div class="meai-report-sum" x-text="meai.console.report.summary"></div>
-                            <template x-for="(f, fi) in (meai.console.report.findings||[])" :key="fi">
-                              <div class="meai-finding">
-                                <div class="meai-finding-t"><span class="meai-sev" :class="f.severity" x-text="(f.severity||'').toUpperCase()"></span><span x-text="f.title"></span></div>
-                                <div class="meai-finding-d" x-show="f.detail" x-text="f.detail"></div>
-                              </div>
-                            </template>
-                            <!-- §7.4 diff preview: collapsed by default, expandable -->
-                            <template x-if="meai.console.report.diff">
-                              <div class="meai-prev">
-                                <button type="button" class="meai-prev-h" @click="meai.diffOpen=!meai.diffOpen">
-                                  <span class="meai-prev-caret" :class="{open:meai.diffOpen}">▸</span>
-                                  <span>Changes</span>
-                                  <span class="meai-prev-stat" x-text="meAiDiffStat(meai.console.report.diff)"></span>
-                                </button>
-                                <div class="meai-diff" x-show="meai.diffOpen">
-                                  <template x-for="(ln, li) in meAiDiffLines(meai.console.report.diff)" :key="li">
-                                    <div class="meai-diff-ln" :class="ln.t" x-text="ln.s"></div>
-                                  </template>
-                                </div>
-                              </div>
-                            </template>
-                            <!-- §7.4 draft preview (comms): collapsed by default, expandable -->
-                            <template x-if="meai.console.report.draft">
-                              <div class="meai-prev">
-                                <button type="button" class="meai-prev-h" @click="meai.draftOpen=!meai.draftOpen">
-                                  <span class="meai-prev-caret" :class="{open:meai.draftOpen}">▸</span>
-                                  <span>Draft</span>
-                                  <span class="meai-prev-stat" x-text="(meai.console.report.draft||'').split(/\s+/).filter(Boolean).length + ' words'"></span>
-                                </button>
-                                <div class="meai-draft" x-show="meai.draftOpen">
-                                  <pre class="meai-draft-body" x-text="meai.console.report.draft"></pre>
-                                  <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyDraft()">Copy</button>
-                                </div>
-                              </div>
-                            </template>
-                            <!-- meeting-prep brief: the deliverable, rendered from Markdown, open by default -->
-                            <template x-if="meAiBriefText()">
-                              <div class="meai-prev">
-                                <button type="button" class="meai-prev-h" @click="meai.briefOpen=!meai.briefOpen">
-                                  <span class="meai-prev-caret" :class="{open:meai.briefOpen}">▸</span>
-                                  <span>Meeting brief</span>
-                                  <span class="meai-prev-stat" x-text="meAiBriefText().split(/\s+/).filter(Boolean).length + ' words'"></span>
-                                </button>
-                                <div class="meai-brief" x-show="meai.briefOpen">
-                                  <div class="meai-brief-body" x-html="meAiBriefHtml(meAiBriefText())"></div>
-                                  <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyBrief()">Copy</button>
-                                </div>
-                              </div>
-                            </template>
-                            </div>
-                          </div>
-                        </div>
-                      </template>
-                      <!-- Empty state: no report and nothing to approve yet -->
-                      <template x-if="!meAiHasReport() && !(meai.console.status!=='running' && meAiConsoleApprovals().length)">
-                        <div class="meai-cpage-empty" x-text="meai.console.status==='running' ? 'The agent is still working — its report and any approvals will appear here.' : 'No report yet.'"></div>
                       </template>
                     </div>
                   </div>
@@ -23333,6 +23412,8 @@
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
           briefOpen: true,       // meeting-prep brief preview (deliverable — open by default)
+          mdOpen: false,         // report.markdown "Full response" expander (item 6)
+          _evMdOpen: {},         // per-report-event "Full write-up" expand map { seq: bool }
           reportOpen: false,     // report card force-expanded while a question is pending
           lookahead: [],         // next 5 work days (light per-day summary) — the week-ahead strip
           lookaheadLoading: false,
@@ -23373,7 +23454,7 @@
           // Stacked digest sections (Suggestions / Needs attention / Didn't fit / Rolled over /
           // Removed): visual order + which are pinned open. Persisted to localStorage.
           peekOrder: (() => {
-            const def = ['sugg','na','bk','ro','rm','triaged','autotriaged'];
+            const def = ['sugg','na','cons','bk','ro','rm','triaged','autotriaged'];
             try {
               const raw = JSON.parse(localStorage.getItem('meai-peek-order') || 'null');
               if (Array.isArray(raw) && raw.length) {
@@ -30905,7 +30986,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Short human label for a proposed action (button text).
         meAiAsstLabel(a) {
           if (!a) return 'Apply';
-          const m = { add_block: '＋ Add block', add_recurring: '＋ Add recurring', split_item: 'Split', remove_item: '🗑 Remove', dismiss_item: '🗑 Not mine', set_mode: 'Set mode', set_time_pref: 'Set preference', set_hours: 'Set hours', set_grid: 'Set grid', set_work_days: 'Set work days', add_todo: '＋ Add to-do', remove_todo: '🗑 Remove to-do', triage_inbox: 'Apply', regenerate: '↻ Regenerate' };
+          const m = { add_block: '＋ Add block', add_recurring: '＋ Add recurring', split_item: 'Split', remove_item: '🗑 Remove', dismiss_item: '🗑 Not mine', set_mode: 'Set mode', set_time_pref: 'Set preference', set_hours: 'Set hours', set_grid: 'Set grid', set_work_days: 'Set work days', add_todo: '＋ Add to-do', remove_todo: '🗑 Remove to-do', set_constraint: '🔒 Set constraint', clear_constraint: 'Clear constraint', triage_inbox: 'Apply', regenerate: '↻ Regenerate' };
           return a.label || m[a.type] || 'Apply';
         },
         // Apply one proposed assistant action by dispatching to the right endpoint,
@@ -30954,6 +31035,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.meai.todos = this.meai.todos.filter(t => String(t.title || '').toLowerCase() !== key);
               await this.meAiPersistTodos();
               refreshed = this.meai.agenda;
+            } else if (a.type === 'set_constraint') {
+              refreshed = await this._meAiOverride({ date, op: 'add_constraint', subject: a.subject, kind: a.kind, time: a.time, text: a.text });
+            } else if (a.type === 'clear_constraint') {
+              refreshed = await this._meAiOverride({ date, op: 'clear_constraint', subject: a.subject, id: a.id });
             } else if (a.type === 'triage_inbox') {
               const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date, id: a.id, action: a.action }) });
               if (r && r.agenda) refreshed = r.agenda;
@@ -31867,6 +31952,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           switch (key) {
             case 'sugg': return ((a.suggestions || []).length) > 0;
             case 'na':   return (this.meAiNeedsAttentionList() || []).length > 0;
+            case 'cons': return (this.meAiConstraints() || []).length > 0;
             case 'bk':   return ((a.backlog || []).length) > 0;
             case 'ro':   return ((a.rollover || []).length) > 0;
             case 'rm':   return ((a.dismissed || []).length) > 0;
@@ -31961,6 +32047,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               body: JSON.stringify({ date: this.meai.date, id }),
             });
           } catch (e) { this.toast('Could not dismiss: ' + (e.message || e), 'error'); }
+        },
+        // ── Timing constraints ("I need X before 1:30 PM") ──────────────────
+        // Read the constraints stamped onto the built agenda (meta.constraints carries the
+        // stored constraint plus its honored/scheduled state from the enforce pass).
+        meAiConstraints() {
+          try { return ((this.meai.agenda && this.meai.agenda.meta && this.meai.agenda.meta.constraints) || []).filter(Boolean); }
+          catch (_) { return []; }
+        },
+        meAiConstraintText(c) {
+          if (!c) return '';
+          if (c.text) return c.text;
+          const kind = c.kind === 'after' ? 'after' : c.kind === 'at' ? 'at' : 'before';
+          const t = this.meAiFmtTime ? this.meAiFmtTime(c.time) : (c.time || '');
+          return (c.subject || 'This') + ' ' + kind + ' ' + t;
+        },
+        async meAiClearConstraint(c) {
+          if (!c) return;
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date, op: 'clear_constraint', id: c.id, subject: c.subject }),
+            });
+            if (r && r.agenda) { this.meai.agenda = r.agenda; this._meAiSyncTodos(r.agenda); }
+            this.toast('Constraint cleared', 'success');
+          } catch (e) { this.toast('Could not clear: ' + (e.message || e), 'error'); }
         },
         async meAiUndismiss(key) {
           try {
@@ -32416,6 +32527,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!r) return false;
           return !!(r.summary || (r.findings || []).length || r.diff || r.draft || this.meAiBriefText());
         },
+        // The agent's own prose (report.markdown) surfaced whenever present and NOT already shown as
+        // the meeting brief. Fixes item 6: a summary saying "provided below in the brief" while the
+        // actual write-up lived only in report.markdown and was never displayed for non-prep tasks.
+        meAiReportMarkdown() {
+          const c = this.meai.console;
+          const r = c && c.report;
+          if (!r || !r.markdown) return '';
+          const md = String(r.markdown).trim();
+          if (!md) return '';
+          const brief = this.meAiBriefText();
+          if (brief && String(brief).trim() === md) return ''; // already shown as the brief (prep fallback)
+          return r.markdown;
+        },
+        // True when the inline "what I found" deliverable card has structure worth rendering (beyond the
+        // bare summary, which already appears as a report bubble in the transcript).
+        meAiReportHasDetail() {
+          const r = this.meai.console && this.meai.console.report;
+          if (!r) return false;
+          return !!((r.findings || []).length || r.diff || r.draft || this.meAiBriefText() || this.meAiReportMarkdown());
+        },
+        // The right-hand panel now holds ONLY the approval gate. Show it (and switch the console to two
+        // columns) only when an approval is actually pending; otherwise the conversation is full-width.
+        meAiConsoleShowSide() {
+          const c = this.meai.console;
+          if (!c) return false;
+          return !c.question && c.status !== 'running' && this.meAiConsoleApprovals().length > 0;
+        },
+        // Per-report-event "Full write-up" expander state (chronological report bubbles in the transcript).
+        meAiEvMdOpen(k) { return !!this.meai._evMdOpen[k]; },
+        meAiToggleEvMd(k) { this.meai._evMdOpen = { ...this.meai._evMdOpen, [k]: !this.meai._evMdOpen[k] }; },
         _meAiDecisions() {
           const id = this.meai.console && this.meai.console.id;
           if (!id) return {};
@@ -33397,7 +33538,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // fan-out canvas. Route straight there instead of the compact flyout
           // drawer (the drawer is only for simple single-thread tasks).
           if (cached && cached.mode === 'tree') { this.meAiPursuitOpen(id); return; }
-          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false; this.meai.consoleTab = 'chat';
+          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false; this.meai.consoleTab = 'chat'; this.meai.mdOpen = false; this.meai._evMdOpen = {};
           const t = cached;
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => { this._meAiConsoleScroll(); this.meAiConsoleFrame(); this._meAiConsoleObserve(); }); }
@@ -33434,7 +33575,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             t.background = true;
             this.meAiLoadTasks();
           }
-          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false; this.meai.consoleTab = 'chat';
+          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false; this.meai.consoleTab = 'chat'; this.meai.mdOpen = false; this.meai._evMdOpen = {};
         },
         // #9 count of collapsible process events (thinking/tools/agent) in the open console.
         meAiTraceCount() {

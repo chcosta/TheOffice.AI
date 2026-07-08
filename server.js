@@ -262,6 +262,14 @@ function _deleteCfWt(key) {
 // the process a run that blows a generous hard cap is treated as hung.
 const _cfActiveReviews = new Set();            // wt keys with a run live in THIS process
 const CF_REVIEW_MAX_MS = 60 * 60 * 1000;       // hard cap: 60 min even if flagged active
+// A plain "Create worktree" (no review) also persists worktreeStatus:'creating'
+// BEFORE its fire-and-forget clone starts, with no reviewStatus alongside it. That
+// clone can't survive a restart either, so track live creates the same way we track
+// live reviews — at boot the set is empty, so any 'creating' record is by definition
+// orphaned and must be unstuck (the card is otherwise pinned on "Creating worktree…"
+// forever with no way to recover).
+const _cfActiveWorktrees = new Set();          // wt keys with a create live in THIS process
+const CF_WORKTREE_MAX_MS = 20 * 60 * 1000;     // hard cap: 20 min even if flagged active
 function _reconcileStaleReviews() {
   let map;
   try { map = loadCodeflowWorktrees(); } catch { return false; }
@@ -269,21 +277,43 @@ function _reconcileStaleReviews() {
   let changed = false;
   for (const k of Object.keys(map)) {
     const r = map[k];
-    if (!r || r.reviewStatus !== 'reviewing') continue;
-    // Genuinely running in THIS process — leave it unless it blew the hard cap.
-    if (_cfActiveReviews.has(k)) {
-      const started = Date.parse(r.reviewStartedAt || r.updatedAt || '') || 0;
-      if (started && (now - started) < CF_REVIEW_MAX_MS) continue;
+    if (!r) continue;
+    const patch = {};
+    // (1) Orphaned review: persisted 'reviewing' but not live here (or blew the cap).
+    if (r.reviewStatus === 'reviewing') {
+      let orphaned = true;
+      if (_cfActiveReviews.has(k)) {
+        const started = Date.parse(r.reviewStartedAt || r.updatedAt || '') || 0;
+        if (started && (now - started) < CF_REVIEW_MAX_MS) orphaned = false;
+      }
+      if (orphaned) {
+        patch.reviewStatus = 'error';
+        patch.reviewError = 'The review didn’t finish — it was interrupted (server restart) or timed out. Run it again.';
+        patch.reviewFinishedAt = new Date().toISOString();
+        // A worktree caught mid-create alongside the orphaned review is untrustworthy too.
+        if (r.worktreeStatus === 'creating') { patch.worktreeStatus = 'error'; patch.error = r.error || 'Worktree creation was interrupted.'; }
+      }
     }
-    map[k] = Object.assign({}, r, {
-      reviewStatus: 'error',
-      reviewError: 'The review didn’t finish — it was interrupted (server restart) or timed out. Run it again.',
-      reviewFinishedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      // A worktree caught mid-create alongside the orphaned review is untrustworthy too.
-      ...(r.worktreeStatus === 'creating' ? { worktreeStatus: 'error', error: r.error || 'Worktree creation was interrupted.' } : {})
-    });
-    changed = true;
+    // (2) Orphaned standalone create: 'creating' with no live create in this process
+    //     (independent of any review — the plain "Create worktree" path). Guard against
+    //     a live review that is legitimately mid-clone (tracked in _cfActiveReviews).
+    if (patch.worktreeStatus !== 'error' && r.worktreeStatus === 'creating') {
+      let orphaned = true;
+      if (_cfActiveWorktrees.has(k)) {
+        const started = Date.parse(r.worktreeStartedAt || r.updatedAt || '') || 0;
+        if (started && (now - started) < CF_WORKTREE_MAX_MS) orphaned = false;
+      }
+      if (orphaned && _cfActiveReviews.has(k)) {
+        const started = Date.parse(r.reviewStartedAt || r.updatedAt || '') || 0;
+        if (started && (now - started) < CF_REVIEW_MAX_MS) orphaned = false;
+      }
+      if (orphaned) { patch.worktreeStatus = 'error'; patch.error = r.error || 'Worktree creation was interrupted — it was cut off by a server restart or timed out. Retry it.'; }
+    }
+    if (Object.keys(patch).length) {
+      patch.updatedAt = new Date().toISOString();
+      map[k] = Object.assign({}, r, patch);
+      changed = true;
+    }
   }
   if (changed) { try { saveCodeflowWorktrees(map); } catch { return false; } }
   return changed;
@@ -3728,9 +3758,10 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
     prTitle: pr.title || '', prUrl: pr.url || '',
     sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
     prStatus: String(pr.status || '').toLowerCase(),
-    worktreeStatus: 'creating', error: null
+    worktreeStatus: 'creating', error: null, worktreeStartedAt: new Date().toISOString()
   });
   res.json({ ok: true, status: 'creating', key });
+  _cfActiveWorktrees.add(key);   // mark live so the watchdog leaves it alone until done
   (async () => {
     try {
       const r = await devitems.createWorktreeAsync({
@@ -3755,6 +3786,8 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
       _saveCfWt(key, save);
     } catch (e) {
       _saveCfWt(key, { worktreeStatus: 'error', error: (e && e.message) || 'Worktree failed' });
+    } finally {
+      _cfActiveWorktrees.delete(key);   // create is over — watchdog may now reconcile if needed
     }
   })();
 });
@@ -11965,7 +11998,7 @@ function _meAiOverridesPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
   return path.join(ME_AI_OVERRIDES_DIR, `${safe}.json`);
 }
-function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], renames: [], locks: [], dayStart: '', dayEnd: '' }; }
+function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], renames: [], locks: [], constraints: [], dayStart: '', dayEnd: '' }; }
 function loadMeAiOverrides(date) {
   try {
     const p = _meAiOverridesPath(date);
@@ -11979,6 +12012,7 @@ function loadMeAiOverrides(date) {
       removedItems: Array.isArray(v.removedItems) ? v.removedItems : [],
       renames: Array.isArray(v.renames) ? v.renames : [],
       locks: Array.isArray(v.locks) ? v.locks : [],
+      constraints: Array.isArray(v.constraints) ? v.constraints : [],
       dayStart: typeof v.dayStart === 'string' ? v.dayStart : '',
       dayEnd: typeof v.dayEnd === 'string' ? v.dayEnd : '',
     };
@@ -11993,6 +12027,7 @@ function saveMeAiOverrides(date, ov) {
     removedItems: Array.isArray(ov && ov.removedItems) ? ov.removedItems : [],
     renames: Array.isArray(ov && ov.renames) ? ov.renames : [],
     locks: Array.isArray(ov && ov.locks) ? ov.locks : [],
+    constraints: Array.isArray(ov && ov.constraints) ? ov.constraints : [],
     dayStart: (ov && typeof ov.dayStart === 'string') ? ov.dayStart : '',
     dayEnd: (ov && typeof ov.dayEnd === 'string') ? ov.dayEnd : '',
   };
@@ -12016,6 +12051,121 @@ function _meAiLockReservations(ov) {
     });
   }
   return out;
+}
+// ── Timing constraints (REQ: "I need self-epic review to happen before 1:30 PM") ──
+// Soft deadlines the user states in the agenda assistant. Persisted per-day in the
+// overrides store and re-applied on EVERY regenerate so a stated restriction is never
+// lost. Primary enforcement is the LLM refine prompt (it reads the constraints); this
+// deterministic pass then VERIFIES each one against the built day, nudges a violating
+// movable block onto the correct side of its deadline when a free slot exists, and
+// records satisfied/violated status on agenda.meta.constraints so the user can see it.
+function _meAiNormConstraints(ov) {
+  const out = [];
+  for (const c of ((ov && ov.constraints) || [])) {
+    if (!c || typeof c !== 'object') continue;
+    const kind = ['before', 'after', 'at'].includes(String(c.kind)) ? String(c.kind) : 'before';
+    const time = _hmToMin(c.time) != null ? String(c.time) : '';
+    const subject = String(c.subject || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!time || !subject) continue;
+    out.push({
+      id: String(c.id || ('c' + Math.random().toString(36).slice(2, 9))),
+      kind, time, subject,
+      text: String(c.text || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+      createdAt: c.createdAt || new Date().toISOString(),
+    });
+  }
+  return out;
+}
+function _meAiConstraintText(c) {
+  const when = c.kind === 'after' ? 'after' : c.kind === 'at' ? 'at' : 'before';
+  const m = _hmToMin(c.time);
+  let t = c.time;
+  if (m != null) { const h = Math.floor(m / 60), mm = m % 60, ap = h < 12 ? 'AM' : 'PM', h12 = ((h + 11) % 12) + 1; t = `${h12}:${String(mm).padStart(2, '0')} ${ap}`; }
+  return `"${c.subject}" ${when} ${t}`;
+}
+function _meAiConstraintMatches(block, subject) {
+  const sub = String(subject || '').toLowerCase();
+  if (!sub) return false;
+  const hay = [block.title, block.detail, block.link,
+    ...(Array.isArray(block.items) ? block.items.map(it => (it && it.title) || '') : [])]
+    .join(' ').toLowerCase();
+  // match if the block mentions the subject, OR the subject mentions the block title
+  if (hay.includes(sub)) return true;
+  const bt = String(block.title || '').toLowerCase();
+  return bt.length > 3 && sub.includes(bt);
+}
+// Deterministic verify + best-effort nudge. Mutates agenda.blocks/meta in place.
+function _meAiEnforceConstraints(agenda, cfg, date) {
+  const cons = _meAiNormConstraints(loadMeAiOverrides(date));
+  if (!cons.length) { if (agenda.meta) agenda.meta.constraints = []; return; }
+  const winStart = _hmToMin(cfg.workStart), winEnd = _hmToMin(cfg.workEnd);
+  const blocks = Array.isArray(agenda.blocks) ? agenda.blocks : [];
+  const isFixed = (b) => b && (b.type === 'meeting' || b.type === 'lunch' || (b.meta && (b.meta.locked || b.meta.manual)));
+  const occupied = () => blocks
+    .filter(b => _hmToMin(b.start) != null && _hmToMin(b.end) != null)
+    .map(b => ({ s: _hmToMin(b.start), e: _hmToMin(b.end), b }))
+    .sort((a, b) => a.s - b.s);
+  // find a free [start,end) window of `dur` on the required side of `deadline`
+  const findSlot = (dur, side, deadline, skip) => {
+    const busy = occupied().filter(x => x.b !== skip);
+    const lo = winStart, hi = winEnd;
+    let lower = lo, upper = hi;
+    if (side === 'before') upper = Math.min(hi, deadline);
+    else if (side === 'after') lower = Math.max(lo, deadline);
+    if (upper - lower < dur) return null;
+    // walk the gaps between busy intervals within [lower, upper]
+    let cursor = lower;
+    const inWin = busy.filter(x => x.e > lower && x.s < upper).sort((a, b) => a.s - b.s);
+    for (const iv of inWin) {
+      if (iv.s - cursor >= dur) return { s: cursor, e: cursor + dur };
+      cursor = Math.max(cursor, iv.e);
+      if (cursor >= upper) break;
+    }
+    if (upper - cursor >= dur) return { s: cursor, e: cursor + dur };
+    return null;
+  };
+  const out = [];
+  for (const c of cons) {
+    const deadline = _hmToMin(c.time);
+    const target = blocks.find(b => _meAiConstraintMatches(b, c.subject) && _hmToMin(b.start) != null && _hmToMin(b.end) != null);
+    if (!target) { out.push({ ...c, satisfied: null, note: 'not scheduled today' }); continue; }
+    const s = _hmToMin(target.start), e = _hmToMin(target.end);
+    let ok;
+    if (c.kind === 'before') ok = e <= deadline;
+    else if (c.kind === 'after') ok = s >= deadline;
+    else ok = s === deadline; // 'at'
+    if (ok) { out.push({ ...c, satisfied: true, start: target.start, end: target.end }); continue; }
+    // Violated. Try to move it (only if it's a movable block).
+    let moved = false;
+    if (!isFixed(target)) {
+      const dur = e - s;
+      let slot = null;
+      if (c.kind === 'at') {
+        // pin to the exact time only if that window is free of fixed blocks
+        const wants = { s: deadline, e: deadline + dur };
+        const clash = blocks.some(b => b !== target && isFixed(b) && _hmToMin(b.start) != null &&
+          _hmToMin(b.start) < wants.e && _hmToMin(b.end) > wants.s);
+        if (!clash && deadline >= winStart && wants.e <= winEnd) slot = wants;
+      } else {
+        slot = findSlot(dur, c.kind, deadline, target);
+      }
+      if (slot) {
+        target.start = _minToHm(slot.s); target.end = _minToHm(slot.e);
+        target.meta = Object.assign({}, target.meta, { constrained: true });
+        moved = true;
+      }
+    }
+    if (moved) {
+      const ns = _hmToMin(target.start), ne = _hmToMin(target.end);
+      const nowOk = c.kind === 'before' ? ne <= deadline : c.kind === 'after' ? ns >= deadline : ns === deadline;
+      out.push({ ...c, satisfied: nowOk, start: target.start, end: target.end, moved: true });
+    } else {
+      out.push({ ...c, satisfied: false, start: target.start, end: target.end, note: 'no free slot on the required side' });
+    }
+  }
+  if (agenda.meta) agenda.meta.constraints = out;
+  // Re-run overlap resolution so a nudged block doesn't collide.
+  try { _meAiResolvePinOverlaps(agenda, cfg); } catch (_) { /* best-effort */ }
 }
 function _meAiApplyRenames(blocks, ov) {
   const map = new Map();
@@ -13748,6 +13898,68 @@ function _meAiYieldOffMeetings(blocks, cfg) {
   return kept;
 }
 
+// Pre-conflict resolution: a regenerate can lay two COMMITTED blocks on top of each other
+// (an imminent pin re-emitted next to a fresh gather of the same slot; two held items whose
+// windows drifted into each other). Rather than just FLAG every such overlap as a "scheduling
+// conflict" (which is what the user saw — the day settled with N conflicts + duplicate lines),
+// first try to RESOLVE it by nudging the lower-priority MOVABLE block to just after the block
+// that outranks it, preserving its duration. Anchor rank (higher = more immovable):
+//   past history (5) > opted-in meeting (4) > manual lock (3) > imminent (2) > pinned (1) > 0.
+// The lower-ranked block of an overlapping pair slides to the higher one's end; ties break on
+// urgency (lower urgency yields) then start time (later yields). We NEVER move a past pin, an
+// opted-in meeting, or a manual lock (those are true anchors). If the nudge would push the
+// movable block past the work window it's left in place so _meAiDetectConflicts still surfaces
+// it as a genuine, unresolvable clash. Bounded, idempotent, best-effort.
+function _meAiResolvePinOverlaps(agenda, cfg) {
+  const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+  if (blocks.length < 2) return;
+  const flexible = t => t === 'focus' || t === 'open' || t === 'break';
+  const optedInMeeting = b => b && b.type === 'meeting' && !(b.meta && b.meta.attending === false);
+  const rankOf = (b) => {
+    const m = b.meta || {};
+    if (m.past) return 5;
+    if (optedInMeeting(b)) return 4;
+    if (m.manual || m.lock) return 3;
+    if (m.imminent) return 2;
+    if (m.pinned) return 1;
+    return 0;
+  };
+  // A block is a hard anchor (never moved) at rank >= 3, or any opted-in meeting / past pin.
+  const anchored = (b) => rankOf(b) >= 3;
+  const winEnd = (cfg && cfg.workEnd) ? _hmToMin(cfg.workEnd) : null;
+  // Committed (non-flexible) blocks only; open focus fill never conflicts.
+  const committed = () => blocks.filter(b => b && !flexible(b.type) && _hmToMin(b.start) != null && _hmToMin(b.end) != null);
+  for (let pass = 0; pass < 6; pass++) {
+    const list = committed().sort((x, y) => (_hmToMin(x.start) || 0) - (_hmToMin(y.start) || 0));
+    let moved = false;
+    for (let i = 0; i < list.length && !moved; i++) {
+      const a = list[i]; const as = _hmToMin(a.start), ae = _hmToMin(a.end);
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j]; const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+        if (Math.min(ae, be) <= Math.max(as, bs)) continue;   // no overlap
+        // Which one yields? The lower rank; tie → lower urgency; tie → later start.
+        const ra = rankOf(a), rb = rankOf(b);
+        let mover = null, anchor = null;
+        if (ra !== rb) { if (ra < rb) { mover = a; anchor = b; } else { mover = b; anchor = a; } }
+        else {
+          const ua = Number(a.urgency) || 0, ub = Number(b.urgency) || 0;
+          if (ua !== ub) { if (ua < ub) { mover = a; anchor = b; } else { mover = b; anchor = a; } }
+          else { if (as >= bs) { mover = a; anchor = b; } else { mover = b; anchor = a; } }
+        }
+        if (anchored(mover)) continue;                        // never move a hard anchor
+        const ms = _hmToMin(mover.start), me = _hmToMin(mover.end), dur = me - ms;
+        const anchorEnd = _hmToMin(anchor.end);
+        if (anchorEnd == null || dur <= 0) continue;
+        if (winEnd != null && anchorEnd + dur > winEnd) continue; // won't fit → leave as real conflict
+        mover.start = _minToHm(anchorEnd); mover.end = _minToHm(anchorEnd + dur);
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
 // Detect genuine double-books among the final blocks. A conflict is two COMMITTED blocks
 // whose times overlap; open/flexible focus fill is ignored, and an overlap with a meeting
 // the user did not opt into (meta.attending === false) is NOT a conflict (that meeting is
@@ -13881,7 +14093,12 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
     }[cfg.mode] || '';
     const prefPairs = Object.entries(cfg.timePrefs || {}).filter(([, v]) => v === 'morning' || v === 'afternoon').map(([k, v]) => `${k}→${v}`);
     const prefNote = prefPairs.length ? ` Respect these time-of-day preferences where the fixed schedule allows: ${prefPairs.join(', ')}.` : '';
-    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}\nRefine it: (1) keep all fixed meetings, lunch, and any personal/break/blocked commitments I reserved (e.g. workout, golf, protected focus) at their EXACT times and NEVER schedule other work over them; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
+    let consNote = '';
+    try {
+      const cons = _meAiNormConstraints(loadMeAiOverrides(date));
+      if (cons.length) consNote = ` HARD TIMING CONSTRAINTS I stated — honor these where physically possible: ${cons.map(_meAiConstraintText).join('; ')}. Schedule the named work on the correct side of each deadline.`;
+    } catch (_) { /* best-effort */ }
+    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}${consNote}\nRefine it: (1) keep all fixed meetings, lunch, and any personal/break/blocked commitments I reserved (e.g. workout, golf, protected focus) at their EXACT times and NEVER schedule other work over them; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
@@ -14834,6 +15051,13 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // should see — EXCEPT overlapping a meeting they did not explicitly opt into (declined /
   // not-attending meetings are informational and may be worked over). Flexible open-focus
   // fill never conflicts. Annotates blocks + records pairs on meta for a banner.
+  // Try to RESOLVE overlapping committed blocks first (nudge the movable, lower-priority one
+  // after its anchor) so a regenerate stops PRODUCING conflicts; only truly unresolvable
+  // clashes then remain for the detector to flag.
+  try { _meAiResolvePinOverlaps(agenda, cfg); } catch (_) { /* best-effort */ }
+  // Verify + gently enforce user-stated timing constraints ("X before 1:30 PM") against
+  // the built day; records satisfied/violated status on agenda.meta.constraints.
+  try { _meAiEnforceConstraints(agenda, cfg, day); } catch (_) { /* best-effort */ }
   try { _meAiDetectConflicts(agenda); } catch (_) { /* best-effort */ }
   // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
   agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
@@ -14872,6 +15096,7 @@ const ME_AI_ASSISTANT_ACTIONS = new Set([
   'add_block', 'add_recurring', 'split_item', 'remove_item', 'dismiss_item',
   'set_mode', 'set_time_pref', 'set_hours', 'set_grid', 'set_work_days',
   'add_todo', 'remove_todo', 'triage_inbox', 'regenerate', 'launch_me_agent',
+  'set_constraint', 'clear_constraint',
 ]);
 // Playbooks the agenda assistant may hand to a Me agent. Investigative ones fan
 // out on the pursuit canvas; execution ones run as a single flat agent.
@@ -15154,6 +15379,21 @@ function _meAiResolveAssistantAction(a, ctx) {
         label: pursue ? `Launch a ${kindLabel} pursuit` : `Launch a Me agent (${kindLabel})`,
         preview: (pursue ? 'Fans out on the canvas · ' : '') + title };
     }
+    case 'set_constraint': {
+      const kind = ['before', 'after', 'at'].includes(String(a.kind)) ? String(a.kind) : 'before';
+      if (!okHm(a.time)) return null;
+      const subject = clip(a.subject || a.title, 200);
+      if (!subject) return null;
+      const when = kind === 'after' ? 'after' : kind === 'at' ? 'at' : 'before';
+      return { type, subject, kind, time: String(a.time), text: clip(a.text, 300),
+        label: 'Set a timing constraint', preview: `"${subject}" ${when} ${a.time}` };
+    }
+    case 'clear_constraint': {
+      const subject = clip(a.subject || a.title, 200);
+      const id = clip(a.id, 60);
+      if (!subject && !id) return null;
+      return { type, subject, id, label: 'Remove a timing constraint', preview: subject || id };
+    }
     default: return null;
   }
 }
@@ -15188,6 +15428,11 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
   const inb = inbox.filter(it => it && it.triage !== 'dismissed' && it.triage !== 'wontfix').slice(0, 12)
     .map(it => `- ${clip(it.title, 100)}${it.link ? `  {key: ${clip(it.link, 100)}}` : ''}`).join('\n');
   if (inb) blocks.push('## ATTENTION INBOX (asks awaiting triage)\n' + inb);
+  try {
+    const cons = _meAiNormConstraints(loadMeAiOverrides(day));
+    if (cons.length) blocks.push('## TIMING CONSTRAINTS (already set)\n' +
+      cons.map(c => `- ${_meAiConstraintText(c)}  {id: ${c.id}}`).join('\n'));
+  } catch (_) { /* best-effort */ }
 
   const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
     const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
@@ -15219,6 +15464,8 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
     '- Remove a to-do: {"type":"remove_todo","title":"<exact title>"}',
     '- Triage an inbox ask: {"type":"triage_inbox","key":"<link or title>","action":"today|now|later|dismiss|wontfix"}',
     '- Re-plan the day with the latest signals: {"type":"regenerate"}',
+    '- Set a hard timing constraint: {"type":"set_constraint","subject":"<the work, e.g. self-epic review>","kind":"before|after|at","time":"HH:MM","text":"<optional note>"} — e.g. "I need self-epic review to happen before 1:30 PM" → subject "self-epic review", kind "before", time "13:30".',
+    '- Clear a timing constraint: {"type":"clear_constraint","subject":"<the work>"} (or "id":"<constraint id>")',
     '- Hand work to a Me agent (it does the actual work — reviewing a PR, drafting a reply, prepping for a meeting, stewarding a PR, or any ad-hoc goal): {"type":"launch_me_agent","playbook":"review|comms|prep|steward|implement|admin|adhoc","goal":"<what the agent should accomplish>","link":"<optional PR/item URL>","scope":"work|personal"}',
     '',
     'Rules:',
@@ -15226,6 +15473,9 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
     '- To "protect 2–3pm for deep work", propose add_block 14:00–15:00 type deep-focus.',
     '- To "break the PR review of A, B, C into separate items", propose split_item on that block key.',
     '- To "remove PR 62392 from today\'s review", propose remove_item with that PR\'s link/title.',
+    '- When the user states a hard deadline for a piece of work ("I need X before 1:30 PM", "do the',
+    '  budget review after standup", "start the demo prep at 3"), propose set_constraint — it is',
+    '  remembered and enforced across every re-plan, not just a one-time nudge.',
     '- When the user asks you to actually DO something (review a PR, reply to an email, prep me for a',
     '  meeting, steward/unblock a PR, or a free-form task), propose launch_me_agent — do NOT just add a',
     '  block. A Me agent works in the background, shows its thinking/tools, and asks before any external',
@@ -16205,6 +16455,25 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
       const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
       if (!key) return res.status(400).json({ error: 'key required' });
       ov.locks = (ov.locks || []).filter(l => String((l && (l.key || l.link || l.title)) || '').trim().toLowerCase() !== key.toLowerCase());
+    } else if (op === 'add_constraint') {
+      // A hard timing constraint the user stated ("X before 1:30 PM"). Persisted so it's
+      // honored across every re-plan (LLM prompt + deterministic enforce/verify pass).
+      const kind = ['before', 'after', 'at'].includes(String(b.kind)) ? String(b.kind) : 'before';
+      if (_hmToMin(b.time) == null) return res.status(400).json({ error: 'valid time required' });
+      const subject = String(b.subject || b.title || '').trim().slice(0, 200);
+      if (!subject) return res.status(400).json({ error: 'subject required' });
+      ov.constraints = Array.isArray(ov.constraints) ? ov.constraints : [];
+      ov.constraints = ov.constraints.filter(c => String((c && c.subject) || '').trim().toLowerCase() !== subject.toLowerCase());
+      ov.constraints.push({ id: uid(), kind, time: String(b.time), subject, text: String(b.text || '').slice(0, 300), createdAt: new Date().toISOString() });
+    } else if (op === 'clear_constraint') {
+      ov.constraints = Array.isArray(ov.constraints) ? ov.constraints : [];
+      const id = String(b.id || '').trim();
+      const subject = String(b.subject || b.title || '').trim().toLowerCase();
+      ov.constraints = ov.constraints.filter(c => {
+        if (id) return String((c && c.id) || '') !== id;
+        if (subject) return String((c && c.subject) || '').trim().toLowerCase() !== subject;
+        return true;
+      });
     } else {
       return res.status(400).json({ error: 'unknown op' });
     }
