@@ -12787,8 +12787,11 @@
               /* --- M2: Me-agent launch, at-work lane, console drawer --- */
               .meai-block-launch { margin-top:8px; opacity:0; transition:opacity .12s ease; display:flex; gap:6px; flex-wrap:wrap; position:relative; }
               .meai-block-conflict { margin-top:5px; font-size:11.5px; color:var(--cp-danger); }
-              .meai-conflict-banner { margin:0 0 12px; padding:9px 13px; border:1px solid var(--cp-danger); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:rgba(248,81,73,.08); color:var(--cp-text); font-size:12.5px; }
+              .meai-conflict-banner { position:relative; margin:0 0 12px; padding:9px 34px 9px 13px; border:1px solid var(--cp-danger); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:rgba(248,81,73,.08); color:var(--cp-text); font-size:12.5px; }
               .meai-conflict-banner .cf-pair { color:var(--cp-text-muted); }
+              .meai-conflict-x { position:absolute; top:6px; right:7px; appearance:none; border:0; background:transparent; color:var(--cp-text-muted); font-size:13px; line-height:1; padding:3px 5px; border-radius:6px; cursor:pointer; }
+              .meai-conflict-x:hover { color:var(--cp-danger); background:rgba(248,81,73,.12); }
+              .meai-eod-reflecting { color:var(--cp-text-muted); font-size:12px; font-style:italic; }
               .meai-block-body:hover .meai-block-launch, .meai-block-body:focus-within .meai-block-launch { opacity:1; }
               .meai-mini-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:12px; padding:4px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; }
               .meai-mini-btn:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
@@ -13642,15 +13645,10 @@
                           </div>
                         </template>
                       </div>
-                      <div class="meai-eod-genrow">
-                        <button type="button" class="btn ghost meai-eod-gen" @click="meAiGenerateEod()" :disabled="meai.eodBusy"
-                                title="Ask your chief of staff to reflect on how the day went and suggest what to improve. Cached so it only runs once per day.">
-                          <span x-show="meai.eodBusy">Reflecting…</span>
-                          <span x-show="!meai.eodBusy && meai.eod && meai.eod.narrative && meai.eod.narrative.howItWent" x-text="meai.eod && meai.eod.aiStale ? 'Refresh AI commentary' : 'Regenerate AI commentary'"></span>
-                          <span x-show="!meai.eodBusy && !(meai.eod && meai.eod.narrative && meai.eod.narrative.howItWent)">✦ Generate AI commentary</span>
-                        </button>
-                        <span class="meai-eod-stale" x-show="meai.eod && meai.eod.aiStale && meai.eod.narrative && meai.eod.narrative.howItWent"
-                              title="The day changed since this commentary was written">· out of date</span>
+                      <div class="meai-eod-genrow" x-show="meai.eodBusy || (meai.eod && meai.eod.aiStale && meai.eod.narrative && meai.eod.narrative.howItWent)">
+                        <span class="meai-eod-reflecting" x-show="meai.eodBusy">✦ Reflecting on your day…</span>
+                        <span class="meai-eod-stale" x-show="!meai.eodBusy && meai.eod && meai.eod.aiStale && meai.eod.narrative && meai.eod.narrative.howItWent"
+                              title="The day changed after this reflection was written">· written from an earlier version of the day</span>
                       </div>
                       <ul class="meai-lb-insights">
                         <template x-for="(ins, ii) in ((meai.eod && meai.eod.retro ? meai.eod.retro.insights : meai.lookback.retro.insights)||[])" :key="ii">
@@ -13905,7 +13903,8 @@
                   </template>
                   <template x-if="!meai.generating && meai.agenda && (meai.agenda.blocks||[]).length">
                     <div class="meai-tl">
-                      <div class="meai-conflict-banner" x-show="meai.agenda.meta && meai.agenda.meta.conflicts && meai.agenda.meta.conflicts.length">
+                      <div class="meai-conflict-banner" x-show="meAiConflictsVisible()">
+                        <button type="button" class="meai-conflict-x" @click="meAiDismissConflicts()" title="Dismiss — I know about these" aria-label="Dismiss conflicts">✕</button>
                         ⚠ <strong x-text="(meai.agenda.meta.conflicts||[]).length + ((meai.agenda.meta.conflicts||[]).length===1 ? ' scheduling conflict' : ' scheduling conflicts')"></strong>
                         <template x-for="(c, ci) in (meai.agenda.meta.conflicts||[])" :key="ci">
                           <div class="cf-pair" x-text="'· ' + c.a.title + ' (' + _meAiFmtHm(c.a.start) + '–' + _meAiFmtHm(c.a.end) + ')  ⟷  ' + c.b.title + ' (' + _meAiFmtHm(c.b.start) + '–' + _meAiFmtHm(c.b.end) + ')'"></div>
@@ -23897,6 +23896,9 @@
           inboxGrouping: false,   // grouped view toggled on
           inboxGroupBusy: false,  // group fetch in flight
           inboxGroups: [],        // [{id,label,reason,ids[]}]
+          conflictsDismissKey: '', // signature of the currently-dismissed scheduling-conflict banner
+          _conflDismDate: null,    // date the dismiss signature was hydrated for
+          _eodAutoTried: {},       // per-date guard so lookback AI commentary auto-generates once
           // Collapsible side-rail cards — heavy lists (needs-attention, backlog)
           // can be collapsed to a one-line status indicator to reclaim space.
           railCollapsed: (() => { try { return JSON.parse(localStorage.getItem('meAiRailCollapsed') || '{}') || {}; } catch (_) { return {}; } })(),
@@ -31609,23 +31611,64 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.meai.eod = (e && e.ok) ? e : null;
             } catch (_) { this.meai.eod = null; }
           } else { this.meai.eod = null; }
+          // j8-lookback-auto: the AI reflection should just appear for a completed past
+          // day (no "Generate commentary" button). Lazily fire ONE cached generate the
+          // first time we view a past day whose narrative isn't cached yet — the lazy
+          // equivalent of an after-midnight job, without a new server scheduler.
+          if (this.meai.lookback && this.meai.eod && this.meai.eod.ok) {
+            const nar = this.meai.eod.narrative;
+            const hasNar = !!(nar && nar.howItWent);
+            if (!hasNar && !this.meai.eodBusy && !this.meai._eodAutoTried[this.meai.date]) {
+              this.meai._eodAutoTried[this.meai.date] = true;
+              this.meAiGenerateEod({ silent: true }); // fire-and-forget; caches + repaints when done
+            }
+          }
         },
         // Generate (or refresh) the AI commentary for the End-of-day report. Runs ONE
         // one-shot LLM turn server-side and caches it keyed by the day's fingerprint, so
         // the default report load stays LLM-free.
-        async meAiGenerateEod() {
+        async meAiGenerateEod(opts) {
+          opts = opts || {};
           if (this.meai.eodBusy) return;
           this.meai.eodBusy = true;
           try {
             const e = await this.request('/api/me-ai/eod?ai=1&date=' + encodeURIComponent(this.meai.date));
             if (e && e.ok) {
               this.meai.eod = e;
-              if (e.narrative && e.narrative.howItWent) this.toast('End-of-day reflection ready', 'success');
-              else this.toast('Could not generate commentary right now', 'info');
+              if (!opts.silent) {
+                if (e.narrative && e.narrative.howItWent) this.toast('End-of-day reflection ready', 'success');
+                else this.toast('Could not generate commentary right now', 'info');
+              }
             }
           } catch (err) {
-            this.toast('Failed to generate commentary: ' + (err.message || err), 'error');
+            if (!opts.silent) this.toast('Failed to generate commentary: ' + (err.message || err), 'error');
           } finally { this.meai.eodBusy = false; }
+        },
+        // Scheduling-conflict banner (j8-conflicts-dismiss): dismissible per day. A NEW
+        // conflict set (different signature) re-shows even after a prior dismiss.
+        meAiConflictsSig() {
+          const cs = (this.meai.agenda && this.meai.agenda.meta && this.meai.agenda.meta.conflicts) || [];
+          if (!cs.length) return '';
+          return this.meai.date + '|' + cs.map(c => ((c.a && c.a.title) + (c.a && c.a.start) + '~' + (c.b && c.b.title) + (c.b && c.b.start))).join(';');
+        },
+        meAiConflictsVisible() {
+          const sig = this.meAiConflictsSig();
+          if (!sig) return false;
+          if (this.meai._conflDismDate !== this.meai.date) {
+            this.meai._conflDismDate = this.meai.date;
+            this.meai.conflictsDismissKey = '';
+            try {
+              const d = JSON.parse(localStorage.getItem('meai-conflicts-dismissed') || 'null');
+              if (d && d.date === this.meai.date) this.meai.conflictsDismissKey = d.sig;
+            } catch (_) { /* ignore */ }
+          }
+          return this.meai.conflictsDismissKey !== sig;
+        },
+        meAiDismissConflicts() {
+          const sig = this.meAiConflictsSig();
+          this.meai.conflictsDismissKey = sig;
+          this.meai._conflDismDate = this.meai.date;
+          try { localStorage.setItem('meai-conflicts-dismissed', JSON.stringify({ date: this.meai.date, sig })); } catch (_) { /* ignore */ }
         },
         // REQ-7 auto-regenerate: poll TODAY's agenda so a silent server re-plan
         // (triggered by new signals) shows up without the user hitting Regenerate.
