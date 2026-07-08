@@ -12664,9 +12664,12 @@ function _meAiClusterInbox(items) {
     for (let j = i + 1; j < nodes.length; j++) {
       const A = nodes[i], B = nodes[j];
       const sameSig = A.sig && B.sig && A.sig === B.sig;
-      const sameChan = (A.it.source || '') === (B.it.source || '') && (A.it.kind || '') === (B.it.kind || '');
       const overlap = _meAiJaccard(A.tok, B.tok);
-      if (sameSig || (sameChan && overlap >= 0.5) || overlap >= 0.7) union(i, j);
+      // Bug f: group by TOPIC, not medium. A Teams message and an email about the same
+      // thing should cluster even though source/kind differ, so a moderate token overlap
+      // unions regardless of channel (no Teams-vs-email-vs-review boundary). sameSig still
+      // catches near-identical automated alerts whose thin titles wouldn't overlap enough.
+      if (sameSig || overlap >= 0.5) union(i, j);
     }
   }
   const groups = new Map();
@@ -12678,10 +12681,15 @@ function _meAiClusterInbox(items) {
     const freq = {};
     for (const m of members) for (const t of _meAiTitleTokens(m.title)) freq[t] = (freq[t] || 0) + 1;
     const top = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]);
+    // A group may now span mediums (email + Teams + review); say so in the reason.
+    const kinds = Array.from(new Set(members.map(m => String(m.kind || 'item').toLowerCase())));
+    const reason = kinds.length > 1
+      ? `Related across ${kinds.slice(0, 3).join(' + ')}`
+      : `Similar ${members[0].kind || 'items'} that look related`;
     out.push({
       id: 'grp:' + require('crypto').createHash('md5').update(members.map(m => m.id).sort().join('|')).digest('hex').slice(0, 10),
       label: top.length ? (top.join(' · ')) : `${members.length} related items`,
-      reason: `Similar ${members[0].kind || 'items'} that look related`,
+      reason,
       ids: members.map(m => m.id),
       suggested: members[0].suggested || '',
     });
