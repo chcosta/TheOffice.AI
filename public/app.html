@@ -6452,7 +6452,9 @@
               <div class="sidebar-update-note" :class="update.phase === 'ready' ? 'is-ready' : ''" x-text="updateStatusText()"></div>
             </template>
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-              <span x-text="versionLabel()"></span>
+              <a :href="'https://github.com/chcosta/TheOffice.AI'" target="_blank" rel="noopener"
+                 class="svc-logs-link" style="text-decoration:none" x-text="versionLabel()"
+                 title="View the source on GitHub"></a>
               <a href="#" class="svc-logs-link" @click.prevent="openWhatsNew()" title="See what changed in recent updates">What's new</a>
             </div>
             <div x-text="sseStatusLabel()"></div>
@@ -11303,8 +11305,12 @@
             <div class="cf-tabs" role="tablist" aria-label="Code Flow views">
               <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'dev' }" role="tab" :aria-selected="codeflow.cfTab === 'dev'"
                       @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards</button>
-              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'prs' }" role="tab" :aria-selected="codeflow.cfTab === 'prs'"
-                      @click="codeflow.cfTab = 'prs'; if (!codeflow.fetchedAt) loadCodeFlow()">🔀 Pull Requests</button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('mine') }" role="tab" :aria-selected="cfTabOnPr('mine')"
+                      @click="cfGoView('mine')">📤 My PRs</button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('active') }" role="tab" :aria-selected="cfTabOnPr('active')"
+                      @click="cfGoView('active')">👀 Active PRs</button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
+                      @click="cfGoView('other')">🗄 Other PRs</button>
             </div>
 
             <div x-show="!devItemsLoaded" class="hint" style="padding:24px">Loading dev cards…</div>
@@ -17284,8 +17290,12 @@
             <div class="cf-tabs" role="tablist" aria-label="Code Flow views">
               <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'dev' }" role="tab" :aria-selected="codeflow.cfTab === 'dev'"
                       @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards</button>
-              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'prs' }" role="tab" :aria-selected="codeflow.cfTab === 'prs'"
-                      @click="codeflow.cfTab = 'prs'; if (!codeflow.fetchedAt) loadCodeFlow()">🔀 Pull Requests</button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('mine') }" role="tab" :aria-selected="cfTabOnPr('mine')"
+                      @click="cfGoView('mine')">📤 My PRs</button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('active') }" role="tab" :aria-selected="cfTabOnPr('active')"
+                      @click="cfGoView('active')">👀 Active PRs</button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
+                      @click="cfGoView('other')">🗄 Other PRs</button>
             </div>
 
             <!-- Auto-refresh change banner (background 15-min poller detected
@@ -17388,33 +17398,10 @@
               No repos monitored yet. Click <strong>⚙ Manage repos</strong> above to add an Azure DevOps or GitHub repository.
             </div>
 
-            <!-- Studio: sticky rail (view + filters) beside a bordered stage — echoes the Newsletter layout -->
+            <!-- Studio: sticky rail (filters) beside a bordered stage — echoes the Newsletter layout.
+                 The My / Active / Other view switcher now lives in the top tab bar. -->
             <div class="nlx-studio cf-studio" x-show="codeflow.repos.length" :style="'--cf-rail-w:' + cfRailW + 'px'">
               <aside class="nlx-rail">
-                <div class="nlx-card">
-                  <div class="cf-rail-title">View</div>
-                  <div class="cf-rail-views" role="tablist">
-                    <button type="button" class="cf-rv" :class="{ on: codeflow.view === 'mine' }" role="tab"
-                            :aria-selected="codeflow.view === 'mine'" @click="setCodeflowView('mine')">
-                      <span class="cf-rv-name">📤 My PRs</span>
-                      <span class="cf-rv-count" :class="{ attn: codeflowAttention.mine > 0 }" x-show="codeflowAttention.mineActive > 0"
-                            :title="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' of ' + codeflowAttention.mineActive + ' pull requests need your attention') : (codeflowAttention.mineActive + ' open pull requests')"
-                            x-text="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' / ' + codeflowAttention.mineActive) : codeflowAttention.mineActive"></span>
-                    </button>
-                    <button type="button" class="cf-rv" :class="{ on: codeflow.view !== 'mine' }" role="tab"
-                            :aria-selected="codeflow.view !== 'mine'" @click="setCodeflowView(codeflow.reviewsOnly ? 'reviews' : 'active')">
-                      <span class="cf-rv-name">👀 Active PRs</span>
-                      <span class="cf-rv-count" :class="{ attn: cfReviewsTab().attn }" x-show="cfReviewsTab().show"
-                            :title="cfReviewsTab().title" x-text="cfReviewsTab().text"></span>
-                    </button>
-                    <button type="button" class="cf-rv" :class="{ on: codeflow.view === 'other' }" role="tab"
-                            :aria-selected="codeflow.view === 'other'" @click="setCodeflowView('other')"
-                            title="PRs you dismissed from your review queue but want to keep access to">
-                      <span class="cf-rv-name">🗄 Other PRs</span>
-                      <span class="cf-rv-count" x-show="codeflow.view === 'other' && codeflow.pullRequests.length > 0" x-text="codeflow.pullRequests.length"></span>
-                    </button>
-                  </div>
-                </div>
                 <div class="nlx-card">
                   <div class="cf-rail-title">Filters</div>
                   <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine' && codeflow.view !== 'other'" style="margin-bottom:12px"
@@ -36918,6 +36905,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._cfAiLoadCache(view);
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
+        },
+        // Top-tab entry into a PR view: flips to the Pull Requests tab AND selects
+        // the view (My / Active / Other). 'active' honors the reviews-only toggle.
+        cfGoView(view) {
+          this.codeflow.cfTab = 'prs';
+          if (view === 'active' && this.codeflow.reviewsOnly) view = 'reviews';
+          if (this.codeflow.view === view) {
+            if (!this.codeflow.fetchedAt) this.loadCodeFlow();
+          } else {
+            this.setCodeflowView(view);
+          }
+        },
+        // Is a given PR top-tab the active one? (Active PRs owns both 'active' + 'reviews'.)
+        cfTabOnPr(view) {
+          if (this.codeflow.cfTab !== 'prs') return false;
+          if (view === 'mine') return this.codeflow.view === 'mine';
+          if (view === 'other') return this.codeflow.view === 'other';
+          return this.codeflow.view !== 'mine' && this.codeflow.view !== 'other';
         },
         // The "Reviews needed from me" toggle on the Active PRs tab. On → only PRs that
         // list me as a reviewer (server view 'reviews'); off → every open PR ('active').
