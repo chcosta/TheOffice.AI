@@ -12455,6 +12455,115 @@ function _meAiTopicAction(a) {
   if (a === 'dismissed') a = 'dismiss';
   return ME_AI_TOPIC_SUPPRESS.has(a) ? a : '';
 }
+
+// ── Layer-2: durable per-item DECISION memory ────────────────────────────────
+// Topic memory (above) only covers SUPPRESSIVE actions (dismiss/wontfix), matched by
+// fuzzy token containment. That leaves a real gap the owner hit repeatedly: a 'later'
+// PARK is not durable, so once the per-day inbox id churns (LLM title drift with no
+// stable link) OR a day boundary rolls, a parked item resurfaces as a fresh 'new' nag —
+// "I triaged it Later three times and it keeps coming back". This store remembers the
+// user's LAST decision keyed on a STABLE source identity (dedupeKey || link || prLink,
+// with a distinctive-title-hash fallback) and re-applies later/dismiss/wontfix on
+// re-ingestion so a decided item stays decided across title variants AND days. Re-engaging
+// the item (now/today/done/seen) CLEARS its durable decision so it can surface again.
+// This ONLY mutates inbox triage state — never the agenda or goals.
+const ME_AI_DECISIONS_PATH = path.join(dataPath('me-ai'), 'triage-decisions.json');
+const ME_AI_DECISION_DURABLE = new Set(['later', 'dismiss', 'dismissed', 'wontfix']);
+const ME_AI_DECISION_CLEAR = new Set(['now', 'today', 'done', 'seen']);
+function loadDecisionMemory() {
+  try {
+    if (!fs.existsSync(ME_AI_DECISIONS_PATH)) return { decisions: {} };
+    const v = JSON.parse(fs.readFileSync(ME_AI_DECISIONS_PATH, 'utf-8'));
+    return (v && v.decisions && typeof v.decisions === 'object' && !Array.isArray(v.decisions)) ? v : { decisions: {} };
+  } catch { return { decisions: {} }; }
+}
+function saveDecisionMemory(store) {
+  try {
+    fs.mkdirSync(path.dirname(ME_AI_DECISIONS_PATH), { recursive: true });
+    const d = (store && store.decisions) || {};
+    const keys = Object.keys(d);
+    if (keys.length > 800) { // bounded + freshest-first by decidedAt
+      keys.sort((a, b) => String(d[b].at || '').localeCompare(String(d[a].at || '')));
+      const keep = {}; for (const k of keys.slice(0, 800)) keep[k] = d[k];
+      store.decisions = keep;
+    }
+    fs.writeFileSync(ME_AI_DECISIONS_PATH, JSON.stringify(store || { decisions: {} }, null, 2));
+  } catch (_) { /* best-effort */ }
+  return store;
+}
+// Stable, title-independent identity for an inbox item / signal. Prefers a real source id
+// (dedupeKey/link/prLink) so it survives LLM title drift + day boundaries. Falls back to a
+// distinctive-title hash ONLY when the title carries >=2 distinctive tokens (same guard as
+// _meAiTriageSignature); otherwise returns '' so a generic title can't mass-suppress
+// unrelated items.
+function _meAiStableKey(it) {
+  if (!it) return '';
+  const norm = s => String(s || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
+  const dk = String(it.dedupeKey || '').trim().toLowerCase();
+  if (dk) return 'dk:' + dk;
+  const lk = norm(it.link) || norm(it.prLink);
+  if (lk) return 'lk:' + lk;
+  const toks = _meAiTitleTokens(it.title).sort();
+  if (toks.length >= 2) return 'tt:' + require('crypto').createHash('sha1').update(toks.join(' ')).digest('hex').slice(0, 16);
+  return '';
+}
+// Record (or clear) the user's durable decision for an item. later/dismiss/wontfix persist;
+// re-engagement (now/today/done/seen) DELETES the key so a now-active item stops re-parking.
+function _meAiRecordDecision(it, action) {
+  try {
+    const key = _meAiStableKey(it);
+    if (!key) return;
+    const a = String(action || '').toLowerCase();
+    const store = loadDecisionMemory();
+    store.decisions = store.decisions || {};
+    if (ME_AI_DECISION_CLEAR.has(a)) {
+      if (store.decisions[key]) { delete store.decisions[key]; saveDecisionMemory(store); }
+      return;
+    }
+    if (!ME_AI_DECISION_DURABLE.has(a)) return;
+    const triage = (a === 'dismiss') ? 'dismissed' : a; // canonical stored triage
+    store.decisions[key] = {
+      key, triage, at: new Date().toISOString(),
+      title: String((it && it.title) || '').slice(0, 140),
+      note: (it && it.note) || '',
+      reason: (triage === 'dismissed' || triage === 'wontfix') ? triage : '',
+    };
+    saveDecisionMemory(store);
+  } catch (_) { /* best-effort */ }
+}
+// Re-apply a durable decision to a fresh arrival, if one exists for its stable identity.
+// Returns true when applied (caller counts it auto-handled + it should NOT surface as 'new').
+function _meAiApplyDecision(it, store, date, now) {
+  if (!it || !store || !store.decisions) return false;
+  const key = _meAiStableKey(it);
+  if (!key) return false;
+  const d = store.decisions[key];
+  if (!d || !d.triage) return false;
+  // Safety valve (mirrors _meAiApplyTopic): never silently bury a fresh, high-urgency DIRECT
+  // mention on an old suppressive decision — surface it as 'seen' with a hint so an escalation
+  // on a previously-ignored thread isn't lost. A durable 'later' park is fine to keep.
+  if (it.directMention && (Number(it.urgency) || 0) >= 5 && (d.triage === 'dismissed' || d.triage === 'wontfix')) {
+    it.triage = 'seen';
+    it.decisionHint = d.triage;
+    return false;
+  }
+  it.triage = d.triage;                 // 'later' parks it; 'dismissed'/'wontfix' suppress it
+  it.auto = true;
+  it.durableDecision = d.triage;
+  it.autoReason = { via: 'decision-memory', action: (d.triage === 'dismissed' ? 'dismiss' : d.triage), at: d.at };
+  if (d.note && !it.note) it.note = d.note;
+  // Keep the per-day dismiss store honest for suppressive decisions so downstream agenda
+  // exclusion + reports treat it exactly like a manual dismiss/wontfix (this also closes the
+  // cross-day gap where a new day's empty dismiss store would otherwise let it back in).
+  if (d.triage === 'dismissed' || d.triage === 'wontfix') {
+    try {
+      const dm = loadDismissForDate(date);
+      const dk = _meAiDismissKey(it);
+      if (dk && !dm[dk]) { dm[dk] = { title: it.title, note: it.note || '', at: now, reason: d.triage }; saveDismissForDate(date, dm); }
+    } catch (_) { /* best-effort */ }
+  }
+  return true;
+}
 // Record / refresh a durable topic fingerprint from ONE item or a GROUP of items. Group
 // triage passes ALL members so the whole cluster's vocabulary is remembered together (the
 // direct fix for "I dismissed the group and it came back"). Merges into an existing topic of
@@ -13215,6 +13324,9 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const topicStore = loadTopicMemory();         // Phase 6: Layer-1 durable topic memory
   const hasTopics = !!(topicStore.topics && topicStore.topics.length);
   let topicHits = 0;
+  const decStore = loadDecisionMemory();        // Layer-2: durable per-item decision memory
+  const hasDecisions = !!Object.keys((decStore && decStore.decisions) || {}).length;
+  let decisionHits = 0;
   const aiGroupStore = loadAiGroupStore(date);  // Ask 1: reuse a prior "Group similar" pass
   const hasAiGroups = !!(aiGroupStore.clusters && aiGroupStore.clusters.length);
   let aiGroupHits = 0;
@@ -13245,6 +13357,9 @@ async function _meAiMergeInbox(date, signals, cfg) {
       Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested, classRule: ex.classRule, topicMem: ex.topicMem });
       // Phase 4 Layer-0: an untriaged existing item may now match a (new) class rule.
       if (ex.triage === 'new' || ex.triage === 'seen') {
+        // Layer-2: strongest exact-identity signal first — a durable decision the user made
+        // for this identity (possibly on another day) re-applies before any fuzzy fold.
+        if (hasDecisions && _meAiApplyDecision(ex, decStore, date, now)) { decisionHits++; autoHandled++; continue; }
         const rule = classRules.length ? _meAiClassRuleMatch(ex, classStore) : null;
         if (rule) { _meAiApplyClassRule(ex, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++; continue; }
         // Phase 6 Layer-1: a topic the user already suppressed now covers this item.
@@ -13258,6 +13373,16 @@ async function _meAiMergeInbox(date, signals, cfg) {
       }
     } else {
       const it = Object.assign(base, { firstSeen: now, triage: 'new', triagedAt: '', note: '' });
+      // Layer-2: durable per-item decision — if the user already parked (later) or suppressed
+      // (dismiss/wontfix) THIS exact identity, re-apply it so it never resurfaces as a fresh
+      // 'new' nag across title drift or a day boundary. Strongest (exact-identity) signal,
+      // checked before the fuzzy class/topic/cluster folds. Still pushed (parked/suppressed
+      // row), just not counted as new.
+      if (hasDecisions && _meAiApplyDecision(it, decStore, date, now)) {
+        decisionHits++; autoHandled++;
+        inbox.items.push(it); byId.set(id, it); added++;
+        continue;
+      }
       // Phase 4 Layer-0: an explicit user class rule short-circuits the confidence path —
       // a matched class is auto-actioned regardless of confidence, before any scoring.
       const rule = classRules.length ? _meAiClassRuleMatch(it, classStore) : null;
@@ -13323,7 +13448,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits, topicHits, instanceMerges, aiGroupHits };
+  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, instanceMerges, aiGroupHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -17829,6 +17954,10 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     if (action === 'dismiss' || action === 'wontfix') {
       try { _meAiRecordTopic(it, action, { label: it.title }); } catch (_) { /* best-effort */ }
     }
+    // Layer-2: record the durable per-item decision (later/dismiss/wontfix persist; a
+    // re-engagement now/today/done/seen clears it) so this exact identity stays decided
+    // across title drift + day boundaries — or stops re-parking once you act on it.
+    try { _meAiRecordDecision(it, action); } catch (_) { /* best-effort */ }
     let agenda = null;
     if (action === 'today') {
       // Fit-into-today → re-plan immediately (reuse warm cache) so it lands now.
@@ -17875,6 +18004,10 @@ function _meAiTriageItemInPlace(date, it, action, now, opts = {}) {
   if (!opts.skipTopic && (action === 'dismiss' || action === 'wontfix')) {
     try { _meAiRecordTopic(it, action, { label: it.title }); } catch (_) { /* best-effort */ }
   }
+  // Layer-2: record the durable per-item decision for THIS identity (also covers the batch
+  // route, which calls this per member). later/dismiss/wontfix persist; a re-engagement
+  // (now/today/done/seen) clears it so the item can surface again once you act on it.
+  try { _meAiRecordDecision(it, action); } catch (_) { /* best-effort */ }
 }
 
 // POST /api/me-ai/inbox/group { date? } → AI-group the still-actionable inbox items so
