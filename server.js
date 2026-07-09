@@ -20820,6 +20820,75 @@ const _MEAI_EXT_SHELL_RE = new RegExp(
 // External CLI identifiers whose non-read invocation is always suspicious.
 const _MEAI_EXT_TOOLS = /^(gh|az|curl|wget|iwr|invoke-webrequest|invoke-restmethod)$/i;
 
+// ── Interpreter-write escape hatch ───────────────────────────────────────────
+// The publish/tool regexes above catch gh/az/curl/git-push, but a general-purpose
+// interpreter (node/python/…) can perform the SAME external write directly — e.g.
+// `node -e "require('./azdo').createWorkItem(...)"` or `python -c "requests.post(...)"`.
+// That path hits an external/shared system (ADO, GitHub, Graph, mail) yet names no
+// gated CLI, so it previously sailed through as "local investigation" and let the
+// agent create/modify remote items without the user's approval. We close it by:
+//   (a) detecting an interpreter in the command, and
+//   (b) scanning the code it runs — inline (-e/-c/-Command) AND, best-effort, the
+//       referenced local script file — for external-write signals.
+// Local scratch work (reads, syntax checks, data crunching) has none of these
+// signals and stays allowed, so this is low-false-positive.
+const _MEAI_INTERP_RE = /\b(node|nodejs|deno|bun|ts-node|tsx|python3?|py|ruby|perl|php)\b/i;
+const _MEAI_SCRIPT_FILE_RE = /(?<![\w.])[\w./\\-]+\.(mjs|cjs|js|ts|py|rb|pl|php)\b/gi;
+// Signals that the interpreted code writes to / affects an external system.
+const _MEAI_SCRIPT_WRITE_RE = new RegExp(
+  // Known external API hosts referenced in the code:
+  '\\bdev\\.azure\\.com\\b' +
+  '|\\.visualstudio\\.com\\b' +
+  '|\\bgraph\\.microsoft\\.com\\b' +
+  '|\\bapi\\.github\\.com\\b' +
+  '|\\boutlook\\.office\\b' +
+  // ADO / Graph REST write surfaces (path fragments):
+  '|_apis/(wit|git|work|build|release|distributedtask|serviceendpoint|hooks)\\b' +
+  // require()/import of our internal external-write modules:
+  '|require\\(\\s*[\'"`][^\'"`]*(azdo|azure-devops|github|graph|workiq|comms|sendmail|standupagent)[^\'"`]*[\'"`]' +
+  '|from\\s+[\'"`][^\'"`]*(azdo|azure-devops|github|graph|workiq|comms|sendmail)[^\'"`]*[\'"`]' +
+  // explicit HTTP write verbs (specific enough to avoid Map#delete etc.):
+  '|method\\s*:\\s*[\'"`](post|put|patch|delete)[\'"`]' +
+  '|\\b(axios|requests|http|https|fetch)\\s*\\.\\s*(post|put|patch|delete)\\b' +
+  '|-X\\s*(POST|PUT|PATCH|DELETE)\\b' +
+  // work-item / PR / mail write intent:
+  '|createWorkItem|WorkItemTracking|createPullRequest|createThread|sendMail|addComment',
+  'i'
+);
+// True when a shell command invokes an interpreter to run code that carries an
+// external-write signal (inline or in a just-authored local script file).
+function _meAiInterpreterWrite(full, cmds) {
+  try {
+    const idHit = Array.isArray(cmds) && cmds.some(c => c && _MEAI_INTERP_RE.test(String(c.identifier || '')));
+    if (!_MEAI_INTERP_RE.test(full) && !idHit) return false;
+    // (1) Inline code / the command text itself.
+    if (_MEAI_SCRIPT_WRITE_RE.test(full)) return true;
+    // (2) Best-effort: read any referenced local script and scan its contents.
+    const bases = [process.cwd()];
+    const cd = full.match(/\bcd\s+(?:\/d\s+)?["']?([A-Za-z]:[\\/][^"'&;|]+|\/[^"'&;|]+)["']?/i);
+    if (cd && cd[1]) bases.unshift(cd[1].trim());
+    const seen = new Set();
+    let m;
+    _MEAI_SCRIPT_FILE_RE.lastIndex = 0;
+    while ((m = _MEAI_SCRIPT_FILE_RE.exec(full))) {
+      const ref = m[0];
+      for (const b of bases) {
+        let p;
+        try { p = require('path').isAbsolute(ref) ? ref : require('path').join(b, ref); } catch (_) { continue; }
+        if (seen.has(p)) continue;
+        seen.add(p);
+        try {
+          if (!require('fs').existsSync(p)) continue;
+          if (require('fs').statSync(p).size > 512 * 1024) continue;
+          const src = require('fs').readFileSync(p, 'utf8');
+          if (_MEAI_SCRIPT_WRITE_RE.test(src)) return true;
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
 // Classify one SDK permission request → { gate:boolean, label:string }.
 // gate=true means BLOCK (needs the user's approval); gate=false means allow.
 function _meAiClassifyPermission(request) {
@@ -20850,7 +20919,10 @@ function _meAiClassifyPermission(request) {
       const extWrite = cmds.some(c => c && _MEAI_EXT_TOOLS.test(String(c.identifier || '')) && c.readOnly === false);
       // (2) Belt-and-suspenders regex for publish/destructive text.
       const pub = _MEAI_EXT_SHELL_RE.test(full);
-      if (extWrite || pub) return { gate: true, label: lbl(full || 'shell command') };
+      // (3) Interpreter (node/python/…) running code that performs an external
+      //     write — closes the `node -e "require('./azdo').createWorkItem()"` hole.
+      const interp = _meAiInterpreterWrite(full, cmds);
+      if (extWrite || pub || interp) return { gate: true, label: lbl(full || 'shell command') };
       return { gate: false };
     }
     case 'custom-tool': {
