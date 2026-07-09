@@ -12494,7 +12494,10 @@ function _meAiTopicAction(a) {
 // This ONLY mutates inbox triage state — never the agenda or goals.
 const ME_AI_DECISIONS_PATH = path.join(dataPath('me-ai'), 'triage-decisions.json');
 const ME_AI_DECISION_DURABLE = new Set(['later', 'dismiss', 'dismissed', 'wontfix']);
-const ME_AI_DECISION_CLEAR = new Set(['now', 'today', 'done', 'seen']);
+// Re-engagement (actively working it) clears a durable decision so it stops re-parking.
+// NOTE: 'done' is deliberately NOT here — a handled item must be REMEMBERED (see
+// _meAiRecordDecision) so it doesn't resurface as a brand-new alert the next day.
+const ME_AI_DECISION_CLEAR = new Set(['now', 'today', 'seen']);
 function loadDecisionMemory() {
   try {
     if (!fs.existsSync(ME_AI_DECISIONS_PATH)) return { decisions: {} };
@@ -12533,7 +12536,8 @@ function _meAiStableKey(it) {
   return '';
 }
 // Record (or clear) the user's durable decision for an item. later/dismiss/wontfix persist;
-// re-engagement (now/today/done/seen) DELETES the key so a now-active item stops re-parking.
+// 'done' persists too but ONLY on a strong identity (dedupeKey/link) so a handled ask isn't
+// re-alerted next day; re-engagement (now/today/seen) DELETES the key so it stops re-parking.
 function _meAiRecordDecision(it, action) {
   try {
     const key = _meAiStableKey(it);
@@ -12543,6 +12547,19 @@ function _meAiRecordDecision(it, action) {
     store.decisions = store.decisions || {};
     if (ME_AI_DECISION_CLEAR.has(a)) {
       if (store.decisions[key]) { delete store.decisions[key]; saveDecisionMemory(store); }
+      return;
+    }
+    // "Mark as done" = handled. Remember it so the same ask doesn't resurface as a fresh
+    // 'new' nag tomorrow (the single biggest source of cross-day inbox noise). Only on a
+    // STRONG identity (dedupeKey/link) — a title-only key is too collision-prone to let a
+    // one-off "done" silently bury a recurring same-title item (e.g. a weekly meeting).
+    if (a === 'done') {
+      if (!/^(dk:|lk:)/.test(key)) return;
+      store.decisions[key] = {
+        key, triage: 'done', at: new Date().toISOString(),
+        title: String((it && it.title) || '').slice(0, 140), note: (it && it.note) || '', reason: '',
+      };
+      saveDecisionMemory(store);
       return;
     }
     if (!ME_AI_DECISION_DURABLE.has(a)) return;
@@ -12565,9 +12582,10 @@ function _meAiApplyDecision(it, store, date, now) {
   const d = store.decisions[key];
   if (!d || !d.triage) return false;
   // Safety valve (mirrors _meAiApplyTopic): never silently bury a fresh, high-urgency DIRECT
-  // mention on an old suppressive decision — surface it as 'seen' with a hint so an escalation
-  // on a previously-ignored thread isn't lost. A durable 'later' park is fine to keep.
-  if (it.directMention && (Number(it.urgency) || 0) >= 5 && (d.triage === 'dismissed' || d.triage === 'wontfix')) {
+  // mention on an old suppressive/handled decision — surface it as 'seen' with a hint so a
+  // genuine escalation on a previously-resolved thread isn't lost. A durable 'later' park is
+  // fine to keep. 'done' is included: a new @you ping on a thread you'd closed re-surfaces.
+  if (it.directMention && (Number(it.urgency) || 0) >= 5 && (d.triage === 'dismissed' || d.triage === 'wontfix' || d.triage === 'done')) {
     it.triage = 'seen';
     it.decisionHint = d.triage;
     return false;
@@ -12588,6 +12606,95 @@ function _meAiApplyDecision(it, store, date, now) {
     } catch (_) { /* best-effort */ }
   }
   return true;
+}
+// ── Cross-day resolution carry-forward ─────────────────────────────────────────────────
+// The durable decision store above only remembers later/dismiss/wontfix (+ now 'done') and
+// keys on an exact identity, so historically it missed two big sources of cross-day noise:
+// (1) items marked "done" yesterday, and (2) resolutions whose durable key never got written
+// or drifted. This index reconstructs your MANUAL resolutions straight from the last few
+// days' inbox files, so a signal you already handled never resurfaces as a brand-new alert —
+// and it SELF-HEALS existing history (no dependency on the decision store having been written).
+// Manual only: auto layers (class/topic/confidence) re-derive their own decisions each merge.
+function _meAiBuildPriorResolutionIndex(date, days = 7) {
+  const idx = new Map();
+  try {
+    const base = new Date(String(date || '').slice(0, 10) + 'T00:00:00Z');
+    if (isNaN(base.getTime())) return idx;
+    for (let i = 1; i <= days; i++) {
+      const ds = new Date(base.getTime() - i * 86400000).toISOString().slice(0, 10);
+      const inbox = loadInboxForDate(ds);
+      for (const it of (inbox.items || [])) {
+        if (!it || it.auto === true) continue;                // manual dispositions only
+        if (!ME_AI_RESOLVED_TRIAGE.has(it.triage)) continue;  // must be a real decision
+        const sk = _meAiStableKey(it);
+        const keys = [];
+        if (sk) keys.push(sk);
+        if (it.id) keys.push('id:' + it.id);
+        if (!keys.length) continue;
+        const at = it.triagedAt || it.doneAt || (ds + 'T12:00:00Z');
+        const rec = { triage: it.triage, at, day: ds, note: it.note || '', strong: /^(dk:|lk:)/.test(sk || '') };
+        for (const k of keys) {
+          const cur = idx.get(k);
+          if (!cur || String(at).localeCompare(String(cur.at)) > 0) idx.set(k, rec); // freshest wins
+        }
+      }
+    }
+  } catch (_) { /* best-effort */ }
+  return idx;
+}
+function _meAiLookupPriorResolution(it, idx) {
+  if (!it || !idx || !idx.size) return null;
+  const sk = _meAiStableKey(it);
+  return (sk && idx.get(sk)) || (it.id && idx.get('id:' + it.id)) || null;
+}
+// Carry a prior-day MANUAL resolution onto a fresh/untriaged arrival. Mirrors
+// _meAiApplyDecision. Mapping: dismissed/wontfix → suppress; later → park on the rail;
+// done → handled (strong identity only, so a title-only "done" can't bury a recurring
+// same-title item); today/now (a one-day active-engagement) → 'seen' so it's calm, not a
+// NEW nag and not re-pinned. High-urgency DIRECT mentions on a resolved thread still surface.
+function _meAiApplyPriorResolution(it, idx, date, now) {
+  const d = _meAiLookupPriorResolution(it, idx);
+  if (!d || !d.triage) return false;
+  let triage = d.triage;
+  if (triage === 'today' || triage === 'now') triage = 'seen';
+  if (triage === 'done' && !d.strong) return false;           // never suppress on a weak (title-only) done
+  const suppressive = (triage === 'dismissed' || triage === 'wontfix');
+  if (it.directMention && (Number(it.urgency) || 0) >= 5 && (suppressive || triage === 'done')) {
+    it.triage = 'seen'; it.decisionHint = d.triage; return false; // escalation safety valve
+  }
+  it.triage = triage;
+  it.auto = true;
+  it.autoReason = { via: 'prior-day', action: (triage === 'dismissed' ? 'dismiss' : triage), at: d.at, day: d.day };
+  if (d.note && !it.note) it.note = d.note;
+  if (suppressive) {
+    try {
+      const dm = loadDismissForDate(date);
+      const dk = _meAiDismissKey(it);
+      if (dk && !dm[dk]) { dm[dk] = { title: it.title, note: it.note || '', at: now, reason: triage }; saveDismissForDate(date, dm); }
+    } catch (_) { /* best-effort */ }
+  }
+  return true;
+}
+// Gather-free heal: re-apply durable decisions + prior-day resolutions to every still
+// untriaged ('new'/'seen') row of an already-loaded inbox. Cheap (no signal gather, no AI) so
+// it can run on inbox READ — an item handled on a prior day heals the moment the user opens
+// the inbox, without waiting for the next 12-min poll or a slow live gather. Mutates in place;
+// returns { decisionHits, priorHits, healed }. Caller persists if healed > 0.
+function _meAiHealInboxRows(inbox, date, now) {
+  let decisionHits = 0, priorHits = 0;
+  try {
+    const decStore = loadDecisionMemory();
+    const hasDecisions = !!Object.keys((decStore && decStore.decisions) || {}).length;
+    const priorIdx = _meAiBuildPriorResolutionIndex(date, 7);
+    const hasPrior = !!priorIdx.size;
+    if (!hasDecisions && !hasPrior) return { decisionHits, priorHits, healed: 0 };
+    for (const it of (inbox.items || [])) {
+      if (!it || (it.triage !== 'new' && it.triage !== 'seen') || it.auto === true) continue;
+      if (hasDecisions && _meAiApplyDecision(it, decStore, date, now)) { decisionHits++; continue; }
+      if (hasPrior && _meAiApplyPriorResolution(it, priorIdx, date, now)) { priorHits++; continue; }
+    }
+  } catch (_) { /* best-effort */ }
+  return { decisionHits, priorHits, healed: decisionHits + priorHits };
 }
 // Record / refresh a durable topic fingerprint from ONE item or a GROUP of items. Group
 // triage passes ALL members so the whole cluster's vocabulary is remembered together (the
@@ -13352,6 +13459,12 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const decStore = loadDecisionMemory();        // Layer-2: durable per-item decision memory
   const hasDecisions = !!Object.keys((decStore && decStore.decisions) || {}).length;
   let decisionHits = 0;
+  // Layer-2b: cross-day carry-forward reconstructed from the last few days' inbox files.
+  // Catches items you already resolved (esp. 'done') whose durable decision was never
+  // written / drifted, so handled asks don't return as brand-new alerts. Self-heals history.
+  const priorIdx = _meAiBuildPriorResolutionIndex(date, 7);
+  const hasPrior = !!priorIdx.size;
+  let priorHits = 0;
   const aiGroupStore = loadAiGroupStore(date);  // Ask 1: reuse a prior "Group similar" pass
   const hasAiGroups = !!(aiGroupStore.clusters && aiGroupStore.clusters.length);
   let aiGroupHits = 0;
@@ -13385,6 +13498,8 @@ async function _meAiMergeInbox(date, signals, cfg) {
         // Layer-2: strongest exact-identity signal first — a durable decision the user made
         // for this identity (possibly on another day) re-applies before any fuzzy fold.
         if (hasDecisions && _meAiApplyDecision(ex, decStore, date, now)) { decisionHits++; autoHandled++; continue; }
+        // Layer-2b: cross-day carry-forward — a resolution made on a prior day (esp. 'done').
+        if (hasPrior && _meAiApplyPriorResolution(ex, priorIdx, date, now)) { priorHits++; autoHandled++; continue; }
         const rule = classRules.length ? _meAiClassRuleMatch(ex, classStore) : null;
         if (rule) { _meAiApplyClassRule(ex, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++; continue; }
         // Phase 6 Layer-1: a topic the user already suppressed now covers this item.
@@ -13405,6 +13520,14 @@ async function _meAiMergeInbox(date, signals, cfg) {
       // row), just not counted as new.
       if (hasDecisions && _meAiApplyDecision(it, decStore, date, now)) {
         decisionHits++; autoHandled++;
+        inbox.items.push(it); byId.set(id, it); added++;
+        continue;
+      }
+      // Layer-2b: cross-day carry-forward for a fresh arrival — if you already resolved this
+      // exact identity on a prior day (dismiss/wontfix/later, or 'done' on a strong key), carry
+      // it so it lands parked/suppressed/handled instead of a NEW nag. Pushed, not counted new.
+      if (hasPrior && _meAiApplyPriorResolution(it, priorIdx, date, now)) {
+        priorHits++; autoHandled++;
         inbox.items.push(it); byId.set(id, it); added++;
         continue;
       }
@@ -13467,13 +13590,23 @@ async function _meAiMergeInbox(date, signals, cfg) {
       inbox.items.push(it); byId.set(id, it); added++;
     }
   }
-  if (classHits) { try { saveClassRules(classStore); } catch (_) { /* best-effort */ } } // persist hit counts
+  // Deterministic heal sweep: re-apply durable decisions + prior-day resolutions to EVERY
+  // still-untriaged row, not just the ones the gather happened to re-surface. Without this,
+  // an already-handled item that isn't in today's live gather (older comm, or a gather that
+  // failed/partial) stays a stale NEW nag forever. This makes cross-day carry-forward
+  // gather-independent — the exact fix for "items I dealt with days ago show up as new today".
+  for (const it of inbox.items) {
+    if (!it || (it.triage !== 'new' && it.triage !== 'seen') || it.auto === true) continue;
+    if (hasDecisions && _meAiApplyDecision(it, decStore, date, now)) { decisionHits++; autoHandled++; continue; }
+    if (hasPrior && _meAiApplyPriorResolution(it, priorIdx, date, now)) { priorHits++; autoHandled++; continue; }
+  }
+  if (classHits) { try { saveClassRules(classStore); } catch (_) { /* persist hit counts */ } } // persist hit counts
   if (topicHits) { try { saveTopicMemory(topicStore); } catch (_) { /* best-effort */ } } // persist topic hits/lastAt
   inbox.items.sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, instanceMerges, aiGroupHits };
+  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, priorHits, instanceMerges, aiGroupHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -17917,6 +18050,12 @@ app.get('/api/me-ai/inbox', (req, res) => {
       }
     }
     if (backfilled) { try { saveInboxForDate(date, inbox); } catch (_) { /* best-effort */ } }
+    // Gather-free cross-day heal: demote rows the user already handled on a prior day so they
+    // stop showing as NEW the moment the inbox is opened (no wait for the next poll).
+    try {
+      const h = _meAiHealInboxRows(inbox, date, new Date().toISOString());
+      if (h.healed) saveInboxForDate(date, inbox);
+    } catch (_) { /* best-effort */ }
     const newCount = inbox.items.filter(i => i.triage === 'new').length;
     res.json({ ok: true, date, items: inbox.items, newCount, polledAt: inbox.polledAt || '' });
   } catch (err) { res.status(500).json({ error: err.message }); }
