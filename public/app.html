@@ -31513,7 +31513,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (r && r.agenda) { this.meai.agenda = r.agenda; this.meai._lastGeneratedAt = r.agenda.generatedAt || ''; this.meAiLoadChanges(); }
               if (!silent) this.toast('Fitted into today\u2019s agenda', 'success');
             } else if (action === 'later') {
-              if (!silent) this.toast('Parked — it\u2019ll stay on your attention rail', 'info');
+              if (!silent) this.toast('Parked for later — off today\u2019s list, still on your rail', 'info');
             } else if (action === 'dismiss') {
               if (!silent) this.toast('Removed from your attention inbox', 'info');
             } else if (action === 'wontfix') {
@@ -31612,7 +31612,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiGroupItems(g) {
           if (!g || !Array.isArray(g.ids)) return [];
           const by = {}; (this.meai.inbox.items || []).forEach(i => { by[i.id] = i; });
-          return g.ids.map(id => by[id]).filter(it => it && ['new', 'seen', 'later'].includes(it.triage));
+          // A group member is "live" only while still undecided (new/seen). Parking it for
+          // 'later' is a disposition — same as today/now/dismiss — so it leaves the active
+          // group and moves to the reversible Triaged/parked area, matching the flat
+          // sections (meAiInboxSections excludes 'later' too). Keeping 'later' here made
+          // parking a grouped item look like a no-op (it stayed in place), which read as
+          // "Later doesn't work".
+          return g.ids.map(id => by[id]).filter(it => it && ['new', 'seen'].includes(it.triage));
         },
         // Groups still worth showing: a group needs >=2 LIVE (untriaged) members. Once the
         // user triages members away individually, a group drops below 2 and must dissolve so
