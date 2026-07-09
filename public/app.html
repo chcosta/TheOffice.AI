@@ -14653,7 +14653,7 @@
                   <button class="icon-button" type="button" @click="meai.hoursOpen=false" title="Close">✕</button>
                 </div>
                 <nav class="meai-set-tabs">
-                  <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='hours' }" @click="meai.hoursTab='hours'">Hours &amp; grid</button>
+                  <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='hours' }" @click="meai.hoursTab='hours'">Hours &amp; blocks</button>
                   <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='week' }" @click="meai.hoursTab='week'">Work week</button>
                   <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='focus' }" @click="meai.hoursTab='focus'">Focus times</button>
                   <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='triage' }" @click="meai.hoursTab='triage'">Triage</button>
@@ -14664,8 +14664,8 @@
                   <label>End</label><input type="time" x-model="meai.config.workEnd">
                   <label>Lunch</label>
                   <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
-                  <label>Grid</label>
-                  <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                  <label title="The smallest time block Me.AI uses for flexible work. Fixed meetings always keep their exact times.">Minimum block</label>
+                  <select x-model.number="meai.config.grid" title="The smallest time block Me.AI uses for flexible work. Fixed meetings always keep their exact times."><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
                   <label>Protect near-now</label>
                   <select x-model.number="meai.config.imminentWindow" title="On a re-plan of today, a block starting within this window is held in place — too close to now to move.">
                     <option :value="10">10 min</option><option :value="15">15 min</option><option :value="30">30 min</option><option :value="45">45 min</option><option :value="60">1 hour</option>

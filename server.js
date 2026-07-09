@@ -14438,7 +14438,6 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   const grid = [5, 10, 15].includes(Number(cfg.grid)) ? Number(cfg.grid) : 10;
   const winStart = _hmToMin(cfg.workStart) ?? 8 * 60;
   const winEnd = _hmToMin(cfg.workEnd) ?? 17 * 60;
-  const snap = m => Math.round(m / grid) * grid;
   const meetings = [];
   const tasks = [];
   const needsAttention = [];
@@ -14477,13 +14476,17 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   // Fixed blocks: meetings + lunch, sorted, clipped to window.
   const fixed = [];
   for (const m of meetings) {
-    let a = snap(_hmToMin(m.start));
-    let b = _hmToMin(m.end) != null ? snap(_hmToMin(m.end)) : a + Math.max(grid, 30);
+    // Fixed external commitments keep their EXACT clock times. `grid` governs only the
+    // SIZE of flexible AI-placed work chunks — it must NEVER move where a real meeting
+    // starts or ends. (Snapping here pushed an 11:05 Outlook meeting to 11:10, silently
+    // eating a productive 5-minute edge; flexible work already butts against real edges.)
+    let a = _hmToMin(m.start);
+    let b = _hmToMin(m.end) != null ? _hmToMin(m.end) : a + Math.max(grid, 30);
     if (b <= a) b = a + Math.max(grid, 30);
     fixed.push({ start: a, end: b, type: 'meeting', title: m.title, detail: m.detail, link: m.link, source: m.source, why: 'Scheduled meeting', meta: m.meta || null, urgency: m.urgency || 5 });
   }
   const ls = _hmToMin(cfg.lunchStart), le = _hmToMin(cfg.lunchEnd);
-  if (ls != null && le != null && le > ls) fixed.push({ start: snap(ls), end: snap(le), type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break', meta: null, urgency: 0 });
+  if (ls != null && le != null && le > ls) fixed.push({ start: ls, end: le, type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break', meta: null, urgency: 0 });
   // Explicit user reservations (one-off + recurring blocks) are fixed too, so flexible
   // work is scheduled AROUND them — an explicit "2h golf" supersedes suggested items.
   for (const r of (reserved || [])) {
@@ -17282,7 +17285,7 @@ function _meAiResolveAssistantAction(a, ctx) {
     }
     case 'set_grid': {
       const g = +a.grid; if (![5, 10, 15].includes(g)) return null;
-      return { type, grid: g, label: 'Change grid', preview: `${g}-minute grid` };
+      return { type, grid: g, label: 'Set minimum block size', preview: `${g}-minute minimum block` };
     }
     case 'set_work_days': {
       if (!Array.isArray(a.days)) return null;
@@ -17359,7 +17362,7 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
   blocks.push('## CURRENT SETTINGS\n' +
     `Working hours: ${cfg.workStart}–${cfg.workEnd} (lunch ${cfg.lunchStart}–${cfg.lunchEnd})\n` +
     `Work days: ${(cfg.workDays || []).map(d => dayNames[d]).join(', ') || '(none)'}\n` +
-    `Grid: ${cfg.grid}-minute · Day mode: ${cfg.mode || 'balanced'}\n` +
+    `Minimum block size: ${cfg.grid}-minute · Day mode: ${cfg.mode || 'balanced'}\n` +
     `Time-of-day prefs: ${Object.entries(cfg.timePrefs || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(', ') || '(none set)'}`);
   const bl = (agenda.blocks || []).map((b, i) => {
     const key = _meAiBlockKey(b);
@@ -17389,7 +17392,7 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
   const sys = [
     'You are the Agenda assistant embedded in a personal "Me.AI" daily-planning workspace.',
     'You help the user shape their day: add protected/break/workout blocks, split or remove',
-    'agenda items, reshape the day (mode, working hours, work days, grid, time-of-day prefs),',
+    'agenda items, reshape the day (mode, working hours, work days, minimum block size, time-of-day prefs),',
     'manage to-dos, and triage attention-inbox asks.',
     'You ALWAYS propose changes for the user to confirm — you NEVER claim a change was already made.',
     '',
@@ -17405,7 +17408,7 @@ async function runMeAiAgendaAssistant({ message, history, date } = {}) {
     '- Change day mode: {"type":"set_mode","mode":"balanced|focused|unblock-team|relaxed|low-sleep"}',
     '- Set when you are sharpest for an activity: {"type":"set_time_pref","activity":"review|steward|focus|comms|admin|prep","when":"morning|afternoon|any"}',
     '- Adjust working hours: {"type":"set_hours","workStart":"HH:MM","workEnd":"HH:MM","lunchStart":"HH:MM","lunchEnd":"HH:MM"} (any subset)',
-    '- Change the grid: {"type":"set_grid","grid":5|10|15}',
+    '- Set the minimum block size for flexible work (does NOT move fixed meetings): {"type":"set_grid","grid":5|10|15}',
     '- Set work days: {"type":"set_work_days","days":[1,2,3,4,5]} (0=Sun … 6=Sat)',
     '- Add a to-do: {"type":"add_todo","title":"...","scope":"work|personal"}',
     '- Remove a to-do: {"type":"remove_todo","title":"<exact title>"}',
