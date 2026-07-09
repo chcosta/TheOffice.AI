@@ -13394,7 +13394,13 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
           const atext = String((a && a.text) || '').trim();
           if (!atext) return;
           const due = (a && typeof a.due === 'string' && a.due.trim()) ? a.due.trim() : '';
-          const h = crypto.createHash('sha1').update(atext.toLowerCase()).digest('hex').slice(0, 8);
+          // Stable per-action identity: normalize the text (case/punctuation/whitespace)
+          // and DROP the array index so LLM re-extraction drift (reordered or lightly
+          // reworded actions) still maps to the SAME dedupeKey. This is what lets a durable
+          // decision ("Move to backlog", dismiss, done) re-apply across days instead of the
+          // action resurfacing as a brand-new alert.
+          const anorm = atext.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+          const h = crypto.createHash('sha1').update(anorm || atext.toLowerCase()).digest('hex').slice(0, 12);
           signals.push({
             kind: 'meeting-action', type: 'comms',
             title: atext.slice(0, 200),
@@ -13403,7 +13409,7 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
             link: recUrl || mtgUrl,
             recordingUrl: recUrl, meetingLink: mtgUrl,
             prLink: '', ts: nowIso,
-            dedupeKey: `mtgact:${mid}:${idx}:${h}`,
+            dedupeKey: `mtgact:${mid}:${h}`,
             directMention: true, urgency: 4, source: 'meeting',
           });
         });
