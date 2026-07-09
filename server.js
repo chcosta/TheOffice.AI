@@ -23845,6 +23845,12 @@ function _normalizeBoard(b) {
     // signature AFTER the transaction. Undo reverts only if the live board still
     // matches sig (i.e. no conflicting user edit landed since).
     layoutTxn: (b.layoutTxn && typeof b.layoutTxn === 'object' && !Array.isArray(b.layoutTxn)) ? b.layoutTxn : null,
+    // Board Map: the free-canvas "map" view of this board. Persisted per-board so named
+    // group frames + "you are here" highlights survive reloads/restarts.
+    // { nodes:{ '<panelBaseId>':{x,y,z} }, edges:[{id,from,to,dir:'uni'|'bi'}],
+    //   groups:[{id,name,x,y,w,h,members:[panelBaseId]}], highlights:{ '<panelBaseId>':true },
+    //   view:{zoom,panX,panY} }. Presence of a node key = "on the map".
+    map: (b.map && typeof b.map === 'object' && !Array.isArray(b.map)) ? b.map : null,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
@@ -24119,7 +24125,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId, map } = req.body || {};
   // Writer-lease guard: only the current lease holder may persist LAYOUT. A stale /
   // background client whose clientId != holder is rejected (409) so it cannot clobber
   // the focused client's layout. Non-layout updates (notes/checklists/items/star/...)
@@ -24163,6 +24169,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(savedLayouts)) b.savedLayouts = savedLayouts;
   if (Array.isArray(briefingPrompts)) b.briefingPrompts = briefingPrompts.filter(p => p && p.id).map(p => ({ id: String(p.id), name: String(p.name || 'Prompt'), text: String(p.text || '') }));
   if (activeBriefingPromptId !== undefined) b.activeBriefingPromptId = (activeBriefingPromptId != null ? String(activeBriefingPromptId) : null);
+  if (map && typeof map === 'object' && !Array.isArray(map)) b.map = map;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);

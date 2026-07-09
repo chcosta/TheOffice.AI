@@ -4904,6 +4904,147 @@
     }
     .board-sectionstage.drag-over { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
     .board-sectionstage.panning { cursor: grabbing; user-select: none; }
+    /* ===== Board Map (pan/zoom canvas) ===== */
+    .board-map {
+      position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
+      border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 14px);
+      background:
+        radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--cp-ink) 8%, transparent) 1px, transparent 0) 0 0 / 26px 26px,
+        var(--cp-surface);
+      cursor: grab; outline: none; touch-action: none;
+    }
+    .board-map.panning { cursor: grabbing; }
+    .board-map.bmap-connecting { cursor: crosshair; }
+    .bmap-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+    .bmap-toolbar {
+      position: absolute; top: 12px; left: 12px; z-index: 40;
+      display: flex; align-items: center; gap: 4px; padding: 5px 7px;
+      background: color-mix(in srgb, var(--cp-surface) 92%, transparent);
+      border: 1px solid var(--cp-border); border-radius: 10px;
+      box-shadow: 0 4px 14px color-mix(in srgb, var(--cp-ink) 12%, transparent);
+    }
+    .bmap-tbtn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 9px; font-size: 12.5px; line-height: 1;
+      color: var(--cp-ink); background: transparent;
+      border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+      transition: background .12s ease, border-color .12s ease, color .12s ease;
+    }
+    .bmap-tbtn:hover { background: color-mix(in srgb, var(--cp-ink) 8%, transparent); }
+    .bmap-tbtn.on { background: color-mix(in srgb, var(--cp-accent) 18%, transparent); border-color: var(--cp-accent); color: var(--cp-ink); }
+    .bmap-tbtn:disabled { opacity: .4; cursor: default; }
+    .bmap-zoomlbl { font-size: 12px; color: var(--cp-muted); min-width: 40px; text-align: center; }
+    .bmap-tsep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--cp-border); }
+    .bmap-hint {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 40;
+      padding: 6px 12px; font-size: 12.5px; color: var(--cp-ink);
+      background: color-mix(in srgb, var(--cp-accent) 16%, var(--cp-surface));
+      border: 1px solid var(--cp-accent); border-radius: 8px;
+      box-shadow: 0 4px 14px color-mix(in srgb, var(--cp-ink) 12%, transparent);
+    }
+    /* nodes — fixed 220×108 brief card */
+    .bmap-node {
+      position: absolute; width: 220px; height: 108px; box-sizing: border-box;
+      display: flex; flex-direction: column; gap: 4px; padding: 9px 10px;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 10px; box-shadow: 0 2px 8px color-mix(in srgb, var(--cp-ink) 10%, transparent);
+      cursor: grab; user-select: none; overflow: visible;
+      transition: box-shadow .12s ease, border-color .12s ease;
+    }
+    .bmap-node:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); border-color: color-mix(in srgb, var(--cp-accent) 50%, var(--cp-border)); }
+    .bmap-node.sel { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); }
+    .bmap-node.hl { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f5a623) 70%, transparent), 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); }
+    .bmap-node.hl.sel { box-shadow: 0 0 0 2px var(--cp-accent), 0 0 0 5px color-mix(in srgb, var(--cp-warning, #f5a623) 60%, transparent); }
+    .bmap-node.connect-from { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent); }
+    .bmap-node-head { display: flex; align-items: center; gap: 6px; }
+    .bmap-node-icon { font-size: 14px; flex: 0 0 auto; }
+    .bmap-node-title { font-size: 13px; font-weight: 600; color: var(--cp-ink); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-node-sum { flex: 1 1 auto; min-height: 0; font-size: 11.5px; line-height: 1.35; color: color-mix(in srgb, var(--cp-ink) 78%, var(--cp-muted)); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+    .bmap-node-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .bmap-node-type { font-size: 10.5px; color: var(--cp-muted); text-transform: uppercase; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-node-acts { display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s ease; flex: 0 0 auto; }
+    .bmap-node:hover .bmap-node-acts { opacity: 1; }
+    .bmap-node-acts button {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; padding: 0; font-size: 11px; line-height: 1;
+      color: var(--cp-muted); background: transparent; border: none; border-radius: 5px; cursor: pointer;
+    }
+    .bmap-node-acts button:hover { background: color-mix(in srgb, var(--cp-ink) 12%, transparent); color: var(--cp-ink); }
+    .bmap-node-acts button.on { color: var(--cp-warning, #f5a623); }
+    /* hover full preview */
+    .bmap-node-preview {
+      position: absolute; top: calc(100% + 8px); left: 0; z-index: 50;
+      width: 320px; max-height: 300px; overflow: auto; padding: 12px 14px;
+      font-size: 12.5px; line-height: 1.5; color: var(--cp-ink);
+      background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px;
+      box-shadow: 0 10px 30px color-mix(in srgb, var(--cp-ink) 26%, transparent);
+      opacity: 0; pointer-events: none; transition: opacity .14s ease .25s;
+    }
+    .bmap-node:hover .bmap-node-preview { opacity: 1; }
+    .bmap-node.sel .bmap-node-preview, .board-map.bmap-connecting .bmap-node-preview { display: none; }
+    .bmap-node-preview :where(h1,h2,h3,h4) { font-size: 13px; margin: 0 0 4px; }
+    .bmap-node-preview :where(p,ul,ol) { margin: 0 0 6px; }
+    /* edges + arrows */
+    .bmap-edges { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; overflow: visible; }
+    .bmap-edge-bi { stroke: color-mix(in srgb, var(--cp-ink) 42%, transparent); stroke-width: 2; }
+    .bmap-edge-uni { stroke: var(--cp-accent); stroke-width: 2; }
+    .bmap-arrow { stroke: var(--cp-accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    /* groups */
+    .bmap-group {
+      position: absolute; z-index: 0; pointer-events: none;
+      border: 1.5px dashed color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
+      border-radius: 12px; background: color-mix(in srgb, var(--cp-accent) 6%, transparent);
+    }
+    .bmap-group-head {
+      position: absolute; top: -13px; left: 12px; z-index: 2; pointer-events: auto;
+      display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
+      background: var(--cp-surface); border: 1px solid color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
+      border-radius: 8px; cursor: grab; box-shadow: 0 2px 6px color-mix(in srgb, var(--cp-ink) 10%, transparent);
+    }
+    .bmap-group-name { font-size: 12px; font-weight: 600; color: var(--cp-ink); }
+    .bmap-group-acts { display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s ease; }
+    .bmap-group-head:hover .bmap-group-acts { opacity: 1; }
+    .bmap-group-acts button { width: 18px; height: 18px; padding: 0; font-size: 10px; color: var(--cp-muted); background: transparent; border: none; border-radius: 4px; cursor: pointer; }
+    .bmap-group-acts button:hover { background: color-mix(in srgb, var(--cp-ink) 12%, transparent); color: var(--cp-ink); }
+    /* marquee */
+    .bmap-marquee { position: absolute; z-index: 45; border: 1px solid var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 12%, transparent); border-radius: 4px; pointer-events: none; }
+    /* empty state */
+    .bmap-empty { position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .bmap-empty-inner { text-align: center; max-width: 360px; }
+    .bmap-empty-ttl { font-size: 15px; font-weight: 600; color: var(--cp-ink); margin-bottom: 6px; }
+    .bmap-empty-sub { font-size: 13px; line-height: 1.5; color: var(--cp-muted); }
+    /* selection summary panel */
+    .bmap-selpanel {
+      position: absolute; top: 12px; right: 12px; z-index: 42; width: 300px; max-height: calc(100% - 24px);
+      display: flex; flex-direction: column;
+      background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px;
+      box-shadow: 0 8px 24px color-mix(in srgb, var(--cp-ink) 20%, transparent); overflow: hidden;
+    }
+    .bmap-selpanel-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--cp-border); font-size: 13px; font-weight: 600; color: var(--cp-ink); }
+    .bmap-selpanel-head button { width: 22px; height: 22px; padding: 0; font-size: 12px; color: var(--cp-muted); background: transparent; border: none; border-radius: 6px; cursor: pointer; }
+    .bmap-selpanel-head button:hover { background: color-mix(in srgb, var(--cp-ink) 10%, transparent); color: var(--cp-ink); }
+    .bmap-selpanel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px; }
+    .bmap-sel-item { padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 60%, transparent); }
+    .bmap-sel-item:last-child { border-bottom: none; }
+    .bmap-sel-item-ttl { font-size: 12.5px; font-weight: 600; color: var(--cp-ink); margin-bottom: 2px; }
+    .bmap-sel-item-sum { font-size: 11.5px; line-height: 1.4; color: var(--cp-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .bmap-sel-rels { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--cp-border); }
+    .bmap-sel-rels-ttl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-muted); margin-bottom: 6px; }
+    .bmap-sel-rel { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--cp-ink); padding: 3px 0; }
+    .bmap-sel-rel-dir { color: var(--cp-accent); font-weight: 700; }
+    .bmap-sel-rel-x { margin-left: auto; width: 18px; height: 18px; padding: 0; font-size: 10px; color: var(--cp-muted); background: transparent; border: none; border-radius: 4px; cursor: pointer; }
+    .bmap-sel-rel-x:hover { background: color-mix(in srgb, var(--cp-ink) 10%, transparent); color: var(--cp-ink); }
+    /* full-view overlay */
+    .bmap-fullview { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--cp-surface); }
+    .bmap-fullview-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--cp-border); }
+    .bmap-fv-back, .bmap-fv-open { padding: 5px 11px; font-size: 12.5px; color: var(--cp-ink); background: transparent; border: 1px solid var(--cp-border); border-radius: 8px; cursor: pointer; }
+    .bmap-fv-back:hover, .bmap-fv-open:hover { background: color-mix(in srgb, var(--cp-ink) 8%, transparent); }
+    .bmap-fv-open { border-color: var(--cp-accent); color: var(--cp-ink); }
+    .bmap-fv-title { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 600; color: var(--cp-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-fullview-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px 22px; }
+    @media (prefers-reduced-motion: reduce) {
+      .bmap-node, .bmap-node-acts, .bmap-node-preview, .bmap-group-acts { transition: none; }
+    }
     /* Trash drop-target: pinned to the lower-left of the section stage. Floated + sticky
        so it stays visible while the stage scrolls and never adds scroll height. */
     .board-trash {
@@ -8499,6 +8640,9 @@
                           <button type="button" class="board-sectiontab" :class="{ active: isViewTab() }" @click="setActiveSection('view')" title="Card View — focus a single card full size">
                             <span class="st-emoji">🔎</span><span>Card View</span>
                           </button>
+                          <button type="button" class="board-sectiontab" :class="{ active: isMapView() }" @click="setActiveSection('map')" title="Map — a free canvas of item cards you can arrange, connect and group">
+                            <span class="st-emoji">🗺</span><span>Map</span>
+                          </button>
                           <template x-for="s in boardSections()" :key="s.id">
                             <button type="button" class="board-sectiontab"
                                     :class="{ active: activeSectionId() === s.id, 'drag-over': _boardDragOverSec === s.id }"
@@ -8516,7 +8660,135 @@
                           </template>
                           <button type="button" class="board-sectiontab-add" @click="addSection()" title="New section">＋</button>
                         </div>
-                        <div class="board-sectionstage scrollfade" :class="{ 'drag-over': _boardDragOver }"
+                        <!-- ===== Board Map (pan/zoom canvas of item cards) ===== -->
+                        <div class="board-map" x-show="isMapView()" x-cloak tabindex="0"
+                             @keydown="bmapKeydown($event)"
+                             @wheel.prevent="bmapWheel($event)"
+                             @pointerdown="bmapPanStart($event)"
+                             @pointermove="bmapPanMove($event)"
+                             @pointerup="bmapPanEnd()"
+                             @pointerleave="bmapPanEnd()"
+                             @dragover.prevent="try{$event.dataTransfer.dropEffect='copy'}catch(e){}"
+                             @drop.prevent="bmapDrop($event)"
+                             :class="{ 'bmap-connecting': !!bmapConnectMode() }">
+                          <!-- floating toolbar -->
+                          <div class="bmap-toolbar" @pointerdown.stop>
+                            <button type="button" class="bmap-tbtn" @click="bmapZoom('out')" title="Zoom out">－</button>
+                            <span class="bmap-zoomlbl" x-text="Math.round(bmap.view.zoom*100)+'%'"></span>
+                            <button type="button" class="bmap-tbtn" @click="bmapZoom('in')" title="Zoom in">＋</button>
+                            <button type="button" class="bmap-tbtn" @click="bmapFit()" title="Fit to view">⤢ Fit</button>
+                            <span class="bmap-tsep"></span>
+                            <button type="button" class="bmap-tbtn" :class="{ on: bmapConnectMode()==='uni' }" @click="bmapToggleConnect('uni')" title="Link parent → child (directional)">→ Link</button>
+                            <button type="button" class="bmap-tbtn" :class="{ on: bmapConnectMode()==='bi' }" @click="bmapToggleConnect('bi')" title="Link two cards (two-way)">↔ Link</button>
+                            <button type="button" class="bmap-tbtn" @click="bmapStartGroup()" :disabled="!bmap.sel.length" title="Frame the selected cards as a named group">▢ Group</button>
+                          </div>
+                          <div class="bmap-hint" x-show="!!bmapConnectMode()" x-cloak x-text="bmapConnectHint()"></div>
+
+                          <div class="bmap-world" :style="bmapWorldStyle()">
+                            <!-- group frames -->
+                            <template x-for="g in bmapGroups()" :key="g.id">
+                              <div class="bmap-group" :style="bmapGroupStyle(g)">
+                                <div class="bmap-group-head" @pointerdown.stop="bmapGroupDragStart(g,$event)">
+                                  <span class="bmap-group-name" x-text="g.name || 'Group'" @dblclick.stop="bmapRenameGroup(g)"></span>
+                                  <span class="bmap-group-acts">
+                                    <button type="button" @click.stop="bmapRenameGroup(g)" title="Rename group">✎</button>
+                                    <button type="button" @click.stop="bmapRemoveGroup(g)" title="Ungroup">✕</button>
+                                  </span>
+                                </div>
+                              </div>
+                            </template>
+
+                            <!-- edges (single concatenated path per type; NOT x-for) -->
+                            <svg class="bmap-edges" :width="bmapW()" :height="bmapH()">
+                              <path class="bmap-edge bmap-edge-bi" :d="bmapEdgePath('bi')" fill="none"></path>
+                              <path class="bmap-edge bmap-edge-uni" :d="bmapEdgePath('uni')" fill="none"></path>
+                              <path class="bmap-arrow" :d="bmapArrowPath()" fill="none"></path>
+                            </svg>
+
+                            <!-- nodes -->
+                            <template x-for="n in bmapNodes()" :key="n.base">
+                              <div class="bmap-node"
+                                   :class="{ sel: bmapIsSel(n.base), hl: bmapIsHl(n.base), 'connect-from': bmap.connectFrom===n.base }"
+                                   :style="bmapNodeStyle(n)"
+                                   @pointerdown.stop="bmapNodeDown(n,$event)"
+                                   @pointerup.stop="bmapPanEnd()"
+                                   @click.stop="bmapNodeClick(n,$event)"
+                                   @dblclick.stop="bmapOpenFull(n.base)">
+                                <div class="bmap-node-head">
+                                  <span class="bmap-node-icon" x-text="bmapCardIcon(n.p)"></span>
+                                  <span class="bmap-node-title" x-text="bmapCardTitle(n.p)"></span>
+                                </div>
+                                <div class="bmap-node-sum" x-text="bmapCardSummary(n.p)"></div>
+                                <div class="bmap-node-foot">
+                                  <span class="bmap-node-type" x-text="bmapCardType(n.p)"></span>
+                                  <span class="bmap-node-acts" @pointerdown.stop @click.stop>
+                                    <button type="button" @click="bmapOpenFull(n.base)" title="Open full card">⤢</button>
+                                    <button type="button" @click="bmapToggleHl(n.base)" :class="{ on: bmapIsHl(n.base) }" title="Mark ‘you are here’">◎</button>
+                                    <button type="button" @click="bmapBringFront(n.base)" title="Bring to front">⬆</button>
+                                    <button type="button" @click="bmapSendBack(n.base)" title="Send to back">⬇</button>
+                                    <button type="button" @click="bmapRemoveNode(n.base)" title="Remove from map">✕</button>
+                                  </span>
+                                </div>
+                                <div class="bmap-node-preview" x-html="bmapCardFull(n.p)"></div>
+                              </div>
+                            </template>
+
+                            <!-- marquee -->
+                            <div class="bmap-marquee" x-show="!!bmap.marquee" :style="bmapMarqueeStyle()"></div>
+                          </div>
+
+                          <!-- empty state -->
+                          <div class="bmap-empty" x-show="!bmapCount()" x-cloak>
+                            <div class="bmap-empty-inner">
+                              <div class="bmap-empty-ttl">Your map is empty</div>
+                              <div class="bmap-empty-sub">Drag cards from the toolbox on the left onto the canvas, then arrange, connect and group them.</div>
+                            </div>
+                          </div>
+
+                          <!-- selection summary panel -->
+                          <div class="bmap-selpanel" x-show="bmap.sel.length && !bmap.full" x-cloak @pointerdown.stop @wheel.stop>
+                            <div class="bmap-selpanel-head">
+                              <span x-text="bmap.sel.length + (bmap.sel.length===1 ? ' card selected' : ' cards selected')"></span>
+                              <button type="button" @click="bmapClearSel()" title="Clear selection">✕</button>
+                            </div>
+                            <div class="bmap-selpanel-body">
+                              <template x-for="it in bmapSelItems()" :key="it.base">
+                                <div class="bmap-sel-item">
+                                  <div class="bmap-sel-item-ttl"><span x-text="bmapCardIcon(it.p)"></span> <span x-text="bmapCardTitle(it.p)"></span></div>
+                                  <div class="bmap-sel-item-sum" x-text="bmapCardSummary(it.p)"></div>
+                                </div>
+                              </template>
+                              <div class="bmap-sel-rels" x-show="bmapSelRels().length">
+                                <div class="bmap-sel-rels-ttl">Relationships</div>
+                                <template x-for="r in bmapSelRels()" :key="r.id">
+                                  <div class="bmap-sel-rel">
+                                    <span x-text="r.fromTitle"></span>
+                                    <span class="bmap-sel-rel-dir" x-text="r.dir==='uni' ? '→' : '↔'"></span>
+                                    <span x-text="r.toTitle"></span>
+                                    <button type="button" class="bmap-sel-rel-x" @click="bmapRemoveEdge(r.id)" title="Remove link">✕</button>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- full-view overlay -->
+                          <div class="bmap-fullview" x-show="!!bmap.full" x-cloak @pointerdown.stop @wheel.stop>
+                            <div class="bmap-fullview-bar">
+                              <button type="button" class="bmap-fv-back" @click="bmapCloseFull()">← Back to map</button>
+                              <template x-if="bmapFullPanel()">
+                                <span class="bmap-fv-title"><span x-text="bmapCardIcon(bmapFullPanel())"></span> <span x-text="bmapCardTitle(bmapFullPanel())"></span></span>
+                              </template>
+                              <button type="button" class="bmap-fv-open" @click="bmapOpenReal(bmap.full)" title="Open the real item">Open ↗</button>
+                            </div>
+                            <div class="bmap-fullview-body">
+                              <template x-if="bmapFullPanel()">
+                                <div class="md-output" x-html="bmapCardFull(bmapFullPanel())"></div>
+                              </template>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="board-sectionstage scrollfade" x-show="!isMapView()" :class="{ 'drag-over': _boardDragOver }"
                              @pointerdown="boardStagePanStart($event)"
                              @dragenter.prevent
                              @dragover.prevent="_boardDragOver = true; _boardDragAutoPan($event); try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
@@ -23489,6 +23761,17 @@
         _boardDragOver: false,
         boardEditSecOpen: false,
         _boardDragOverSec: null,
+        // Board Map (free pan/zoom canvas of item cards). The persistent map data —
+        // nodes {base:{x,y,z}}, edges, groups, highlights — lives on board.map (server);
+        // bmap holds only TRANSIENT UI state (pan/zoom, in-flight drags, connect mode,
+        // selection, hover/full-view). pan/zoom is per-board localStorage, not server.
+        bmap: {
+          view: { zoom: 1, panX: 40, panY: 40 },
+          drag: null, groupDrag: null, marquee: null, pan: null,
+          connect: null, connectFrom: null,
+          sel: [], hover: null, full: null,
+          _boardId: null, _persistT: null, _suppressClick: false,
+        },
         _tbxSwipeOpen: null,
         _tbxSwipeDragBase: null,
         _tbxSwipeDX: 0,
@@ -40775,23 +41058,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         activeSectionId() {
           const cur = this.boardCanvas && this.boardCanvas.sec;
           if (cur === 'view') return 'view';
+          if (cur === 'map') return 'map';
           const secs = this.boardSections();
           if (cur && secs.some(s => s.id === cur)) return cur;
           return secs.length ? secs[0].id : null;
         },
         isViewTab() { return this.activeSectionId() === 'view'; },
+        isMapView() { return this.activeSectionId() === 'map'; },
         activeSection() {
           const id = this.activeSectionId();
-          if (id === 'view' || !id) return null;
+          if (id === 'view' || id === 'map' || !id) return null;
           return this.sectionById(id);
         },
         setActiveSection(id) {
           if (!this.boardCanvas || this.boardCanvas.sec === id) return;
           this.boardEditSecOpen = false;
           const patch = { sec: id };
-          if (id && id !== 'view') patch.secLast = id;
+          if (id && id !== 'view' && id !== 'map') patch.secLast = id;
           this.boardCanvas = { ...this.boardCanvas, ...patch };
           this._saveBoardCanvas();
+          if (id === 'map') this.bmapEnter();
         },
         // The section a drop should land in. On the View tab (no active section)
         // we route to the last board section the user was looking at (or the first,
@@ -41303,6 +41589,378 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardCanvas = { ...this.boardCanvas, sec: 'view', viewBase: b };
           this._saveBoardCanvas();
         },
+        // ===== Board Map view (pursuit-style pan/zoom canvas of item cards) =====
+        _bmapEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
+        bmapData() {
+          const b = this.activeBoard();
+          const m = b && b.map;
+          if (m && typeof m === 'object' && !Array.isArray(m)) {
+            return {
+              nodes: (m.nodes && typeof m.nodes === 'object') ? m.nodes : {},
+              edges: Array.isArray(m.edges) ? m.edges : [],
+              groups: Array.isArray(m.groups) ? m.groups : [],
+              highlights: (m.highlights && typeof m.highlights === 'object') ? m.highlights : {}
+            };
+          }
+          return { nodes: {}, edges: [], groups: [], highlights: {} };
+        },
+        _bmapEnsure() {
+          const b = this.activeBoard();
+          if (!b) return null;
+          if (!b.map || typeof b.map !== 'object' || Array.isArray(b.map)) b.map = { nodes: {}, edges: [], groups: [], highlights: {} };
+          const m = b.map;
+          if (!m.nodes || typeof m.nodes !== 'object') m.nodes = {};
+          if (!Array.isArray(m.edges)) m.edges = [];
+          if (!Array.isArray(m.groups)) m.groups = [];
+          if (!m.highlights || typeof m.highlights !== 'object') m.highlights = {};
+          return m;
+        },
+        _bmapSerialize() {
+          const m = this.bmapData();
+          return {
+            nodes: JSON.parse(JSON.stringify(m.nodes || {})),
+            edges: JSON.parse(JSON.stringify(m.edges || [])),
+            groups: JSON.parse(JSON.stringify(m.groups || [])),
+            highlights: JSON.parse(JSON.stringify(m.highlights || {}))
+          };
+        },
+        _bmapPersistSoon() {
+          clearTimeout(this.bmap._persistT);
+          this.bmap._persistT = setTimeout(() => {
+            const b = this.activeBoard();
+            if (!b) return;
+            this._patchBoard(b, { map: this._bmapSerialize() });
+          }, 500);
+        },
+        _bmapSaveView() {
+          try { const b = this.activeBoard(); if (b) localStorage.setItem('bmap-view-' + b.id, JSON.stringify(this.bmap.view)); } catch {}
+        },
+        bmapEnter() {
+          const b = this.activeBoard();
+          if (!b) return;
+          if (this.bmap._boardId === b.id) return;
+          this.bmap._boardId = b.id;
+          this.bmap.sel = []; this.bmap.full = null;
+          this.bmap.connect = null; this.bmap.connectFrom = null;
+          this.bmap.drag = null; this.bmap.groupDrag = null; this.bmap.marquee = null; this.bmap.pan = null;
+          let v = null;
+          try { v = JSON.parse(localStorage.getItem('bmap-view-' + b.id) || 'null'); } catch {}
+          this.bmap.view = (v && typeof v === 'object')
+            ? { zoom: +v.zoom || 1, panX: +v.panX || 0, panY: +v.panY || 0 }
+            : { zoom: 1, panX: 40, panY: 40 };
+        },
+        // -- catalog / resolution --
+        bmapNodes() {
+          const m = this.bmapData();
+          const nodes = m.nodes || {};
+          const out = [];
+          for (const base in nodes) {
+            const p = this._panelByBase(base);
+            if (!p) continue;
+            const nd = nodes[base] || {};
+            out.push({ base, x: +nd.x || 0, y: +nd.y || 0, z: +nd.z || 1, p });
+          }
+          out.sort((a, b) => (a.z || 1) - (b.z || 1));
+          return out;
+        },
+        bmapGroups() { const m = this.bmapData(); return (m.groups || []).filter(g => g && g.id); },
+        bmapOnMap(base) { const m = this.bmapData(); return !!(m.nodes && m.nodes[base]); },
+        bmapCount() { return this.bmapNodes().length; },
+        // -- world size / styles --
+        bmapW() { let mx = 1600; for (const n of this.bmapNodes()) mx = Math.max(mx, n.x + 260); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.x || 0) + (+g.w || 0) + 40); return Math.round(mx + 400); },
+        bmapH() { let mx = 1000; for (const n of this.bmapNodes()) mx = Math.max(mx, n.y + 160); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.y || 0) + (+g.h || 0) + 40); return Math.round(mx + 400); },
+        bmapWorldStyle() { const v = this.bmap.view; return `width:${this.bmapW()}px;height:${this.bmapH()}px;transform:translate(${v.panX}px,${v.panY}px) scale(${v.zoom});transform-origin:0 0`; },
+        bmapNodeStyle(n) { return `left:${n.x}px;top:${n.y}px;z-index:${(n.z || 1) + 10}`; },
+        bmapGroupStyle(g) { return `left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`; },
+        bmapMarqueeStyle() { const mq = this.bmap.marquee; if (!mq) return 'display:none'; return `left:${mq.x}px;top:${mq.y}px;width:${mq.w}px;height:${mq.h}px`; },
+        // -- card content --
+        bmapCardTitle(p) { try { return this.panelTitleText(p); } catch { return 'Item'; } },
+        bmapCardIcon(p) { try { return this.panelIcon(p); } catch { return '▦'; } },
+        bmapCardType(p) { try { return this.chipType(p); } catch { return ''; } },
+        bmapCardSummary(p) {
+          try {
+            if (p.type === 'note') { const t = (p.note && p.note.text) || ''; return t.replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150); }
+            if (p.type === 'checklist') { const items = (p.checklist && p.checklist.items) || []; const done = items.filter(i => i.done).length; const next = items.find(i => !i.done); return done + '/' + items.length + ' done' + (next ? ' · next: ' + (next.text || '').slice(0, 60) : ''); }
+            if (p.type === 'dev') { const d = p.dev || p.item || {}; return [d.repo, d.branch].filter(Boolean).join(' · ').slice(0, 150); }
+            if (p.type === 'pin') { const it = p.item || {}; return (it.title || it.name || it.subject || '').slice(0, 150); }
+            return this.bmapCardType(p);
+          } catch { return ''; }
+        },
+        bmapCardFull(p) {
+          try {
+            if (p.type === 'note') return this.renderMarkdown((p.note && p.note.text) || '_(empty note)_');
+            if (p.type === 'checklist') {
+              const items = (p.checklist && p.checklist.items) || [];
+              if (!items.length) return '<em>(empty checklist)</em>';
+              return '<ul style="margin:0;padding-left:18px;line-height:1.6">' + items.map(i => '<li style="' + (i.done ? 'opacity:.55;text-decoration:line-through' : '') + '">' + this._bmapEsc(i.text || '') + '</li>').join('') + '</ul>';
+            }
+            if (p.type === 'dev') {
+              const d = p.dev || p.item || {};
+              const sum = (d.summary && d.summary.text) ? d.summary.text : '';
+              const head = '**' + (d.title || 'Dev item') + '**\n\n' + [d.repo, d.branch].filter(Boolean).join(' · ');
+              return this.renderMarkdown(sum ? head + '\n\n' + sum : head);
+            }
+            if (p.type === 'pin') {
+              const it = p.item || {};
+              return this.renderMarkdown('**' + (it.title || it.name || it.subject || 'Pinned item') + '**\n\n' + (it.summary || it.body || ''));
+            }
+            return this._bmapEsc(this.bmapCardSummary(p));
+          } catch { return ''; }
+        },
+        // -- pan / zoom / fit --
+        bmapWheel(ev) {
+          const host = ev.currentTarget.getBoundingClientRect();
+          const v = this.bmap.view;
+          const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
+          const nz = Math.min(2, Math.max(0.35, v.zoom * factor));
+          const cx = ev.clientX - host.left, cy = ev.clientY - host.top;
+          const wx = (cx - v.panX) / v.zoom, wy = (cy - v.panY) / v.zoom;
+          v.zoom = nz; v.panX = cx - wx * nz; v.panY = cy - wy * nz;
+          this._bmapSaveView();
+        },
+        bmapZoom(dir) { const v = this.bmap.view; v.zoom = Math.min(2, Math.max(0.35, dir === 'in' ? v.zoom * 1.15 : v.zoom / 1.15)); this._bmapSaveView(); },
+        bmapFit() {
+          const host = document.querySelector('.board-map');
+          const ns = this.bmapNodes();
+          const v = this.bmap.view;
+          if (!host || !ns.length) { v.zoom = 1; v.panX = 40; v.panY = 40; this._bmapSaveView(); return; }
+          const NW = 220, NH = 108;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const n of ns) { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + NW); maxY = Math.max(maxY, n.y + NH); }
+          for (const g of this.bmapGroups()) { minX = Math.min(minX, +g.x || 0); minY = Math.min(minY, +g.y || 0); maxX = Math.max(maxX, (+g.x || 0) + (+g.w || 0)); maxY = Math.max(maxY, (+g.y || 0) + (+g.h || 0)); }
+          const W = Math.max(maxX - minX, 1), H = Math.max(maxY - minY, 1);
+          const r = host.getBoundingClientRect();
+          const z = Math.min(2, Math.max(0.35, Math.min((r.width - 100) / W, (r.height - 100) / H, 1.2)));
+          v.zoom = z; v.panX = (r.width - W * z) / 2 - minX * z; v.panY = Math.max(30, (r.height - H * z) / 2) - minY * z;
+          this._bmapSaveView();
+        },
+        bmapPanStart(ev) {
+          const v = this.bmap.view;
+          if (ev.shiftKey) {
+            const host = ev.currentTarget.getBoundingClientRect();
+            const wx = (ev.clientX - host.left - v.panX) / v.zoom, wy = (ev.clientY - host.top - v.panY) / v.zoom;
+            this.bmap.marquee = { sx: wx, sy: wy, x: wx, y: wy, w: 0, h: 0, hostLeft: host.left, hostTop: host.top };
+            return;
+          }
+          this.bmap.pan = { sx: ev.clientX, sy: ev.clientY, px: v.panX, py: v.panY };
+        },
+        bmapPanMove(ev) {
+          const v = this.bmap.view;
+          if (this.bmap.drag) {
+            const d = this.bmap.drag;
+            const dx = (ev.clientX - d.sx) / v.zoom, dy = (ev.clientY - d.sy) / v.zoom;
+            if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 3) d.moved = true;
+            if (d.moved) { const m = this._bmapEnsure(); if (!m) return; for (const it of d.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } } }
+            return;
+          }
+          if (this.bmap.groupDrag) {
+            const gd = this.bmap.groupDrag;
+            const dx = (ev.clientX - gd.sx) / v.zoom, dy = (ev.clientY - gd.sy) / v.zoom;
+            if (!gd.moved && Math.hypot(ev.clientX - gd.sx, ev.clientY - gd.sy) > 3) gd.moved = true;
+            if (gd.moved) { const m = this._bmapEnsure(); if (!m) return; const g = (m.groups || []).find(x => x.id === gd.id); if (g) { g.x = Math.round(gd.gx + dx); g.y = Math.round(gd.gy + dy); } for (const it of gd.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } } }
+            return;
+          }
+          if (this.bmap.marquee) {
+            const mq = this.bmap.marquee;
+            const wx = (ev.clientX - mq.hostLeft - v.panX) / v.zoom, wy = (ev.clientY - mq.hostTop - v.panY) / v.zoom;
+            mq.x = Math.min(mq.sx, wx); mq.y = Math.min(mq.sy, wy); mq.w = Math.abs(wx - mq.sx); mq.h = Math.abs(wy - mq.sy);
+            return;
+          }
+          if (this.bmap.pan) { const p = this.bmap.pan; v.panX = p.px + (ev.clientX - p.sx); v.panY = p.py + (ev.clientY - p.sy); }
+        },
+        bmapPanEnd() {
+          if (this.bmap.drag) { const moved = this.bmap.drag.moved; this.bmap.drag = null; this.bmap._suppressClick = moved; if (moved) this._bmapPersistSoon(); return; }
+          if (this.bmap.groupDrag) { const moved = this.bmap.groupDrag.moved; this.bmap.groupDrag = null; if (moved) this._bmapPersistSoon(); return; }
+          if (this.bmap.marquee) { this._bmapFinishMarquee(); this.bmap.marquee = null; return; }
+          if (this.bmap.pan) { this.bmap.pan = null; this._bmapSaveView(); }
+        },
+        _bmapFinishMarquee() {
+          const mq = this.bmap.marquee; if (!mq) return;
+          const NW = 220, NH = 108;
+          if (mq.w < 6 && mq.h < 6) { this.bmap.sel = []; return; }
+          const sel = [];
+          for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) sel.push(n.base); }
+          this.bmap.sel = sel;
+        },
+        // -- node interaction --
+        bmapNodeDown(n, ev) {
+          if (this.bmapConnectMode()) return;
+          const m = this.bmapData(); const nodes = m.nodes || {};
+          let bases = [n.base];
+          if (this.bmap.sel.length > 1 && this.bmap.sel.includes(n.base)) bases = this.bmap.sel.slice();
+          const items = bases.map(b => { const nd = nodes[b] || {}; return { base: b, ox: +nd.x || 0, oy: +nd.y || 0 }; });
+          this.bmap.drag = { base: n.base, sx: ev.clientX, sy: ev.clientY, items, moved: false };
+        },
+        bmapNodeClick(n, ev) {
+          if (this.bmap._suppressClick) { this.bmap._suppressClick = false; return; }
+          if (this.bmapConnectMode()) {
+            if (!this.bmap.connectFrom) { this.bmap.connectFrom = n.base; return; }
+            if (this.bmap.connectFrom === n.base) { this.bmap.connectFrom = null; return; }
+            this._bmapAddEdge(this.bmap.connectFrom, n.base, this.bmap.connect);
+            this.bmap.connectFrom = null;
+            return;
+          }
+          if (ev.shiftKey || ev.ctrlKey || ev.metaKey) {
+            const i = this.bmap.sel.indexOf(n.base);
+            if (i >= 0) this.bmap.sel.splice(i, 1); else this.bmap.sel.push(n.base);
+          } else {
+            this.bmap.sel = [n.base];
+          }
+        },
+        bmapOpenFull(base) { this.bmap.full = base; if (!this.bmap.sel.includes(base)) this.bmap.sel = [base]; },
+        bmapCloseFull() { this.bmap.full = null; },
+        bmapFullPanel() { return this.bmap.full ? this._panelByBase(this.bmap.full) : null; },
+        bmapOpenReal(base) {
+          const p = this._panelByBase(base); if (!p) return;
+          this.bmap.full = null;
+          if (p.type === 'pin' && p.item && typeof this.boardJump === 'function') { try { this.boardJump(p.item); return; } catch {} }
+          this.openInView(p);
+        },
+        // -- add / remove nodes --
+        bmapDrop(ev) {
+          let base = this._boardCardDrag && this._boardCardDrag.base;
+          if (!base) { try { const t = ev.dataTransfer.getData('text/plain') || ''; if (t.startsWith('card:')) base = t.slice(5); } catch {} }
+          this._boardCardDrag = null;
+          if (!base) return;
+          const p = this._panelByBase(base); if (!p) return;
+          const host = ev.currentTarget.getBoundingClientRect(); const v = this.bmap.view;
+          const NW = 220, NH = 108;
+          const wx = (ev.clientX - host.left - v.panX) / v.zoom - NW / 2;
+          const wy = (ev.clientY - host.top - v.panY) / v.zoom - NH / 2;
+          const m = this._bmapEnsure(); if (!m) return;
+          const maxZ = Object.values(m.nodes).reduce((a, nd) => Math.max(a, +nd.z || 1), 0);
+          m.nodes[base] = { x: Math.round(wx), y: Math.round(wy), z: maxZ + 1 };
+          this._bmapPersistSoon();
+        },
+        bmapAddNode(base) {
+          const m = this._bmapEnsure(); if (!m) return;
+          if (m.nodes[base]) return;
+          const v = this.bmap.view;
+          const host = document.querySelector('.board-map');
+          const r = host ? host.getBoundingClientRect() : { width: 800, height: 600 };
+          const cx = (r.width / 2 - v.panX) / v.zoom - 110, cy = (r.height / 2 - v.panY) / v.zoom - 54;
+          const maxZ = Object.values(m.nodes).reduce((a, nd) => Math.max(a, +nd.z || 1), 0);
+          m.nodes[base] = { x: Math.round(cx) + (Object.keys(m.nodes).length % 5) * 24, y: Math.round(cy) + (Object.keys(m.nodes).length % 5) * 24, z: maxZ + 1 };
+          this._bmapPersistSoon();
+        },
+        bmapRemoveNode(base) {
+          const m = this._bmapEnsure(); if (!m) return;
+          delete m.nodes[base];
+          m.edges = (m.edges || []).filter(e => e.from !== base && e.to !== base);
+          for (const g of (m.groups || [])) g.members = (g.members || []).filter(x => x !== base);
+          if (m.highlights) delete m.highlights[base];
+          this.bmap.sel = this.bmap.sel.filter(x => x !== base);
+          if (this.bmap.full === base) this.bmap.full = null;
+          this._bmapPersistSoon();
+        },
+        bmapBringFront(base) { const m = this._bmapEnsure(); if (!m || !m.nodes[base]) return; const maxZ = Object.values(m.nodes).reduce((a, nd) => Math.max(a, +nd.z || 1), 0); m.nodes[base].z = maxZ + 1; this._bmapPersistSoon(); },
+        bmapSendBack(base) { const m = this._bmapEnsure(); if (!m || !m.nodes[base]) return; const minZ = Object.values(m.nodes).reduce((a, nd) => Math.min(a, +nd.z || 1), 1); m.nodes[base].z = minZ - 1; this._bmapPersistSoon(); },
+        // -- connections --
+        bmapConnectMode() { return this.bmap.connect; },
+        bmapToggleConnect(dir) { if (this.bmap.connect === dir) { this.bmap.connect = null; this.bmap.connectFrom = null; } else { this.bmap.connect = dir; this.bmap.connectFrom = null; } },
+        bmapConnectHint() {
+          if (!this.bmap.connect) return '';
+          const uni = this.bmap.connect === 'uni';
+          if (this.bmap.connectFrom) return 'Now click the ' + (uni ? 'child' : 'other') + ' card to finish the link · Esc to cancel';
+          return 'Click the ' + (uni ? 'parent' : 'first') + ' card to start ' + (uni ? 'a parent → child link' : 'a two-way link');
+        },
+        _bmapAddEdge(from, to, dir) {
+          const m = this._bmapEnsure(); if (!m) return;
+          const exists = (m.edges || []).some(e => (e.dir || 'bi') === dir && ((e.from === from && e.to === to) || (dir === 'bi' && e.from === to && e.to === from)));
+          if (exists) return;
+          m.edges.push({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, dir });
+          this._bmapPersistSoon();
+        },
+        bmapRemoveEdge(id) { const m = this._bmapEnsure(); if (!m) return; m.edges = (m.edges || []).filter(e => e.id !== id); this._bmapPersistSoon(); },
+        // -- edge / arrow path builders (single concatenated path per type; NOT x-for) --
+        _bmapAnchor(from, to, hw, hh) {
+          const dx = from.x - to.x, dy = from.y - to.y;
+          if (!dx && !dy) return { x: to.x, y: to.y };
+          const sx = dx ? hw / Math.abs(dx) : Infinity;
+          const sy = dy ? hh / Math.abs(dy) : Infinity;
+          const s = Math.min(sx, sy);
+          return { x: to.x + dx * s, y: to.y + dy * s };
+        },
+        bmapEdgePath(dir) {
+          const m = this.bmapData(); const nodes = m.nodes || {};
+          const NW = 220, NH = 108, hw = NW / 2, hh = NH / 2;
+          let d = '';
+          for (const e of (m.edges || [])) {
+            if ((e.dir || 'bi') !== dir) continue;
+            const a = nodes[e.from], b = nodes[e.to];
+            if (!a || !b) continue;
+            if (!this._panelByBase(e.from) || !this._panelByBase(e.to)) continue;
+            const c1 = { x: (+a.x || 0) + hw, y: (+a.y || 0) + hh };
+            const c2 = { x: (+b.x || 0) + hw, y: (+b.y || 0) + hh };
+            const p1 = this._bmapAnchor(c2, c1, hw, hh);
+            const p2 = this._bmapAnchor(c1, c2, hw, hh);
+            d += 'M ' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + ' L ' + p2.x.toFixed(1) + ' ' + p2.y.toFixed(1) + ' ';
+          }
+          return d.trim();
+        },
+        bmapArrowPath() {
+          const m = this.bmapData(); const nodes = m.nodes || {};
+          const NW = 220, NH = 108, hw = NW / 2, hh = NH / 2;
+          let d = '';
+          for (const e of (m.edges || [])) {
+            if ((e.dir || 'bi') !== 'uni') continue;
+            const a = nodes[e.from], b = nodes[e.to];
+            if (!a || !b) continue;
+            if (!this._panelByBase(e.from) || !this._panelByBase(e.to)) continue;
+            const c1 = { x: (+a.x || 0) + hw, y: (+a.y || 0) + hh };
+            const c2 = { x: (+b.x || 0) + hw, y: (+b.y || 0) + hh };
+            const tip = this._bmapAnchor(c1, c2, hw, hh);
+            const dx = c2.x - tip.x, dy = c2.y - tip.y; const dist = Math.hypot(dx, dy) || 1;
+            const ux = dx / dist, uy = dy / dist; const px = -uy, py = ux; const len = 12, half = 6.5;
+            const w1x = tip.x - ux * len + px * half, w1y = tip.y - uy * len + py * half;
+            const w2x = tip.x - ux * len - px * half, w2y = tip.y - uy * len - py * half;
+            d += 'M ' + w1x.toFixed(1) + ' ' + w1y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2x.toFixed(1) + ' ' + w2y.toFixed(1) + ' ';
+          }
+          return d.trim();
+        },
+        // -- groups --
+        bmapStartGroup() {
+          if (this.bmap.sel.length < 1) { try { this.toast('Select one or more cards first, then group them.'); } catch {} return; }
+          const NW = 220, NH = 108; const m = this._bmapEnsure(); if (!m) return;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const base of this.bmap.sel) { const nd = m.nodes[base]; if (!nd) continue; minX = Math.min(minX, +nd.x); minY = Math.min(minY, +nd.y); maxX = Math.max(maxX, +nd.x + NW); maxY = Math.max(maxY, +nd.y + NH); }
+          if (!isFinite(minX)) return;
+          const pad = 22, head = 26;
+          const name = window.prompt('Name this group', 'Group'); if (name === null) return;
+          const g = { id: 'g' + Date.now().toString(36), name: name.trim(), x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members: this.bmap.sel.slice() };
+          m.groups.push(g); this._bmapPersistSoon();
+        },
+        bmapGroupDragStart(g, ev) {
+          const m = this.bmapData(); const nodes = m.nodes || {};
+          const items = (g.members || []).map(b => { const nd = nodes[b] || {}; return { base: b, ox: +nd.x || 0, oy: +nd.y || 0 }; });
+          this.bmap.groupDrag = { id: g.id, sx: ev.clientX, sy: ev.clientY, gx: +g.x || 0, gy: +g.y || 0, items, moved: false };
+        },
+        bmapRenameGroup(g) { const m = this._bmapEnsure(); if (!m) return; const gg = (m.groups || []).find(x => x.id === g.id); if (!gg) return; const name = window.prompt('Rename group', gg.name || ''); if (name === null) return; gg.name = name.trim(); this._bmapPersistSoon(); },
+        bmapRemoveGroup(g) { const m = this._bmapEnsure(); if (!m) return; m.groups = (m.groups || []).filter(x => x.id !== g.id); this._bmapPersistSoon(); },
+        // -- highlights ("you are here") --
+        bmapIsHl(base) { const m = this.bmapData(); return !!(m.highlights && m.highlights[base]); },
+        bmapToggleHl(base) { const m = this._bmapEnsure(); if (!m) return; if (m.highlights[base]) delete m.highlights[base]; else m.highlights[base] = true; this._bmapPersistSoon(); },
+        // -- selection panel --
+        bmapIsSel(base) { return this.bmap.sel.includes(base); },
+        bmapClearSel() { this.bmap.sel = []; },
+        bmapSelItems() { return this.bmap.sel.map(b => { const p = this._panelByBase(b); return p ? { base: b, p } : null; }).filter(Boolean); },
+        bmapSelRels() {
+          const m = this.bmapData(); const sel = this.bmap.sel; const out = [];
+          for (const e of (m.edges || [])) {
+            if (!(sel.includes(e.from) || sel.includes(e.to))) continue;
+            const pf = this._panelByBase(e.from), pt = this._panelByBase(e.to);
+            if (!pf || !pt) continue;
+            out.push({ id: e.id, dir: e.dir || 'bi', fromTitle: this.bmapCardTitle(pf), toTitle: this.bmapCardTitle(pt) });
+          }
+          return out;
+        },
+        bmapKeydown(ev) {
+          if (ev.key === 'Escape') {
+            if (this.bmap.full) { this.bmap.full = null; return; }
+            if (this.bmap.connect) { this.bmap.connect = null; this.bmap.connectFrom = null; return; }
+            if (this.bmap.sel.length) { this.bmap.sel = []; return; }
+          }
+        },
         // ----- Toolbox swipe-left → reveal unpin/delete -----
         // Press-drag a toolbox row LEFT with the mouse to slide it open, revealing an
         // "Unpin" (pinned refs) or "Delete" (board-native notes/checklists/dev) action.
@@ -41488,6 +42146,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         onToolboxDragStart(base, ev) {
           this._boardCardDrag = { base, grabX: 0, grabY: 0 };
           try { ev.dataTransfer.effectAllowed = 'copyMove'; ev.dataTransfer.setData('text/plain', 'card:' + base); } catch {}
+          if (this.isMapView()) return;
           const sec = this._dropSection();
           if (sec && this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
         },
