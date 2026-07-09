@@ -14919,6 +14919,21 @@
                 padding:3px 7px; border-radius:6px; cursor:pointer; }
               .meai-bk-qa button:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
               .meai-bk-qa button.danger:hover { color:var(--cp-danger); }
+              .meai-bk-qa button.good:hover { color:var(--cp-success, #1a7f37); }
+              .meai-bk-rmeta .dup { color:var(--cp-text-soft); font-style:italic; }
+              .meai-bk-rnote { font-size:12.5px; color:var(--cp-text-muted); margin-top:3px; line-height:1.4; }
+              .meai-bk-row.done { opacity:.85; }
+              .meai-bk-row.done .meai-bk-qa { opacity:1; }
+              .meai-bk-dw-hint { font-size:12px; color:var(--cp-text-muted); margin:0 0 10px; line-height:1.45; }
+              .meai-bk-dup { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid var(--cp-border); }
+              .meai-bk-dup:last-child { border-bottom:0; }
+              .meai-bk-dup-main { flex:1 1 auto; min-width:0; }
+              .meai-bk-dup-t { font-size:13px; color:var(--cp-text); line-height:1.35; }
+              .meai-bk-dup-m { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-bk-dup-m a { color:var(--cp-accent); text-decoration:none; }
+              .meai-bk-dup-m a:hover { text-decoration:underline; }
+              .meai-bk-dup button { flex:0 0 auto; }
+              .meai-bk-btn.good { color:var(--cp-success, #1a7f37); }
               .meai-bk-empty { border:1px dashed var(--cp-border); border-radius:12px; padding:40px 24px; text-align:center;
                 color:var(--cp-text-muted); font-size:14px; }
               .meai-bk-selbar { position:sticky; bottom:14px; z-index:5; margin:14px auto 0; display:flex; align-items:center; gap:10px;
@@ -14975,14 +14990,14 @@
                   <template x-if="f.sep"><span class="meai-bk-facet-sep"></span></template>
                 </template>
                 <template x-for="f in meaiBkFacets()" :key="f.sep ? ('sep'+Math.random()) : f.key">
-                  <button x-show="!f.sep" class="meai-bk-facet" :class="{ on: meaiBk.facet === f.key }" @click="meaiBk.facet = f.key">
-                    <span x-text="f.label"></span><span class="n" x-text="f.n"></span>
+                  <button x-show="!f.sep" class="meai-bk-facet" :class="{ on: meaiBk.facet === f.key }" @click="meaiBkSelectFacet(f.key)">
+                    <span x-text="f.label"></span><span class="n" x-text="f.n === null ? '' : f.n"></span>
                   </button>
                 </template>
               </div>
 
               <!-- toolbar -->
-              <div class="meai-bk-toolbar">
+              <div class="meai-bk-toolbar" x-show="meaiBk.facet !== 'done'">
                 <label class="meai-bk-chk">
                   <input type="checkbox" :checked="meaiBkAllVisibleSelected()" @change="meaiBkSelAll($event.target.checked)">
                   <span>Select all</span>
@@ -15006,14 +15021,15 @@
               </div>
 
               <!-- loading / empty -->
-              <div x-show="meaiBk.loading" class="meai-bk-empty">Loading your backlog…</div>
-              <div x-show="!meaiBk.loading && !meaiBkVisible().length" class="meai-bk-empty">
+              <div x-show="meaiBk.loading && meaiBk.facet !== 'done'" class="meai-bk-empty">Loading your backlog…</div>
+              <div x-show="meaiBk.facet === 'done' && meaiBk.historyBusy" class="meai-bk-empty">Loading completed work…</div>
+              <div x-show="meaiBk.facet !== 'done' && !meaiBk.loading && !meaiBkVisible().length" class="meai-bk-empty">
                 <div style="font-size:15px;color:var(--cp-text);font-weight:600;margin-bottom:4px;">Nothing here</div>
                 <div x-text="meaiBk.facet === 'aside' ? 'You haven\'t set anything aside.' : 'No future work in this view. Try ↻ Refresh, or switch filters.'"></div>
               </div>
 
               <!-- list -->
-              <div class="meai-bk-list" x-show="!meaiBk.loading && meaiBkVisible().length">
+              <div class="meai-bk-list" x-show="meaiBk.facet !== 'done' && !meaiBk.loading && meaiBkVisible().length">
                 <template x-for="u in meaiBkUnits()" :key="u.single ? ('one-'+u.item.key) : ('unit-'+u.key)">
                   <div>
                     <!-- single row -->
@@ -15029,6 +15045,7 @@
                             <template x-if="u.item.repo"><span><span class="dot">·</span> <span x-text="u.item.repo"></span></span></template>
                             <template x-if="u.item.when"><span><span class="dot">·</span> <span x-text="u.item.when"></span></span></template>
                             <template x-if="u.item.week"><span class="wk">★ this week</span></template>
+                            <template x-if="u.item.duplicateCount"><span><span class="dot">·</span> <span class="dup" x-text="'+' + u.item.duplicateCount + ' merged'"></span></span></template>
                           </div>
                         </div>
                         <div class="meai-bk-rside">
@@ -15036,6 +15053,7 @@
                             <span class="d"></span><span x-text="meaiBkUrgWord(_meaiBkUrg(u.item))"></span>
                           </span>
                           <div class="meai-bk-qa">
+                            <button class="good" @click="meaiBkMark(u.item.key,'done')">✓ Done</button>
                             <button @click="meaiBkMark(u.item.key,'week')" x-text="u.item.week ? '☆ Unweek' : '☆ Week'"></button>
                             <button @click="meaiBkOpenDrawer(u.item.key)">Context</button>
                             <template x-if="!u.item.aside"><button class="danger" @click="meaiBkMark(u.item.key,'aside')">Set aside</button></template>
@@ -15064,6 +15082,7 @@
                                   <span x-text="it.source || 'unknown'"></span>
                                   <template x-if="it.when"><span><span class="dot">·</span> <span x-text="it.when"></span></span></template>
                                   <template x-if="it.week"><span class="wk">★ this week</span></template>
+                                  <template x-if="it.duplicateCount"><span><span class="dot">·</span> <span class="dup" x-text="'+' + it.duplicateCount + ' merged'"></span></span></template>
                                 </div>
                               </div>
                               <div class="meai-bk-rside">
@@ -15071,6 +15090,7 @@
                                   <span class="d"></span><span x-text="meaiBkUrgWord(_meaiBkUrg(it))"></span>
                                 </span>
                                 <div class="meai-bk-qa">
+                                  <button class="good" @click="meaiBkMark(it.key,'done')">✓ Done</button>
                                   <button @click="meaiBkMark(it.key,'week')" x-text="it.week ? '☆ Unweek' : '☆ Week'"></button>
                                   <button @click="meaiBkOpenDrawer(it.key)">Context</button>
                                   <button class="danger" @click="meaiBkMark(it.key,'aside')">Set aside</button>
@@ -15085,10 +15105,40 @@
                 </template>
               </div>
 
+              <!-- completed / history view -->
+              <div class="meai-bk-list" x-show="meaiBk.facet === 'done' && meaiBk.historyLoaded">
+                <div x-show="!meaiBk.history.length" class="meai-bk-empty">
+                  <div style="font-size:15px;color:var(--cp-text);font-weight:600;margin-bottom:4px;">Nothing completed yet</div>
+                  <div>Mark backlog items ✓ Done and they'll show up here — and in your diary.</div>
+                </div>
+                <template x-for="h in meaiBk.history" :key="'done-'+h.key">
+                  <div class="meai-bk-row done">
+                    <div class="meai-bk-rmain">
+                      <div class="meai-bk-rt" style="cursor:default;text-decoration:line-through;text-decoration-color:var(--cp-border);" x-text="h.title"></div>
+                      <div class="meai-bk-rmeta">
+                        <span class="kind" x-text="meaiBkKindLabel(h.kind)"></span>
+                        <span class="dot">·</span>
+                        <span x-text="h.source || 'unknown'"></span>
+                        <template x-if="h.doneAt"><span><span class="dot">·</span> <span x-text="'done ' + meaiBkDoneWhen(h.doneAt)"></span></span></template>
+                        <template x-if="h.duplicateCount"><span><span class="dot">·</span> <span class="dup" x-text="'+' + h.duplicateCount + ' merged'"></span></span></template>
+                      </div>
+                      <template x-if="h.doneNote"><div class="meai-bk-rnote" x-text="h.doneNote"></div></template>
+                    </div>
+                    <div class="meai-bk-rside">
+                      <div class="meai-bk-qa">
+                        <template x-if="h.link"><a :href="h.link" target="_blank" rel="noopener" style="text-decoration:none;">Open ↗</a></template>
+                        <button @click="meaiBkReopen(h)">↩ Reopen</button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
               <!-- selection bar -->
-              <div class="meai-bk-selbar" x-show="meaiBkSelCount()" x-transition>
+              <div class="meai-bk-selbar" x-show="meaiBkSelCount() && meaiBk.facet !== 'done'" x-transition>
                 <span class="cnt" x-text="meaiBkSelCount() + ' selected'"></span>
                 <button class="meai-bk-btn sm" @click="meaiBkGroupSelected()" :disabled="meaiBk.busy || meaiBkSelCount() < 2">⛓ Group as one unit</button>
+                <button class="meai-bk-btn sm" @click="meaiBkMergeSelected()" :disabled="meaiBk.busy || meaiBkSelCount() < 2">⧉ Merge as duplicates</button>
                 <button class="meai-bk-btn sm primary" @click="meaiBkCreateWorkItem()" :disabled="meaiBk.busy">＋ Create work item</button>
                 <button class="meai-bk-btn sm" @click="meaiBkBulk('week')" :disabled="meaiBk.busy">★ Do this week</button>
                 <button class="meai-bk-btn sm danger" @click="meaiBkBulk('aside')" :disabled="meaiBk.busy">Set aside</button>
@@ -15127,8 +15177,25 @@
                         <div class="meai-bk-why" x-text="meaiBkDrawerItem().note"></div>
                       </div>
                     </template>
+                    <template x-if="meaiBkDrawerItem().duplicates && meaiBkDrawerItem().duplicates.length">
+                      <div class="meai-bk-dw-sec">
+                        <h4 x-text="'Merged duplicates · ' + meaiBkDrawerItem().duplicates.length"></h4>
+                        <div class="meai-bk-dw-hint">These were folded into this item. If one doesn't belong, split it back out.</div>
+                        <template x-for="dup in meaiBkDrawerItem().duplicates" :key="'dup-'+dup.key">
+                          <div class="meai-bk-dup">
+                            <div class="meai-bk-dup-main">
+                              <div class="meai-bk-dup-t" x-text="dup.title"></div>
+                              <div class="meai-bk-dup-m">
+                                <span x-text="(dup.source || 'unknown') + (dup.auto ? ' · auto-merged' : '')"></span>
+                                <template x-if="dup.link"><span> · <a :href="dup.link" target="_blank" rel="noopener">Open ↗</a></span></template>
+                              </div>
+                            </div>
+                            <button class="meai-bk-btn sm" @click="meaiBkUnmerge(meaiBkDrawerItem().key, dup.key)" :disabled="meaiBk.busy">Not a duplicate</button>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
                     <div class="meai-bk-dw-sec">
-                      <h4>Why this urgency</h4>
                       <div class="meai-bk-why">
                         <strong x-text="meaiBkUrgWord(_meaiBkUrg(meaiBkDrawerItem())) + ' · U' + _meaiBkUrg(meaiBkDrawerItem())"></strong>
                         — <span x-text="meaiBkWhyUrg(_meaiBkUrg(meaiBkDrawerItem()))"></span>
@@ -15142,6 +15209,7 @@
                   </div>
                   <div class="meai-bk-dw-foot">
                     <div class="row">
+                      <button class="meai-bk-btn sm good" @click="meaiBkMark(meaiBkDrawerItem().key,'done'); meaiBkCloseDrawer()">✓ Done</button>
                       <button class="meai-bk-btn sm" @click="meaiBkMark(meaiBkDrawerItem().key,'week')" x-text="meaiBkDrawerItem().week ? '★ On this week' : '★ Do this week'"></button>
                       <template x-if="meaiBkDrawerItem().link"><a class="meai-bk-btn sm" :href="meaiBkDrawerItem().link" target="_blank" rel="noopener" style="text-decoration:none;">Open ↗</a></template>
                     </div>
@@ -23659,6 +23727,9 @@
           sort: 'urg',         // urg | age | src
           sel: {},             // key -> bool (selection)
           drawerKey: null,     // open item key, or null
+          history: [],         // completed items (lazy-loaded for the Done facet)
+          historyLoaded: false,
+          historyBusy: false,
         },
         meai: {
           loaded: false,
@@ -31489,7 +31560,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { sep: true },
             { key: 'week', label: '★ This week', n: live.filter(i => i.week).length },
             { key: 'aside', label: 'Set aside', n: items.filter(i => i.aside).length },
+            { key: 'done', label: 'Done', n: this.meaiBk.historyLoaded ? this.meaiBk.history.length : null },
           ];
+        },
+        meaiBkSelectFacet(k) {
+          this.meaiBk.facet = k;
+          if (k === 'done' && !this.meaiBk.historyLoaded && !this.meaiBk.historyBusy) this.meaiBkLoadHistory();
+        },
+        async meaiBkLoadHistory() {
+          this.meaiBk.historyBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/backlog/history?date=' + encodeURIComponent(this.meai.date) + '&limit=200');
+            this.meaiBk.history = (r && Array.isArray(r.items)) ? r.items : [];
+            this.meaiBk.historyLoaded = true;
+          } catch (e) {
+            this.toast('Failed to load history: ' + (e.message || e), 'error');
+            this.meaiBk.history = [];
+          } finally { this.meaiBk.historyBusy = false; }
+        },
+        meaiBkDoneWhen(iso) {
+          if (!iso) return '';
+          try {
+            const d = new Date(iso);
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+          } catch (e) { return ''; }
         },
         meaiBkVisible() {
           let arr = (this.meaiBk.items || []).slice();
@@ -31559,7 +31653,44 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             } else if (what === 'unaside') {
               await this._meaiBkPost('/api/me-ai/backlog/item', { key, aside: false });
               this.toast('Back in the backlog');
+            } else if (what === 'done') {
+              delete this.meaiBk.sel[key];
+              await this._meaiBkPost('/api/me-ai/backlog/item', { key, title: i.title, done: true });
+              this.meaiBk.historyLoaded = false;   // refetch history next time the Done view opens
+              if (this.meaiBk.drawerKey === key) this.meaiBkCloseDrawer();
+              this.toast('Done — logged to your diary');
             }
+          } catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
+        },
+        async meaiBkUnmerge(primaryKey, dupKey) {
+          try {
+            await this._meaiBkPost('/api/me-ai/backlog/unmerge', { primary: primaryKey, key: dupKey });
+            this.toast("Split back out — I won't auto-merge it again");
+          } catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
+        },
+        async meaiBkMergeSelected() {
+          const keys = this.meaiBkSelKeys();
+          if (keys.length < 2) { this.toast('Pick at least 2 — the first is kept as the primary'); return; }
+          const primary = keys[0];
+          const pItem = (this.meaiBk.items || []).find(x => x.key === primary);
+          const ok = window.confirm('Merge ' + (keys.length - 1) + ' item' + (keys.length > 2 ? 's' : '') + ' as duplicate'
+            + (keys.length > 2 ? 's' : '') + ' of:\n\n' + (pItem ? pItem.title : '(first selected)')
+            + '\n\nThe duplicates are hidden and won\'t schedule; the primary keeps them for reference. Undo any time via "Not a duplicate".');
+          if (!ok) return;
+          this.meaiBk.busy = true;
+          try {
+            await this._meaiBkPost('/api/me-ai/backlog/merge', { primary, keys: keys.slice(1) });
+            this.meaiBkClearSel();
+            this.toast('Merged ' + (keys.length - 1) + ' as duplicate' + (keys.length > 2 ? 's' : ''));
+          } catch (e) { this.toast('Merge failed: ' + (e.message || e), 'error'); }
+          finally { this.meaiBk.busy = false; }
+        },
+        async meaiBkReopen(h) {
+          if (!h || !h.key) return;
+          try {
+            await this._meaiBkPost('/api/me-ai/backlog/item', { key: h.key, title: h.title, done: false });
+            this.meaiBk.history = (this.meaiBk.history || []).filter(x => x.key !== h.key);
+            this.toast('Reopened — back in the backlog');
           } catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
         },
         async meaiBkBulk(what) {

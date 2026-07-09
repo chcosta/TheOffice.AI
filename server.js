@@ -12606,6 +12606,20 @@ function _meAiSetCuration(patch) {
   next.week = !!next.week;
   next.aside = !!next.aside;
   if (next.group != null) next.group = String(next.group).trim().slice(0, 120) || null;
+  // Done state — completed backlog work moves to history + never resurfaces on the agenda.
+  next.done = !!next.done;
+  if (next.done) { if (!next.doneAt) next.doneAt = next.updatedAt; }
+  else next.doneAt = null;
+  if (next.doneNote != null) next.doneNote = String(next.doneNote).slice(0, 400);
+  // Duplicate relationships. `duplicateOf` = this item was folded into a primary (hidden from
+  // the standalone list, shown under the primary). `duplicates` = on a PRIMARY, the absorbed
+  // duplicate entries (original ids/titles preserved so we can split them back out + learn).
+  // `notDuplicate` = keys the user explicitly declared are NOT duplicates → block future auto-merge.
+  if (next.duplicateOf != null && next.duplicateOf !== '') next.duplicateOf = String(next.duplicateOf).trim() || null;
+  else next.duplicateOf = null;
+  if (!Array.isArray(next.duplicates)) next.duplicates = [];
+  if (!Array.isArray(next.notDuplicate)) next.notDuplicate = [];
+  else next.notDuplicate = Array.from(new Set(next.notDuplicate.map(k => String(k || '').trim()).filter(Boolean)));
   store.items[key] = next;
   saveBacklogCuration(store);
   return next;
@@ -12628,7 +12642,7 @@ function _meAiApplyBacklogCuration(planSignals, curation) {
     const key = _meAiBacklogKey(sig);
     const cur = key && items[key];
     if (cur) {
-      if (cur.aside) { asideKeys.add(key); continue; }
+      if (cur.aside || cur.done || cur.duplicateOf) { asideKeys.add(key); continue; }
       if (cur.urgencyOverride != null && Number.isFinite(Number(cur.urgencyOverride))) {
         sig.urgency = Math.max(0, Math.min(5, Number(cur.urgencyOverride)));
       } else if (cur.week) {
@@ -12701,6 +12715,141 @@ function _meAiRecordDecision(it, action) {
       reason: (triage === 'dismissed' || triage === 'wontfix') ? triage : '',
     };
     saveDecisionMemory(store);
+  } catch (_) { /* best-effort */ }
+}
+// Record (or clear) a durable decision for a RAW backlog key we already hold (no source item).
+// Used when the user marks a backlog row Done/parked directly — the assembled backlog item
+// doesn't carry a re-derivable dedupeKey, so we key the decision on the backlog key itself.
+// Durable actions {later,dismiss,wontfix,done} persist; clearing actions {now,today,seen} delete.
+function _meAiRecordDecisionByKey(key, action, title, extra) {
+  try {
+    key = String(key || '').trim();
+    if (!key) return;
+    const a = String(action || '').toLowerCase();
+    const store = loadDecisionMemory();
+    store.decisions = store.decisions || {};
+    if (ME_AI_DECISION_CLEAR.has(a)) {
+      if (store.decisions[key]) { delete store.decisions[key]; saveDecisionMemory(store); }
+      return;
+    }
+    const durable = a === 'done' || ME_AI_DECISION_DURABLE.has(a);
+    if (!durable) return;
+    const triage = (a === 'dismiss') ? 'dismissed' : a;
+    store.decisions[key] = {
+      key, triage, at: new Date().toISOString(),
+      title: String(title || '').slice(0, 140),
+      note: (extra && extra.note) || '',
+      reason: (triage === 'dismissed' || triage === 'wontfix') ? triage : '',
+    };
+    saveDecisionMemory(store);
+  } catch (_) { /* best-effort */ }
+}
+// Feed a completed backlog item into the Diary (consent-agnostic auto-evidence, deduped by a
+// stable ext tag so re-marking or a re-run never double-logs). Gap-fill only: records the
+// completion + how many duplicates it folded, so the retro/Connect surfaces what got finished.
+function _meAiBacklogDoneToDiary(rec, key) {
+  try {
+    const title = String((rec && rec.title) || '').trim();
+    if (!title) return { written: false, reason: 'no-title' };
+    const day = _meAiLocalDay();
+    const extTag = 'ext:me-ai:backlog-done:' + require('crypto').createHash('sha1').update(String(key || title)).digest('hex').slice(0, 12);
+    const existing = connect.listEvidence({ includeHidden: true }) || [];
+    if (existing.some(e => (e.tags || []).some(t => String(t) === extTag))) return { written: false, reason: 'already-logged' };
+    const dupN = (rec && Array.isArray(rec.duplicates)) ? rec.duplicates.length : 0;
+    const detail = ('Completed a tracked backlog item' + (dupN ? ` (folded ${dupN} duplicate${dupN === 1 ? '' : 's'}).` : '.')).slice(0, 300);
+    const links = (rec && rec.workItem && rec.workItem.url) ? [rec.workItem.url] : ((rec && rec.link) ? [rec.link] : []);
+    const item = connect.addEvidence({
+      date: day, source: 'other', title: 'Completed — ' + title.slice(0, 120), detail, impact: '',
+      links, tags: [extTag, 'me-ai', 'backlog-done'],
+    }, { origin: 'auto' });
+    return { written: true, item };
+  } catch (e) { return { written: false, reason: e.message }; }
+}
+// ── Fuzzy backlog-membership dedupe ────────────────────────────────────────────────────────
+// Builds a lightweight index of work ALREADY parked in the backlog (explicit curation decisions
+// + inbox rows the user resolved to later/today/now) so a fresh inbox arrival that merely rewords
+// an existing backlog entry gets folded onto it as a duplicate instead of re-surfacing as NEW.
+// Excludes done/folded items; carries each primary's `notDuplicate` guard so a split-out item is
+// never re-merged. Deliberately does NOT index untriaged 'new' rows (avoids new-on-new chaos).
+function _meAiBuildBacklogDedupeIndex(date) {
+  const out = [];
+  const seen = new Set();
+  const add = (k, title, notDup) => {
+    k = String(k || '').trim();
+    if (!k || seen.has(k)) return;
+    const toks = new Set(_meAiTitleTokens(title));
+    if (toks.size < 2) return;
+    seen.add(k);
+    out.push({ key: k, title: String(title || ''), toks, notDuplicate: new Set((notDup || []).map(x => String(x || '').trim())) });
+  };
+  try {
+    const store = loadBacklogCuration();
+    const items = (store && store.items) || {};
+    for (const [k, cur] of Object.entries(items)) {
+      if (!cur || cur.done || cur.duplicateOf) continue;
+      const curated = cur.aside || cur.week || cur.group || cur.workItem || cur.urgencyOverride != null || cur.note || (Array.isArray(cur.duplicates) && cur.duplicates.length);
+      if (!curated) continue;
+      add(k, cur.title || k, cur.notDuplicate);
+    }
+    try {
+      const inbox = loadInboxForDate(date);
+      for (const it of (inbox.items || [])) {
+        const tr = String((it && it.triage) || '');
+        if (!(tr === 'later' || tr === 'today' || tr === 'now')) continue;
+        const k = _meAiBacklogKey(it);
+        const cur = items[k] || {};
+        if (cur.done || cur.duplicateOf) continue;
+        add(k, it.title, cur.notDuplicate);
+      }
+    } catch (_) { /* inbox optional */ }
+  } catch (_) { /* best-effort */ }
+  return out;
+}
+// Does this fresh arrival duplicate an item already in the backlog? Conservative: requires
+// ≥3 shared distinctive tokens AND strong TWO-WAY containment (so neither a tiny arrival nor a
+// tiny backlog title trivially "contains" the other), and honours the primary's notDuplicate
+// guard. Returns { key, title, rel } of the matched backlog primary, or null.
+function _meAiBacklogDuplicateOf(it, index, arrivalKey, minRel) {
+  if (!it || !Array.isArray(index) || !index.length) return null;
+  const min = Math.max(0.5, Math.min(1, Number(minRel) || 0.82));
+  const toks = new Set(_meAiTitleTokens(it.title));
+  if (toks.size < 3) return null; // too sparse to dedupe safely
+  let best = null, bestRel = 0;
+  for (const e of index) {
+    if (!e || e.key === arrivalKey) continue;
+    if (arrivalKey && e.notDuplicate.has(arrivalKey)) continue;
+    let inter = 0; for (const t of toks) if (e.toks.has(t)) inter++;
+    if (inter < 3) continue;
+    const rel = Math.min(inter / toks.size, inter / e.toks.size);
+    if (rel < min) continue;
+    if (rel > bestRel) { bestRel = rel; best = e; }
+  }
+  return best ? { key: best.key, title: best.title, rel: bestRel } : null;
+}
+// Fold an arrival onto a backlog primary as a duplicate: append the original id/entry to the
+// primary's duplicates list (for display + "not a duplicate" splitting) and stamp the arrival's
+// curation with duplicateOf so assembly hides it under the primary.
+function _meAiFoldBacklogDuplicate(primaryKey, arrival, arrivalKey, auto) {
+  try {
+    primaryKey = String(primaryKey || '').trim();
+    arrivalKey = String(arrivalKey || '').trim();
+    if (!primaryKey || !arrivalKey || primaryKey === arrivalKey) return;
+    const store = loadBacklogCuration();
+    const prim = store.items[primaryKey] || { key: primaryKey };
+    const dups = Array.isArray(prim.duplicates) ? prim.duplicates.slice() : [];
+    if (!dups.some(d => d && d.key === arrivalKey)) {
+      dups.push({
+        key: arrivalKey,
+        title: String((arrival && arrival.title) || '').slice(0, 200),
+        source: String((arrival && arrival.source) || '').slice(0, 40),
+        link: String((arrival && (arrival.link || arrival.prLink)) || '').slice(0, 600),
+        kind: _meAiBacklogKind(arrival || {}),
+        at: new Date().toISOString(),
+        auto: !!auto,
+      });
+    }
+    _meAiSetCuration({ key: primaryKey, duplicates: dups });
+    _meAiSetCuration({ key: arrivalKey, duplicateOf: primaryKey, title: String((arrival && arrival.title) || '').slice(0, 240) });
   } catch (_) { /* best-effort */ }
 }
 // Re-apply a durable decision to a fresh arrival, if one exists for its stable identity.
@@ -13604,6 +13753,24 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const priorIdx = _meAiBuildPriorResolutionIndex(date, 7);
   const hasPrior = !!priorIdx.size;
   let priorHits = 0;
+  // Layer-2c: BACKLOG-membership dedupe. Fold a fresh arrival that merely rewords work already
+  // parked in the backlog onto that backlog primary (as a tracked duplicate) instead of surfacing
+  // a brand-new row. Conservative two-way token containment; honours "not a duplicate" splits.
+  const bkIndex = _meAiBuildBacklogDedupeIndex(date);
+  const bkMinRel = Math.max(0.8, (((cfg.grouping && cfg.grouping.min) || 72) / 100));
+  let backlogDupHits = 0;
+  const _bkTryFold = (it) => {
+    if (!bkIndex.length) return false;
+    const ak = _meAiBacklogKey(it);
+    const dup = _meAiBacklogDuplicateOf(it, bkIndex, ak, bkMinRel);
+    if (!dup || !dup.key || !ak || dup.key === ak) return false;
+    it.triage = 'later'; it.triagedAt = now; it.auto = true;
+    it.autoReason = { via: 'backlog-duplicate', of: dup.key, at: now };
+    it.duplicateOf = dup.key; it.dupOfTitle = dup.title;
+    _meAiFoldBacklogDuplicate(dup.key, it, ak, true);
+    backlogDupHits++; autoHandled++;
+    return true;
+  };
   const aiGroupStore = loadAiGroupStore(date);  // Ask 1: reuse a prior "Group similar" pass
   const hasAiGroups = !!(aiGroupStore.clusters && aiGroupStore.clusters.length);
   let aiGroupHits = 0;
@@ -13640,6 +13807,8 @@ async function _meAiMergeInbox(date, signals, cfg) {
         if (hasDecisions && _meAiApplyDecision(ex, decStore, date, now)) { decisionHits++; autoHandled++; continue; }
         // Layer-2b: cross-day carry-forward — a resolution made on a prior day (esp. 'done').
         if (hasPrior && _meAiApplyPriorResolution(ex, priorIdx, date, now)) { priorHits++; autoHandled++; continue; }
+        // Layer-2c: it now matches an existing backlog entry → fold as a duplicate (park it).
+        if (_bkTryFold(ex)) continue;
         const rule = classRules.length ? _meAiClassRuleMatch(ex, classStore) : null;
         if (rule) { _meAiApplyClassRule(ex, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++; continue; }
         // Phase 6 Layer-1: a topic the user already suppressed now covers this item.
@@ -13668,6 +13837,11 @@ async function _meAiMergeInbox(date, signals, cfg) {
       // it so it lands parked/suppressed/handled instead of a NEW nag. Pushed, not counted new.
       if (hasPrior && _meAiApplyPriorResolution(it, priorIdx, date, now)) {
         priorHits++; autoHandled++;
+        inbox.items.push(it); byId.set(id, it); added++;
+        continue;
+      }
+      // Layer-2c: fresh arrival duplicates an existing backlog entry → fold + park (not NEW).
+      if (_bkTryFold(it)) {
         inbox.items.push(it); byId.set(id, it); added++;
         continue;
       }
@@ -13739,6 +13913,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
     if (!it || (it.triage !== 'new' && it.triage !== 'seen') || it.auto === true) continue;
     if (hasDecisions && _meAiApplyDecision(it, decStore, date, now)) { decisionHits++; autoHandled++; continue; }
     if (hasPrior && _meAiApplyPriorResolution(it, priorIdx, date, now)) { priorHits++; autoHandled++; continue; }
+    if (_bkTryFold(it)) continue;
   }
   if (classHits) { try { saveClassRules(classStore); } catch (_) { /* persist hit counts */ } } // persist hit counts
   if (topicHits) { try { saveTopicMemory(topicStore); } catch (_) { /* best-effort */ } } // persist topic hits/lastAt
@@ -13746,7 +13921,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, priorHits, instanceMerges, aiGroupHits };
+  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, priorHits, instanceMerges, aiGroupHits, backlogDupHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -18600,6 +18775,7 @@ function _meAiAssembleBacklog(date) {
   const out = [];
   for (const c of byKey.values()) {
     const cur = curItems[c.key] || {};
+    if (cur.done || cur.duplicateOf) continue; // completed or folded-into-a-primary → hidden here
     out.push({
       ...c,
       week: !!cur.week,
@@ -18609,13 +18785,20 @@ function _meAiAssembleBacklog(date) {
       urgencyOverride: (cur.urgencyOverride != null) ? Number(cur.urgencyOverride) : null,
       workItem: cur.workItem || null,
       note: cur.note || '',
+      done: false,
+      duplicates: Array.isArray(cur.duplicates) ? cur.duplicates : [],
+      duplicateCount: Array.isArray(cur.duplicates) ? cur.duplicates.length : 0,
+      notDuplicate: Array.isArray(cur.notDuplicate) ? cur.notDuplicate : [],
     });
   }
   // Also surface curated items that are ONLY known via curation (e.g. a set-aside item
-  // whose source has since gone quiet) so a decision never silently vanishes.
+  // whose source has since gone quiet, or a primary that has absorbed duplicates) so a
+  // decision never silently vanishes.
   for (const [k, cur] of Object.entries(curItems)) {
     if (byKey.has(k)) continue;
-    if (!cur || (!cur.aside && !cur.group && !cur.workItem && !cur.week && cur.urgencyOverride == null)) continue;
+    if (!cur || cur.done || cur.duplicateOf) continue;
+    const hasDups = Array.isArray(cur.duplicates) && cur.duplicates.length;
+    if (!cur.aside && !cur.group && !cur.workItem && !cur.week && cur.urgencyOverride == null && !hasDups) continue;
     out.push({
       key: k, title: String(cur.title || k).slice(0, 240), kind: 'action',
       source: 'curation', link: cur.link || '', recordingUrl: '', meetingLink: '', detail: '', repo: '', when: '',
@@ -18623,6 +18806,10 @@ function _meAiAssembleBacklog(date) {
       urgency: (cur.urgencyOverride != null) ? Number(cur.urgencyOverride) : 3,
       urgencyOverride: (cur.urgencyOverride != null) ? Number(cur.urgencyOverride) : null,
       workItem: cur.workItem || null, note: cur.note || '',
+      done: false,
+      duplicates: Array.isArray(cur.duplicates) ? cur.duplicates : [],
+      duplicateCount: hasDups ? cur.duplicates.length : 0,
+      notDuplicate: Array.isArray(cur.notDuplicate) ? cur.notDuplicate : [],
     });
   }
   out.sort((a, b) => (Number(b.urgency) || 0) - (Number(a.urgency) || 0) || String(a.title).localeCompare(String(b.title)));
@@ -18657,8 +18844,21 @@ app.post('/api/me-ai/backlog/item', (req, res) => {
     if ('aside' in b) patch.aside = !!b.aside;
     if ('group' in b) patch.group = (b.group == null || b.group === '') ? null : String(b.group).slice(0, 120);
     if ('urgency' in b) patch.urgencyOverride = (b.urgency == null || b.urgency === '') ? null : Number(b.urgency);
+    if ('done' in b) patch.done = !!b.done;
+    if (b.doneNote != null) patch.doneNote = String(b.doneNote).slice(0, 400);
     const rec = _meAiSetCuration(patch);
     if (!rec) return res.status(400).json({ error: 'bad request' });
+    // Mark-as-done side effects: remember it durably (so a re-derived signal doesn't re-nag)
+    // and gap-fill the Diary with the completion. Un-done clears the durable decision.
+    if ('done' in b) {
+      const title = rec.title || key;
+      if (rec.done) {
+        try { _meAiRecordDecisionByKey(key, 'done', title); } catch (_) {}
+        try { _meAiBacklogDoneToDiary(rec, key); } catch (_) {}
+      } else {
+        try { _meAiRecordDecisionByKey(key, 'seen', title); } catch (_) {}
+      }
+    }
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     res.json({ ok: true, item: rec, items: _meAiAssembleBacklog(date) });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -18675,6 +18875,71 @@ app.post('/api/me-ai/backlog/group', (req, res) => {
     for (const key of keys) _meAiSetCuration({ key, group: name });
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     res.json({ ok: true, items: _meAiAssembleBacklog(date) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/backlog/merge { primary, keys:[], date } → manually fold one or more backlog
+// items onto a primary as duplicates (first-selected item is the primary if `primary` omitted).
+app.post('/api/me-ai/backlog/merge', (req, res) => {
+  try {
+    const b = req.body || {};
+    let keys = Array.isArray(b.keys) ? b.keys.map(k => String(k || '').trim()).filter(Boolean) : [];
+    let primary = String(b.primary || '').trim();
+    if (!primary && keys.length) { primary = keys[0]; }
+    keys = keys.filter(k => k !== primary);
+    if (!primary || !keys.length) return res.status(400).json({ error: 'primary + keys required' });
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    // Recover each arrival's display fields from the assembled set (pre-fold) so the stored
+    // duplicate entry keeps the original title/source/link.
+    const assembled = _meAiAssembleBacklog(date);
+    const byKey = new Map(assembled.map(it => [it.key, it]));
+    for (const k of keys) {
+      const src = byKey.get(k) || { title: k };
+      _meAiFoldBacklogDuplicate(primary, src, k, false);
+    }
+    res.json({ ok: true, items: _meAiAssembleBacklog(date) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/backlog/unmerge { primary, key, date } → "this one was NOT a duplicate".
+// Splits a folded item back out: removes it from the primary's duplicates, records it in the
+// primary's notDuplicate guard (blocks future auto-merge), and restores it as a standalone item.
+app.post('/api/me-ai/backlog/unmerge', (req, res) => {
+  try {
+    const b = req.body || {};
+    const primary = String(b.primary || '').trim();
+    const key = String(b.key || '').trim();
+    if (!primary || !key) return res.status(400).json({ error: 'primary + key required' });
+    const store = loadBacklogCuration();
+    const prim = store.items[primary];
+    if (prim) {
+      const dups = (Array.isArray(prim.duplicates) ? prim.duplicates : []).filter(d => d && d.key !== key);
+      const nd = Array.from(new Set([...(prim.notDuplicate || []), key]));
+      _meAiSetCuration({ key: primary, duplicates: dups, notDuplicate: nd });
+    }
+    // Restore the split-out item to standalone (clear its duplicateOf pointer).
+    _meAiSetCuration({ key, duplicateOf: null });
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    res.json({ ok: true, items: _meAiAssembleBacklog(date) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/backlog/history?date=&limit= → completed backlog items (done), newest first.
+app.get('/api/me-ai/backlog/history', (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
+    const store = loadBacklogCuration();
+    const items = Object.entries((store && store.items) || {})
+      .filter(([, cur]) => cur && cur.done)
+      .map(([k, cur]) => ({
+        key: k, title: String(cur.title || k).slice(0, 240), doneAt: cur.doneAt || cur.updatedAt || '',
+        doneNote: cur.doneNote || '', kind: cur.kind || _meAiBacklogKind(cur), source: cur.source || '',
+        link: cur.link || '', workItem: cur.workItem || null,
+        duplicateCount: Array.isArray(cur.duplicates) ? cur.duplicates.length : 0,
+      }))
+      .sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt)))
+      .slice(0, limit);
+    res.json({ ok: true, items, count: items.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
