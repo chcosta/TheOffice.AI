@@ -13859,7 +13859,7 @@
                   <button type="button" class="meai-inbox-toggle" @click="meai.inboxOpen=!meai.inboxOpen">
                     <span class="meai-inbox-dot" x-show="meAiInboxNewCount()>0"></span>
                     <span x-show="meAiInboxNewCount()>0" x-text="meAiInboxNewCount() + (meAiInboxNewCount()===1?' new item to triage':' new items to triage')"></span>
-                    <span x-show="!meAiInboxNewCount()">Attention inbox<span class="meai-inbox-n" x-show="(meai.inbox.items||[]).length" x-text="' ' + (meai.inbox.items||[]).length"></span></span>
+                    <span x-show="!meAiInboxNewCount()">Attention inbox<span class="meai-inbox-n" x-show="meAiInboxAttentionCount()" x-text="' ' + meAiInboxAttentionCount()"></span></span>
                     <span class="meai-caret" x-text="meai.inboxOpen?'▾':'▸'"></span>
                   </button>
                   <span style="flex:1"></span>
@@ -32049,6 +32049,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiInboxNewCount() {
           return (this.meai.inbox.items || []).filter(i => i.triage === 'new').length;
+        },
+        // How many items still actually need a call from you right now. The header badge
+        // used to show the full STORED inbox length (capped at 80), which counted every
+        // already-handled / auto-triaged item too — an alarming, meaningless "80" when only
+        // a handful need attention. This mirrors meAiInboxSections' filter exactly so the
+        // badge always equals what the list renders.
+        meAiInboxAttentionCount() {
+          return (this.meai.inbox.items || []).filter(it =>
+            it && !it.auto
+            && it.triage !== 'dismissed' && it.triage !== 'wontfix' && it.triage !== 'done'
+            && it.triage !== 'today' && it.triage !== 'now' && it.triage !== 'later'
+          ).length;
         },
         // ---- Phase 4: class rules (always-ignore whole classes) --------------
         async meAiLoadClassRules() {

@@ -315,6 +315,58 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6b. GOALS CHURN — compound-split + fuzzy signature (audit-record fidelity).
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const { _meAiGoalSig, _meAiSplitGoalTitle, _meAiSplitStoredGoals } = extractFns(SERVER, [
+    '_meAiGoalSig', '_meAiSplitGoalTitle', '_meAiSplitStoredGoals',
+  ]);
+
+  await t.test('split: compound aggregate breaks into constituent goals', () => {
+    t.eq(_meAiSplitGoalTitle('Note team OOFs & regenerate expired PAT').length, 2);
+    t.eq(_meAiSplitGoalTitle('Review PRs: !61251 & !60668 & !59004').length, 3);
+    // Prefix is carried onto each part.
+    t.ok(_meAiSplitGoalTitle('Review PRs: !61251 & !60668').every(p => p.startsWith('Review PRs:')), 'prefix carried');
+  });
+
+  await t.test('split: ordinary prose titles are never butchered', () => {
+    t.eq(_meAiSplitGoalTitle('Prep for self epic review').length, 1, 'no separators');
+    t.eq(_meAiSplitGoalTitle('Reply to Drew').length, 1);
+    // A short "a and b" that is not two discrete items stays whole (tokenish gate).
+    t.eq(_meAiSplitGoalTitle('cats and dogs').length, 1, 'short non-item parts stay whole');
+  });
+
+  await t.test('goal signature is prefix- + token-insensitive', () => {
+    t.eq(_meAiGoalSig('Follow-up: regenerate PAT'), _meAiGoalSig('regenerate PAT'), 'prefix stripped');
+    t.eq(_meAiGoalSig('Review PR !61251'), _meAiGoalSig('Review !61251'), 'pr token stripped');
+    t.ne(_meAiGoalSig('regenerate PAT'), _meAiGoalSig('rotate secret'));
+  });
+
+  await t.test('split stored: open checklist aggregates split, disposed rows untouched', () => {
+    const open = { title: 'Note OOFs & regenerate PAT', kind: 'checklist', done: false, status: 'open' };
+    const done = { title: 'Note OOFs & regenerate PAT', kind: 'checklist', done: true, status: 'open' };
+    const outOpen = _meAiSplitStoredGoals([open]);
+    t.eq(outOpen.length, 2, 'open aggregate split');
+    const outDone = _meAiSplitStoredGoals([done]);
+    t.eq(outDone.length, 1, 'done aggregate left whole');
+    t.eq(outDone[0].title, 'Note OOFs & regenerate PAT', 'done title preserved verbatim');
+  });
+
+  await t.test('split stored: single live entity stays whole', () => {
+    const pr = { title: 'Review PR !61251', kind: 'checklist', done: false, status: 'open', live: true, link: 'https://x/pr/1' };
+    const out = _meAiSplitStoredGoals([pr]);
+    t.eq(out.length, 1, 'single entity not split');
+  });
+
+  await t.test('split stored: idempotent (re-running yields the same set)', () => {
+    const rows = [{ title: 'Note OOFs & regenerate PAT', kind: 'checklist', done: false, status: 'open' }];
+    const once = _meAiSplitStoredGoals(rows);
+    const twice = _meAiSplitStoredGoals(once);
+    t.eq(twice.length, once.length, 'no further growth on second pass');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 7. INTEGRATION — live /api/me-ai/* probes. SKIP the rest when server is down.
 // ─────────────────────────────────────────────────────────────────────────────
 if (!(await serverUp())) {

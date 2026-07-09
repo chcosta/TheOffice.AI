@@ -15292,15 +15292,20 @@ function _meAiSplitStoredGoals(todos) {
   const seen = new Set(todos.map(t => String(t && t.title || '').trim().toLowerCase()).filter(Boolean));
   let changed = false;
   for (const t of todos) {
-    // Split plain OPEN goal rows. A generic doc link (e.g. a PAT-rotation runbook) does
-    // NOT make a compound goal atomic, so we still split link-carrying rows — but never a
-    // LIVE PR / work item, which is a single entity with its own lifecycle.
-    const isLiveEntity = !!(t && (t.live || _meAiParseWorkItem(t && t.link)));
-    if (!t || t.kind !== 'checklist' || t.done || (t.status && t.status !== 'open') || isLiveEntity) {
+    // Only split plain OPEN checklist rows; disposed rows (done / needs-time / didn't-get-to)
+    // stay exactly as the user left them.
+    if (!t || t.kind !== 'checklist' || t.done || (t.status && t.status !== 'open')) {
       out.push(t); continue;
     }
     const parts = _meAiSplitGoalTitle(t.title);
-    if (parts.length < 2) { out.push(t); continue; }
+    // A compound title ("Review PRs: !A & !B", "Note OOFs & regenerate PAT") is an AGGREGATE,
+    // never a single live entity — split it into its constituent goals even if the row was
+    // flagged live or carries a generic doc link, so the owner never sees an un-actionable
+    // "do these three things" goal. A single-part LIVE PR / work item is one entity with its
+    // own lifecycle, so leave it whole.
+    if (parts.length < 2) {
+      out.push(t); continue;
+    }
     changed = true;
     for (const p of parts) {
       const key = String(p).trim().toLowerCase();
@@ -15314,6 +15319,13 @@ function _meAiSplitStoredGoals(todos) {
 function _meAiSeedChecklist(agenda, effTodos, day) {
   try {
     if (!agenda || !Array.isArray(effTodos)) return;
+    // Goals are a FROZEN audit record of the day's intended work, not a live feed. Once the
+    // day has been seeded (first work-bearing generate), the durable store is authoritative
+    // and we NEVER re-derive from the agenda again — otherwise background regenerates refill
+    // a board the user just cleared with near-duplicates of things already in Done /
+    // Didn't-get-to. Explicit user actions (add a todo, triage an item onto today) still
+    // append through their own endpoints; only automatic agenda-churn re-seeding is stopped.
+    if (meAiGoalsSeeded(day)) return;
     // Seed the whole day's intended WORK into the checklist so it doubles as a
     // "today's goals" tracker — a record of what you hoped to accomplish. We include
     // live-entity work (PRs / work items) too: even though those self-correct on the
@@ -15335,7 +15347,7 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
         && !lf.link && !(lf.meta && lf.meta.prId) && !_meAiParseWorkItem(lf.link)) return true;
       return false;
     };
-    const tomb = (typeof loadMeAiTodoTomb === 'function') ? (loadMeAiTodoTomb(day) || {}) : {};
+    const tomb = new Set((typeof loadMeAiTodoTomb === 'function') ? (loadMeAiTodoTomb(day) || []) : []);
     const norm = (s) => String(s || '').trim().toLowerCase();
     const haveTitle = new Set(effTodos.map(t => norm(t && t.title)));
     const haveOrigin = new Set(effTodos.map(t => norm(t && t.origin)).filter(Boolean));
@@ -15350,6 +15362,18 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       return '';
     };
     const haveEnt = new Set(effTodos.map(t => entKey(t && t.link, t && t.meta)).filter(Boolean));
+    // A goal the user already DISPOSED of today (marked done / needs-more-time / didn't-get-to)
+    // must never be re-added by a churned agenda under a slightly different wording. Exact
+    // title / origin / entity already collapse via the have* sets above (disposed rows stay in
+    // the store); this adds fuzzy protection by SIGNATURE + entity so "Follow-up: X" can't
+    // reappear as an OPEN goal once "Follow-ups: X triage" is sitting in Didn't-get-to.
+    const disposedSig = new Set();
+    const disposedEnt = new Set();
+    for (const t of effTodos) {
+      if (!t || !(t.done || (t.status && t.status !== 'open'))) continue;
+      const s = _meAiGoalSig(t.title); if (s) disposedSig.add(s);
+      const e = entKey(t.link, t.meta); if (e) disposedEnt.add(e);
+    }
     // Expand merged blocks into leaves (one PR / PAT / reply per row).
     const leaves = [];
     for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
@@ -15382,10 +15406,13 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       if (haveTitle.has(tKey) || (origin && haveOrigin.has(origin))) continue;
       // Same live entity (work item / PR) already tracked → collapse, even if titles differ.
       if (ent && haveEnt.has(ent)) continue;
+      // Already disposed today under any wording → never re-open it as a fresh goal.
+      if (ent && disposedEnt.has(ent)) continue;
+      if (sig && disposedSig.has(sig)) continue;
       // Signature dedup only when there's no distinguishing link (two live entities
       // with different links are genuinely different goals even if titles collapse).
       if (sig && !link && haveSig.has(sig)) continue;
-      if (tomb[tKey] || (origin && tomb[origin])) continue; // user removed it before — keep it gone
+      if (tomb.has(tKey) || (origin && tomb.has(origin))) continue; // user removed it before — keep it gone
       haveTitle.add(tKey);
       if (origin) haveOrigin.add(origin);
       if (sig) haveSig.add(sig);
@@ -15394,6 +15421,10 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
       if (isLive) row.live = true;
       effTodos.push(row);
     }
+    // Freeze the day's goals once we've actually seeded from a work-bearing agenda. A sparse
+    // pre-gen (no seedable leaves yet) leaves the day unmarked so the real morning agenda
+    // still gets its one chance to capture the day's intended work.
+    if (leaves.length) { try { markMeAiGoalsSeeded(day); } catch (_) { /* best-effort */ } }
   } catch (_) { /* best-effort — never block agenda generation */ }
 }
 // built agenda. Deterministic + bounded; each nudge carries a stable id so a dismissal
@@ -15466,6 +15497,25 @@ function saveMeAiTodoTomb(date, titles) {
     fs.mkdirSync(path.dirname(_meAiTodoTombPath(date)), { recursive: true });
     const uniq = Array.from(new Set((titles || []).map(s => String(s || '').trim().toLowerCase()).filter(Boolean)));
     fs.writeFileSync(_meAiTodoTombPath(date), JSON.stringify(uniq, null, 2));
+  } catch (_) { /* best-effort */ }
+}
+// Per-day "goals already seeded" marker. Goals are an AUDIT record of the day's INTENDED
+// work — not a live feed. Re-deriving them from the (churning) agenda on every regenerate
+// made a clean board fill back up minutes later with near-duplicates of things already in
+// Done / Didn't-get-to. So the agenda seeds the goal list ONCE (the first generate that has
+// real work), then the durable store is authoritative and later regenerates never re-seed.
+// A brand-new day has no marker, so each day seeds its own morning intent afresh.
+function _meAiGoalsSeededPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_TODOS_DIR, 'seeded', `${safe}.json`);
+}
+function meAiGoalsSeeded(date) {
+  try { return fs.existsSync(_meAiGoalsSeededPath(date)); } catch { return false; }
+}
+function markMeAiGoalsSeeded(date) {
+  try {
+    fs.mkdirSync(path.dirname(_meAiGoalsSeededPath(date)), { recursive: true });
+    fs.writeFileSync(_meAiGoalsSeededPath(date), JSON.stringify({ at: new Date().toISOString() }));
   } catch (_) { /* best-effort */ }
 }
 function _meAiSuggestions(cfg, agenda, date) {
