@@ -12884,6 +12884,13 @@
               .meai-block-conflict { margin-top:5px; font-size:11.5px; color:var(--cp-danger); }
               .meai-conflict-banner { position:relative; margin:0 0 12px; padding:9px 34px 9px 13px; border:1px solid var(--cp-danger); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:rgba(248,81,73,.08); color:var(--cp-text); font-size:12.5px; }
               .meai-conflict-banner .cf-pair { color:var(--cp-text-muted); }
+              .meai-conflict-banner .cf-report { margin-top:8px; padding-top:8px; border-top:1px solid rgba(248,81,73,.18); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+              .meai-conflict-banner .cf-report-reason { color:var(--cp-text-muted); font-size:11.5px; }
+              .meai-conflict-banner .cf-report-line a { color:var(--cp-text); font-weight:600; text-decoration:none; border-bottom:1px solid currentColor; }
+              .meai-conflict-banner .cf-report-line a:hover { color:var(--cp-danger); }
+              .meai-conflict-banner .cf-report-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:11.5px; padding:4px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; }
+              .meai-conflict-banner .cf-report-btn:hover:not(:disabled) { border-color:var(--cp-danger); color:var(--cp-danger); }
+              .meai-conflict-banner .cf-report-btn:disabled { opacity:.55; cursor:default; }
               .meai-conflict-x { position:absolute; top:6px; right:7px; appearance:none; border:0; background:transparent; color:var(--cp-text-muted); font-size:13px; line-height:1; padding:3px 5px; border-radius:6px; cursor:pointer; }
               .meai-conflict-x:hover { color:var(--cp-danger); background:rgba(248,81,73,.12); }
               .meai-eod-reflecting { color:var(--cp-text-muted); font-size:12px; font-style:italic; }
@@ -14148,6 +14155,21 @@
                         <template x-for="(c, ci) in (meai.agenda.meta.conflicts||[])" :key="ci">
                           <div class="cf-pair" x-text="'· ' + c.a.title + ' (' + _meAiFmtHm(c.a.start) + '–' + _meAiFmtHm(c.a.end) + ')  ⟷  ' + c.b.title + ' (' + _meAiFmtHm(c.b.start) + '–' + _meAiFmtHm(c.b.end) + ')'"></div>
                         </template>
+                        <div class="cf-report">
+                          <template x-if="meAiConflictReport() && meAiConflictReport().status==='filed'">
+                            <span class="cf-report-line">
+                              <span>Auto-filed bug report</span>
+                              <a x-show="meAiConflictReport().url" :href="meAiConflictReport().url" target="_blank" rel="noopener" x-text="'#' + (meAiConflictReport().issue||'') + ' ↗'"></a>
+                              <span x-show="!meAiConflictReport().url" x-text="'#' + (meAiConflictReport().issue||'')"></span>
+                            </span>
+                          </template>
+                          <template x-if="!(meAiConflictReport() && meAiConflictReport().status==='filed')">
+                            <span class="cf-report-line">
+                              <span class="cf-report-reason" x-text="meAiConflictReportReason()"></span>
+                              <button type="button" class="cf-report-btn" :disabled="meai.conflictFiling" @click="meAiFileConflict()" x-text="meai.conflictFiling ? 'Filing…' : 'Report this scheduling bug'"></button>
+                            </span>
+                          </template>
+                        </div>
                       </div>
                       <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
                         <div class="meai-block"
@@ -24289,6 +24311,8 @@
           inboxItemOpen: {},      // per-item expand state inside a group (id -> bool)
           conflictsDismissKey: '', // signature of the currently-dismissed scheduling-conflict banner
           _conflDismDate: null,    // date the dismiss signature was hydrated for
+          conflictReport: null,    // freshly-fetched conflict-reporter status ({status,sig,issue,url,reason})
+          conflictFiling: false,   // manual "report this bug" in flight
           _eodAutoTried: {},       // per-date guard so lookback AI commentary auto-generates once
           // Collapsible side-rail cards — heavy lists (needs-attention, backlog)
           // can be collapsed to a one-line status indicator to reclaim space.
@@ -31717,6 +31741,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
+            this.meai.conflictReport = null; // reset fresh reporter status per loaded date (fall back to the snapshot stamp)
             this.meai._lastGeneratedAt = (this.meai.agenda && this.meai.agenda.generatedAt) || '';
             this._meAiSyncTodos(this.meai.agenda);
             this.meai.justUpdated = false;
@@ -32066,6 +32091,45 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.conflictsDismissKey = sig;
           this.meai._conflDismDate = this.meai.date;
           try { localStorage.setItem('meai-conflicts-dismissed', JSON.stringify({ date: this.meai.date, sig })); } catch (_) { /* ignore */ }
+        },
+        // Conflict auto-reporter surface: read the stamp the server left on the snapshot
+        // (agenda.meta.conflictReport) plus any freshly-fetched status, so the banner can show
+        // "auto-filed #N ↗" or explain why nothing was filed + offer a manual "report it" button.
+        meAiConflictReport() {
+          const fresh = this.meai.conflictReport;
+          if (fresh && fresh.sig && fresh.sig === (this.meai.agenda && this.meai.agenda.meta && this.meai.agenda.meta.conflictReport && this.meai.agenda.meta.conflictReport.sig)) {
+            // fresh status supersedes the stamp only when it's for the same clash
+          }
+          if (fresh) return fresh;
+          return (this.meai.agenda && this.meai.agenda.meta && this.meai.agenda.meta.conflictReport) || null;
+        },
+        meAiConflictReportReason() {
+          const r = this.meAiConflictReport();
+          const st = r && r.status;
+          if (st === 'off') return 'Auto-reporting is off.';
+          if (st === 'not-today') return 'Auto-report only fires for today.';
+          if (st === 'not-leader') return 'Another instance is the designated reporter.';
+          if (st === 'filing') return 'Filing a bug report…';
+          if (st === 'error') return 'Auto-report failed' + (r && r.reason ? ': ' + r.reason : '') + '.';
+          return 'No bug report was filed for this clash.';
+        },
+        async meAiFileConflict() {
+          if (this.meai.conflictFiling) return;
+          this.meai.conflictFiling = true;
+          try {
+            const r = await this.request('/api/me-ai/conflict-report/file', { method: 'POST', body: { date: this.meai.date } });
+            if (r && (r.issue || r.already)) {
+              this.meai.conflictReport = { status: 'filed', sig: this.meAiConflictsSig(), issue: r.issue, url: r.url || null };
+              if (this.meai.agenda && this.meai.agenda.meta) this.meai.agenda.meta.conflictReport = this.meai.conflictReport;
+              this.toast(r.already ? 'Already filed as #' + r.issue : 'Filed bug report #' + r.issue);
+            } else {
+              this.toast('Could not file the report.', 'error');
+            }
+          } catch (e) {
+            this.toast('Could not file the report: ' + (e && e.message || e), 'error');
+          } finally {
+            this.meai.conflictFiling = false;
+          }
         },
         // REQ-7 auto-regenerate: poll TODAY's agenda so a silent server re-plan
         // (triggered by new signals) shows up without the user hitting Regenerate.

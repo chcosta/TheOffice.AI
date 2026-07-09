@@ -15365,33 +15365,59 @@ function _meAiBuildConflictIssue(day, priorSnapshot, agenda, cfg, cause) {
 // file ONE GitHub issue for it. Leader-gated, deduped per-day by conflict signature,
 // gated by the meAiConflictAutoReport setting. Never throws into the generate path.
 async function _meAiMaybeReportConflicts(day, priorSnapshot, agenda, cfg, cause) {
+  const meta = (agenda && agenda.meta) || null;
+  // Stamp the reporter's decision onto the agenda so the client conflict banner can tell
+  // the user EXACTLY what happened (auto-filed #N with a link / skipped + why / can file it
+  // manually) instead of showing conflicts with no explanation. status ∈
+  // filed | filing | off | not-today | not-leader | error.
+  const stamp = (o) => { if (meta) meta.conflictReport = o; };
   try {
     const pairs = (agenda && agenda.meta && agenda.meta.conflicts) || [];
-    if (!pairs.length) return;
-    if (cfg && cfg.conflictAutoReport === false) return;
-    if (day !== _meAiLocalDay()) return;                          // TODAY's real plan only
-    if (configSync.enabled && !configSync.isLeader) return;       // one filer across the fleet
+    if (!pairs.length) { stamp(null); return; }
     const sig = _meAiConflictSignature(pairs);
     const store = loadConflictReports(day);
-    if (store[sig]) return;                                       // already filed this exact clash
+    if (store[sig] && store[sig].issue) {                          // already filed this exact clash
+      stamp({ status: 'filed', sig, issue: store[sig].issue, url: store[sig].url || null });
+      return;
+    }
+    if (cfg && cfg.conflictAutoReport === false) { stamp({ status: 'off', sig, reason: 'Auto-reporting is turned off. Use “Report this bug” to file it.' }); return; }
+    if (day !== _meAiLocalDay()) { stamp({ status: 'not-today', sig, reason: 'Only today’s live plan is auto-reported.' }); return; }
+    if (configSync.enabled && !configSync.isLeader) { stamp({ status: 'not-leader', sig, reason: 'Another instance is the designated filer.' }); return; }
+    if (store[sig]) { stamp({ status: 'filing', sig }); return; }  // reserved by a concurrent build, still in flight
     // Reserve the signature BEFORE the async file so a concurrent regen can't double-file.
     store[sig] = { at: new Date().toISOString(), pairs: pairs.length, cause: cause || 'auto', pending: true };
     saveConflictReports(day, store);
-    let built;
-    try { built = _meAiBuildConflictIssue(day, priorSnapshot, agenda, cfg, cause); }
-    catch (e) { console.warn('[me-ai] conflict issue build failed:', e && e.message); return; }
-    try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'scheduling', 'b60205', 'Me.AI scheduling algorithm'); } catch {}
-    try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'auto-reported', '5319e7', 'Filed automatically by the app'); } catch {}
-    const issue = await github.createIssue(FEEDBACK_OWNER, FEEDBACK_REPO, { title: built.title, body: built.body, labels: ['bug', 'scheduling', 'auto-reported'] });
-    const s2 = loadConflictReports(day);
-    s2[sig] = { at: new Date().toISOString(), pairs: pairs.length, cause: cause || 'auto', issue: issue && issue.number, url: (issue && (issue.webUrl || issue.url)) || null };
-    saveConflictReports(day, s2);
+    stamp({ status: 'filing', sig });
+    let issue;
+    try { issue = await _meAiFileConflictIssue(day, priorSnapshot, agenda, cfg, cause); }
+    catch (e) {
+      // Roll back the reservation so a transient failure (e.g. offline) can retry next build.
+      try { const s = loadConflictReports(day); if (s[sig] && s[sig].pending) { delete s[sig]; saveConflictReports(day, s); } } catch {}
+      stamp({ status: 'error', sig, reason: (e && e.message) ? String(e.message).slice(0, 200) : 'Filing failed.' });
+      console.warn('[me-ai] conflict auto-report failed:', e && e.message);
+      return;
+    }
+    stamp({ status: 'filed', sig, issue: issue && issue.number, url: (issue && (issue.webUrl || issue.url)) || null });
     console.log(`[me-ai] auto-filed scheduling-conflict issue #${issue && issue.number} for ${day} (${pairs.length} clash(es))`);
   } catch (e) {
     console.warn('[me-ai] conflict auto-report failed:', e && e.message);
-    // Roll back the reservation so a transient failure (e.g. offline) can retry next build.
-    try { const s = loadConflictReports(day); const sig = _meAiConflictSignature((agenda && agenda.meta && agenda.meta.conflicts) || []); if (s[sig] && s[sig].pending) { delete s[sig]; saveConflictReports(day, s); } } catch {}
   }
+}
+
+// Shared filer used by both the auto-reporter and the manual "Report this bug" route.
+// Builds the anonymized issue, ensures labels, creates it, and records the issue number/url
+// in the per-day store keyed by the conflict signature. Returns the created issue.
+async function _meAiFileConflictIssue(day, priorSnapshot, agenda, cfg, cause) {
+  const pairs = (agenda && agenda.meta && agenda.meta.conflicts) || [];
+  const sig = _meAiConflictSignature(pairs);
+  const built = _meAiBuildConflictIssue(day, priorSnapshot, agenda, cfg, cause);
+  try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'scheduling', 'b60205', 'Me.AI scheduling algorithm'); } catch {}
+  try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'auto-reported', '5319e7', 'Filed automatically by the app'); } catch {}
+  const issue = await github.createIssue(FEEDBACK_OWNER, FEEDBACK_REPO, { title: built.title, body: built.body, labels: ['bug', 'scheduling', 'auto-reported'] });
+  const s2 = loadConflictReports(day);
+  s2[sig] = { at: new Date().toISOString(), pairs: pairs.length, cause: cause || 'manual', issue: issue && issue.number, url: (issue && (issue.webUrl || issue.url)) || null };
+  saveConflictReports(day, s2);
+  return issue;
 }
 
 
@@ -17381,6 +17407,52 @@ app.get('/api/me-ai/agenda', (req, res) => {
     res.json({ ok: true, date, agenda: loadAgendaForDate(date), config: _meAiConfig(), building: _meAiIsBuilding(date) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// GET /api/me-ai/conflict-report?date= → status of the auto-reporter for the day's current
+// conflict clash. Reads the persisted snapshot (its meta.conflicts + meta.conflictReport stamp)
+// and the per-day conflict-report store, so the banner can show "auto-filed #N ↗" or explain
+// why it didn't file. Cheap + read-only.
+app.get('/api/me-ai/conflict-report', (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
+    const agenda = loadAgendaForDate(date);
+    const pairs = (agenda && agenda.meta && agenda.meta.conflicts) || [];
+    if (!pairs.length) return res.json({ ok: true, date, status: 'none', conflicts: 0 });
+    const sig = _meAiConflictSignature(pairs);
+    const store = loadConflictReports(date);
+    const rec = store[sig];
+    // Prefer a concrete filed record; else fall back to the stamp the builder left on meta.
+    let report = (agenda.meta && agenda.meta.conflictReport) || null;
+    if (rec && rec.issue) report = { status: 'filed', sig, issue: rec.issue, url: rec.url || null };
+    else if (rec && rec.pending && (!report || report.status !== 'filed')) report = { status: 'filing', sig };
+    if (!report) report = { status: 'unknown', sig };
+    res.json({ ok: true, date, conflicts: pairs.length, sig, report, canFile: report.status !== 'filed' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/conflict-report/file { date } → manually file the anonymized scheduling-conflict
+// issue for the day on demand. Bypasses the leader/setting/today gates (the user explicitly asked)
+// but keeps dedup (returns the existing issue if already filed) + full anonymization. Lets the owner
+// file a report even when auto-reporting was off or another instance was the designated filer.
+app.post('/api/me-ai/conflict-report/file', async (req, res) => {
+  try {
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
+    const agenda = loadAgendaForDate(date);
+    const pairs = (agenda && agenda.meta && agenda.meta.conflicts) || [];
+    if (!pairs.length) return res.status(400).json({ error: 'No scheduling conflicts on this day to report.' });
+    const sig = _meAiConflictSignature(pairs);
+    const store = loadConflictReports(date);
+    if (store[sig] && store[sig].issue) {
+      return res.json({ ok: true, already: true, issue: store[sig].issue, url: store[sig].url || null });
+    }
+    const prior = null; // manual file has no diff pair; the issue still captures the settled clash + telemetry
+    const issue = await _meAiFileConflictIssue(date, prior, agenda, _meAiConfig(), 'manual');
+    // Reflect the filed state onto the live snapshot so a reload shows the link immediately.
+    try { if (agenda && agenda.meta) { agenda.meta.conflictReport = { status: 'filed', sig, issue: issue && issue.number, url: (issue && (issue.webUrl || issue.url)) || null }; saveAgendaForDate(date, agenda); } } catch {}
+    res.json({ ok: true, issue: issue && issue.number, url: (issue && (issue.webUrl || issue.url)) || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // POST /api/me-ai/agenda/generate { date, todos:[{title}] } → build + persist.
 app.post('/api/me-ai/agenda/generate', async (req, res) => {
