@@ -12287,6 +12287,11 @@
               .meai-building-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-warning, #d9930a); box-shadow:0 0 0 0 color-mix(in srgb, var(--cp-warning, #d9930a) 45%, transparent); animation:meaiBuildPulse 1.4s ease-out infinite; }
               @keyframes meaiBuildPulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--cp-warning, #d9930a) 45%, transparent); } 70% { box-shadow:0 0 0 6px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
               @media (prefers-reduced-motion: reduce) { .meai-building-dot { animation:none; box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning, #d9930a) 22%, transparent); } }
+              /* "Update held" note: a calm, dismissible marker shown when the validation gate
+                 vetoed an organic auto-update to protect the day's shape. Reads as reassurance. */
+              .meai-auto-held { display:inline-flex; align-items:center; gap:7px; border:none; background:transparent; cursor:pointer; font-size:12px; font-weight:600; color:color-mix(in srgb, var(--cp-warning, #d9930a) 58%, var(--cp-text)); padding:0; }
+              .meai-auto-held:hover { color:color-mix(in srgb, var(--cp-warning, #d9930a) 72%, var(--cp-text)); }
+              .meai-held-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-warning, #d9930a); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning, #d9930a) 18%, transparent); }
               .meai-dayshape { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:5px 12px; font-size:12.5px; cursor:pointer; }
               .meai-dayshape:hover { border-color:var(--cp-accent); }
               .meai-dayshape.shape-fragmented { border-left:3px solid var(--cp-danger, #e5534b); }
@@ -13698,6 +13703,13 @@
                   <span class="meai-building-dot"></span><span x-text="meai.rebuildLabel || 'Updating your agenda…'"></span>
                 </span>
                 <span class="meai-auto-flash" x-show="meai.justUpdated && !meai.rebuilding" x-transition>Agenda updated</span>
+                <!-- Validation gate held an organic auto-update to protect the day's shape -->
+                <button type="button" class="meai-auto meai-auto-held"
+                        x-show="meai.date===meai.today && !meai.rebuilding && meai.agenda?.meta?.heldUpdate && meai.agenda.meta.heldUpdate.at !== meai.heldDismissed"
+                        @click="meai.heldDismissed = meai.agenda.meta.heldUpdate.at"
+                        :title="(meai.agenda?.meta?.heldUpdate?.reason || 'An automatic update was held to protect the shape of your day.') + ' — click to dismiss.'">
+                  <span class="meai-held-dot"></span><span>Update held to protect your day</span>
+                </button>
                 <template x-if="meai.agenda?.meta?.churn">
                   <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Calm').toLowerCase()"
                           @click="meai.changesOpen=!meai.changesOpen"
@@ -24081,6 +24093,7 @@
           rebuilding: false,          // a BACKGROUND regen is touching the viewed day — hold the clean view
           rebuildLabel: '',           // the current build phase label, shown in the "updating" indicator
           _rebuildTimer: null,        // safety net that clears `rebuilding` if a 'done' event is missed
+          heldDismissed: '',          // heldUpdate.at the user dismissed (a NEW held update re-shows)
           savingSettings: false,
           config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {}, autoTriage: { enabled: false, thresholds: { safe: 80, agenda: 90 }, actionTiers: {} } },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),

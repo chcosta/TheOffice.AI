@@ -13374,6 +13374,87 @@ function _meAiChurnSummary(events) {
   // adjustments recorded but not counted.
   return { reschedule, slip, add, planned, total: counted, score, shape };
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// Agenda-change validation gate (owner ask: "agenda changes should be analyzed
+// against defined rules before they are permitted to be presented / applied").
+//
+// The freeze/pin machinery already holds passed + imminent items immutable. This is
+// the SECOND, day-shape safety net: it judges a freshly-built agenda against the plan
+// the user is currently looking at and REFUSES to swap in a rebuild that would make the
+// day worse — specifically for an ORGANIC (auto) background regen, where the user did
+// not ask for a change. Deliberate re-plans (manual / mode / hours / triage / a fitted
+// alert) are always allowed — those are the user's own choices. The goal is the owner's:
+// bigger blocks of time, less afternoon fragmentation, no stressful end-of-day reshuffle.
+//
+// Rules (auto cause, today, with a prior plan):
+//   R1  Late-day churn budget — the later it is, the fewer non-trivial moves we tolerate.
+//   R2  Fragmentation guard  — a background regen must not materially shrink the day's
+//                              largest contiguous block of work (deep-focus protection).
+// A violation => hold the prior plan; record why on meta.heldUpdate for transparency.
+// ─────────────────────────────────────────────────────────────────────────────
+// Largest contiguous stretch (minutes) of real WORK on a day — filler (open/break/lunch)
+// and meetings don't count. Adjacent work blocks (end === next start) chain into one
+// stretch, so this measures "how big a block of focused time the day actually protects".
+function _meAiMaxWorkStretch(blocks) {
+  try {
+    const work = (blocks || []).map(b => ({ s: _hmToMin(b.start), e: _hmToMin(b.end), t: String(b.type || '') }))
+      .filter(b => b.s != null && b.e != null && b.e > b.s && b.t !== 'meeting' && b.t !== 'open' && b.t !== 'break' && b.t !== 'lunch')
+      .sort((a, b) => a.s - b.s);
+    let max = 0, curS = null, curE = null;
+    for (const b of work) {
+      if (curE != null && b.s <= curE + 1) { curE = Math.max(curE, b.e); }
+      else { if (curS != null) max = Math.max(max, curE - curS); curS = b.s; curE = b.e; }
+    }
+    if (curS != null) max = Math.max(max, curE - curS);
+    return max;
+  } catch { return 0; }
+}
+function _meAiValidateAgendaChange(prev, next, opts = {}) {
+  const cause = String(opts.cause || 'auto');
+  // Only organic background regens are policed. Any intentional planning choice is allowed.
+  if (cause !== 'auto') return { ok: true, policed: false, cause };
+  if (!prev || !Array.isArray(prev.blocks) || !prev.blocks.length) return { ok: true, policed: false, cause, reason: 'baseline' };
+  if (!next || !Array.isArray(next.blocks)) return { ok: true, policed: false, cause, reason: 'no-build' };
+  const nowMin = (opts.nowMin == null) ? (new Date().getHours() * 60 + new Date().getMinutes()) : Number(opts.nowMin);
+  const cfg = opts.cfg || {};
+  const violations = [];
+  // Count MEANINGFUL moves the rebuild introduces — reschedules of, slips of, and late-adds
+  // of committed work. Filler + meetings are excluded (meetings move because the calendar
+  // moved, not because the planner churned). We only weigh blocks that start after now, since
+  // frozen past/imminent items can't legitimately move anyway.
+  let moves = 0;
+  try {
+    const diff = _meAiDiffAgenda(prev, next);
+    const fillerTitle = t => /^(lunch|open focus|break)$/i.test(String(t || '').trim());
+    for (const c of diff) {
+      if (!c) continue;
+      if (fillerTitle(c.title)) continue;
+      const at = _hmToMin(c.to || c.from);
+      if (at != null && at <= nowMin) continue;   // a past/now item — the freeze layer owns it
+      moves++;
+    }
+  } catch { moves = 0; }
+  // R1 — late-day churn budget. rem = fraction of the working day still ahead; early morning
+  // tolerates a fuller re-plan, the last hour tolerates almost none. Floor of 2 so a genuine
+  // single new item can still land.
+  let budget = 8;
+  try {
+    const ws = _hmToMin(cfg.workStart) ?? 480, we = _hmToMin(cfg.workEnd) ?? 1020;
+    const span = Math.max(60, we - ws);
+    const rem = Math.max(0, Math.min(1, (we - nowMin) / span));
+    budget = Math.max(2, Math.round(2 + 6 * rem));
+  } catch { budget = 8; }
+  if (moves > budget) violations.push({ rule: 'late-day-churn', moves, budget, text: `Auto-update would move ${moves} item(s); the late-day budget is ${budget}.` });
+  // R2 — fragmentation guard. A background regen must not materially shrink the biggest block
+  // of contiguous work the day is protecting (owner: "there are no longer bigger blocks of
+  // time"). >45 min of lost contiguity is material.
+  const prevFocus = _meAiMaxWorkStretch(prev.blocks);
+  const nextFocus = _meAiMaxWorkStretch(next.blocks);
+  if (prevFocus >= 60 && nextFocus < prevFocus - 45) {
+    violations.push({ rule: 'fragmentation', prevFocus, nextFocus, text: `Auto-update would shrink your largest focus block from ${Math.round(prevFocus)}m to ${Math.round(nextFocus)}m.` });
+  }
+  return { ok: violations.length === 0, policed: true, cause, moves, budget, prevFocus, nextFocus, violations };
+}
 // Stable fingerprint of the day's signal set so auto-regen only re-plans (an LLM
 // call) when the underlying work actually changed — a new PR, email, meeting, etc.
 function _meAiSignalFingerprint(signals) {
@@ -16067,6 +16148,38 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     } catch (_) { deferredToday = 0; }
     agenda.meta.freeze = { horizon: freezeState.horizon, frozen: !!freezeState.frozen, remaining: freezeState.remaining, deferredToday };
   }
+  // AGENDA-CHANGE VALIDATION GATE — for an ORGANIC background regen of TODAY, judge the
+  // freshly-built day against the plan the user is currently looking at and REFUSE to swap
+  // in a rebuild that would fragment the day or blow the late-day churn budget. Deliberate
+  // re-plans (manual/mode/hours/triage/fitted-alert) skip this entirely — those are the
+  // user's own choices. On a veto we keep the prior clean plan verbatim, record WHY on
+  // meta.heldUpdate for transparency (the daybar can show "an update was held to protect
+  // your afternoon"), and return it without logging churn or re-running post-processing.
+  try {
+    if (day === _meAiLocalDay() && priorSnapshot && Array.isArray(priorSnapshot.blocks) && priorSnapshot.blocks.length) {
+      const _now = new Date();
+      const verdict = _meAiValidateAgendaChange(priorSnapshot, agenda, { cause: cause || 'auto', nowMin: _now.getHours() * 60 + _now.getMinutes(), cfg });
+      if (verdict.policed && !verdict.ok) {
+        priorSnapshot.meta = priorSnapshot.meta || {};
+        priorSnapshot.meta.heldUpdate = {
+          at: _now.toISOString(),
+          cause: verdict.cause,
+          moves: verdict.moves,
+          budget: verdict.budget,
+          prevFocus: verdict.prevFocus,
+          nextFocus: verdict.nextFocus,
+          violations: verdict.violations,
+          reason: (verdict.violations[0] && verdict.violations[0].text) || 'Held to protect the shape of your day.',
+        };
+        try { saveAgendaForDate(day, priorSnapshot); } catch (_) { /* best-effort */ }
+        _meAiEmitProgress(day, 'done', 'Held update');
+        return priorSnapshot;
+      }
+      // Passed the gate — record that it was judged (reports/transparency), then a clean
+      // organic swap clears any stale "held" marker on the accepted plan.
+      if (verdict.policed) { agenda.meta.validation = { ok: true, moves: verdict.moves, budget: verdict.budget, prevFocus: verdict.prevFocus, nextFocus: verdict.nextFocus }; }
+    }
+  } catch (_) { /* best-effort — never block a build on the validator */ }
   // REQ-7 change-tracking: diff this schedule against the prior snapshot (if any)
   // and log reschedules/slips/late-adds so the day's churn is visible and can be
   // summarised into the diary at day's end. A first generation has no prior → no diff.
