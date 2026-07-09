@@ -6989,7 +6989,7 @@
                       <span class="hs-num" x-text="mgmtStats().flows"></span>
                       <span class="hs-label">Flows</span>
                     </div>
-                    <div class="home-stat" x-show="mgmtStats().running" role="button" tabindex="0" @click="goTo('#/executions')" @keydown.enter="goTo('#/executions')" title="Running now">
+                    <div class="home-stat" x-show="mgmtStats().running" role="button" tabindex="0" @click="goTo('#/tasks')" @keydown.enter="goTo('#/tasks')" title="Running now">
                       <span class="hs-num is-hot" x-text="mgmtStats().running"></span>
                       <span class="hs-label">Running</span>
                     </div>
@@ -7053,7 +7053,7 @@
                       <h2 class="card-title">⚠ Attention needed</h2>
                       <div class="card-subtitle">Failed runs &amp; disabled schedules</div>
                     </div>
-                    <a class="btn ghost" href="#/executions">Review</a>
+                    <a class="btn ghost" href="#/tasks">Review</a>
                   </div>
                   <div class="mh-list" x-show="mgmtAttention().length">
                     <template x-for="a in mgmtAttention()" :key="a.id">
@@ -7080,10 +7080,10 @@
                       <h2 class="card-title">💓 Team pulse</h2>
                       <div class="card-subtitle">Last 24 hours</div>
                     </div>
-                    <a class="btn ghost" href="#/executions">Insights</a>
+                    <a class="btn ghost" href="#/tasks">Insights</a>
                   </div>
                   <div class="mh-list">
-                    <div class="mh-row" @click="goTo('#/executions')">
+                    <div class="mh-row" @click="goTo('#/tasks')">
                       <div class="mh-rowtop">
                         <span class="mh-dot ok"></span>
                         <strong x-text="execMetrics().runs24h + ' run' + (execMetrics().runs24h === 1 ? '' : 's') + ' completed'"></strong>
@@ -7091,7 +7091,7 @@
                       </div>
                       <div class="mh-rowsub" x-text="mgmtStats().agents + ' agents · ' + mgmtStats().flows + ' flows in this workforce'"></div>
                     </div>
-                    <div class="mh-row" x-show="runningEntities().length" @click="goTo('#/executions')">
+                    <div class="mh-row" x-show="runningEntities().length" @click="goTo('#/tasks')">
                       <div class="mh-rowtop">
                         <span class="mh-dot run"></span>
                         <strong x-text="runningEntities().length + ' running now'"></strong>
@@ -7099,7 +7099,7 @@
                       </div>
                       <div class="mh-rowsub" x-show="runningEntities()[0]" x-text="'started ' + (runningEntities()[0] ? formatRelative(runningEntities()[0].startedAt) : '')"></div>
                     </div>
-                    <div class="mh-row" x-show="execMetrics().failed24h" @click="goTo('#/executions')">
+                    <div class="mh-row" x-show="execMetrics().failed24h" @click="goTo('#/tasks')">
                       <div class="mh-rowtop">
                         <span class="mh-dot fail"></span>
                         <strong x-text="execMetrics().failed24h + ' failure' + (execMetrics().failed24h === 1 ? '' : 's')"></strong>
@@ -8433,175 +8433,6 @@
                   <div class="pb-empty">Select a playbook to review or edit it.</div>
                 </template>
               </div>
-            </div>
-          </section>
-
-          <section x-show="!loading && !errorMessage && route === 'executions'">
-            <div class="page-header">
-              <div class="page-title">
-                <h1>Operations</h1>
-                <p>The control room for everything that runs — live status, what's coming up next, recent run health, and quick access to tasks, flows, and assignments.</p>
-              </div>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="Promise.all([loadActivity(), loadSchedules()])" title="Refresh">↻ Refresh</button>
-                <button class="btn primary" type="button" @click="goTo('#/design')">✨ Design with AI</button>
-              </div>
-            </div>
-
-            <!-- KPI tiles -->
-            <div class="card-grid" style="margin-bottom:18px">
-              <article class="card" :style="execMetrics().runningNow ? 'border-color:var(--cp-accent)' : ''">
-                <div class="hint">Running now</div>
-                <strong style="font-size:1.6rem" x-text="execMetrics().runningNow"></strong>
-                <div class="hint" style="margin-top:6px" x-show="execMetrics().runningNow">
-                  <a href="#" @click.prevent="goTo('#/activity')" style="color:var(--cp-link)">View activity →</a>
-                </div>
-                <div class="hint" style="margin-top:6px" x-show="!execMetrics().runningNow">Idle</div>
-              </article>
-              <article class="card">
-                <div class="hint">Scheduled &amp; on</div>
-                <strong style="font-size:1.6rem" x-text="execMetrics().scheduledOn"></strong>
-                <div class="hint" style="margin-top:6px" x-text="executionCounts().tasks + ' tasks · ' + executionCounts().flows + ' flows · ' + executionCounts().assignments + ' assignments'"></div>
-              </article>
-              <article class="card">
-                <div class="hint">Runs (24h)</div>
-                <strong style="font-size:1.6rem" x-text="execMetrics().runs24h"></strong>
-                <div class="hint" style="margin-top:6px">
-                  <span x-text="execMetrics().successRate === null ? 'No runs yet' : execMetrics().successRate + '% success'"></span>
-                </div>
-              </article>
-              <article class="card" :style="execMetrics().failed24h ? 'border-color:var(--cp-danger)' : ''">
-                <div class="hint">Failures (24h)</div>
-                <strong style="font-size:1.6rem" :style="execMetrics().failed24h ? 'color:var(--cp-danger)' : ''" x-text="execMetrics().failed24h"></strong>
-                <div class="hint" style="margin-top:6px" x-show="execMetrics().failed24h">
-                  <a href="#" @click.prevent="goTo('#/activity')" style="color:var(--cp-danger)">Investigate →</a>
-                </div>
-                <div class="hint" style="margin-top:6px" x-show="!execMetrics().failed24h">All clear</div>
-              </article>
-            </div>
-
-            <!-- Up next + Recent runs -->
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:18px">
-              <section class="card">
-                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                  <strong>⏱ Up next</strong>
-                  <a href="#" @click.prevent="goTo('#/tasks')" class="hint" style="color:var(--cp-link)">All schedules →</a>
-                </div>
-                <div x-show="execUpcoming(6).length" style="display:flex;flex-direction:column;gap:2px">
-                  <template x-for="row in execUpcoming(6)" :key="row.type + ':' + row.id">
-                    <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
-                      <span class="type-badge" x-text="scheduleTypeMeta(row.type).icon"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="row.name"></span>
-                        <span class="hint" style="display:block;font-size:0.72rem" x-text="row.scheduleDescription || row.schedule"></span>
-                      </span>
-                      <span style="text-align:right">
-                        <span class="mono" style="font-size:0.8rem" x-text="formatRelative(row.nextRun)"></span>
-                        <span class="hint" style="display:block;font-size:0.68rem" x-text="formatDateTime(row.nextRun)"></span>
-                      </span>
-                    </a>
-                  </template>
-                </div>
-                <div class="hint" x-show="!execUpcoming(6).length" style="font-style:italic;padding:8px 0">Nothing scheduled. Add a schedule to a task, flow, or assignment.</div>
-              </section>
-
-              <section class="card">
-                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                  <strong>📊 Recent runs</strong>
-                  <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">Full history →</a>
-                </div>
-                <div x-show="execRecent(6).length" style="display:flex;flex-direction:column;gap:2px">
-                  <template x-for="a in execRecent(6)" :key="a.id">
-                    <a :href="a.route" class="exec-row">
-                      <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="a.entityName"></span>
-                        <span class="hint" style="display:block;font-size:0.72rem" x-text="a.runType + ' · ' + (a.durationMs ? formatDuration(a.durationMs) : '—')"></span>
-                      </span>
-                      <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="formatRelative(a.finishedAt || a.startedAt)"></span>
-                    </a>
-                  </template>
-                </div>
-                <div class="hint" x-show="!execRecent(6).length" style="font-style:italic;padding:8px 0">No runs yet. Runs will appear here once tasks, flows, or assignments execute.</div>
-              </section>
-            </div>
-
-            <!-- Quick-access operations: browse, run, or open Tasks / Flows / Assignments -->
-            <div class="ops-lists">
-              <!-- Tasks -->
-              <section class="card">
-                <div class="ops-list-head">
-                  <strong>⚡ Tasks <span class="exec-jump-count" x-text="executionCounts().tasks"></span></strong>
-                  <span class="ops-actions">
-                    <a href="#" @click.prevent="openTaskModal()" class="hint">＋ New</a>
-                    <a href="#" @click.prevent="goTo('#/tasks')" class="hint">All →</a>
-                  </span>
-                </div>
-                <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Single-agent jobs — run on demand or on a schedule.</div>
-                <div class="ops-list-body">
-                  <template x-for="t in opsTasks()" :key="t.taskKey">
-                    <div class="exec-row" style="cursor:pointer" @click="opsOpen('task', t)">
-                      <span class="status-badge" :class="statusClass(t.status)" x-text="statusLabel(t.status)"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="t.name"></span>
-                        <span class="hint" style="display:block;font-size:0.7rem" x-text="t.ownerName + ' • ' + (t.nextRun ? 'next ' + formatRelative(t.nextRun) : 'Manual')"></span>
-                      </span>
-                      <button class="btn primary ops-run-btn" type="button" @click.stop="runTask(t)">▶ Run</button>
-                    </div>
-                  </template>
-                </div>
-                <div class="hint" x-show="!opsTasks().length" style="font-style:italic;padding:8px 0">No tasks yet. <a href="#" @click.prevent="openTaskModal()" style="color:var(--cp-link)">Create one →</a></div>
-              </section>
-
-              <!-- Flows -->
-              <section class="card">
-                <div class="ops-list-head">
-                  <strong>🔗 Flows <span class="exec-jump-count" x-text="executionCounts().flows"></span></strong>
-                  <span class="ops-actions">
-                    <a href="#" @click.prevent="newChain()" class="hint">＋ New</a>
-                    <a href="#" @click.prevent="goTo('#/chains')" class="hint">All →</a>
-                  </span>
-                </div>
-                <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Multi-agent pipelines — one agent's output feeds the next.</div>
-                <div class="ops-list-body">
-                  <template x-for="c in opsFlows()" :key="c.id">
-                    <div class="exec-row" style="cursor:pointer" @click="opsOpen('flow', c)">
-                      <span class="status-badge" :class="chainRunState[c.id] ? statusClass(chainRunState[c.id]?.status) : (c.enabled === false ? 'idle' : 'success')" x-text="chainRunState[c.id] ? chainRunState[c.id]?.status : (c.enabled === false ? 'Disabled' : 'Enabled')"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="c.name"></span>
-                        <span class="hint" style="display:block;font-size:0.7rem" x-text="(c.steps?.length || 0) + ' tasks • ' + chainScheduleSummary(c)"></span>
-                      </span>
-                      <button class="btn primary ops-run-btn" type="button" @click.stop="runChain(c)">▶ Run</button>
-                    </div>
-                  </template>
-                </div>
-                <div class="hint" x-show="!opsFlows().length" style="font-style:italic;padding:8px 0">No flows yet. <a href="#" @click.prevent="newChain()" style="color:var(--cp-link)">Create one →</a></div>
-              </section>
-
-              <!-- Assignments -->
-              <section class="card">
-                <div class="ops-list-head">
-                  <strong>📋 Assignments <span class="exec-jump-count" x-text="executionCounts().assignments"></span></strong>
-                  <span class="ops-actions">
-                    <a href="#" @click.prevent="openAssignmentModal()" class="hint">＋ New</a>
-                    <a href="#" @click.prevent="goTo('#/tasks')" class="hint">All →</a>
-                  </span>
-                </div>
-                <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Manager-run prompts across an org on a schedule.</div>
-                <div class="ops-list-body">
-                  <template x-for="t in opsAssignments()" :key="t.taskKey">
-                    <div class="exec-row" style="cursor:pointer" @click="opsOpen('assignment', t)">
-                      <span class="status-badge" :class="statusClass(t.status)" x-text="statusLabel(t.status)"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="t.name"></span>
-                        <span class="hint" style="display:block;font-size:0.7rem" x-text="t.ownerName + ' • ' + (t.nextRun ? 'next ' + formatRelative(t.nextRun) : 'Manual')"></span>
-                      </span>
-                      <button class="btn primary ops-run-btn" type="button" @click.stop="runTask(t)">▶ Run</button>
-                    </div>
-                  </template>
-                </div>
-                <div class="hint" x-show="!opsAssignments().length" style="font-style:italic;padding:8px 0">No assignments yet. <a href="#" @click.prevent="openAssignmentModal()" style="color:var(--cp-link)">Create one →</a></div>
-              </section>
             </div>
           </section>
 
@@ -17625,72 +17456,142 @@
             </div><!-- /nlx-studio -->
           </section>
 
-          <section x-show="!loading && !errorMessage && route === 'tasks'">
-            <div class="page-header">
+          <section x-show="!loading && !errorMessage && route === 'tasks'" class="nlx-scroll">
+            <div class="nlx-top">
               <div class="page-title">
                 <h1>Tasks</h1>
-                <p>Create, edit, run, and monitor tasks for agents and managers: a saved prompt + schedule, with status, next/last run, and history.</p>
+                <p>Single-agent jobs — a saved prompt plus an optional schedule. Run on demand, watch run health, and keep what's coming up in view.</p>
               </div>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="goTo('#/design')">✨ Design with AI</button>
-                <button class="btn primary" type="button" @click="openTaskModal()">＋ New Task</button>
+              <div class="nlx-actions">
+                <span class="nlx-status" :class="{ off: !execTaskRunning() }">
+                  <span class="dotp"></span>
+                  <span x-text="execTaskRunning() ? (execTaskRunning() + ' running') : 'Idle'"></span>
+                </span>
+                <button class="btn ghost" type="button" @click="Promise.all([loadActivity(), loadSchedules()])" title="Refresh">↻ Refresh</button>
+                <button class="btn ghost" type="button" @click="goTo('#/design')">✨ Design with AI</button>
+                <button class="btn ghost primary" type="button" @click="openTaskModal()">＋ New Task</button>
               </div>
             </div>
-            <div class="search-row">
-              <input class="field-input" type="search" placeholder="Filter by task, owner, or schedule…" x-model="taskSearch" />
-              <div class="mode-switch" role="tablist" aria-label="Filter by kind">
-                <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'all' }" role="tab" :aria-selected="taskKindFilter === 'all'" @click="taskKindFilter = 'all'">
-                  <span class="mode-seg-label">All</span><span class="seg-count" x-text="taskKindCounts().all"></span>
-                </button>
-                <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'agent' }" role="tab" :aria-selected="taskKindFilter === 'agent'" @click="taskKindFilter = 'agent'" title="Agent tasks">
-                  <span>🤖</span><span class="mode-seg-label">Agents</span><span class="seg-count" x-text="taskKindCounts().agent"></span>
-                </button>
-              </div>
-              <div class="hint" x-text="filteredTasks().length + ' shown'"></div>
-            </div>
-            <div class="assignment-list">
-              <template x-for="task in filteredTasks()" :key="task.taskKey">
-                <article class="task-card" :id="'sched-focus-' + task.taskKey">
-                  <div class="assignment-top">
-                    <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/tasks/' + encodeURIComponent(task.taskKey))">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="row-chevron">›</span>
-                        <strong x-text="task.name"></strong>
-                        <span class="type-badge" :class="task.type === 'assignment' ? 'type-badge-manager' : 'type-badge-agent'" x-text="task.type === 'assignment' ? '👔 Manager' : '🤖 Agent'"></span>
-                        <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
-                    </div>
-                    <div class="toolbar">
-                      <button class="btn" type="button" @click.stop="openQuickPin(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.ownerName)" title="Pin to workspace">📌</button>
-                      <button class="btn" type="button" @click.stop="quickStarOp(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.type === 'assignment' ? '📋' : '⚙️', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
-                      <button class="btn" type="button" @click="editOpFromDetail(task)">✏️ Edit</button>
-                      <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
-                    </div>
+
+            <div class="nlx-studio">
+              <!-- Left rail: filter + folded Operations (task-scoped) -->
+              <div class="nlx-rail">
+                <div class="nlx-card">
+                  <div class="nlx-fld" style="margin-bottom:0">
+                    <label>Find a task</label>
+                    <input class="field-input" type="search" placeholder="Task, owner, or schedule…" x-model="taskSearch" />
                   </div>
-                  <!-- Summary row: next run + last result -->
-                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="goTo('#/tasks/' + encodeURIComponent(task.taskKey))">
-                    <div class="task-meta-item">
-                      <span class="meta-label">Next run</span>
-                      <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
-                    </div>
-                    <div class="task-meta-item">
-                      <span class="meta-label">Last run</span>
-                      <span x-text="task.lastRun ? formatRelative(task.lastRun.finished_at || task.lastRun.started_at) : 'Never'"></span>
-                    </div>
-                    <div class="task-meta-item" x-show="task.lastRun">
-                      <span class="meta-label">Result</span>
-                      <span class="status-badge" style="font-size:0.72rem" :class="statusClass(task.lastRun?.status || 'idle')" x-text="statusLabel(task.lastRun?.status || 'idle')"></span>
-                    </div>
-                    <div class="task-meta-item" x-show="task.lastRun">
-                      <span class="meta-label">Duration</span>
-                      <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
-                    </div>
+                  <div class="nlx-win">
+                    <div><b x-text="execTaskMetrics().total"></b><span x-text="filteredTasks().length + ' shown'"></span></div>
+                    <div><b x-text="execTaskMetrics().scheduled"></b><span>scheduled</span></div>
                   </div>
-                </article>
-              </template>
+                  <div class="nlx-win" style="margin-top:8px">
+                    <div><b x-text="execTaskMetrics().runs24h"></b><span>runs · 24h</span></div>
+                    <div><b :style="execTaskMetrics().failed24h ? 'color:var(--cp-danger)' : ''" x-text="execTaskMetrics().failed24h"></b><span>failed · 24h</span></div>
+                  </div>
+                </div>
+
+                <div class="nlx-card">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <strong style="font-size:13px">⏱ Up next</strong>
+                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">Activity →</a>
+                  </div>
+                  <div x-show="execTaskUpcoming(5).length" style="display:flex;flex-direction:column;gap:2px">
+                    <template x-for="row in execTaskUpcoming(5)" :key="row.type + ':' + row.id">
+                      <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
+                        <span class="type-badge" x-text="scheduleTypeMeta(row.type).icon"></span>
+                        <span style="flex:1;min-width:0">
+                          <span class="exec-row-name" x-text="row.name"></span>
+                          <span class="hint" style="display:block;font-size:0.7rem" x-text="row.scheduleDescription || row.schedule"></span>
+                        </span>
+                        <span class="mono hint" style="font-size:0.72rem;white-space:nowrap" x-text="formatRelative(row.nextRun)"></span>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!execTaskUpcoming(5).length" style="font-style:italic;padding:6px 0">Nothing scheduled.</div>
+                </div>
+
+                <div class="nlx-card">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <strong style="font-size:13px">📊 Recent runs</strong>
+                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">History →</a>
+                  </div>
+                  <div x-show="execTaskRecent(5).length" style="display:flex;flex-direction:column;gap:2px">
+                    <template x-for="a in execTaskRecent(5)" :key="a.id">
+                      <a :href="a.route" class="exec-row">
+                        <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
+                        <span style="flex:1;min-width:0">
+                          <span class="exec-row-name" x-text="a.entityName"></span>
+                          <span class="hint" style="display:block;font-size:0.7rem" x-text="a.durationMs ? formatDuration(a.durationMs) : '—'"></span>
+                        </span>
+                        <span class="hint mono" style="font-size:0.7rem;white-space:nowrap" x-text="formatRelative(a.finishedAt || a.startedAt)"></span>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!execTaskRecent(5).length" style="font-style:italic;padding:6px 0">No runs yet.</div>
+                </div>
+              </div>
+
+              <!-- Center stage: the task list -->
+              <div class="nlx-stage">
+                <div class="nlx-stage-bar">
+                  <strong style="font-size:14px">All tasks</strong>
+                  <span class="hint" x-text="filteredTasks().length + (filteredTasks().length === 1 ? ' task' : ' tasks')"></span>
+                  <div class="nlx-stage-actions">
+                    <button class="btn ghost primary" type="button" @click="openTaskModal()">＋ New Task</button>
+                  </div>
+                </div>
+                <div style="padding:14px 16px 20px">
+                  <div class="assignment-list">
+                    <template x-for="task in filteredTasks()" :key="task.taskKey">
+                      <article class="task-card" :id="'sched-focus-' + task.taskKey">
+                        <div class="assignment-top">
+                          <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/tasks/' + encodeURIComponent(task.taskKey))">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="row-chevron">›</span>
+                              <strong x-text="task.name"></strong>
+                              <span class="type-badge type-badge-agent">🤖 Agent</span>
+                              <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
+                            </div>
+                            <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click.stop="openQuickPin('task', task.taskKey, task.name, task.ownerName)" title="Pin to workspace">📌</button>
+                            <button class="btn" type="button" @click.stop="quickStarOp('task', task.taskKey, task.name, '⚙️', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
+                            <button class="btn" type="button" @click="editOpFromDetail(task)">✏️ Edit</button>
+                            <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
+                          </div>
+                        </div>
+                        <!-- Summary row: next run + last result -->
+                        <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="goTo('#/tasks/' + encodeURIComponent(task.taskKey))">
+                          <div class="task-meta-item">
+                            <span class="meta-label">Next run</span>
+                            <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
+                          </div>
+                          <div class="task-meta-item">
+                            <span class="meta-label">Last run</span>
+                            <span x-text="task.lastRun ? formatRelative(task.lastRun.finished_at || task.lastRun.started_at) : 'Never'"></span>
+                          </div>
+                          <div class="task-meta-item" x-show="task.lastRun">
+                            <span class="meta-label">Result</span>
+                            <span class="status-badge" style="font-size:0.72rem" :class="statusClass(task.lastRun?.status || 'idle')" x-text="statusLabel(task.lastRun?.status || 'idle')"></span>
+                          </div>
+                          <div class="task-meta-item" x-show="task.lastRun">
+                            <span class="meta-label">Duration</span>
+                            <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
+                          </div>
+                        </div>
+                      </article>
+                    </template>
+                  </div>
+                  <div class="nlx-empty" x-show="!filteredTasks().length">
+                    <div class="big">⚡</div>
+                    <p x-text="taskSearch ? 'No tasks matched your filter.' : 'No tasks yet. Create one to run an agent on demand or on a schedule.'"></p>
+                    <button class="btn ghost primary" type="button" @click="openTaskModal()" x-show="!taskSearch">＋ New Task</button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="empty-state" x-show="!filteredTasks().length">No tasks matched your filter.</div>
           </section>
 
           <!-- ===================== Design with AI ===================== -->
@@ -18745,49 +18646,127 @@
           </section>
 
           <!-- ===================== Chains ===================== -->
-          <section x-show="!loading && !errorMessage && route === 'chains'">
-            <div class="page-header">
+          <section x-show="!loading && !errorMessage && route === 'chains'" class="nlx-scroll">
+            <div class="nlx-top">
               <div class="page-title">
                 <h1>Flows</h1>
-                <p>Wire tasks together into a conditional pipeline. When a task finishes, each outgoing flow rule is evaluated (status, output expression, or AI judgment) and matching downstream tasks run automatically.</p>
+                <p>Wire tasks into a conditional pipeline. When a task finishes, each outgoing rule (status, output expression, or AI judgment) decides which downstream tasks run next.</p>
               </div>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="goTo('#/design')">✨ Design with AI</button>
-                <button class="btn primary" type="button" @click="newChain()">＋ New Flow</button>
+              <div class="nlx-actions">
+                <span class="nlx-status" :class="{ off: !execFlowRunning() }">
+                  <span class="dotp"></span>
+                  <span x-text="execFlowRunning() ? (execFlowRunning() + ' running') : 'Idle'"></span>
+                </span>
+                <button class="btn ghost" type="button" @click="Promise.all([loadActivity(), loadSchedules()])" title="Refresh">↻ Refresh</button>
+                <button class="btn ghost" type="button" @click="goTo('#/design')">✨ Design with AI</button>
+                <button class="btn ghost primary" type="button" @click="newChain()">＋ New Flow</button>
               </div>
             </div>
-            <div class="search-row">
-              <input class="field-input" type="search" placeholder="Filter by flow name or description…" x-model="chainSearch" @input.debounce.200ms="$nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))" />
-              <div class="hint" x-text="filteredChains().length + ' shown'"></div>
-            </div>
-            <div class="assignment-list">
-              <template x-for="chain in filteredChains()" :key="chain.id">
-                <article class="task-card" :id="'sched-focus-chain-' + chain.id">
-                  <div class="assignment-top">
-                    <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/chains/' + encodeURIComponent(chain.id))">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="row-chevron">›</span>
-                        <strong x-text="chain.name"></strong>
-                        <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
-                        <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
-                        <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
-                    </div>
-                    <div class="toolbar">
-                      <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to workspace">📌</button>
-                      <button class="btn" type="button" @click.stop="quickStarOp('flow', chain.id, chain.name || chain.id, '🔀', chain.id, chain.teamId)" :title="opStarred(chain.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(chain.id) ? '★' : '☆'"></button>
-                      <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
-                      <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
-                    </div>
-                  </div>
 
-                  <!-- Inline flow visualization -->
-                  <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))"></div>
-                </article>
-              </template>
+            <div class="nlx-studio">
+              <!-- Left rail: filter + folded Operations (flow-scoped) -->
+              <div class="nlx-rail">
+                <div class="nlx-card">
+                  <div class="nlx-fld" style="margin-bottom:0">
+                    <label>Find a flow</label>
+                    <input class="field-input" type="search" placeholder="Flow name or description…" x-model="chainSearch" @input.debounce.200ms="$nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))" />
+                  </div>
+                  <div class="nlx-win">
+                    <div><b x-text="execFlowMetrics().total"></b><span x-text="filteredChains().length + ' shown'"></span></div>
+                    <div><b x-text="execFlowMetrics().enabled"></b><span>enabled</span></div>
+                  </div>
+                  <div class="nlx-win" style="margin-top:8px">
+                    <div><b x-text="execFlowMetrics().runs24h"></b><span>runs · 24h</span></div>
+                    <div><b :style="execFlowMetrics().failed24h ? 'color:var(--cp-danger)' : ''" x-text="execFlowMetrics().failed24h"></b><span>failed · 24h</span></div>
+                  </div>
+                </div>
+
+                <div class="nlx-card">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <strong style="font-size:13px">⏱ Up next</strong>
+                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">Activity →</a>
+                  </div>
+                  <div x-show="execFlowUpcoming(5).length" style="display:flex;flex-direction:column;gap:2px">
+                    <template x-for="row in execFlowUpcoming(5)" :key="row.type + ':' + row.id">
+                      <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
+                        <span class="type-badge">🔗</span>
+                        <span style="flex:1;min-width:0">
+                          <span class="exec-row-name" x-text="row.name"></span>
+                          <span class="hint" style="display:block;font-size:0.7rem" x-text="row.scheduleDescription || row.schedule"></span>
+                        </span>
+                        <span class="mono hint" style="font-size:0.72rem;white-space:nowrap" x-text="formatRelative(row.nextRun)"></span>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!execFlowUpcoming(5).length" style="font-style:italic;padding:6px 0">Nothing scheduled.</div>
+                </div>
+
+                <div class="nlx-card">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <strong style="font-size:13px">📊 Recent runs</strong>
+                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">History →</a>
+                  </div>
+                  <div x-show="execFlowRecent(5).length" style="display:flex;flex-direction:column;gap:2px">
+                    <template x-for="a in execFlowRecent(5)" :key="a.id">
+                      <a :href="a.route" class="exec-row">
+                        <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
+                        <span style="flex:1;min-width:0">
+                          <span class="exec-row-name" x-text="a.entityName"></span>
+                          <span class="hint" style="display:block;font-size:0.7rem" x-text="a.durationMs ? formatDuration(a.durationMs) : '—'"></span>
+                        </span>
+                        <span class="hint mono" style="font-size:0.7rem;white-space:nowrap" x-text="formatRelative(a.finishedAt || a.startedAt)"></span>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!execFlowRecent(5).length" style="font-style:italic;padding:6px 0">No runs yet.</div>
+                </div>
+              </div>
+
+              <!-- Center stage: the flow list -->
+              <div class="nlx-stage">
+                <div class="nlx-stage-bar">
+                  <strong style="font-size:14px">All flows</strong>
+                  <span class="hint" x-text="filteredChains().length + (filteredChains().length === 1 ? ' flow' : ' flows')"></span>
+                  <div class="nlx-stage-actions">
+                    <button class="btn ghost primary" type="button" @click="newChain()">＋ New Flow</button>
+                  </div>
+                </div>
+                <div style="padding:14px 16px 20px">
+                  <div class="assignment-list">
+                    <template x-for="chain in filteredChains()" :key="chain.id">
+                      <article class="task-card" :id="'sched-focus-chain-' + chain.id">
+                        <div class="assignment-top">
+                          <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/chains/' + encodeURIComponent(chain.id))">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="row-chevron">›</span>
+                              <strong x-text="chain.name"></strong>
+                              <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
+                              <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
+                              <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
+                            </div>
+                            <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to workspace">📌</button>
+                            <button class="btn" type="button" @click.stop="quickStarOp('flow', chain.id, chain.name || chain.id, '🔀', chain.id, chain.teamId)" :title="opStarred(chain.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(chain.id) ? '★' : '☆'"></button>
+                            <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
+                            <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
+                          </div>
+                        </div>
+
+                        <!-- Inline flow visualization -->
+                        <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))"></div>
+                      </article>
+                    </template>
+                  </div>
+                  <div class="nlx-empty" x-show="!filteredChains().length">
+                    <div class="big">🔗</div>
+                    <p x-text="chainSearch ? 'No flows matched your filter.' : 'No flows yet. Wire tasks together into a conditional pipeline.'"></p>
+                    <button class="btn ghost primary" type="button" @click="newChain()" x-show="!chainSearch">＋ New Flow</button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="empty-state" x-show="!data.chains.length">No flows yet. Create one to orchestrate tasks conditionally.</div>
           </section>
 
           <!-- ===== Task / Assignment detail page ===== -->
@@ -24985,6 +24964,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         async handleRouteChange(opts = {}) {
           if (this.route === 'assignments') { this.goTo('#/tasks'); return; }
+          if (this.route === 'executions') { this.goTo('#/tasks'); return; }
           if (this.route === 'managers' || this.route === 'manager-detail' || this.route === 'resources') { this.goTo('#/agents'); return; }
           if (this.route === 'create-agent') {
             // Resilient deep-link: make sure the skills toolbox is populated even
@@ -25035,11 +25015,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
             if (this.settingsCat === 'agents') this.loadSystemAgents();
           } else if (this.route === 'chains') {
+            await Promise.all([this.loadActivity(), this.loadSchedules()]);
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
+          } else if (this.route === 'tasks') {
+            await Promise.all([this.loadActivity(), this.loadSchedules()]);
           } else if (this.route === 'design') {
             await this.loadExecAi();
-          } else if (this.route === 'executions') {
-            await Promise.all([this.loadActivity(), this.loadSchedules()]);
           } else if (this.route === 'reports') {
             this.loadModels();
             await this.loadReports();
@@ -26273,7 +26254,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return [
               home,
               { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
-              { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
+              { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/tasks', routeGroup: 'tasks', children: [
                 { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
                 { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] }
               ]},
@@ -27622,6 +27603,70 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         opsFlows() {
           return (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
+        },
+
+        // ---- Page-scoped Operations helpers (Tasks / Flows studio pages) ----
+        // Tasks page = agent task schedules/runs; Flows page = flow schedules/runs.
+        _flowActivityMatch(a, flows) {
+          const k = (a.kind || a.category || '').toLowerCase();
+          if (k.includes('chain') || k.includes('flow')) return true;
+          const name = (a.entityName || '').toLowerCase();
+          const id = a.entityId || '';
+          return (flows || []).some(f => (f.id && f.id === id) || (f.name && f.name.toLowerCase() === name));
+        },
+        execTaskUpcoming(n) {
+          return (this.data.schedules || [])
+            .filter(r => (r.type === 'agent' || r.type === 'task') && r.enabled !== false && r.nextRun && new Date(r.nextRun) > new Date() && this.scheduleInCurrentOrg(r))
+            .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
+            .slice(0, n || 6);
+        },
+        execFlowUpcoming(n) {
+          return (this.data.schedules || [])
+            .filter(r => r.type === 'flow' && r.enabled !== false && r.nextRun && new Date(r.nextRun) > new Date() && this.scheduleInCurrentOrg(r))
+            .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
+            .slice(0, n || 6);
+        },
+        execTaskRecent(n) {
+          return (this.data.activity || [])
+            .filter(a => a.runKind === 'agent' && (this._runOk(a.status) || this._runFail(a.status)) && this.activityInCurrentOrg(a))
+            .slice(0, n || 6);
+        },
+        execFlowRecent(n) {
+          const flows = this.opsFlows();
+          return (this.data.activity || [])
+            .filter(a => (this._runOk(a.status) || this._runFail(a.status)) && this.activityInCurrentOrg(a) && this._flowActivityMatch(a, flows))
+            .slice(0, n || 6);
+        },
+        execTaskMetrics() {
+          const dayAgo = Date.now() - 864e5;
+          const runs = (this.data.activity || []).filter(a => a.runKind === 'agent' && this.activityInCurrentOrg(a));
+          const done = runs.filter(a => { const t = new Date(a.finishedAt || a.startedAt).getTime(); return (this._runOk(a.status) || this._runFail(a.status)) && t >= dayAgo; });
+          const ok = done.filter(a => this._runOk(a.status)).length;
+          const failed = done.filter(a => this._runFail(a.status)).length;
+          const total = ok + failed;
+          const scheduled = (this.data.schedules || []).filter(r => (r.type === 'agent' || r.type === 'task') && r.enabled !== false && r.nextRun && this.scheduleInCurrentOrg(r)).length;
+          return { total: this.opsTasks().length, scheduled, runs24h: total, failed24h: failed, successRate: total ? Math.round((ok / total) * 100) : null };
+        },
+        execFlowMetrics() {
+          const dayAgo = Date.now() - 864e5;
+          const flows = this.opsFlows();
+          const runs = (this.data.activity || []).filter(a => this.activityInCurrentOrg(a) && this._flowActivityMatch(a, flows));
+          const done = runs.filter(a => { const t = new Date(a.finishedAt || a.startedAt).getTime(); return (this._runOk(a.status) || this._runFail(a.status)) && t >= dayAgo; });
+          const ok = done.filter(a => this._runOk(a.status)).length;
+          const failed = done.filter(a => this._runFail(a.status)).length;
+          const total = ok + failed;
+          const enabled = flows.filter(f => f.enabled !== false).length;
+          return { total: flows.length, enabled, runs24h: total, failed24h: failed, successRate: total ? Math.round((ok / total) * 100) : null };
+        },
+        execTaskRunning() {
+          return (this.runningEntities() || []).filter(e => e.kind === 'Agent').length;
+        },
+        execFlowRunning() {
+          const st = this.chainRunState || {};
+          return Object.keys(st).filter(id => {
+            const s = ((st[id] && st[id].status) || '').toLowerCase();
+            return s === 'running' || s === 'active' || s === 'in_progress' || s === 'started';
+          }).length;
         },
 
         // ===== Management (workforce) home dashboard =====
