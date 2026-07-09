@@ -12380,6 +12380,18 @@
               .meai-inbox-typedot.k-teams { background:#7c5cff; }
               .meai-inbox-typedot.k-meeting { background:#14b8a6; }
               .meai-inbox-typedot.is-new { box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-warning) 45%, transparent); }
+              /* NEW-item highlight — a just-arrived item you haven't looked at. Calm, full-
+                 border tint (no side stripe) + a quiet "New" marker so the one new row is
+                 unmistakable when the header says "1 new item to triage". */
+              .meai-inbox-new { flex:0 0 auto; font-size:10.5px; font-weight:700; letter-spacing:.02em;
+                color:color-mix(in srgb, var(--cp-warning) 78%, var(--cp-text)); text-transform:uppercase; }
+              .meai-secitem.is-new-row, .meai-group-item.is-new-row {
+                background:color-mix(in srgb, var(--cp-warning) 8%, transparent);
+                border:1px solid color-mix(in srgb, var(--cp-warning) 38%, var(--cp-border));
+                border-radius:8px; }
+              @media (prefers-reduced-motion: no-preference) {
+                .meai-secitem.is-new-row, .meai-group-item.is-new-row { transition:background .25s ease-out, border-color .25s ease-out; }
+              }
               .meai-inbox-kind { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-text-muted); text-transform:uppercase; letter-spacing:.03em; }
               .meai-inbox-title { color:var(--cp-text); font-weight:600; flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-inbox-title.clickable:hover { color:var(--cp-accent); text-decoration:underline; }
@@ -13892,10 +13904,10 @@
                   <!-- Item 3: AI-grouped view — related items triaged together in one gesture -->
                   <div class="meai-groups" x-show="meai.inboxGrouping">
                     <div class="meai-groups-hint" x-show="!meai.inboxGroupBusy">
-                      <span x-show="(meai.inboxGroups||[]).length" x-text="(meai.inboxGroups||[]).length + ((meai.inboxGroups||[]).length===1 ? ' group of related items — one action applies to all its members' : ' groups of related items — one action applies to all members')"></span>
-                      <span x-show="!(meai.inboxGroups||[]).length">Nothing looks related enough to group right now — triage them individually below.</span>
+                      <span x-show="meAiVisibleGroups().length" x-text="meAiVisibleGroups().length + (meAiVisibleGroups().length===1 ? ' group of related items — one action applies to all its members' : ' groups of related items — one action applies to all members')"></span>
+                      <span x-show="!meAiVisibleGroups().length">Nothing looks related enough to group right now — triage them individually below.</span>
                     </div>
-                    <template x-for="g in (meai.inboxGroups||[])" :key="g.id">
+                    <template x-for="g in meAiVisibleGroups()" :key="g.id">
                       <div class="meai-group">
                         <div class="meai-group-head">
                           <span class="meai-group-label" x-text="g.label"></span>
@@ -13905,10 +13917,11 @@
                         </div>
                         <div class="meai-group-items">
                           <template x-for="row in meAiGroupItemRows(g)" :key="row.it.id">
-                            <div class="meai-group-item" :class="{ 'is-open': !!meai.inboxItemOpen[row.it.id] }">
+                            <div class="meai-group-item" :class="{ 'is-open': !!meai.inboxItemOpen[row.it.id], 'is-new-row': row.it.triage==='new' }">
                               <div class="meai-group-it-main">
                                 <span class="meai-inbox-typedot" :class="[meAiKindClass(row.it), { 'is-new': row.it.triage==='new' }]"></span>
                                 <span class="meai-group-it-title clickable" :title="(row.it.link||row.it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(row.it)" x-text="row.it.title"></span>
+                                <span class="meai-inbox-new" x-show="row.it.triage==='new'" title="Just arrived — you haven't looked at this yet">New</span>
                                 <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name">@you</span>
                                 <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
                                 <span class="meai-group-flex"></span>
@@ -13962,11 +13975,12 @@
                        <div class="meai-sec-body">
                         <div class="meai-sec-hint" x-text="sec.hint"></div>
                         <template x-for="row in sec.items" :key="row.it.id">
-                          <div class="meai-secitem" :class="{ 'is-auto': row.status==='auto', 'is-pending': row.status==='pending', 'is-decide': row.status==='decide' }">
+                          <div class="meai-secitem" :class="{ 'is-auto': row.status==='auto', 'is-pending': row.status==='pending', 'is-decide': row.status==='decide', 'is-new-row': row.it.triage==='new' }">
                             <div class="meai-inbox-head">
                               <span class="meai-inbox-typedot" :class="[meAiKindClass(row.it), { 'is-new': row.it.triage==='new' }]" :title="((row.it.kind==='meeting-action')?'Meeting':((row.it.kind||'email')==='teams'?'Teams':'Email')) + (row.it.triage==='new' ? ' \u00b7 new' : '')"></span>
                               <span class="meai-inbox-kind" x-text="(row.it.kind==='meeting-action')?'Meeting':((row.it.kind||'email')==='teams'?'Teams':'Email')"></span>
                               <span class="meai-inbox-title clickable" :title="(row.it.link||row.it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(row.it)" x-text="row.it.title"></span>
+                              <span class="meai-inbox-new" x-show="row.it.triage==='new'" title="Just arrived — you haven't looked at this yet">New</span>
                               <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
                               <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>
                             </div>
@@ -32156,11 +32170,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const by = {}; (this.meai.inbox.items || []).forEach(i => { by[i.id] = i; });
           return g.ids.map(id => by[id]).filter(it => it && ['new', 'seen', 'later'].includes(it.triage));
         },
+        // Groups still worth showing: a group needs >=2 LIVE (untriaged) members. Once the
+        // user triages members away individually, a group drops below 2 and must dissolve so
+        // it doesn't linger showing "0" — its remaining member (if any) falls back to the
+        // loose sections via _meAiGroupedIdSet (which also filters to visible groups).
+        meAiVisibleGroups() {
+          return (this.meai.inboxGroups || []).filter(g => this.meAiGroupItems(g).length >= 2);
+        },
         // Set of every item id currently living inside a group, so the flat sections can
         // exclude them (grouped view) and the count always adds up (groups + loose = all).
         _meAiGroupedIdSet() {
           const s = new Set();
-          (this.meai.inboxGroups || []).forEach(g => (g.ids || []).forEach(id => s.add(id)));
+          this.meAiVisibleGroups().forEach(g => (g.ids || []).forEach(id => s.add(id)));
           return s;
         },
         // Flat sections to render right now: all items when flat; only the ungrouped
