@@ -15887,7 +15887,7 @@ function _meAiSplitStoredGoals(todos) {
   }
   return changed ? out : todos;
 }
-function _meAiSeedChecklist(agenda, effTodos, day) {
+function _meAiSeedChecklist(agenda, effTodos, day, opts = {}) {
   try {
     if (!agenda || !Array.isArray(effTodos)) return;
     // Goals are a FROZEN audit record of the day's intended work, not a live feed. Once the
@@ -15896,7 +15896,10 @@ function _meAiSeedChecklist(agenda, effTodos, day) {
     // a board the user just cleared with near-duplicates of things already in Done /
     // Didn't-get-to. Explicit user actions (add a todo, triage an item onto today) still
     // append through their own endpoints; only automatic agenda-churn re-seeding is stopped.
-    if (meAiGoalsSeeded(day)) return;
+    // A caller may pass { force: true } for an EXPLICIT "regenerate my goals" action: the
+    // caller has already stripped the open goals and kept every disposed item, so we re-derive
+    // the open set from the current agenda (deduped against what's already handled below).
+    if (!opts.force && meAiGoalsSeeded(day)) return;
     // Seed the whole day's intended WORK into the checklist so it doubles as a
     // "today's goals" tracker — a record of what you hoped to accomplish. We include
     // live-entity work (PRs / work items) too: even though those self-correct on the
@@ -17471,6 +17474,51 @@ app.post('/api/me-ai/agenda/todos', (req, res) => {
     const snap = loadAgendaForDate(date);
     if (snap) { snap.todos = todos; _meAiCleanSnapshotBlocks(snap); saveAgendaForDate(date, snap); }
     res.json({ ok: true, date, todos, persisted: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/goals/regenerate { date? } → realign today's GOALS to the current
+// agenda on demand. Goals normally freeze after the morning seed so background churn can't
+// refill a cleared board; this is the explicit escape hatch for when the owner feels the
+// open goals no longer match what's actually on the agenda. It is conservative by design:
+//   • Every HANDLED goal (done / partial=need-more-time / missed=didn't-get-to) is kept
+//     verbatim — this never erases a record of what you did or decided.
+//   • Any non-goal todo you added by hand is kept too.
+//   • Only the still-OPEN, agenda-derived goals are dropped and re-derived from the current
+//     agenda's work blocks, deduped against everything kept (so a handled item never comes
+//     back as a fresh open goal, and the per-day tombstone of removed items is respected).
+// Nothing is re-planned — the agenda itself is untouched; only the goal checklist changes.
+app.post('/api/me-ai/agenda/goals/regenerate', (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    const snap = loadAgendaForDate(date);
+    const store = loadMeAiTodoStore(date) || (snap && Array.isArray(snap.todos) ? snap.todos : []) || [];
+    if (!snap || !Array.isArray(snap.blocks) || !snap.blocks.length) {
+      // No agenda to derive goals from yet — leave the store exactly as-is.
+      return res.json({ ok: true, date, todos: _meAiNormTodos(store), regenerated: false, added: 0, dropped: 0, reason: 'no-agenda' });
+    }
+    const isHandled = (t) => !!(t && (t.done || (t.status && t.status !== 'open')));
+    const isGoal = (t) => !!(t && t.kind === 'checklist');
+    const normed = _meAiNormTodos(store);
+    // Snapshot the open-goal set BEFORE realigning so we can report the TRUE net change.
+    // A realign fully re-derives every open goal, so a raw kept-length delta would always
+    // churn (drop N, re-add N) even when the resulting list is identical. Diff by title so
+    // a no-op click honestly reports "nothing changed".
+    const openKey = (t) => String((t && t.title) || '').trim().toLowerCase();
+    const beforeOpen = new Set(normed.filter(t => isGoal(t) && !isHandled(t)).map(openKey).filter(Boolean));
+    // Keep every handled item (audit record) and every hand-added non-goal todo; drop only
+    // the open, agenda-derived goals so they can be freshly re-derived below.
+    const kept = normed.filter(t => isHandled(t) || !isGoal(t));
+    _meAiSeedChecklist(snap, kept, date, { force: true });
+    const next = _meAiNormTodos(kept);
+    const afterOpen = new Set(next.filter(t => isGoal(t) && !isHandled(t)).map(openKey).filter(Boolean));
+    let added = 0, dropped = 0;
+    afterOpen.forEach(k => { if (!beforeOpen.has(k)) added++; });
+    beforeOpen.forEach(k => { if (!afterOpen.has(k)) dropped++; });
+    saveMeAiTodoStore(date, next);
+    snap.todos = next; _meAiCleanSnapshotBlocks(snap); saveAgendaForDate(date, snap);
+    res.json({ ok: true, date, todos: next, regenerated: true, added, dropped });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

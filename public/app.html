@@ -12396,6 +12396,16 @@
               /* Docked: sits inline in the right column (normal flow), grows with content. */
               .meai-chk-panel.is-docked { position:static; right:auto; bottom:auto; z-index:auto; width:auto; max-height:none; box-shadow:none; }
               .meai-chk-headacts { display:inline-flex; align-items:center; gap:2px; }
+              .meai-chk-realign { appearance:none; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-muted);
+                font-size:11.5px; font-weight:600; line-height:1; cursor:pointer; padding:5px 8px; margin-right:4px;
+                border-radius:calc(var(--cp-radius-scale, 1) * 6px); display:inline-flex; align-items:center; gap:5px;
+                transition:color .12s ease, border-color .12s ease, background .12s ease; white-space:nowrap; }
+              .meai-chk-realign:hover:not(:disabled) { color:var(--cp-text); border-color:var(--cp-text-muted); background:var(--cp-bg); }
+              .meai-chk-realign:disabled { opacity:.5; cursor:default; }
+              .meai-chk-realign .meai-chk-realign-ic { font-size:12px; line-height:1; transition:transform .5s cubic-bezier(0.22,1,0.36,1); }
+              .meai-chk-realign.is-busy .meai-chk-realign-ic { animation:meaiRealignSpin .8s linear infinite; }
+              @keyframes meaiRealignSpin { to { transform:rotate(360deg); } }
+              @media (prefers-reduced-motion: reduce) { .meai-chk-realign.is-busy .meai-chk-realign-ic { animation:none; } }
               .meai-chk-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:13px 15px 11px;
                 border-bottom:1px solid var(--cp-border); }
               .meai-chk-head h4 { margin:0; font-size:14px; font-weight:700; color:var(--cp-text); }
@@ -13391,6 +13401,13 @@
                         <div class="meai-chk-sub">What you set out to do today. Mark each done, needing more time, or not-gotten-to — open goals carry forward.</div>
                       </div>
                       <div class="meai-chk-headacts">
+                        <button class="meai-chk-realign" type="button" :class="{ 'is-busy': meai.goalsRegenerating }"
+                          @click="meAiRegenerateGoals()" :disabled="meai.goalsRegenerating"
+                          title="Rebuild your open goals from what's on the agenda now. Keeps everything you've already handled (done, need-more-time, didn't-get-to)."
+                          aria-label="Realign goals to the agenda">
+                          <span class="meai-chk-realign-ic" aria-hidden="true">↻</span>
+                          <span x-text="meai.goalsRegenerating ? 'Realigning…' : 'Realign to agenda'"></span>
+                        </button>
                         <button class="meai-chk-x" type="button" @click="meAiChecklistDock(!meai.checklistDocked)"
                           :title="meai.checklistDocked ? 'Float over the page' : 'Dock into the page'"
                           :aria-label="meai.checklistDocked ? 'Undock goals' : 'Dock goals'"
@@ -23394,6 +23411,7 @@
           // sidebar (for constrained/mobile widths). Persists; narrow screens force it on via CSS.
           jumpCollapsed: (() => { try { return localStorage.getItem('meai-jump-collapsed') === '1'; } catch (_) { return false; } })(),
           bigGoalNonce: 0,  // bumped on big-goal pin/clear to force a reactive recompute
+          goalsRegenerating: false,  // true while the on-demand "realign goals to agenda" call is in flight
           autoUpdates: (() => { try { const v = localStorage.getItem('meai-auto-updates'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
@@ -32368,7 +32386,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.request('/api/me-ai/agenda/todos', { method: 'POST', body: JSON.stringify({ date: this.meai.date, todos }) });
           } catch (_) { /* best-effort; drafts still live in memory */ }
         },
-        // REQ-3: hydrate the todo list from a loaded/generated snapshot so carried-over +
+        // Owner ask: on-demand "realign my goals to the agenda". Goals normally freeze after
+        // the morning seed (so background churn can't refill a cleared board); this is the
+        // explicit escape hatch for when the open goals no longer match what's on the agenda.
+        // The server keeps every HANDLED goal (done / need-more-time / didn't-get-to) and any
+        // hand-added todo, drops only the still-open agenda-derived goals, and re-derives them
+        // from the current agenda — deduped against what's already handled. Nothing is replanned.
+        async meAiRegenerateGoals() {
+          if (this.meai.goalsRegenerating) return;
+          this.meai.goalsRegenerating = true;
+          try {
+            const r = await this.request('/api/me-ai/agenda/goals/regenerate', {
+              method: 'POST', body: JSON.stringify({ date: this.meai.date }),
+            });
+            if (r && Array.isArray(r.todos)) {
+              this._meAiSyncTodos({ todos: r.todos });
+              this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
+            }
+            if (r && r.regenerated === false && r.reason === 'no-agenda') {
+              this.showToast('No agenda yet', 'Generate today\u2019s agenda first \u2014 goals are derived from it.', 'warning');
+            } else {
+              const added = (r && r.added) || 0, dropped = (r && r.dropped) || 0;
+              const parts = [];
+              if (added) parts.push(added + ' goal' + (added === 1 ? '' : 's') + ' from the agenda');
+              if (dropped) parts.push(dropped + ' stale open goal' + (dropped === 1 ? '' : 's') + ' cleared');
+              const msg = parts.length ? parts.join(' \u00b7 ') + '. Everything you\u2019d handled was kept.'
+                : 'Your open goals already match the agenda \u2014 nothing to change.';
+              this.showToast('Goals realigned', msg, 'info');
+            }
+          } catch (err) {
+            this.showToast('Couldn\u2019t realign goals', (err && err.message) || 'Please try again.', 'error');
+          } finally {
+            this.meai.goalsRegenerating = false;
+          }
+        },
         // persisted todos (and their done/scope state) show up. Resets to [] for a day
         // with no snapshot so a fresh date doesn't inherit another day's drafts.
         _meAiSyncTodos(agenda) {
