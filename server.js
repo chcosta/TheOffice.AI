@@ -17964,7 +17964,9 @@ function _meAiHydrateTasks() {
             ? 'Interrupted by a server restart before it started. Resume to run it.'
             : 'Interrupted by a server restart. Resume to pick up where it left off.');
           t.nextActions = [
-            { label: 'Resume', intent: 'retry', primary: true, risk: 'none' },
+            // A pursuit ("tree") must re-arm the fan-out orchestrator (intent 'continue'),
+            // not the flat single-turn runner ('retry') which would ignore the canvas.
+            { label: 'Resume', intent: t.mode === 'tree' ? 'continue' : 'retry', primary: true, risk: 'none' },
             { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
           ];
         }
@@ -18291,6 +18293,13 @@ function _meAiOutboxReconcile(id) {
     }
   }
 }
+// Dogged auto-recovery of pursuits orphaned by a restart. A pursuit that was mid-flight
+// when the process died leaves its TREE stage at 'working'/'report' with no live loop —
+// the canvas would show a phantom spinner forever. On boot we reconcile each tree's stage
+// (open user-gate -> 'awaiting'; genuine orphan -> queue for auto-resume, capped so a
+// crash-looping pursuit can't stampede) and drain the queue once the server is listening.
+const ME_AI_MAX_TREE_RECOVERIES = 2;
+const _meAiOrphanTrees = [];
 // Rehydrate tree tasks on boot: fold each journal, reconcile its outbox, re-arm.
 function _meAiHydrateTrees() {
   try {
@@ -18309,6 +18318,43 @@ function _meAiHydrateTrees() {
         for (const legId of state.order) {
           const leg = state.legs[legId];
           if (leg && leg.status === 'running') _meAiTreeEmit(id, 'leg_status', { legId, status: 'blocked' });
+        }
+        // Reconcile the TREE-level stage. A stage of 'working'/'report' with no live loop is
+        // either a legit pause on a user gate or a genuine orphan — the two hydrators don't
+        // otherwise coordinate, so without this the map keeps spinning after a restart.
+        const cur = meAiTrees.get(id) || state;
+        const stg = cur.stage || 'working';
+        if (stg === 'working' || stg === 'report') {
+          const anyOpenStop = (cur.stops || []).some(s => s && s.status === 'open');
+          if (anyOpenStop) {
+            // Parked on a needs-auth/info/decision gate — show the ask, not a spinner. The
+            // existing stop UI drives it; never auto-resume past an open gate.
+            _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
+          } else {
+            // Genuinely orphaned: nothing running, nothing waiting on the user. Me agents are
+            // dogged — queue it for an automatic resume (leader-gated, drained at onListen).
+            // Bump a PERSISTED recovery counter BEFORE the resume runs so a pursuit that keeps
+            // crashing the server still converges to a manual state instead of looping forever.
+            const recoveries = Number((cur.rootState && cur.rootState.recoveries) || 0);
+            _meAiTreeEmit(id, 'recovery', { at: new Date().toISOString(), from: stg, recoveries });
+            if (recoveries < ME_AI_MAX_TREE_RECOVERIES) {
+              _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: recoveries + 1 } });
+              _meAiOrphanTrees.push(id);
+            } else {
+              // Too many auto-recoveries — stop the loop and hand it back to the user.
+              _meAiTreeEmit(id, 'stage', { stage: 'error' });
+              const t = meAiTasks.get(id);
+              if (t) {
+                t.status = 'error'; t.stage = 'error';
+                t.error = 'Interrupted repeatedly by server restarts. Resume to pick up where it left off.';
+                t.nextActions = [
+                  { label: 'Resume', intent: 'continue', primary: true, risk: 'none' },
+                  { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
+                ];
+                try { _meAiSaveTask(t); } catch (_) { /* best-effort */ }
+              }
+            }
+          }
         }
       } catch (_) { /* skip corrupt tree */ }
     }
@@ -20124,7 +20170,32 @@ function _meAiTreeReAct(t, intent, text, label) {
   });
 }
 
-// A lightweight conversational turn on a concluded tree pursuit — NO re-fork. The
+// Drain the orphaned-pursuit queue built by _meAiHydrateTrees(). Called once at onListen
+// (leader-gated per tree so only the leader auto-resumes). Each resume re-arms the fan-out
+// via _meAiTreeReAct with a steer telling the agent to verify already-completed work first
+// so it never repeats a finished step or re-fires an external action. Staggered so a batch
+// of orphans doesn't all hit the concurrency gate at once (the gate still throttles to
+// ME_AI_MAX_CONCURRENT; the spacing is just politeness).
+function _meAiResumeOrphanTrees() {
+  if (!_meAiOrphanTrees.length) return 0;
+  const ids = _meAiOrphanTrees.splice(0, _meAiOrphanTrees.length);
+  ids.forEach((id, i) => {
+    setTimeout(() => {
+      try {
+        if (!leaderCheck()) return;
+        const t = meAiTasks.get(id);
+        if (!t || t.mode !== 'tree') return;      // task pruned / not a pursuit — nothing to resume
+        if (t.status === 'running' || t.stage === 'working') return; // user (or a live run) already has it
+        _meAiTreeReAct(t, 'continue',
+          'You were interrupted by a server restart. FIRST verify what you already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where you left off.',
+          'Auto-resumed after restart');
+      } catch (_) { /* best-effort per tree */ }
+    }, 1500 + i * 1500);
+  });
+  return ids.length;
+}
+
+
 // user is chatting with their Chief of Staff after the work is done: either asking a
 // question about what it found/did (mode 'ask' → an inline answer, report untouched)
 // or asking to revise the deliverable in place (mode 'revise' → rewrite the report
@@ -28182,6 +28253,10 @@ const onListen = () => {
   // reviewStatus:'reviewing' can only be resolved by the process that started
   // it). Reconcile them now so no card is stranded showing "Running…" forever.
   try { if (_reconcileStaleReviews()) console.log('[supervisor] Reconciled interrupted Code Flow review agent(s) → error.'); } catch (e) { console.warn('[supervisor] stale-review reconcile failed:', e.message); }
+  // A restart also orphans in-flight Me.AI pursuits (their tree stage is left 'working'
+  // with no live loop). _meAiHydrateTrees() queued the genuine orphans; auto-resume them
+  // now (leader-gated per tree) so a "dogged" pursuit picks itself back up without the user.
+  try { const _rn = _meAiResumeOrphanTrees(); if (_rn) console.log(`[supervisor] Auto-resuming ${_rn} interrupted Me.AI pursuit(s) after restart.`); } catch (e) { console.warn('[supervisor] pursuit auto-resume failed:', e.message); }
   try {
     const _rdr = require('./sdk-reader');
     const _rnr = require('./sdk-runner');
