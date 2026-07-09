@@ -432,8 +432,86 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. INTEGRATION — live /api/me-ai/* probes. SKIP the rest when server is down.
+// 6b. Conflict auto-report ANONYMIZATION (privacy — this repo is PUBLIC). The
+// auto-filed scheduling-conflict issue must never leak real block titles / links /
+// authors / subjects. Exercise the leak-surface builders directly and assert the
+// sensitive strings are absent + the opaque type-N tokens are stable/correlated.
 // ─────────────────────────────────────────────────────────────────────────────
+{
+  const fns = extractFns(SERVER, [
+    '_hmToMin', '_minToHm', '_maxHm', '_minHm', '_meAiFindBlock', '_meAiBlockFlags',
+    '_meAiFlagRank', '_meAiAnonLabeler', '_meAiSafeMeta', '_meAiConflictWhy',
+    '_meAiConflictGantt', '_meAiConflictTable',
+  ]);
+  const {
+    _meAiAnonLabeler, _meAiSafeMeta, _meAiConflictGantt, _meAiConflictTable, _meAiConflictWhy,
+  } = fns;
+
+  // A block carrying obviously-sensitive internal content.
+  const secretA = 'Review !62392 Fix OAuth token leak (drew.smith)';
+  const secretB = 'Reply to Missy Messa about Q3 layoffs';
+  const linkA = 'https://dev.azure.com/dnceng/internal/_git/repo/pullrequest/62392';
+  const mkBlock = (start, end, type, title, link, extraMeta) => ({
+    start, end, type, title, link,
+    meta: Object.assign({ link, prTitle: title, author: 'drew.smith', subject: title, repo: 'secret-repo', imminent: true, urgency: 5 }, extraMeta || {}),
+    urgency: 5, conflict: true,
+  });
+  const bA = mkBlock('10:00', '11:00', 'review', secretA, linkA);
+  const bB = mkBlock('10:30', '11:30', 'comms', secretB, 'mailto:missy@corp.com');
+  const agenda = { blocks: [bA, bB], meta: { conflicts: [{ a: bA, b: bB }] } };
+  const pairs = agenda.meta.conflicts;
+  const cfg = { workStart: '08:00', workEnd: '17:00' };
+
+  const SENSITIVE = [secretA, secretB, linkA, 'drew.smith', 'Missy Messa', 'layoffs', 'OAuth', '62392', 'secret-repo', 'missy@corp.com'];
+  const assertClean = (text, where) => {
+    for (const s of SENSITIVE) t.ok(!String(text).includes(s), `${where} must not leak ${JSON.stringify(s)}`);
+  };
+
+  await t.test('_meAiSafeMeta drops all sensitive keys, keeps whitelist', () => {
+    const safe = _meAiSafeMeta(bA.meta);
+    t.eq(safe.imminent, true);
+    t.eq(safe.urgency, 5);
+    t.ok(!('link' in safe) && !('prTitle' in safe) && !('author' in safe) && !('subject' in safe) && !('repo' in safe), 'sensitive keys stripped');
+    assertClean(JSON.stringify(safe), 'safeMeta');
+  });
+
+  await t.test('_meAiAnonLabeler is stable + order-independent', () => {
+    const l1 = _meAiAnonLabeler();
+    const a1 = l1(bA), b1 = l1(bB), a1again = l1(bA);
+    t.eq(a1, a1again, 'same block → same token');
+    t.ok(a1 !== b1, 'distinct blocks → distinct tokens');
+    t.ok(/^review-\d+$/.test(a1), `token is type-N (${a1})`);
+    t.ok(/^comms-\d+$/.test(b1), `token is type-N (${b1})`);
+    // order independence: labeling B first yields the same identity mapping
+    const l2 = _meAiAnonLabeler();
+    const b2 = l2(bB), a2 = l2(bA);
+    t.eq(a2, l2(bA), 'stable under reorder');
+    t.ok(a2 !== b2);
+  });
+
+  await t.test('conflict gantt is fenced mermaid + crit-marked + leak-free', () => {
+    const label = _meAiAnonLabeler();
+    const g = _meAiConflictGantt(agenda, `After · 2026-07-06`, label);
+    t.ok(g.startsWith('```mermaid') && g.includes('gantt'), 'fenced mermaid gantt');
+    t.ok(g.includes('crit'), 'conflicting blocks marked crit');
+    assertClean(g, 'gantt');
+  });
+
+  await t.test('conflict table + why are leak-free and share tokens', () => {
+    const label = _meAiAnonLabeler();
+    const table = _meAiConflictTable(pairs, label);
+    const why = _meAiConflictWhy(agenda, pairs, cfg, label);
+    assertClean(table, 'table');
+    assertClean(JSON.stringify(why), 'why');
+    // the shared labeler makes the table + why reference the SAME opaque tokens
+    const tok = label(bA);
+    t.ok(table.includes(tok), 'table uses shared token');
+    t.ok(why[0].a.label === tok || why[0].b.label === tok, 'why uses shared token');
+    t.ok(typeof why[0].whyUnresolved === 'string' && why[0].whyUnresolved.length > 0, 'reason present');
+  });
+}
+
+
 if (!(await serverUp())) {
   t.skipAll('dev server not running on :3847 (unit tests above still ran)');
 }

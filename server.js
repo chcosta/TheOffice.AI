@@ -11936,6 +11936,7 @@ function _meAiConfig(s) {
     timePrefs,
     autoTriage,
     grouping,
+    conflictAutoReport: s.meAiConflictAutoReport !== false,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
     hasGithub: (() => {
@@ -14964,6 +14965,299 @@ function _meAiDetectConflicts(agenda) {
   return pairs;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Scheduling-conflict auto-reporting (owner ask). A real double-book on the built
+// agenda is a BUG in the scheduler — two committed blocks the resolver could not
+// separate. When it happens on TODAY's live plan we auto-file a GitHub issue so the
+// scheduling algorithm can be debugged from the exact decision trace, WITHOUT the
+// owner having to notice + screenshot it. Because silent screen-capture needs a
+// browser permission gesture (getDisplayMedia), the "screenshot" is delivered as
+// GitHub-native rendered visuals instead: BEFORE + AFTER Mermaid gantt diagrams (the
+// clashing blocks highlighted), markdown tables, the decision trace (cause, diff,
+// churn, freeze/validation), and full machine-readable telemetry JSON in a <details>.
+// Deduped per-day by conflict signature (leader-gated, TODAY only) so a re-plan that
+// keeps producing the same clash files ONE issue, not a flood.
+// ─────────────────────────────────────────────────────────────────────────────
+const ME_AI_CONFLICT_REPORTS_DIR = path.join(dataPath('me-ai'), 'conflict-reports');
+function _meAiConflictReportPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_CONFLICT_REPORTS_DIR, `${safe}.json`);
+}
+function loadConflictReports(date) {
+  try {
+    const p = _meAiConflictReportPath(date);
+    if (!fs.existsSync(p)) return {};
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch { return {}; }
+}
+function saveConflictReports(date, map) {
+  try {
+    fs.mkdirSync(ME_AI_CONFLICT_REPORTS_DIR, { recursive: true });
+    fs.writeFileSync(_meAiConflictReportPath(date), JSON.stringify(map || {}, null, 2));
+  } catch (_) { /* best-effort */ }
+  return map;
+}
+// Stable signature of a conflict SET (order-independent) so the same clash on a re-plan
+// is recognized and not re-filed. Keyed on the pair of block identities (title+times).
+function _meAiConflictSignature(pairs) {
+  const norm = (x) => `${String(x.title || '').trim().toLowerCase().slice(0, 60)}@${x.start || ''}-${x.end || ''}`;
+  const sig = (pairs || []).map(p => {
+    const a = norm(p.a), b = norm(p.b);
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
+  }).sort().join('~~');
+  return require('crypto').createHash('sha1').update(sig).digest('hex').slice(0, 16);
+}
+// Recover the live block object for a conflict-pair side (pairs only carry a slim copy).
+function _meAiFindBlock(agenda, side) {
+  const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+  return blocks.find(b => b && b.start === side.start && b.end === side.end && String(b.title || '') === String(side.title || ''))
+    || blocks.find(b => b && b.start === side.start && String(b.title || '') === String(side.title || ''))
+    || null;
+}
+// A per-issue anonymizing labeler. Real block titles / PR names / email subjects /
+// work-item names / links are internal data and this repo is PUBLIC, so nothing
+// human-readable from the agenda may appear in the issue. Each distinct block is
+// mapped to a stable, opaque token derived only from its TYPE + an ordinal
+// (e.g. "meeting-1", "review-2"), consistent across before/after/table/telemetry so
+// the clash can still be correlated and debugged — without leaking any content.
+function _meAiAnonLabeler() {
+  const seen = new Map();
+  const counts = Object.create(null);
+  return function label(titleOrBlock, typeHint) {
+    const b = (titleOrBlock && typeof titleOrBlock === 'object') ? titleOrBlock : null;
+    const t = String((b ? b.type : typeHint) || 'work').replace(/[^a-z0-9]/gi, '') || 'work';
+    // Identity key = title text (all pair sides + blocks carry a title); never emitted.
+    const ident = `${t}::${String((b ? b.title : titleOrBlock) || '').trim().toLowerCase()}`;
+    if (seen.has(ident)) return seen.get(ident);
+    counts[t] = (counts[t] || 0) + 1;
+    const lbl = `${t}-${counts[t]}`;
+    seen.set(ident, lbl);
+    return lbl;
+  };
+}
+// Whitelist of NON-sensitive, debug-relevant meta fields. Everything else (link, prLink,
+// prTitle, workItemTitle, author, repo, reviewers, subject, sender, note…) is dropped so
+// no internal content reaches the public issue. Only booleans + urgency survive.
+function _meAiSafeMeta(m) {
+  if (!m || typeof m !== 'object') return {};
+  const out = {};
+  for (const k of ['past', 'imminent', 'pinned', 'manual', 'lock', 'attending', 'monitored', 'directMention', 'draft']) {
+    if (m[k] !== undefined) out[k] = !!m[k];
+  }
+  if (m.urgency !== undefined) out.urgency = Number(m.urgency) || 0;
+  return out;
+}
+// The meta flags the resolver reasons over (mirrors _meAiResolvePinOverlaps rankOf).
+function _meAiBlockFlags(b) {
+  const m = (b && b.meta) || {};
+  return {
+    type: (b && b.type) || '',
+    urgency: Number(b && b.urgency) || 0,
+    past: !!m.past, imminent: !!m.imminent, pinned: !!m.pinned,
+    manual: !!m.manual, lock: !!m.lock,
+    meeting: (b && b.type) === 'meeting',
+    attending: m.attending !== false,
+  };
+}
+function _meAiFlagRank(f) {
+  if (!f) return 0;
+  if (f.past) return 5;
+  if (f.meeting && f.attending) return 4;
+  if (f.manual || f.lock) return 3;
+  if (f.imminent) return 2;
+  if (f.pinned) return 1;
+  return 0;
+}
+// Per-conflict-pair decision telemetry: each side's flags + WHY the resolver could not
+// separate them. Reproduces the resolver's rank comparison + fit-before-workEnd test so
+// the issue explains exactly which decision produced the double-book. `label` anonymizes
+// every block reference so no real title leaks into the public issue.
+function _meAiConflictWhy(agenda, pairs, cfg, label) {
+  const lbl = label || _meAiAnonLabeler();
+  const winEnd = (cfg && cfg.workEnd) ? _hmToMin(cfg.workEnd) : null;
+  return (pairs || []).map((p) => {
+    const fa = _meAiBlockFlags(_meAiFindBlock(agenda, p.a)), fb = _meAiBlockFlags(_meAiFindBlock(agenda, p.b));
+    const ra = _meAiFlagRank(fa), rb = _meAiFlagRank(fb);
+    const la = lbl(p.a), lbb = lbl(p.b);
+    // Which side would yield (lower rank; tie → lower urgency; tie → later start)?
+    let moverF = fa, moverS = p.a, anchorS = p.b, moverR = ra;
+    if (ra !== rb) {
+      if (ra < rb) { moverF = fa; moverS = p.a; anchorS = p.b; moverR = ra; }
+      else { moverF = fb; moverS = p.b; anchorS = p.a; moverR = rb; }
+    } else {
+      const ua = fa.urgency, ub = fb.urgency;
+      if (ua !== ub) { if (ua < ub) { moverS = p.a; moverF = fa; anchorS = p.b; } else { moverS = p.b; moverF = fb; anchorS = p.a; } }
+      else { const as = _hmToMin(p.a.start) || 0, bs = _hmToMin(p.b.start) || 0; if (as >= bs) { moverS = p.a; moverF = fa; anchorS = p.b; } else { moverS = p.b; moverF = fb; anchorS = p.a; } }
+      moverR = _meAiFlagRank(moverF);
+    }
+    const moverL = lbl(moverS), anchorL = lbl(anchorS);
+    // Reason it stayed a conflict (anonymized — references tokens, not titles).
+    let reason;
+    if (moverR >= 3) {
+      reason = `Both sides are hard anchors (rank ≥ 3) — the resolver never moves an anchored block (${moverR === 5 ? 'a past block' : moverF.meeting ? 'an opted-in meeting' : 'a manual/locked block'}), so neither could yield.`;
+    } else {
+      const anchorEnd = _hmToMin(anchorS.end);
+      const dur = (_hmToMin(moverS.end) || 0) - (_hmToMin(moverS.start) || 0);
+      if (winEnd != null && anchorEnd != null && dur > 0 && anchorEnd + dur > winEnd) {
+        reason = `The movable side \`${moverL}\` (${dur}m) would land at ${_minToHm(anchorEnd)} after the anchor, but that runs past the ${cfg && cfg.workEnd} work-end — the resolver refuses to push work past end-of-day, so it left the clash instead.`;
+      } else {
+        reason = `The movable side \`${moverL}\` should have been rescheduled after the anchor but the overlap survived resolution — likely a resolver ordering/pass-limit gap. THIS IS THE BUG TO INVESTIGATE.`;
+      }
+    }
+    return {
+      a: { label: la, start: p.a.start, end: p.a.end, type: p.a.type, rank: ra, flags: fa },
+      b: { label: lbb, start: p.b.start, end: p.b.end, type: p.b.type, rank: rb, flags: fb },
+      mover: moverL, anchor: anchorL, whyUnresolved: reason,
+    };
+  });
+}
+// Render an agenda's committed blocks as a GitHub-native Mermaid gantt. Conflicting
+// blocks are marked `crit` (red) so the clash is visible at a glance; meetings `active`,
+// everything else default. Task names are ANONYMIZED tokens (never real titles). Returns
+// a fenced ```mermaid block (or '' if nothing to draw).
+function _meAiConflictGantt(agenda, title, label) {
+  const lbl = label || _meAiAnonLabeler();
+  const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+  const flexible = t => t === 'focus' || t === 'open' || t === 'break';
+  const rows = blocks
+    .filter(b => b && _hmToMin(b.start) != null && _hmToMin(b.end) != null && _hmToMin(b.end) > _hmToMin(b.start) && !flexible(b.type))
+    .sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
+  if (!rows.length) return '';
+  const clean = (s) => String(s || 'x').replace(/[:#;\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'x';
+  const lines = [
+    '```mermaid',
+    'gantt',
+    `    title ${clean(title)}`,
+    '    dateFormat HH:mm',
+    '    axisFormat %H:%M',
+  ];
+  let sec = '';
+  for (const b of rows) {
+    const bs = String(b.type || 'work').replace(/[^a-z0-9]/gi, '') || 'work';
+    if (bs !== sec) { lines.push(`    section ${bs}`); sec = bs; }
+    const tag = b.conflict ? 'crit' : (b.type === 'meeting' ? 'active' : '');
+    const name = `${lbl(b)} (${b.start}-${b.end})`;
+    lines.push(`    ${name} :${tag ? tag + ', ' : ''}${b.start}, ${b.end}`);
+  }
+  lines.push('```');
+  return lines.join('\n');
+}
+function _meAiConflictTable(pairs, label) {
+  const lbl = label || _meAiAnonLabeler();
+  const rows = ['| # | Block A | Block B | Overlap |', '|---|---|---|---|'];
+  (pairs || []).forEach((p, i) => {
+    const ov = `${_maxHm(p.a.start, p.b.start)}–${_minHm(p.a.end, p.b.end)}`;
+    rows.push(`| ${i + 1} | \`${lbl(p.a)}\` (${p.a.start}–${p.a.end}) | \`${lbl(p.b)}\` (${p.b.start}–${p.b.end}) | ${ov} |`);
+  });
+  return rows.join('\n');
+}
+function _mdCell(s) { return String(s || '').replace(/\|/g, '\\|').replace(/\n/g, ' ').slice(0, 80); }
+function _maxHm(a, b) { return (_hmToMin(a) || 0) >= (_hmToMin(b) || 0) ? a : b; }
+function _minHm(a, b) { return (_hmToMin(a) || 0) <= (_hmToMin(b) || 0) ? a : b; }
+// Build the issue { title, body } from the before/after agendas + telemetry. ALL block
+// content is anonymized to opaque type-ordinal tokens through a single shared labeler so
+// this PUBLIC issue never leaks internal titles, links, PR/email/work-item names, etc.
+function _meAiBuildConflictIssue(day, priorSnapshot, agenda, cfg, cause) {
+  const label = _meAiAnonLabeler();
+  const pairs = (agenda.meta && agenda.meta.conflicts) || [];
+  const why = _meAiConflictWhy(agenda, pairs, cfg, label);
+  const diff = _meAiDiffAgenda(priorSnapshot, agenda);
+  const churn = (agenda.meta && agenda.meta.churn) || {};
+  const dateLabel = _meAiDateLabel ? _meAiDateLabel(day) : day;
+  const n = pairs.length;
+  const title = `[auto] Scheduling conflict: ${n} clash${n === 1 ? '' : 'es'} on ${day}`;
+  const parts = [];
+  parts.push(`The Me.AI scheduler produced **${n} unresolvable double-book${n === 1 ? '' : 's'}** on the live agenda for **${dateLabel}**. A scheduling conflict is a planner bug — two committed blocks share time and the overlap resolver could not separate them. This issue was filed automatically with the full decision trace so the algorithm can be debugged.`);
+  parts.push('');
+  parts.push('> _Block names are anonymized (\`type-N\` tokens) — this repo is public, so no real titles, links, or content are included. Tokens are consistent across the before/after diagrams and telemetry so the clash can still be traced._');
+  parts.push('');
+  parts.push(`**Regenerate cause:** \`${cause || 'auto'}\`  ·  **Day shape:** ${churn.shape || 'n/a'} (score ${churn.score != null ? churn.score : 'n/a'}${churn.planned ? `, ${churn.planned} planned` : ''})`);
+  parts.push('');
+  parts.push('### Conflicts');
+  parts.push(_meAiConflictTable(pairs, label));
+  parts.push('');
+  parts.push('### Why the resolver left each clash');
+  why.forEach((w, i) => { parts.push(`${i + 1}. \`${w.a.label}\` (rank ${w.a.rank}) vs \`${w.b.label}\` (rank ${w.b.rank}) — ${w.whyUnresolved}`); });
+  parts.push('');
+  const beforeG = _meAiConflictGantt(priorSnapshot, `Before · ${day}`, label);
+  const afterG = _meAiConflictGantt(agenda, `After (conflict) · ${day}`, label);
+  if (beforeG) { parts.push('### Agenda BEFORE this build'); parts.push(beforeG); parts.push(''); }
+  if (afterG) { parts.push('### Agenda AFTER this build (red = clashing)'); parts.push(afterG); parts.push(''); }
+  // Anonymize diff rows: resolve each changed item to a block so its token matches the
+  // gantt/table, falling back to a bare type-less token (never the real title).
+  const allBlocks = (agenda.blocks || []).concat((priorSnapshot && priorSnapshot.blocks) || []);
+  const diffLabel = (t) => { const bb = allBlocks.find(x => x && String(x.title || '') === String(t || '')); return label(bb || { title: t, type: 'work' }); };
+  if (diff && diff.length) {
+    parts.push('### What changed in this build');
+    parts.push('| Change | Item | From | To |', '|---|---|---|---|');
+    for (const c of diff.slice(0, 40)) parts.push(`| ${c.kind} | \`${diffLabel(c.title)}\` | ${c.from || '—'} | ${c.to || '—'} |`);
+    parts.push('');
+  }
+  // Everything below is embedded verbatim in a PUBLIC issue — anonymize titles + strip
+  // meta to the whitelist so no internal content (titles/links/authors/subjects) leaks.
+  const safePair = (p) => ({
+    a: { label: label(p.a), start: p.a.start, end: p.a.end, type: p.a.type },
+    b: { label: label(p.b), start: p.b.start, end: p.b.end, type: p.b.type },
+  });
+  const safeBlock = (b, extra) => Object.assign({ label: label(b), start: b.start, end: b.end, type: b.type, urgency: b.urgency, meta: _meAiSafeMeta(b.meta) }, extra || {});
+  const telemetry = {
+    date: day, cause: cause || 'auto',
+    conflicts: pairs.map(safePair),
+    decisions: why,
+    diff: (diff || []).map(c => ({ kind: c.kind, label: diffLabel(c.title), from: c.from || null, to: c.to || null })),
+    churn, signalFp: (agenda.meta && agenda.meta.signalFp) || null,
+    validationHeld: !!(agenda.meta && agenda.meta.heldUpdate),
+    workStart: cfg && cfg.workStart, workEnd: cfg && cfg.workEnd, grid: cfg && cfg.grid,
+    version: (typeof GIT_VERSION !== 'undefined' && GIT_VERSION.hash) || null,
+    beforeBlocks: ((priorSnapshot && priorSnapshot.blocks) || []).map(b => safeBlock(b)),
+    afterBlocks: (agenda.blocks || []).map(b => safeBlock(b, { conflict: !!b.conflict })),
+  };
+  parts.push('---');
+  parts.push('<details><summary>Full decision telemetry (JSON)</summary>');
+  parts.push('');
+  parts.push('```json');
+  parts.push(JSON.stringify(telemetry, null, 2).slice(0, 55000));
+  parts.push('```');
+  parts.push('</details>');
+  parts.push('');
+  parts.push('<sub>Auto-reported by the Me.AI scheduler conflict watchdog. Before/after shown as rendered Mermaid gantt because silent screen-capture requires a browser permission gesture.</sub>');
+  return { title, body: parts.join('\n') };
+}
+// Fire-and-forget: when TODAY's live build has a real, previously-unseen conflict set,
+// file ONE GitHub issue for it. Leader-gated, deduped per-day by conflict signature,
+// gated by the meAiConflictAutoReport setting. Never throws into the generate path.
+async function _meAiMaybeReportConflicts(day, priorSnapshot, agenda, cfg, cause) {
+  try {
+    const pairs = (agenda && agenda.meta && agenda.meta.conflicts) || [];
+    if (!pairs.length) return;
+    if (cfg && cfg.conflictAutoReport === false) return;
+    if (day !== _meAiLocalDay()) return;                          // TODAY's real plan only
+    if (configSync.enabled && !configSync.isLeader) return;       // one filer across the fleet
+    const sig = _meAiConflictSignature(pairs);
+    const store = loadConflictReports(day);
+    if (store[sig]) return;                                       // already filed this exact clash
+    // Reserve the signature BEFORE the async file so a concurrent regen can't double-file.
+    store[sig] = { at: new Date().toISOString(), pairs: pairs.length, cause: cause || 'auto', pending: true };
+    saveConflictReports(day, store);
+    let built;
+    try { built = _meAiBuildConflictIssue(day, priorSnapshot, agenda, cfg, cause); }
+    catch (e) { console.warn('[me-ai] conflict issue build failed:', e && e.message); return; }
+    try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'scheduling', 'b60205', 'Me.AI scheduling algorithm'); } catch {}
+    try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'auto-reported', '5319e7', 'Filed automatically by the app'); } catch {}
+    const issue = await github.createIssue(FEEDBACK_OWNER, FEEDBACK_REPO, { title: built.title, body: built.body, labels: ['bug', 'scheduling', 'auto-reported'] });
+    const s2 = loadConflictReports(day);
+    s2[sig] = { at: new Date().toISOString(), pairs: pairs.length, cause: cause || 'auto', issue: issue && issue.number, url: (issue && (issue.webUrl || issue.url)) || null };
+    saveConflictReports(day, s2);
+    console.log(`[me-ai] auto-filed scheduling-conflict issue #${issue && issue.number} for ${day} (${pairs.length} clash(es))`);
+  } catch (e) {
+    console.warn('[me-ai] conflict auto-report failed:', e && e.message);
+    // Roll back the reservation so a transient failure (e.g. offline) can retry next build.
+    try { const s = loadConflictReports(day); const sig = _meAiConflictSignature((agenda && agenda.meta && agenda.meta.conflicts) || []); if (s[sig] && s[sig].pending) { delete s[sig]; saveConflictReports(day, s); } } catch {}
+  }
+}
+
+
 // Cross-signal urgency normalization. The gather layer assigns urgency per source
 // with independent heuristics (a dev-card draft PR = 4, an ADO review PR = 4, a
 // steward PR = 3, a work item = 2…) that were never calibrated against each other,
@@ -16400,6 +16694,10 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // the built day; records satisfied/violated status on agenda.meta.constraints.
   try { _meAiEnforceConstraints(agenda, cfg, day); } catch (_) { /* best-effort */ }
   try { _meAiDetectConflicts(agenda); } catch (_) { /* best-effort */ }
+  // Owner ask: a real double-book is a scheduler bug — auto-file a GitHub issue with the
+  // full before/after + decision trace so it can be debugged (TODAY only, deduped, leader-
+  // gated, setting-gated). Fire-and-forget so it never blocks/breaks the build.
+  try { _meAiMaybeReportConflicts(day, priorSnapshot, agenda, cfg, cause); } catch (_) { /* best-effort */ }
   // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
   agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
   // Rollover digest — items carried to this day from a prior day (defer-to-future or a
@@ -16898,6 +17196,7 @@ app.put('/api/me-ai/settings', (req, res) => {
     if (b.autoTriageSafe !== undefined) { const n = clampPct(b.autoTriageSafe); if (n != null) patch.meAiAutoTriageSafe = n; }
     if (b.autoTriageAgenda !== undefined) { const n = clampPct(b.autoTriageAgenda); if (n != null) patch.meAiAutoTriageAgenda = n; }
     if (b.groupingMin !== undefined) { const n = clampPct(b.groupingMin); if (n != null) patch.meAiGroupingMin = n; }
+    if (b.conflictAutoReport !== undefined) patch.meAiConflictAutoReport = !!b.conflictAutoReport;
     if (b.actionTiers && typeof b.actionTiers === 'object' && !Array.isArray(b.actionTiers)) {
       const allowAct = ['later', 'dismiss', 'wontfix', 'today']; // 'now' is locked → never persisted
       const allowTier = ['safe', 'agenda', 'off'];

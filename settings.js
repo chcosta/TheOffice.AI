@@ -212,6 +212,12 @@ const DEFAULTS = {
   // into an already-triaged related item (bumping its instance count) instead of
   // surfacing as its own inbox row. Higher = stricter (fewer merges).
   meAiGroupingMin: 72,
+  // Auto-file a GitHub issue when the scheduler produces a real double-book
+  // (two committed blocks overlapping that the resolver could not separate). A
+  // scheduling conflict is a bug in the planner, so we capture it for debugging
+  // with before/after gantt visuals + full decision telemetry. Deduped per-day
+  // by conflict signature; leader-gated; TODAY only. ON by default.
+  meAiConflictAutoReport: true,
   // --- System agents: per-agent behavior overrides -------------------------
   // The app ships several built-in AI "system agents" (Connect assistant,
   // Newsletter writer/editor, Me.AI agent + external-act, Agenda assistant,
