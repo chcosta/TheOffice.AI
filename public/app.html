@@ -9360,7 +9360,6 @@
                                           <span class="board-pin-acts">
                                           <button class="board-act" type="button" x-show="boardPinHasDetail(item)" :data-tip="boardPinIsExpanded(item) ? 'Hide details' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="board-act" :class="{ active: item.excludeFromSummary }" type="button" :data-tip="item.excludeFromSummary ? 'Include in summary &amp; insights' : 'Hide from summary &amp; insights'" @click.stop="toggleItemSummary(item)" x-text="item.excludeFromSummary ? '🙈' : '👁'"></button>
-                                          <button class="board-act" type="button" x-show="item.kind === 'manager'" :data-tip="'Chat with ' + (item.label || item.refId)" @click.stop="openOrCreateChat(item.kind, item.refId)">💬</button>
                                           <button class="board-act" type="button" x-show="boardRefRunnable(item) && item.kind !== 'agent'" :disabled="pinStatus(item) && pinStatus(item).state === 'running'" :data-tip="(pinStatus(item) && pinStatus(item).state === 'running') ? (item.label || item.refId) + ' is running…' : 'Run ' + (item.label || item.refId) + ' here'" @click.stop="runBoardRef(item)" x-text="(pinStatus(item) && pinStatus(item).state === 'running') ? '⟳' : '▶'"></button>
                                           </span>
                                         </div>
@@ -17616,9 +17615,6 @@
                 <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'agent' }" role="tab" :aria-selected="taskKindFilter === 'agent'" @click="taskKindFilter = 'agent'" title="Agent tasks">
                   <span>🤖</span><span class="mode-seg-label">Agents</span><span class="seg-count" x-text="taskKindCounts().agent"></span>
                 </button>
-                <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'manager' }" role="tab" :aria-selected="taskKindFilter === 'manager'" @click="taskKindFilter = 'manager'" title="Manager assignments">
-                  <span>👔</span><span class="mode-seg-label">Managers</span><span class="seg-count" x-text="taskKindCounts().manager"></span>
-                </button>
               </div>
               <div class="hint" x-text="filteredTasks().length + ' shown'"></div>
             </div>
@@ -20161,21 +20157,6 @@
                           <button class="btn" type="button" @click="installFromMachine(m, 'agent', a.id)" :disabled="installingKey === m.machineId + ':agent:' + a.id">
                             <span x-show="installingKey !== m.machineId + ':agent:' + a.id">Install</span>
                             <span x-show="installingKey === m.machineId + ':agent:' + a.id">…</span>
-                          </button>
-                        </div>
-                      </template>
-                    </div>
-                    <div x-show="(m.managers || []).length">
-                      <div class="field-label" style="margin-bottom:6px">Managers</div>
-                      <template x-for="mg in (m.managers || [])" :key="mg.id">
-                        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--cp-border)">
-                          <div style="min-width:0;flex:1">
-                            <div style="font-weight:500" x-text="mg.name || mg.id"></div>
-                            <div class="hint" style="font-size:0.72rem" x-text="'org: ' + ((mg.org || []).join(', ') || '—')"></div>
-                          </div>
-                          <button class="btn" type="button" @click="installFromMachine(m, 'manager', mg.id)" :disabled="installingKey === m.machineId + ':manager:' + mg.id">
-                            <span x-show="installingKey !== m.machineId + ':manager:' + mg.id">Install + org</span>
-                            <span x-show="installingKey === m.machineId + ':manager:' + mg.id">…</span>
                           </button>
                         </div>
                       </template>
