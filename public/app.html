@@ -10878,13 +10878,13 @@
             <!-- Same tab switcher as the Pull Requests view (this is the merged Dev tab). -->
             <div class="cf-tabs" role="tablist" aria-label="Code Flow views">
               <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'dev' }" role="tab" :aria-selected="codeflow.cfTab === 'dev'"
-                      @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards</button>
+                      @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards<span class="cf-tab-n" x-show="cfTabCount('dev')" x-text="cfTabCount('dev')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('mine') }" role="tab" :aria-selected="cfTabOnPr('mine')"
-                      @click="cfGoView('mine')">📤 My PRs</button>
+                      @click="cfGoView('mine')">📤 My PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('mine') }" x-show="cfTabCount('mine')" x-text="cfTabCount('mine')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('active') }" role="tab" :aria-selected="cfTabOnPr('active')"
-                      @click="cfGoView('active')">👀 Active PRs</button>
+                      @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
-                      @click="cfGoView('other')">🗄 Other PRs</button>
+                      @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
             </div>
 
             <div x-show="!devItemsLoaded" class="hint" style="padding:24px">Loading dev cards…</div>
@@ -16836,6 +16836,8 @@
               .cf-tab { background:transparent; border:0; border-bottom:2px solid transparent; color:var(--cp-text-soft); padding:9px 2px; margin-bottom:-1px; font-size:14px; font-weight:600; cursor:pointer; transition:color .15s, border-color .15s; }
               .cf-tab:hover { color:var(--cp-text); }
               .cf-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .cf-tab .cf-tab-n { margin-left:5px; font-size:11.5px; font-weight:600; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
+              .cf-tab .cf-tab-n.attn { color:var(--cp-warning); font-weight:700; }
               .cf-rail-title { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-soft); font-weight:600; margin-bottom:10px; }
               .cf-rail-views { display:flex; flex-direction:column; gap:6px; }
               .cf-rv { display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:1px solid transparent; background:transparent; color:var(--cp-text-soft); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:8px 10px; font-size:13px; cursor:pointer; transition:background .15s, color .15s, border-color .15s; }
@@ -16884,13 +16886,13 @@
                  formerly the standalone Dev page). Calm underline tabs, no pills. -->
             <div class="cf-tabs" role="tablist" aria-label="Code Flow views">
               <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'dev' }" role="tab" :aria-selected="codeflow.cfTab === 'dev'"
-                      @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards</button>
+                      @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards<span class="cf-tab-n" x-show="cfTabCount('dev')" x-text="cfTabCount('dev')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('mine') }" role="tab" :aria-selected="cfTabOnPr('mine')"
-                      @click="cfGoView('mine')">📤 My PRs</button>
+                      @click="cfGoView('mine')">📤 My PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('mine') }" x-show="cfTabCount('mine')" x-text="cfTabCount('mine')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('active') }" role="tab" :aria-selected="cfTabOnPr('active')"
-                      @click="cfGoView('active')">👀 Active PRs</button>
+                      @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
-                      @click="cfGoView('other')">🗄 Other PRs</button>
+                      @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
             </div>
 
             <!-- Auto-refresh change banner (background 15-min poller detected
@@ -25085,6 +25087,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 }
                 await this.loadCodeFlow();
                 this.codeflowPrefillRepoDefaults();
+                // Warm dev cards in the background so the Dev-cards tab count shows
+                // without the user having to open the tab first (non-blocking).
+                this.devEnsureLoaded();
               }
             }
           } else if (this.route === 'dev') {
@@ -36515,6 +36520,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (view === 'mine') return this.codeflow.view === 'mine';
           if (view === 'other') return this.codeflow.view === 'other';
           return this.codeflow.view !== 'mine' && this.codeflow.view !== 'other';
+        },
+        // Count shown on each Code Flow top tab so the owner can see how much
+        // needs attention without opening each view. Dev = active dev cards;
+        // My/Active PRs come from the attention endpoint (loaded on nav);
+        // Other only when it's the active view (no cheap standalone count).
+        cfTabCount(tab) {
+          if (tab === 'dev') {
+            return (this.devItems || []).filter(d => d && !d.archived && this.devIsActive(d)).length;
+          }
+          if (tab === 'mine') return this.codeflowAttention.mineActive || 0;
+          if (tab === 'active') return this.codeflowAttention.reviewsActive || 0;
+          if (tab === 'other') return (this.codeflow.view === 'other' && Array.isArray(this.codeflow.pullRequests)) ? this.codeflow.pullRequests.length : 0;
+          return 0;
+        },
+        // Attention subset (drives the warning colour on the count).
+        cfTabAttn(tab) {
+          if (tab === 'mine') return this.codeflowAttention.mine || 0;
+          if (tab === 'active') return this.codeflowAttention.reviews || 0;
+          return 0;
         },
         // The "Reviews needed from me" toggle on the Active PRs tab. On → only PRs that
         // list me as a reviewer (server view 'reviews'); off → every open PR ('active').
