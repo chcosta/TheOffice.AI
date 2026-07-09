@@ -5897,7 +5897,7 @@
   <div class="app-shell" x-effect="syncBaDock(); syncConnectDock()">
     <header class="topbar">
       <div class="brand">
-        <button class="brand-home" type="button" @click="goHome()" title="Back to all teams">
+        <button class="brand-home" type="button" @click="goHome()" title="Back home">
           <div class="brand-mark">⚡</div>
           <div>TheOffice.AI</div>
         </button>
@@ -5920,7 +5920,7 @@
       </div>
     </header>
 
-    <!-- Starred boards quick launch: appears directly under the teams selector. -->
+    <!-- Starred boards quick launch: appears directly under the topbar. -->
     <nav class="quick-launch" x-show="quickLaunchItems().length" x-cloak aria-label="Quick launch">
       <span class="quick-launch-label">★ Quick launch</span>
       <template x-for="item in quickLaunchItems()" :key="item.kind + ':' + item.id">
@@ -35866,19 +35866,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Jump to a starred board from anywhere via the quick launch bar.
         quickLaunchBoard(boardId) {
           if (!boardId) return;
-          const b = (this.boards || []).find(x => x.id === boardId);
-          // Auto-select the board's team in the org dropdown when it's team-scoped —
-          // but only when the team selector is actually part of the experience. In
-          // Basic mode without Teams there's no selector, so quietly switching scope
-          // would be invisible and confusing.
-          if (this.teamSelectorVisible()) {
-            if (b && b.teamId) {
-              if (this.currentTeamId !== b.teamId) this.setCurrentOrg(b.teamId);
-            } else if (b && !b.teamId && this.currentTeamId !== 'all') {
-              // Office-wide board: drop to the company-wide view.
-              this.setCurrentOrg('all');
-            }
-          }
           this.activeBoardId = boardId;
           try { localStorage.setItem('active-board-id', boardId); } catch {}
           window.location.hash = '#/boards/' + encodeURIComponent(boardId);
@@ -35968,10 +35955,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.quickLaunchBoard(item.boardId);
             this.$nextTick(() => this._applyPendingSection());
             return;
-          }
-          if (this.teamSelectorVisible()) {
-            if (item.teamId) { if (this.currentTeamId !== item.teamId) this.setCurrentOrg(item.teamId); }
-            else if (this.currentTeamId !== 'all') this.setCurrentOrg('all');
           }
           if (item.route) window.location.hash = item.route;
         },
