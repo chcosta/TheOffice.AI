@@ -12959,6 +12959,16 @@ function _meAiApplyInboxTriage(date, signals) {
     if (it.triage === 'dismissed' || it.triage === 'wontfix') continue; // removed
     if (it.triage === 'today') { out.push({ ...sig, urgency: Math.max(Number(sig.urgency) || 0, 5), pinned: true }); continue; }
     if (it.triage === 'later') { out.push({ ...sig, urgency: Math.min(Number(sig.urgency) || 0, 2) }); continue; }
+    // Untriaged inbox comms (never triaged / 'seen' / 'now'). A calm agenda must
+    // NOT schedule an alert as a block just because it arrived urgent — an
+    // untriaged email/Teams ping stays in the attention inbox (rail-only) at
+    // capped urgency until the user explicitly says "Fit into today". This is the
+    // same rail-only treatment as 'later'; only an explicit 'today' schedules a
+    // block. Non-comms inbox items (if any ever land here) pass through unchanged.
+    if (sig && sig.type === 'comms' && sig.kind !== 'meeting') {
+      out.push({ ...sig, urgency: Math.min(Number(sig.urgency) || 0, 2), railOnly: true });
+      continue;
+    }
     out.push(sig);
   }
   const present = new Set((signals || []).map(_meAiInboxId));
@@ -13672,7 +13682,14 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   const meetings = [];
   const tasks = [];
   const needsAttention = [];
+  // Phase 2: untriaged inbox comms are flagged railOnly by _meAiApplyInboxTriage.
+  // They must NEVER take a timeline slot — an alert the user hasn't said "Fit into
+  // today" for stays in the attention inbox and, at most, the visible backlog. Route
+  // them straight to the backlog pool so a light day with spare capacity can't
+  // silently schedule an untriaged ping as a focus block.
+  const railBacklog = [];
   for (const s of signals || []) {
+    if (s && s.railOnly) { railBacklog.push(s); continue; }
     if (s.type === 'meeting' && _hmToMin(s.start) != null) meetings.push(s);
     else {
       // #4 Needs Attention is Code Flow-aware: a review PR only earns a slot if
@@ -13785,6 +13802,9 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
     }
   }
   const backlog = tasks.slice(ti).map(t => ({ title: t.title, detail: t.detail, link: t.link, type: t.type, source: t.source, why: _meAiWhy(t), meta: t.meta || null, urgency: t.urgency || 0 }));
+  // Untriaged inbox comms (railOnly) join the visible backlog so they're never lost,
+  // but they were never eligible for a timeline slot above.
+  for (const s of railBacklog) backlog.push({ title: s.title, detail: s.detail, link: s.link, type: s.type, source: s.source, why: _meAiWhy(s), meta: s.meta || null, urgency: s.urgency || 0, railOnly: true });
   const all = fixed.concat(blocks).sort((a, b) => a.start - b.start).map(b => ({
     start: _minToHm(b.start), end: _minToHm(b.end), type: b.type, title: b.title, detail: b.detail || '', link: b.link || '', source: b.source || '', why: b.why || '', meta: b.meta || null, urgency: b.urgency || 0,
   }));
