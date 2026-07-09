@@ -14863,7 +14863,44 @@ function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
   } catch { return finalBlocks; }
 }
 
-// Final safety net: a personal commitment must appear at most ONCE. The imminent-pin path
+// Coverage safety net: the deterministic pre-pass ALWAYS labels leftover working-hours time
+// as an explicit "Open focus time" block (see the free-fill loop), so the base engine has no
+// blind spot. The LLM refine, however, is told to consolidate and "not overpack" — so it
+// routinely DROPS that open-time filler, and unlike work chunks / personal todos / pins,
+// unallocated time carries no identity for the earlier restore nets to bring back. There is
+// no post-refine coverage check, so a dropped filler surfaces as a bare, unlabeled stretch on
+// the timeline that reads like a scheduling gap (owner asked why lunch → next meeting sat
+// empty). Walk the final timeline and re-label any uncovered working-hours interval >= a
+// visible threshold as "Open focus time", so free time is always shown as a deliberate choice
+// and full-day coverage is guaranteed. Sub-threshold slivers between back-to-back items stay
+// unlabeled (they're transition time, not a block).
+function _meAiEnsureOpenTime(finalBlocks, cfg) {
+  try {
+    const ws = _hmToMin(cfg && cfg.workStart), we = _hmToMin(cfg && cfg.workEnd);
+    if (ws == null || we == null || we <= ws) return finalBlocks;
+    const MIN_GAP = Math.max(Number(cfg && cfg.grid) || 10, 20); // don't label sub-20-min transitions
+    const out = Array.isArray(finalBlocks) ? finalBlocks.slice() : [];
+    // Occupied intervals within the working window, clamped and sorted.
+    const spans = out
+      .map(b => [_hmToMin(b && b.start), _hmToMin(b && b.end)])
+      .filter(([a, z]) => a != null && z != null && z > a)
+      .map(([a, z]) => [Math.max(a, ws), Math.min(z, we)])
+      .filter(([a, z]) => z > a)
+      .sort((x, y) => x[0] - y[0]);
+    const gaps = [];
+    let cursor = ws;
+    for (const [a, z] of spans) {
+      if (a - cursor >= MIN_GAP) gaps.push([cursor, a]);
+      cursor = Math.max(cursor, z);
+    }
+    if (we - cursor >= MIN_GAP) gaps.push([cursor, we]);
+    if (!gaps.length) return finalBlocks;
+    for (const [a, z] of gaps) {
+      out.push({ start: _minToHm(a), end: _minToHm(z), type: 'focus', title: 'Open focus time', detail: 'Deep work / catch-up', link: '', source: 'me', why: 'Unallocated working time', meta: null, urgency: 0 });
+    }
+    return out.sort((p, q) => (_hmToMin(p.start) || 0) - (_hmToMin(q.start) || 0));
+  } catch { return finalBlocks; }
+}
 // (which holds the in-progress block at its old time) and the personal-todo re-insert path
 // can EACH emit a block for the same activity ("2 hours for golf"), and depending on how
 // the LLM refine echoed it, both can survive — so the user sees golf twice on the agenda.
@@ -16919,6 +16956,9 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // PHASE 5: never leave a "Prep for X" block scheduled after the X it prepares for — move it
   // just before its target where there's room, else drop the useless prep-after.
   finalBlocks = _meAiOrderPrepBeforeTarget(finalBlocks);
+  // Coverage: re-label any working-hours interval the refine left uncovered as explicit
+  // "Open focus time" so free time is always shown deliberately, never a mysterious blank.
+  finalBlocks = _meAiEnsureOpenTime(finalBlocks, cfg);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
