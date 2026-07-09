@@ -6563,7 +6563,7 @@
             </div>
 
             <!-- ===== Productivity home (workspace mode): What's new + reorderable sections ===== -->
-            <div class="home-workspace" x-show="appMode === 'workspace'">
+            <div class="home-workspace" x-show="appMode === 'workspace'" x-effect="mgmtEnsureFlowRuns()">
 
               <!-- Greeting + stats topbar -->
               <div class="home-topbar">
@@ -6961,6 +6961,83 @@
                       </div>
                     </div>
                   </article>
+                </div>
+
+                <!-- Flow / Task activity (folded in from Management home) -->
+                <div class="home-rsec span-full" :style="{ order: homeSecIndex('flowchart') }" x-show="homeSectionVisible('flowchart')"
+                     :class="homeDragOver === 'flowchart' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('flowchart')" @drop.prevent="homeReorderDrop('flowchart')">
+                  <div class="home-arrange-strip">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('flowchart',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="has-name">Flow / Task activity</span>
+                    <span class="spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('flowchart',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('flowchart',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card mh-accent-link mh-full">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">📈 Flow / Task activity</h2>
+                      <div class="card-subtitle">When flows, tasks &amp; assignments ran and how long they took — last 14 days</div>
+                    </div>
+                    <a class="btn ghost" href="#/autonomous/flows">Open flows</a>
+                  </div>
+                  <template x-if="mgmtRunPoints().length">
+                    <div>
+                      <div class="mh-fa-meta">
+                        <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().runs"></div><div class="l">Runs</div></div>
+                        <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().avg + 'm'"></div><div class="l">Avg duration</div></div>
+                        <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().slow + 'm'"></div><div class="l">Slowest</div></div>
+                        <div class="mh-fa-metric" x-show="mgmtFlowSummary().successRate !== null"><div class="n" x-text="mgmtFlowSummary().successRate + '%'"></div><div class="l">Success</div></div>
+                      </div>
+                      <div class="mh-fa-chart" x-html="mgmtChartSvg()"></div>
+                      <div class="mh-legend">
+                        <div class="mh-leg-group">
+                          <span class="mh-leg-lbl">Source</span>
+                          <template x-for="d in mgmtChartCatDefs()" :key="'hw-src-'+d.key">
+                            <button type="button" class="mh-leg" :class="mgmtChartFilters[d.key] ? '' : 'off'" @click="mgmtToggleChartFilter(d.key)">
+                              <span class="ld" :style="'background:'+d.color"></span>
+                              <span class="lname" x-text="d.name"></span>
+                              <span class="lavg" x-text="mgmtCatCount(d.key)"></span>
+                            </button>
+                          </template>
+                        </div>
+                        <div class="mh-leg-sep"></div>
+                        <div class="mh-leg-group">
+                          <span class="mh-leg-lbl">Trigger</span>
+                          <button type="button" class="mh-leg" :class="mgmtChartFilters.scheduled ? '' : 'off'" @click="mgmtToggleChartFilter('scheduled')">
+                            <span class="lname">Scheduled</span>
+                          </button>
+                          <button type="button" class="mh-leg" :class="mgmtChartFilters.manual ? '' : 'off'" @click="mgmtToggleChartFilter('manual')">
+                            <span class="lname">Manual</span>
+                          </button>
+                        </div>
+                        <div class="mh-leg-sep"></div>
+                        <div class="mh-leg-group">
+                          <span class="mh-leg-lbl">Lines</span>
+                          <button type="button" class="mh-leg" :class="mgmtChartPerItem ? 'off' : ''" @click="if (mgmtChartPerItem) mgmtTogglePerItem()" title="One line per source category">
+                            <span class="lname">By source</span>
+                          </button>
+                          <button type="button" class="mh-leg" :class="mgmtChartPerItem ? '' : 'off'" @click="if (!mgmtChartPerItem) mgmtTogglePerItem()" title="One line per individual flow, task, or assignment">
+                            <span class="lname">Per item</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="mh-fa-items" x-show="mgmtRunItems().length">
+                        <template x-for="it in mgmtRunItems()" :key="'hwfa-'+it.cat+'-'+it.name">
+                          <div class="mh-fa-item">
+                            <span class="mh-fa-dot" :style="'background:'+it.color"></span>
+                            <span class="mh-fa-iname" x-text="it.name" :title="it.name"></span>
+                            <span class="mh-fa-imeta"><span x-text="it.catLabel"></span> · <span x-text="it.runs + (it.runs===1?' run':' runs')"></span> · avg <span x-text="it.avg + 'm'"></span> · <span x-text="formatRelative(it.last)"></span></span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="mh-empty" x-show="!mgmtRunPoints().length">No flow, task, or assignment runs recorded in the last 14 days. Run one to see its activity here.</div>
+                </section>
                 </div>
 
               </div>
@@ -17481,8 +17558,8 @@
 
             <!-- Section tabs: calm underline top menu, consistent with Code Flow / Marketplace -->
             <div class="ag-tabs" role="tablist" aria-label="Autonomous section" style="margin:10px 0 18px">
-              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'tasks'" :class="autoTab() === 'tasks' ? 'on' : ''" @click="goTo('#/autonomous')">⚡ Tasks<span class="n" x-show="execTaskMetrics().total" x-text="execTaskMetrics().total"></span></button>
-              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'flows'" :class="autoTab() === 'flows' ? 'on' : ''" @click="goTo('#/autonomous/flows')">🔗 Flows<span class="n" x-show="execFlowMetrics().total" x-text="execFlowMetrics().total"></span></button>
+              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'tasks'" :class="autoTab() === 'tasks' ? 'on' : ''" @click="autoView = 'tasks'">⚡ Tasks<span class="n" x-show="execTaskMetrics().total" x-text="execTaskMetrics().total"></span></button>
+              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'flows'" :class="autoTab() === 'flows' ? 'on' : ''" @click="autoView = 'flows'; $nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))">🔗 Flows<span class="n" x-show="execFlowMetrics().total" x-text="execFlowMetrics().total"></span></button>
             </div>
 
             <div class="nlx-studio">
@@ -23954,7 +24031,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['greeting', 'agenda', 'insights', 'devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
+        homeSectionsDefault: ['greeting', 'agenda', 'insights', 'devwork', 'whatsnew', 'newsletter', 'flowchart', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeSectionHidden: [],
@@ -24064,6 +24141,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         newTaskOpen: false,
         chainModalOpen: false,
         chainSearch: '',
+        autoView: 'tasks',
         flowPaletteFilter: '',
         flowPaletteTab: 'agents',
         flowZoomLevel: 1,
@@ -24958,9 +25036,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Which sub-tab the merged "Autonomous" page shows. Flows when the route is
         // the legacy #/chains, or #/autonomous/flows; Tasks otherwise (incl. #/tasks).
         autoTab() {
-          if (this.route === 'chains') return 'flows';
-          if (this.route === 'autonomous' && this.app.routeParam === 'flows') return 'flows';
-          return 'tasks';
+          return this.autoView === 'flows' ? 'flows' : 'tasks';
         },
 
         async handleRouteChange(opts = {}) {
@@ -25016,6 +25092,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
             if (this.settingsCat === 'agents') this.loadSystemAgents();
           } else if (this.route === 'chains' || this.route === 'autonomous' || this.route === 'tasks') {
+            // Seed the active section tab from the route/param so deep-links and
+            // detail back-links land on the right tab; after that, tab switches
+            // are in-place (no hash change) to avoid the route transition anim.
+            this.autoView = (this.route === 'chains' || this.app.routeParam === 'flows') ? 'flows' : 'tasks';
             await Promise.all([this.loadActivity(), this.loadSchedules()]);
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
@@ -27790,7 +27870,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }).filter(r => Number.isFinite(r.t)).sort((a, b) => a.t - b.t);
         },
         mgmtEnsureFlowRuns() {
-          if (this.route !== 'home' || this.appMode !== 'workforce') return;
+          // Runs on both the Productivity (workspace) and Management (workforce)
+          // home, since the "Flow / Task activity" panel now lives on both.
+          if (this.route !== 'home') return;
           for (const c of this.opsFlows()) {
             if (this.chainRuns[c.id] === undefined) {
               this.chainRuns[c.id] = [];
@@ -28389,6 +28471,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
             case 'insights': return this.featureVisible('insights') && !!(this.digest && (this.digest.needsYou.length || this.digest.changed.length || this.digest.nudges.length || this.digestLoading));
+            case 'flowchart': return (this.featureVisible('tasks') || this.featureVisible('flows')) && !!this.mgmtRunPoints().length;
             default: return false;
           }
         },
