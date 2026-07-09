@@ -12508,14 +12508,48 @@
               /* Left floating jump-nav: quiet text links (no pills) that scroll to anchors.
                  Sits just right of the app sidebar (follows --sidebar-width). Hidden only on
                  narrow viewports that can't spare the room. */
-              .meai-jump { position:fixed; --meai-cw: calc(100vw - var(--sidebar-width, 240px)); --meai-ww: min(1100px, calc(var(--meai-cw) - 64px)); --meai-agenda-left: calc(var(--sidebar-width, 240px) + (var(--meai-cw) - var(--meai-ww)) / 2); left: max(calc(var(--sidebar-width, 240px) + 8px), calc(var(--meai-agenda-left) - 202px)); top:50%; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; gap:2px; padding:8px 6px; background:color-mix(in srgb, var(--cp-surface) 88%, transparent); backdrop-filter:blur(6px); border:1px solid var(--cp-border); border-radius:10px; max-height:80vh; overflow:auto; }
-              .meai-jump-t { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); padding:2px 8px 4px; }
+              .meai-jump { position:fixed; --meai-cw: calc(100vw - var(--sidebar-width, 240px)); --meai-ww: min(1100px, calc(var(--meai-cw) - 64px)); --meai-agenda-left: calc(var(--sidebar-width, 240px) + (var(--meai-cw) - var(--meai-ww)) / 2); left: max(calc(var(--sidebar-width, 240px) + 8px), calc(var(--meai-agenda-left) - 202px)); top:50%; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; gap:2px; padding:8px 6px; background:color-mix(in srgb, var(--cp-surface) 88%, transparent); backdrop-filter:blur(6px); border:1px solid var(--cp-border); border-radius:10px; max-height:80vh; overflow:auto; transition:left .2s cubic-bezier(.22,1,.36,1), padding .2s; }
+              .meai-jump-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:0 2px 2px; }
+              .meai-jump-t { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); padding:2px 6px 2px; }
+              .meai-jump-toggle { flex:0 0 auto; background:transparent; border:0; color:var(--cp-text-muted); font-size:13px; line-height:1; cursor:pointer; padding:2px 5px; border-radius:6px; }
+              .meai-jump-toggle:hover { color:var(--cp-text); background:var(--cp-surface-2, rgba(127,127,127,.08)); }
               .meai-jump-btn { display:block; width:100%; text-align:left; background:transparent; border:0; border-radius:7px; color:var(--cp-text-muted); font:inherit; font-size:12px; padding:4px 8px; cursor:pointer; white-space:nowrap; max-width:190px; overflow:hidden; text-overflow:ellipsis; }
               .meai-jump-btn:hover { color:var(--cp-text); background:var(--cp-surface-2, rgba(127,127,127,.06)); }
               .meai-jump-btn.is-sub { padding-left:18px; font-size:11.5px; }
               .meai-jump-btn.is-now { color:var(--cp-accent); font-weight:600; }
+              .meai-jump-btn .mj-ico { display:none; }
+              .meai-jump-btn .mj-lbl { display:inline; }
               .meai-jump-sep { height:1px; margin:4px 6px; background:color-mix(in srgb, var(--cp-border) 70%, transparent); }
-              @media (max-width: 1180px) { .meai-jump { display:none; } }
+              /* Collapsed rail: slim icon strip docked beside the sidebar. Each segment expands
+                 into a label flyout on hover. Shared by the manual toggle (.is-mini) and the
+                 narrow-screen media query below. */
+              .meai-jump.is-mini { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; }
+              .meai-jump.is-mini .meai-jump-head { justify-content:center; padding:0 0 2px; }
+              .meai-jump.is-mini .meai-jump-t { display:none; }
+              .meai-jump.is-mini .meai-jump-btn { position:relative; display:flex; align-items:center; justify-content:center; width:34px; max-width:34px; height:30px; padding:0; overflow:visible; }
+              .meai-jump.is-mini .meai-jump-btn.is-sub { padding-left:0; }
+              .meai-jump.is-mini .mj-ico { display:inline-flex; align-items:center; justify-content:center; font-size:14px; }
+              .meai-jump.is-mini .mj-ico-n { min-width:20px; height:20px; border-radius:6px; background:var(--cp-surface-2, rgba(127,127,127,.14)); font-size:11px; font-weight:700; color:var(--cp-text); }
+              .meai-jump.is-mini .meai-jump-btn.is-now .mj-ico { color:var(--cp-accent); }
+              .meai-jump.is-mini .mj-lbl { position:absolute; left:calc(100% + 8px); top:50%; transform:translateY(-50%) translateX(-4px); white-space:nowrap; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:5px 10px; font-size:12px; color:var(--cp-text); box-shadow:0 6px 20px rgba(0,0,0,.18); opacity:0; pointer-events:none; transition:opacity .14s, transform .14s cubic-bezier(.22,1,.36,1); z-index:2; }
+              .meai-jump.is-mini .meai-jump-btn:hover .mj-lbl { opacity:1; transform:translateY(-50%) translateX(0); }
+              .meai-jump.is-mini .meai-jump-sep { margin:4px 8px; }
+              @media (prefers-reduced-motion: reduce) { .meai-jump, .meai-jump .mj-lbl { transition:none; } }
+              /* Narrow screens: don't hide the rail — auto-collapse it to the icon strip so it
+                 stays reachable without eating horizontal space. */
+              @media (max-width: 1180px) {
+                .meai-jump { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; }
+                .meai-jump .meai-jump-t { display:none; }
+                .meai-jump .meai-jump-head { justify-content:center; padding:0 0 2px; }
+                .meai-jump .meai-jump-btn { position:relative; display:flex; align-items:center; justify-content:center; width:34px; max-width:34px; height:30px; padding:0; overflow:visible; }
+                .meai-jump .meai-jump-btn.is-sub { padding-left:0; }
+                .meai-jump .mj-ico { display:inline-flex; align-items:center; justify-content:center; font-size:14px; }
+                .meai-jump .mj-ico-n { min-width:20px; height:20px; border-radius:6px; background:var(--cp-surface-2, rgba(127,127,127,.14)); font-size:11px; font-weight:700; color:var(--cp-text); }
+                .meai-jump .meai-jump-btn.is-now .mj-ico { color:var(--cp-accent); }
+                .meai-jump .mj-lbl { position:absolute; left:calc(100% + 8px); top:50%; transform:translateY(-50%) translateX(-4px); white-space:nowrap; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:5px 10px; font-size:12px; color:var(--cp-text); box-shadow:0 6px 20px rgba(0,0,0,.18); opacity:0; pointer-events:none; z-index:2; }
+                .meai-jump .meai-jump-btn:hover .mj-lbl { opacity:1; transform:translateY(-50%) translateX(0); }
+                .meai-jump .meai-jump-sep { margin:4px 8px; }
+              }
               /* Left rail (wide screens): quick-nav docked on top, today's goals below, using the
                  empty left gutter. Below 1300px it collapses to a left slide-over toggled by the
                  corner "Today's goals" button. */
@@ -13421,6 +13455,16 @@
               .meai-chk-fab.has-open .meai-chk-dot { background:var(--cp-warning,#d97706); }
               .meai-chk-fab .meai-chk-n { color:var(--cp-text-muted); font-weight:600; font-size:12px; }
               .meai-chk-fab.has-open .meai-chk-n { color:var(--cp-warning,#d97706); }
+              /* Four-bucket goal breakdown on the collapsed chip: Open · Need-more-time ·
+                 Didn't-get-to · Done. Colour-coded numbers (not chips), zeros dimmed. */
+              .meai-chk-fab .meai-chk-counts { display:inline-flex; align-items:center; gap:7px; margin-left:1px;
+                font-variant-numeric:tabular-nums; font-size:12px; font-weight:700; }
+              .meai-chk-fab .meai-chk-c { line-height:1; }
+              .meai-chk-fab .meai-chk-c.is-open { color:var(--cp-accent); }
+              .meai-chk-fab .meai-chk-c.is-partial { color:var(--cp-warning,#d97706); }
+              .meai-chk-fab .meai-chk-c.is-missed { color:var(--cp-danger,#dc2626); }
+              .meai-chk-fab .meai-chk-c.is-done { color:var(--cp-success,#16a34a); }
+              .meai-chk-fab .meai-chk-c.is-zero { opacity:.38; font-weight:600; }
               .meai-chk-panel { position:fixed; right:24px; bottom:24px; z-index:57; width:min(460px, calc(100vw - 48px)); max-height:calc(100vh - 128px);
                 display:flex; flex-direction:column; background:var(--cp-surface); border:1px solid var(--cp-border);
                 border-radius:calc(var(--cp-radius-scale, 1) * 12px); box-shadow:0 18px 48px rgba(0,0,0,.24); overflow:hidden; }
@@ -15574,27 +15618,45 @@
 
             <!-- Item 4: floating today's-goals FAB (stacked above the assistant). Shown only
                  when the goals panel is neither docked nor floating open, and no console/pursuit. -->
-            <button class="meai-chk-fab" :class="{ 'has-open': meAiChecklistOpenCount() > 0 }" type="button"
+            <button class="meai-chk-fab" :class="{ 'has-open': meAiGoalTabCount('open') > 0 }" type="button"
               x-show="route==='me-ai' && !meai.checklistDocked && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
               @click="meAiChecklistToggle(true)"
-              :title="meAiChecklistOpenCount() > 0 ? (meAiChecklistOpenCount() + ' goal(s) still open') : 'Today\'s goals'"
+              :title="meAiGoalCountsTitle()"
               aria-label="Open today's goals">
               <span class="meai-chk-dot"></span>
               <span>Today's goals</span>
-              <span class="meai-chk-n" x-show="meAiChecklistOpenCount() > 0" x-text="meAiChecklistOpenCount()"></span>
+              <!-- Owner ask: the single number (open+partial+missed) was ambiguous. Show the
+                   four buckets in tab order — Open / Need more time / Didn't get to / Done —
+                   so "0 0 14 25" reads at a glance. -->
+              <span class="meai-chk-counts" x-show="meAiChecklistItems().length" aria-hidden="true">
+                <template x-for="tb in meAiGoalTabs()" :key="'fabc-'+tb.key">
+                  <span class="meai-chk-c" :class="['is-'+tb.key, { 'is-zero': !tb.n }]" x-text="tb.n"></span>
+                </template>
+              </span>
             </button>
 
             <!-- Quick-nav: fixed at the left, vertically centered. Hidden while a Me-agent
-                 console / pursuit is open so it never overlaps that workspace. -->
-            <nav class="meai-jump" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open" x-cloak>
-              <div class="meai-jump-t">Jump to</div>
-              <button type="button" class="meai-jump-btn" @click="meAiJump('meaiInbox')" x-show="meAiInboxSections().length">Attention inbox</button>
+                 console / pursuit is open so it never overlaps that workspace. Collapses to a
+                 slim icon rail docked beside the sidebar (owner ask, for narrow screens). -->
+            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open" x-cloak>
+              <div class="meai-jump-head">
+                <div class="meai-jump-t">Jump to</div>
+                <button type="button" class="meai-jump-toggle" @click="meAiJumpToggleCollapse()"
+                  :title="meai.jumpCollapsed ? 'Expand quick nav' : 'Collapse quick nav'"
+                  :aria-label="meai.jumpCollapsed ? 'Expand quick nav' : 'Collapse quick nav'"
+                  x-text="meai.jumpCollapsed ? '»' : '«'"></button>
+              </div>
+              <button type="button" class="meai-jump-btn" @click="meAiJump('meaiInbox')" x-show="meAiInboxSections().length">
+                <span class="mj-ico">📥</span><span class="mj-lbl">Attention inbox</span></button>
               <template x-for="sec in meAiInboxSections()" :key="'j-' + sec.key">
-                <button type="button" class="meai-jump-btn is-sub" @click="meAiJump('meai-sec-' + sec.key)" x-text="sec.label + ' · ' + sec.items.length"></button>
+                <button type="button" class="meai-jump-btn is-sub" @click="meAiJump('meai-sec-' + sec.key)">
+                  <span class="mj-ico mj-ico-n" x-text="sec.items.length"></span><span class="mj-lbl" x-text="sec.label + ' · ' + sec.items.length"></span></button>
               </template>
               <div class="meai-jump-sep"></div>
-              <button type="button" class="meai-jump-btn" @click="meAiJump('meaiAgenda')">Agenda</button>
-              <button type="button" class="meai-jump-btn is-now" @click="meAiJump('meaiNow')" x-show="meai.date===meai.today">Right now</button>
+              <button type="button" class="meai-jump-btn" @click="meAiJump('meaiAgenda')">
+                <span class="mj-ico">🗓</span><span class="mj-lbl">Agenda</span></button>
+              <button type="button" class="meai-jump-btn is-now" @click="meAiJump('meaiNow')" x-show="meai.date===meai.today">
+                <span class="mj-ico">◉</span><span class="mj-lbl">Right now</span></button>
             </nav>
 
             <!-- Working hours & grid modal (moved out of the side rail) -->
@@ -24271,6 +24333,9 @@
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           // Dock the goals panel inline in the right column (default) vs float it over the page.
           checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? false : v === '1'; } catch (_) { return false; } })(),
+          // Collapse the quick-nav "Jump to" rail into a slim icon strip docked next to the
+          // sidebar (for constrained/mobile widths). Persists; narrow screens force it on via CSS.
+          jumpCollapsed: (() => { try { return localStorage.getItem('meai-jump-collapsed') === '1'; } catch (_) { return false; } })(),
           bigGoalNonce: 0,  // bumped on big-goal pin/clear to force a reactive recompute
           autoUpdates: (() => { try { const v = localStorage.getItem('meai-auto-updates'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
@@ -32452,6 +32517,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
           });
         },
+        // Collapse/expand the quick-nav rail (owner ask — for constrained widths). Persisted.
+        meAiJumpToggleCollapse() {
+          this.meai.jumpCollapsed = !this.meai.jumpCollapsed;
+          try { localStorage.setItem('meai-jump-collapsed', this.meai.jumpCollapsed ? '1' : '0'); } catch (_) {}
+        },
         meAiSecPending(sec) {
           return (sec && sec.items || []).filter(x => x.status === 'pending').length;
         },
@@ -32957,6 +33027,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'missed', label: "Didn't get to" },
             { key: 'done', label: 'Done' }
           ].map(x => Object.assign(x, { n: this.meAiGoalTabCount(x.key) }));
+        },
+        // Tooltip for the collapsed goals chip — spells out what the four numbers mean.
+        meAiGoalCountsTitle() {
+          const t = this.meAiGoalTabs();
+          if (!this.meAiChecklistItems().length) return "Today's goals";
+          return "Today's goals — " + t.map(x => x.n + ' ' + x.label.toLowerCase()).join(' · ');
         },
         meAiSetGoalsTab(tab) { this.meai.goalsTab = tab; },
         // Regular goals (non-big) filtered to the active tab.

@@ -13076,6 +13076,65 @@ function saveInboxForDate(date, inbox) {
   fs.writeFileSync(_meAiInboxPath(date), JSON.stringify(inbox || { date, items: [] }, null, 2));
   return inbox;
 }
+
+// Ask 1 (AI-cluster decision reuse): when the user opens "Group similar", _meAiGroupInbox
+// spends a bounded LLM call clustering related inbox items by MEANING (same PR/thread/
+// incident) — semantics that the deterministic token-containment dedup (_meAiRelatedTriaged)
+// can miss. We persist those clusters per day so a LATER arrival that clearly belongs to a
+// cluster whose members are already resolved can inherit that same triage decision WITHOUT
+// spending a fresh model call per arrival. Each cluster carries its member ids plus a
+// token-union + channel-set fingerprint so a new item can be mapped to it deterministically.
+const ME_AI_AIGROUP_DIR = path.join(dataPath('me-ai'), 'aigroups');
+function _meAiAiGroupPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_AIGROUP_DIR, `${safe}.json`);
+}
+function loadAiGroupStore(date) {
+  try {
+    const p = _meAiAiGroupPath(date);
+    if (!fs.existsSync(p)) return { date, clusters: [], computedAt: '' };
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (v && Array.isArray(v.clusters)) return v;
+    return { date, clusters: [], computedAt: '' };
+  } catch { return { date, clusters: [], computedAt: '' }; }
+}
+function saveAiGroupStore(date, store) {
+  try {
+    fs.mkdirSync(ME_AI_AIGROUP_DIR, { recursive: true });
+    fs.writeFileSync(_meAiAiGroupPath(date), JSON.stringify(store || { date, clusters: [] }, null, 2));
+  } catch (_) { /* best-effort */ }
+  return store;
+}
+// Snapshot the computed groups (AI-refined or deterministic) into the per-day cluster store,
+// stamping each with a content fingerprint (token union + channels) drawn from the members
+// as they exist NOW, so a later arrival can be matched to the cluster deterministically.
+function _meAiRecordAiGroups(date, groups, items) {
+  try {
+    if (!Array.isArray(groups) || !groups.length) return;
+    const byId = new Map((items || []).map(it => [it.id, it]));
+    const clusters = [];
+    for (const g of groups) {
+      const ids = Array.from(new Set((g.ids || []).map(String))).filter(id => byId.has(id));
+      if (ids.length < 2) continue;
+      const tokSet = new Set();
+      const chSet = new Set();
+      for (const id of ids) {
+        const m = byId.get(id);
+        for (const t of _meAiTitleTokens(m && m.title)) tokSet.add(t);
+        chSet.add(`${String((m && m.source) || 'm365')}/${String((m && m.kind) || 'email')}`);
+      }
+      if (tokSet.size < 2) continue; // too thin to map new arrivals to safely
+      clusters.push({
+        key: g.id || ('grp:' + require('crypto').createHash('md5').update(ids.slice().sort().join('|')).digest('hex').slice(0, 10)),
+        ids,
+        tokens: Array.from(tokSet),
+        channels: Array.from(chSet),
+        label: String(g.label || '').slice(0, 40),
+      });
+    }
+    saveAiGroupStore(date, { date, clusters, computedAt: new Date().toISOString() });
+  } catch (_) { /* best-effort */ }
+}
 // Request B: recorded-meeting action-item capture. After a meeting ends, its recording
 // / transcript often lands minutes-to-hours later. We poll WorkIQ for ended meetings that
 // have a recording, extract the action items assigned to ME, and fold them into the
@@ -13203,7 +13262,47 @@ function _meAiRelatedTriaged(it, items, minPct) {
   return best ? { item: best, rel: bestRel, why: 'tokens' } : null;
 }
 
-// --- Step 3: composite urgency scoring ------------------------------------------------
+// Ask 1: map a NEW arrival to a persisted AI cluster (from a prior "Group similar" pass) and,
+// if that cluster already has a RESOLVED representative still in the inbox, return it so the
+// arrival inherits the same triage decision — reusing the already-spent LLM grouping instead
+// of asking again or spending a fresh model call. The AI vouched the cluster members belong
+// together; here we only need a CHEAP deterministic test that the arrival maps to the cluster
+// (distinctive token containment against the cluster's token union, mirroring the same-channel
+// distinctiveness guard as _meAiRelatedTriaged so a sparse title can't drift onto a cluster).
+function _meAiAiClusterMatch(it, clusterStore, items, minPct) {
+  try {
+    const clusters = (clusterStore && Array.isArray(clusterStore.clusters)) ? clusterStore.clusters : [];
+    if (!clusters.length || !it || !Array.isArray(items) || !items.length) return null;
+    const min = Math.max(0, Math.min(1, (Number(minPct) || 72) / 100));
+    const itToks = new Set(_meAiTitleTokens(it.title));
+    if (itToks.size < 2) return null;
+    const itChannel = `${String(it.source || 'm365')}/${String(it.kind || 'email')}`;
+    const byId = new Map(items.map(x => [x.id, x]));
+    let best = null, bestRel = 0;
+    for (const cl of clusters) {
+      const clToks = new Set((cl.tokens || []));
+      if (clToks.size < 2) continue;
+      let inter = 0; for (const t of itToks) if (clToks.has(t)) inter++;
+      if (inter < 2) continue; // never a single-word coincidence
+      const sameChannel = Array.isArray(cl.channels) && cl.channels.includes(itChannel);
+      if (inter < (sameChannel ? 2 : 3)) continue; // cross-channel needs more distinctive overlap
+      const rel = inter / itToks.size; // containment of THIS arrival by the cluster vocabulary
+      if (rel < min) continue;
+      // Only reuse if the AI cluster already has a decided representative still present.
+      let rep = null;
+      for (const id of (cl.ids || [])) {
+        const m = byId.get(id);
+        if (!m || m === it) continue;
+        if (!ME_AI_RESOLVED_TRIAGE.has(m.triage) && !m.auto) continue;
+        if (!rep || String(m.triagedAt || '') > String(rep.triagedAt || '')) rep = m;
+      }
+      if (rep && rel > bestRel) { bestRel = rel; best = { item: rep, rel, why: 'aicluster', label: cl.label || '' }; }
+    }
+    return best;
+  } catch (_) { return null; }
+}
+
+
 // The collector/LLM already re-scores a flat 0–5 urgency across sources; that judgment is
 // the CRITICALITY anchor. On top of it we derive four more of the owner's stated facets —
 // due-date, impact, scope, effort — deterministically from the signal's own fields + light
@@ -13290,6 +13389,9 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const topicStore = loadTopicMemory();         // Phase 6: Layer-1 durable topic memory
   const hasTopics = !!(topicStore.topics && topicStore.topics.length);
   let topicHits = 0;
+  const aiGroupStore = loadAiGroupStore(date);  // Ask 1: reuse a prior "Group similar" pass
+  const hasAiGroups = !!(aiGroupStore.clusters && aiGroupStore.clusters.length);
+  let aiGroupHits = 0;
   const budget = { n: 6 }; // cap per-item AI nudges per merge so a poll can't fan out N model calls
   for (const sig of (signals || [])) {
     if (!sig || sig.kind === 'meeting' || sig.type !== 'comms') continue;
@@ -13343,6 +13445,28 @@ async function _meAiMergeInbox(date, signals, cfg) {
         if (tm && _meAiApplyTopic(it, tm.topic, date, now)) {
           tm.topic.hits = (tm.topic.hits || 0) + 1; tm.topic.lastAt = now; topicHits++; autoHandled++;
         } else {
+          // Ask 1: AI-cluster decision reuse. Before the deterministic token-containment fold,
+          // check whether a prior "Group similar" pass already clustered this arrival's topic
+          // (by MEANING) with items the user has since resolved. If so, inherit that decision
+          // — this catches semantically-related arrivals ("Missy's feedback" ↔ "review from
+          // Missy on !123") that share too few literal tokens for _meAiRelatedTriaged to fold,
+          // reusing the already-spent LLM grouping instead of resurfacing or re-asking.
+          const aic = hasAiGroups
+            ? _meAiAiClusterMatch(it, aiGroupStore, inbox.items, (cfg.grouping && cfg.grouping.min) || 72)
+            : null;
+          if (aic && aic.item) {
+            const ex = aic.item;
+            ex.instances = (Number(ex.instances) || 1) + 1;
+            ex.lastInstanceAt = now;
+            ex.aiGroupReuse = true;
+            (ex.instanceLinks = ex.instanceLinks || []);
+            const lk = it.link || it.prLink || '';
+            if (lk && !ex.instanceLinks.includes(lk) && ex.instanceLinks.length < 20) ex.instanceLinks.push(lk);
+            byId.set(id, ex);
+            aiGroupHits++;
+            instanceMerges++;
+            continue; // do NOT push a separate row
+          }
           // Instance-count dedup: if the user already TRIAGED a clearly-related item today
           // (above the grouping-confidence min), fold this arrival into it as another instance
           // instead of surfacing a fresh row — this is what stops "Missy PR review" pings and
@@ -13373,7 +13497,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits, topicHits, instanceMerges };
+  return { inbox, added, autoHandled, classHits, topicHits, instanceMerges, aiGroupHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -17825,6 +17949,9 @@ app.post('/api/me-ai/inbox/group', async (req, res) => {
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const inbox = loadInboxForDate(date);
     const groups = await _meAiGroupInbox(inbox.items, { allowAi: b.allowAi !== false });
+    // Ask 1: persist the computed clusters so a later arrival can inherit a resolved member's
+    // triage decision without spending a fresh model call (see _meAiAiClusterMatch).
+    try { _meAiRecordAiGroups(date, groups, inbox.items); } catch (_) { /* best-effort */ }
     res.json({ ok: true, date, groups });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

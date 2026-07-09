@@ -268,6 +268,51 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 5c. AI-cluster decision reuse. A persisted "Group similar" cluster with a
+//     resolved representative lets a new clustered arrival inherit that decision
+//     without a fresh model call.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const prelude = [
+    "const ME_AI_RESOLVED_TRIAGE = new Set(['later','today','now','dismissed','wontfix','done']);",
+    sliceSource(SERVER, 'const ME_AI_TRIAGE_STOP = new Set(', 'const ME_AI_TRIAGE_STOP = new Set('),
+  ].join('\n');
+  const { _meAiAiClusterMatch } = extractFns(
+    SERVER, ['_meAiAiClusterMatch', '_meAiTitleTokens'], { prelude });
+
+  const store = { clusters: [{
+    key: 'grp:1',
+    ids: ['a', 'b'],
+    tokens: ['missy', 'review', 'request', 'feedback'],
+    channels: ['m365/email'],
+    label: 'Missy review requests',
+  }] };
+  const resolved = { id: 'a', title: 'Review request from Missy', source: 'm365', kind: 'email', triage: 'dismissed', triagedAt: '2026-07-06T09:00:00Z' };
+  const other = { id: 'b', title: 'Missy feedback request', source: 'm365', kind: 'email', triage: 'new' };
+
+  await t.test('clustered arrival folds onto a resolved cluster representative', () => {
+    const arrival = { id: 'c', title: 'Another Missy review feedback request', source: 'm365', kind: 'email', triage: 'new' };
+    const m = _meAiAiClusterMatch(arrival, store, [resolved, other, arrival], 72);
+    t.ok(m && m.item, 'matched the cluster');
+    t.eq(m.item.id, 'a', 'folded onto the resolved representative');
+    t.eq(m.why, 'aicluster');
+  });
+
+  await t.test('no match when the cluster has no resolved representative', () => {
+    const openStore = { clusters: [{ key: 'g', ids: ['b'], tokens: ['missy', 'review', 'request', 'feedback'], channels: ['m365/email'], label: 'x' }] };
+    const arrival = { id: 'c', title: 'Another Missy review feedback request', source: 'm365', kind: 'email', triage: 'new' };
+    const m = _meAiAiClusterMatch(arrival, openStore, [other, arrival], 72);
+    t.eq(m, null, 'un-decided cluster does not absorb');
+  });
+
+  await t.test('unrelated arrival does not drift onto a cluster', () => {
+    const arrival = { id: 'c', title: 'Quarterly finance planning offsite', source: 'm365', kind: 'email', triage: 'new' };
+    const m = _meAiAiClusterMatch(arrival, store, [resolved, other, arrival], 72);
+    t.eq(m, null, 'disjoint vocabulary → no fold');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 6. Deterministic identity + parsing helpers (dedupe / cache keys).
 // ─────────────────────────────────────────────────────────────────────────────
 {
