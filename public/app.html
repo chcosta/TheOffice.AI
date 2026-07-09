@@ -17456,26 +17456,37 @@
             </div><!-- /nlx-studio -->
           </section>
 
-          <section x-show="!loading && !errorMessage && route === 'tasks'" class="nlx-scroll">
+          <section x-show="!loading && !errorMessage && (route === 'autonomous' || route === 'tasks' || route === 'chains')" class="nlx-scroll">
             <div class="nlx-top">
               <div class="page-title">
-                <h1>Tasks</h1>
-                <p>Single-agent jobs — a saved prompt plus an optional schedule. Run on demand, watch run health, and keep what's coming up in view.</p>
+                <h1>Autonomous</h1>
+                <p x-show="autoTab() === 'tasks'">Single-agent jobs — a saved prompt plus an optional schedule. Run on demand, watch run health, and keep what's coming up in view.</p>
+                <p x-show="autoTab() === 'flows'">Wire tasks into a conditional pipeline. When a task finishes, each outgoing rule (status, output expression, or AI judgment) decides which downstream tasks run next.</p>
               </div>
               <div class="nlx-actions">
-                <span class="nlx-status" :class="{ off: !execTaskRunning() }">
+                <span class="nlx-status" x-show="autoTab() === 'tasks'" :class="{ off: !execTaskRunning() }">
                   <span class="dotp"></span>
                   <span x-text="execTaskRunning() ? (execTaskRunning() + ' running') : 'Idle'"></span>
                 </span>
+                <span class="nlx-status" x-show="autoTab() === 'flows'" :class="{ off: !execFlowRunning() }">
+                  <span class="dotp"></span>
+                  <span x-text="execFlowRunning() ? (execFlowRunning() + ' running') : 'Idle'"></span>
+                </span>
                 <button class="btn ghost" type="button" @click="Promise.all([loadActivity(), loadSchedules()])" title="Refresh">↻ Refresh</button>
                 <button class="btn ghost" type="button" @click="goTo('#/design')">✨ Design with AI</button>
-                <button class="btn ghost primary" type="button" @click="openTaskModal()">＋ New Task</button>
+                <button class="btn ghost primary" type="button" x-show="autoTab() === 'tasks'" @click="openTaskModal()">＋ New Task</button>
+                <button class="btn ghost primary" type="button" x-show="autoTab() === 'flows'" @click="newChain()">＋ New Flow</button>
               </div>
             </div>
 
             <div class="nlx-studio">
-              <!-- Left rail: filter + folded Operations (task-scoped) -->
+              <!-- Left rail: Tasks/Flows tab bar + scoped cards -->
               <div class="nlx-rail">
+                <div class="nlx-frame" style="margin-top:0" role="tablist" aria-label="Autonomous section">
+                  <button type="button" role="tab" :aria-selected="autoTab() === 'tasks'" :class="{ active: autoTab() === 'tasks' }" @click="goTo('#/autonomous')">⚡ Tasks</button>
+                  <button type="button" role="tab" :aria-selected="autoTab() === 'flows'" :class="{ active: autoTab() === 'flows' }" @click="goTo('#/autonomous/flows')">🔗 Flows</button>
+                </div>
+                <div style="display:contents" x-show="autoTab() === 'tasks'">
                 <div class="nlx-card">
                   <div class="nlx-fld" style="margin-bottom:0">
                     <label>Find a task</label>
@@ -17530,9 +17541,67 @@
                   </div>
                   <div class="hint" x-show="!execTaskRecent(5).length" style="font-style:italic;padding:6px 0">No runs yet.</div>
                 </div>
+                </div>
+                <div style="display:contents" x-show="autoTab() === 'flows'">
+                <div class="nlx-card">
+                  <div class="nlx-fld" style="margin-bottom:0">
+                    <label>Find a flow</label>
+                    <input class="field-input" type="search" placeholder="Flow name or description…" x-model="chainSearch" @input.debounce.200ms="$nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))" />
+                  </div>
+                  <div class="nlx-win">
+                    <div><b x-text="execFlowMetrics().total"></b><span x-text="filteredChains().length + ' shown'"></span></div>
+                    <div><b x-text="execFlowMetrics().enabled"></b><span>enabled</span></div>
+                  </div>
+                  <div class="nlx-win" style="margin-top:8px">
+                    <div><b x-text="execFlowMetrics().runs24h"></b><span>runs · 24h</span></div>
+                    <div><b :style="execFlowMetrics().failed24h ? 'color:var(--cp-danger)' : ''" x-text="execFlowMetrics().failed24h"></b><span>failed · 24h</span></div>
+                  </div>
+                </div>
+
+                <div class="nlx-card">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <strong style="font-size:13px">⏱ Up next</strong>
+                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">Activity →</a>
+                  </div>
+                  <div x-show="execFlowUpcoming(5).length" style="display:flex;flex-direction:column;gap:2px">
+                    <template x-for="row in execFlowUpcoming(5)" :key="row.type + ':' + row.id">
+                      <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
+                        <span class="type-badge">🔗</span>
+                        <span style="flex:1;min-width:0">
+                          <span class="exec-row-name" x-text="row.name"></span>
+                          <span class="hint" style="display:block;font-size:0.7rem" x-text="row.scheduleDescription || row.schedule"></span>
+                        </span>
+                        <span class="mono hint" style="font-size:0.72rem;white-space:nowrap" x-text="formatRelative(row.nextRun)"></span>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!execFlowUpcoming(5).length" style="font-style:italic;padding:6px 0">Nothing scheduled.</div>
+                </div>
+
+                <div class="nlx-card">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <strong style="font-size:13px">📊 Recent runs</strong>
+                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">History →</a>
+                  </div>
+                  <div x-show="execFlowRecent(5).length" style="display:flex;flex-direction:column;gap:2px">
+                    <template x-for="a in execFlowRecent(5)" :key="a.id">
+                      <a :href="a.route" class="exec-row">
+                        <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
+                        <span style="flex:1;min-width:0">
+                          <span class="exec-row-name" x-text="a.entityName"></span>
+                          <span class="hint" style="display:block;font-size:0.7rem" x-text="a.durationMs ? formatDuration(a.durationMs) : '—'"></span>
+                        </span>
+                        <span class="hint mono" style="font-size:0.7rem;white-space:nowrap" x-text="formatRelative(a.finishedAt || a.startedAt)"></span>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!execFlowRecent(5).length" style="font-style:italic;padding:6px 0">No runs yet.</div>
+                </div>
+                </div>
               </div>
 
-              <!-- Center stage: the task list -->
+              <!-- Center stage: task list (Tasks) / flow list (Flows) -->
+              <div style="display:contents" x-show="autoTab() === 'tasks'">
               <div class="nlx-stage">
                 <div class="nlx-stage-bar">
                   <strong style="font-size:14px">All tasks</strong>
@@ -17590,6 +17659,52 @@
                     <button class="btn ghost primary" type="button" @click="openTaskModal()" x-show="!taskSearch">＋ New Task</button>
                   </div>
                 </div>
+              </div>
+              </div>
+              <div style="display:contents" x-show="autoTab() === 'flows'">
+              <div class="nlx-stage">
+                <div class="nlx-stage-bar">
+                  <strong style="font-size:14px">All flows</strong>
+                  <span class="hint" x-text="filteredChains().length + (filteredChains().length === 1 ? ' flow' : ' flows')"></span>
+                  <div class="nlx-stage-actions">
+                    <button class="btn ghost primary" type="button" @click="newChain()">＋ New Flow</button>
+                  </div>
+                </div>
+                <div style="padding:14px 16px 20px">
+                  <div class="assignment-list">
+                    <template x-for="chain in filteredChains()" :key="chain.id">
+                      <article class="task-card" :id="'sched-focus-chain-' + chain.id">
+                        <div class="assignment-top">
+                          <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/chains/' + encodeURIComponent(chain.id))">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="row-chevron">›</span>
+                              <strong x-text="chain.name"></strong>
+                              <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
+                              <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
+                              <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
+                            </div>
+                            <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to workspace">📌</button>
+                            <button class="btn" type="button" @click.stop="quickStarOp('flow', chain.id, chain.name || chain.id, '🔀', chain.id, chain.teamId)" :title="opStarred(chain.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(chain.id) ? '★' : '☆'"></button>
+                            <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
+                            <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
+                          </div>
+                        </div>
+
+                        <!-- Inline flow visualization -->
+                        <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))"></div>
+                      </article>
+                    </template>
+                  </div>
+                  <div class="nlx-empty" x-show="!filteredChains().length">
+                    <div class="big">🔗</div>
+                    <p x-text="chainSearch ? 'No flows matched your filter.' : 'No flows yet. Wire tasks together into a conditional pipeline.'"></p>
+                    <button class="btn ghost primary" type="button" @click="newChain()" x-show="!chainSearch">＋ New Flow</button>
+                  </div>
+                </div>
+              </div>
               </div>
             </div>
           </section>
@@ -18642,130 +18757,6 @@
                   </template>
                 </article>
               </template>
-            </div>
-          </section>
-
-          <!-- ===================== Chains ===================== -->
-          <section x-show="!loading && !errorMessage && route === 'chains'" class="nlx-scroll">
-            <div class="nlx-top">
-              <div class="page-title">
-                <h1>Flows</h1>
-                <p>Wire tasks into a conditional pipeline. When a task finishes, each outgoing rule (status, output expression, or AI judgment) decides which downstream tasks run next.</p>
-              </div>
-              <div class="nlx-actions">
-                <span class="nlx-status" :class="{ off: !execFlowRunning() }">
-                  <span class="dotp"></span>
-                  <span x-text="execFlowRunning() ? (execFlowRunning() + ' running') : 'Idle'"></span>
-                </span>
-                <button class="btn ghost" type="button" @click="Promise.all([loadActivity(), loadSchedules()])" title="Refresh">↻ Refresh</button>
-                <button class="btn ghost" type="button" @click="goTo('#/design')">✨ Design with AI</button>
-                <button class="btn ghost primary" type="button" @click="newChain()">＋ New Flow</button>
-              </div>
-            </div>
-
-            <div class="nlx-studio">
-              <!-- Left rail: filter + folded Operations (flow-scoped) -->
-              <div class="nlx-rail">
-                <div class="nlx-card">
-                  <div class="nlx-fld" style="margin-bottom:0">
-                    <label>Find a flow</label>
-                    <input class="field-input" type="search" placeholder="Flow name or description…" x-model="chainSearch" @input.debounce.200ms="$nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))" />
-                  </div>
-                  <div class="nlx-win">
-                    <div><b x-text="execFlowMetrics().total"></b><span x-text="filteredChains().length + ' shown'"></span></div>
-                    <div><b x-text="execFlowMetrics().enabled"></b><span>enabled</span></div>
-                  </div>
-                  <div class="nlx-win" style="margin-top:8px">
-                    <div><b x-text="execFlowMetrics().runs24h"></b><span>runs · 24h</span></div>
-                    <div><b :style="execFlowMetrics().failed24h ? 'color:var(--cp-danger)' : ''" x-text="execFlowMetrics().failed24h"></b><span>failed · 24h</span></div>
-                  </div>
-                </div>
-
-                <div class="nlx-card">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <strong style="font-size:13px">⏱ Up next</strong>
-                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">Activity →</a>
-                  </div>
-                  <div x-show="execFlowUpcoming(5).length" style="display:flex;flex-direction:column;gap:2px">
-                    <template x-for="row in execFlowUpcoming(5)" :key="row.type + ':' + row.id">
-                      <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
-                        <span class="type-badge">🔗</span>
-                        <span style="flex:1;min-width:0">
-                          <span class="exec-row-name" x-text="row.name"></span>
-                          <span class="hint" style="display:block;font-size:0.7rem" x-text="row.scheduleDescription || row.schedule"></span>
-                        </span>
-                        <span class="mono hint" style="font-size:0.72rem;white-space:nowrap" x-text="formatRelative(row.nextRun)"></span>
-                      </a>
-                    </template>
-                  </div>
-                  <div class="hint" x-show="!execFlowUpcoming(5).length" style="font-style:italic;padding:6px 0">Nothing scheduled.</div>
-                </div>
-
-                <div class="nlx-card">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <strong style="font-size:13px">📊 Recent runs</strong>
-                    <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">History →</a>
-                  </div>
-                  <div x-show="execFlowRecent(5).length" style="display:flex;flex-direction:column;gap:2px">
-                    <template x-for="a in execFlowRecent(5)" :key="a.id">
-                      <a :href="a.route" class="exec-row">
-                        <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
-                        <span style="flex:1;min-width:0">
-                          <span class="exec-row-name" x-text="a.entityName"></span>
-                          <span class="hint" style="display:block;font-size:0.7rem" x-text="a.durationMs ? formatDuration(a.durationMs) : '—'"></span>
-                        </span>
-                        <span class="hint mono" style="font-size:0.7rem;white-space:nowrap" x-text="formatRelative(a.finishedAt || a.startedAt)"></span>
-                      </a>
-                    </template>
-                  </div>
-                  <div class="hint" x-show="!execFlowRecent(5).length" style="font-style:italic;padding:6px 0">No runs yet.</div>
-                </div>
-              </div>
-
-              <!-- Center stage: the flow list -->
-              <div class="nlx-stage">
-                <div class="nlx-stage-bar">
-                  <strong style="font-size:14px">All flows</strong>
-                  <span class="hint" x-text="filteredChains().length + (filteredChains().length === 1 ? ' flow' : ' flows')"></span>
-                  <div class="nlx-stage-actions">
-                    <button class="btn ghost primary" type="button" @click="newChain()">＋ New Flow</button>
-                  </div>
-                </div>
-                <div style="padding:14px 16px 20px">
-                  <div class="assignment-list">
-                    <template x-for="chain in filteredChains()" :key="chain.id">
-                      <article class="task-card" :id="'sched-focus-chain-' + chain.id">
-                        <div class="assignment-top">
-                          <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/chains/' + encodeURIComponent(chain.id))">
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <span class="row-chevron">›</span>
-                              <strong x-text="chain.name"></strong>
-                              <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
-                              <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
-                              <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
-                            </div>
-                            <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
-                          </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to workspace">📌</button>
-                            <button class="btn" type="button" @click.stop="quickStarOp('flow', chain.id, chain.name || chain.id, '🔀', chain.id, chain.teamId)" :title="opStarred(chain.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(chain.id) ? '★' : '☆'"></button>
-                            <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
-                            <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
-                          </div>
-                        </div>
-
-                        <!-- Inline flow visualization -->
-                        <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))"></div>
-                      </article>
-                    </template>
-                  </div>
-                  <div class="nlx-empty" x-show="!filteredChains().length">
-                    <div class="big">🔗</div>
-                    <p x-text="chainSearch ? 'No flows matched your filter.' : 'No flows yet. Wire tasks together into a conditional pipeline.'"></p>
-                    <button class="btn ghost primary" type="button" @click="newChain()" x-show="!chainSearch">＋ New Flow</button>
-                  </div>
-                </div>
-              </div>
             </div>
           </section>
 
@@ -24958,8 +24949,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
+        },
+
+        // Which sub-tab the merged "Autonomous" page shows. Flows when the route is
+        // the legacy #/chains, or #/autonomous/flows; Tasks otherwise (incl. #/tasks).
+        autoTab() {
+          if (this.route === 'chains') return 'flows';
+          if (this.route === 'autonomous' && this.app.routeParam === 'flows') return 'flows';
+          return 'tasks';
         },
 
         async handleRouteChange(opts = {}) {
@@ -25014,11 +25013,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.settingsCat === 'integrations') { this.ensureCfGroups(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
             if (this.settingsCat === 'agents') this.loadSystemAgents();
-          } else if (this.route === 'chains') {
+          } else if (this.route === 'chains' || this.route === 'autonomous' || this.route === 'tasks') {
             await Promise.all([this.loadActivity(), this.loadSchedules()]);
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
-          } else if (this.route === 'tasks') {
-            await Promise.all([this.loadActivity(), this.loadSchedules()]);
           } else if (this.route === 'design') {
             await this.loadExecAi();
           } else if (this.route === 'reports') {
@@ -26002,6 +25999,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'playbooks': return mk('Playbooks', '📓', '#/playbooks', 'playbooks');
             case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
             case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
+            case 'autonomous': return mk('Autonomous', '⚡', '#/autonomous', 'autonomous');
             case 'marketplace': return mk('Marketplace', '🛍️', '#/marketplace', 'marketplace', { badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' });
             case 'teams': return mk('Teams', '🏢', '#/teams', 'teams');
             case 'sessions': return mk('CLI Sessions', '⌨', '#/sessions', 'sessions');
@@ -26019,8 +26017,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (bf.insights) out.push('insights');
             out.push('agents', 'diary');
             if (bf.managers) out.push('managers');
-            if (bf.tasks) out.push('tasks');
-            if (bf.flows) out.push('chains');
+            if (bf.autonomous || bf.tasks || bf.flows) out.push('autonomous');
             out.push('marketplace');
             if (bf.watercooler) out.push('watercooler');
             if (bf.teams) out.push('teams');
@@ -26031,7 +26028,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return out;
           }
           // workspace
-          return ['home', 'me-ai', 'playbooks', 'boards', 'insights', 'codeflow', 'diary', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
+          return ['home', 'me-ai', 'playbooks', 'boards', 'insights', 'codeflow', 'agents', 'autonomous', 'marketplace', 'diary', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
         },
         // Reconcile the saved layout against currently-available keys: keep the user's
         // order + groups, drop stale/dupe keys, append newly-available keys at the end.
@@ -26223,8 +26220,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
             const insights = { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false };
             const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
-            const tasks = { key: 'tasks', label: 'Tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [], collapsible: false };
-            const flows = { key: 'chains', label: 'Flows', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [], collapsible: false };
+            const autonomous = { key: 'autonomous', label: 'Autonomous', title: 'Autonomous', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false };
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' };
             const teams = { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
@@ -26238,8 +26234,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (bf['me-ai']) out.push(meai);
             if (bf.insights) out.push(insights);
             out.push(agents);
-            if (bf.tasks) out.push(tasks);
-            if (bf.flows) out.push(flows);
+            if (bf.autonomous || bf.tasks || bf.flows) out.push(autonomous);
             out.push(marketplace);
             if (bf.watercooler) out.push(watercooler);
             if (bf.teams) out.push(teams);
@@ -26253,15 +26248,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Agentic experience: the AI workforce and how it runs.
             return [
               home,
-              { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
-              { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/tasks', routeGroup: 'tasks', children: [
-                { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
-                { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] }
-              ]},
               watercooler,
-              { key: 'warehouse', label: 'Warehouse', collapsible: true, isGroup: true, href: '#/marketplace', routeGroup: 'marketplace', children: [
-                { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' }
-              ]},
               ...globalZone
             ];
           }
@@ -26274,6 +26261,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
+            { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
+            { key: 'autonomous', label: 'Autonomous', title: 'Autonomous', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false },
+            { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' },
             { key: 'newsletter', label: 'Newsletter', title: 'Newsletter', icon: '📰', href: '#/newsletter', routeGroup: 'newsletter', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' },
             watercooler,
             ...globalZone
@@ -26287,6 +26277,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         isRouteGroup(group) {
           if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent' || this.route === 'export' || this.route === 'agent-discovery' || this.route === 'standup';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
+          if (group === 'autonomous') return this.route === 'autonomous' || this.route === 'tasks' || this.route === 'task-detail' || this.route === 'chains' || this.route === 'chain-detail' || this.route === 'chain' || this.route === 'new-task' || this.route === 'assignments' || this.route === 'assignment-detail';
           if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail' || this.route === 'new-task';
           if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail' || this.route === 'chain';
           if (group === 'events') return this.route === 'events';
@@ -26442,10 +26433,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks'].includes(r)) return 'workspace';
-          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
-               'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
-               'assignment-detail', 'design'].includes(r)) return 'workforce';
+          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks',
+               'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
+               'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
+          if (['managers', 'manager-detail', 'executions'].includes(r)) return 'workforce';
           return null;
         },
         setAppMode(mode, opts = {}) {
@@ -26473,8 +26464,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
-            { key: 'tasks', label: 'Tasks', icon: '⚡', hint: 'Scheduled prompts & recurring operations.' },
-            { key: 'flows', label: 'Flows', icon: '🔗', hint: 'Multi-step agent chains.' },
+            { key: 'autonomous', label: 'Autonomous', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'teams', label: 'Teams', icon: '🏢', hint: 'Group employees into teams.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
@@ -26527,14 +26517,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes.
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events', 'diary'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'autonomous', 'settings', 'events', 'diary'].includes(r)) return true;
           const bf = this.basicFeatures || {};
           const gated = {
             'me-ai': ['me-ai'],
             insights: ['insights'],
             managers: ['managers', 'manager-detail'],
-            tasks: ['tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task'],
-            flows: ['chains', 'chain-detail', 'chain'],
+            autonomous: ['tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
             teams: ['teams'],
             sessions: ['sessions'],
