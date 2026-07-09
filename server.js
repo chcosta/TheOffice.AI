@@ -13844,24 +13844,58 @@ function _meAiActivityKey(title) {
 // the PRIOR snapshot: any non-meeting/non-lunch block whose window is active-now or
 // begins inside the buffer. These are fed to the pre-pass as fixed reservations so work
 // lays out around them, and re-asserted after the LLM refine (below) in case it moved one.
+// PHASE 3 — time-aware frozen zone. The imminent buffer used to be a flat window (default
+// 30 min): only work starting inside [now, now+30] was held, everything past it was free to
+// re-plan on every regenerate. That is exactly why the day fragmented as it wore on — late
+// afternoon, a fresh signal could still reshuffle the whole remaining schedule. Instead the
+// freeze horizon now WIDENS as the working day shrinks:
+//   • plenty of runway left  -> normal imminent buffer (reflow the rest freely, calm mornings)
+//   • runway shrinking        -> horizon grows toward the end of the day (fewer, bigger moves)
+//   • <= lateThreshold left   -> freeze the ENTIRE remaining committed schedule (protect the
+//                                rest of the day; new work defers to the backlog, never splits
+//                                a committed block). This is the owner's "be judicious late in
+//                                the day, don't create a stressful end-of-day scramble".
+// Returns minutes-from-now to protect. `frozen` (below) marks the full-freeze state.
+function _meAiFreezeHorizon(nowMin, cfg) {
+  const base = (cfg && Number(cfg.imminentWindow) > 0) ? Number(cfg.imminentWindow) : 30;
+  const workEnd = cfg && cfg.workEnd != null ? _hmToMin(cfg.workEnd) : null;
+  if (workEnd == null || nowMin == null) return { horizon: base, frozen: false, remaining: null };
+  const remaining = workEnd - nowMin;
+  const LATE = (cfg && Number(cfg.freezeAllRemaining) > 0) ? Number(cfg.freezeAllRemaining) : 120;
+  const SOFT = LATE * 2;                                   // begin widening from 2x the late threshold
+  if (remaining <= 0) return { horizon: base, frozen: false, remaining };   // after hours — nothing ahead
+  if (remaining <= LATE) return { horizon: remaining, frozen: true, remaining };  // last ~2h: freeze the rest
+  if (remaining >= SOFT) return { horizon: base, frozen: false, remaining };      // lots of runway: normal buffer
+  // In between: interpolate the horizon from `base` up toward the full remaining span as the
+  // day shrinks, so moves get progressively more conservative rather than snapping at a cliff.
+  const t = (SOFT - remaining) / (SOFT - LATE);           // 0 at SOFT .. 1 at LATE
+  return { horizon: Math.round(base + t * (remaining - base)), frozen: false, remaining };
+}
 function _meAiImminentPins(priorSnapshot, nowMin, cfg) {
   const pins = [];
   if (!priorSnapshot || !Array.isArray(priorSnapshot.blocks) || nowMin == null) return pins;
-  const BUFFER = (cfg && Number(cfg.imminentWindow) > 0) ? Number(cfg.imminentWindow) : 30;
+  const fz = _meAiFreezeHorizon(nowMin, cfg);
+  const BUFFER = fz.horizon;
   for (const pb of priorSnapshot.blocks) {
     const bs = _hmToMin(pb.start), be = _hmToMin(pb.end);
     if (bs == null || be == null) continue;
     if (be <= nowMin) continue;              // already finished — nothing to protect
-    if (bs > nowMin + BUFFER) continue;      // beyond the look-ahead buffer — free to re-plan
+    if (bs > nowMin + BUFFER) continue;      // beyond the freeze horizon — free to re-plan
     const ty = String(pb.type || '');
     if (ty === 'meeting') continue;                              // meetings re-fix from live signals
     if (/^lunch$/i.test(String(pb.title || '').trim())) continue; // lunch re-fixes from config
     if (ty === 'open' || ty === 'break') continue;               // flexible filler isn't worth pinning
+    // Distinguish "imminent" (actually near-now) from "protected because the day is winding
+    // down" (frozen late-day, or held by the widened horizon well ahead of now) so the UI can
+    // explain WHY a block is locked without misleadingly calling a 3pm block "imminent" at 1pm.
+    const trulyImminent = bs <= nowMin + 30;
+    const why = trulyImminent
+      ? 'In progress / imminent — held in place'
+      : (fz.frozen ? 'Protected — winding down the day' : 'Held steady — less runway left today');
     pins.push({
       start: bs, end: be, type: ty || 'focus', title: pb.title,
-      detail: pb.detail || '', link: pb.link || '',
-      why: 'In progress / imminent — held in place', urgency: pb.urgency || 0,
-      meta: Object.assign({}, pb.meta || {}, { pinned: true, imminent: true }),
+      detail: pb.detail || '', link: pb.link || '', why, urgency: pb.urgency || 0,
+      meta: Object.assign({}, pb.meta || {}, { pinned: true, imminent: trulyImminent, frozen: !trulyImminent }),
     });
   }
   return _meAiDedupePins(pins);
@@ -15592,9 +15626,12 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // place. Pins go in as fixed reservations so work lays out around them; we also drop the
   // matching live signal so a pinned item isn't scheduled twice.
   let imminentPins = [];
+  let freezeState = null;
   if (day === _meAiLocalDay() && priorSnapshot) {
     const _now = new Date();
-    imminentPins = _meAiImminentPins(priorSnapshot, _now.getHours() * 60 + _now.getMinutes(), cfg);
+    const _nm = _now.getHours() * 60 + _now.getMinutes();
+    freezeState = _meAiFreezeHorizon(_nm, cfg);
+    imminentPins = _meAiImminentPins(priorSnapshot, _nm, cfg);
     if (imminentPins.length) {
       const pinTitles = new Set(imminentPins.map(p => String(p.title || '').trim().toLowerCase()).filter(Boolean));
       for (let i = planSignals.length - 1; i >= 0; i--) {
@@ -15659,6 +15696,17 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     todos: effTodos,
     meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals), backboneFp: _meAiBackboneFingerprint(liveSignals, day) },
   };
+  // PHASE 3: expose the freeze state so the client can calmly show "protecting the rest of
+  // your day" and so change-tracking / reports can see when the day was intentionally frozen.
+  // deferredToday = backlog work that genuinely mattered (urgency >= 3) but didn't fit — surfaced
+  // as an explicit "won't get to today" count instead of being silently compressed into the day.
+  if (freezeState) {
+    let deferredToday = 0;
+    try {
+      deferredToday = (pre.backlog || []).filter(b => (b && Number(b.urgency) >= 3)).length;
+    } catch (_) { deferredToday = 0; }
+    agenda.meta.freeze = { horizon: freezeState.horizon, frozen: !!freezeState.frozen, remaining: freezeState.remaining, deferredToday };
+  }
   // REQ-7 change-tracking: diff this schedule against the prior snapshot (if any)
   // and log reschedules/slips/late-adds so the day's churn is visible and can be
   // summarised into the diary at day's end. A first generation has no prior → no diff.
