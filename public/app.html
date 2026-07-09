@@ -13568,13 +13568,24 @@
               .meai-rollover-row .meai-ro-from { color:var(--cp-text-muted); font-size:11px; }
               .meai-ro-act { border:0; background:transparent; color:var(--cp-accent); font-size:11.5px; cursor:pointer; padding:0; white-space:nowrap; }
               .meai-ro-act:hover { text-decoration:underline; }
-              /* Working hours & grid modal (moved out of the rail into a flyout) */
+              /* Me.AI settings modal (renamed from "Hours & grid"; tabbed sections) */
               .meai-hours-modal { position:fixed; inset:0; z-index:9700; display:flex; align-items:flex-start; justify-content:center;
                 background:rgba(0,0,0,.42); padding:6vh 16px; overflow-y:auto; }
               .meai-hours-panel { width:min(560px, 96vw); background:var(--cp-bg); border:1px solid var(--cp-border);
                 border-radius:calc(var(--cp-radius-scale, 1) * 14px); box-shadow:var(--cp-shadow); padding:18px 20px; }
               .meai-hours-panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
               .meai-hours-panel-head h3 { margin:0; font-size:15px; }
+              /* Tabbed sections inside the settings modal (underline tabs, no pills). */
+              .meai-set-tabs { display:flex; gap:16px; border-bottom:1px solid var(--cp-border); margin:0 0 14px; overflow-x:auto; }
+              .meai-set-tab { appearance:none; background:transparent; border:0; border-bottom:2px solid transparent; padding:5px 2px 8px;
+                margin-bottom:-1px; font-size:12.5px; color:var(--cp-text-muted); cursor:pointer; white-space:nowrap; }
+              .meai-set-tab:hover { color:var(--cp-text); }
+              .meai-set-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .meai-set-foot { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:14px;
+                padding-top:12px; border-top:1px solid var(--cp-border); }
+              .meai-set-foot .meai-set-link { font-size:12px; color:var(--cp-link); text-decoration:none; }
+              .meai-set-foot .meai-set-link:hover { text-decoration:underline; }
+              .meai-set-panel { min-height:220px; }
               .meai-act-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:13px; padding:7px 14px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; }
               .meai-act-btn:hover { border-color:var(--cp-accent); }
               .meai-act-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; }
@@ -13682,8 +13693,8 @@
                   </div>
                 </div>
                 <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
-                        title="Working hours, work week, grid & time-of-day preferences">
-                  ⚙ Hours &amp; grid
+                        title="Me.AI settings — working hours, work week, grid, focus times & triage">
+                  ⚙ Settings
                 </button>
               </div>
 
@@ -14203,7 +14214,7 @@
                   </template>
                   <div class="meai-empty" x-show="!meai.generating && meai.loaded && meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay">
                     <p style="font-size:15px;margin:0 0 6px">🌤️ Not a work day.</p>
-                    <p style="font-size:13px;margin:0">This weekday is outside your work week. Adjust it under <strong>Working hours &amp; grid → Work week</strong> if that's not right.</p>
+                    <p style="font-size:13px;margin:0">This weekday is outside your work week. Adjust it under <strong>Settings → Work week</strong> if that's not right.</p>
                   </div>
                   <div class="meai-empty" x-show="!meai.generating && meai.loaded && (!meai.agenda || !(meai.agenda.blocks||[]).length) && !(meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay)">
                     <p style="font-size:15px;margin:0 0 6px">No agenda yet for this day.</p>
@@ -15567,9 +15578,16 @@
             <div class="meai-hours-modal" x-show="meai.hoursOpen" x-transition.opacity.duration.150ms x-cloak @click.self="meai.hoursOpen=false">
               <div class="meai-hours-panel">
                 <div class="meai-hours-panel-head">
-                  <h3>⚙ Working hours &amp; grid</h3>
+                  <h3>⚙ Me.AI settings</h3>
                   <button class="icon-button" type="button" @click="meai.hoursOpen=false" title="Close">✕</button>
                 </div>
+                <nav class="meai-set-tabs">
+                  <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='hours' }" @click="meai.hoursTab='hours'">Hours &amp; grid</button>
+                  <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='week' }" @click="meai.hoursTab='week'">Work week</button>
+                  <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='focus' }" @click="meai.hoursTab='focus'">Focus times</button>
+                  <button type="button" class="meai-set-tab" :class="{ on: meai.hoursTab==='triage' }" @click="meai.hoursTab='triage'">Triage</button>
+                </nav>
+                <div class="meai-set-panel" x-show="meai.hoursTab==='hours'">
                 <div class="meai-hours">
                   <label>Start</label><input type="time" x-model="meai.config.workStart">
                   <label>End</label><input type="time" x-model="meai.config.workEnd">
@@ -15587,6 +15605,8 @@
                           x-text="meai.clock==='24' ? '24-hour (13:30)' : 'AM/PM (1:30 PM)'"></button>
                 </div>
                 <div style="font-size:11.5px;color:var(--cp-text-muted);margin-top:4px">Protect near-now keeps any block starting within that window from moving when the day re-plans.</div>
+                </div>
+                <div class="meai-set-panel" x-show="meai.hoursTab==='week'">
                   <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
                   <div class="meai-ww-days">
                     <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
@@ -15610,6 +15630,8 @@
                   </div>
                   <div style="font-size:11.5px;color:var(--cp-text-muted);margin-top:4px" x-show="!(meai.config.workDays || []).length">Enable at least one work day above to set a per-day schedule.</div>
                 </div>
+                </div>
+                <div class="meai-set-panel" x-show="meai.hoursTab==='focus'">
                 <div class="meai-timeprefs">
                   <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
                   <div class="meai-tp-rows">
@@ -15623,6 +15645,9 @@
                     </template>
                   </div>
                 </div>
+                </div>
+                <div class="meai-set-panel" x-show="meai.hoursTab==='triage'">
+                <div class="meai-at-hint" x-show="!meai.config.consent" style="padding:8px 0">Turn on personal signals to configure auto-triage and always-ignore rules.</div>
                 <!-- Phase 2: confidence-scored auto-triage. Opt-in, hands-off handling of
                      high-confidence attention items. NO pills; --cp-* tokens; standard controls. -->
                 <div class="meai-autotri" x-show="meai.config.consent">
@@ -15699,9 +15724,13 @@
                     </div>
                   </template>
                 </div>
-                <button class="btn primary" type="button" style="margin-top:12px" @click="meAiSaveHoursGrid()" :disabled="meai.savingSettings || meai.generating">Save preferences</button>
-                <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
-                  Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
+                </div>
+                <div class="meai-set-foot">
+                  <button class="btn primary" type="button" @click="meAiSaveHoursGrid()" :disabled="meai.savingSettings || meai.generating">Save preferences</button>
+                  <a class="meai-set-link" href="#/settings" @click="meai.hoursOpen=false">All settings →</a>
+                  <span style="margin-left:auto;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
+                    Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
+                  </span>
                 </div>
               </div>
             </div>
@@ -24185,6 +24214,7 @@
           peekPinned: (() => { try { return JSON.parse(localStorage.getItem('meai-peek-pinned') || '{}') || {}; } catch (_) { return {}; } })(),
           // Working hours & grid flyout.
           hoursOpen: false,
+          hoursTab: 'hours',
           // Item 4: floating checklist panel (triage-alert-type items needing manual close-out).
           goalsTab: 'open',          // goals panel tab: open | partial | missed | done
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
