@@ -367,6 +367,71 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6c. COMPOSITE URGENCY — deterministic due/impact/scope/effort scorer. The four
+//     facets refine, never override, the collector's flat urgency (base). Feeds
+//     surfacing + sorting only; the agenda is never touched by this value.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  // The scorer references module-level regex consts; pull the REAL block as a prelude
+  // so the test exercises the shipped keyword lists, not a copy.
+  const prelude = sliceSource(SERVER, 'const _MEAI_URG_DUE_NOW', '_MEAI_URG_HIGHEFFORT = ');
+  const { _meAiUrgencyScore } = extractFns(SERVER, ['_meAiUrgencyScore'], { prelude });
+
+  await t.test('base is preserved as the criticality anchor', () => {
+    for (const u of [0, 1, 2, 3, 4, 5]) {
+      t.eq(_meAiUrgencyScore({ title: 'x', urgency: u }).base, u, `base echoes urgency ${u}`);
+    }
+    // Out-of-range clamps.
+    t.eq(_meAiUrgencyScore({ title: 'x', urgency: 9 }).base, 5, 'clamps high');
+    t.eq(_meAiUrgencyScore({ title: 'x', urgency: -2 }).base, 0, 'clamps low');
+  });
+
+  await t.test('neutral cue-free item does not regress far from its anchor', () => {
+    // No keyword cues → composite stays within ±1 of the collector score.
+    for (const u of [1, 2, 3, 4, 5]) {
+      const s = _meAiUrgencyScore({ title: 'some plain note', urgency: u }).score;
+      t.ok(Math.abs(s - u) <= 1, `score ${s} within 1 of anchor ${u}`);
+    }
+  });
+
+  await t.test('a due-today blocking ask floats UP over its flat urgency', () => {
+    const flat = _meAiUrgencyScore({ title: 'Look at this', urgency: 3 }).score;
+    const hot = _meAiUrgencyScore({ title: 'Need your approval by EOD, you are blocking release', urgency: 3, directMention: true }).score;
+    // Criticality dominates the blend (0.55), so a base-3 item rises but is not yanked to
+    // the top — the facets move it by ~±1.5. The contract is: hot ranks strictly above flat.
+    t.ok(hot > flat, `hot ${hot} > flat ${flat}`);
+  });
+
+  await t.test('a no-deadline FYI floats DOWN under its flat urgency', () => {
+    const flat = _meAiUrgencyScore({ title: 'plain', urgency: 3 }).score;
+    const cold = _meAiUrgencyScore({ title: 'FYI no action needed, whenever you get a chance', urgency: 3 }).score;
+    t.ok(cold <= flat, `cold ${cold} <= flat ${flat}`);
+  });
+
+  await t.test('why phrase reflects the dominant facets', () => {
+    const hot = _meAiUrgencyScore({ title: 'Approve by end of day, you are blocking', urgency: 4, directMention: true });
+    t.ok(/due today/.test(hot.why), 'due today surfaced');
+    t.ok(/block/.test(hot.why), 'blocking surfaced');
+  });
+
+  await t.test('facets are bounded 0..1 and score bounded 0..5', () => {
+    const r = _meAiUrgencyScore({ title: 'urgent prod incident p0 outage blocking everyone by eod', urgency: 5, directMention: true, prLink: 'x' });
+    t.ok(r.score >= 0 && r.score <= 5, 'score in range');
+    for (const k of ['criticality', 'dueDate', 'impact', 'scope', 'effort']) {
+      t.ok(r.facets[k] >= 0 && r.facets[k] <= 1, `${k} in 0..1`);
+    }
+  });
+
+  await t.test('malformed input never throws', () => {
+    // A cue-free / field-less item computes cleanly (base derives from a missing urgency → 0);
+    // the important contract is simply that it returns a well-formed numeric result, never throws.
+    t.ok(typeof _meAiUrgencyScore(null).score === 'number', 'null scores without throwing');
+    t.ok(typeof _meAiUrgencyScore(undefined).score === 'number', 'undefined scores without throwing');
+    t.ok(typeof _meAiUrgencyScore({}).score === 'number', 'empty object scores');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 7. INTEGRATION — live /api/me-ai/* probes. SKIP the rest when server is down.
 // ─────────────────────────────────────────────────────────────────────────────
 if (!(await serverUp())) {
