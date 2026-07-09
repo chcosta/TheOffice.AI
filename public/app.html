@@ -12507,6 +12507,17 @@
               .meai-chk-big:hover { background:var(--cp-accent-soft, rgba(31,111,177,0.12)); }
               .meai-chk-big .meai-chk-title { font-size:13.5px; font-weight:600; }
               .meai-chk-autobig { color:var(--cp-text-muted); font-style:italic; }
+              /* Durable "big thing you completed" record shown in the Done tab. Subtle success
+                 tint, small trophy — a calm audit row, not a celebration banner. */
+              .meai-chk-wingrp .meai-chk-glabel { color:color-mix(in oklab, var(--cp-success,#16a34a) 66%, var(--cp-text)); }
+              .meai-chk-win { align-items:center; gap:9px; background:color-mix(in oklab, var(--cp-success,#16a34a) 7%, var(--cp-surface));
+                border:1px solid color-mix(in oklab, var(--cp-success,#16a34a) 22%, transparent);
+                border-radius:calc(var(--cp-radius-scale, 1) * 9px); padding:8px 10px; }
+              .meai-chk-wintrophy { font-size:15px; line-height:1; flex:0 0 auto; }
+              .meai-chk-win .meai-chk-title { font-weight:600; }
+              .meai-chk-winwhen { color:color-mix(in oklab, var(--cp-success,#16a34a) 60%, var(--cp-text-muted)); font-size:11.5px; }
+              .meai-chk-win .meai-chk-rm { opacity:0; }
+              .meai-chk-win:hover .meai-chk-rm { opacity:.6; }
               /* Accomplishment banner: your one big thing is done — persists on the Open tab. */
               .meai-chk-accomplished { margin-bottom:12px; }
               .meai-acc-inner { display:flex; align-items:center; gap:11px; padding:11px 12px;
@@ -13491,8 +13502,27 @@
                           </div>
                         </template>
                       </div>
+                      <!-- Big things you completed today: a durable record of every goal finished
+                           WHILE it was the day's big thing — kept even after you switch to a new
+                           big thing or the underlying goal drops off (Done tab only). -->
+                      <div class="meai-chk-group meai-chk-wingrp" x-show="meai.goalsTab === 'done' && meAiOrphanBigWins().length">
+                        <div class="meai-chk-glabel">🏆 Big things you completed <span class="meai-chk-gn" x-text="meAiOrphanBigWins().length"></span></div>
+                        <template x-for="w in meAiOrphanBigWins()" :key="'win-'+w.key">
+                          <div class="meai-chk-row meai-chk-win done">
+                            <span class="meai-chk-wintrophy" aria-hidden="true">🏆</span>
+                            <div class="meai-chk-main">
+                              <div class="meai-chk-title"><span x-text="w.title"></span></div>
+                              <div class="meai-chk-meta">
+                                <span class="meai-chk-winwhen" x-text="meAiWinWhen(w)"></span>
+                                <a class="meai-chk-open" x-show="w.link" :href="w.link" target="_blank" rel="noopener">Open ↗</a>
+                              </div>
+                            </div>
+                            <button class="meai-chk-rm" type="button" @click="meAiRemoveBigWin(w)" title="Remove this record" aria-label="Remove">✕</button>
+                          </div>
+                        </template>
+                      </div>
                       <!-- Empty state when the active non-open tab has nothing -->
-                      <div class="meai-chk-empty" x-show="meai.goalsTab !== 'open' && !meAiRegularGoalsTab().length && !meAiBigGoalInTab()">
+                      <div class="meai-chk-empty" x-show="meai.goalsTab !== 'open' && !meAiRegularGoalsTab().length && !meAiBigGoalInTab() && !(meai.goalsTab === 'done' && meAiOrphanBigWins().length)">
                         <span x-text="meai.goalsTab === 'done' ? 'Nothing marked done yet.' : (meai.goalsTab === 'partial' ? 'Nothing needs more time.' : &quot;Nothing you've marked as missed.&quot;)"></span>
                       </div>
                       <!-- Today's todos (folded in from the inline card) -->
@@ -23411,6 +23441,7 @@
           // sidebar (for constrained/mobile widths). Persists; narrow screens force it on via CSS.
           jumpCollapsed: (() => { try { return localStorage.getItem('meai-jump-collapsed') === '1'; } catch (_) { return false; } })(),
           bigGoalNonce: 0,  // bumped on big-goal pin/clear to force a reactive recompute
+          bigWinNonce: 0,  // bumped when the day's big-thing "wins" log changes (durable Done record)
           goalsRegenerating: false,  // true while the on-demand "realign goals to agenda" call is in flight
           autoUpdates: (() => { try { const v = localStorage.getItem('meai-auto-updates'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
@@ -32211,6 +32242,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!t) return;
           if (typeof t === 'string') { this.meai.todos[i] = { title: t, scope: 'work', done: true, classifying: false }; }
           else { t.done = !t.done; if (t.kind === 'checklist') t.status = t.done ? 'done' : 'open'; }
+          this._meAiUpdateBigWin(this.meai.todos[i]);
           this.meAiPersistTodos();
         },
         // Item 4 (today's goals): set a richer status on a checklist goal — 'done',
@@ -32223,6 +32255,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!t || typeof t === 'string') return;
           t.status = (t.status === status) ? 'open' : status;
           t.done = (t.status === 'done');
+          this._meAiUpdateBigWin(t);
           this.meAiPersistTodos();
         },
         meAiTodoStatus(t) { return (t && typeof t !== 'string' && t.status) ? t.status : ((t && t.done) ? 'done' : 'open'); },
@@ -32330,7 +32363,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (tab === 'open') return s === 'open';
           return s === tab; // 'partial' | 'missed' | 'done'
         },
-        meAiGoalTabCount(tab) { return this.meAiChecklistItems().filter(t => this._meAiGoalInTab(t, tab)).length; },
+        meAiGoalTabCount(tab) {
+          const base = this.meAiChecklistItems().filter(t => this._meAiGoalInTab(t, tab)).length;
+          return (tab === 'done') ? base + this.meAiOrphanBigWins().length : base;
+        },
         meAiGoalTabs() {
           return [
             { key: 'open', label: 'Open' },
@@ -32357,6 +32393,55 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
         },
         meAiClearBigGoal() { try { localStorage.removeItem(this._meAiBigPinKey()); } catch (_) {} this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1; },
+        // --- The day's "big thing" WINS log ------------------------------------------------
+        // Owner ask: completing your one big thing should leave a DURABLE tracking entry in the
+        // Done section — one that survives switching to a different big thing, a re-seed, or a
+        // "Realign to agenda". The big thing itself is only a pointer to a goal, so if that goal
+        // later gets dropped/replaced the win would vanish with no trace. We keep a small,
+        // per-day append log (client-side, keyed by date to match the big-thing pin storage):
+        // a goal completed WHILE it was the big thing is recorded here and rendered in Done even
+        // once it's no longer the live big thing.
+        _meAiBigWinsKey() { return 'meai-big-wins-' + (this.meai.date || ''); },
+        _meAiBigWins() {
+          try { const a = JSON.parse(localStorage.getItem(this._meAiBigWinsKey()) || '[]'); return Array.isArray(a) ? a.filter(w => w && w.key) : []; }
+          catch (_) { return []; }
+        },
+        _meAiSaveBigWins(arr) { try { localStorage.setItem(this._meAiBigWinsKey(), JSON.stringify(arr || [])); } catch (_) {} },
+        // Reconcile the wins log after a goal's completion state changes. Record when a goal is
+        // completed *as* the current big thing; drop the record if that same goal is reopened
+        // (undone / moved to need-more-time / didn't-get-to), so the log only ever holds real wins.
+        _meAiUpdateBigWin(t) {
+          if (!t || typeof t === 'string') return;
+          const key = this._meAiGoalKey(t); if (!key) return;
+          const wins = this._meAiBigWins();
+          const idx = wins.findIndex(w => w.key === key);
+          const done = (this.meAiTodoStatus(t) === 'done');
+          if (done && this.meAiIsBigGoal(t)) {
+            if (idx < 0) { wins.push({ key, title: t.title || '', link: t.link || '', at: new Date().toISOString() }); this._meAiSaveBigWins(wins); this.meai.bigWinNonce = (this.meai.bigWinNonce || 0) + 1; }
+          } else if (!done && idx >= 0) {
+            wins.splice(idx, 1); this._meAiSaveBigWins(wins); this.meai.bigWinNonce = (this.meai.bigWinNonce || 0) + 1;
+          }
+        },
+        // Wins whose goal is no longer a live checklist item — these need rescuing into Done,
+        // since a surviving done goal already renders there on its own (avoids duplication).
+        meAiOrphanBigWins() {
+          void this.meai.bigWinNonce; void this.meai.bigGoalNonce;
+          const wins = this._meAiBigWins(); if (!wins.length) return [];
+          const live = new Set(this.meAiChecklistItems().map(t => this._meAiGoalKey(t)));
+          return wins.filter(w => !live.has(w.key)).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+        },
+        meAiRemoveBigWin(w) {
+          if (!w || !w.key) return;
+          const wins = this._meAiBigWins().filter(x => x.key !== w.key);
+          this._meAiSaveBigWins(wins);
+          this.meai.bigWinNonce = (this.meai.bigWinNonce || 0) + 1;
+        },
+        meAiWinWhen(w) {
+          try {
+            const d = new Date(w && w.at); if (isNaN(d)) return 'completed';
+            return 'completed ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          } catch (_) { return 'completed'; }
+        },
         // Owner ask: if you disagree with the auto-picked "one big thing", type your own.
         // Adds it as a real checklist goal (so it persists + tracks done/need-more-time/missed
         // like any goal) and immediately pins it as the day's big thing.
