@@ -12105,6 +12105,10 @@
               .meai-pu-report-back:hover { border-color:var(--cp-accent); color:var(--cp-text); }
               .meai-pu-report-ti { font-weight:700; color:var(--cp-text); font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-pu-report-body { flex:1; overflow:auto; padding:22px 28px; min-height:0; }
+              /* The report/artifact body reuses .md-output for markdown styling, but must NOT
+                 inherit that class's 300px max-height cap or modal chrome (bg/border/radius) —
+                 it fills the center panel and scrolls only when content actually overflows. */
+              .meai-pu-report-body.md-output { max-height:none; background:transparent; border:0; border-radius:0; }
               /* Outcome next-action buttons */
               .meai-pu-outcome-next { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
               .meai-pu-outcome-nexth { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
@@ -12197,6 +12201,10 @@
               /* Gate / cull edges + legend (increment 3) */
               .meai-pedges .pe-gate { stroke:#d29922; stroke-width:2; stroke-dasharray:4 4; opacity:.85; }
               .meai-pedges .pe-cull { stroke:#cf222e; stroke-width:2; stroke-dasharray:4 4; opacity:.7; }
+              /* Arrowheads share each edge type's color but must render as clean, solid
+                 chevrons — override any inherited dash and keep joins round. Placed after
+                 all .pe-* rules so equal-specificity source order wins on dash/width. */
+              .meai-pedges .pe-arrow { fill:none; stroke-width:2; stroke-dasharray:none; stroke-linecap:round; stroke-linejoin:round; }
               .meai-pnode.pgate { border-color:#d29922; border-style:dashed; }
               .meai-pnode-dot.gate { background:#d29922; }
               .meai-pu-legrow.lg-gate .meai-pu-legdot { background:#d29922; }
@@ -14477,17 +14485,21 @@
                       </div>
                       <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
                         <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
-                          <defs>
-                            <marker id="meaiArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                              <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
-                            </marker>
-                          </defs>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.converge) || ''" class="pe pe-converge" fill="none"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cull) || ''" class="pe pe-cull" fill="none" marker-end="url(#meaiArrow)"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gate) || ''" class="pe pe-gate" fill="none" marker-end="url(#meaiArrow)"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none" marker-end="url(#meaiArrow)"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none" marker-end="url(#meaiArrow)"></path>
-                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none" marker-end="url(#meaiArrow)"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cull) || ''" class="pe pe-cull" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gate) || ''" class="pe pe-gate" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none"></path>
+                          <!-- Arrowheads: a separate SOLID layer per type. Each edge type is one path
+                               concatenating many subpaths, so SVG marker-end would only draw ONE arrow
+                               (at the last subpath). We bake a V-arrow subpath per edge into these
+                               solid, un-dashed layers so every connector gets its own arrowhead. -->
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cullA) || ''" class="pe pe-arrow pe-cull" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gateA) || ''" class="pe pe-arrow pe-gate" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branchA) || ''" class="pe pe-arrow pe-branch" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.mergeA) || ''" class="pe pe-arrow pe-merge" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spineA) || ''" class="pe pe-arrow pe-spine" fill="none"></path>
                         </svg>
                         <template x-for="n in meai.pursuit._nodes" :key="n.id">
                           <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
@@ -34585,12 +34597,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // elements in the SVG (not x-for) so they live in the SVG namespace and
           // actually render — Alpine x-for inside <svg> creates HTML-namespaced
           // nodes that never paint.
-          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' };
+          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', spineA: '', branchA: '', mergeA: '', gateA: '', cullA: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
             const type = (leg.kind === 'reroute') ? 'merge' : (leg.kind === 'spine' ? 'spine' : 'branch');
-            dByType[type] += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+            const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y;
+            dByType[type] += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
+            dByType[type + 'A'] += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1);
           });
           // Item 4: a concluded side leg (done result or culled dead-end) shouldn't
           // just trail off into empty space — draw a faint convergence edge back into
@@ -34638,7 +34652,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const b = pos[br.id]; if (!b) return;
               if (br.invalidated || br.status === 'invalidated') {
                 const a = ranScout && pos[ranScout.id];
-                if (a) dByType.cull += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+                if (a) { const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y; dByType.cull += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2); dByType.cullA += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1); }
                 return;
               }
               const started = br.status === 'running' || br.status === 'done';
@@ -34647,7 +34661,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 if (bn) { bn.gated = true; if (!/\bpgate\b/.test(bn.cls)) bn.cls += ' pgate'; }
                 openScouts.forEach((s) => {
                   const a = pos[s.id];
-                  if (a) dByType.gate += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+                  if (a) { const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y; dByType.gate += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2); dByType.gateA += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1); }
                 });
               }
             });
@@ -34658,6 +34672,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiEdgePath(x1, y1, x2, y2) {
           const my = (y1 + y2) / 2;
           return 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + my + ' ' + x2 + ' ' + my + ' ' + x2 + ' ' + y2;
+        },
+        // A small chevron arrowhead at (x,y). The edge bezier meets a node top vertically,
+        // so the tangent is purely vertical; `dir` (+1 down / -1 up) points the barbs away
+        // from the travel direction. Returned as its own subpath (leading M) so it can be
+        // concatenated into the solid arrow layer without stroking a connector line.
+        _meAiArrow(x, y, dir) {
+          const w = 4.5, h = 6, by = y - dir * h;
+          return 'M ' + (x - w) + ' ' + by + ' L ' + x + ' ' + y + ' L ' + (x + w) + ' ' + by;
         },
         meAiPursuitNodeStyle(n) {
           return 'left:' + n.x + 'px;top:' + n.y + 'px;width:' + n.w + 'px';

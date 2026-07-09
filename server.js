@@ -22071,6 +22071,17 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
     }
     // needs-auth approve: perform the gated action via the outbox, exactly once.
     _meAiSetStage(t, 'working', 'running');
+    // Clear the approval gate UP FRONT. The gated action below runs a fresh WorkIQ
+    // turn and then a full reroute/replan — that can take a while, and holding the
+    // "Approve"/"waiting on you" state until it all finished made the console look
+    // stuck (users re-clicked repeatedly). Resolve the stop + rebuild the asks now so
+    // the gate drops the instant you approve and the task shows "working". The outbox
+    // is keyed by stop-<id>, so it still fires EXACTLY ONCE regardless of stop status;
+    // if the action fails we re-open the stop in the catch so Approve comes back.
+    _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
+    if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'running' });
+    _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+    _meAiTreeMirror(t, 'Approved — carrying it out\u2026');
     const action = stop.action || {};
     const intent = _meAiNewSideEffectIntent({ key: 'stop-' + stopId, legId: stop.legId, kind: action.risk || 'external', op: action.op || 'action', target: action.target, summary: action.summary });
     _meAiOutboxWrite(id, intent);
@@ -22088,7 +22099,6 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
         const out = await _meAiRunTurn(t, prompt, { workiq: true });
         return String(out || 'done').slice(0, 200);
       });
-      _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
       _meAiTreeEmit(id, 'merge', { merge: _meAiNewMergeCandidate({ legId: stop.legId, baseEpoch: tree.epoch || 0, confidence: 'high', proposedActions: [action] }) });
       t.report = { summary: (t.report && t.report.summary || '') + ' ✔ ' + (action.summary || action.op), findings: (t.report && t.report.findings) || [] };
@@ -22117,6 +22127,13 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
         t._steerNote = null;
       }
     } catch (e) {
+      // The action failed AFTER we optimistically cleared the gate. Re-open the stop
+      // (upsert it back to 'open') so the Approve button returns and the user can retry,
+      // then rebuild the asks. The outbox intent for this stop-<id> is left in place; on
+      // retry _meAiOutboxRun will re-attempt it exactly once.
+      try { _meAiTreeEmit(id, 'stop', { stop: Object.assign({}, stop, { status: 'open', resolution: null, note: null, resolvedAt: null }) }); } catch (_) {}
+      if (stop.legId) { try { _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'waiting' }); } catch (_) {} }
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
       _meAiTreeMirror(t, 'That action failed: ' + String(e.message || e) + ' — you can retry.');
       _meAiSetStage(t, 'awaiting', 'awaiting');
     }
