@@ -14141,6 +14141,56 @@ function _meAiEnforcePins(blocks, pins) {
   }
   return out;
 }
+// PHASE 5: a "Prep for X" block is worthless once it lands AT or AFTER the item X it prepares
+// for (owner bug: "how do i end up with 'Prep for self epic review' AFTER 'self epic review'").
+// This deterministic guard matches each prep block to its target block by activity key and, if
+// the prep isn't fully before the target, slides the prep to sit immediately before the target
+// when there's free room — else drops the now-useless prep rather than leave a nonsensical
+// prep-after. Only flexible prep is touched; a pinned/past (held) prep is left alone.
+function _meAiOrderPrepBeforeTarget(blocks) {
+  if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
+  const isPrep = (b) => b && (String(b.type || '') === 'prep' || /^\s*prep\b/i.test(String(b.title || '')));
+  const targetKey = (title) => {
+    const t = String(title || '').replace(/^\s*prep\s*(for|:|-|–|—)?\s*/i, '').trim();
+    return _meAiActivityKey(t);
+  };
+  const out = blocks.slice();
+  const drop = new Set();
+  for (const p of out) {
+    if (drop.has(p) || !isPrep(p)) continue;
+    if (p.meta && (p.meta.pinned || p.meta.past)) continue; // don't move a frozen/held prep
+    const pk = targetKey(p.title);
+    if (!pk) continue;
+    const ps = _hmToMin(p.start), pe = _hmToMin(p.end);
+    if (ps == null || pe == null) continue;
+    let target = null;
+    for (const t of out) {
+      if (t === p || isPrep(t) || drop.has(t)) continue;
+      const tk = _meAiActivityKey(t.title);
+      if (!tk) continue;
+      if (tk === pk || tk.includes(pk) || pk.includes(tk)) { target = t; break; }
+    }
+    if (!target) continue;
+    const ts = _hmToMin(target.start);
+    if (ts == null || pe <= ts) continue; // already fully before its target — fine
+    const dur = pe - ps, newStart = ts - dur;
+    const collides = out.some(o => {
+      if (o === p || drop.has(o)) return false;
+      const os = _hmToMin(o.start), oe = _hmToMin(o.end);
+      if (os == null || oe == null) return false;
+      return os < ts && oe > newStart;
+    });
+    if (newStart >= 0 && !collides) {
+      p.start = _minToHm(newStart); p.end = _minToHm(ts);
+      p.meta = Object.assign({}, p.meta || {}, { prepReordered: true });
+    } else {
+      drop.add(p); // no room before the target (imminent/packed) — a prep-after is useless
+    }
+  }
+  const res = out.filter(b => !drop.has(b));
+  res.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
+  return res;
+}
 function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
   try {
     const personal = (preBlocks || []).filter(b => b && b.meta && b.meta.personalTodo && String(b.title || '').trim());
@@ -14628,7 +14678,7 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
       const cons = _meAiNormConstraints(loadMeAiOverrides(date));
       if (cons.length) consNote = ` HARD TIMING CONSTRAINTS I stated — honor these where physically possible: ${cons.map(_meAiConstraintText).join('; ')}. Schedule the named work on the correct side of each deadline.`;
     } catch (_) { /* best-effort */ }
-    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}${consNote}\nRefine it: (1) keep all fixed meetings, lunch, and any personal/break/blocked commitments I reserved (e.g. workout, golf, protected focus) at their EXACT times and NEVER schedule other work over them; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
+    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}${consNote}\nRefine it: (1) keep all fixed meetings, lunch, and any personal/break/blocked commitments I reserved (e.g. workout, golf, protected focus) at their EXACT times and NEVER schedule other work over them; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it — a prep block MUST end at or before the item it prepares for begins, NEVER after it; (4) give each block a concise one-line "why"; (5) ANTI-FRAGMENTATION — protect big contiguous blocks of deep/focus/review work; do NOT chop a focus block in half to slip a comms/admin/email item into the middle of it. Batch interruptive comms/admin work into a small number of dedicated windows (ideally one mid-morning and one late-afternoon) instead of sprinkling short comms blocks between focus work. A calmer day with fewer, longer blocks beats a fragmented day with many short ones — when in doubt, consolidate rather than split. Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
@@ -15813,6 +15863,9 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // meeting (or drop stale prep), and slide movable work off any meeting it overlaps. Pinned/
   // manual work that truly clashes is left for the conflict detector to surface.
   finalBlocks = _meAiYieldOffMeetings(finalBlocks, cfg);
+  // PHASE 5: never leave a "Prep for X" block scheduled after the X it prepares for — move it
+  // just before its target where there's room, else drop the useless prep-after.
+  finalBlocks = _meAiOrderPrepBeforeTarget(finalBlocks);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
