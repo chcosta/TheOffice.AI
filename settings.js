@@ -208,6 +208,10 @@ const DEFAULTS = {
   meAiAutoTriageSafe: 80,
   meAiAutoTriageAgenda: 90,
   meAiActionTiers: {},
+  // Instance-count dedup: min containment (0-100) for a NEW arrival to be folded
+  // into an already-triaged related item (bumping its instance count) instead of
+  // surfacing as its own inbox row. Higher = stricter (fewer merges).
+  meAiGroupingMin: 72,
   // --- System agents: per-agent behavior overrides -------------------------
   // The app ships several built-in AI "system agents" (Connect assistant,
   // Newsletter writer/editor, Me.AI agent + external-act, Agenda assistant,

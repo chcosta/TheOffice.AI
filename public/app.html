@@ -12397,6 +12397,7 @@
               .meai-inbox-title.clickable:hover { color:var(--cp-accent); text-decoration:underline; }
               .meai-inbox-mention { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-accent); }
               .meai-inbox-ts { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+              .meai-inbox-inst { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; opacity:.85; }
               .meai-inbox-state { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
               .meai-inbox-detail { font-size:12.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.45; }
               /* Issue 5: keep the row calm — reveal triage actions only on hover/focus of the
@@ -13924,6 +13925,7 @@
                                 <span class="meai-inbox-new" x-show="row.it.triage==='new'" title="Just arrived — you haven't looked at this yet">New</span>
                                 <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name">@you</span>
                                 <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
+                                <span class="meai-inbox-inst" x-show="(row.it.instances||1) > 1" :title="(row.it.instances||1) + ' related arrivals folded into this item'" x-text="'\u00d7' + (row.it.instances||1)"></span>
                                 <span class="meai-group-flex"></span>
                                 <span class="meai-conf-band sm" x-show="typeof row.it.confidence==='number'" :class="meAiConfClass(row.it)" x-text="meAiConfBand(row.it) + ' \u00b7 ' + (row.it.confidence||0) + '%'"></span>
                                 <button type="button" class="meai-group-it-toggle" @click="meAiToggleGroupItem(row.it.id)" :aria-expanded="!!meai.inboxItemOpen[row.it.id]"
@@ -13982,6 +13984,7 @@
                               <span class="meai-inbox-title clickable" :title="(row.it.link||row.it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(row.it)" x-text="row.it.title"></span>
                               <span class="meai-inbox-new" x-show="row.it.triage==='new'" title="Just arrived — you haven't looked at this yet">New</span>
                               <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
+                              <span class="meai-inbox-inst" x-show="(row.it.instances||1) > 1" :title="(row.it.instances||1) + ' related arrivals folded into this item'" x-text="'\u00d7' + (row.it.instances||1)"></span>
                               <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>
                             </div>
                             <div class="meai-inbox-detail" x-show="row.it.detail" x-text="row.it.detail"></div>

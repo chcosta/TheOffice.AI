@@ -11918,6 +11918,10 @@ function _meAiConfig(s) {
     thresholds: { safe: _clampPct(s.meAiAutoTriageSafe, 80), agenda: _clampPct(s.meAiAutoTriageAgenda, 90) },
     actionTiers,
   };
+  // Instance-count dedup threshold: how much of a NEW arrival an already-triaged
+  // related item must explain (containment %) before we fold it in as an instance
+  // rather than surfacing it as its own row.
+  const grouping = { min: _clampPct(s.meAiGroupingMin, 72) };
   return {
     consent: !!s.meAiConsent,
     workStart: s.meAiWorkStart || '08:00',
@@ -11931,6 +11935,7 @@ function _meAiConfig(s) {
     mode,
     timePrefs,
     autoTriage,
+    grouping,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
     hasGithub: (() => {
@@ -13159,6 +13164,43 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
     return { signals, store, changed };
   } catch { return { signals: [], store, changed: false }; }
 }
+// Triage states that represent a real, resolved DECISION (as opposed to 'new'
+// unhandled / 'seen' merely looked-at). An already-decided related item can absorb
+// a near-duplicate new arrival as an extra "instance" instead of re-nagging.
+const ME_AI_RESOLVED_TRIAGE = new Set(['later', 'today', 'now', 'dismissed', 'wontfix', 'done']);
+// Instance-count dedup: does this NEW arrival clearly belong to an item the user has
+// ALREADY triaged today? Returns the existing item to fold into, or null. Broader than
+// topic memory (which only covers globally-suppressed topics) — this catches ANY resolved
+// item this day so repeated PR-review pings / alert bursts land on one row. Gated by the
+// configurable grouping-confidence minimum (containment %). An identical automated-alert
+// signature is an instant match; otherwise we require enough distinctive-token containment.
+function _meAiRelatedTriaged(it, items, minPct) {
+  if (!it || !Array.isArray(items) || !items.length) return null;
+  const min = Math.max(0, Math.min(1, (Number(minPct) || 72) / 100));
+  const itToks = new Set(_meAiTitleTokens(it.title));
+  const itSig = _meAiTriageSignature(it);
+  let best = null, bestRel = 0;
+  for (const ex of items) {
+    if (!ex || ex === it) continue;
+    if (!ME_AI_RESOLVED_TRIAGE.has(ex.triage) && !ex.auto) continue; // only already-decided rows absorb
+    // Exact automated-alert signature (same kind/source + normalized subject) → instant fold.
+    if (itSig && _meAiTriageSignature(ex) === itSig) { return { item: ex, rel: 1, why: 'signature' }; }
+    if (itToks.size < 2) continue;
+    const exToks = new Set(_meAiTitleTokens(ex.title));
+    let inter = 0; for (const t of itToks) if (exToks.has(t)) inter++;
+    if (inter < 2) continue; // never a single-word coincidence
+    // Cross-channel needs more distinctive overlap so a sparse subject can't drift onto an
+    // unrelated resolved item from a different medium.
+    const sameChannel = String(ex.kind || '') === String(it.kind || '') && String(ex.source || '') === String(it.source || '');
+    if (inter < (sameChannel ? 2 : 3)) continue;
+    // Containment (how much of THIS item the existing row explains), not Jaccard — so extra
+    // noise words on the new arrival don't sink a real same-subject variant.
+    const rel = inter / itToks.size;
+    if (rel < min) continue;
+    if (rel > bestRel) { bestRel = rel; best = ex; }
+  }
+  return best ? { item: best, rel: bestRel, why: 'tokens' } : null;
+}
 // Merge freshly gathered comms signals into the day's attention inbox. Existing
 // items keep their triage state + first-seen; genuinely new asks arrive as 'new'.
 // Meetings are excluded (calendar anchors, not asks); pure-FYI items (urgency < 3
@@ -13171,6 +13213,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const now = new Date().toISOString();
   let added = 0;
   let autoHandled = 0;
+  let instanceMerges = 0;
   const classStore = loadClassRules();          // Phase 4: Layer-0 class rules
   const classRules = (classStore && classStore.rules) || [];
   let classHits = 0;
@@ -13220,6 +13263,22 @@ async function _meAiMergeInbox(date, signals, cfg) {
         if (tm && _meAiApplyTopic(it, tm.topic, date, now)) {
           tm.topic.hits = (tm.topic.hits || 0) + 1; tm.topic.lastAt = now; topicHits++; autoHandled++;
         } else {
+          // Instance-count dedup: if the user already TRIAGED a clearly-related item today
+          // (above the grouping-confidence min), fold this arrival into it as another instance
+          // instead of surfacing a fresh row — this is what stops "Missy PR review" pings and
+          // alert bursts from continually resurfacing in the inbox after you've handled them.
+          const rel = _meAiRelatedTriaged(it, inbox.items, (cfg.grouping && cfg.grouping.min) || 72);
+          if (rel && rel.item) {
+            const ex = rel.item;
+            ex.instances = (Number(ex.instances) || 1) + 1;
+            ex.lastInstanceAt = now;
+            (ex.instanceLinks = ex.instanceLinks || []);
+            const lk = it.link || it.prLink || '';
+            if (lk && !ex.instanceLinks.includes(lk) && ex.instanceLinks.length < 20) ex.instanceLinks.push(lk);
+            byId.set(id, ex); // near-duplicates by this id now resolve onto the absorbing row
+            instanceMerges++;
+            continue; // do NOT push a separate row
+          }
           // Phase 2: confidence-score the new ask; auto-apply the confident, in-tier decision
           // instead of asking (settings-gated). Falls back to leaving it 'new' to triage.
           try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { budget })) autoHandled++; } catch (_) { /* best-effort */ }
@@ -13234,7 +13293,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits, topicHits };
+  return { inbox, added, autoHandled, classHits, topicHits, instanceMerges };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -16759,6 +16818,7 @@ app.put('/api/me-ai/settings', (req, res) => {
     const clampPct = v => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null; };
     if (b.autoTriageSafe !== undefined) { const n = clampPct(b.autoTriageSafe); if (n != null) patch.meAiAutoTriageSafe = n; }
     if (b.autoTriageAgenda !== undefined) { const n = clampPct(b.autoTriageAgenda); if (n != null) patch.meAiAutoTriageAgenda = n; }
+    if (b.groupingMin !== undefined) { const n = clampPct(b.groupingMin); if (n != null) patch.meAiGroupingMin = n; }
     if (b.actionTiers && typeof b.actionTiers === 'object' && !Array.isArray(b.actionTiers)) {
       const allowAct = ['later', 'dismiss', 'wontfix', 'today']; // 'now' is locked → never persisted
       const allowTier = ['safe', 'agenda', 'off'];
