@@ -35496,9 +35496,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           flushMd();
           if (rawTag && rawBuf.length) out.push(rawBuf.join('\n'));
           let html = out.join('\n');
+          // Executive/email layouts wrap the body in a <table>; those cells are
+          // emitted raw (rawTags) so their markdown never renders. Render markdown
+          // inside td/th cells that still contain raw markdown, keeping the table
+          // structure intact and leaving already-structured (HTML) cells alone.
+          html = this._newsletterRenderTableCells(html);
           // Point local asset references at the server route so images render.
           html = html.replace(/(<img\b[^>]*\bsrc=["'])assets\/([^"']+)(["'])/gi, (m, pre, file, post) => `${pre}/api/newsletter/asset/${encodeURIComponent(file)}${post}`);
           return html;
+        },
+        // Render markdown left raw inside table cells (Executive/email layouts).
+        _newsletterRenderTableCells(html) {
+          if (!html || html.indexOf('<table') === -1 || typeof document === 'undefined') return html;
+          // Only worth the DOM round-trip if a cell actually carries markdown.
+          if (!/[*#_>[]|---|\n\s*\d+\.|\n\s*[-*]\s/.test(html)) return html;
+          try {
+            const host = document.createElement('div');
+            host.innerHTML = html;
+            const cells = host.querySelectorAll('td, th');
+            const mdRe = /(\*\*|__|~~|\[[^\]]+\]\([^)]+\)|`[^`]+`|^\s{0,3}#{1,6}\s|^\s{0,3}[-*+]\s|^\s{0,3}\d+\.\s|^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$)/m;
+            cells.forEach((cell) => {
+              // Skip cells that already hold block-level HTML — they're structured.
+              if (cell.querySelector('p,div,ul,ol,li,h1,h2,h3,h4,h5,h6,table,figure,section,blockquote,img')) return;
+              const inner = cell.innerHTML;
+              if (!mdRe.test(inner)) return;
+              // Preserve author line breaks, decode entities, then render markdown.
+              const decode = document.createElement('div');
+              decode.innerHTML = inner.replace(/<br\s*\/?>/gi, '\n');
+              const text = decode.textContent || '';
+              if (!mdRe.test(text)) return;
+              cell.innerHTML = this.renderMarkdown(text);
+            });
+            return host.innerHTML;
+          } catch (e) {
+            return html;
+          }
         },
         async loadDataLocation() {
           try {
