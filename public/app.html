@@ -12491,7 +12491,7 @@
               /* Left floating jump-nav: quiet text links (no pills) that scroll to anchors.
                  Sits just right of the app sidebar (follows --sidebar-width). Hidden only on
                  narrow viewports that can't spare the room. */
-              .meai-jump { position:fixed; left:calc(var(--sidebar-width, 240px) + 12px); top:50%; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; gap:2px; padding:8px 6px; background:color-mix(in srgb, var(--cp-surface) 88%, transparent); backdrop-filter:blur(6px); border:1px solid var(--cp-border); border-radius:10px; max-height:80vh; overflow:auto; }
+              .meai-jump { position:fixed; --meai-cw: calc(100vw - var(--sidebar-width, 240px)); --meai-ww: min(1100px, calc(var(--meai-cw) - 64px)); --meai-agenda-left: calc(var(--sidebar-width, 240px) + (var(--meai-cw) - var(--meai-ww)) / 2); left: max(calc(var(--sidebar-width, 240px) + 8px), calc(var(--meai-agenda-left) - 202px)); top:50%; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; gap:2px; padding:8px 6px; background:color-mix(in srgb, var(--cp-surface) 88%, transparent); backdrop-filter:blur(6px); border:1px solid var(--cp-border); border-radius:10px; max-height:80vh; overflow:auto; }
               .meai-jump-t { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); padding:2px 8px 4px; }
               .meai-jump-btn { display:block; width:100%; text-align:left; background:transparent; border:0; border-radius:7px; color:var(--cp-text-muted); font:inherit; font-size:12px; padding:4px 8px; cursor:pointer; white-space:nowrap; max-width:190px; overflow:hidden; text-overflow:ellipsis; }
               .meai-jump-btn:hover { color:var(--cp-text); background:var(--cp-surface-2, rgba(127,127,127,.06)); }
@@ -12514,25 +12514,20 @@
                   box-shadow:0 18px 48px rgba(0,0,0,.28); transform:translateX(calc(-100% - 28px));
                   transition:transform .2s cubic-bezier(.22,1,.36,1); }
                 .meai-lrail.is-open { transform:none; }
-                .meai-chk-fab { left:16px; }
+                .meai-chk-fab { right:16px; }
               }
               @media (prefers-reduced-motion: reduce) { .meai-lrail { transition:none; } }
-              /* Wide screens: the quick-nav is fixed at the left and (when open) the goals
-                 panel floats at the right. Center the agenda column WITHIN that track so it
-                 sits balanced between the two instead of hugging the nav with a big empty gap
-                 on the goals side. --nav-clear reserves the fixed nav; --goals-clear reserves
-                 the right gutter (widened when the goals panel floats open). The wrap is capped
-                 to the track width and the leftover slack is split evenly on both sides. */
+              /* Wide screens: the agenda column is centered on the page (within the content
+                 area, right of the app sidebar). The quick-nav floats in the left gutter,
+                 anchored to the agenda's left edge; the goals panel floats bottom-right and
+                 no longer displaces the agenda. */
               @media (min-width: 1181px) {
                 .meai-wrap {
-                  --nav-clear: 218px; --goals-clear: 32px;
-                  --meai-track: calc(100vw - var(--nav-clear) - var(--goals-clear));
-                  --meai-wrapw: min(1100px, calc(var(--meai-track) - 32px));
+                  --meai-cw: calc(100vw - var(--sidebar-width, 240px));
+                  --meai-wrapw: min(1100px, calc(var(--meai-cw) - 64px));
                   max-width: var(--meai-wrapw);
-                  margin-left: calc(var(--nav-clear) + max(0px, (var(--meai-track) - var(--meai-wrapw)) / 2));
-                  margin-right: auto;
+                  margin-inline: auto;
                 }
-                .meai-wrap.goals-float { --goals-clear: 496px; }
               }
               /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
                  column 2 = the daily-work side column (Me agents + todos) with the secondary
@@ -13398,8 +13393,9 @@
               .meai-asst-mode.on { border-color:var(--cp-accent); color:var(--cp-text); background:var(--cp-accent-soft); }
               /* Floating agenda-assistant launcher (matches board/connect FABs) */
               .meai-ai-fab { z-index:56; }
-              /* Item 4: floating close-out checklist (stacked above the assistant FAB). */
-              .meai-chk-fab { position:fixed; left:calc(var(--sidebar-width, 240px) + 12px); bottom:20px; z-index:56; display:inline-flex; align-items:center; gap:8px;
+              /* Item 4: floating close-out checklist. Collapsed, it sits at the bottom-RIGHT
+                 stacked just above the assistant/chat FAB (matches where it expands from). */
+              .meai-chk-fab { position:fixed; right:24px; bottom:88px; z-index:56; display:inline-flex; align-items:center; gap:8px;
                 border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:13px; font-weight:600;
                 padding:9px 13px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.14);
                 transition:transform .16s cubic-bezier(.22,1,.36,1), border-color .16s; }
