@@ -26,12 +26,15 @@ const settings = require('./settings');
 const CHAINS_PATH = require('./data-paths').dataPath('chains.json');
 
 class ChainEngine extends EventEmitter {
-  constructor({ db, supervisor, loadTasks, broadcast, onPersist, onRunFinished }) {
+  constructor({ db, supervisor, loadTasks, broadcast, onPersist, onRunFinished, featureGate }) {
     super();
     this.db = db;
     this.supervisor = supervisor;
     this.loadTasks = loadTasks;
     this.onRunFinished = onRunFinished || null;
+    // Optional gate: returns false when the owning feature (autonomous) is disabled,
+    // so scheduled/auto chain fires are suppressed while a manual run is still allowed.
+    this.featureGate = typeof featureGate === 'function' ? featureGate : null;
     const rawBroadcast = broadcast || (() => {});
     // Broadcast to SSE clients AND re-emit locally so in-process consumers
     // (e.g. the mobile handler) can subscribe to live chain run events.
@@ -186,6 +189,9 @@ class ChainEngine extends EventEmitter {
     const chain = this.get(chainId);
     if (!chain) throw new Error('Chain not found');
     if (chain.enabled === false && !opts.manual) return null;
+    // Feature gate: a scheduled/auto fire is suppressed when the autonomous feature is
+    // disabled. A manual run (explicit user click) is always honored.
+    if (!opts.manual && this.featureGate && !this.featureGate()) return null;
     if (!chain.steps.length) throw new Error('Chain has no steps');
 
     const runId = `${chainId}-${Date.now().toString(36)}`;

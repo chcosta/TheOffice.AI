@@ -16,7 +16,7 @@
       // Deliberately EXCLUDES ephemeral caches / per-view transient state.
       const DURABLE = [
         'cp-theme', 'current-appearance', 'current-org-theme', 'current-iconset', 'cp-corners',
-        'experience-level', 'app-mode', 'basic-features',
+        'experience-level', 'app-mode', 'basic-features', 'advanced-features', 'enabled-features',
         'nav-collapsed', 'sidebar-collapsed', 'cp-nav-transition', 'cp-nav-transition-ms',
         'chat-sidebar-w', 'nav-sidebar-w', 'board-tab-rail-width', 'board-tab-rail-style',
         'getting-started-dismissed', 'gs-preview', 'current-org-id',
@@ -22766,14 +22766,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { insights: false, managers: false, tasks: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false };
+          const defaults = { 'me-ai': false, diary: true, insights: false, managers: false, tasks: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, insights: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true };
+          const defaults = { 'me-ai': true, diary: true, insights: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -23786,6 +23786,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Persist the active Code Flow sub-tab so a refresh returns to where you were.
           try { this.$watch('codeflow.cfTab', v => { try { localStorage.setItem('cf-tab', v === 'dev' ? 'dev' : 'prs'); } catch(e){} }); } catch(e){}
           await this.refreshAll();
+          // Publish the effective (post-dependency) enabled-features map so the server
+          // gates its schedules on the same state the client shows. Safe: writes a durable
+          // localStorage key that the mirror flushes as a full snapshot.
+          try { this._publishEnabledFeatures(); } catch {}
           this.loadModels();
           this.connectEvents();
           this.loadExternalAccessFlag();
@@ -25545,39 +25549,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Ordered list of available leaf keys for a scope (basic honors feature toggles).
         _navDefaultKeys(scope) {
+          const en = (k) => this.featureEnabled(k);
           if (scope === 'basic') {
-            const bf = this.basicFeatures || {};
             const out = ['home', 'boards', 'codeflow'];
-            if (bf['me-ai']) out.push('me-ai');
-            if (bf.insights) out.push('insights');
-            out.push('agents', 'diary');
-            if (bf.managers) out.push('managers');
-            if (bf.autonomous || bf.tasks || bf.flows) out.push('autonomous');
+            if (en('me-ai')) out.push('me-ai');
+            if (en('insights')) out.push('insights');
+            out.push('agents');
+            if (en('diary')) out.push('diary');
+            if (en('autonomous')) out.push('autonomous');
             out.push('marketplace');
-            if (bf.watercooler) out.push('watercooler');
-            if (bf.sessions) out.push('sessions');
-            if (bf.news) { out.push('activity', 'reports'); }
-            if (bf.connect) out.push('connect');
-            if (bf.connect && bf.newsletter) out.push('newsletter');
+            if (en('watercooler')) out.push('watercooler');
+            if (en('sessions')) out.push('sessions');
+            if (en('news')) { out.push('activity', 'reports'); }
+            if (en('connect')) out.push('connect');
+            if (en('newsletter')) out.push('newsletter');
             return out;
           }
           // workspace (Advanced) — every feature is on by default; the user opts OUT
-          // via advancedFeatures. Always-on core stays unconditional.
-          const af = this.advancedFeatures || {};
-          const on = (k) => af[k] !== false;
+          // via advancedFeatures. featureEnabled() also cascades disabled dependencies
+          // (e.g. diary off -> connect/newsletter/me-ai drop out). Core stays unconditional.
           const out = ['home'];
-          if (on('me-ai')) out.push('me-ai');
-          if (on('playbooks')) out.push('playbooks');
+          if (en('me-ai')) out.push('me-ai');
+          if (en('playbooks')) out.push('playbooks');
           out.push('boards');
-          if (on('insights')) out.push('insights');
+          if (en('insights')) out.push('insights');
           out.push('codeflow', 'agents');
-          if (on('autonomous')) out.push('autonomous');
-          out.push('marketplace', 'diary');
-          if (on('connect')) out.push('connect');
-          if (on('connect') && on('newsletter')) out.push('newsletter');
-          if (on('watercooler')) out.push('watercooler');
-          if (on('sessions')) out.push('sessions');
-          if (on('news')) { out.push('activity', 'reports'); }
+          if (en('autonomous')) out.push('autonomous');
+          out.push('marketplace');
+          if (en('diary')) out.push('diary');
+          if (en('connect')) out.push('connect');
+          if (en('newsletter')) out.push('newsletter');
+          if (en('watercooler')) out.push('watercooler');
+          if (en('sessions')) out.push('sessions');
+          if (en('news')) { out.push('activity', 'reports'); }
           return out;
         },
         // Reconcile the saved layout against currently-available keys: keep the user's
@@ -26011,13 +26015,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Order here drives the order they appear in the Settings checklist.
         basicFeatureCatalog() {
           return [
-            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.' },
+            { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
+            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
             { key: 'autonomous', label: 'Autonomous', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
-            { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.' },
+            { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
           ];
         },
@@ -26026,14 +26031,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Advanced-only. Order drives the Settings checklist order.
         advancedFeatureCatalog() {
           return [
-            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.' },
+            { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
+            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
             { key: 'autonomous', label: 'Autonomous', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📓', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
-            { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.' },
+            { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
           ];
         },
@@ -26058,59 +26064,61 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Advanced curates by opting OUT — if the current page was opted out, land Home.
             if (!this.advancedRouteVisible(this.route)) this.goTo('#/home');
           }
+          // The effective enabled map is per-experience-level (different own-flag stores),
+          // so republish it for the server whenever the level changes.
+          this._publishEnabledFeatures();
         },
         toggleBasicFeature(key) {
           const cur = !!(this.basicFeatures || {})[key];
-          // Newsletter requires Connect (it reads the Connect diary). Don't let the
-          // user turn Newsletter on without Connect, and turn it off if Connect goes off.
-          if (key === 'newsletter' && !cur && !(this.basicFeatures || {}).connect) {
-            this.toast('Enable Connect first — Newsletter is built from your Connect diary.', 'info');
-            return;
+          if (!cur) {
+            // Enabling: every requirement must already be enabled (it reads that source).
+            const missing = (this.featureRequires(key) || []).find((r) => !this.featureEnabled(r));
+            if (missing) {
+              this.toast('Enable ' + this._featureLabel(missing) + ' first — ' + this._featureLabel(key) + ' depends on it.', 'info');
+              return;
+            }
           }
           this.basicFeatures = Object.assign({}, this.basicFeatures, { [key]: !cur });
-          if (key === 'connect' && cur && this.basicFeatures.newsletter) {
-            // Turning Connect off cascades: Newsletter can't work without it.
-            this.basicFeatures = Object.assign({}, this.basicFeatures, { newsletter: false });
-          }
           try { localStorage.setItem('basic-features', JSON.stringify(this.basicFeatures)); } catch {}
+          this._publishEnabledFeatures();
           // Hiding the team selector while scoped to a team would strand the filter on.
           if (key === 'teams' && cur && this.experienceLevel === 'basic' && this.currentTeamId !== 'all') {
             this.setCurrentOrg('all');
           }
-          // If we just hid the page we're standing on, fall back to Home.
+          // If we just hid the page we're standing on (directly or via a dependency
+          // cascade), fall back to Home.
           if (cur && this.experienceLevel === 'basic' && !this.basicRouteVisible(this.route)) this.goTo('#/home');
         },
         // Advanced opt-out toggle (inverse of toggleBasicFeature). Persists to its own
-        // store; same Connect→Newsletter cascade; routes Home if it hides the open page.
+        // store; dependency guard via featureRequires; routes Home if it hides the open page.
         toggleAdvancedFeature(key) {
           const af = this.advancedFeatures || {};
           const cur = af[key] !== false; // currently on
-          // Newsletter needs Connect; don't allow turning it on while Connect is off.
-          if (key === 'newsletter' && !cur && af.connect === false) {
-            this.toast('Enable Connect first — Newsletter is built from your Connect diary.', 'info');
-            return;
+          if (!cur) {
+            // Re-enabling: every requirement must already be enabled.
+            const missing = (this.featureRequires(key) || []).find((r) => !this.featureEnabled(r));
+            if (missing) {
+              this.toast('Enable ' + this._featureLabel(missing) + ' first — ' + this._featureLabel(key) + ' depends on it.', 'info');
+              return;
+            }
           }
           this.advancedFeatures = Object.assign({}, af, { [key]: !cur });
-          if (key === 'connect' && cur && this.advancedFeatures.newsletter !== false) {
-            // Turning Connect off cascades: Newsletter can't work without it.
-            this.advancedFeatures = Object.assign({}, this.advancedFeatures, { newsletter: false });
-          }
           try { localStorage.setItem('advanced-features', JSON.stringify(this.advancedFeatures)); } catch {}
-          // If we just hid the page we're standing on, fall back to Home.
+          this._publishEnabledFeatures();
+          // If we just hid the page we're standing on (directly or via cascade), land Home.
           if (cur && this.experienceLevel === 'advanced' && !this.advancedRouteVisible(this.route)) this.goTo('#/home');
         },
         // Whether a route is reachable from the Basic flat sidebar (so we don't strand
         // the user on a hidden page after switching to Basic).
         basicRouteVisible(route) {
           const r = route || this.route;
-          // Always-available shared routes.
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'autonomous', 'settings', 'events', 'diary'].includes(r)) return true;
-          const bf = this.basicFeatures || {};
+          // Always-available shared routes (core, non-gateable).
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events'].includes(r)) return true;
           const gated = {
+            diary: ['diary'],
             'me-ai': ['me-ai'],
             insights: ['insights'],
-            managers: ['managers', 'manager-detail'],
-            autonomous: ['tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
+            autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
             sessions: ['sessions'],
             news: ['activity', 'reports'],
@@ -26118,20 +26126,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             newsletter: ['newsletter'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
-            if (routes.includes(r)) return !!bf[feat];
+            if (routes.includes(r)) return this.featureEnabled(feat);
           }
           return false;
         },
         // Whether a route is reachable in Advanced given the user's opt-outs (so we
         // don't strand them on a page they just switched off). Everything is on by
-        // default; only an explicitly-off feature hides its routes.
+        // default; an explicitly-off feature OR a disabled dependency hides its routes.
         advancedRouteVisible(route) {
           const r = route || this.route;
           // Always-available core (never opt-out-able).
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design', 'settings', 'events', 'diary'].includes(r)) return true;
-          const af = this.advancedFeatures || {};
-          const on = (k) => af[k] !== false;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design', 'settings', 'events'].includes(r)) return true;
           const gated = {
+            diary: ['diary'],
             'me-ai': ['me-ai'],
             playbooks: ['playbooks'],
             insights: ['insights'],
@@ -26143,7 +26150,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             newsletter: ['newsletter'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
-            if (routes.includes(r)) return on(feat);
+            if (routes.includes(r)) return this.featureEnabled(feat);
           }
           return true; // unknown routes stay visible in Advanced
         },
@@ -26152,10 +26159,66 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // everything is available; in Basic mode a feature only shows when the user
         // has opted into it via basicFeatures. Used to gate in-page cards (e.g. the
         // Insights card on the Basic Home page) — NOT just whole routes.
+        // Now delegates to featureEnabled() so a disabled DEPENDENCY (e.g. diary)
+        // cascades and hides everything that requires it.
         featureVisible(feat) {
-          if (this.experienceLevel === 'basic') return !!(this.basicFeatures && this.basicFeatures[feat]);
-          // Advanced: on by default; hidden only when the user has opted out.
-          return (this.advancedFeatures || {})[feat] !== false;
+          return this.featureEnabled(feat);
+        },
+
+        // Direct dependency graph: a feature is only truly usable when every feature
+        // it (transitively) requires is also enabled. Editing the catalogs' `requires`
+        // fields is the source of truth; this mirrors them for the runtime gate.
+        featureRequires(key) {
+          const R = { 'me-ai': ['diary'], connect: ['diary'], newsletter: ['connect'] };
+          return R[key] || [];
+        },
+        // Human label for a feature key (from whichever catalog defines it), for toasts.
+        _featureLabel(key) {
+          const all = [].concat(this.basicFeatureCatalog() || [], this.advancedFeatureCatalog() || []);
+          const hit = all.find(f => f.key === key);
+          return (hit && hit.label) || key;
+        },
+        // The raw per-feature opt flag for the CURRENT experience level, before
+        // dependency cascade. Legacy aliases tasks/flows -> autonomous. Unknown/core
+        // keys are treated as always-on.
+        _featureOwnFlag(key) {
+          key = (key === 'tasks' || key === 'flows') ? 'autonomous' : key;
+          if (this.experienceLevel === 'basic') {
+            const bf = this.basicFeatures || {};
+            if (!(key in bf)) return true; // core / not a Basic-toggleable feature
+            return !!bf[key];
+          }
+          const af = this.advancedFeatures || {};
+          if (!(key in af)) return true; // core / newly-shipped -> visible
+          return af[key] !== false;
+        },
+        // Effective enabled: own flag AND every transitive requirement enabled.
+        featureEnabled(key, _seen) {
+          key = (key === 'tasks' || key === 'flows') ? 'autonomous' : key;
+          if (!this._featureOwnFlag(key)) return false;
+          _seen = _seen || new Set();
+          if (_seen.has(key)) return true; // cycle guard
+          _seen.add(key);
+          const reqs = this.featureRequires(key);
+          for (const r of reqs) { if (!this.featureEnabled(r, _seen)) return false; }
+          return true;
+        },
+        // Compute the EFFECTIVE (post-dependency) enabled map for every gateable key
+        // and publish it as a durable pref the SERVER reads to gate its schedules.
+        // Client owns the dependency math; the server just consults the flat map.
+        _publishEnabledFeatures() {
+          try {
+            const keys = new Set();
+            (this.basicFeatureCatalog() || []).forEach(f => keys.add(f.key));
+            (this.advancedFeatureCatalog() || []).forEach(f => keys.add(f.key));
+            const map = {};
+            keys.forEach(k => { map[k] = this.featureEnabled(k); });
+            localStorage.setItem('enabled-features', JSON.stringify(map));
+            // Writing a DURABLE key schedules a full-snapshot PUT to /api/ui-prefs
+            // (see the durable-mirror boot shim). Force an immediate flush so the
+            // server gates on the new state without the 400ms debounce.
+            try { if (window.__flushDurablePrefs) window.__flushDurablePrefs(); } catch {}
+          } catch {}
         },
 
         // Teams feature removed — the team selector never renders.

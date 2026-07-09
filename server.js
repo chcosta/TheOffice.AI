@@ -1153,6 +1153,25 @@ const configSync = new ConfigSync({
 // machine's own scheduled agents — so we never suppress local schedules.
 const leaderCheck = () => true;
 supervisor.setLeaderCheck(leaderCheck);
+// Feature-enable gate (mirrors the SPA's effective, dependency-resolved map).
+// The client publishes a flat { key: bool } map into the durable UI pref
+// 'enabled-features' whenever toggles / experience level change; the server reads
+// it verbatim so schedules never fire for a feature the user has disabled. Before
+// the SPA has ever published (fresh install / older client), the map is absent and
+// every feature defaults to ENABLED — matching prior behavior.
+function featuresEnabledMap() {
+  try {
+    const raw = uiPrefs.get()['enabled-features'];
+    if (!raw) return null;
+    const m = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
+  } catch { return null; }
+}
+function featureEnabled(key) {
+  const m = featuresEnabledMap();
+  if (!m) return true; // no published map yet → default enabled
+  return m[key] !== false;
+}
 // Give the mobile handler access to leader/liveness status for get-status
 mobileHandler.configSync = configSync;
 // Let the mobile handler install agents from other machines (browse + install).
@@ -6796,6 +6815,7 @@ const taskJobs = new Map(); // taskId -> { stop() }
 // `triggerContext` carries upstream output for {{ task.* }} interpolation;
 // `promptOverride` lets a caller supply its own prompt instead of the default.
 function executeTask(task, triggerContext = null, { scheduled = false, promptOverride = null } = {}) {
+  if (scheduled && !featureEnabled('autonomous')) return false; // Autonomous disabled → no scheduled/retry runs
   const entry = supervisor.agents.get(task.agentId);
   if (!entry) {
     console.warn(`[task-scheduler] Agent "${task.agentId}" not found for task "${task.name}"`);
@@ -6818,6 +6838,7 @@ function executeTask(task, triggerContext = null, { scheduled = false, promptOve
 
 function runScheduledTask(task) {
   if (!leaderCheck()) return;
+  if (!featureEnabled('autonomous')) return; // Autonomous feature disabled → no scheduled runs
   if (executeTask(task, null, { scheduled: true })) {
     console.log(`[task-scheduler] Ran scheduled task "${task.name}" → ${task.agentId}`);
   }
@@ -6961,6 +6982,7 @@ const chainEngine = new ChainEngine({
   supervisor,
   loadTasks,
   broadcast: broadcastSSE,
+  featureGate: () => featureEnabled('autonomous'),
   onPersist: () => { if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (chains) failed:', e.message)); },
   onRunFinished: ({ chainId, status, run }) => {
     if (!resilience) return;
@@ -10258,7 +10280,7 @@ function scheduleConnectCollection() {
   let parsed;
   try { parsed = parseTaskSchedule(sched); }
   catch (e) { console.warn(`[connect] bad connectSchedule "${sched}": ${e.message}`); return; }
-  const fire = () => { runConnectCollection().catch(e => console.warn('[connect] collection job error:', e.message)); };
+  const fire = () => { if (!featureEnabled('connect')) return; runConnectCollection().catch(e => console.warn('[connect] collection job error:', e.message)); };
   if (parsed.type === 'cron') {
     connectCollectJob = new TaskCron(parsed.cron, fire);
   } else if (parsed.type === 'interval') {
@@ -10275,6 +10297,7 @@ function scheduleConnectCollection() {
 // actually collected; if a run was missed, we fire one catch-up collection.
 function connectCatchUpCheck() {
   try {
+    if (!featureEnabled('connect')) return;
     const s = settings.getSettings();
     if (!s.connectCollectionEnabled || !s.connectConsent) return;
     const sched = (s.connectSchedule || '').trim();
@@ -10361,7 +10384,7 @@ function scheduleNewsletterGeneration() {
   let parsed;
   try { parsed = parseTaskSchedule(sched); }
   catch (e) { console.warn(`[newsletter] bad newsletterSchedule "${sched}": ${e.message}`); return; }
-  const fire = () => { runScheduledNewsletter().catch(e => console.warn('[newsletter] job error:', e.message)); };
+  const fire = () => { if (!featureEnabled('newsletter')) return; runScheduledNewsletter().catch(e => console.warn('[newsletter] job error:', e.message)); };
   if (parsed.type === 'cron') {
     newsletterGenJob = new TaskCron(parsed.cron, fire);
   } else if (parsed.type === 'interval') {
@@ -10373,6 +10396,7 @@ function scheduleNewsletterGeneration() {
 
 function newsletterCatchUpCheck() {
   try {
+    if (!featureEnabled('newsletter')) return;
     const s = settings.getSettings();
     if (!s.newsletterAutoGenerate) return;
     const sched = (s.newsletterSchedule || '').trim();
@@ -19029,6 +19053,7 @@ _meAiHydrateTrees();
 setInterval(() => {
   try {
     if (!leaderCheck()) return;
+    if (!featureEnabled('me-ai')) return;
     if ((Date.now() - _meAiLastActive) > ME_AI_ACTIVE_WINDOW_MS) return;
     _meAiPreindex(_meAiLocalDay());
   } catch (_) { /* best-effort */ }
@@ -19052,6 +19077,7 @@ setInterval(async () => {
   if (_meAiAutoRegenBusy) return;
   try {
     if (!leaderCheck()) return;
+    if (!featureEnabled('me-ai')) return;
     if ((Date.now() - _meAiLastActive) > ME_AI_ACTIVE_WINDOW_MS) return;
     const s = settings.getSettings();
     if (!s.meAiConsent) return;
@@ -19088,6 +19114,7 @@ const ME_AI_DAYSHAPE_INTERVAL_MS = 15 * 60 * 1000;
 setInterval(() => {
   try {
     if (!leaderCheck()) return;
+    if (!featureEnabled('me-ai')) return;
     const s = settings.getSettings();
     if (!s.meAiConsent) return;
     const cfg = _meAiConfig(s);
@@ -19115,6 +19142,7 @@ setInterval(async () => {
   if (_meAiInboxPollBusy) return;
   try {
     if (!leaderCheck()) return;
+    if (!featureEnabled('me-ai')) return;
     const s = settings.getSettings();
     if (!s.meAiConsent) return;
     const cfg = _meAiConfig(s);
@@ -19220,13 +19248,14 @@ async function _meAiGenerateFutureDays(opts = {}) {
 setInterval(() => {
   try {
     if (!leaderCheck()) return;
+    if (!featureEnabled('me-ai')) return;
     const s = settings.getSettings();
     if (!s.meAiConsent) return;
     _meAiGenerateFutureDays().catch(() => {});
   } catch (_) { /* best-effort */ }
 }, ME_AI_FUTURE_INTERVAL_MS);
 // Warm the forward horizon shortly after boot settles (leader + consent gated inside).
-setTimeout(() => { try { _meAiGenerateFutureDays().catch(() => {}); } catch (_) {} }, 120 * 1000);
+setTimeout(() => { try { if (!featureEnabled('me-ai')) return; _meAiGenerateFutureDays().catch(() => {}); } catch (_) {} }, 120 * 1000);
 
 // POST /api/me-ai/plan-ahead — force the background forward-planning pass on demand
 // (used by the look-ahead UI's "plan my next few days" control).
