@@ -5902,7 +5902,7 @@
           <div>TheOffice.AI</div>
         </button>
       </div>
-      <div class="mode-switch" role="tablist" aria-label="App mode" x-show="experienceLevel === 'advanced'" x-cloak>
+      <div class="mode-switch" role="tablist" aria-label="App mode" x-show="false" x-cloak>
         <button type="button" class="mode-seg" :class="{ active: appMode === 'workspace' }" role="tab" :aria-selected="appMode === 'workspace'"
                 @click="setAppMode('workspace')" title="Productivity — boards, insights & planning">
           <span>📋</span><span class="mode-seg-label">Productivity</span>
@@ -19235,17 +19235,17 @@
             <div x-show="settingsCat === 'experience'">
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">🧭 Experience level</h3>
-              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Workspaces, Code Flow, Agents and Marketplace — with the features you need and nothing else. <strong>Advanced</strong> unlocks the full Productivity / Management workspace with every page.</p>
+              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Workspaces, Code Flow, Agents and Marketplace — that starts small and lets you switch on more. <strong>Advanced</strong> starts with every feature on and lets you switch off the ones you don't use. Each level keeps its own set.</p>
               <div class="filter-pills">
                 <button class="pill" type="button" :class="{ active: experienceLevel === 'basic' }" @click="setExperienceLevel('basic')">🌱 Basic</button>
                 <button class="pill" type="button" :class="{ active: experienceLevel === 'advanced' }" @click="setExperienceLevel('advanced')">🚀 Advanced</button>
               </div>
             </div>
 
-            <div class="card" style="margin-bottom:20px" :style="experienceLevel === 'advanced' ? 'opacity:.5;pointer-events:none' : ''">
+            <!-- Basic: opt-IN checklist (starts small, add features) -->
+            <div class="card" style="margin-bottom:20px" x-show="experienceLevel === 'basic'">
               <h3 style="margin-bottom:12px">➕ Add features</h3>
-              <p class="hint" style="margin-bottom:14px" x-show="experienceLevel === 'basic'">Switch on extra capabilities while keeping the simplified Basic layout. Each one adds its page to the sidebar.</p>
-              <p class="hint" style="margin-bottom:14px" x-show="experienceLevel === 'advanced'">Every feature is already available in Advanced mode. Switch back to Basic to curate a simpler view.</p>
+              <p class="hint" style="margin-bottom:14px">Switch on extra capabilities while keeping the simplified Basic layout. Each one adds its page to the sidebar.</p>
               <div style="display:flex;flex-direction:column;gap:2px">
                 <template x-for="f in basicFeatureCatalog()" :key="f.key">
                   <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--cp-border)" :style="(f.requires && !basicFeatures[f.requires]) ? 'opacity:.55' : ''">
@@ -19256,6 +19256,27 @@
                     </div>
                     <label class="toggle-switch" :title="(f.requires && !basicFeatures[f.requires]) ? ('Requires ' + f.requires) : ((basicFeatures[f.key] ? 'Hide ' : 'Show ') + f.label)">
                       <input type="checkbox" :checked="!!basicFeatures[f.key]" :disabled="!!(f.requires && !basicFeatures[f.requires])" @change="toggleBasicFeature(f.key)" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Advanced: opt-OUT checklist (starts with everything, remove what you don't use) -->
+            <div class="card" style="margin-bottom:20px" x-show="experienceLevel === 'advanced'">
+              <h3 style="margin-bottom:12px">➖ Trim features</h3>
+              <p class="hint" style="margin-bottom:14px">Every feature is on by default in Advanced. Switch off the ones you don't use to simplify your sidebar — your Advanced set is remembered separately from Basic.</p>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <template x-for="f in advancedFeatureCatalog()" :key="f.key">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--cp-border)" :style="(f.requires && advancedFeatures[f.requires] === false) ? 'opacity:.55' : ''">
+                    <span style="font-size:18px;width:24px;text-align:center" x-text="f.icon"></span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:600;color:var(--cp-text)" x-text="f.label"></div>
+                      <div class="hint" style="margin:1px 0 0" x-text="(f.requires && advancedFeatures[f.requires] === false) ? ('Enable ' + f.requires.charAt(0).toUpperCase() + f.requires.slice(1) + ' first — ' + f.hint) : f.hint"></div>
+                    </div>
+                    <label class="toggle-switch" :title="(f.requires && advancedFeatures[f.requires] === false) ? ('Requires ' + f.requires) : ((advancedFeatures[f.key] !== false ? 'Hide ' : 'Show ') + f.label)">
+                      <input type="checkbox" :checked="advancedFeatures[f.key] !== false" :disabled="!!(f.requires && advancedFeatures[f.requires] === false)" @change="toggleAdvancedFeature(f.key)" />
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
@@ -22748,6 +22769,13 @@
           const defaults = { insights: false, managers: false, tasks: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
+        // Advanced is the inverse of Basic: every optional feature starts ON and the
+        // user opts OUT. Persists independently of basicFeatures so each level keeps
+        // its own curated set. A newly-shipped key defaults to on (stays visible).
+        advancedFeatures: (() => {
+          const defaults = { 'me-ai': true, insights: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true };
+          try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
+        })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
         // it disappears once the user finishes or hides it.
         gettingStartedDismissed: (() => { try { return localStorage.getItem('getting-started-dismissed') === '1'; } catch { return false; } })(),
@@ -25533,8 +25561,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (bf.connect && bf.newsletter) out.push('newsletter');
             return out;
           }
-          // workspace
-          return ['home', 'me-ai', 'playbooks', 'boards', 'insights', 'codeflow', 'agents', 'autonomous', 'marketplace', 'diary', 'connect', 'newsletter', 'watercooler', 'sessions', 'activity', 'reports'];
+          // workspace (Advanced) — every feature is on by default; the user opts OUT
+          // via advancedFeatures. Always-on core stays unconditional.
+          const af = this.advancedFeatures || {};
+          const on = (k) => af[k] !== false;
+          const out = ['home'];
+          if (on('me-ai')) out.push('me-ai');
+          if (on('playbooks')) out.push('playbooks');
+          out.push('boards');
+          if (on('insights')) out.push('insights');
+          out.push('codeflow', 'agents');
+          if (on('autonomous')) out.push('autonomous');
+          out.push('marketplace', 'diary');
+          if (on('connect')) out.push('connect');
+          if (on('connect') && on('newsletter')) out.push('newsletter');
+          if (on('watercooler')) out.push('watercooler');
+          if (on('sessions')) out.push('sessions');
+          if (on('news')) { out.push('activity', 'reports'); }
+          return out;
         },
         // Reconcile the saved layout against currently-available keys: keep the user's
         // order + groups, drop stale/dupe keys, append newly-available keys at the end.
@@ -25939,7 +25983,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
-          if (['managers', 'manager-detail', 'executions'].includes(r)) return 'workforce';
+          // Management (workforce) mode has been removed — everything lives in one
+          // flat experience. Never map a route to 'workforce' so appMode can't be
+          // flipped away from 'workspace' with the mode switch gone.
           return null;
         },
         setAppMode(mode, opts = {}) {
@@ -25975,6 +26021,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
           ];
         },
+        // Catalog of optional features that can be switched OFF while in Advanced mode
+        // (the opt-out inverse of the Basic opt-in list). Includes Playbooks, which is
+        // Advanced-only. Order drives the Settings checklist order.
+        advancedFeatureCatalog() {
+          return [
+            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.' },
+            { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
+            { key: 'autonomous', label: 'Autonomous', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
+            { key: 'playbooks', label: 'Playbooks', icon: '📓', hint: 'Author & tune the Me-agent playbook prompts.' },
+            { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
+            { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
+            { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
+            { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.' },
+            { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
+          ];
+        },
         setExperienceLevel(level) {
           const lv = level === 'advanced' ? 'advanced' : 'basic';
           if (this.experienceLevel === lv) return;
@@ -25991,6 +26053,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Without the Teams feature there's no selector, so don't leave the user
             // silently scoped to a team they can no longer see or change.
             if (!this.teamSelectorVisible() && this.currentTeamId !== 'all') this.setCurrentOrg('all');
+          }
+          if (lv === 'advanced') {
+            // Advanced curates by opting OUT — if the current page was opted out, land Home.
+            if (!this.advancedRouteVisible(this.route)) this.goTo('#/home');
           }
         },
         toggleBasicFeature(key) {
@@ -26013,6 +26079,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           // If we just hid the page we're standing on, fall back to Home.
           if (cur && this.experienceLevel === 'basic' && !this.basicRouteVisible(this.route)) this.goTo('#/home');
+        },
+        // Advanced opt-out toggle (inverse of toggleBasicFeature). Persists to its own
+        // store; same Connect→Newsletter cascade; routes Home if it hides the open page.
+        toggleAdvancedFeature(key) {
+          const af = this.advancedFeatures || {};
+          const cur = af[key] !== false; // currently on
+          // Newsletter needs Connect; don't allow turning it on while Connect is off.
+          if (key === 'newsletter' && !cur && af.connect === false) {
+            this.toast('Enable Connect first — Newsletter is built from your Connect diary.', 'info');
+            return;
+          }
+          this.advancedFeatures = Object.assign({}, af, { [key]: !cur });
+          if (key === 'connect' && cur && this.advancedFeatures.newsletter !== false) {
+            // Turning Connect off cascades: Newsletter can't work without it.
+            this.advancedFeatures = Object.assign({}, this.advancedFeatures, { newsletter: false });
+          }
+          try { localStorage.setItem('advanced-features', JSON.stringify(this.advancedFeatures)); } catch {}
+          // If we just hid the page we're standing on, fall back to Home.
+          if (cur && this.experienceLevel === 'advanced' && !this.advancedRouteVisible(this.route)) this.goTo('#/home');
         },
         // Whether a route is reachable from the Basic flat sidebar (so we don't strand
         // the user on a hidden page after switching to Basic).
@@ -26037,14 +26122,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return false;
         },
+        // Whether a route is reachable in Advanced given the user's opt-outs (so we
+        // don't strand them on a page they just switched off). Everything is on by
+        // default; only an explicitly-off feature hides its routes.
+        advancedRouteVisible(route) {
+          const r = route || this.route;
+          // Always-available core (never opt-out-able).
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design', 'settings', 'events', 'diary'].includes(r)) return true;
+          const af = this.advancedFeatures || {};
+          const on = (k) => af[k] !== false;
+          const gated = {
+            'me-ai': ['me-ai'],
+            playbooks: ['playbooks'],
+            insights: ['insights'],
+            autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
+            watercooler: ['chat', 'chat-detail'],
+            sessions: ['sessions'],
+            news: ['activity', 'reports'],
+            connect: ['connect'],
+            newsletter: ['newsletter'],
+          };
+          for (const [feat, routes] of Object.entries(gated)) {
+            if (routes.includes(r)) return on(feat);
+          }
+          return true; // unknown routes stay visible in Advanced
+        },
 
         // Whether an optional feature's surface should render. In Advanced mode
         // everything is available; in Basic mode a feature only shows when the user
         // has opted into it via basicFeatures. Used to gate in-page cards (e.g. the
         // Insights card on the Basic Home page) — NOT just whole routes.
         featureVisible(feat) {
-          if (this.experienceLevel !== 'basic') return true;
-          return !!(this.basicFeatures && this.basicFeatures[feat]);
+          if (this.experienceLevel === 'basic') return !!(this.basicFeatures && this.basicFeatures[feat]);
+          // Advanced: on by default; hidden only when the user has opted out.
+          return (this.advancedFeatures || {})[feat] !== false;
         },
 
         // Teams feature removed — the team selector never renders.
