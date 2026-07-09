@@ -13201,6 +13201,75 @@ function _meAiRelatedTriaged(it, items, minPct) {
   }
   return best ? { item: best, rel: bestRel, why: 'tokens' } : null;
 }
+
+// --- Step 3: composite urgency scoring ------------------------------------------------
+// The collector/LLM already re-scores a flat 0–5 urgency across sources; that judgment is
+// the CRITICALITY anchor. On top of it we derive four more of the owner's stated facets —
+// due-date, impact, scope, effort — deterministically from the signal's own fields + light
+// keyword cues (no AI call; runs on every arrival). The facets refine, never replace, the
+// anchor: with no strong cues the composite ≈ the incoming urgency (no regression), while a
+// "by EOD" broad-impact ask floats up and a low-impact FYI floats down. The composite feeds
+// SURFACING + sorting only; it does NOT push anything onto today's agenda (only an explicit
+// user 'today'/fit-into-today does that), and due-date/staleness influence FUTURE planning.
+const _MEAI_URG_DUE_NOW = /\b(today|eod|cob|end of (the )?day|by (end of )?(today|day)|right now|immediately|asap|by now|due now|overdue|past due)\b/i;
+const _MEAI_URG_DUE_SOON = /\b(tomorrow|by (mon|tue|wed|thu|fri|sat|sun)\w*|this week|by (this )?(week|friday|eow)|end of week|within \d+ ?(h|hour|hours))\b/i;
+const _MEAI_URG_DUE_LATER = /\b(next week|next month|no rush|whenever|when you (can|get a chance)|low priority|sometime)\b/i;
+const _MEAI_URG_IMPACT = /\b(block(ing|ed|er)?|waiting on you|need(s|ed)? (your|you to)|approve|approval|sign ?off|review requested|ship|release|deploy|production|prod|customer|incident|outage|sev\d|p0|p1|escalat)\b/i;
+const _MEAI_URG_FYI = /\b(fyi|heads?[- ]?up|no action|for your awareness|just so you know|informational)\b/i;
+const _MEAI_URG_BROAD = /\b(team|everyone|all[- ]?hands|org|group|channel|broadcast|company|department)\b/i;
+const _MEAI_URG_LOWEFFORT = /\b(quick|just|small|tiny|one[- ]?liner|typo|nit|trivial|minor|rubber ?stamp)\b/i;
+const _MEAI_URG_HIGHEFFORT = /\b(investigate|design|write|draft|analy[sz]e|refactor|migrat|root ?cause|deep ?dive|spec|proposal|plan)\b/i;
+function _meAiUrgencyScore(it) {
+  try {
+    const anchor = Math.max(0, Math.min(5, Number(it && it.urgency) || 0));
+    const text = `${(it && it.title) || ''} ${(it && it.detail) || ''}`;
+    const crit = anchor / 5; // 0–1 criticality anchor (collector/LLM judged)
+    // Due date: strongest planning cue. Absent → neutral-low (0.35).
+    let due = 0.35;
+    if (_MEAI_URG_DUE_NOW.test(text)) due = 1.0;
+    else if (_MEAI_URG_DUE_SOON.test(text)) due = 0.6;
+    else if (_MEAI_URG_DUE_LATER.test(text)) due = 0.15;
+    // Impact: personally blocking (direct mention / "waiting on you") is high; pure FYI is low.
+    let impact = 0.4;
+    if (it && it.directMention) impact += 0.3;
+    if (_MEAI_URG_IMPACT.test(text)) impact += 0.25;
+    if (_MEAI_URG_FYI.test(text)) impact -= 0.35;
+    impact = Math.max(0, Math.min(1, impact));
+    // Scope: PR/work-item or broad-audience asks reach wider than a 1:1 note.
+    let scope = 0.3;
+    if (it && (it.prLink || String(it.kind || '').toLowerCase() === 'pr' || String(it.kind || '').toLowerCase() === 'review')) scope = 0.7;
+    else if (it && it.link && /work ?item|issue|azure|dev\.azure|github\.com\/.+\/(issues|pull)/i.test(String(it.link))) scope = 0.6;
+    if (_MEAI_URG_BROAD.test(text)) scope = Math.max(scope, 0.8);
+    // Effort: higher effort needs an earlier start (mild upward nudge); quick wins are low.
+    let effort = 0.5;
+    if (_MEAI_URG_HIGHEFFORT.test(text)) effort = 0.8;
+    else if (_MEAI_URG_LOWEFFORT.test(text)) effort = 0.2;
+    // Blend: criticality dominates so we never override the LLM cross-source score; the four
+    // facets can move it by roughly ±1.5 on the 0–5 scale.
+    const raw = 5 * (0.55 * crit + 0.20 * due + 0.12 * impact + 0.08 * scope + 0.05 * effort);
+    const score = Math.max(0, Math.min(5, Math.round(raw)));
+    const facets = {
+      criticality: Math.round(crit * 100) / 100,
+      dueDate: Math.round(due * 100) / 100,
+      impact: Math.round(impact * 100) / 100,
+      scope: Math.round(scope * 100) / 100,
+      effort: Math.round(effort * 100) / 100,
+    };
+    const parts = [];
+    if (due >= 1.0) parts.push('due today');
+    else if (due >= 0.6) parts.push('due soon');
+    else if (due <= 0.15) parts.push('no deadline');
+    if (impact >= 0.7) parts.push('you’re blocking');
+    else if (impact <= 0.2) parts.push('FYI');
+    if (scope >= 0.7) parts.push('wide scope');
+    const why = parts.length ? parts.join(' · ') : '';
+    return { score, base: anchor, facets, why };
+  } catch (_) {
+    const anchor = Math.max(0, Math.min(5, Number(it && it.urgency) || 3));
+    return { score: anchor, base: anchor, facets: null, why: '' };
+  }
+}
+
 // Merge freshly gathered comms signals into the day's attention inbox. Existing
 // items keep their triage state + first-seen; genuinely new asks arrive as 'new'.
 // Meetings are excluded (calendar anchors, not asks); pure-FYI items (urgency < 3
@@ -13232,6 +13301,16 @@ async function _meAiMergeInbox(date, signals, cfg) {
       ts: sig.ts || '', dedupeKey: sig.dedupeKey || '',
       directMention: !!sig.directMention, urgency: Number(sig.urgency) || 3, source: sig.source || 'm365',
     };
+    // Step 3: composite urgency — keep the collector score as urgencyBase, layer the
+    // due-date/impact/scope/effort facets around it. Feeds surfacing + sorting only; the
+    // agenda is untouched unless the user explicitly triages the item 'today'.
+    try {
+      const u = _meAiUrgencyScore(base);
+      base.urgencyBase = u.base;
+      base.urgency = u.score;
+      base.urgencyFacets = u.facets;
+      base.urgencyWhy = u.why;
+    } catch (_) { /* keep flat urgency on any failure */ }
     const ex = byId.get(id);
     if (ex) {
       Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested, classRule: ex.classRule, topicMem: ex.topicMem });
@@ -17255,6 +17334,24 @@ app.get('/api/me-ai/inbox', (req, res) => {
   try {
     const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
     const inbox = loadInboxForDate(date);
+    // Composite-urgency backfill: items persisted before the composite scorer landed carry
+    // the flat collector urgency and no urgencyBase/facets/why, so they'd re-stamp only on a
+    // full (slow) gather. Score them here — a cheap, bounded regex pass, no AI — so the client
+    // always sees the composite label + tooltip. Display/sorting only; the agenda is untouched.
+    let backfilled = 0;
+    for (const it of inbox.items) {
+      if (it && typeof it.urgencyBase !== 'number') {
+        try {
+          const u = _meAiUrgencyScore(it);
+          it.urgencyBase = u.base;
+          it.urgency = u.score;
+          it.urgencyFacets = u.facets;
+          it.urgencyWhy = u.why;
+          backfilled++;
+        } catch (_) { /* keep flat urgency on any failure */ }
+      }
+    }
+    if (backfilled) { try { saveInboxForDate(date, inbox); } catch (_) { /* best-effort */ } }
     const newCount = inbox.items.filter(i => i.triage === 'new').length;
     res.json({ ok: true, date, items: inbox.items, newCount, polledAt: inbox.polledAt || '' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -17285,6 +17382,12 @@ app.post('/api/me-ai/inbox/reeval', async (req, res) => {
     const now = new Date().toISOString();
     let autoHandled = 0;
     for (const it of inbox.items) {
+      if (it && typeof it.urgencyBase !== 'number') {
+        try {
+          const u = _meAiUrgencyScore(it);
+          it.urgencyBase = u.base; it.urgency = u.score; it.urgencyFacets = u.facets; it.urgencyWhy = u.why;
+        } catch (_) { /* keep flat urgency */ }
+      }
       try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { allowAi: false })) autoHandled++; } catch (_) { /* best-effort */ }
     }
     saveInboxForDate(date, inbox);

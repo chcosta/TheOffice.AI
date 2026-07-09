@@ -12398,6 +12398,10 @@
               .meai-inbox-mention { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-accent); }
               .meai-inbox-ts { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
               .meai-inbox-inst { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; opacity:.85; }
+              .meai-inbox-urg { flex:0 0 auto; font-size:11px; font-weight:600; white-space:nowrap; color:var(--cp-text-secondary); letter-spacing:.01em; }
+              .meai-inbox-urg.is-urgent { color:var(--cp-danger, #b42318); }
+              .meai-inbox-urg.is-high { color:var(--cp-warning-text, #92400e); }
+              .meai-inbox-urg.is-low { color:var(--cp-text-muted); font-weight:500; }
               .meai-inbox-state { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
               .meai-inbox-detail { font-size:12.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.45; }
               /* Issue 5: keep the row calm — reveal triage actions only on hover/focus of the
@@ -13926,6 +13930,7 @@
                                 <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name">@you</span>
                                 <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
                                 <span class="meai-inbox-inst" x-show="(row.it.instances||1) > 1" :title="(row.it.instances||1) + ' related arrivals folded into this item'" x-text="'\u00d7' + (row.it.instances||1)"></span>
+                                <span class="meai-inbox-urg" x-show="meAiInboxUrgency(row.it)" :class="{ 'is-urgent': (row.it.urgency||0)>=5, 'is-high': (row.it.urgency||0)===4, 'is-low': (row.it.urgency||0)<=1 }" :title="meAiInboxUrgencyTip(row.it)" x-text="meAiInboxUrgency(row.it)"></span>
                                 <span class="meai-group-flex"></span>
                                 <span class="meai-conf-band sm" x-show="typeof row.it.confidence==='number'" :class="meAiConfClass(row.it)" x-text="meAiConfBand(row.it) + ' \u00b7 ' + (row.it.confidence||0) + '%'"></span>
                                 <button type="button" class="meai-group-it-toggle" @click="meAiToggleGroupItem(row.it.id)" :aria-expanded="!!meai.inboxItemOpen[row.it.id]"
@@ -13985,6 +13990,7 @@
                               <span class="meai-inbox-new" x-show="row.it.triage==='new'" title="Just arrived — you haven't looked at this yet">New</span>
                               <span class="meai-inbox-ts" x-show="meAiInboxTs(row.it)" :title="row.it.ts||''" x-text="meAiInboxTs(row.it)"></span>
                               <span class="meai-inbox-inst" x-show="(row.it.instances||1) > 1" :title="(row.it.instances||1) + ' related arrivals folded into this item'" x-text="'\u00d7' + (row.it.instances||1)"></span>
+                              <span class="meai-inbox-urg" x-show="meAiInboxUrgency(row.it)" :class="{ 'is-urgent': (row.it.urgency||0)>=5, 'is-high': (row.it.urgency||0)===4, 'is-low': (row.it.urgency||0)<=1 }" :title="meAiInboxUrgencyTip(row.it)" x-text="meAiInboxUrgency(row.it)"></span>
                               <span class="meai-inbox-mention" x-show="row.it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>
                             </div>
                             <div class="meai-inbox-detail" x-show="row.it.detail" x-text="row.it.detail"></div>
@@ -32462,6 +32468,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const datePart = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
           if (!/\d{1,2}:\d{2}/.test(String(raw))) return datePart;
           return datePart + ' \u00b7 ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        },
+        // Composite urgency label for the inbox row — quiet, muted text (no badge/pill).
+        // Only shown when it adds signal (Urgent/High) or the collector genuinely rated it
+        // low; a plain "Normal" is suppressed so we don't clutter every row.
+        meAiInboxUrgency(it) {
+          const s = it && Number(it.urgency);
+          if (typeof s !== 'number' || isNaN(s)) return '';
+          let label = '';
+          if (s >= 5) label = 'Urgent';
+          else if (s >= 4) label = 'High';
+          else if (s <= 1) label = 'Low';
+          else return ''; // 2–3 = normal, keep the row calm
+          const why = (it && it.urgencyWhy) ? (' \u00b7 ' + it.urgencyWhy) : '';
+          return label + why;
+        },
+        meAiInboxUrgencyTip(it) {
+          const f = it && it.urgencyFacets;
+          const base = (it && typeof it.urgencyBase === 'number') ? it.urgencyBase : null;
+          const parts = [];
+          if (base !== null) parts.push('Source urgency ' + base + '/5');
+          if (f) {
+            const pct = (v) => Math.round((Number(v) || 0) * 100) + '%';
+            parts.push('due-date ' + pct(f.dueDate));
+            parts.push('impact ' + pct(f.impact));
+            parts.push('scope ' + pct(f.scope));
+            parts.push('effort ' + pct(f.effort));
+          }
+          return parts.length ? ('Why this urgency: ' + parts.join(' · ')) : '';
         },
         async meAiGenerate(opts) {
           if (this.meai.generating) return;
