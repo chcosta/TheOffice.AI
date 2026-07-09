@@ -631,6 +631,37 @@ async function updateWorkItemState(org, project, id, state) {
   };
 }
 
+// Create a work item. `type` is the work-item-type name (e.g. "Task",
+// "DNCEng Task", "Bug"); it is URL-appended after a literal "$". Optional fields
+// (description/assignedTo/areaPath/iterationPath/state/tags) are set via the
+// JSON-patch document. Returns the compact getWorkItem shape.
+async function createWorkItem(org, project, type, { title, description, assignedTo, areaPath, iterationPath, state, tags } = {}) {
+  if (!String(title || '').trim()) throw new Error('Work item title is required.');
+  const patch = [{ op: 'add', path: '/fields/System.Title', value: String(title).slice(0, 250) }];
+  if (description) patch.push({ op: 'add', path: '/fields/System.Description', value: String(description) });
+  if (assignedTo) patch.push({ op: 'add', path: '/fields/System.AssignedTo', value: String(assignedTo) });
+  if (areaPath) patch.push({ op: 'add', path: '/fields/System.AreaPath', value: String(areaPath) });
+  if (iterationPath) patch.push({ op: 'add', path: '/fields/System.IterationPath', value: String(iterationPath) });
+  if (state) patch.push({ op: 'add', path: '/fields/System.State', value: String(state) });
+  if (tags) patch.push({ op: 'add', path: '/fields/System.Tags', value: String(tags) });
+  const wtype = encodeURIComponent('$' + String(type || 'Task').trim());
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/wit/workitems/${wtype}?api-version=${API_VERSION}`,
+    { method: 'POST', body: patch, contentType: 'application/json-patch+json' }
+  );
+  const f = d.fields || {};
+  const assigned = f['System.AssignedTo'];
+  return {
+    id: d.id,
+    title: f['System.Title'] || '',
+    state: f['System.State'] || '',
+    type: f['System.WorkItemType'] || '',
+    assignedTo: assigned ? (assigned.displayName || assigned.uniqueName || '') : '',
+    url: workItemUrl(org, project, d.id),
+  };
+}
+
 // Fetch a pull request's status. Returns a compact, UI-friendly shape.
 async function getPullRequest(org, project, repo, prId) {
   const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}?api-version=${API_VERSION}`);
@@ -1185,6 +1216,7 @@ module.exports = {
   pullRequestUrl,
   getWorkItem,
   getWorkItemComments,
+  createWorkItem,
   searchEpics,
   EPIC_TYPES,
   getPrWorkItems,

@@ -218,7 +218,17 @@ const DEFAULTS = {
   // with before/after gantt visuals + full decision telemetry. Deduped per-day
   // by conflict signature; leader-gated; TODAY only. ON by default.
   meAiConflictAutoReport: true,
-  // --- System agents: per-agent behavior overrides -------------------------
+  // Backlog → real ADO work-item creation defaults. User-configurable; the Backlog
+  // page's "Create work item" action files against these. org/project fall back to
+  // the first connected ADO target at runtime when left blank.
+  meAiWorkItemOrg: '',
+  meAiWorkItemProject: '',
+  meAiWorkItemType: 'DNCeng Task',
+  meAiWorkItemState: 'Backlog',
+  meAiWorkItemArea: '',
+  meAiWorkItemIteration: '',
+  meAiWorkItemTags: '',
+
   // The app ships several built-in AI "system agents" (Connect assistant,
   // Newsletter writer/editor, Me.AI agent + external-act, Agenda assistant,
   // Workspace/Board assistant, Code Flow reviewer/steward). Settings → System

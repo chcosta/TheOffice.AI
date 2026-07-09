@@ -11773,6 +11773,19 @@ function _meAiConfig(s) {
   // related item must explain (containment %) before we fold it in as an instance
   // rather than surfacing it as its own row.
   const grouping = { min: _clampPct(s.meAiGroupingMin, 72) };
+  // Work-item creation defaults (Backlog → real ADO work item). User-configurable;
+  // fall back to the first connected ADO target, else the dnceng/internal defaults.
+  const _firstAdo = targets[0] || {};
+  const str = (v, d) => { const x = String(v == null ? '' : v).trim(); return x || d; };
+  const workItem = {
+    org: str(s.meAiWorkItemOrg, _firstAdo.org || 'dnceng'),
+    project: str(s.meAiWorkItemProject, _firstAdo.project || 'internal'),
+    type: str(s.meAiWorkItemType, 'DNCeng Task'),
+    state: str(s.meAiWorkItemState, 'Backlog'),
+    areaPath: str(s.meAiWorkItemArea, ''),
+    iterationPath: str(s.meAiWorkItemIteration, ''),
+    tags: str(s.meAiWorkItemTags, ''),
+  };
   return {
     consent: !!s.meAiConsent,
     workStart: s.meAiWorkStart || '08:00',
@@ -11787,6 +11800,7 @@ function _meAiConfig(s) {
     timePrefs,
     autoTriage,
     grouping,
+    workItem,
     conflictAutoReport: s.meAiConflictAutoReport !== false,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
@@ -12535,6 +12549,122 @@ function _meAiStableKey(it) {
   if (toks.length >= 2) return 'tt:' + require('crypto').createHash('sha1').update(toks.join(' ')).digest('hex').slice(0, 16);
   return '';
 }
+// ── Backlog curation store ───────────────────────────────────────────────────
+// The durable, user-curated queue of future/unscheduled work (meeting action-items,
+// PR reviews, comms, "didn't fit today" spillover). This is the source of truth the
+// agenda planner reads FROM: the user can set an item aside, override its urgency,
+// flag it for "this week", group several into one unit of work, or promote it to a
+// real ADO work item — and those choices persist across days + regenerates. Keyed by
+// _meAiBacklogKey (stable source identity, title-hash fallback) so a decision sticks
+// even as the underlying signal's title drifts.
+const ME_AI_BACKLOG_CURATION_PATH = path.join(dataPath('me-ai'), 'backlog-curation.json');
+// Identity for a backlog candidate. Reuses the stable key, but falls back to a plain
+// title hash (even for weak single-token titles) so deferrals / meeting-actions / todos
+// that carry no link still get a durable, curatable identity.
+function _meAiBacklogKey(it) {
+  if (!it) return '';
+  const k = _meAiStableKey(it);
+  if (k) return k;
+  const t = String((it && it.title) || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!t) return '';
+  return 'bt:' + require('crypto').createHash('sha1').update(t).digest('hex').slice(0, 16);
+}
+function loadBacklogCuration() {
+  try {
+    if (!fs.existsSync(ME_AI_BACKLOG_CURATION_PATH)) return { items: {} };
+    const v = JSON.parse(fs.readFileSync(ME_AI_BACKLOG_CURATION_PATH, 'utf-8'));
+    return (v && v.items && typeof v.items === 'object' && !Array.isArray(v.items)) ? v : { items: {} };
+  } catch { return { items: {} }; }
+}
+function saveBacklogCuration(store) {
+  try {
+    fs.mkdirSync(path.dirname(ME_AI_BACKLOG_CURATION_PATH), { recursive: true });
+    const d = (store && store.items) || {};
+    const keys = Object.keys(d);
+    if (keys.length > 1000) { // bounded + freshest-first by updatedAt
+      keys.sort((a, b) => String(d[b].updatedAt || '').localeCompare(String(d[a].updatedAt || '')));
+      const keep = {}; for (const k of keys.slice(0, 1000)) keep[k] = d[k];
+      store.items = keep;
+    }
+    fs.writeFileSync(ME_AI_BACKLOG_CURATION_PATH, JSON.stringify(store || { items: {} }, null, 2));
+  } catch (_) { /* best-effort */ }
+  return store;
+}
+// Upsert one curation record. `patch` must carry a `key`; other fields overlay the
+// existing record. Returns the merged record (or null on a missing key).
+function _meAiSetCuration(patch) {
+  const key = String((patch && patch.key) || '').trim();
+  if (!key) return null;
+  const store = loadBacklogCuration();
+  const prev = store.items[key] || {};
+  const next = { ...prev, ...patch, key, updatedAt: new Date().toISOString() };
+  // Normalize a few fields so downstream planning can trust them.
+  if (next.urgencyOverride != null && next.urgencyOverride !== '') {
+    const u = Number(next.urgencyOverride);
+    next.urgencyOverride = Number.isFinite(u) ? Math.max(0, Math.min(5, Math.round(u))) : null;
+  } else if (next.urgencyOverride === '' ) next.urgencyOverride = null;
+  next.week = !!next.week;
+  next.aside = !!next.aside;
+  if (next.group != null) next.group = String(next.group).trim().slice(0, 120) || null;
+  store.items[key] = next;
+  saveBacklogCuration(store);
+  return next;
+}
+// Apply the backlog curation to the live plan signals BEFORE scheduling:
+//   • aside      → drop entirely (kept in the Backlog view, never on the agenda)
+//   • urgencyOverride → hard-set urgency (0..5)
+//   • week       → floor urgency at 4 + flag meta.backlogWeek (surface this week)
+//   • group      → collapse ≥2 same-group members into ONE synthetic block so a unit
+//                  of work takes a single slot (title = group name, detail = members)
+// Returns { signals, asideKeys } — `signals` is the curated array; `asideKeys` are the
+// keys dropped so the caller can also strip matching todos.
+function _meAiApplyBacklogCuration(planSignals, curation) {
+  const items = (curation && curation.items) || {};
+  const asideKeys = new Set();
+  if (!Array.isArray(planSignals) || !Object.keys(items).length) return { signals: planSignals || [], asideKeys };
+  const groups = new Map();
+  const kept = [];
+  for (const sig of planSignals) {
+    const key = _meAiBacklogKey(sig);
+    const cur = key && items[key];
+    if (cur) {
+      if (cur.aside) { asideKeys.add(key); continue; }
+      if (cur.urgencyOverride != null && Number.isFinite(Number(cur.urgencyOverride))) {
+        sig.urgency = Math.max(0, Math.min(5, Number(cur.urgencyOverride)));
+      } else if (cur.week) {
+        sig.urgency = Math.max(Number(sig.urgency) || 0, 4);
+      }
+      if (cur.week) sig.meta = { ...(sig.meta || {}), backlogWeek: true };
+      if (cur.group) {
+        if (!groups.has(cur.group)) groups.set(cur.group, []);
+        groups.get(cur.group).push(sig);
+        continue;
+      }
+    }
+    kept.push(sig);
+  }
+  for (const [name, members] of groups) {
+    if (members.length === 1) { kept.push(members[0]); continue; }
+    const urg = members.reduce((m, x) => Math.max(m, Number(x.urgency) || 0), 0);
+    const first = members[0];
+    kept.push({
+      kind: first.kind || 'backlog',
+      type: first.type || 'focus',
+      title: String(name).slice(0, 160),
+      detail: members.map(x => '• ' + String(x.title || '').slice(0, 120)).join('\n').slice(0, 800),
+      link: first.link || '',
+      source: first.source || 'backlog',
+      urgency: urg,
+      why: 'Grouped backlog unit',
+      meta: {
+        backlogGroup: name,
+        groupMembers: members.map(x => ({ title: x.title, link: x.link || '', meta: x.meta || null })),
+      },
+    });
+  }
+  return { signals: kept, asideKeys };
+}
+
 // Record (or clear) the user's durable decision for an item. later/dismiss/wontfix persist;
 // 'done' persists too but ONLY on a strong identity (dedupeKey/link) so a handled ask isn't
 // re-alerted next day; re-engagement (now/today/seen) DELETES the key so it stops re-parking.
@@ -12879,7 +13009,7 @@ function _meAiTriageDecide(it) {
 // reads the actual content and adjusts the deterministic base. High-confidence, low-risk
 // decisions can then auto-apply (settings-gated) instead of waiting for the user.
 function _meAiActionLabel(a) {
-  return { later: 'Later', dismiss: 'Not mine', wontfix: "Won't fix", today: 'Fit into today', now: 'Handle now' }[a] || a;
+  return { later: 'Move to backlog', dismiss: 'Not mine', wontfix: "Won't fix", today: 'Fit into today', now: 'Handle now' }[a] || a;
 }
 // Tokenize a subject the same way the signature does, but return the token list so a
 // NEW item can be matched against the tokens stored inside every learned rule key.
@@ -13240,7 +13370,7 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
       if (isFinite(last) && (now - last) < ME_AI_MTGACT_THROTTLE_MS) return { signals: [], store, changed: false };
     }
     const nowIso = new Date(now).toISOString();
-    const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each such meeting, extract the action items / follow-ups assigned to ME (owner = me, or clearly-mine unassigned items). Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"recordingUrl":string|null,"hasRecording":boolean,"actions":[{"text":string,"due":string|null}]}. "meetingId" is a STABLE unique id for the meeting (the calendar event id or iCalUId). ONLY include meetings that have ENDED. If a meeting has ended but has no recording/transcript YET, still list it with "hasRecording":false and empty "actions" so I know to check later. If there is nothing, return [].`;
+    const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each such meeting, extract the action items / follow-ups assigned to ME (owner = me, or clearly-mine unassigned items). Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"recordingUrl":string|null,"webLink":string|null,"hasRecording":boolean,"actions":[{"text":string,"due":string|null}]}. "meetingId" is a STABLE unique id for the meeting (the calendar event id or iCalUId). "webLink" is the calendar event's link that opens the meeting in Outlook/OWA (the event's own webLink, NOT the join URL). ONLY include meetings that have ENDED. If a meeting has ended but has no recording/transcript YET, still list it with "hasRecording":false and empty "actions" so I know to check later. If there is nothing, return [].`;
     const text = await _connectRunAgent('collector', prompt);
     const arr = _connectExtractJson(text);
     store.lastGatherAt = nowIso;
@@ -13258,6 +13388,8 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
       const hasRec = !!m.hasRecording;
       const actions = Array.isArray(m.actions) ? m.actions : [];
       if (hasRec) {
+        const recUrl = (m.recordingUrl && typeof m.recordingUrl === 'string') ? m.recordingUrl : '';
+        const mtgUrl = (m.webLink && typeof m.webLink === 'string') ? m.webLink : '';
         actions.forEach((a, idx) => {
           const atext = String((a && a.text) || '').trim();
           if (!atext) return;
@@ -13268,7 +13400,8 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
             title: atext.slice(0, 200),
             detail: (`Action from \u201C${String(m.meeting || 'a meeting').slice(0, 80)}\u201D` + (due ? ` \u00B7 due ${due}` : '')).slice(0, 200),
             start: null, end: null,
-            link: (m.recordingUrl && typeof m.recordingUrl === 'string') ? m.recordingUrl : '',
+            link: recUrl || mtgUrl,
+            recordingUrl: recUrl, meetingLink: mtgUrl,
             prLink: '', ts: nowIso,
             dedupeKey: `mtgact:${mid}:${idx}:${h}`,
             directMention: true, urgency: 4, source: 'meeting',
@@ -13477,6 +13610,7 @@ async function _meAiMergeInbox(date, signals, cfg) {
     const base = {
       id, kind: sig.kind || 'email', title: String(sig.title || '').slice(0, 200),
       detail: String(sig.detail || '').slice(0, 200), link: sig.link || '', prLink: sig.prLink || '',
+      recordingUrl: sig.recordingUrl || '', meetingLink: sig.meetingLink || '',
       ts: sig.ts || '', dedupeKey: sig.dedupeKey || '',
       directMention: !!sig.directMention, urgency: Number(sig.urgency) || 3, source: sig.source || 'm365',
     };
@@ -16822,6 +16956,16 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // "Fit into today" items get a real block and "Later" items stay on the rail.
   try { _meAiMergeInbox(day, liveSignals); } catch (_) { /* best-effort */ }
   const planSignals = _meAiApplyInboxTriage(day, liveSignals);
+  // BACKLOG (source-of-truth curation): apply the user's durable backlog decisions —
+  // set-aside items drop out of scheduling, urgency overrides / "this week" reshape
+  // priority, and grouped items collapse into one unit — so the planner schedules FROM
+  // the curated queue, not just the raw live gather.
+  const backlogCuration = loadBacklogCuration();
+  {
+    const _bk = _meAiApplyBacklogCuration(planSignals.slice(), backlogCuration);
+    planSignals.length = 0;
+    for (const sig of _bk.signals) planSignals.push(sig);
+  }
   // REQ-3: on the FIRST agenda for a work day, seed uncompleted todos carried over from
   // the most recent prior work day (deduped against anything already passed in). On later
   // regenerates the day's own persisted todos are authoritative (no re-seeding) so a
@@ -16884,6 +17028,14 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
       if (k && lockKeys.has(k)) planSignals.splice(i, 1);
     }
     planTodos = schedulableTodos.filter(t => !lockKeys.has(String(t.title || '').trim().toLowerCase()));
+  }
+  // BACKLOG: a "set aside" todo must not be scheduled either (it stays visible in the
+  // Backlog view but off the agenda). Filter by the same curation key used for signals.
+  {
+    const _curItems = (backlogCuration && backlogCuration.items) || {};
+    if (Object.keys(_curItems).length) {
+      planTodos = planTodos.filter(t => { const c = _curItems[_meAiBacklogKey(t)]; return !(c && c.aside); });
+    }
   }
   // Normalize urgency across signal types (PR vs dev card vs work item vs comms) on a
   // single scale BEFORE the deterministic scheduler runs, so prioritization is fair.
@@ -17347,7 +17499,7 @@ function _meAiResolveAssistantAction(a, ctx) {
       const key = clip(a.key || a.link || a.title, 300); if (!key) return null;
       const act = String(a.action || '').trim();
       if (!['later', 'now', 'today', 'dismiss', 'wontfix'].includes(act)) return null;
-      const lbl = { later: 'Snooze to later', now: 'Handle now', today: 'Fit into today', dismiss: 'Not mine', wontfix: "Won't fix" }[act];
+      const lbl = { later: 'Move to backlog', now: 'Handle now', today: 'Fit into today', dismiss: 'Not mine', wontfix: "Won't fix" }[act];
       return { type, key, act, label: lbl, preview: clip(a.title || key, 160) };
     }
     case 'regenerate':
@@ -17556,6 +17708,18 @@ app.put('/api/me-ai/settings', (req, res) => {
         if (allowAct.includes(k) && allowTier.includes(String(v))) clean[k] = String(v);
       }
       patch.meAiActionTiers = clean;
+    }
+    // Backlog work-item defaults.
+    if (b.workItem && typeof b.workItem === 'object' && !Array.isArray(b.workItem)) {
+      const wi = b.workItem;
+      const s40 = v => String(v == null ? '' : v).trim().slice(0, 120);
+      if ('org' in wi) patch.meAiWorkItemOrg = s40(wi.org);
+      if ('project' in wi) patch.meAiWorkItemProject = s40(wi.project);
+      if ('type' in wi) patch.meAiWorkItemType = s40(wi.type) || 'DNCeng Task';
+      if ('state' in wi) patch.meAiWorkItemState = s40(wi.state);
+      if ('areaPath' in wi) patch.meAiWorkItemArea = String(wi.areaPath || '').trim().slice(0, 300);
+      if ('iterationPath' in wi) patch.meAiWorkItemIteration = String(wi.iterationPath || '').trim().slice(0, 300);
+      if ('tags' in wi) patch.meAiWorkItemTags = String(wi.tags || '').trim().slice(0, 300);
     }
     settings.updateSettings(patch);
     res.json({ ok: true, config: _meAiConfig() });
@@ -18361,6 +18525,192 @@ app.post('/api/me-ai/inbox/undo-auto', async (req, res) => {
     saveInboxForDate(date, inbox);
     const newCount = inbox.items.filter(i => i.triage === 'new').length;
     res.json({ ok: true, date, items: inbox.items, newCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Backlog: the curated future-work queue ───────────────────────────────────
+// Classify a candidate into the mockup's four lanes (action / review / comms / dev)
+// from its type/kind/source so the client can group + colour it.
+function _meAiBacklogKind(c) {
+  const t = String((c && (c.type || c.kind)) || '').toLowerCase();
+  const src = String((c && c.source) || '').toLowerCase();
+  if (t.includes('meeting-action') || t === 'action') return 'action';
+  if (t.includes('review') || t === 'pr' || src === 'github' || src === 'ado' || src === 'codeflow') return 'review';
+  if (t === 'comms' || src === 'meeting' || src === 'm365' || src === 'email' || src === 'teams') return 'comms';
+  if (t === 'focus' || t === 'dev' || t === 'implement' || t === 'work') return 'dev';
+  return 'action';
+}
+// Assemble the durable backlog candidate set for a date from every future-work source —
+// the built agenda's spillover backlog, inbox items the user parked ('later') or hasn't
+// resolved, and prior-day deferrals ("didn't fit today") rolled forward — then overlay
+// the user's curation so the view reflects week/aside/urgency/group/workItem decisions.
+function _meAiAssembleBacklog(date) {
+  const curation = loadBacklogCuration();
+  const curItems = (curation && curation.items) || {};
+  const byKey = new Map();
+  const add = (raw, origin) => {
+    const key = _meAiBacklogKey(raw);
+    if (!key) return;
+    const title = String((raw && (raw.title || raw.label)) || '').trim();
+    if (!title) return;
+    if (byKey.has(key)) { // merge sources; keep the strongest urgency
+      const ex = byKey.get(key);
+      ex.urgency = Math.max(Number(ex.urgency) || 0, Number(raw.urgency) || 0);
+      if (!ex.sources.includes(origin)) ex.sources.push(origin);
+      if (!ex.detail && raw.detail) ex.detail = String(raw.detail).slice(0, 400);
+      if (!ex.recordingUrl && raw.recordingUrl) ex.recordingUrl = String(raw.recordingUrl).slice(0, 600);
+      if (!ex.meetingLink && raw.meetingLink) ex.meetingLink = String(raw.meetingLink).slice(0, 600);
+      return;
+    }
+    byKey.set(key, {
+      key, title: title.slice(0, 240),
+      kind: _meAiBacklogKind(raw),
+      source: String((raw && raw.source) || origin).slice(0, 40),
+      link: String((raw && (raw.link || raw.prLink)) || '').slice(0, 600),
+      recordingUrl: String((raw && raw.recordingUrl) || '').slice(0, 600),
+      meetingLink: String((raw && raw.meetingLink) || '').slice(0, 600),
+      detail: String((raw && raw.detail) || '').slice(0, 400),
+      urgency: Math.max(0, Math.min(5, Number(raw && raw.urgency) || 0)),
+      repo: String((raw && raw.meta && raw.meta.repo) || '').slice(0, 80),
+      when: String((raw && (raw.ts || raw.at || raw.fromLabel)) || '').slice(0, 40),
+      sources: [origin],
+    });
+  };
+  // 1. Agenda spillover backlog (didn't fit / bumped).
+  try { const a = loadAgendaForDate(date); if (a && Array.isArray(a.backlog)) a.backlog.forEach(b => add(b, 'agenda')); } catch (_) {}
+  // 2. Inbox items the user parked or hasn't resolved (skip dismissed / done / wontfix).
+  try {
+    const inbox = loadInboxForDate(date);
+    for (const it of (inbox.items || [])) {
+      const tr = String(it.triage || '');
+      if (tr === 'dismissed' || tr === 'done' || tr === 'wontfix' || tr === 'now' || tr === 'today') continue;
+      add(it, 'inbox');
+    }
+  } catch (_) {}
+  // 3. Deferrals rolled forward onto this day ("didn't fit today").
+  try { loadMeAiDeferrals(date).forEach(d => add({ ...d, urgency: d.urgency || 3 }, 'deferral')); } catch (_) {}
+  // Overlay curation onto each candidate + surface set-aside items (they stay visible
+  // in the Backlog even though the planner drops them).
+  const out = [];
+  for (const c of byKey.values()) {
+    const cur = curItems[c.key] || {};
+    out.push({
+      ...c,
+      week: !!cur.week,
+      aside: !!cur.aside,
+      group: cur.group || null,
+      urgency: (cur.urgencyOverride != null && Number.isFinite(Number(cur.urgencyOverride))) ? Number(cur.urgencyOverride) : c.urgency,
+      urgencyOverride: (cur.urgencyOverride != null) ? Number(cur.urgencyOverride) : null,
+      workItem: cur.workItem || null,
+      note: cur.note || '',
+    });
+  }
+  // Also surface curated items that are ONLY known via curation (e.g. a set-aside item
+  // whose source has since gone quiet) so a decision never silently vanishes.
+  for (const [k, cur] of Object.entries(curItems)) {
+    if (byKey.has(k)) continue;
+    if (!cur || (!cur.aside && !cur.group && !cur.workItem && !cur.week && cur.urgencyOverride == null)) continue;
+    out.push({
+      key: k, title: String(cur.title || k).slice(0, 240), kind: 'action',
+      source: 'curation', link: cur.link || '', recordingUrl: '', meetingLink: '', detail: '', repo: '', when: '',
+      sources: ['curation'], week: !!cur.week, aside: !!cur.aside, group: cur.group || null,
+      urgency: (cur.urgencyOverride != null) ? Number(cur.urgencyOverride) : 3,
+      urgencyOverride: (cur.urgencyOverride != null) ? Number(cur.urgencyOverride) : null,
+      workItem: cur.workItem || null, note: cur.note || '',
+    });
+  }
+  out.sort((a, b) => (Number(b.urgency) || 0) - (Number(a.urgency) || 0) || String(a.title).localeCompare(String(b.title)));
+  return out;
+}
+
+// GET /api/me-ai/backlog?date= → the assembled + curated future-work queue.
+app.get('/api/me-ai/backlog', (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
+    const items = _meAiAssembleBacklog(date);
+    const groups = {};
+    for (const it of items) { if (it.group) (groups[it.group] = groups[it.group] || []).push(it.key); }
+    res.json({ ok: true, date, items, count: items.length, groups });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/backlog/item { key, title?, link?, kind?, source?, week?, aside?, urgency?, group?, note? }
+// Upsert one curation decision (week / set-aside / urgency override / grouping / note).
+app.post('/api/me-ai/backlog/item', (req, res) => {
+  try {
+    const b = req.body || {};
+    const key = String(b.key || '').trim();
+    if (!key) return res.status(400).json({ error: 'key required' });
+    const patch = { key };
+    if (b.title != null) patch.title = String(b.title).slice(0, 240);
+    if (b.link != null) patch.link = String(b.link).slice(0, 600);
+    if (b.kind != null) patch.kind = String(b.kind).slice(0, 20);
+    if (b.source != null) patch.source = String(b.source).slice(0, 40);
+    if (b.note != null) patch.note = String(b.note).slice(0, 400);
+    if ('week' in b) patch.week = !!b.week;
+    if ('aside' in b) patch.aside = !!b.aside;
+    if ('group' in b) patch.group = (b.group == null || b.group === '') ? null : String(b.group).slice(0, 120);
+    if ('urgency' in b) patch.urgencyOverride = (b.urgency == null || b.urgency === '') ? null : Number(b.urgency);
+    const rec = _meAiSetCuration(patch);
+    if (!rec) return res.status(400).json({ error: 'bad request' });
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    res.json({ ok: true, item: rec, items: _meAiAssembleBacklog(date) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/backlog/group { keys:[], name } → collapse several items into ONE unit
+// of work the planner schedules as a single block. Empty name / <1 key ungroups them.
+app.post('/api/me-ai/backlog/group', (req, res) => {
+  try {
+    const b = req.body || {};
+    const keys = Array.isArray(b.keys) ? b.keys.map(k => String(k || '').trim()).filter(Boolean) : [];
+    const name = String(b.name || '').trim().slice(0, 120) || null;
+    if (!keys.length) return res.status(400).json({ error: 'keys required' });
+    for (const key of keys) _meAiSetCuration({ key, group: name });
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    res.json({ ok: true, items: _meAiAssembleBacklog(date) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/backlog/workitem { key, title?, link?, type?, org?, project? } → create a
+// real ADO work item for a backlog entry (or the whole group) and record it on the curation.
+app.post('/api/me-ai/backlog/workitem', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const key = String(b.key || '').trim();
+    if (!key) return res.status(400).json({ error: 'key required' });
+    const s = settings.getSettings();
+    const cfg = _meAiConfig(s);
+    const wi = (cfg && cfg.workItem) || {};
+    const org = String(b.org || wi.org || '').trim();
+    const project = String(b.project || wi.project || '').trim();
+    const type = String(b.type || wi.type || 'Task').trim();
+    if (!org || !project) return res.status(400).json({ error: 'work-item org/project not configured' });
+    const azdo = require('./azdo');
+    const title = String(b.title || '').trim().slice(0, 250) || 'Backlog item';
+    const created = await azdo.createWorkItem(org, project, type, {
+      title,
+      description: String(b.description || '').slice(0, 4000),
+      areaPath: wi.areaPath || undefined,
+      iterationPath: wi.iterationPath || undefined,
+      state: wi.state || undefined,
+      tags: wi.tags || undefined,
+    });
+    const rec = _meAiSetCuration({ key, title, workItem: { id: created.id, url: created.url, org, project, type } });
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    res.json({ ok: true, workItem: created, item: rec, items: _meAiAssembleBacklog(date) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/backlog/refresh { date? } → re-poll the inbox then re-assemble (so newly
+// arrived asks land in the queue on demand).
+app.post('/api/me-ai/backlog/refresh', async (req, res) => {
+  try {
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
+    const s = settings.getSettings();
+    const cfg = _meAiConfig(s);
+    try { await _meAiRefreshInbox(s, cfg, date, { force: true }); } catch (_) {}
+    res.json({ ok: true, date, items: _meAiAssembleBacklog(date) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1755,8 +1755,11 @@
     }
     /* ===== Custom (user-organized) nav — Productivity + Basic ===== */
     .cnav { display: flex; flex-direction: column; gap: 2px; }
-    .cnav-row { display: flex; align-items: center; gap: 2px; border-radius: calc(var(--cp-radius-scale, 1) * 10px); }
+    .cnav-row { display: flex; align-items: center; gap: 2px; border-radius: calc(var(--cp-radius-scale, 1) * 10px); cursor: grab; }
+    .cnav-row:active { cursor: grabbing; }
     .cnav-row.drop-before { box-shadow: 0 -2px 0 0 var(--cp-accent); }
+    .cnav-row.drop-after { box-shadow: 0 2px 0 0 var(--cp-accent); }
+    .cnav-row.drop-onto { box-shadow: 0 0 0 1px var(--cp-accent) inset; background: color-mix(in srgb, var(--cp-accent) 12%, transparent); }
     .cnav-grip {
       flex: none; width: 16px; align-self: stretch; display: flex; align-items: center; justify-content: center;
       color: var(--cp-text-soft); opacity: 0; cursor: grab; font-size: 12px; line-height: 1;
@@ -1783,6 +1786,7 @@
     .cnav-end.drop-before { box-shadow: 0 -2px 0 0 var(--cp-accent); }
     .cnav-newgroup { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 6px; padding: 7px 10px; border: 1px dashed var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 10px); background: none; color: var(--cp-text-soft); cursor: pointer; font: inherit; font-size: 12px; text-align: left; transition: border-color .12s ease, color .12s ease, background .12s ease; }
     .cnav-newgroup:hover { border-color: var(--cp-accent); color: var(--cp-text); background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+    .cnav-hint { margin-top: 8px; padding: 0 4px; font-size: 11px; line-height: 1.4; color: var(--cp-text-soft); }
     .exec-row {
       display: flex;
       align-items: center;
@@ -5972,12 +5976,14 @@
                 <div>
                   <!-- Item -->
                   <template x-if="node.t === 'item'">
-                    <div class="cnav-row" :class="{ 'drop-before': _navDropKey === node.key }"
-                         @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropKey = node.key; _navDropGroup = null"
-                         @dragleave="if(_navDropKey===node.key)_navDropKey=null"
+                    <div class="cnav-row" draggable="true" :class="{ 'drop-before': _navDropKey === node.key, 'drop-after': _navDropAfter === node.key, 'drop-onto': _navDropOnto === node.key }"
+                         @dragstart.stop="onNavItemDragStart($event, node.key)"
+                         @dragend="_navClearHints(); _navDrag=null"
+                         @dragover.prevent="onNavItemDragOver($event, node.key, null)"
+                         @dragleave="_navRowDragLeave(node.key)"
                          @drop.prevent.stop="onNavItemDrop($event, node.key, null)">
-                      <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, node.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder">⠿</span>
-                      <a class="nav-link" :class="{ active: isRouteGroup(_navItemDef(node.key).routeGroup) }" :href="_navItemDef(node.key).href">
+                      <span class="cnav-grip" title="Drag to reorder — drop onto another item to group them">⠿</span>
+                      <a class="nav-link" draggable="false" :class="{ active: isRouteGroup(_navItemDef(node.key).routeGroup) }" :href="_navItemDef(node.key).href">
                         <span x-text="_navItemDef(node.key).icon"></span>
                         <span x-text="_navItemDef(node.key).label" style="flex:1"></span>
                         <template x-if="_navItemDef(node.key).badge || _navItemDef(node.key).attnBadge">
@@ -6014,12 +6020,14 @@
                                @drop.prevent.stop="onNavGroupHeaderDrop($event, node.id)">Drop items here</div>
                         </template>
                         <template x-for="child in node.children" :key="child.key">
-                          <div class="cnav-row" :class="{ 'drop-before': _navDropKey === child.key }"
-                               @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropKey = child.key; _navDropGroup = null"
-                               @dragleave="if(_navDropKey===child.key)_navDropKey=null"
+                          <div class="cnav-row" draggable="true" :class="{ 'drop-before': _navDropKey === child.key, 'drop-after': _navDropAfter === child.key }"
+                               @dragstart.stop="onNavItemDragStart($event, child.key)"
+                               @dragend="_navClearHints(); _navDrag=null"
+                               @dragover.prevent="onNavItemDragOver($event, child.key, node.id)"
+                               @dragleave="_navRowDragLeave(child.key)"
                                @drop.prevent.stop="onNavItemDrop($event, child.key, node.id)">
-                            <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, child.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder">⠿</span>
-                            <a class="nav-link" :class="{ active: isRouteGroup(_navItemDef(child.key).routeGroup) }" :href="_navItemDef(child.key).href">
+                            <span class="cnav-grip" title="Drag to reorder">⠿</span>
+                            <a class="nav-link" draggable="false" :class="{ active: isRouteGroup(_navItemDef(child.key).routeGroup) }" :href="_navItemDef(child.key).href">
                               <span x-text="_navItemDef(child.key).icon"></span>
                               <span x-text="_navItemDef(child.key).label" style="flex:1"></span>
                               <template x-if="_navItemDef(child.key).badge || _navItemDef(child.key).attnBadge">
@@ -6041,7 +6049,7 @@
                    @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropEnd = true; _navDropKey = null; _navDropGroup = null"
                    @dragleave="_navDropEnd = false"
                    @drop.prevent.stop="onNavEndDrop($event)"></div>
-              <button class="cnav-newgroup" type="button" @click="navNewGroup()"><span>＋</span><span>New group</span></button>
+              <div class="cnav-hint">Drag an item onto another to group them.</div>
             </div>
           </template>
           <template x-if="!navIsCustom()">
@@ -11416,6 +11424,12 @@
               .meai-sec-peek { font-size:11px; color:var(--cp-text-muted); opacity:.85; }
               .meai-sec.is-pinned .meai-sec-peek { display:none; }
               @media (prefers-reduced-motion: reduce) { .meai-sec-wrap { transition:none; } }
+              /* High-urgency section — a calm attention cue (tinted header + a small dot on the
+                 label), NOT a side-stripe. Pulls urgent asks to the top so they're handled first. */
+              .meai-sec--urgent > .meai-sec-head { background:color-mix(in srgb, var(--cp-danger, #b42318) 6%, transparent); }
+              .meai-sec--urgent > .meai-sec-head:hover { background:color-mix(in srgb, var(--cp-danger, #b42318) 11%, transparent); }
+              .meai-sec--urgent .meai-sec-label { color:var(--cp-danger, #b42318); }
+              .meai-sec--urgent .meai-sec-label::before { content:'\25CF'; font-size:8px; vertical-align:middle; margin-right:6px; }
               /* Discrete "Triaged" area — items you've already dispositioned, kept out of the
                  active decision/approval flow but reversible (reopen / re-triage). */
               .meai-triaged { border-top:1px solid var(--cp-border); margin-top:2px; }
@@ -12934,7 +12948,7 @@
                                 <div class="meai-group-it-acts">
                                   <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today',{scope:'item'})" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
                                   <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now',{scope:'item'})" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
-                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later',{scope:'item'})" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later',{scope:'item'})" :disabled="meai.inboxBusy" title="Move to your backlog to schedule later">Move to backlog</button>
                                   <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done',{scope:'item'})" :disabled="meai.inboxBusy" title="Already handled">Mark as done</button>
                                   <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss',{scope:'item'})" :disabled="meai.inboxBusy" title="Not mine">Not mine</button>
                                   <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix',{scope:'item'})" :disabled="meai.inboxBusy" title="Declining">Won't fix</button>
@@ -12947,7 +12961,7 @@
                         <div class="meai-group-acts">
                           <span class="meai-group-acts-lbl">All together</span>
                           <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'today')" :disabled="meai.inboxBusy" title="Fit all into today's agenda">Fit all into today</button>
-                          <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'later')" :disabled="meai.inboxBusy" title="Park all for later">Later</button>
+                          <button type="button" class="meai-tri" @click="meAiGroupTriage(g,'later')" :disabled="meai.inboxBusy" title="Move all to your backlog">Move to backlog</button>
                           <button type="button" class="meai-tri ghost" @click="meAiGroupTriage(g,'done')" :disabled="meai.inboxBusy" title="Mark all as already handled">Mark all done</button>
                           <button type="button" class="meai-tri ghost" @click="meAiGroupTriage(g,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — set all aside">Not mine</button>
                           <button type="button" class="meai-tri ghost" @click="meAiGroupTriage(g,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but declining all">Won't fix</button>
@@ -12994,7 +13008,7 @@
                             <div class="meai-inbox-acts" x-show="row.status==='decide'">
                               <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
                               <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
-                              <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                              <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later')" :disabled="meai.inboxBusy" title="Move to your backlog to schedule later">Move to backlog</button>
                               <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done">Mark as done</button>
                               <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
                               <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it">Won't fix</button>
@@ -13006,7 +13020,7 @@
                                 <option value="">Move to…</option>
                                 <option value="today">Fit into today</option>
                                 <option value="now">Handle now</option>
-                                <option value="later">Parked for later</option>
+                                <option value="later">Move to backlog</option>
                                 <option value="dismiss">Set aside — not yours</option>
                                 <option value="wontfix">Won't fix</option>
                               </select>
@@ -13017,7 +13031,7 @@
                                 <option value="">Move to…</option>
                                 <option value="today">Fit into today</option>
                                 <option value="now">Handle now</option>
-                                <option value="later">Parked for later</option>
+                                <option value="later">Move to backlog</option>
                                 <option value="dismiss">Set aside — not yours</option>
                                 <option value="wontfix">Won't fix</option>
                               </select>
@@ -13634,6 +13648,9 @@
                           </span>
                         </div>
                         <div class="meai-peek-sec-body">
+                          <div class="meai-sec-hint" style="display:flex;justify-content:flex-end">
+                            <a href="#/backlog" class="meai-detail-link" @click.stop title="Open the full backlog to group, prioritize, and turn these into work items">Manage in Backlog →</a>
+                          </div>
                           <template x-for="(bk, bki) in ((meai.agenda&&meai.agenda.backlog)||[])" :key="bki">
                             <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
                                  @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
@@ -13773,7 +13790,7 @@
                                   <option value="">Re-triage to…</option>
                                   <option value="today">Fit into today</option>
                                   <option value="now">Handle now</option>
-                                  <option value="later">Parked for later</option>
+                                  <option value="later">Move to backlog</option>
                                   <option value="dismiss">Set aside — not yours</option>
                                   <option value="wontfix">Won't fix</option>
                                   <option value="done">Mark as done</option>
@@ -14786,7 +14803,7 @@
                       <div class="meai-cr-main">
                         <div class="meai-cr-label" x-text="cr.label"></div>
                         <div class="meai-cr-meta">
-                          <span x-text="({dismiss:'Not mine',wontfix:'Won\u2019t fix',later:'Later'})[cr.action] || cr.action"></span>
+                          <span x-text="({dismiss:'Not mine',wontfix:'Won\u2019t fix',later:'Move to backlog'})[cr.action] || cr.action"></span>
                           <span x-show="cr.hits" x-text="'· ignored ' + cr.hits + '\u00D7'"></span>
                           <span x-show="cr.sample" class="meai-cr-sample" x-text="'· e.g. ' + cr.sample" :title="cr.sample"></span>
                         </div>
@@ -14832,6 +14849,311 @@
                   </span>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- ============ BACKLOG — future-work workbench ============ -->
+          <section x-show="!loading && !errorMessage && route === 'backlog'">
+            <style>
+              .meai-bk-wrap { max-width:1100px; margin:0 auto; }
+              .meai-bk-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:0 0 6px; }
+              .meai-bk-title { font-size:22px; font-weight:700; color:var(--cp-text); margin:0; display:flex; align-items:center; gap:10px; }
+              .meai-bk-sub { font-size:12.5px; color:var(--cp-text-muted); margin:3px 0 0; max-width:62ch; }
+              .meai-bk-facets { display:flex; align-items:center; gap:2px; flex-wrap:wrap; margin:20px 0 12px; }
+              .meai-bk-facet { appearance:none; background:transparent; border:0; border-bottom:2px solid transparent;
+                color:var(--cp-text-muted); font:inherit; font-size:13px; padding:6px 10px; cursor:pointer; border-radius:6px 6px 0 0;
+                transition:color .12s ease, border-color .12s ease; }
+              .meai-bk-facet:hover { color:var(--cp-text); }
+              .meai-bk-facet.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); font-weight:600; }
+              .meai-bk-facet .n { color:var(--cp-text-soft); font-weight:400; margin-left:5px; font-variant-numeric:tabular-nums; }
+              .meai-bk-facet.on .n { color:var(--cp-text-muted); }
+              .meai-bk-facet-sep { width:1px; height:16px; background:var(--cp-border); margin:0 6px; }
+              .meai-bk-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 12px; padding:0 2px;
+                font-size:12.5px; color:var(--cp-text-muted); }
+              .meai-bk-chk { display:inline-flex; align-items:center; gap:7px; cursor:pointer; user-select:none; }
+              .meai-bk-chk input { accent-color:var(--cp-accent); width:15px; height:15px; }
+              .meai-bk-tsel { display:inline-flex; align-items:center; gap:6px; }
+              .meai-bk-tsel select { appearance:auto; background:var(--cp-surface); color:var(--cp-text); border:1px solid var(--cp-border);
+                border-radius:7px; padding:4px 8px; font:inherit; font-size:12.5px; cursor:pointer; }
+              .meai-bk-spacer { flex:1 1 auto; }
+              .meai-bk-btn { appearance:none; background:var(--cp-surface); color:var(--cp-text); border:1px solid var(--cp-border);
+                border-radius:8px; padding:6px 12px; font:inherit; font-size:12.5px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
+                transition:background .12s ease, border-color .12s ease; }
+              .meai-bk-btn:hover { background:var(--cp-surface-soft); border-color:var(--cp-border-strong); }
+              .meai-bk-btn.primary { background:var(--cp-accent); color:var(--cp-accent-fg); border-color:var(--cp-accent); }
+              .meai-bk-btn.primary:hover { background:var(--cp-accent-hover); }
+              .meai-bk-btn.sm { padding:4px 9px; font-size:12px; }
+              .meai-bk-btn.danger:hover { border-color:var(--cp-danger); color:var(--cp-danger); }
+              .meai-bk-btn:disabled { opacity:.55; cursor:default; }
+              .meai-bk-list { display:flex; flex-direction:column; gap:8px; }
+              .meai-bk-unit { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-surface); overflow:hidden; }
+              .meai-bk-unit-head { display:flex; align-items:center; gap:9px; padding:9px 14px; background:var(--cp-surface-soft);
+                border-bottom:1px solid var(--cp-border); font-size:13px; color:var(--cp-text); }
+              .meai-bk-unit-head .lbl { font-weight:600; }
+              .meai-bk-unit-head .meta { color:var(--cp-text-soft); font-size:12px; font-variant-numeric:tabular-nums; }
+              .meai-bk-unit-body { display:flex; flex-direction:column; }
+              .meai-bk-row { display:flex; align-items:flex-start; gap:11px; padding:11px 14px; border-bottom:1px solid var(--cp-border);
+                background:var(--cp-surface); transition:background .1s ease; }
+              .meai-bk-unit-body .meai-bk-row:last-child { border-bottom:0; }
+              .meai-bk-list > .meai-bk-row { border:1px solid var(--cp-border); border-radius:12px; }
+              .meai-bk-row:hover { background:var(--cp-surface-soft); }
+              .meai-bk-row.sel { background:var(--cp-accent-soft); }
+              .meai-bk-row input.rowchk { accent-color:var(--cp-accent); width:16px; height:16px; margin-top:2px; flex:0 0 auto; }
+              .meai-bk-rmain { flex:1 1 auto; min-width:0; }
+              .meai-bk-rt { font-size:14px; color:var(--cp-text); font-weight:500; cursor:pointer; }
+              .meai-bk-rt:hover { color:var(--cp-accent); }
+              .meai-bk-rmeta { margin-top:3px; font-size:12px; color:var(--cp-text-muted); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+              .meai-bk-rmeta .kind { color:var(--cp-text-soft); font-weight:600; letter-spacing:.02em; text-transform:uppercase; font-size:10.5px; }
+              .meai-bk-rmeta .dot { color:var(--cp-border-strong); }
+              .meai-bk-rmeta .wk { color:var(--cp-accent); font-weight:600; }
+              .meai-bk-rside { flex:0 0 auto; display:flex; align-items:center; gap:12px; }
+              .meai-bk-urg { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cp-text-muted); white-space:nowrap; }
+              .meai-bk-urg .d { width:8px; height:8px; border-radius:999px; background:var(--cp-border-strong); }
+              .meai-bk-urg.now .d { background:var(--cp-danger); } .meai-bk-urg.now { color:var(--cp-danger); }
+              .meai-bk-urg.soon .d { background:var(--cp-warning); } .meai-bk-urg.soon { color:var(--cp-warning); }
+              .meai-bk-urg.later .d { background:var(--cp-accent); }
+              .meai-bk-urg.whenever .d { background:var(--cp-border-strong); }
+              .meai-bk-qa { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity .12s ease; }
+              .meai-bk-row:hover .meai-bk-qa, .meai-bk-row:focus-within .meai-bk-qa { opacity:1; }
+              .meai-bk-qa button { appearance:none; background:transparent; border:0; color:var(--cp-text-muted); font:inherit; font-size:12px;
+                padding:3px 7px; border-radius:6px; cursor:pointer; }
+              .meai-bk-qa button:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+              .meai-bk-qa button.danger:hover { color:var(--cp-danger); }
+              .meai-bk-empty { border:1px dashed var(--cp-border); border-radius:12px; padding:40px 24px; text-align:center;
+                color:var(--cp-text-muted); font-size:14px; }
+              .meai-bk-selbar { position:sticky; bottom:14px; z-index:5; margin:14px auto 0; display:flex; align-items:center; gap:10px;
+                flex-wrap:wrap; padding:11px 16px; background:var(--cp-bg-elevated); border:1px solid var(--cp-border-strong);
+                border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.18); }
+              .meai-bk-selbar .cnt { font-size:13px; font-weight:600; color:var(--cp-text); }
+              /* context drawer */
+              .meai-bk-scrim { position:fixed; inset:0; background:rgba(0,0,0,.42); z-index:39; opacity:0; pointer-events:none;
+                transition:opacity .16s ease; }
+              .meai-bk-scrim.on { opacity:1; pointer-events:auto; }
+              .meai-bk-drawer { position:fixed; top:0; right:0; height:100vh; width:min(440px,94vw); z-index:40; background:var(--cp-bg-elevated);
+                border-left:1px solid var(--cp-border-strong); box-shadow:-8px 0 32px rgba(0,0,0,.24); display:flex; flex-direction:column;
+                transform:translateX(100%); transition:transform .22s cubic-bezier(.2,.8,.2,1); }
+              .meai-bk-drawer.on { transform:translateX(0); }
+              .meai-bk-dw-head { padding:18px 20px 12px; border-bottom:1px solid var(--cp-border); }
+              .meai-bk-dw-kind { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft); font-weight:600; }
+              .meai-bk-dw-title { font-size:17px; font-weight:700; color:var(--cp-text); margin:6px 0 0; }
+              .meai-bk-dw-body { flex:1 1 auto; overflow:auto; padding:16px 20px; }
+              .meai-bk-dw-sec { margin:0 0 18px; }
+              .meai-bk-dw-sec h4 { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft);
+                font-weight:600; margin:0 0 8px; }
+              .meai-bk-kv { display:flex; gap:10px; font-size:13px; margin:0 0 5px; }
+              .meai-bk-kv .k { color:var(--cp-text-muted); flex:0 0 92px; }
+              .meai-bk-kv .v { color:var(--cp-text); }
+              .meai-bk-kv .v a { color:var(--cp-accent); text-decoration:none; }
+              .meai-bk-kv .v a:hover { text-decoration:underline; }
+              .meai-bk-why { font-size:13px; color:var(--cp-text); line-height:1.5; }
+              .meai-bk-urgedit { margin-top:10px; display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--cp-text-muted); }
+              .meai-bk-urgedit input[type=range] { accent-color:var(--cp-accent); flex:1 1 auto; }
+              .meai-bk-dw-foot { padding:12px 20px 18px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:8px; }
+              .meai-bk-dw-foot .row { display:flex; gap:8px; flex-wrap:wrap; }
+              @media (max-width:640px) { .meai-bk-drawer { width:100vw; } }
+              @media (prefers-reduced-motion:reduce) {
+                .meai-bk-drawer, .meai-bk-scrim, .meai-bk-facet, .meai-bk-btn, .meai-bk-row, .meai-bk-qa { transition:none !important; }
+              }
+            </style>
+            <div class="meai-bk-wrap">
+              <div class="meai-bk-head">
+                <div>
+                  <h1 class="meai-bk-title">🗂 Backlog</h1>
+                  <p class="meai-bk-sub">Everything future — meeting action items, PR reviews, comms, and work that didn't fit today.
+                    Curate it here; your agenda plans from this queue. Nothing is scheduled until you say so.</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <button class="meai-bk-btn" @click="meaiBkRefresh()" :disabled="meaiBk.busy">
+                    <span x-text="meaiBk.busy ? 'Refreshing…' : '↻ Refresh'"></span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- facets -->
+              <div class="meai-bk-facets">
+                <template x-for="(f,idx) in meaiBkFacets()" :key="idx">
+                  <template x-if="f.sep"><span class="meai-bk-facet-sep"></span></template>
+                </template>
+                <template x-for="f in meaiBkFacets()" :key="f.sep ? ('sep'+Math.random()) : f.key">
+                  <button x-show="!f.sep" class="meai-bk-facet" :class="{ on: meaiBk.facet === f.key }" @click="meaiBk.facet = f.key">
+                    <span x-text="f.label"></span><span class="n" x-text="f.n"></span>
+                  </button>
+                </template>
+              </div>
+
+              <!-- toolbar -->
+              <div class="meai-bk-toolbar">
+                <label class="meai-bk-chk">
+                  <input type="checkbox" :checked="meaiBkAllVisibleSelected()" @change="meaiBkSelAll($event.target.checked)">
+                  <span>Select all</span>
+                </label>
+                <span x-show="meaiBkSelCount()" x-text="meaiBkSelCount() + ' selected'" style="color:var(--cp-text);font-weight:600;"></span>
+                <span class="meai-bk-spacer"></span>
+                <span class="meai-bk-tsel">Group by
+                  <select x-model="meaiBk.groupBy">
+                    <option value="ai">unit of work</option>
+                    <option value="source">source</option>
+                    <option value="none">nothing</option>
+                  </select>
+                </span>
+                <span class="meai-bk-tsel">Sort
+                  <select x-model="meaiBk.sort">
+                    <option value="urg">urgency</option>
+                    <option value="age">oldest first</option>
+                    <option value="src">source</option>
+                  </select>
+                </span>
+              </div>
+
+              <!-- loading / empty -->
+              <div x-show="meaiBk.loading" class="meai-bk-empty">Loading your backlog…</div>
+              <div x-show="!meaiBk.loading && !meaiBkVisible().length" class="meai-bk-empty">
+                <div style="font-size:15px;color:var(--cp-text);font-weight:600;margin-bottom:4px;">Nothing here</div>
+                <div x-text="meaiBk.facet === 'aside' ? 'You haven\'t set anything aside.' : 'No future work in this view. Try ↻ Refresh, or switch filters.'"></div>
+              </div>
+
+              <!-- list -->
+              <div class="meai-bk-list" x-show="!meaiBk.loading && meaiBkVisible().length">
+                <template x-for="u in meaiBkUnits()" :key="u.single ? ('one-'+u.item.key) : ('unit-'+u.key)">
+                  <div>
+                    <!-- single row -->
+                    <template x-if="u.single">
+                      <div class="meai-bk-row" :class="{ sel: meaiBk.sel[u.item.key] }">
+                        <input type="checkbox" class="rowchk" :checked="!!meaiBk.sel[u.item.key]" @change="meaiBkToggleSel(u.item.key)">
+                        <div class="meai-bk-rmain">
+                          <div class="meai-bk-rt" @click="meaiBkOpenDrawer(u.item.key)" x-text="u.item.title"></div>
+                          <div class="meai-bk-rmeta">
+                            <span class="kind" x-text="meaiBkKindLabel(u.item.kind)"></span>
+                            <span class="dot">·</span>
+                            <span x-text="u.item.source || 'unknown'"></span>
+                            <template x-if="u.item.repo"><span><span class="dot">·</span> <span x-text="u.item.repo"></span></span></template>
+                            <template x-if="u.item.when"><span><span class="dot">·</span> <span x-text="u.item.when"></span></span></template>
+                            <template x-if="u.item.week"><span class="wk">★ this week</span></template>
+                          </div>
+                        </div>
+                        <div class="meai-bk-rside">
+                          <span class="meai-bk-urg" :class="meaiBkUrgClass(_meaiBkUrg(u.item))">
+                            <span class="d"></span><span x-text="meaiBkUrgWord(_meaiBkUrg(u.item))"></span>
+                          </span>
+                          <div class="meai-bk-qa">
+                            <button @click="meaiBkMark(u.item.key,'week')" x-text="u.item.week ? '☆ Unweek' : '☆ Week'"></button>
+                            <button @click="meaiBkOpenDrawer(u.item.key)">Context</button>
+                            <template x-if="!u.item.aside"><button class="danger" @click="meaiBkMark(u.item.key,'aside')">Set aside</button></template>
+                            <template x-if="u.item.aside"><button @click="meaiBkMark(u.item.key,'unaside')">Restore</button></template>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- unit card -->
+                    <template x-if="!u.single">
+                      <div class="meai-bk-unit">
+                        <div class="meai-bk-unit-head">
+                          <span x-text="u.ico"></span>
+                          <span class="lbl" x-text="u.label"></span>
+                          <span class="meta" x-text="u.count + (u.count===1?' item':' items') + ' · ~' + u.est + 'h'"></span>
+                        </div>
+                        <div class="meai-bk-unit-body">
+                          <template x-for="it in u.items" :key="'ui-'+it.key">
+                            <div class="meai-bk-row" :class="{ sel: meaiBk.sel[it.key] }">
+                              <input type="checkbox" class="rowchk" :checked="!!meaiBk.sel[it.key]" @change="meaiBkToggleSel(it.key)">
+                              <div class="meai-bk-rmain">
+                                <div class="meai-bk-rt" @click="meaiBkOpenDrawer(it.key)" x-text="it.title"></div>
+                                <div class="meai-bk-rmeta">
+                                  <span class="kind" x-text="meaiBkKindLabel(it.kind)"></span>
+                                  <span class="dot">·</span>
+                                  <span x-text="it.source || 'unknown'"></span>
+                                  <template x-if="it.when"><span><span class="dot">·</span> <span x-text="it.when"></span></span></template>
+                                  <template x-if="it.week"><span class="wk">★ this week</span></template>
+                                </div>
+                              </div>
+                              <div class="meai-bk-rside">
+                                <span class="meai-bk-urg" :class="meaiBkUrgClass(_meaiBkUrg(it))">
+                                  <span class="d"></span><span x-text="meaiBkUrgWord(_meaiBkUrg(it))"></span>
+                                </span>
+                                <div class="meai-bk-qa">
+                                  <button @click="meaiBkMark(it.key,'week')" x-text="it.week ? '☆ Unweek' : '☆ Week'"></button>
+                                  <button @click="meaiBkOpenDrawer(it.key)">Context</button>
+                                  <button class="danger" @click="meaiBkMark(it.key,'aside')">Set aside</button>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <!-- selection bar -->
+              <div class="meai-bk-selbar" x-show="meaiBkSelCount()" x-transition>
+                <span class="cnt" x-text="meaiBkSelCount() + ' selected'"></span>
+                <button class="meai-bk-btn sm" @click="meaiBkGroupSelected()" :disabled="meaiBk.busy || meaiBkSelCount() < 2">⛓ Group as one unit</button>
+                <button class="meai-bk-btn sm primary" @click="meaiBkCreateWorkItem()" :disabled="meaiBk.busy">＋ Create work item</button>
+                <button class="meai-bk-btn sm" @click="meaiBkBulk('week')" :disabled="meaiBk.busy">★ Do this week</button>
+                <button class="meai-bk-btn sm danger" @click="meaiBkBulk('aside')" :disabled="meaiBk.busy">Set aside</button>
+                <button class="meai-bk-btn sm" @click="meaiBkClearSel()">Cancel</button>
+              </div>
+            </div>
+
+            <!-- context drawer -->
+            <div class="meai-bk-scrim" :class="{ on: meaiBk.drawerKey }" @click="meaiBkCloseDrawer()"></div>
+            <div class="meai-bk-drawer" :class="{ on: meaiBk.drawerKey }" @keydown.escape.window="meaiBkCloseDrawer()">
+              <template x-if="meaiBkDrawerItem()">
+                <div style="display:flex;flex-direction:column;height:100%;">
+                  <div class="meai-bk-dw-head">
+                    <div class="meai-bk-dw-kind" x-text="meaiBkKindLabel(meaiBkDrawerItem().kind) + ' · ' + (meaiBkDrawerItem().source || 'unknown')"></div>
+                    <div class="meai-bk-dw-title" x-text="meaiBkDrawerItem().title"></div>
+                  </div>
+                  <div class="meai-bk-dw-body">
+                    <div class="meai-bk-dw-sec">
+                      <h4>Where it came from</h4>
+                      <div class="meai-bk-kv"><span class="k">Source</span><span class="v" x-text="meaiBkDrawerItem().source + (meaiBkDrawerItem().repo ? ' · ' + meaiBkDrawerItem().repo : '')"></span></div>
+                      <template x-if="meaiBkDrawerItem().when"><div class="meai-bk-kv"><span class="k">Seen</span><span class="v" x-text="meaiBkDrawerItem().when"></span></div></template>
+                      <template x-if="meaiBkDrawerItem().recordingUrl"><div class="meai-bk-kv"><span class="k">Recording</span><span class="v"><a :href="meaiBkDrawerItem().recordingUrl" target="_blank" rel="noopener">Open recording ↗</a></span></div></template>
+                      <template x-if="meaiBkDrawerItem().meetingLink"><div class="meai-bk-kv"><span class="k">Meeting</span><span class="v"><a :href="meaiBkDrawerItem().meetingLink" target="_blank" rel="noopener">Open in calendar ↗</a></span></div></template>
+                      <template x-if="meaiBkDrawerItem().link && meaiBkDrawerItem().link !== meaiBkDrawerItem().recordingUrl && meaiBkDrawerItem().link !== meaiBkDrawerItem().meetingLink"><div class="meai-bk-kv"><span class="k">Link</span><span class="v"><a :href="meaiBkDrawerItem().link" target="_blank" rel="noopener">Open ↗</a></span></div></template>
+                      <template x-if="meaiBkDrawerItem().workItem"><div class="meai-bk-kv"><span class="k">Work item</span><span class="v"><a :href="meaiBkDrawerItem().workItem.url" target="_blank" rel="noopener" x-text="'#' + meaiBkDrawerItem().workItem.id + ' ↗'"></a></span></div></template>
+                    </div>
+                    <template x-if="meaiBkDrawerItem().detail">
+                      <div class="meai-bk-dw-sec">
+                        <h4>Notes</h4>
+                        <div class="meai-bk-why" x-text="meaiBkDrawerItem().detail"></div>
+                      </div>
+                    </template>
+                    <template x-if="meaiBkDrawerItem().note">
+                      <div class="meai-bk-dw-sec">
+                        <h4>Your note</h4>
+                        <div class="meai-bk-why" x-text="meaiBkDrawerItem().note"></div>
+                      </div>
+                    </template>
+                    <div class="meai-bk-dw-sec">
+                      <h4>Why this urgency</h4>
+                      <div class="meai-bk-why">
+                        <strong x-text="meaiBkUrgWord(_meaiBkUrg(meaiBkDrawerItem())) + ' · U' + _meaiBkUrg(meaiBkDrawerItem())"></strong>
+                        — <span x-text="meaiBkWhyUrg(_meaiBkUrg(meaiBkDrawerItem()))"></span>
+                      </div>
+                      <div class="meai-bk-urgedit">
+                        <span>Override</span>
+                        <input type="range" min="0" max="5" :value="_meaiBkUrg(meaiBkDrawerItem())" @change="meaiBkSetUrg(meaiBkDrawerItem().key, $event.target.value)">
+                        <span x-text="_meaiBkUrg(meaiBkDrawerItem())" style="font-variant-numeric:tabular-nums;"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="meai-bk-dw-foot">
+                    <div class="row">
+                      <button class="meai-bk-btn sm" @click="meaiBkMark(meaiBkDrawerItem().key,'week')" x-text="meaiBkDrawerItem().week ? '★ On this week' : '★ Do this week'"></button>
+                      <template x-if="meaiBkDrawerItem().link"><a class="meai-bk-btn sm" :href="meaiBkDrawerItem().link" target="_blank" rel="noopener" style="text-decoration:none;">Open ↗</a></template>
+                    </div>
+                    <div class="row">
+                      <button class="meai-bk-btn sm" @click="meaiBkStartGroupFrom(meaiBkDrawerItem().key)">⛓ Group with…</button>
+                      <template x-if="!meaiBkDrawerItem().aside"><button class="meai-bk-btn sm danger" @click="meaiBkMark(meaiBkDrawerItem().key,'aside'); meaiBkCloseDrawer()">Set aside</button></template>
+                      <template x-if="meaiBkDrawerItem().aside"><button class="meai-bk-btn sm" @click="meaiBkMark(meaiBkDrawerItem().key,'unaside')">Restore</button></template>
+                      <button class="meai-bk-btn sm" @click="meaiBkCloseDrawer()">Close</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </div>
           </section>
 
@@ -22805,6 +23127,8 @@
         _navDropKey: null,
         _navDropGroup: null,
         _navDropEnd: false,
+        _navDropOnto: null,
+        _navDropAfter: null,
         _navRenameId: null,
         _navRenameText: '',
         // Experience level: 'basic' (default, simplified single-view) vs 'advanced'
@@ -23324,6 +23648,17 @@
           newName: '',
           newDescription: '',
           notice: '',
+        },
+        meaiBk: {
+          loaded: false,
+          loading: false,
+          busy: false,
+          items: [],
+          facet: 'all',        // all | action | review | comms | dev | week | aside
+          groupBy: 'ai',       // ai | source | none
+          sort: 'urg',         // urg | age | src
+          sel: {},             // key -> bool (selection)
+          drawerKey: null,     // open item key, or null
         },
         meai: {
           loaded: false,
@@ -24538,7 +24873,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -24644,6 +24979,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
             await this.loadMeAi();
+          } else if (this.route === 'backlog') {
+            if (!this.meai.loaded) await this.loadMeAi();
+            await this.loadMeaiBacklog();
           } else if (this.route === 'playbooks') {
             await this.loadPlaybooks();
           } else if (this.route === 'newsletter') {
@@ -25577,6 +25915,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
             case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai');
+            case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
             case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards');
             case 'insights': return mk('Insights', '🛰️', '#/insights', 'insights');
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
@@ -25601,7 +25940,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const en = (k) => this.featureEnabled(k);
           if (scope === 'basic') {
             const out = ['home', 'boards', 'codeflow'];
-            if (en('me-ai')) out.push('me-ai');
+            if (en('me-ai')) out.push('me-ai', 'backlog');
             if (en('insights')) out.push('insights');
             out.push('agents');
             if (en('diary')) out.push('diary');
@@ -25618,7 +25957,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // via advancedFeatures. featureEnabled() also cascades disabled dependencies
           // (e.g. diary off -> connect/newsletter/me-ai drop out). Core stays unconditional.
           const out = ['home'];
-          if (en('me-ai')) out.push('me-ai');
+          if (en('me-ai')) out.push('me-ai', 'backlog');
           if (en('playbooks')) out.push('playbooks');
           out.push('boards');
           if (en('insights')) out.push('insights');
@@ -25721,27 +26060,74 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         onNavItemDragStart(ev, key) { this._navDrag = { kind: 'item', key }; try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', key); } catch {} },
         onNavGroupDragStart(ev, id) { this._navDrag = { kind: 'group', id }; try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', id); } catch {} },
-        _navClearHints() { this._navDropKey = null; this._navDropGroup = null; this._navDropEnd = false; },
-        // Drop before an item row. groupId set → the row lives inside that group.
+        _navClearHints() { this._navDropKey = null; this._navDropGroup = null; this._navDropEnd = false; this._navDropOnto = null; this._navDropAfter = null; },
+        // Where in an item row is the cursor? Splits the row into three bands so one gesture
+        // covers reorder AND grouping: top → drop before, bottom → drop after, middle → combine
+        // into a new group. Combine only applies to a top-level item target dragging another
+        // item (the layout is two levels deep — we never nest a group inside a group).
+        _navItemDropIntent(ev, groupId) {
+          const canCombine = !groupId && this._navDrag && this._navDrag.kind === 'item';
+          let f = 0.5;
+          try { const r = ev.currentTarget.getBoundingClientRect(); const h = r.height || 1; f = (ev.clientY - r.top) / h; } catch {}
+          if (canCombine) {
+            if (f < 0.25) return 'before';
+            if (f > 0.75) return 'after';
+            return 'onto';
+          }
+          return f < 0.5 ? 'before' : 'after';
+        },
+        onNavItemDragOver(ev, key, groupId) {
+          try { ev.dataTransfer.dropEffect = 'move'; } catch {}
+          const intent = this._navItemDropIntent(ev, groupId);
+          this._navDropGroup = null;
+          this._navDropKey = intent === 'before' ? key : null;
+          this._navDropAfter = intent === 'after' ? key : null;
+          this._navDropOnto = intent === 'onto' ? key : null;
+        },
+        _navRowDragLeave(key) {
+          if (this._navDropKey === key) this._navDropKey = null;
+          if (this._navDropAfter === key) this._navDropAfter = null;
+          if (this._navDropOnto === key) this._navDropOnto = null;
+        },
+        // Drag one item onto another top-level item → wrap both in a fresh group (dragged
+        // item nested under the target). This is the drag-native replacement for "New group".
+        _navCombineIntoGroup(order, targetKey, d) {
+          const dragged = this._navDetachNode(order, d);
+          if (!dragged || dragged.t !== 'item') { this._saveNavCustom(); return; }
+          const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey);
+          if (ti < 0) { order.push(dragged); this._saveNavCustom(); return; }
+          const target = order[ti];
+          const id = 'g' + Date.now().toString(36);
+          order.splice(ti, 1, { t: 'group', id, name: 'New group', collapsed: false, children: [target, dragged] });
+          this._saveNavCustom();
+          this.navStartRename(id, 'New group');
+        },
+        // Drop onto/near an item row. groupId set → the row lives inside that group.
         onNavItemDrop(ev, targetKey, groupId) {
+          const intent = this._navItemDropIntent(ev, groupId);
           const d = this._navDrag; this._navClearHints(); this._navDrag = null;
           if (!d) return;
           const order = this._navOrder();
+          if (intent === 'onto' && !groupId && d.kind === 'item' && d.key !== targetKey) {
+            this._navCombineIntoGroup(order, targetKey, d);
+            return;
+          }
+          const after = intent === 'after' ? 1 : 0;
           const node = this._navDetachNode(order, d);
           if (!node) { this._saveNavCustom(); return; }
           if (node.t === 'group') {
-            // Groups can only live at the top level. Insert before the group owning the target.
+            // Groups can only live at the top level. Insert relative to the target's owner.
             let idx = order.length;
-            if (groupId) { const gi = this._navFindGroupIdx(order, groupId); if (gi >= 0) idx = gi; }
-            else { const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey); if (ti >= 0) idx = ti; }
+            if (groupId) { const gi = this._navFindGroupIdx(order, groupId); if (gi >= 0) idx = gi + after; }
+            else { const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey); if (ti >= 0) idx = ti + after; }
             order.splice(idx, 0, node);
           } else if (groupId) {
             const g = order.find(n => n.t === 'group' && n.id === groupId);
-            if (g) { const ci = g.children.findIndex(c => c.key === targetKey); g.children.splice(ci < 0 ? g.children.length : ci, 0, node); }
+            if (g) { const ci = g.children.findIndex(c => c.key === targetKey); g.children.splice(ci < 0 ? g.children.length : ci + after, 0, node); }
             else order.push(node);
           } else {
             const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey);
-            order.splice(ti < 0 ? order.length : ti, 0, node);
+            order.splice(ti < 0 ? order.length : ti + after, 0, node);
           }
           this._saveNavCustom();
         },
@@ -26033,7 +26419,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary', 'playbooks',
+          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -26165,7 +26551,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events'].includes(r)) return true;
           const gated = {
             diary: ['diary'],
-            'me-ai': ['me-ai'],
+            'me-ai': ['me-ai', 'backlog'],
             insights: ['insights'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
@@ -26188,7 +26574,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design', 'settings', 'events'].includes(r)) return true;
           const gated = {
             diary: ['diary'],
-            'me-ai': ['me-ai'],
+            'me-ai': ['me-ai', 'backlog'],
             playbooks: ['playbooks'],
             insights: ['insights'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
@@ -31052,6 +31438,202 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.agenda = null;
           }
         },
+        // ============ Backlog — future-work workbench ============
+        // A curated, durable queue of everything not-yet-scheduled (meeting action items,
+        // PR reviews, comms, "didn't fit today" spillover). The planner schedules FROM it.
+        async loadMeaiBacklog() {
+          this.meaiBk.loading = true;
+          try {
+            const r = await this.request('/api/me-ai/backlog?date=' + encodeURIComponent(this.meai.date));
+            this.meaiBk.items = (r && Array.isArray(r.items)) ? r.items : [];
+            this.meaiBk.loaded = true;
+          } catch (e) {
+            this.toast('Failed to load backlog: ' + (e.message || e), 'error');
+            this.meaiBk.items = [];
+          } finally {
+            this.meaiBk.loading = false;
+          }
+        },
+        async meaiBkRefresh() {
+          if (this.meaiBk.busy) return;
+          this.meaiBk.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/backlog/refresh', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) });
+            if (r && Array.isArray(r.items)) this.meaiBk.items = r.items;
+            this.toast('Refreshed from inbox + agenda');
+          } catch (e) {
+            this.toast('Refresh failed: ' + (e.message || e), 'error');
+          } finally {
+            this.meaiBk.busy = false;
+          }
+        },
+        meaiBkKindLabel(k) { return ({ action: 'Action item', review: 'PR review', comms: 'Comms', dev: "Didn't fit" })[k] || 'Work'; },
+        _meaiBkUrg(i) { return (i && i.urgencyOverride != null) ? Number(i.urgencyOverride) : Number((i && i.urgency) || 0); },
+        meaiBkUrgClass(u) { return u >= 5 ? 'now' : u >= 4 ? 'soon' : u >= 2 ? 'later' : 'whenever'; },
+        meaiBkUrgWord(u) { return u >= 5 ? 'Now' : u >= 4 ? 'Soon' : u >= 2 ? 'This week' : 'Whenever'; },
+        meaiBkWhyUrg(u) {
+          return u >= 5 ? 'Time-sensitive and could recur; the AI raised it.'
+            : u >= 4 ? 'Author or asker is active and it blocks downstream work.'
+            : u >= 2 ? 'Worth doing, but there is no hard deadline.'
+            : 'Low signal — safe to defer or set aside.';
+        },
+        meaiBkFacets() {
+          const items = this.meaiBk.items || [];
+          const live = items.filter(i => !i.aside);
+          return [
+            { key: 'all', label: 'All', n: live.length },
+            { key: 'action', label: 'Action items', n: live.filter(i => i.kind === 'action').length },
+            { key: 'review', label: 'PRs', n: live.filter(i => i.kind === 'review').length },
+            { key: 'comms', label: 'Comms', n: live.filter(i => i.kind === 'comms').length },
+            { key: 'dev', label: "Didn't fit", n: live.filter(i => i.kind === 'dev').length },
+            { sep: true },
+            { key: 'week', label: '★ This week', n: live.filter(i => i.week).length },
+            { key: 'aside', label: 'Set aside', n: items.filter(i => i.aside).length },
+          ];
+        },
+        meaiBkVisible() {
+          let arr = (this.meaiBk.items || []).slice();
+          const f = this.meaiBk.facet;
+          if (f === 'aside') { arr = arr.filter(i => i.aside); }
+          else {
+            arr = arr.filter(i => !i.aside);
+            if (f === 'week') arr = arr.filter(i => i.week);
+            else if (f !== 'all') arr = arr.filter(i => i.kind === f);
+          }
+          const s = this.meaiBk.sort;
+          arr.sort((a, b) => s === 'urg' ? this._meaiBkUrg(b) - this._meaiBkUrg(a)
+            : s === 'age' ? String(a.when || '').localeCompare(String(b.when || ''))
+              : String(a.source || '').localeCompare(String(b.source || '')));
+          return arr;
+        },
+        meaiBkUnits() {
+          const vis = this.meaiBkVisible();
+          const gb = this.meaiBk.groupBy;
+          if (gb === 'none') return vis.map(i => ({ single: true, item: i }));
+          const units = {}; const order = [];
+          vis.forEach(i => {
+            const key = gb === 'ai' ? (i.group || ('one:' + i.key)) : (i.source || 'Other');
+            if (!units[key]) { units[key] = []; order.push(key); }
+            units[key].push(i);
+          });
+          const out = [];
+          order.forEach(key => {
+            const a = units[key];
+            if (gb === 'ai' && key.indexOf('one:') === 0) { out.push({ single: true, item: a[0] }); return; }
+            const mins = a.reduce((s, i) => s + (i.kind === 'review' ? 30 : i.kind === 'comms' ? 10 : 45), 0);
+            a.sort((x, y) => this._meaiBkUrg(y) - this._meaiBkUrg(x));
+            out.push({ single: false, key: key, label: key, ico: gb === 'ai' ? '⛓' : '📁', items: a, est: Math.round(mins / 60 * 10) / 10, count: a.length });
+          });
+          return out;
+        },
+        meaiBkSelCount() { return Object.values(this.meaiBk.sel).filter(Boolean).length; },
+        meaiBkSelKeys() { return Object.keys(this.meaiBk.sel).filter(k => this.meaiBk.sel[k]); },
+        meaiBkToggleSel(key) { this.meaiBk.sel[key] = !this.meaiBk.sel[key]; },
+        meaiBkClearSel() { this.meaiBk.sel = {}; },
+        meaiBkAllVisibleSelected() {
+          const v = this.meaiBkVisible();
+          return v.length > 0 && v.every(i => this.meaiBk.sel[i.key]);
+        },
+        meaiBkSelAll(on) {
+          const v = this.meaiBkVisible();
+          const sel = Object.assign({}, this.meaiBk.sel);
+          v.forEach(i => { if (on) sel[i.key] = true; else delete sel[i.key]; });
+          this.meaiBk.sel = sel;
+        },
+        async _meaiBkPost(url, body) {
+          const r = await this.request(url, { method: 'POST', body: JSON.stringify(Object.assign({ date: this.meai.date }, body)) });
+          if (r && Array.isArray(r.items)) this.meaiBk.items = r.items;
+          return r;
+        },
+        async meaiBkMark(key, what) {
+          const i = (this.meaiBk.items || []).find(x => x.key === key); if (!i) return;
+          try {
+            if (what === 'week') {
+              const nv = !i.week;
+              await this._meaiBkPost('/api/me-ai/backlog/item', { key, week: nv });
+              this.toast(nv ? 'On this week — the scheduler will prioritise it' : 'Removed from this week');
+            } else if (what === 'aside') {
+              delete this.meaiBk.sel[key];
+              await this._meaiBkPost('/api/me-ai/backlog/item', { key, aside: true });
+              this.toast("Set aside — it won't hit your agenda");
+            } else if (what === 'unaside') {
+              await this._meaiBkPost('/api/me-ai/backlog/item', { key, aside: false });
+              this.toast('Back in the backlog');
+            }
+          } catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
+        },
+        async meaiBkBulk(what) {
+          const keys = this.meaiBkSelKeys();
+          if (!keys.length) { this.toast('Pick items first'); return; }
+          this.meaiBk.busy = true;
+          try {
+            for (const key of keys) {
+              if (what === 'week') await this._meaiBkPost('/api/me-ai/backlog/item', { key, week: true });
+              else if (what === 'aside') await this._meaiBkPost('/api/me-ai/backlog/item', { key, aside: true });
+            }
+            this.toast(what === 'week' ? keys.length + ' marked for this week' : keys.length + ' set aside');
+            if (what === 'aside') this.meaiBkClearSel();
+          } catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
+          finally { this.meaiBk.busy = false; }
+        },
+        _meaiBkSuggestName(keys) {
+          const titles = keys.map(k => { const i = this.meaiBk.items.find(x => x.key === k); return i ? String(i.title || '').toLowerCase() : ''; });
+          const common = ['autoscaler', 'helix', 'decommission', 'migration', 'pipeline'].find(w => titles.length > 1 && titles.every(t => t.includes(w)));
+          if (common) return common.charAt(0).toUpperCase() + common.slice(1) + ' work';
+          const first = this.meaiBk.items.find(x => x.key === keys[0]);
+          return first ? String(first.title || 'New unit of work').slice(0, 60) : 'New unit of work';
+        },
+        async meaiBkGroupSelected() {
+          const keys = this.meaiBkSelKeys();
+          if (keys.length < 2) { this.toast('Pick at least 2 items to group'); return; }
+          const name = window.prompt('Name this unit of work:', this._meaiBkSuggestName(keys));
+          if (!name) return;
+          try {
+            await this._meaiBkPost('/api/me-ai/backlog/group', { keys, name });
+            this.meaiBkClearSel();
+            this.meaiBk.groupBy = 'ai';
+            this.toast('Grouped ' + keys.length + ' items as "' + name + '" — schedules as one block');
+          } catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
+        },
+        async meaiBkCreateWorkItem() {
+          const keys = this.meaiBkSelKeys();
+          if (!keys.length) { this.toast('Pick items first'); return; }
+          const chosen = keys.map(k => this.meaiBk.items.find(x => x.key === k)).filter(Boolean);
+          if (!chosen.length) return;
+          const wi = (this.meai.config && this.meai.config.workItem) || {};
+          if (!wi.org || !wi.project) { this.toast('Work-item org/project not configured (Settings)', 'error'); return; }
+          const suggested = this._meaiBkSuggestName(keys);
+          const title = keys.length === 1 ? chosen[0].title
+            : (suggested === String(chosen[0].title || '').slice(0, 60) ? chosen[0].title + ' (+' + (keys.length - 1) + ' more)' : suggested);
+          const body = chosen.map(i => '\u2022 ' + i.title + (i.link ? '  ' + i.link : '')).join('\n');
+          const ok = window.confirm('Create a ' + (wi.type || 'work item') + '?\n\n'
+            + 'Title: ' + title + '\n'
+            + 'Org: ' + wi.org + '   Project: ' + wi.project + '\n'
+            + 'Type: ' + (wi.type || 'Task') + '   State: ' + (wi.state || '(default)') + '\n'
+            + (wi.areaPath ? 'Area path: ' + wi.areaPath + '\n' : '')
+            + '\nDescription:\n' + body + '\n\n(Defaults are configurable in Settings.)');
+          if (!ok) return;
+          this.meaiBk.busy = true;
+          try {
+            const r = await this._meaiBkPost('/api/me-ai/backlog/workitem', { key: keys[0], title, description: body });
+            if (r && r.workItem) {
+              this.meaiBkClearSel();
+              this.toast('Created work item ' + (r.workItem.id ? '#' + r.workItem.id : '') + ' — linked to the backlog');
+            }
+          } catch (e) { this.toast('Create failed: ' + (e.message || e), 'error'); }
+          finally { this.meaiBk.busy = false; }
+        },
+        meaiBkOpenDrawer(key) { this.meaiBk.drawerKey = key; },
+        meaiBkCloseDrawer() { this.meaiBk.drawerKey = null; },
+        meaiBkDrawerItem() { const k = this.meaiBk.drawerKey; return k ? ((this.meaiBk.items || []).find(x => x.key === k) || null) : null; },
+        async meaiBkSetUrg(key, v) {
+          try { await this._meaiBkPost('/api/me-ai/backlog/item', { key, urgency: Number(v) }); }
+          catch (e) { this.toast('Failed: ' + (e.message || e), 'error'); }
+        },
+        meaiBkStartGroupFrom(key) {
+          this.meaiBk.sel = {}; this.meaiBk.sel[key] = true; this.meaiBkCloseDrawer();
+          this.toast('Now tick the items to group with this one');
+        },
         // A background agenda rebuild for the viewed day just settled — pull the finished,
         // deduped snapshot once and swap it in cleanly, then drop the "updating" indicator.
         async _meAiFinishRebuild() {
@@ -31513,7 +32095,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (r && r.agenda) { this.meai.agenda = r.agenda; this.meai._lastGeneratedAt = r.agenda.generatedAt || ''; this.meAiLoadChanges(); }
               if (!silent) this.toast('Fitted into today\u2019s agenda', 'success');
             } else if (action === 'later') {
-              if (!silent) this.toast('Parked for later — off today\u2019s list, still on your rail', 'info');
+              if (!silent) this.toast('Moved to backlog — off today\u2019s list, still on your rail', 'info');
             } else if (action === 'dismiss') {
               if (!silent) this.toast('Removed from your attention inbox', 'info');
             } else if (action === 'wontfix') {
@@ -31757,7 +32339,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiAutoLabel(it) {
           const a = it && it.autoReason && it.autoReason.action;
-          if (a === 'later') return 'Parked for later';
+          if (a === 'later') return 'Moved to backlog';
           if (a === 'wontfix') return 'Marked won\u2019t-fix';
           if (a === 'dismiss') return 'Set aside (not yours)';
           return 'Handled';
@@ -31799,10 +32381,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const items = (this.meai.inbox.items || []);
           const excl = (opts && opts.excludeGrouped) ? this._meAiGroupedIdSet() : null;
           const defs = [
+            { key: 'urgent', label: 'Needs attention now', hint: 'High-urgency asks pulled to the top \u2014 handle these first.', action: null },
             { key: 'decision', label: 'Needs your decision', hint: 'Not confident enough to suggest — you choose.', action: null },
             { key: 'today', label: 'Fit into today', hint: 'Suggested for today\u2019s agenda — approve to slot it in.', action: 'today' },
             { key: 'now', label: 'Handle now', hint: 'Suggested for a Me-agent to take on right away.', action: 'now' },
-            { key: 'later', label: 'Parked for later', hint: 'Suggested to keep on your rail, off today\u2019s plan.', action: 'later' },
+            { key: 'later', label: 'Move to backlog', hint: 'Suggested to move to your backlog, off today\u2019s plan.', action: 'later' },
             { key: 'dismiss', label: 'Set aside — not yours', hint: 'Suggested as someone else\u2019s to own.', action: 'dismiss' },
             { key: 'wontfix', label: 'Won\u2019t fix', hint: 'Suggested to consciously decline.', action: 'wontfix' }
           ];
@@ -31822,12 +32405,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             let key, status;
             if (sug && byKey[sug] && byKey[sug].action && c >= SUGG_MIN) { key = sug; status = 'pending'; }
             else { key = 'decision'; status = 'decide'; }
+            // High-urgency asks (urgency >= 4) surface in their own top section so they're
+            // seen and addressed separately, regardless of the suggested disposition. They
+            // keep their status so the right action row still renders (Approve vs full decide).
+            const urg = Number(it.urgency);
+            if (!isNaN(urg) && urg >= 4) key = 'urgent';
             byKey[key].items.push({ it, status });
           }
           return defs.filter(d => d.items.length);
         },
         _meAiDispLabel(action) {
-          return ({ today: 'Fit into today', now: 'Handle now', later: 'Later', dismiss: 'Not mine', dismissed: 'Not mine', wontfix: 'Won\u2019t fix', done: 'Done' })[action] || 'Triaged';
+          return ({ today: 'Fit into today', now: 'Handle now', later: 'Backlog', dismiss: 'Not mine', dismissed: 'Not mine', wontfix: 'Won\u2019t fix', done: 'Done' })[action] || 'Triaged';
         },
         // The discrete Triaged area: everything already dispositioned — auto-handled, approved
         // into today/now/later, set aside, won't-fix, or marked done — kept reversible.
