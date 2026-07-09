@@ -11999,6 +11999,7 @@
               .meai-pu-lg-line.ln-gate { border-top:2px dashed #d29922; }
               .meai-pu-lg-line.ln-cull { border-top:2px dashed #cf222e; }
               .meai-pu-lg-line.ln-merge { border-top-color:#2ea043; }
+              .meai-pu-lg-line.ln-reuse { border-top:2px dotted var(--cp-accent); }
               .meai-pu-lg-dot { width:10px; height:10px; border-radius:999px; flex:none; }
               .meai-pu-lg-dot.d-run { background:var(--cp-accent); }
               .meai-pu-lg-dot.d-done { background:#2ea043; }
@@ -12173,6 +12174,20 @@
               .meai-pu-turn.agent .meai-pu-outcome { margin-bottom:0; }
               .meai-pu-ev.side-you { flex-direction:row-reverse; }
               .meai-pu-ev.side-you .meai-pu-ev-b { align-items:flex-end; text-align:right; }
+              /* Folded leg conclusion — a calm agent message summarising a leg that rejoined
+                 the main thread, instead of a shallow depthless "note" row. */
+              .meai-pu-fold { border:1px solid color-mix(in srgb,var(--cp-border) 70%, transparent); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:11px 13px; margin:8px 0; background:color-mix(in srgb,var(--cp-accent) 3%, var(--cp-surface)); }
+              .meai-pu-fold-h { display:flex; align-items:baseline; gap:8px; }
+              .meai-pu-fold-ic { flex:0 0 auto; font-size:13px; }
+              .meai-pu-fold-leg { font-weight:700; font-size:13px; color:var(--cp-text); min-width:0; }
+              .meai-pu-fold-oc { font-size:11px; color:var(--cp-text-muted); font-weight:600; text-transform:lowercase; margin-left:auto; flex:0 0 auto; }
+              .meai-pu-fold-sum { font-size:13px; color:var(--cp-text); line-height:1.5; margin-top:6px; }
+              .meai-pu-fold-find { margin:7px 0 0; padding-left:18px; }
+              .meai-pu-fold-find li { font-size:12.5px; color:var(--cp-text); line-height:1.5; margin:2px 0; }
+              .meai-pu-fold-q { font-size:12.5px; color:var(--cp-text); line-height:1.5; margin-top:7px; padding-top:7px; border-top:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
+              .meai-pu-fold-q::before { content:'Asks: '; color:var(--cp-text-muted); font-weight:700; }
+              .meai-pu-fold-pr { font-size:12.5px; color:var(--cp-text); line-height:1.5; margin-top:6px; }
+              .meai-pu-fold-pr span.k { color:var(--cp-text-muted); font-weight:700; }
               .meai-pu-composer { position:sticky; bottom:-12px; margin:12px -12px -12px; margin-top:auto; padding:12px; background:var(--cp-surface); border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:8px; }
               .meai-pu-composer-in { width:100%; resize:vertical; font-size:13px; line-height:1.45; }
               .meai-pu-composer-row { display:flex; align-items:center; gap:10px; }
@@ -12201,6 +12216,7 @@
               /* Gate / cull edges + legend (increment 3) */
               .meai-pedges .pe-gate { stroke:#d29922; stroke-width:2; stroke-dasharray:4 4; opacity:.85; }
               .meai-pedges .pe-cull { stroke:#cf222e; stroke-width:2; stroke-dasharray:4 4; opacity:.7; }
+              .meai-pedges .pe-reuse { stroke:var(--cp-accent); stroke-width:2; stroke-dasharray:1 5; opacity:.75; }
               /* Arrowheads share each edge type's color but must render as clean, solid
                  chevrons — override any inherited dash and keep joins round. Placed after
                  all .pe-* rules so equal-specificity source order wins on dash/width. */
@@ -14185,21 +14201,44 @@
 
                             <!-- The agent's work, as an aligned transcript (reasoning/tools collapse inline) -->
                             <template x-for="(ev, ei) in meAiPursuitChatEvents()" :key="'pe-'+ei">
-                              <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
-                                <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
-                                <div class="meai-pu-ev-b">
-                                  <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('spine',ei,ev))">
-                                    <span class="meai-pu-ev-k" x-text="ev.kind"></span>
-                                    <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
-                                    <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)] ? '▾' : '▸'"></span>
-                                  </button>
-                                  <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)]">
-                                    <div class="meai-pu-ev-d">
-                                      <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
-                                      <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                              <div style="display:contents">
+                                <!-- A leg that rejoined the main thread → a calm folded agent message. -->
+                                <template x-if="ev.kind==='fold'">
+                                  <div class="meai-pu-fold">
+                                    <div class="meai-pu-fold-h">
+                                      <span class="meai-pu-fold-ic" x-text="ev.icon || '✔'"></span>
+                                      <span class="meai-pu-fold-leg" x-text="ev.leg || 'A pursuit leg'"></span>
+                                      <span class="meai-pu-fold-oc" x-text="meAiPursuitFoldOutcome(ev)"></span>
                                     </div>
-                                  </template>
-                                </div>
+                                    <div class="meai-pu-fold-sum" x-show="ev.text" x-text="ev.text"></div>
+                                    <ul class="meai-pu-fold-find" x-show="ev.findings && ev.findings.length">
+                                      <template x-for="(f, fi) in (ev.findings||[])" :key="'ff-'+ei+'-'+fi">
+                                        <li x-text="String(f).replace(/^•\s*/,'')"></li>
+                                      </template>
+                                    </ul>
+                                    <div class="meai-pu-fold-q" x-show="ev.question" x-text="ev.question"></div>
+                                    <div class="meai-pu-fold-pr" x-show="ev.proposed"><span class="k">Proposed:</span> <span x-text="ev.proposed"></span></div>
+                                  </div>
+                                </template>
+                                <!-- Every other spine event → the existing collapsible substep row. -->
+                                <template x-if="ev.kind!=='fold'">
+                                  <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                                    <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                                    <div class="meai-pu-ev-b">
+                                      <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('spine',ei,ev))">
+                                        <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                                        <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                                        <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)] ? '▾' : '▸'"></span>
+                                      </button>
+                                      <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('spine',ei,ev)]">
+                                        <div class="meai-pu-ev-d">
+                                          <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                          <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </div>
+                                </template>
                               </div>
                             </template>
 
@@ -14486,6 +14525,7 @@
                       <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
                         <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.converge) || ''" class="pe pe-converge" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.reuse) || ''" class="pe pe-reuse" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cull) || ''" class="pe pe-cull" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gate) || ''" class="pe pe-gate" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
@@ -14496,6 +14536,7 @@
                                (at the last subpath). We bake a V-arrow subpath per edge into these
                                solid, un-dashed layers so every connector gets its own arrowhead. -->
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cullA) || ''" class="pe pe-arrow pe-cull" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.reuseA) || ''" class="pe pe-arrow pe-reuse" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gateA) || ''" class="pe pe-arrow pe-gate" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branchA) || ''" class="pe pe-arrow pe-branch" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.mergeA) || ''" class="pe pe-arrow pe-merge" fill="none"></path>
@@ -14538,6 +14579,7 @@
                             <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-gate"></span> Gated on a scout</div>
                             <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-cull"></span> Culled by a scout</div>
                             <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-merge"></span> Merged back</div>
+                            <div class="meai-pu-legend-r"><span class="meai-pu-lg-line ln-reuse"></span> Reused a finding</div>
                           </div>
                           <div class="meai-pu-legend-grp">
                             <div class="meai-pu-legend-cap">Legs</div>
@@ -34597,7 +34639,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // elements in the SVG (not x-for) so they live in the SVG namespace and
           // actually render — Alpine x-for inside <svg> creates HTML-namespaced
           // nodes that never paint.
-          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', spineA: '', branchA: '', mergeA: '', gateA: '', cullA: '' };
+          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', reuse: '', spineA: '', branchA: '', mergeA: '', gateA: '', cullA: '', reuseA: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
@@ -34665,6 +34707,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 });
               }
             });
+          });
+          // Loop-memo provenance: a leg that reused an earlier attempt's conclusion
+          // (backend sets leg.reusedFrom = sourceLegId) instead of re-running the work.
+          // Draw a distinct dashed "reused from" arrow from the source leg to this one so
+          // the eye can see where the finding was pulled from rather than redone.
+          order.forEach((id) => {
+            const leg = legs[id]; if (!leg || !leg.reusedFrom) return;
+            const a = pos[leg.reusedFrom], b = pos[id]; if (!a || !b) return;
+            const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y;
+            dByType.reuse += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
+            dByType.reuseA += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1);
           });
           p._nodes = nodes; p._edgeD = dByType;
           p._w = maxX + W + 120; p._h = maxY + ROWH + 80;
@@ -34872,6 +34925,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = this.meai.pursuit.evOpen; m[key] = !m[key];
         },
         // The one-line summary shown collapsed for an event.
+        // Short lowercase outcome phrase for a folded leg conclusion.
+        meAiPursuitFoldOutcome(ev) {
+          const map = {
+            'done': 'concluded',
+            'dead-end': 'dead end',
+            'needs-auth': 'needs approval',
+            'needs-info': 'needs input',
+            'needs-decision': 'needs a decision',
+          };
+          return map[ev && ev.outcome] || 'concluded';
+        },
         meAiPursuitEvSummary(ev) {
           if (!ev) return '';
           switch (ev.kind) {

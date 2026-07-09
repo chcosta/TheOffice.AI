@@ -19587,6 +19587,7 @@ function _meAiNewStop(o = {}) {
     type: o.type || 'needs-decision', legId: o.legId || null,
     prompt: o.prompt || '', options: o.options || null,   // for needs-decision
     risk: o.risk || null,                                 // for needs-auth: write|external|spend|destructive
+    delivery: !!o.delivery,                               // needs-auth: approve runs the local delivery pipeline (not an external outbox act)
     action: o.action || null,                             // the gated action payload
     status: o.status || 'open',                           // open|resolved|denied|expired
     resolution: o.resolution || null, note: o.note || null,
@@ -19719,6 +19720,12 @@ function _meAiFoldJournal(id) {
         const leg = state.legs[r.legId]; if (leg) { leg.status = r.status; if (r.confidence != null) leg.confidence = r.confidence; leg.updatedAt = r.at; } break;
       }
       case 'leg_invalidate': { const leg = state.legs[r.legId]; if (leg) { leg.invalidated = true; leg.status = 'invalidated'; } break; }
+      case 'leg_reuse': {
+        // Provenance: this leg reused a prior attempt's conclusion instead of re-running
+        // the identical investigation (loop-memo). Stored on the leg so the canvas can draw
+        // a "reused from" arrow from the source leg to this one.
+        const leg = state.legs[r.legId]; if (leg) { leg.reusedFrom = r.sourceLegId || null; leg.reuseKey = r.key || null; } break;
+      }
       case 'leg_event': {
         // Per-leg thinking/tool/response substep captured for the pursuit canvas.
         // Bounded so an unbounded refold cost never grows past a few hundred lines.
@@ -21289,6 +21296,95 @@ const _meAiUuid = () => require('crypto').randomUUID();
 // lane + legacy console keep showing progress while the tree holds structure.
 function _meAiTreeMirror(t, text) { try { _meAiEmit(t, { kind: 'note', text: String(text || '').slice(0, 400) }); } catch (_) {} }
 
+// ── Chat fold-back ─────────────────────────────────────────────────────────
+// The pursuit main thread used to show only shallow one-line NOTE rows ("Fanning
+// out…", "Re-planning…"). When a leg (sub-agent) finishes, fold its FINAL response
+// back into the main thread as a first-class message attributed to that leg —
+// summary + top findings + outcome — so the chat reads like a real conversation
+// between the Chief of Staff and its sub-agents, not a log of activity. Emitted on
+// the REAL task (never the ephemeral leg clone) so it lands in the flat transcript.
+function _meAiFoldLeg(t, leg, r) {
+  try {
+    if (!t || !leg || !r) return;
+    const outIcon = { 'dead-end': '✖', 'needs-auth': '⏸', 'needs-info': '❓', 'needs-decision': '⚖' };
+    const top = (Array.isArray(r.findings) ? r.findings : []).slice(0, 3)
+      .map(f => '• ' + String(f.claim || '').slice(0, 200)).filter(Boolean);
+    _meAiEmit(t, {
+      kind: 'fold',
+      leg: leg.title || 'A pursuit leg',
+      legId: null,                       // stays in the flat main thread (not a per-leg substep)
+      outcome: r.outcome || 'done',
+      confidence: r.confidence || 'medium',
+      icon: outIcon[r.outcome] || '✔',
+      text: String(r.summary || '').slice(0, 900),
+      findings: top,
+      question: r.outcome === 'needs-info' || r.outcome === 'needs-decision' ? (r.question || null) : null,
+      proposed: r.proposedAction ? (r.proposedAction.summary || r.proposedAction.op || null) : null,
+    });
+  } catch (_) { /* fold is best-effort narration */ }
+}
+
+// ── Loop detection + goal memoization ──────────────────────────────────────
+// Normalize a goal/hypothesis string to a stable signature so two legs pursuing
+// "the same thing" (across epochs / rerouted rounds) hash equal. Drops urls,
+// punctuation, short/stop words; sorts + caps the token set so word-order and
+// filler never change the key. This is what lets the engine recognise it is about
+// to redo work it already did. (Reuses the pre-existing _MEAI_STOPWORDS set.)
+function _meAiGoalKey(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !_MEAI_STOPWORDS.has(w))
+    .sort()
+    .slice(0, 14)
+    .join(' ');
+}
+
+// Build a memo of completed, still-valid leg results from PRIOR rounds keyed by
+// goal signature. On a reroute the orchestrator consults this so it can REUSE a
+// prior attempt's conclusion (with a provenance arrow) instead of re-running the
+// identical investigation — the fix for the "it just starts again doing the exact
+// same thing" spin. Sourced from the folded journal (checkpoints joined to legs)
+// so it survives restarts. Excludes the current round's own legs (caller passes
+// them) and any invalidated/errored leg.
+function _meAiBuildMemo(t, excludeIds) {
+  const memo = new Map();
+  try {
+    const tree = meAiTrees.get(t.id) || _meAiFoldJournal(t.id);
+    if (!tree) return memo;
+    const cpByLeg = {};
+    for (const cp of (tree.checkpoints || [])) if (cp && cp.legId && cp.summary) cpByLeg[cp.legId] = cp;
+    const skip = new Set(excludeIds || []);
+    for (const legId of (tree.order || [])) {
+      if (skip.has(legId)) continue;
+      const leg = tree.legs[legId];
+      if (!leg || leg.kind === 'spine' || leg.kind === 'reroute') continue;
+      if (leg.invalidated || leg.status === 'invalidated' || leg.status === 'error' || leg.status === 'skipped') continue;
+      const cp = cpByLeg[legId];
+      if (!cp || !cp.summary) continue;
+      const key = _meAiGoalKey(leg.goal || leg.title);
+      if (!key) continue;
+      if (!memo.has(key)) memo.set(key, { legId, title: leg.title, summary: cp.summary, confidence: cp.confidence || 'medium' });
+    }
+  } catch (_) { /* memo is an optimisation; empty is safe */ }
+  return memo;
+}
+
+// Is this a delivery-class pursuit (should actually EXECUTE a fix, not just
+// investigate)? Implement playbook, or a goal that reads like build/fix work.
+function _meAiDeliveryCapable(t) {
+  try {
+    if (!t) return false;
+    if (t._noDeliver) return false;
+    if (t.playbook === 'implement') return true;
+    if (t.context && t.context.deliver) return true;
+    const g = String((t.goal || '') + ' ' + (t.title || '')).toLowerCase();
+    return /\b(fix|implement|build|patch|refactor|repro|reproduce|resolve the bug|make .* pass|correct the)\b/.test(g);
+  } catch (_) { return false; }
+}
+
 // Candidate legs per playbook. P0 ships the steward-PR set (§14). Other playbooks
 // fall back to a single spine (no fan-out yet) — widened in P1.
 function _meAiTreeCandidates(t) {
@@ -21557,7 +21653,10 @@ async function _meAiRunLeg(t, leg) {
     const r = _meAiParseLegResult(out);
     leg._result = r;
     _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: r.summary, confidence: r.confidence, interesting: r.confidence === 'high' }) });
-    if (r.confidence === 'high') _meAiTreeMirror(t, `Interesting — ${leg.title}: ${r.summary}`.slice(0, 300));
+    // Fold this sub-agent's FINAL response back into the main thread (replaces the
+    // old shallow "Interesting — …" one-liner) so the pursuit chat reads like a real
+    // conversation with depth, not a log of activity.
+    _meAiFoldLeg(t, leg, r);
     if (r.outcome === 'dead-end') { _meAiTreeEmit(id, 'leg_invalidate', { legId: leg.id }); return; }
     if (r.proposedAction) {
       const stop = _meAiNewStop({ type: 'needs-auth', legId: leg.id, risk: r.proposedAction.risk, action: r.proposedAction, prompt: r.proposedAction.summary || ('Approve: ' + leg.title) });
@@ -21582,7 +21681,143 @@ async function _meAiRunLeg(t, leg) {
   }
 }
 
-// Playbook-aware report title. The fan-out artifact is NOT always a "PR blocker
+// ── Delivery pipeline (Direction B) ────────────────────────────────────────
+// When a pursuit has finished investigating an IMPLEMENT-class goal and the user
+// approves the delivery offer, we stop re-scouting and actually EXECUTE: a short
+// sequential pipeline of WRITE-capable build legs. Each phase runs on the leg's own
+// session through the NON-workiq path, so _meAiPermissionGate ALLOWS local
+// file edits + tests/build/local-git but still BLOCKS external push/PR/mcp writes —
+// the PR push itself stays a separate, explicitly-approved external action.
+const _MEAI_DELIVERY_PHASES = [
+  { key: 'repro', title: 'Reproduce & measure', ask: 'Establish a concrete reproduction of the problem and capture the BEFORE state (a failing test, the exact error, or a measurable metric). If you genuinely cannot reproduce it, say so honestly and stop — do not proceed on a guess.' },
+  { key: 'implement', title: 'Implement the fix', ask: 'Make the smallest correct code change that fixes the confirmed problem. Edit the actual files in your working directory. Do NOT push, open a PR, or take any external action.' },
+  { key: 'critique', title: 'Self-critique', ask: 'Critically review your OWN change for correctness, code quality, scalability, performance, and side-effects. Fix any real issues you find now. Be honest about tradeoffs and any residual risk.' },
+  { key: 'validate', title: 'Validate & measure', ask: 'Validate the fix: run the relevant tests/build, confirm the reproduction from phase 1 now passes, and capture the AFTER state. Compare before vs after. If it does NOT actually fix the problem, say so honestly rather than declaring success.' },
+  { key: 'document', title: 'Prepare the PR', ask: 'Write a clear PR description (what changed, why, how you validated it, before/after) and stage a local commit. Do NOT push or open the PR — that stays for the user to approve.' },
+];
+
+// Write-capable build prompt for a delivery phase. Unlike the READ-ONLY investigation
+// leg prompt, this authorises local edits + carries the prior phase's conclusion so the
+// pipeline builds on itself instead of restarting.
+function _meAiBuildLegPrompt(t, phase, priorSummary) {
+  const goal = t.goal || _meAiGoalFor(t);
+  return [
+    'You are in DELIVERY mode — you are actually FIXING this now, not just investigating.',
+    'GOAL: ' + goal,
+    'CURRENT PHASE: ' + phase.title,
+    'PHASE OBJECTIVE: ' + phase.ask,
+    priorSummary ? ('WHAT THE PRIOR PHASE ESTABLISHED:\n' + String(priorSummary).slice(0, 1500)) : '',
+    'You MAY read and EDIT local files and run local tests/build/git in your working directory.',
+    'You MUST NOT push, open a PR, post comments, send mail, or take ANY external action — those are gated and require the user\u2019s explicit approval.',
+    _meAiSteerBlock(t),
+    'End your reply with a fenced ```json block: {"summary": string, "confidence":"high|medium|low", "outcome":"done|dead-end|needs-info", "findings":[{"claim":string,"confidence":string}], "question": string|null}',
+  ].filter(Boolean).join('\n\n');
+}
+
+// Run ONE delivery phase turn on the leg's own session (durable), forwarding substeps
+// into the per-leg journal so the canvas shows the build work, then dispose the session.
+async function _meAiRunLegTurn(t, leg, prompt) {
+  const id = t.id;
+  const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true });
+  lt._onLegEvent = (ev) => { try { _meAiTreeEmit(id, 'leg_event', { legId: leg.id, ev }); } catch (_) {} };
+  try {
+    return await _meAiRunTurn(lt, prompt, { resume: false });
+  } finally {
+    _meAiDisposeLegSession(leg);
+  }
+}
+
+// The delivery pipeline itself. Spawns a fresh delivery spine + a build leg per phase,
+// folds each phase's conclusion into the flat chat, writes an actionable delivery report
+// artifact, marks the task delivered (so the merge never re-scouts this goal), and then
+// parks awaiting — offering a SEPARATE, gated "push the PR" external action on success.
+async function _meAiRunDelivery(t, stop) {
+  const id = t.id;
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const epoch = (tree.epoch || 0) + 1;
+  _meAiTreeEmit(id, 'epoch_bump', { epoch });
+  const spine = _meAiNewLeg({ kind: 'reroute', parentId: t._spineId || null, lane: 'spine', baseEpoch: epoch, status: 'running', title: 'Delivering the fix', goal: t.goal || _meAiGoalFor(t), sessionId: _meAiUuid() });
+  t._spineId = spine.id;
+  _meAiTreeEmit(id, 'leg_spawn', { leg: spine });
+  _meAiSetStage(t, 'working', 'running');
+
+  let prior = (t.report && t.report.summary) || '';
+  const phaseSummaries = [];
+  let broke = false;
+  for (const phase of _MEAI_DELIVERY_PHASES) {
+    const leg = _meAiNewLeg({ kind: 'build', parentId: spine.id, lane: 'delivery', baseEpoch: epoch, status: 'running', title: phase.title, goal: phase.ask, sessionId: _meAiUuid() });
+    _meAiTreeEmit(id, 'leg_spawn', { leg });
+    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'running' });
+    _meAiTreeMirror(t, phase.title + '\u2026');
+    _meAiTreeHeartbeat(id);
+    let r;
+    try {
+      const out = await _meAiRunLegTurn(t, leg, _meAiBuildLegPrompt(t, phase, prior));
+      r = _meAiParseLegResult(out);
+    } catch (e) {
+      r = { summary: phase.title + ' failed: ' + String(e.message || e).slice(0, 300), confidence: 'low', outcome: 'dead-end', findings: [], proposedAction: null, question: null, invalidates: [] };
+    }
+    leg._result = r;
+    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, epoch, title: phase.title, summary: r.summary, confidence: r.confidence, interesting: r.confidence === 'high' }) });
+    _meAiFoldLeg(t, leg, r);
+    _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: r.outcome === 'dead-end' ? 'invalidated' : 'done', confidence: r.confidence });
+    phaseSummaries.push({ key: phase.key, phase: phase.title, summary: r.summary, confidence: r.confidence, outcome: r.outcome });
+    prior = phase.title + ': ' + r.summary;
+    // Honest stop: if we can't reproduce or validation fails, don't fake the rest.
+    if (r.outcome === 'dead-end' && (phase.key === 'repro' || phase.key === 'validate')) { broke = true; break; }
+  }
+
+  const okAll = !broke && phaseSummaries.length === _MEAI_DELIVERY_PHASES.length && phaseSummaries.every(p => p.outcome !== 'dead-end');
+  const lines = ['# Delivery report', '', '**Goal:** ' + (t.goal || _meAiGoalFor(t)), ''];
+  lines.push(okAll
+    ? '**Outcome:** Implemented, self-critiqued and validated. Ready to push a PR for your approval.'
+    : '**Outcome:** Stopped early — I could not honestly complete delivery. See the phase notes below.');
+  lines.push('');
+  for (const p of phaseSummaries) {
+    lines.push('## ' + (p.outcome === 'dead-end' ? '\u2716' : '\u2714') + ' ' + p.phase);
+    lines.push(String(p.summary || '').trim() || '_(no detail)_');
+    lines.push('');
+  }
+  const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: 'Delivery report', body: lines.join('\n') });
+  try {
+    const adir = path.join(_meAiTreeDir(id), 'artifacts');
+    fs.mkdirSync(adir, { recursive: true });
+    art.path = path.join(adir, art.id + '.md');
+    fs.writeFileSync(art.path, art.body);
+  } catch (_) { /* artifact body still travels in the journal */ }
+  _meAiTreeEmit(id, 'artifact', { artifact: art });
+
+  t._delivered = true;
+  t.report = {
+    summary: okAll ? 'Fix implemented, self-critiqued and validated. Ready to push a PR.' : 'Delivery stopped early — see the report.',
+    findings: phaseSummaries.map(p => ({ title: p.phase, detail: p.summary, severity: p.outcome === 'dead-end' ? 'high' : (p.confidence === 'high' ? 'high' : 'medium') })),
+    markdown: art.body,
+  };
+
+  if (okAll) {
+    const pushStop = _meAiNewStop({
+      type: 'needs-auth', legId: spine.id, risk: 'external',
+      prompt: 'Push the branch and open the pull request for the implemented fix?',
+      action: { op: 'open-pr', risk: 'external', summary: 'Push the branch and open a pull request for the implemented fix.' },
+    });
+    _meAiTreeEmit(id, 'stop', { stop: pushStop });
+    _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: 'needs-auth' });
+    t.question = null;
+    t.nextActions = [
+      { label: 'Push & open PR', intent: 'approve', primary: true, risk: 'external', detail: pushStop.action.summary, _stopId: pushStop.id },
+      { label: 'Not yet — just keep the change', intent: 'approve', primary: false, risk: 'none' },
+    ];
+  } else {
+    _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: 'done' });
+    t.question = null;
+    t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+  }
+  _meAiFilterDeclined(t);
+  try { _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings }); } catch (_) {}
+  _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
+  _meAiSetStage(t, 'awaiting', 'awaiting');
+}
+
 // report" — that header was hardcoded regardless of what the pursuit was doing.
 function _meAiReportTitle(t) {
   const byPlaybook = {
@@ -21663,13 +21898,38 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     c._stopId = stop.id;
   }
   const unresolvedConflicts = openConflicts.filter(c => c.status === 'open');
+  // Is the pursuit CONVERGED — real conclusions, nothing waiting on the user?
+  const converged = done.length && !pendingAuth.length && !pendingInfo.length && !unresolvedConflicts.length;
+  // Delivery offer: a converged, delivery-class pursuit should now OFFER TO EXECUTE
+  // (implement → self-critique → validate → document → prepare a PR) rather than just
+  // hand back another read-only report. Gated behind the user's approval. Suppressed
+  // once delivered, or when we broke out of a loop (don't re-offer on a dead cycle).
+  let deliveryStop = null;
+  if (_meAiDeliveryCapable(t) && converged && !t._delivered && !t._loopBreak) {
+    deliveryStop = _meAiNewStop({
+      type: 'needs-auth', legId: spine.id, risk: 'write', delivery: true,
+      prompt: 'I have finished investigating and know what to change. Want me to actually do it — implement the fix, critique my own change, validate it, and prepare a PR for your approval?',
+      action: { op: 'deliver', risk: 'write', summary: 'Implement & validate the fix, then prepare a PR (the push itself will still need your approval).' },
+    });
+    _meAiTreeEmit(id, 'stop', { stop: deliveryStop });
+  }
   // Build the pursuit report markdown.
   const reportTitle = _meAiReportTitle(t);
+  const rankC = { high: 3, medium: 2, low: 1 };
   const lines = [`# ${reportTitle}`, ``, `**Goal:** ${t.goal || _meAiGoalFor(t)}`, ``];
+  // Synthesis FIRST (what it all means) — the user complained the report was just a
+  // list of what each leg looked at. Lead with the conclusion, then the evidence.
+  const ranked = done.slice().sort((a, b) => (rankC[b._result.confidence] || 0) - (rankC[a._result.confidence] || 0));
+  if (ranked.length) {
+    lines.push(`## What I concluded`, ``);
+    for (const l of ranked.slice(0, 4)) lines.push(`- ${l._result.summary}`);
+    lines.push('');
+  }
+  lines.push(`## What each angle found`, ``);
   for (const l of legs) {
     const r = l._result;
-    const glyph = !r ? '·' : r.outcome === 'dead-end' ? '✖' : l._stopId ? '⏸' : '✔';
-    lines.push(`## ${glyph} ${l.title}`);
+    const glyph = !r ? '·' : r.outcome === 'dead-end' ? '✖' : l.reusedFrom ? '↺' : l._stopId ? '⏸' : '✔';
+    lines.push(`### ${glyph} ${l.title}${l.reusedFrom ? ' _(reused an earlier finding)_' : ''}`);
     lines.push(r ? r.summary : '(no result)');
     if (r && r.findings.length) { lines.push(''); for (const f of r.findings) lines.push(`- ${f.claim} _(${f.confidence})_`); }
     lines.push('');
@@ -21683,29 +21943,39 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     }
     lines.push('');
   }
-  // Single best next move: prefer a pending gated action, else the highest-confidence done leg.
+  // Concrete next actions — never just "review findings". Prefer a gated action,
+  // then the delivery offer, then decisions/questions, else the strongest conclusion.
   const rank = { high: 3, medium: 2, low: 1 };
   let best = null;
   const uc0 = unresolvedConflicts[0];
   if (pendingAuth.length) best = { text: (pendingAuth[0]._result.proposedAction.summary) || pendingAuth[0].title, stopId: pendingAuth[0]._stopId, kind: 'approve' };
+  else if (deliveryStop) best = { text: 'Approve and I will implement the fix, critique it, validate it, and prepare a PR.', stopId: deliveryStop.id, kind: 'deliver' };
   else if (uc0) best = { text: `Two legs disagree on "${uc0.subject}" — pick (A) ${uc0.a.claim} or (B) ${uc0.b.claim}.`, stopId: uc0._stopId, kind: 'decide' };
-  else if (done.length) { const top = done.slice().sort((a, b) => (rank[b._result.confidence] || 0) - (rank[a._result.confidence] || 0))[0]; best = { text: top._result.summary, kind: 'info' }; }
+  else if (done.length) { best = { text: ranked[0]._result.summary, kind: 'info' }; }
   else if (pendingInfo.length) best = { text: (pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title), kind: 'ask' };
-  lines.push(`---`, `**Recommended next move:** ${best ? best.text : 'Review findings.'}`);
+  lines.push(`## Recommended next actions`, ``);
+  if (deliveryStop) lines.push(`1. **Let me execute it** — implement the fix, self-critique, validate/measure, then prepare a PR for your approval.`);
+  if (pendingAuth.length) lines.push(`- Approve the pending action: ${(pendingAuth[0]._result.proposedAction.summary) || pendingAuth[0].title}`);
+  if (unresolvedConflicts.length) lines.push(`- Resolve the conflict on "${uc0.subject}".`);
+  const proposals = done.map(l => l._result && l._result.proposedAction).filter(Boolean);
+  for (const p of proposals.slice(0, 3)) lines.push(`- ${p.summary || p.op}`);
+  if (!deliveryStop && !pendingAuth.length && !unresolvedConflicts.length && !proposals.length) lines.push(`- ${best ? best.text : 'Review the conclusions above.'}`);
+  lines.push('', `---`, `**Recommended next move:** ${best ? best.text : 'Review findings.'}`);
   const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: reportTitle, body: lines.join('\n') });
   try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + '.md'); fs.writeFileSync(art.path, art.body); } catch (_) {}
   _meAiTreeEmit(id, 'artifact', { artifact: art });
   // Reroute: a strong merged recommendation changes the plan -> bump epoch + a
-  // visible reroute spine leg (the mock's "approved/merged -> reroute -> new spine").
+  // visible reroute spine leg. GUARDED so a delivered pursuit, a broken loop, or a
+  // pending delivery offer never spawns another re-scouting round (the spin fix).
   const strong = done.some(l => l._result.confidence === 'high') || pendingAuth.length > 0;
-  if (strong) {
+  if (strong && !t._delivered && !t._loopBreak && !deliveryStop) {
     const epoch = 1;
     _meAiTreeEmit(id, 'epoch_bump', { epoch });
     const reroute = _meAiNewLeg({ kind: 'reroute', parentId: spine.id, lane: 'spine', baseEpoch: epoch, status: pendingAuth.length ? 'blocked' : 'done', title: 'Re-route: ' + (best ? best.text : 'act on findings').slice(0, 80), goal: best ? best.text : '' });
     _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
     _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Re-plan', summary: pendingAuth.length ? 'Recommendation ready; one action awaits your approval.' : 'Findings merged; recommendation ready.', confidence: 'high', interesting: true }) });
   }
-  _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: pendingAuth.length ? 'needs-auth' : (unresolvedConflicts.length ? 'needs-decision' : (pendingInfo.length ? 'needs-info' : 'done')) });
+  _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: (pendingAuth.length || deliveryStop) ? 'needs-auth' : (unresolvedConflicts.length ? 'needs-decision' : (pendingInfo.length ? 'needs-info' : 'done')) });
   // Flat report so the legacy console + lane reflect the outcome, with approve
   // buttons for any pending gated action.
   const findings = legs.filter(l => l._result).map(l => ({ title: l.title, detail: l._result.summary, severity: l._result.confidence === 'high' ? 'high' : 'medium' }));
@@ -21718,6 +21988,11 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     t.nextActions = [{ label: 'Approve: ' + ((pa._result.proposedAction && pa._result.proposedAction.op) || 'action'), intent: 'approve', primary: true, risk: (pa._result.proposedAction && pa._result.proposedAction.risk === 'external') ? 'external' : 'write', detail: (pa._result.proposedAction && pa._result.proposedAction.summary) || pa.title, _stopId: pa._stopId },
       { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: pa._stopId },
       { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' }];
+  } else if (deliveryStop) {
+    t.nextActions = [
+      { label: 'Execute the fix', intent: 'approve', primary: true, risk: 'write', detail: deliveryStop.action.summary, _stopId: deliveryStop.id },
+      { label: 'Just give me the report', intent: 'approve', primary: false, risk: 'none' },
+    ];
   } else if (unresolvedConflicts.length) {
     t.nextActions = unresolvedConflicts.slice(0, 3).flatMap(c => ([
       { label: `Pick A: ${String(c.a.claim).slice(0, 60)}`, intent: 'answer', primary: true, risk: 'none', detail: `Resolve "${c.subject}" in favor of A`, _stopId: c._stopId, _conflictPick: 'a' },
@@ -21909,11 +22184,43 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
     _meAiTreeMirror(t, `Fanning out into ${cands.length} parallel pursuits…`);
     const legs = cands.map(c => _meAiNewLeg({ parentId: spine.id, kind: c.kind, lane: c.lane, title: c.title, goal: c.goal, status: 'planned', baseEpoch: (spine.baseEpoch || 0), sessionId: _meAiUuid() }));
     for (const lg of legs) _meAiTreeEmit(id, 'leg_spawn', { leg: lg });
+
+    // ── Loop-memo + loop-break ────────────────────────────────────────────
+    // Before running anything, consult prior rounds: if a candidate pursues the
+    // SAME goal as a completed, still-valid leg from an earlier round, REUSE that
+    // conclusion (draw a provenance arrow) instead of re-running the identical
+    // investigation. This is the fix for "it just starts again doing the same thing".
+    const memo = _meAiBuildMemo(t, legs.map(l => l.id));
+    const roundSig = legs.map(l => _meAiGoalKey(l.goal || l.title)).filter(Boolean).sort().join('|');
+    t._roundSigs = Array.isArray(t._roundSigs) ? t._roundSigs : [];
+    const repeatedRound = roundSig && t._roundSigs.includes(roundSig);
+    if (roundSig) t._roundSigs.push(roundSig);
+    let reusedCount = 0;
+    const runnable = [];
+    for (const lg of legs) {
+      const key = _meAiGoalKey(lg.goal || lg.title);
+      const hit = key && memo.get(key);
+      if (hit && replan) {
+        reusedCount++;
+        lg._result = { summary: hit.summary, confidence: hit.confidence || 'medium', outcome: 'done', findings: [], proposedAction: null, question: null, invalidates: [] };
+        _meAiTreeEmit(id, 'leg_reuse', { legId: lg.id, sourceLegId: hit.legId, key });
+        _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: lg.id, title: lg.title, summary: 'Reused an earlier finding (no need to redo this): ' + hit.summary, confidence: hit.confidence || 'medium' }) });
+        _meAiTreeEmit(id, 'leg_status', { legId: lg.id, status: 'done', confidence: hit.confidence || 'medium' });
+        _meAiFoldLeg(t, lg, lg._result);
+      } else runnable.push(lg);
+    }
+    if (reusedCount) _meAiTreeMirror(t, `Reused ${reusedCount} earlier ${reusedCount === 1 ? 'finding' : 'findings'} instead of redoing that work.`);
+    // A full round that only re-treads prior goals (nothing fresh to run) is a loop.
+    // Flag it so the merge stops rerouting on the same angles and takes a different path.
+    if ((repeatedRound || (legs.length && !runnable.length)) && replan) {
+      t._loopBreak = true;
+      _meAiTreeMirror(t, 'I noticed I was circling the same angles — breaking out of the loop and consolidating rather than repeating the work.');
+    }
     // Scouts first (cheap culling), THEN branches — dropping any branch a scout
     // invalidated before it burns a turn. This makes scout-first culling real
     // (previously all legs ran in one pool and invalidation was only post-hoc).
-    const scouts = legs.filter(l => l.kind === 'scout');
-    const branches = legs.filter(l => l.kind !== 'scout');
+    const scouts = runnable.filter(l => l.kind === 'scout');
+    const branches = runnable.filter(l => l.kind !== 'scout');
     if (scouts.length) await _meAiPool(scouts, ME_AI_TREE_BUDGET.maxParallel, lg => _meAiRunLeg(t, lg));
     const culled = new Set();
     for (const s of scouts) {
@@ -22071,6 +22378,24 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
     }
     // needs-auth approve: perform the gated action via the outbox, exactly once.
     _meAiSetStage(t, 'working', 'running');
+    // DELIVERY approve: the user approved actually executing the fix (not an external
+    // post). Run the sequential delivery pipeline (implement → self-critique → validate
+    // → document → prepare PR) instead of the generic outbox+reroute. Terminal: sets
+    // t._delivered so the merge never re-scouts this goal again.
+    if (stop.delivery === true) {
+      _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+      _meAiTreeMirror(t, 'Approved — implementing the fix, then I\u2019ll critique and validate my own change\u2026');
+      try {
+        await _meAiRunDelivery(t, stop);
+      } catch (e) {
+        try { _meAiTreeEmit(id, 'stop', { stop: Object.assign({}, stop, { status: 'open', resolution: null, note: null, resolvedAt: null }) }); } catch (_) {}
+        _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+        _meAiTreeMirror(t, 'Delivery hit a problem: ' + String(e.message || e) + ' — you can retry.');
+        _meAiSetStage(t, 'awaiting', 'awaiting');
+      }
+      return;
+    }
     // Clear the approval gate UP FRONT. The gated action below runs a fresh WorkIQ
     // turn and then a full reroute/replan — that can take a while, and holding the
     // "Approve"/"waiting on you" state until it all finished made the console look
