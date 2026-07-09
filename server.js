@@ -15579,7 +15579,7 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
       // source blocks — searching both the placed blocks AND the backlog by prId.
       const refs = _meAiExtractRefs((b.title || '') + ' ' + (b.detail || ''));
       if (refs.length) {
-        const pool = (pre.blocks || []).concat(pre.backlog || []);
+        const pool = (pre.blocks || []).concat(pre.backlog || [], pre.needsAttention || []);
         for (const pb of pool) {
           if (pb.type !== 'steward' && pb.type !== 'review') continue;
           const pid = pb.meta && pb.meta.prId != null ? String(pb.meta.prId)
@@ -15957,8 +15957,15 @@ function _meAiSeedChecklist(agenda, effTodos, day, opts = {}) {
       } else {
         // A single block whose title is itself a compound list ("Review PRs: !A & !B")
         // still needs splitting into its constituent goals — track the SOURCE items,
-        // not the aggregate agenda entry.
-        const split = _meAiSplitGoalTitle(b.title);
+        // not the aggregate agenda entry. BUT a live review/steward block is a single
+        // (possibly LLM-merged) entity whose title names its PR ids ("...(PR !A + !B)");
+        // word-splitting that yields truncated fragments ("...(PR !A", "!B)"). Its real
+        // constituents come from b.items (recovered at build time), so keep such a title
+        // whole and let the item-expansion branch above surface the distinct PRs.
+        const liveBlock = !!(b.meta && b.meta.prId) || !!_meAiParseWorkItem(b.link || '');
+        const split = (liveBlock && (b.type === 'review' || b.type === 'steward'))
+          ? [b.title]
+          : _meAiSplitGoalTitle(b.title);
         if (split.length > 1) {
           for (const st of split) leaves.push({ title: st, link: b.link || '', meta: b.meta || null, source: b.source || '', type: b.type });
         } else {

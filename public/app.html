@@ -32363,6 +32363,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (tab === 'open') return s === 'open';
           return s === tab; // 'partial' | 'missed' | 'done'
         },
+        // Display variant (owner ask): on the Open tab, ALSO keep done goals visible so you
+        // can confirm the agenda-item -> goal relationship at a glance — they render checked
+        // and sorted to the bottom. Counts/badges still use _meAiGoalInTab so "Open N" reflects
+        // only truly-open work.
+        _meAiGoalInTabDisplay(t, tab) {
+          const s = this.meAiTodoStatus(t);
+          if (tab === 'open') return s === 'open' || s === 'done';
+          return s === tab;
+        },
         meAiGoalTabCount(tab) {
           const base = this.meAiChecklistItems().filter(t => this._meAiGoalInTab(t, tab)).length;
           return (tab === 'done') ? base + this.meAiOrphanBigWins().length : base;
@@ -32382,8 +32391,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return "Today's goals — " + t.map(x => x.n + ' ' + x.label.toLowerCase()).join(' · ');
         },
         meAiSetGoalsTab(tab) { this.meai.goalsTab = tab; },
-        // Regular goals (non-big) filtered to the active tab.
-        meAiRegularGoalsTab() { return this.meAiRegularGoals().filter(t => this._meAiGoalInTab(t, this.meai.goalsTab)); },
+        // Regular goals (non-big) filtered to the active tab. On Open, done goals stay
+        // visible (checked) but sink to the bottom so the working list reads first.
+        meAiRegularGoalsTab() {
+          const tab = this.meai.goalsTab;
+          const rows = this.meAiRegularGoals().filter(t => this._meAiGoalInTabDisplay(t, tab));
+          if (tab === 'open') return rows.slice().sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0));
+          return rows;
+        },
         // The big goal shows only when it belongs in the active tab.
         meAiBigGoalInTab() { const b = this.meAiBigGoal(); return !!(b && this._meAiGoalInTab(b, this.meai.goalsTab)); },
         // Promote a goal to the day's big thing (toggle off if it already is the manual pick).
