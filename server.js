@@ -18900,11 +18900,18 @@ setInterval(() => {
   } catch (_) { /* best-effort */ }
 }, ME_AI_PREINDEX_INTERVAL_MS);
 
-// REQ-7 Auto-regenerate: while Me.AI is in active use, silently re-plan TODAY when
-// the underlying signals change (new PR/email/meeting/etc.) so the user never has
-// to hit "Regenerate". Gated by a signal fingerprint so an LLM re-plan only runs
-// when work actually changed. Leader + active-window + consent gated. Never
-// creates an agenda from scratch (that's the user's first explicit generate).
+// Forward-horizon refresh: while Me.AI is in active use, keep FUTURE days in sync with
+// the underlying signals (new PR/email/meeting/etc.) so new work lands on upcoming days
+// on its own. TODAY is deliberately NOT touched here — today's agenda is purely
+// EVENT-DRIVEN (the user's explicit Regenerate, a "Fit into today" triage, drag-lock,
+// rename, an assistant edit, etc.). A background timer must never silently reprioritize
+// today; mid-day reshuffles were the core fragmentation complaint. Owner: "never put an
+// item on the same agenda day as which it arrived unless the user demands it."
+//
+// The backbone fingerprint still gates whether we bother rebuilding the horizon at all,
+// so we don't spin the LLM when nothing structural changed. Leader + active-window +
+// consent gated. Never creates today's agenda from scratch (that's the user's first
+// explicit generate).
 const ME_AI_AUTOREGEN_INTERVAL_MS = 4 * 60 * 1000;
 let _meAiAutoRegenBusy = false;
 setInterval(async () => {
@@ -18919,26 +18926,21 @@ setInterval(async () => {
     if (!prev || !Array.isArray(prev.blocks) || prev.meta && prev.meta.notWorkDay) return;
     const cfg = _meAiConfig(s);
     const gathered = await _meAiGatherSignals(s, cfg, today, { force: false });
-    // Gate on the BACKBONE fingerprint: a new/changed alert alone must NOT trigger a re-plan
-    // of today (that fragmentation was the core complaint). Only backbone work (PRs/work
-    // items/dev cards) + meetings + a "Fit into today" comms change the agenda here. A legacy
-    // snapshot without backboneFp falls back to the old full-signal gate so we don't force a
-    // spurious regen on the first pass after upgrade.
+    // Gate on the BACKBONE fingerprint: only backbone work (PRs/work items/dev cards) +
+    // meetings changing warrants rebuilding the forward horizon. A new/changed alert alone
+    // must NOT trigger anything (fragmentation). Legacy snapshots without backboneFp fall
+    // back to the full-signal gate so the first post-upgrade pass isn't spurious.
     const bbFp = _meAiBackboneFingerprint(gathered.signals, today);
     if (prev.meta && prev.meta.backboneFp != null) {
-      if (prev.meta.backboneFp === bbFp) return;             // backbone unchanged — leave the day alone
+      if (prev.meta.backboneFp === bbFp) return;             // backbone unchanged — nothing to ripple
     } else {
       const fp = _meAiSignalFingerprint(gathered.signals);
       if (prev.meta && prev.meta.signalFp && prev.meta.signalFp === fp) return; // legacy fallback
     }
     _meAiAutoRegenBusy = true;
-    // Pass full-fidelity todos (done/carried/scope) so a background regen never drops a
-    // completion or a carry marker; the durable todo store is authoritative regardless.
-    const todos = (prev.todos || []).map(t => ({ title: t.title, scope: t.scope, done: !!t.done, carried: !!t.carried, carriedFrom: t.carriedFrom || '' }));
-    await generateMeAiAgenda({ date: today, todos, reindex: false });
-    // Item E — ripple forward: new signals just reshaped today, so rebuild the forward
-    // horizon off the updated anchor (fire-and-forget; gated inside; _meAiFutureBusy guards
-    // against overlap). This is the "new items come in → future days update on their own" path.
+    // TODAY is intentionally left untouched (event-driven only). Only ripple the forward
+    // horizon so newly-arrived work lands on FUTURE days automatically. Fire-and-forget;
+    // gated inside; _meAiFutureBusy guards against overlap.
     _meAiGenerateFutureDays({ force: true }).catch(() => {});
   } catch (_) { /* best-effort */ }
   finally { _meAiAutoRegenBusy = false; }

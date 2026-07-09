@@ -12239,9 +12239,10 @@
                  "earlier" marker. Full text contrast is preserved (opacity is NOT used). */
               .meai-block-body.meai-past { background:color-mix(in srgb, var(--cp-bg) 55%, var(--cp-surface)); border-color:color-mix(in srgb, var(--cp-border) 55%, transparent); }
               .meai-past-tag { color:var(--cp-text-muted); }
-              /* Past items are locked; the swipe-to-reveal disposition strip is meaningless
-                 for them, so hide it (also avoids any bleed-through). */
-              .meai-block-swipe:has(> .meai-block-body.meai-past) .meai-block-acts { display:none; }
+              /* Past items keep the swipe strip: the scheduler never auto-moves a passed
+                 block, but the user can still manually set it aside (Not mine / Won't fix)
+                 to clear clutter — that's a triage action, not a reschedule. The opaque body
+                 background prevents any bleed-through. */
               /* B: imminent = starting within the "protect near-now" window; a re-plan
                  won't move it, so a faint accent tint marks it as locked-in. */
               .meai-block-body.meai-imminent { background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 22%, transparent); }
@@ -33357,10 +33358,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // The body slides left to reveal a strip of dispositions (Later / Future /
         // Won't fix / Not mine). Same strip is toggled by the ⋮ button for pointerless
         // access. Mirrors the lane swipe pattern.
-        _blockSwipeW: 240, // 4 acts × 60px
+        _blockSwipeW: 240, // fallback base (4 acts × 60px); real width is per-block below
+        // Reveal width = one 60px slot per rendered disposition button. The Personal/Work
+        // label button only shows when meAiCanLabel(b) is true (5 acts), else 4.
+        _meAiBlockSwipeW(b) { return (this.meAiCanLabel && this.meAiCanLabel(b) ? 5 : 4) * 60; },
         meAiBlockSwipeStyle(b, bi) {
-          const m = this.meai; const key = this.meAiItemKey('b', b, bi);
-          if (m.blockSwipeOpen === key) return 'transform:translateX(-' + this._blockSwipeW + 'px);transition:transform .18s ease;';
+          const m = this.meai; const key = this.meAiItemKey('b', b, bi); const w = this._meAiBlockSwipeW(b);
+          if (m.blockSwipeOpen === key) return 'transform:translateX(-' + w + 'px);transition:transform .18s ease;';
           if (m.blockSwipeId === key && m.blockSwipeDx < 0) return 'transform:translateX(' + m.blockSwipeDx + 'px);';
           return 'transform:translateX(0);transition:transform .18s ease;';
         },
@@ -33368,7 +33372,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (ev.button != null && ev.button !== 0) return;
           // let clicks on links/buttons/inputs through (title expand, launch, ⋮, Open…)
           if (ev.target && ev.target.closest && ev.target.closest('button,a,input,textarea,select')) return;
-          const m = this.meai; const key = this.meAiItemKey('b', b, bi);
+          const m = this.meai; const key = this.meAiItemKey('b', b, bi); const w = this._meAiBlockSwipeW(b);
           const startX = ev.clientX, startY = ev.clientY;
           let moved = false, horizontal = false;
           m.blockSwipeId = key; m.blockSwipeDx = 0;
@@ -33378,7 +33382,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!horizontal) horizontal = Math.abs(dx) > Math.abs(dy);
             if (!horizontal) { cleanup(); return; }
             moved = true;
-            m.blockSwipeDx = Math.min(0, Math.max(-(this._blockSwipeW + 20), dx));
+            m.blockSwipeDx = Math.min(0, Math.max(-(w + 20), dx));
           };
           const up = () => {
             const open = moved && m.blockSwipeDx <= -60;
@@ -33401,15 +33405,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = this.meai; const key = this.meAiItemKey('b', b, bi);
           m.blockSwipeOpen = (m.blockSwipeOpen === key) ? null : key;
         },
-        // Apply a disposition to an agenda block, then reflow the day to fill the gap.
+        // Apply a disposition to an agenda block. The freed slot becomes visible "free
+        // time" — we DON'T auto-regenerate (the owner wants the day to stay stable; an
+        // explicit Regenerate is what fills free space, never a dismissal side-effect).
         async meAiBlockDispose(b, kind, bi) {
           this.meai.blockSwipeOpen = null;
           if (!b) return;
           if (kind === 'later') { await this.meAiDeferLater(b); return; }
           if (kind === 'future') {
             await this.meAiDeferFuture(b);
-            // reflow so the freed slot closes (reuse warm cache; not fragmentation)
-            this.meAiGenerate({ reindex: false, cause: 'triage' });
+            this._meAiInsertFreeSlot(b); // leave a visible gap, don't reflow
             return;
           }
           // notmine / wontfix → dismiss with a reason (no prompt — frictionless swipe)
@@ -33420,10 +33425,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               body: JSON.stringify({ date: this.meai.date, title: b.title || b.label || '', link: b.link || '', note: '', reason }),
             });
             if (r && r.agenda) this.meai.agenda = r.agenda; // instant strip
-            this.toast(kind === 'wontfix' ? "Won't fix — recorded for your report" : 'Not mine — removed from today', 'success');
-            // reflow to reclaim the freed time (dismissal store keeps it excluded)
-            this.meAiGenerate({ reindex: false, cause: 'triage' });
+            this._meAiInsertFreeSlot(b); // leave a visible gap, don't reflow
+            this.toast(kind === 'wontfix' ? "Won't fix — left as free time" : 'Not mine — left as free time', 'success');
           } catch (e) { this.toast('Could not remove: ' + (e.message || e), 'error'); }
+        },
+        // After a dispose, drop a visible "Free time" placeholder into the block's old slot
+        // (sorted by start) so the owner sees the day open up instead of the item silently
+        // vanishing or the schedule reflowing. Purely presentational + transient (a later
+        // explicit Regenerate reclaims it); skipped for past slots where free time is moot.
+        _meAiInsertFreeSlot(b) {
+          try {
+            const a = this.meai.agenda;
+            if (!a || !Array.isArray(a.blocks) || !b || !b.start || !b.end) return;
+            if (this.meAiBlockPast && this.meAiBlockPast(b)) return;
+            const s = this._hmToMin(b.start), e = this._hmToMin(b.end);
+            if (s == null || e == null || e <= s) return;
+            // don't stack two free slots on the same start
+            if (a.blocks.some(x => x && x.free && x.start === b.start)) return;
+            const free = { type: 'open', title: 'Free time', start: b.start, end: b.end, free: true, why: 'You set this slot aside' };
+            const list = a.blocks.slice();
+            let idx = list.findIndex(x => x && this._hmToMin(x.start) > s);
+            if (idx < 0) idx = list.length;
+            list.splice(idx, 0, free);
+            a.blocks = list;
+          } catch (_) {}
         },
         // ── I2 drag-to-lock ─────────────────────────────────────────────────────────
         // Drag a block by its time label onto another block's slot to PIN it there. The
