@@ -17363,6 +17363,43 @@ app.delete('/api/me-ai/class-rules/:id', (req, res) => {
     res.json({ ok: true, removed: before - store.rules.length, rules: store.rules });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// --- Me.AI topic memory (Phase 6) transparency routes ---------------------------------------
+// GET    /api/me-ai/topic-memory        → list learned topics (what future look-alikes get suppressed)
+// DELETE /api/me-ai/topic-memory/:id     → forget a single topic
+// DELETE /api/me-ai/topic-memory         → forget ALL topics (clear the memory)
+app.get('/api/me-ai/topic-memory', (req, res) => {
+  try {
+    const store = loadTopicMemory();
+    const topics = (store.topics || []).slice()
+      .sort((a, b) => String(b.lastAt || '').localeCompare(String(a.lastAt || '')))
+      .map(t => ({
+        id: t.id, label: t.label, action: t.action, actionLabel: _meAiActionLabel(_meAiTopicAction(t.action) || t.action),
+        tokens: t.tokens || [], sources: t.sources || [], kinds: t.kinds || [],
+        sample: t.sample || '', group: !!t.group, hits: Number(t.hits) || 0,
+        decidedAt: t.decidedAt || null, lastAt: t.lastAt || null,
+      }));
+    res.json({ ok: true, topics });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete('/api/me-ai/topic-memory/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    const store = loadTopicMemory();
+    const before = (store.topics || []).length;
+    store.topics = (store.topics || []).filter(t => t && t.id !== id);
+    saveTopicMemory(store);
+    res.json({ ok: true, removed: before - store.topics.length, topics: store.topics });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete('/api/me-ai/topic-memory', (req, res) => {
+  try {
+    const store = loadTopicMemory();
+    const removed = (store.topics || []).length;
+    store.topics = [];
+    saveTopicMemory(store);
+    res.json({ ok: true, removed, topics: [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // a later generate/re-plan is fast (#3). Fire-and-forget; consent-gated inside.
 app.post('/api/me-ai/preindex', (req, res) => {
   try {
