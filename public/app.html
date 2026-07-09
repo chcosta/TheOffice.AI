@@ -12431,6 +12431,14 @@
               .meai-at-aname { font-size:12.5px; color:var(--cp-text); }
               .meai-at-arow select { max-width:200px; }
               .meai-at-arow.locked .meai-at-locked { font-size:11.5px; color:var(--cp-text-muted); }
+              /* Phase 4: always-ignore class rules — calm list, no pills. */
+              .meai-cr-row { display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-top:1px solid var(--cp-border); }
+              .meai-cr-tog { display:inline-flex; align-items:center; cursor:pointer; margin-top:1px; }
+              .meai-cr-tog input { accent-color:var(--cp-accent); width:15px; height:15px; }
+              .meai-cr-main { flex:1 1 auto; min-width:0; }
+              .meai-cr-label { font-size:12.5px; color:var(--cp-text); line-height:1.35; }
+              .meai-cr-meta { display:flex; flex-wrap:wrap; gap:4px; font-size:11px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-cr-sample { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
               .meai-inbox-empty { padding:12px 14px; border-top:1px solid var(--cp-border); font-size:12.5px; color:var(--cp-text-muted); }
               /* REQ-9: auto-handled strip — calm, no pills; sits atop the inbox list. */
               .meai-auto { border-top:1px solid var(--cp-border); background:var(--cp-surface-2, rgba(127,127,127,.05)); padding:8px 14px 10px; }
@@ -13901,6 +13909,7 @@
                                   <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="Already handled">Mark as done</button>
                                   <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine">Not mine</button>
                                   <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Declining">Won't fix</button>
+                                  <button type="button" class="meai-tri ghost" @click="meAiIgnoreClass(row.it)" :disabled="meai.inboxBusy" title="Create an always-ignore rule for items like this, regardless of confidence">Always ignore items like this</button>
                                 </div>
                               </div>
                             </div>
@@ -13957,6 +13966,7 @@
                               <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done">Mark as done</button>
                               <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
                               <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it">Won't fix</button>
+                              <button type="button" class="meai-tri ghost" @click="meAiIgnoreClass(row.it)" :disabled="meai.inboxBusy" title="Create an always-ignore rule for items like this, regardless of confidence">Always ignore items like this</button>
                             </div>
                             <div class="meai-inbox-acts" x-show="row.status==='pending'">
                               <button type="button" class="meai-tri meai-tri-sug" @click="meAiApprove(row.it)" :disabled="meai.inboxBusy" title="Apply the suggested disposition" x-text="'Approve · ' + sec.label"></button>
@@ -15653,6 +15663,33 @@
                       </div>
                     </div>
                   </div>
+                </div>
+                <!-- Phase 4: class rules — ignore whole CLASSES of comms noise regardless of
+                     confidence (e.g. PR-review nags via Teams/email you already cover in Code
+                     Flow). Distinct from the confidence model above. NO pills; --cp-* tokens. -->
+                <div class="meai-classrules" x-show="meai.config.consent" style="margin-top:16px">
+                  <div class="meai-at-title" style="display:block;margin-bottom:2px">Always-ignore rules</div>
+                  <div class="meai-at-sub" style="display:block;margin-bottom:10px">Ignore whole classes of Teams/email noise no matter how sure Me.AI is — e.g. review requests you already handle through Code Flow. Add one from any attention item with “Always ignore items like this.”</div>
+                  <template x-if="!(meai.classRules && meai.classRules.length)">
+                    <div class="meai-at-hint" style="padding:8px 0">No ignore rules yet.</div>
+                  </template>
+                  <template x-for="cr in (meai.classRules || [])" :key="cr.id">
+                    <div class="meai-cr-row">
+                      <label class="meai-cr-tog" :title="cr.enabled ? 'On — matching items are ignored' : 'Off'">
+                        <input type="checkbox" :checked="cr.enabled" @change="meAiToggleClassRule(cr)">
+                        <span></span>
+                      </label>
+                      <div class="meai-cr-main">
+                        <div class="meai-cr-label" x-text="cr.label"></div>
+                        <div class="meai-cr-meta">
+                          <span x-text="({dismiss:'Not mine',wontfix:'Won\u2019t fix',later:'Later'})[cr.action] || cr.action"></span>
+                          <span x-show="cr.hits" x-text="'· ignored ' + cr.hits + '\u00D7'"></span>
+                          <span x-show="cr.sample" class="meai-cr-sample" x-text="'· e.g. ' + cr.sample" :title="cr.sample"></span>
+                        </div>
+                      </div>
+                      <button type="button" class="meai-tri ghost" @click="meAiDeleteClassRule(cr)" title="Delete this rule">Remove</button>
+                    </div>
+                  </template>
                 </div>
                 <button class="btn primary" type="button" style="margin-top:12px" @click="meAiSaveHoursGrid()" :disabled="meai.savingSettings || meai.generating">Save preferences</button>
                 <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
@@ -24103,6 +24140,7 @@
           justUpdated: false,    // brief "agenda updated" flash after a silent regen
           // REQ-8 proactive attention inbox.
           inbox: { items: [], newCount: 0, polledAt: '' },
+          classRules: [],        // Phase 4: user-defined always-ignore rules
           inboxOpen: false,      // inbox panel expanded
           inboxBusy: false,      // a refresh / triage request is in flight
           inboxSwipeId: null, inboxSwipeDx: 0, inboxSwipeOpen: null,  // Issue 3: swipe-to-remove on inbox items
@@ -31512,6 +31550,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.meAiLoadAgenda();
             await this.meAiLoadTasks();
             await this.meAiLoadInbox();
+            this.meAiLoadClassRules();
             this.meAiLoadLookahead();
             // Restore the persisted "group similar" preference (owner ask) — auto-cluster
             // the freshly-loaded inbox when it was on.
@@ -31997,6 +32036,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiInboxNewCount() {
           return (this.meai.inbox.items || []).filter(i => i.triage === 'new').length;
+        },
+        // ---- Phase 4: class rules (always-ignore whole classes) --------------
+        async meAiLoadClassRules() {
+          try {
+            const r = await this.request('/api/me-ai/class-rules');
+            this.meai.classRules = (r && r.rules) || [];
+          } catch (_) { this.meai.classRules = []; }
+        },
+        // "Always ignore items like this" — mint a rule from the item, then dismiss it.
+        async meAiIgnoreClass(item) {
+          if (!item || this.meai.inboxBusy) return;
+          this.meai.inboxBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/class-rules', { method: 'POST', body: JSON.stringify({ fromItem: item, action: 'dismiss' }) });
+            if (r && r.rules) this.meai.classRules = r.rules;
+            this.toast('Ignore rule created — items like this will be set aside automatically', 'success');
+          } catch (e) {
+            this.toast('Could not create the ignore rule: ' + (e.message || e), 'error');
+            this.meai.inboxBusy = false;
+            return;
+          } finally { this.meai.inboxBusy = false; }
+          // Set the current item aside now (uses the standard dismiss path).
+          await this.meAiTriage(item, 'dismiss', { silent: true });
+        },
+        async meAiToggleClassRule(cr) {
+          if (!cr) return;
+          const next = !cr.enabled;
+          try {
+            const r = await this.request('/api/me-ai/class-rules/' + encodeURIComponent(cr.id), { method: 'PATCH', body: JSON.stringify({ enabled: next }) });
+            if (r && r.rules) this.meai.classRules = r.rules; else cr.enabled = next;
+          } catch (e) { this.toast('Update failed: ' + (e.message || e), 'error'); }
+        },
+        async meAiDeleteClassRule(cr) {
+          if (!cr) return;
+          if (!confirm('Remove the ignore rule "' + (cr.label || '') + '"? New matching items will start showing up again.')) return;
+          try {
+            const r = await this.request('/api/me-ai/class-rules/' + encodeURIComponent(cr.id), { method: 'DELETE' });
+            if (r && r.rules) this.meai.classRules = r.rules;
+            this.toast('Ignore rule removed', 'info');
+          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
         },
         // ---- Item 3: AI-grouped triage --------------------------------------
         // Toggle the grouped view; fetch groups the first time it's turned on.

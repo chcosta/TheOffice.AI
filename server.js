@@ -12468,6 +12468,118 @@ function saveTriageRules(store) {
   } catch (_) { /* best-effort */ }
   return store;
 }
+
+// --- Phase 4: user-defined CLASS RULES (Layer 0, applied BEFORE the confidence model) --
+// The learned model above only auto-acts on SAFE, reversible actions once it has enough
+// evidence and high confidence. But some whole CLASSES of noise you just want gone,
+// regardless of confidence — e.g. "PR review requests that arrive via Teams/email" (you
+// already get that coverage through Code Flow, so the Teams/email nag is pure noise).
+// A class rule is an EXPLICIT, user-set filter: any inbox comms item that matches an
+// enabled rule is auto-actioned (default: dismissed) with a clear "matched your rule"
+// trail — never scored, never nagged. This is a separate store from the learned model.
+const ME_AI_CLASS_RULES_PATH = path.join(dataPath('me-ai'), 'triage-class-rules.json');
+const ME_AI_CLASS_ACTIONS = new Set(['dismiss', 'wontfix', 'later']);
+function loadClassRules() {
+  try {
+    if (!fs.existsSync(ME_AI_CLASS_RULES_PATH)) return { rules: [] };
+    const v = JSON.parse(fs.readFileSync(ME_AI_CLASS_RULES_PATH, 'utf-8'));
+    return (v && Array.isArray(v.rules)) ? v : { rules: [] };
+  } catch { return { rules: [] }; }
+}
+function saveClassRules(store) {
+  try {
+    fs.mkdirSync(path.dirname(ME_AI_CLASS_RULES_PATH), { recursive: true });
+    fs.writeFileSync(ME_AI_CLASS_RULES_PATH, JSON.stringify(store || { rules: [] }, null, 2));
+  } catch (_) { /* best-effort */ }
+  return store;
+}
+// Does an item read as a review / sign-off / PR request? (a PR link, or review keywords
+// in the title/detail). Used to auto-detect the class when minting a rule from an item
+// and to satisfy a rule's reviewRequest condition.
+const ME_AI_REVIEW_RE = /\b(reviewers?|pull request|\bpr\b|code review|sign[\s-]?off|approvals?|approve|ready\s+for\s+review|please\s+review)\b/i;
+function _meAiIsReviewRequest(it) {
+  if (!it) return false;
+  if (it.prLink) return true;
+  return ME_AI_REVIEW_RE.test(`${it.title || ''} ${it.detail || ''}`);
+}
+// First ENABLED class rule that matches this comms item, else null. Pure/deterministic —
+// no learning, no confidence. A rule with no conditions matches nothing (guards against
+// an accidental catch-all that would silently swallow the whole inbox).
+function _meAiClassRuleMatch(it, store) {
+  store = store || loadClassRules();
+  const rules = (store && store.rules) || [];
+  if (!rules.length || !it) return null;
+  const src = String(it.source || 'm365').toLowerCase();
+  const kind = String(it.kind || 'email').toLowerCase();
+  for (const r of rules) {
+    if (!r || r.enabled === false) continue;
+    const m = r.match || {};
+    const srcs = Array.isArray(m.sources) ? m.sources.map(x => String(x).toLowerCase()) : [];
+    const kinds = Array.isArray(m.kinds) ? m.kinds.map(x => String(x).toLowerCase()) : [];
+    const titleInc = Array.isArray(m.titleIncludes) ? m.titleIncludes.filter(Boolean) : [];
+    const hasCond = srcs.length || kinds.length || m.directMention === true || m.reviewRequest === true || titleInc.length;
+    if (!hasCond) continue; // never a catch-all
+    if (srcs.length && !srcs.includes(src)) continue;
+    if (kinds.length && !kinds.includes(kind)) continue;
+    if (m.directMention === true && !it.directMention) continue;
+    if (m.reviewRequest === true && !_meAiIsReviewRequest(it)) continue;
+    if (titleInc.length) {
+      const hay = `${it.title || ''} ${it.detail || ''}`.toLowerCase();
+      if (!titleInc.some(w => hay.includes(String(w).toLowerCase()))) continue;
+    }
+    return r;
+  }
+  return null;
+}
+// Build a sensible class rule FROM an inbox item (the "always ignore items like this"
+// action). Prefers the review-request generalization the owner cares about; otherwise
+// scopes to the item's own source+kind plus a couple of distinctive title tokens so it
+// doesn't over-match unrelated mail.
+function _meAiClassRuleFromItem(it, action) {
+  action = ME_AI_CLASS_ACTIONS.has(action) ? action : 'dismiss';
+  const src = String((it && it.source) || 'm365').toLowerCase();
+  const kind = String((it && it.kind) || 'email').toLowerCase();
+  let match, label;
+  if (_meAiIsReviewRequest(it)) {
+    // The exact owner case: review / PR requests arriving over comms channels. Match
+    // across comms sources so it covers both Teams and email; Code Flow / ADO review
+    // signals (source 'codeflow' / 'ado') are deliberately NOT matched, so agenda
+    // coverage of real review work through Code Flow is preserved.
+    match = { reviewRequest: true, sources: ['m365', 'teams', 'email', 'outlook'] };
+    label = 'Review / PR requests via Teams or email';
+  } else {
+    const toks = _meAiTitleTokens(it && it.title).slice(0, 2);
+    match = { sources: [src], kinds: [kind] };
+    if (toks.length) match.titleIncludes = toks;
+    label = `${kind === 'teams' ? 'Teams' : 'Email'} like \u201C${String((it && it.title) || '').slice(0, 40)}\u201D`;
+  }
+  return {
+    id: 'cr:' + require('crypto').randomUUID().slice(0, 8),
+    label, enabled: true, action, match,
+    createdAt: new Date().toISOString(), hits: 0,
+    sample: String((it && it.title) || '').slice(0, 120),
+  };
+}
+// Apply a matched class rule to an item IN-PLACE: auto-action it, stamp a clear trail,
+// and (for dismiss/wontfix) write the dismiss store so planning drops it too. Returns
+// nothing; the caller counts hits + bumps rule.hits.
+function _meAiApplyClassRule(it, rule, date, now) {
+  it.triage = rule.action === 'dismiss' ? 'dismissed' : rule.action;
+  it.auto = true;
+  it.classRule = { id: rule.id, label: rule.label, action: rule.action };
+  it.autoReason = { action: rule.action, classRule: rule.label, why: `Matched your rule: ${rule.label}`, at: now };
+  it.triagedAt = now;
+  it.confidence = 100;
+  it.confidenceWhy = `Matched your rule: ${rule.label}`;
+  it.suggested = rule.action;
+  if (rule.action === 'dismiss' || rule.action === 'wontfix') {
+    try {
+      const dm = loadDismissForDate(date);
+      dm[_meAiDismissKey(it)] = { title: it.title, note: '', at: now, reason: rule.action, auto: true, classRule: rule.id };
+      saveDismissForDate(date, dm);
+    } catch (_) { /* best-effort */ }
+  }
+}
 function _meAiTriageLabel(action) {
   return ['later', 'dismiss', 'wontfix', 'today', 'now'].includes(action) ? action : '';
 }
@@ -12895,6 +13007,9 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const now = new Date().toISOString();
   let added = 0;
   let autoHandled = 0;
+  const classStore = loadClassRules();          // Phase 4: Layer-0 class rules
+  const classRules = (classStore && classStore.rules) || [];
+  let classHits = 0;
   const budget = { n: 6 }; // cap per-item AI nudges per merge so a poll can't fan out N model calls
   for (const sig of (signals || [])) {
     if (!sig || sig.kind === 'meeting' || sig.type !== 'comms') continue;
@@ -12909,7 +13024,12 @@ async function _meAiMergeInbox(date, signals, cfg) {
     };
     const ex = byId.get(id);
     if (ex) {
-      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested });
+      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested, classRule: ex.classRule });
+      // Phase 4 Layer-0: an untriaged existing item may now match a (new) class rule.
+      if (ex.triage === 'new' || ex.triage === 'seen') {
+        const rule = classRules.length ? _meAiClassRuleMatch(ex, classStore) : null;
+        if (rule) { _meAiApplyClassRule(ex, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++; continue; }
+      }
       // Backfill a confidence score cheaply (no AI) for items that predate Phase 2 so the
       // inbox always surfaces one; an untriaged backfill may also auto-fire under settings.
       if (typeof ex.confidence !== 'number') {
@@ -12917,17 +13037,25 @@ async function _meAiMergeInbox(date, signals, cfg) {
       }
     } else {
       const it = Object.assign(base, { firstSeen: now, triage: 'new', triagedAt: '', note: '' });
-      // Phase 2: confidence-score the new ask; auto-apply the confident, in-tier decision
-      // instead of asking (settings-gated). Falls back to leaving it 'new' to triage.
-      try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { budget })) autoHandled++; } catch (_) { /* best-effort */ }
+      // Phase 4 Layer-0: an explicit user class rule short-circuits the confidence path —
+      // a matched class is auto-actioned regardless of confidence, before any scoring.
+      const rule = classRules.length ? _meAiClassRuleMatch(it, classStore) : null;
+      if (rule) {
+        _meAiApplyClassRule(it, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++;
+      } else {
+        // Phase 2: confidence-score the new ask; auto-apply the confident, in-tier decision
+        // instead of asking (settings-gated). Falls back to leaving it 'new' to triage.
+        try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { budget })) autoHandled++; } catch (_) { /* best-effort */ }
+      }
       inbox.items.push(it); byId.set(id, it); added++;
     }
   }
+  if (classHits) { try { saveClassRules(classStore); } catch (_) { /* best-effort */ } } // persist hit counts
   inbox.items.sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled };
+  return { inbox, added, autoHandled, classHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -16904,6 +17032,81 @@ app.get('/api/me-ai/triage-rules', (req, res) => {
       return { sig, sample: r.sample || '', best, share: total ? bestN / total : 0, total, counts: r.counts || {}, lastAction: r.lastAction || '', lastAt: r.lastAt || '', auto: ME_AI_TRIAGE_AUTO.has(best) && total >= 3 && bestN >= 3 && (total ? bestN / total : 0) >= 0.8 };
     }).sort((a, b) => (b.share - a.share) || (b.total - a.total));
     res.json({ ok: true, rules });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Phase 4: user-defined CLASS RULES (ignore whole classes regardless of confidence) ---
+// GET  /api/me-ai/class-rules            → list the user's class rules
+// POST /api/me-ai/class-rules            → create ({ fromItem, action } OR { label, action, match })
+// PATCH/PUT /api/me-ai/class-rules/:id   → toggle enabled / edit label|action|match
+// DELETE /api/me-ai/class-rules/:id      → remove
+app.get('/api/me-ai/class-rules', (req, res) => {
+  try {
+    const store = loadClassRules();
+    res.json({ ok: true, rules: (store.rules || []).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/me-ai/class-rules', (req, res) => {
+  try {
+    const b = req.body || {};
+    const action = ME_AI_CLASS_ACTIONS.has(String(b.action || '').toLowerCase()) ? String(b.action).toLowerCase() : 'dismiss';
+    const store = loadClassRules();
+    let rule;
+    if (b.fromItem && typeof b.fromItem === 'object') {
+      rule = _meAiClassRuleFromItem(b.fromItem, action);
+    } else {
+      const label = String(b.label || '').trim().slice(0, 120);
+      const m = (b.match && typeof b.match === 'object') ? b.match : {};
+      const match = {};
+      if (Array.isArray(m.sources)) match.sources = m.sources.map(x => String(x).toLowerCase().slice(0, 20)).filter(Boolean).slice(0, 12);
+      if (Array.isArray(m.kinds)) match.kinds = m.kinds.map(x => String(x).toLowerCase().slice(0, 20)).filter(Boolean).slice(0, 12);
+      if (Array.isArray(m.titleIncludes)) match.titleIncludes = m.titleIncludes.map(x => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 12);
+      if (m.directMention === true) match.directMention = true;
+      if (m.reviewRequest === true) match.reviewRequest = true;
+      const hasCond = (match.sources && match.sources.length) || (match.kinds && match.kinds.length) || match.directMention || match.reviewRequest || (match.titleIncludes && match.titleIncludes.length);
+      if (!label) return res.status(400).json({ error: 'label required' });
+      if (!hasCond) return res.status(400).json({ error: 'at least one match condition required' });
+      rule = { id: 'cr:' + require('crypto').randomUUID().slice(0, 8), label, enabled: true, action, match, createdAt: new Date().toISOString(), hits: 0, sample: '' };
+    }
+    store.rules = store.rules || [];
+    store.rules.push(rule);
+    saveClassRules(store);
+    res.json({ ok: true, rule, rules: store.rules });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+function _meAiUpdateClassRule(req, res) {
+  try {
+    const id = String(req.params.id || '');
+    const b = req.body || {};
+    const store = loadClassRules();
+    const rule = (store.rules || []).find(r => r && r.id === id);
+    if (!rule) return res.status(404).json({ error: 'rule not found' });
+    if (typeof b.enabled === 'boolean') rule.enabled = b.enabled;
+    if (typeof b.label === 'string' && b.label.trim()) rule.label = b.label.trim().slice(0, 120);
+    if (b.action !== undefined && ME_AI_CLASS_ACTIONS.has(String(b.action).toLowerCase())) rule.action = String(b.action).toLowerCase();
+    if (b.match && typeof b.match === 'object') {
+      const m = b.match; const match = {};
+      if (Array.isArray(m.sources)) match.sources = m.sources.map(x => String(x).toLowerCase().slice(0, 20)).filter(Boolean).slice(0, 12);
+      if (Array.isArray(m.kinds)) match.kinds = m.kinds.map(x => String(x).toLowerCase().slice(0, 20)).filter(Boolean).slice(0, 12);
+      if (Array.isArray(m.titleIncludes)) match.titleIncludes = m.titleIncludes.map(x => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 12);
+      if (m.directMention === true) match.directMention = true;
+      if (m.reviewRequest === true) match.reviewRequest = true;
+      rule.match = match;
+    }
+    saveClassRules(store);
+    res.json({ ok: true, rule, rules: store.rules });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+app.patch('/api/me-ai/class-rules/:id', _meAiUpdateClassRule);
+app.put('/api/me-ai/class-rules/:id', _meAiUpdateClassRule);
+app.delete('/api/me-ai/class-rules/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    const store = loadClassRules();
+    const before = (store.rules || []).length;
+    store.rules = (store.rules || []).filter(r => r && r.id !== id);
+    saveClassRules(store);
+    res.json({ ok: true, removed: before - store.rules.length, rules: store.rules });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // a later generate/re-plan is fast (#3). Fire-and-forget; consent-gated inside.
