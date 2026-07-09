@@ -25079,6 +25079,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'codeflow') {
             const cfFocus = this.app.routeParam || '';
             if (!cfFocus) this.codeflow.focusKey = '';
+            // Populate the PR tab-count badges (My PRs / Active PRs) on entry regardless of
+            // which sub-tab restores — otherwise landing on the Dev tab leaves the PR badges
+            // blank until you click a PR tab (owner: counts take too long to appear).
+            this.loadCodeflowAttention(true);
             // Deep-linked Dev card (#/dev/<id> is redirected here below) → open the Dev tab.
             if (this._cfWantDev) {
               const wantId = (typeof this._cfWantDev === 'string') ? this._cfWantDev : '';
@@ -36407,6 +36411,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
             // Auto-generate AI summaries in the background (server only pays for new/changed PRs).
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
+            // Refresh the tab-count badges (My PRs / Active PRs) alongside this load so they
+            // appear as soon as the page mounts instead of lagging on the 4s boot timer /
+            // 3-min interval — the owner saw the counts take a long time to show up.
+            this.loadCodeflowAttention(true);
             this.loadCfWorktrees();
             // Boards are needed to show which workspace a PR is pinned to (below title).
             if (!this.boards || !this.boards.length) { this.loadBoards(null, true).catch(() => {}); }
