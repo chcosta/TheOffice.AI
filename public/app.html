@@ -16833,7 +16833,14 @@
           <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'prs'">
             <style>
               /* Code Flow: two-column studio (sticky rail + bordered stage) echoing the Newsletter layout */
-              .cf-tabs { display:flex; gap:20px; border-bottom:1px solid var(--cp-border); margin:0 0 18px; position:sticky; top:0; z-index:20; background:var(--cp-bg); }
+              /* Sticky tab bar. The scroll container (.content) has 24px top padding,
+                 and sticky top:0 pins at the CONTENT-box top (below that padding), so
+                 scrolled PR cards used to bleed through the 24px band above the bar.
+                 Rise 24px (top:-24px) to pin flush to the scrollport's visible top and
+                 pad the bar back down (padding-top) so the bg covers that band; a -14px
+                 top margin (eats only the header's 14px bottom-margin whitespace, never
+                 its content) keeps the rest-state gap tidy. */
+              .cf-tabs { display:flex; gap:20px; border-bottom:1px solid var(--cp-border); margin:-14px 0 18px; position:sticky; top:-24px; padding-top:24px; z-index:20; background:var(--cp-bg); }
               .cf-tab { background:transparent; border:0; border-bottom:2px solid transparent; color:var(--cp-text-soft); padding:9px 2px; margin-bottom:-1px; font-size:14px; font-weight:600; cursor:pointer; transition:color .15s, border-color .15s; }
               .cf-tab:hover { color:var(--cp-text); }
               .cf-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
@@ -23968,7 +23975,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           changeBanner: null,    // {added,removed,changed,at,view,examples} when the auto-poller sees significant changes; dismissable
           cfTab: (function(){ try { return localStorage.getItem('cf-tab') === 'dev' ? 'dev' : 'prs'; } catch(e){ return 'prs'; } })(),           // 'prs' | 'dev' — Code Flow now hosts the Dev cards studio as a second tab (the standalone Dev page was merged in); persisted so refresh keeps your place
         },
-        codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0 },
+        codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0, otherActive: 0 },
         marketplaceUpdates: { newCount: 0, byType: {}, lastViewedAt: null, lastAutoScanAt: null, items: [], loaded: false },
         // Lightweight copy of the user's own active PRs for the Home page card.
         // Kept separate from codeflow.pullRequests (which may hold a different view).
@@ -36584,7 +36591,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (tab === 'mine') return this.codeflowAttention.mineActive || 0;
           if (tab === 'active') return this.codeflowAttention.reviewsActive || 0;
-          if (tab === 'other') return (this.codeflow.view === 'other' && Array.isArray(this.codeflow.pullRequests)) ? this.codeflow.pullRequests.length : 0;
+          if (tab === 'other') return this.codeflowAttention.otherActive || 0;
           return 0;
         },
         // Attention subset (drives the warning colour on the count).
@@ -36768,7 +36775,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               reviews: a.reviews || 0,
               total: a.total || 0,
               mineActive: a.mineActive || 0,
-              reviewsActive: a.reviewsActive || 0
+              reviewsActive: a.reviewsActive || 0,
+              otherActive: a.otherActive || 0
             };
           } catch (e) {
             if (!silent) console.warn('codeflow attention', e.message);

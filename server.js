@@ -2765,7 +2765,7 @@ app.get('/api/codeflow/pullrequests', async (req, res) => {
 app.get('/api/codeflow/attention', async (req, res) => {
   try {
     const out = { mine: 0, reviews: 0, mineActive: 0 };
-    for (const view of ['mine', 'reviews']) {
+    for (const view of ['mine', 'reviews', 'other']) {
       const cached = _codeflowCache.get(view);
       let data;
       if (cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) data = cached.data;
@@ -2773,6 +2773,7 @@ app.get('/api/codeflow/attention', async (req, res) => {
       out[view] = data.attentionCount || 0;
       if (view === 'mine') out.mineActive = (data.pullRequests || []).length;
       if (view === 'reviews') out.reviewsActive = (data.pullRequests || []).length;
+      if (view === 'other') out.otherActive = (data.pullRequests || []).length;
     }
     out.total = out.mine + out.reviews;
     res.json(out);
