@@ -12932,12 +12932,12 @@
                                   <span class="meai-conf-why" x-text="row.it.confidenceWhy"></span>
                                 </div>
                                 <div class="meai-group-it-acts">
-                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
-                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
-                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
-                                  <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="Already handled">Mark as done</button>
-                                  <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine">Not mine</button>
-                                  <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Declining">Won't fix</button>
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='today' }" @click="meAiTriage(row.it,'today',{scope:'item'})" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='now' }" @click="meAiTriage(row.it,'now',{scope:'item'})" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
+                                  <button type="button" class="meai-tri" :class="{ 'meai-tri-sug': row.it.suggested==='later' }" @click="meAiTriage(row.it,'later',{scope:'item'})" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                                  <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done',{scope:'item'})" :disabled="meai.inboxBusy" title="Already handled">Mark as done</button>
+                                  <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss',{scope:'item'})" :disabled="meai.inboxBusy" title="Not mine">Not mine</button>
+                                  <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix',{scope:'item'})" :disabled="meai.inboxBusy" title="Declining">Won't fix</button>
                                   <button type="button" class="meai-tri ghost" @click="meAiIgnoreClass(row.it)" :disabled="meai.inboxBusy" title="Create an always-ignore rule for items like this, regardless of confidence">Always ignore items like this</button>
                                 </div>
                               </div>
@@ -31507,7 +31507,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const silent = !!(opts && opts.silent);
           this.meai.inboxBusy = true;
           try {
-            const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id, action, title: item.title || '', link: item.link || item.prLink || '' }) });
+            const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id, action, title: item.title || '', link: item.link || item.prLink || '', scope: (opts && opts.scope) || undefined }) });
             if (r && r.items) this.meai.inbox = { items: r.items, newCount: r.newCount || 0, polledAt: this.meai.inbox.polledAt };
             if (action === 'today') {
               if (r && r.agenda) { this.meai.agenda = r.agenda; this.meai._lastGeneratedAt = r.agenda.generatedAt || ''; this.meAiLoadChanges(); }

@@ -18169,8 +18169,14 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
       try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
     }
     // Phase 6 Layer-1: a manual dismiss/wontfix seeds a durable topic so the same subject
-    // stops resurfacing across title variants + days (one-item topic).
-    if (action === 'dismiss' || action === 'wontfix') {
+    // stops resurfacing across title variants + days (one-item topic). But an in-group
+    // "Triage on its own" pick (scope:'item') is EXPLICITLY about that single member, not
+    // the cluster — minting a title-token topic there would auto-suppress the sibling PR
+    // items on the next merge and collapse the whole group. Skip the topic in that case;
+    // the per-item decision below still carries this exact identity forward. Cluster-wide
+    // topic learning stays on the "All together" group action (triage-batch route).
+    const inGroupSingle = String(b.scope || '') === 'item';
+    if (!inGroupSingle && (action === 'dismiss' || action === 'wontfix')) {
       try { _meAiRecordTopic(it, action, { label: it.title }); } catch (_) { /* best-effort */ }
     }
     // Layer-2: record the durable per-item decision (later/dismiss/wontfix persist; a
