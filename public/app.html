@@ -17555,6 +17555,18 @@
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
                       <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
                     </template>
+                    <!-- Escape hatch: a closed PR whose worktree is in any state OTHER than
+                         'ready' (error, stuck 'creating', or a record with no/unknown status)
+                         must still be removable, or it gets stuck here forever. -->
+                    <template x-if="!cfWt(pr) || cfWt(pr).worktreeStatus !== 'ready'">
+                      <div class="cf-wt-ready-util">
+                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'"
+                              x-text="(cfWt(pr) && (cfWt(pr).error || cfWt(pr).reviewError)) || 'Worktree failed'"></span>
+                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
+                                title="Delete this PR's review worktree record and its cached report"
+                                x-text="cfBusy(pr) === 'remove' ? 'Removing…' : 'Remove worktree'"></button>
+                      </div>
+                    </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
                         <div class="cf-wt-ready-main">
