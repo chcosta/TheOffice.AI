@@ -14629,9 +14629,11 @@ function _meAiPastPins(priorSnapshot, nowMin, cfg) {
 // pin to just after it (preserving duration), and de-clump so shifted flexible blocks
 // don't stack. Meetings and pins hold their ground; conflicts they create are surfaced
 // by _meAiDetectConflicts, not silently hidden.
-function _meAiEnforcePins(blocks, pins) {
+function _meAiEnforcePins(blocks, pins, winEnd) {
   if (!Array.isArray(blocks) || !pins || !pins.length) return blocks || [];
   const out = blocks.map(b => ({ ...b }));
+  const cap = (typeof winEnd === 'number' && winEnd > 0) ? winEnd : null;
+  const spill = new Set(); // flexible blocks pushed entirely past the work window — drop, don't evening-cascade
   const isPinned = b => b && b.meta && b.meta.pinned;
   const ranges = [];
   for (const p of pins) {
@@ -14650,7 +14652,11 @@ function _meAiEnforcePins(blocks, pins) {
       if (isPinned(b) || String(b.type || '') === 'meeting') continue;
       const bs = _hmToMin(b.start), be = _hmToMin(b.end);
       if (bs == null || be == null) continue;
-      if (bs < pe && be > ps) { const dur = be - bs; b.start = _minToHm(pe); b.end = _minToHm(pe + dur); }
+      if (bs < pe && be > ps) {
+        const dur = be - bs;
+        if (cap != null && pe >= cap) { spill.add(b); continue; }
+        b.start = _minToHm(pe); b.end = _minToHm(pe + dur);
+      }
     }
   }
   out.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
@@ -14658,11 +14664,18 @@ function _meAiEnforcePins(blocks, pins) {
   for (let i = 1; i < out.length; i++) {
     const prev = out[i - 1], cur = out[i];
     if (isPinned(cur) || String(cur.type || '') === 'meeting') continue;
+    if (spill.has(cur)) continue;
     const pe = _hmToMin(prev.end), cs = _hmToMin(cur.start), ce = _hmToMin(cur.end);
     if (pe == null || cs == null || ce == null) continue;
-    if (cs < pe) { const dur = ce - cs; cur.start = _minToHm(pe); cur.end = _minToHm(pe + dur); }
+    if (cs < pe) {
+      const dur = ce - cs;
+      if (cap != null && pe >= cap) { spill.add(cur); continue; }
+      cur.start = _minToHm(pe); cur.end = _minToHm(pe + dur);
+    }
   }
-  return out;
+  // Blocks shoved entirely past the work window don't belong on the timeline — they'd render
+  // as an evening cascade. Drop them here; the underlying signal/todo remains in backlog.
+  return spill.size ? out.filter(b => !spill.has(b)) : out;
 }
 // PHASE 5: a "Prep for X" block is worthless once it lands AT or AFTER the item X it prepares
 // for (owner bug: "how do i end up with 'Prep for self epic review' AFTER 'self epic review'").
@@ -16558,6 +16571,31 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     if (_ovWin && _hmToMin(_ovWin.dayStart) != null) cfg.workStart = String(_ovWin.dayStart);
     if (_ovWin && _hmToMin(_ovWin.dayEnd) != null) cfg.workEnd = String(_ovWin.dayEnd);
   } catch (_) { /* fall back to standing hours */ }
+  // AFTER-HOURS FREEZE (owner: "it should be organizing tomorrow's agenda after business
+  // hours, not continuing to complicate and destroy today's agenda"). Once the working day
+  // is over there is no room left in the work window, so an organic background regen has
+  // nowhere legitimate to place remaining work — it cascades blocks into the evening and
+  // manufactures conflicts, and worse, that broken evening plan then becomes the prior
+  // snapshot that pins keep re-asserting (a feedback loop that fragments the whole day).
+  // So: for an organic (auto) regen of TODAY after workEnd, keep the plan the user ended
+  // the day with, verbatim. Deliberate re-plans (manual/mode/hours/triage/fitted-alert)
+  // still rebuild — the user explicitly asked for those. Tomorrow's planning takes over
+  // for forward work.
+  if (String(cause || 'auto') === 'auto' && day === _meAiLocalDay()) {
+    try {
+      const _now = new Date();
+      const _nm = _now.getHours() * 60 + _now.getMinutes();
+      const _we = _hmToMin(cfg.workEnd);
+      if (_we != null && _nm >= _we) {
+        const _frozen = loadAgendaForDate(day);
+        if (_frozen && Array.isArray(_frozen.blocks) && _frozen.blocks.length) {
+          _frozen.meta = _frozen.meta || {};
+          _frozen.meta.afterHoursFrozen = { at: _now.toISOString(), workEnd: cfg.workEnd };
+          return _frozen;
+        }
+      }
+    } catch (_) { /* no prior plan to protect → fall through to a normal build */ }
+  }
   // Work-week guard (REQ-2): on a configured non-work day we don't build a
   // schedule or read your accounts — just an empty "not a work day" agenda.
   // User todos still pass through so anything explicitly planned stays visible.
@@ -16705,13 +16743,14 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // focus time). Re-insert any personal commitment the refine lost so an explicit todo
   // like "gym workout" always survives onto the agenda.
   let finalBlocks = refined ? _meAiEnsurePersonalTodos(pre.blocks, refined) : pre.blocks;
+  const _winEnd = _hmToMin(cfg.workEnd);
   // I1: re-assert the imminent pins in case the refine drifted one, cascading others around.
-  if (imminentPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, imminentPins);
+  if (imminentPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, imminentPins, _winEnd);
   // D: re-assert the frozen past blocks so the refine can't drop or move history.
-  if (pastPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, pastPins);
+  if (pastPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, pastPins, _winEnd);
   // I2: re-assert locked blocks (the refine can nudge a reservation) so a pinned item
   // holds its exact slot; others reflow around it. I3: apply title overrides.
-  if (lockReservations.length) finalBlocks = _meAiEnforcePins(finalBlocks, lockReservations);
+  if (lockReservations.length) finalBlocks = _meAiEnforcePins(finalBlocks, lockReservations, _winEnd);
   finalBlocks = _meAiApplyRenames(finalBlocks, overridesForPlan);
   finalBlocks = _meAiApplyLabels(finalBlocks, overridesForPlan);
   // Collapse any personal commitment that ended up scheduled twice (pin + todo re-insert).

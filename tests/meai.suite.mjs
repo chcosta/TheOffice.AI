@@ -113,6 +113,43 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2b. Pin enforcement winEnd cap — a flexible block shoved past the work window
+//     is DROPPED (spills to backlog), never cascaded into the evening. This is the
+//     during-hours guard against the "fragmented evening mess" the owner reported.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const { _meAiEnforcePins, _hmToMin } = extractFns(SERVER, ['_hmToMin', '_minToHm', '_meAiEnforcePins']);
+  const M = (h, m) => h * 60 + (m || 0); // pins carry start/end as MINUTES
+  const pin = (sMin, eMin, title) => ({ start: sMin, end: eMin, title, meta: {} });
+
+  await t.test('cap: a flexible block pushed past workEnd is dropped, not evening-cascaded', () => {
+    const blocks = [blk('16:00', '17:00', 'meeting', 'Locked sync'), blk('16:30', '17:30', 'focus', 'Deep work')];
+    const pins = [pin(M(16), M(17), 'Locked sync')];
+    const out = _meAiEnforcePins(blocks, pins, M(17)); // winEnd = 17:00
+    t.eq(out.some((b) => b.title === 'Deep work'), false, 'the shoved focus block is dropped');
+    t.eq(out.every((b) => (_hmToMin(b.end) <= M(17)) || b.meta.pinned), true, 'nothing flexible lands past workEnd');
+  });
+
+  await t.test('cap: without a winEnd the block still cascades (evening) — proves the cap is what fixes it', () => {
+    const blocks = [blk('16:00', '17:00', 'meeting', 'Locked sync'), blk('16:30', '17:30', 'focus', 'Deep work')];
+    const pins = [pin(M(16), M(17), 'Locked sync')];
+    const out = _meAiEnforcePins(blocks, pins); // no cap
+    const dw = out.find((b) => b.title === 'Deep work');
+    t.ok(dw, 'block survives');
+    t.eq(dw.start, '17:00', 'cascaded into the evening (the bug the cap prevents)');
+  });
+
+  await t.test('cap: a normal in-window reflow is untouched', () => {
+    const blocks = [blk('09:00', '10:00', 'meeting', 'Standup'), blk('09:30', '10:30', 'focus', 'Deep work')];
+    const pins = [pin(M(9), M(10), 'Standup')];
+    const out = _meAiEnforcePins(blocks, pins, M(17));
+    const dw = out.find((b) => b.title === 'Deep work');
+    t.ok(dw, 'block survives (well within the window)');
+    t.eq(dw.start, '10:00', 'reflowed just after the pin');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. Pursuit merge reducer. Ported from the 15/15 scratch test.
 // ─────────────────────────────────────────────────────────────────────────────
 {
