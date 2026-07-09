@@ -16859,6 +16859,14 @@
               .cf-studio .cf-select { width:100%; }
               .cf-studio .cf-reviews-toggle { font-size:12.5px; }
               .cf-studio .nlx-scroll { padding:16px 16px 32px; }
+              /* The stage-bar ("N pull requests · updated") was position:sticky top:0,
+                 but it lives inside .nlx-stage (overflow:hidden, NOT the scroll
+                 container) so it can't stick correctly — it collided with the sticky
+                 .cf-tabs bar at the same y and clipped, making PR cards look like they
+                 scroll *behind* the menu. The filtered count already rides on the tabs,
+                 so keep this row static and let it scroll away cleanly. One sticky
+                 header (the tabs) = calm, no ghosting. */
+              .cf-studio .nlx-stage-bar { position:static; top:auto; z-index:auto; }
               .cf-studio .cf-pr-list { margin-top:0; }
             </style>
             <div class="nlx-top">
@@ -36869,6 +36877,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 String(rec.repo || '').toLowerCase() !== String(this.codeflowRepoLabel(this.codeflow.filterRepo)).toLowerCase()) return;
             out.push({
               org: rec.org, project: rec.project, repo: rec.repo, id: rec.prId,
+              // provider MUST ride along: without it cfPrKey() drops the "github|"
+              // prefix (so cfWt/cfBusy lookups miss the record) and the remove call
+              // defaults to azdo, which then demands a non-empty project — empty for
+              // GitHub — and fails _cfPrOk with "org, repo and prId are required".
+              provider: rec.provider || 'azdo',
               title: rec.prTitle || ('PR #' + rec.prId), url: rec.prUrl || '',
               status: rec.prStatus || 'completed', _orphan: true
             });
