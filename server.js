@@ -12580,6 +12580,170 @@ function _meAiApplyClassRule(it, rule, date, now) {
     } catch (_) { /* best-effort */ }
   }
 }
+
+// --- Phase 6: durable TOPIC MEMORY (Layer 1 — "you already decided items like this") ----
+// The per-day dismiss store is exact-key (link/title) + per-day, and the learned confidence
+// model needs several samples + auto-triage enabled before it acts. So a topic the user has
+// clearly triaged (e.g. a group of "agent catalog / marketplace" Teams threads dismissed
+// together) keeps RE-SURFACING as new email/Teams interactions arrive with slightly different
+// titles or on a later day — the owner's exact complaint. Topic memory fixes this: every
+// manual OR group SUPPRESSIVE triage (dismiss / wontfix) records a DURABLE, FUZZY topic
+// fingerprint (distinctive title tokens + the channels it spanned). On every inbox merge an
+// incoming item that strongly overlaps a remembered topic is auto-actioned the same way with
+// a clear "you already triaged items like this" trail — so only genuinely NEW topics reach
+// you. NOT per-day; carries across days. Fully reversible (undo forgets/weakens the topic).
+const ME_AI_TOPIC_MEM_PATH = path.join(dataPath('me-ai'), 'triage-topic-memory.json');
+// Only "I don't want to see items like this" actions seed a durable topic. 'later' is a
+// per-day park and 'done'/'today' are instance-specific — none should silently swallow a
+// distinct future arrival, so they are deliberately excluded.
+const ME_AI_TOPIC_SUPPRESS = new Set(['dismiss', 'dismissed', 'wontfix']);
+const ME_AI_TOPIC_MATCH_MIN = 0.5;    // containment floor for a topic hit on the SAME channel
+const ME_AI_TOPIC_MATCH_MIN_X = 0.62; // higher floor when the channel differs (avoid over-match)
+function loadTopicMemory() {
+  try {
+    if (!fs.existsSync(ME_AI_TOPIC_MEM_PATH)) return { topics: [] };
+    const v = JSON.parse(fs.readFileSync(ME_AI_TOPIC_MEM_PATH, 'utf-8'));
+    return (v && Array.isArray(v.topics)) ? v : { topics: [] };
+  } catch { return { topics: [] }; }
+}
+function saveTopicMemory(store) {
+  try {
+    fs.mkdirSync(path.dirname(ME_AI_TOPIC_MEM_PATH), { recursive: true });
+    if (store && Array.isArray(store.topics) && store.topics.length > 200) {
+      store.topics.sort((a, b) => String(b.lastAt || '').localeCompare(String(a.lastAt || '')));
+      store.topics = store.topics.slice(0, 200); // bounded + freshest-first
+    }
+    fs.writeFileSync(ME_AI_TOPIC_MEM_PATH, JSON.stringify(store || { topics: [] }, null, 2));
+  } catch (_) { /* best-effort */ }
+  return store;
+}
+// Canonical suppressive action for a topic ('dismissed' → 'dismiss'), or '' if not suppressive.
+function _meAiTopicAction(a) {
+  a = String(a || '').toLowerCase();
+  if (a === 'dismissed') a = 'dismiss';
+  return ME_AI_TOPIC_SUPPRESS.has(a) ? a : '';
+}
+// Record / refresh a durable topic fingerprint from ONE item or a GROUP of items. Group
+// triage passes ALL members so the whole cluster's vocabulary is remembered together (the
+// direct fix for "I dismissed the group and it came back"). Merges into an existing topic of
+// the same action when they overlap, so the fingerprint broadens over time instead of
+// fragmenting. Returns the topic, or null if too generic / non-suppressive.
+function _meAiRecordTopic(items, action, opts = {}) {
+  const act = _meAiTopicAction(action);
+  if (!act) return null;
+  const arr = (Array.isArray(items) ? items : [items]).filter(Boolean);
+  if (!arr.length) return null;
+  const tokSet = new Set(); const srcs = new Set(); const kinds = new Set();
+  let sample = '';
+  for (const it of arr) {
+    for (const t of _meAiTitleTokens(it.title)) tokSet.add(t);
+    srcs.add(String(it.source || 'm365').toLowerCase());
+    kinds.add(String(it.kind || 'email').toLowerCase());
+    if (!sample) sample = String(it.title || '').slice(0, 120);
+  }
+  const tokens = Array.from(tokSet).sort().slice(0, 12);
+  if (tokens.length < 2) return null; // too generic to remember safely
+  const store = loadTopicMemory();
+  const now = new Date().toISOString();
+  const incoming = new Set(tokens);
+  let topic = null, bestRel = 0;
+  for (const t of store.topics) {
+    if (_meAiTopicAction(t.action) !== act) continue;
+    const rel = _meAiJaccard(incoming, new Set(t.tokens || []));
+    if (rel > bestRel) { bestRel = rel; topic = t; }
+  }
+  if (topic && bestRel >= 0.5) {
+    topic.tokens = Array.from(new Set([...(topic.tokens || []), ...tokens])).sort().slice(0, 16);
+    for (const s of srcs) if (!(topic.sources || []).includes(s)) (topic.sources = topic.sources || []).push(s);
+    for (const k of kinds) if (!(topic.kinds || []).includes(k)) (topic.kinds = topic.kinds || []).push(k);
+    topic.hits = (topic.hits || 0) + 1;
+    topic.lastAt = now;
+    if (opts.group) topic.group = true;
+  } else {
+    topic = {
+      id: 'tm:' + require('crypto').randomUUID().slice(0, 8),
+      tokens, sources: Array.from(srcs), kinds: Array.from(kinds),
+      action: act, label: String(opts.label || sample || tokens.slice(0, 3).join(' \u00B7 ')).slice(0, 80),
+      sample, group: !!opts.group, decidedAt: now, lastAt: now, hits: 1,
+    };
+    store.topics.push(topic);
+  }
+  saveTopicMemory(store);
+  return topic;
+}
+// Best matching suppressive topic for an incoming item (or null). Fuzzy token Jaccard with a
+// channel-aware floor: a topic that already spanned this item's source+kind matches at the
+// lower floor; an unfamiliar channel needs a stronger overlap so unrelated mail isn't eaten.
+function _meAiTopicMatch(it, store) {
+  store = store || loadTopicMemory();
+  const topics = (store && store.topics) || [];
+  if (!topics.length || !it) return null;
+  const itToks = new Set(_meAiTitleTokens(it.title));
+  if (itToks.size < 2) return null;
+  const src = String(it.source || 'm365').toLowerCase();
+  const kind = String(it.kind || 'email').toLowerCase();
+  let best = null, bestRel = 0;
+  for (const t of topics) {
+    if (!_meAiTopicAction(t.action)) continue;
+    const topicToks = new Set(t.tokens || []);
+    let inter = 0; for (const tok of itToks) if (topicToks.has(tok)) inter++;
+    if (inter < 2) continue; // need >=2 shared distinctive tokens, never a single-word coincidence
+    const sameChannel = (t.sources || []).includes(src) && (t.kinds || []).includes(kind);
+    // An unfamiliar channel needs MORE distinctive shared tokens so a sparse 2-word subject
+    // (e.g. a brand-new "catalog agents" email) can't coincidentally land on a Teams topic.
+    if (inter < (sameChannel ? 2 : 3)) continue;
+    // Containment (inter / itemTokens), NOT Jaccard: measures how much of THIS incoming item the
+    // topic explains, so noise words the sender adds ("just published", "please review") don't
+    // sink a real same-topic variant the way Jaccard's union penalty does.
+    const rel = inter / itToks.size;
+    if (rel < (sameChannel ? ME_AI_TOPIC_MATCH_MIN : ME_AI_TOPIC_MATCH_MIN_X)) continue;
+    if (rel > bestRel) { bestRel = rel; best = t; }
+  }
+  return best ? { topic: best, rel: bestRel } : null;
+}
+// Apply a matched topic to an item IN-PLACE (mirrors _meAiApplyClassRule). Writes the day's
+// dismiss store so planning drops it too. Never hard-suppresses a truly urgent DIRECT ask —
+// that downgrades to 'seen' + surfaces with a hint, so a remembered "usually dismiss" topic
+// can't silently swallow a genuine "I need you NOW" ping.
+function _meAiApplyTopic(it, topic, date, now) {
+  const act = _meAiTopicAction(topic.action);
+  if (!act) return false;
+  if (it.directMention && (Number(it.urgency) || 0) >= 5) {
+    it.suggested = act;
+    it.confidence = Math.max(Number(it.confidence) || 0, 60);
+    it.confidenceWhy = `You usually ${_meAiActionLabel(act)} items like this, but this one is a direct, urgent ask \u2014 confirm.`;
+    if (it.triage === 'new') it.triage = 'seen';
+    return false; // surfaced for a human, not auto-suppressed
+  }
+  it.triage = act === 'dismiss' ? 'dismissed' : act;
+  it.auto = true;
+  it.topicMem = { id: topic.id, label: topic.label, action: act };
+  it.autoReason = { action: act, topic: topic.label, why: `You already triaged items like this as \u201C${_meAiActionLabel(act)}\u201D`, at: now };
+  it.triagedAt = now;
+  it.confidence = 100;
+  it.confidenceWhy = `Matches a topic you triaged before: \u201C${topic.label}\u201D`;
+  it.suggested = act;
+  try {
+    const dm = loadDismissForDate(date);
+    dm[_meAiDismissKey(it)] = { title: it.title, note: '', at: now, reason: act, auto: true, topic: topic.id };
+    saveDismissForDate(date, dm);
+  } catch (_) { /* best-effort */ }
+  return true;
+}
+// Weaken/forget a topic when the user UNDOES an auto-suppression it produced — so a
+// mistakenly-learned topic self-corrects instead of nagging in reverse.
+function _meAiForgetTopic(topicId) {
+  if (!topicId) return;
+  try {
+    const store = loadTopicMemory();
+    const i = store.topics.findIndex(t => t.id === topicId);
+    if (i < 0) return;
+    const t = store.topics[i];
+    t.hits = (t.hits || 1) - 1;
+    if (t.hits <= 0) store.topics.splice(i, 1);
+    saveTopicMemory(store);
+  } catch (_) { /* best-effort */ }
+}
 function _meAiTriageLabel(action) {
   return ['later', 'dismiss', 'wontfix', 'today', 'now'].includes(action) ? action : '';
 }
@@ -13010,6 +13174,9 @@ async function _meAiMergeInbox(date, signals, cfg) {
   const classStore = loadClassRules();          // Phase 4: Layer-0 class rules
   const classRules = (classStore && classStore.rules) || [];
   let classHits = 0;
+  const topicStore = loadTopicMemory();         // Phase 6: Layer-1 durable topic memory
+  const hasTopics = !!(topicStore.topics && topicStore.topics.length);
+  let topicHits = 0;
   const budget = { n: 6 }; // cap per-item AI nudges per merge so a poll can't fan out N model calls
   for (const sig of (signals || [])) {
     if (!sig || sig.kind === 'meeting' || sig.type !== 'comms') continue;
@@ -13024,11 +13191,14 @@ async function _meAiMergeInbox(date, signals, cfg) {
     };
     const ex = byId.get(id);
     if (ex) {
-      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested, classRule: ex.classRule });
+      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason, confidence: ex.confidence, confidenceWhy: ex.confidenceWhy, suggested: ex.suggested, classRule: ex.classRule, topicMem: ex.topicMem });
       // Phase 4 Layer-0: an untriaged existing item may now match a (new) class rule.
       if (ex.triage === 'new' || ex.triage === 'seen') {
         const rule = classRules.length ? _meAiClassRuleMatch(ex, classStore) : null;
         if (rule) { _meAiApplyClassRule(ex, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++; continue; }
+        // Phase 6 Layer-1: a topic the user already suppressed now covers this item.
+        const tm = hasTopics ? _meAiTopicMatch(ex, topicStore) : null;
+        if (tm && _meAiApplyTopic(ex, tm.topic, date, now)) { tm.topic.hits = (tm.topic.hits || 0) + 1; tm.topic.lastAt = now; topicHits++; autoHandled++; continue; }
       }
       // Backfill a confidence score cheaply (no AI) for items that predate Phase 2 so the
       // inbox always surfaces one; an untriaged backfill may also auto-fire under settings.
@@ -13043,19 +13213,28 @@ async function _meAiMergeInbox(date, signals, cfg) {
       if (rule) {
         _meAiApplyClassRule(it, rule, date, now); rule.hits = (rule.hits || 0) + 1; classHits++; autoHandled++;
       } else {
-        // Phase 2: confidence-score the new ask; auto-apply the confident, in-tier decision
-        // instead of asking (settings-gated). Falls back to leaving it 'new' to triage.
-        try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { budget })) autoHandled++; } catch (_) { /* best-effort */ }
+        // Phase 6 Layer-1: durable topic memory — a topic the user already dismissed/wontfixed
+        // (individually or as a group) auto-suppresses this new arrival before any scoring, so
+        // the same topic stops resurfacing across title variants + day boundaries.
+        const tm = hasTopics ? _meAiTopicMatch(it, topicStore) : null;
+        if (tm && _meAiApplyTopic(it, tm.topic, date, now)) {
+          tm.topic.hits = (tm.topic.hits || 0) + 1; tm.topic.lastAt = now; topicHits++; autoHandled++;
+        } else {
+          // Phase 2: confidence-score the new ask; auto-apply the confident, in-tier decision
+          // instead of asking (settings-gated). Falls back to leaving it 'new' to triage.
+          try { if (await _meAiScoreAndMaybeAuto(it, cfg, date, now, { budget })) autoHandled++; } catch (_) { /* best-effort */ }
+        }
       }
       inbox.items.push(it); byId.set(id, it); added++;
     }
   }
   if (classHits) { try { saveClassRules(classStore); } catch (_) { /* best-effort */ } } // persist hit counts
+  if (topicHits) { try { saveTopicMemory(topicStore); } catch (_) { /* best-effort */ } } // persist topic hits/lastAt
   inbox.items.sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits };
+  return { inbox, added, autoHandled, classHits, topicHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
@@ -16959,6 +17138,11 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     if (action !== 'seen' && action !== 'done') {
       try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
     }
+    // Phase 6 Layer-1: a manual dismiss/wontfix seeds a durable topic so the same subject
+    // stops resurfacing across title variants + days (one-item topic).
+    if (action === 'dismiss' || action === 'wontfix') {
+      try { _meAiRecordTopic(it, action, { label: it.title }); } catch (_) { /* best-effort */ }
+    }
     let agenda = null;
     if (action === 'today') {
       // Fit-into-today → re-plan immediately (reuse warm cache) so it lands now.
@@ -16975,7 +17159,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
 
 // Item 3: apply a triage decision to one item IN-PLACE (mutates it + dismiss store +
 // learned model) without saving/replanning — shared by the single + batch routes.
-function _meAiTriageItemInPlace(date, it, action, now) {
+function _meAiTriageItemInPlace(date, it, action, now, opts = {}) {
   const wasAuto = !!it.auto;
   const overridden = (wasAuto && it.autoReason && it.autoReason.action) ? it.autoReason.action : null;
   if (action === 'dismiss' || action === 'wontfix') {
@@ -16999,6 +17183,11 @@ function _meAiTriageItemInPlace(date, it, action, now) {
   it.triagedAt = now;
   if (action !== 'seen' && action !== 'done') {
     try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
+  }
+  // Phase 6 Layer-1: seed a durable topic on a suppressive triage. The batch route passes
+  // skipTopic and records ONE group topic across all members instead (broader fingerprint).
+  if (!opts.skipTopic && (action === 'dismiss' || action === 'wontfix')) {
+    try { _meAiRecordTopic(it, action, { label: it.title }); } catch (_) { /* best-effort */ }
   }
 }
 
@@ -17028,11 +17217,19 @@ app.post('/api/me-ai/inbox/triage-batch', async (req, res) => {
     const inbox = loadInboxForDate(date);
     const now = new Date().toISOString();
     let applied = 0;
+    const triaged = [];
     for (const id of ids) {
       const it = inbox.items.find(x => x.id === id);
       if (!it) continue;
-      _meAiTriageItemInPlace(date, it, action, now);
+      _meAiTriageItemInPlace(date, it, action, now, { skipTopic: true });
+      triaged.push(it);
       applied++;
+    }
+    // Phase 6 Layer-1: THE fix for "I dismissed the group and it came back". Record ONE
+    // durable topic spanning the whole cluster's vocabulary + channels, so any later
+    // same-topic arrival (any title variant, any day, email OR Teams) is auto-suppressed.
+    if ((action === 'dismiss' || action === 'wontfix') && triaged.length) {
+      try { _meAiRecordTopic(triaged, action, { group: true }); } catch (_) { /* best-effort */ }
     }
     saveInboxForDate(date, inbox);
     let agenda = null;
@@ -17065,6 +17262,10 @@ app.post('/api/me-ai/inbox/undo-auto', async (req, res) => {
       try { const dm = loadDismissForDate(date); delete dm[_meAiDismissKey(it)]; saveDismissForDate(date, dm); } catch (_) { /* best-effort */ }
     }
     if (prev) { try { _meAiPenalizeTriage(it, prev); } catch (_) { /* best-effort */ } }
+    // Phase 6 Layer-1: if this auto-decision came from a durable topic, weaken/forget it so
+    // a mistakenly-learned topic self-corrects instead of nagging in reverse.
+    if (it.topicMem && it.topicMem.id) { try { _meAiForgetTopic(it.topicMem.id); } catch (_) { /* best-effort */ } }
+    it.topicMem = null;
     it.triage = it.triage === 'new' ? 'new' : 'seen';
     it.auto = false; it.autoReason = null; it.triagedAt = new Date().toISOString();
     saveInboxForDate(date, inbox);
