@@ -4830,6 +4830,7 @@
     .board-tbx-item .tbx-grip:hover { opacity: 1; color: var(--cp-text); background: var(--cp-accent-soft); }
     .board-tbx-item .tbx-grip:active { cursor: grabbing; }
     .board-tbx-item .tbx-emoji { font-size: 14px; line-height: 1; flex: 0 0 auto; }
+    .board-tbx-item .tbx-kind-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; background: var(--cp-border); }
     .board-tbx-item .tbx-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .board-tbx-item .tbx-dot { flex: 0 0 auto; font-size: 10px; color: var(--cp-accent); }
     .board-tbx-item .tbx-grip-r { margin: -2px -2px -2px 0; }
@@ -4946,12 +4947,14 @@
     .bmap-node {
       position: absolute; width: 220px; height: 108px; box-sizing: border-box;
       display: flex; flex-direction: column; gap: 4px; padding: 9px 10px;
-      background: var(--cp-surface); border: 1px solid var(--cp-border);
-      border-radius: 10px; box-shadow: 0 2px 8px color-mix(in srgb, var(--cp-ink) 10%, transparent);
+      background: color-mix(in srgb, var(--k, var(--cp-border)) 5%, var(--cp-surface)); border: 1px solid var(--cp-border);
+      border-top: 3px solid var(--k, var(--cp-border));
+      border-radius: calc(var(--cp-radius-scale, 1) * 12px);
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--cp-ink) 10%, transparent);
       cursor: grab; user-select: none; overflow: visible;
       transition: box-shadow .12s ease, border-color .12s ease;
     }
-    .bmap-node:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); border-color: color-mix(in srgb, var(--cp-accent) 50%, var(--cp-border)); }
+    .bmap-node:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); border-color: color-mix(in srgb, var(--k, var(--cp-accent)) 55%, var(--cp-border)); border-top-color: var(--k, var(--cp-accent)); }
     .bmap-node.sel { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); }
     .bmap-node.hl { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f5a623) 70%, transparent), 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); }
     .bmap-node.hl.sel { box-shadow: 0 0 0 2px var(--cp-accent), 0 0 0 5px color-mix(in srgb, var(--cp-warning, #f5a623) 60%, transparent); }
@@ -4961,7 +4964,7 @@
     .bmap-node-title { font-size: 13px; font-weight: 600; color: var(--cp-ink); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bmap-node-sum { flex: 1 1 auto; min-height: 0; font-size: 11.5px; line-height: 1.35; color: color-mix(in srgb, var(--cp-ink) 78%, var(--cp-muted)); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
     .bmap-node-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-    .bmap-node-type { font-size: 10.5px; color: var(--cp-muted); text-transform: uppercase; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-node-type { font-size: 10.5px; color: color-mix(in srgb, var(--k, var(--cp-muted)) 75%, var(--cp-muted)); text-transform: uppercase; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bmap-node-acts { display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s ease; flex: 0 0 auto; }
     .bmap-node:hover .bmap-node-acts { opacity: 1; }
     .bmap-node-acts button {
@@ -4971,6 +4974,16 @@
     }
     .bmap-node-acts button:hover { background: color-mix(in srgb, var(--cp-ink) 12%, transparent); color: var(--cp-ink); }
     .bmap-node-acts button.on { color: var(--cp-warning, #f5a623); }
+    /* drag-to-link connector nub (right-centre) */
+    .bmap-linkhandle {
+      position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+      width: 14px; height: 14px; border-radius: 999px; box-sizing: border-box;
+      background: var(--cp-surface); border: 2px solid var(--k, var(--cp-accent));
+      cursor: crosshair; opacity: 0; transition: opacity .12s ease; z-index: 6;
+    }
+    .bmap-node:hover .bmap-linkhandle { opacity: 1; }
+    .bmap-linkhandle:hover { background: var(--k, var(--cp-accent)); }
+    .board-map.bmap-connecting .bmap-linkhandle { display: none; }
     /* hover full preview */
     .bmap-node-preview {
       position: absolute; top: calc(100% + 8px); left: 0; z-index: 50;
@@ -4989,6 +5002,8 @@
     .bmap-edge-bi { stroke: color-mix(in srgb, var(--cp-ink) 42%, transparent); stroke-width: 2; }
     .bmap-edge-uni { stroke: var(--cp-accent); stroke-width: 2; }
     .bmap-arrow { stroke: var(--cp-accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .bmap-linkline { stroke: var(--cp-accent); stroke-width: 2; stroke-dasharray: 5 4; stroke-linecap: round; opacity: .85; }
+    .board-map.bmap-grouping { cursor: crosshair; }
     /* groups */
     .bmap-group {
       position: absolute; z-index: 0; pointer-events: none;
@@ -8617,6 +8632,7 @@
                                        @dragover.prevent.stop="onToolboxItemOver(p, $event)"
                                        @drop.prevent.stop="onToolboxReorderDrop(p, $event)"
                                        :title="chipType(p) + ': ' + chipName(p) + ' — click to view · drag right/up/down onto a board · swipe left to unpin/delete'">
+                                    <span class="tbx-kind-dot" :style="'background:'+bmapKindColor(p)" :title="chipType(p)"></span>
                                     <span class="tbx-emoji" x-text="chipIcon(p)"></span>
                                     <span class="tbx-name" x-text="chipName(p)"></span>
                                     <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
@@ -8670,7 +8686,7 @@
                              @pointerleave="bmapPanEnd()"
                              @dragover.prevent="try{$event.dataTransfer.dropEffect='copy'}catch(e){}"
                              @drop.prevent="bmapDrop($event)"
-                             :class="{ 'bmap-connecting': !!bmapConnectMode() }">
+                             :class="{ 'bmap-connecting': !!bmapConnectMode(), 'bmap-grouping': bmap.groupMode }">
                           <!-- floating toolbar -->
                           <div class="bmap-toolbar" @pointerdown.stop>
                             <button type="button" class="bmap-tbtn" @click="bmapZoom('out')" title="Zoom out">－</button>
@@ -8680,9 +8696,10 @@
                             <span class="bmap-tsep"></span>
                             <button type="button" class="bmap-tbtn" :class="{ on: bmapConnectMode()==='uni' }" @click="bmapToggleConnect('uni')" title="Link parent → child (directional)">→ Link</button>
                             <button type="button" class="bmap-tbtn" :class="{ on: bmapConnectMode()==='bi' }" @click="bmapToggleConnect('bi')" title="Link two cards (two-way)">↔ Link</button>
-                            <button type="button" class="bmap-tbtn" @click="bmapStartGroup()" :disabled="!bmap.sel.length" title="Frame the selected cards as a named group">▢ Group</button>
+                            <button type="button" class="bmap-tbtn" :class="{ on: bmap.groupMode }" @click="bmapToggleGroupMode()" title="Drag a rectangle around cards to frame them as a named group">▢ Group</button>
                           </div>
                           <div class="bmap-hint" x-show="!!bmapConnectMode()" x-cloak x-text="bmapConnectHint()"></div>
+                          <div class="bmap-hint" x-show="bmap.groupMode" x-cloak>Drag a rectangle around the cards you want to group · Esc to cancel</div>
 
                           <div class="bmap-world" :style="bmapWorldStyle()">
                             <!-- group frames -->
@@ -8703,6 +8720,7 @@
                               <path class="bmap-edge bmap-edge-bi" :d="bmapEdgePath('bi')" fill="none"></path>
                               <path class="bmap-edge bmap-edge-uni" :d="bmapEdgePath('uni')" fill="none"></path>
                               <path class="bmap-arrow" :d="bmapArrowPath()" fill="none"></path>
+                              <path class="bmap-linkline" x-show="!!bmap.link" :d="bmapLinkLivePath()" fill="none"></path>
                             </svg>
 
                             <!-- nodes -->
@@ -8711,7 +8729,7 @@
                                    :class="{ sel: bmapIsSel(n.base), hl: bmapIsHl(n.base), 'connect-from': bmap.connectFrom===n.base }"
                                    :style="bmapNodeStyle(n)"
                                    @pointerdown.stop="bmapNodeDown(n,$event)"
-                                   @pointerup.stop="bmapPanEnd()"
+                                   @pointerup.stop="bmapNodeUp(n,$event)"
                                    @click.stop="bmapNodeClick(n,$event)"
                                    @dblclick.stop="bmapOpenFull(n.base)">
                                 <div class="bmap-node-head">
@@ -8730,6 +8748,7 @@
                                   </span>
                                 </div>
                                 <div class="bmap-node-preview" x-html="bmapCardFull(n.p)"></div>
+                                <span class="bmap-linkhandle" title="Drag to another card to link them" @pointerdown.stop.prevent="bmapLinkStart(n,$event)" @click.stop></span>
                               </div>
                             </template>
 
@@ -9800,7 +9819,7 @@
                           <!-- Trash drop-target: appears only while a card is being dragged
                                (drop here to take it off the board — removed from every section;
                                it stays in the workspace + toolbox). Hidden on Card View. -->
-                          <div class="board-trash" x-show="!isViewTab() && !!_boardCardDrag" x-cloak
+                          <div class="board-trash" x-show="!isViewTab() && !isMapView() && !!_boardCardDrag" x-cloak
                                :class="{ over: _boardTrashOver }"
                                @dragenter.prevent.stop="_boardTrashOver = true"
                                @dragover.prevent.stop="_boardTrashOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
@@ -9810,7 +9829,7 @@
                             <span class="board-trash-ico">🗑</span>
                           </div>
                         </div>
-                        <div class="board-sectbar" x-show="!isViewTab()">
+                        <div class="board-sectbar" x-show="!isViewTab() && !isMapView()">
                           <div class="board-editsec" x-show="boardEditSecOpen" x-cloak @click.outside="boardEditSecOpen = false">
                             <div class="board-editsec-head">
                               <span x-text="'Edit cards' + (activeSection() ? ' · ' + activeSection().name : '')"></span>
@@ -12686,6 +12705,8 @@
                 padding:9px 13px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.14);
                 transition:transform .16s cubic-bezier(.22,1,.36,1), border-color .16s; }
               .meai-chk-fab:hover { transform:translateY(-1px); border-color:var(--cp-accent); }
+              /* jul9: To-dos FAB stacks above the goals FAB (goals bottom:88px, todos bottom:140px). */
+              .meai-todo-fab { bottom:140px; }
               .meai-chk-fab .meai-chk-dot { width:8px; height:8px; border-radius:999px; background:var(--cp-text-muted); }
               .meai-chk-fab.has-open .meai-chk-dot { background:var(--cp-warning,#d97706); }
               .meai-chk-fab .meai-chk-n { color:var(--cp-text-muted); font-weight:600; font-size:12px; }
@@ -13034,7 +13055,7 @@
                         :title="(meai.agenda?.meta?.heldUpdate?.reason || 'An automatic update was held to protect the shape of your day.') + ' — click to dismiss.'">
                   <span class="meai-held-dot"></span><span>Update held to protect your day</span>
                 </button>
-                <template x-if="meai.agenda?.meta?.churn">
+                <template x-if="meai.agenda?.meta?.churn && meai.date <= meai.today">
                   <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Calm').toLowerCase()"
                           @click="meai.changesOpen=!meai.changesOpen"
                           title="Today's rhythm = how much the day actually churned on its own (Calm → Steady → Reactive → Fragmented), measured from reschedules/slips/late-adds. It is NOT your Day mode — Day mode (Balanced/Focused/…) is the planning strategy you choose; this rhythm is the observed outcome. Click to see what changed today.">
@@ -13248,6 +13269,7 @@
                                   <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done',{scope:'item'})" :disabled="meai.inboxBusy" title="Already handled">Mark as done</button>
                                   <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss',{scope:'item'})" :disabled="meai.inboxBusy" title="Not mine">Not mine</button>
                                   <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix',{scope:'item'})" :disabled="meai.inboxBusy" title="Declining">Won't fix</button>
+                                  <button type="button" class="meai-tri ghost" @click.stop="meAiMakeTodo(row.it)" :disabled="meai.inboxBusy" title="Park on your to-do list for when you have free time">＋ To-do</button>
                                   <button type="button" class="meai-tri ghost" @click="meAiIgnoreClass(row.it)" :disabled="meai.inboxBusy" title="Create an always-ignore rule for items like this, regardless of confidence">Always ignore items like this</button>
                                 </div>
                               </div>
@@ -13308,6 +13330,7 @@
                               <button type="button" class="meai-tri ghost" @click="meAiTriage(row.it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done">Mark as done</button>
                               <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='dismiss' }" @click="meAiTriage(row.it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
                               <button type="button" class="meai-tri ghost" :class="{ 'meai-tri-sug': row.it.suggested==='wontfix' }" @click="meAiTriage(row.it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it">Won't fix</button>
+                              <button type="button" class="meai-tri ghost" @click.stop="meAiMakeTodo(row.it)" :disabled="meai.inboxBusy" title="Park on your to-do list for when you have free time">＋ To-do</button>
                               <button type="button" class="meai-tri ghost" @click="meAiIgnoreClass(row.it)" :disabled="meai.inboxBusy" title="Create an always-ignore rule for items like this, regardless of confidence">Always ignore items like this</button>
                             </div>
                             <div class="meai-inbox-acts" x-show="row.status==='pending'">
@@ -13590,6 +13613,21 @@
                                 title="Always run a single flat agent — faster, one pass, no fan-out">Quick</button>
                       </div>
                     </div>
+                    <!-- Optional playbook: 'auto' lets the agent decide its own steps (adhoc);
+                         picking one runs the launch with that playbook's tuned prompt. -->
+                    <div class="meai-depth" role="group" aria-label="Playbook">
+                      <span class="meai-depth-lbl">Playbook</span>
+                      <select class="field-input meai-pb-select" x-model="meai.launchPlaybook" @change="meAiSetPlaybook($event.target.value)"
+                              title="Which kind of work this is — Auto lets the agent work out its own approach">
+                        <option value="auto">Auto (agent decides)</option>
+                        <option value="review">Review</option>
+                        <option value="implement">Implement</option>
+                        <option value="steward">Steward / unblock</option>
+                        <option value="comms">Comms / reply</option>
+                        <option value="prep">Prep</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
                     <div class="meai-pursue-launch">
                       <input type="text" class="field-input meai-pursue-input" :placeholder="meai.launchDepth==='quick' ? 'Set a goal for a Me agent…' : 'Set a goal for a dogged pursuit…'"
                              x-model="meai.adhocGoal" @keydown.enter="meAiLaunchAsk()">
@@ -13835,27 +13873,52 @@
                       <div class="meai-chk-empty" x-show="meai.goalsTab !== 'open' && !meAiRegularGoalsTab().length && !meAiBigGoalInTab() && !(meai.goalsTab === 'done' && meAiOrphanBigWins().length)">
                         <span x-text="meai.goalsTab === 'done' ? 'Nothing marked done yet.' : (meai.goalsTab === 'partial' ? 'Nothing needs more time.' : &quot;Nothing you've marked as missed.&quot;)"></span>
                       </div>
-                      <!-- Today's todos (folded in from the inline card) -->
-                      <div class="meai-chk-group" x-show="meai.goalsTab === 'open'">
-                        <div class="meai-chk-glabel">Today's todos <span class="meai-chk-gn" x-text="meAiPlainTodos().filter(t => !t.done).length + ' open'"></span></div>
+                    </div>
+                  </div>
+
+                  <!-- To-dos — a SEPARATE tracked list, decoupled from agenda planning (jul9). These
+                       never reshape the day; they're a running list of things to get to when you
+                       have free time. Own floating icon + dock, parallel to Today's goals. Open todos
+                       carry over to the next day; done ones don't (they still feed the diary). -->
+                  <div class="meai-chk-panel meai-todo-panel" :class="{ 'is-docked': meai.todosDocked }"
+                       x-show="(meai.todosDocked || meai.todosOpen) && !meai.console && !meai.pursuit.open"
+                       x-transition.opacity.duration.150ms
+                       :style="(!meai.todosDocked && meai.todosOpen && !meai.checklistDocked && meai.checklistOpen) ? 'bottom:calc(50vh + 12px); max-height:calc(50vh - 20px)' : ''">
+                    <div class="meai-chk-head">
+                      <div>
+                        <h4>To-dos</h4>
+                        <div class="meai-chk-sub">Things you want to get done when you have time. These don't affect your agenda — open items carry over to tomorrow.</div>
+                      </div>
+                      <div class="meai-chk-headacts">
+                        <button class="meai-chk-x" type="button" @click="meAiTodosDock(!meai.todosDocked)"
+                          :title="meai.todosDocked ? 'Float over the page' : 'Dock into the page'"
+                          :aria-label="meai.todosDocked ? 'Undock to-dos' : 'Dock to-dos'"
+                          x-text="meai.todosDocked ? '⧉' : '⇲'"></button>
+                        <button class="meai-chk-x" type="button" x-show="!meai.todosDocked" @click="meAiTodosToggle(false)" aria-label="Close to-dos">✕</button>
+                      </div>
+                    </div>
+                    <div class="meai-chk-body">
+                      <div class="meai-chk-group">
+                        <div class="meai-chk-glabel">To-dos <span class="meai-chk-gn" x-text="meAiTodoCounts().done + ' / ' + meAiTodoCounts().total + ' done'"></span></div>
                         <template x-for="(t, i) in meAiPlainTodos()" :key="'td-'+i+'-'+((typeof t==='string'?t:t.title)||'')">
                           <div class="meai-chk-row" :class="{ done: (typeof t!=='string' && t.done) }">
                             <input class="meai-chk-cb" type="checkbox" :checked="(typeof t!=='string' && t.done)" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + ((typeof t==='string'?t:t.title)||'item') + ' done'">
                             <div class="meai-chk-main">
                               <div class="meai-chk-title" x-text="(typeof t==='string') ? t : t.title"></div>
-                              <div class="meai-chk-meta" x-show="typeof t!=='string' && (t.carried || t.scope==='personal')">
+                              <div class="meai-chk-meta" x-show="typeof t!=='string' && (t.carried || t.scope==='personal' || t.link)">
                                 <span class="meai-chk-carried" x-show="typeof t!=='string' && t.carried">↷ carried over</span>
                                 <span x-show="typeof t!=='string' && t.scope==='personal'">personal</span>
+                                <a class="meai-chk-open" x-show="typeof t!=='string' && t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
                               </div>
                             </div>
-                            <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove todo" aria-label="Remove">✕</button>
+                            <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove to-do" aria-label="Remove">✕</button>
                           </div>
                         </template>
-                        <div class="meai-chk-empty" x-show="!meAiPlainTodos().length && !meAiChecklistItems().length">
-                          Nothing to track yet. Add a todo below — or triage-type items (like PAT rotations or housekeeping) will land here automatically so they don't quietly fall off your day.
+                        <div class="meai-chk-empty" x-show="!meAiPlainTodos().length">
+                          Nothing on your to-do list yet. Add one below — or use “＋ To-do” on an inbox or backlog item to park it here for later.
                         </div>
                         <div class="meai-chk-add">
-                          <input type="text" x-model="meai.newTodo" placeholder="Add a todo…" @keydown.enter="meAiAddTodo()">
+                          <input type="text" x-model="meai.newTodo" placeholder="Add a to-do…" @keydown.enter="meAiAddTodo()">
                           <button type="button" @click="meAiAddTodo()" :disabled="!(meai.newTodo||'').trim()">Add</button>
                         </div>
                       </div>
@@ -13953,6 +14016,7 @@
                               <div class="meai-na-actions">
                                 <button class="meai-defer-btn" type="button" @click.stop="meAiDeferLater(bk)" title="Reschedule later today">↷ Later</button>
                                 <button class="meai-defer-btn" type="button" @click.stop="meAiDeferFuture(bk)" title="Not done — move to a future work day">→ Future</button>
+                                <button class="meai-defer-btn" type="button" @click.stop="meAiMakeTodo(bk)" title="Park on your to-do list for when you have free time">＋ To-do</button>
                                 <button class="meai-notmine" type="button" @click.stop="meAiDismiss(bk)" title="Not mine — remove from today">✕ Not mine</button>
                               </div>
                               <div class="meai-na-t">
@@ -14929,6 +14993,30 @@
                 <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode !== 'task' }" @click="meai.asst.mode='agenda'">🗓 Adjust agenda</button>
                 <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode === 'task' }" @click="meai.asst.mode='task'">🤖 Run a task</button>
               </div>
+              <!-- Task-mode controls: pick how deep the agent goes + an optional playbook.
+                   Shares state with the "Me agents at work" launcher so the choice is consistent. -->
+              <div class="meai-asst-taskopts" x-show="meai.asst.mode === 'task'" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 6px">
+                <div class="meai-depth" role="group" aria-label="Depth">
+                  <span class="meai-depth-lbl">Depth</span>
+                  <div class="meai-depth-track">
+                    <button type="button" class="meai-depth-seg" :class="meai.launchDepth==='auto' && 'is-on'" @click="meAiSetDepth('auto')" title="Right-sized to the task">Auto</button>
+                    <button type="button" class="meai-depth-seg" :class="meai.launchDepth==='deep' && 'is-on'" @click="meAiSetDepth('deep')" title="Fan out into a live parallel investigation">Deep</button>
+                    <button type="button" class="meai-depth-seg" :class="meai.launchDepth==='quick' && 'is-on'" @click="meAiSetDepth('quick')" title="One flat agent, faster">Quick</button>
+                  </div>
+                </div>
+                <div class="meai-depth" role="group" aria-label="Playbook">
+                  <span class="meai-depth-lbl">Playbook</span>
+                  <select class="field-input meai-pb-select" x-model="meai.launchPlaybook" @change="meAiSetPlaybook($event.target.value)" title="What kind of work this is">
+                    <option value="auto">Auto</option>
+                    <option value="review">Review</option>
+                    <option value="implement">Implement</option>
+                    <option value="steward">Steward</option>
+                    <option value="comms">Comms</option>
+                    <option value="prep">Prep</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
               <div class="meai-asst-input">
                 <textarea class="field-input" rows="2" x-model="meai.asst.input"
                           :placeholder="meai.asst.mode==='task' ? 'Tell a Me agent what to do… (e.g. draft a status update on the Helix work)' : 'e.g. add a 1-hour workout at 5pm, reviews in the morning, split the PR review block…'"
@@ -14942,13 +15030,14 @@
                  would cover this icon, so shift the assistant to the bottom-left (the goals dock
                  button is hidden while the panel is open, so that corner is free). -->
             <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
-              :style="(meai.checklistOpen && !meai.checklistDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
+              :style="((meai.checklistOpen && !meai.checklistDocked) || (meai.todosOpen && !meai.todosDocked)) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
               @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
 
             <!-- Item 4: floating today's-goals FAB (stacked above the assistant). Shown only
                  when the goals panel is neither docked nor floating open, and no console/pursuit. -->
             <button class="meai-chk-fab" :class="{ 'has-open': meAiGoalTabCount('open') > 0 }" type="button"
               x-show="route==='me-ai' && !meai.checklistDocked && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+              :style="(meai.todosOpen && !meai.todosDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
               @click="meAiChecklistToggle(true)"
               :title="meAiGoalCountsTitle()"
               aria-label="Open today's goals">
@@ -14962,6 +15051,20 @@
                   <span class="meai-chk-c" :class="['is-'+tb.key, { 'is-zero': !tb.n }]" x-text="tb.n"></span>
                 </template>
               </span>
+            </button>
+
+            <!-- jul9: floating To-dos FAB (stacked above the goals FAB). A SEPARATE tracked list.
+                 Shown only when the todos panel is neither docked nor floating open. Shifts left
+                 when the goals panel floats open (so it clears the bottom-right corner). -->
+            <button class="meai-chk-fab meai-todo-fab" :class="{ 'has-open': meAiTodoCounts().total - meAiTodoCounts().done > 0 }" type="button"
+              x-show="route==='me-ai' && !meai.todosDocked && !meai.todosOpen && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+              :style="(meai.checklistOpen && !meai.checklistDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
+              @click="meAiTodosToggle(true)"
+              title="To-dos — a separate list of things to get to when you have time"
+              aria-label="Open to-dos">
+              <span class="meai-chk-dot"></span>
+              <span>To-dos</span>
+              <span class="meai-chk-n" x-show="meAiTodoCounts().total" x-text="meAiTodoCounts().done + ' / ' + meAiTodoCounts().total + ' done'"></span>
             </button>
 
             <!-- Quick-nav: fixed at the left, vertically centered. Hidden while a Me-agent
@@ -23768,7 +23871,7 @@
         bmap: {
           view: { zoom: 1, panX: 40, panY: 40 },
           drag: null, groupDrag: null, marquee: null, pan: null,
-          connect: null, connectFrom: null,
+          connect: null, connectFrom: null, link: null, groupMode: false,
           sel: [], hover: null, full: null,
           _boardId: null, _persistT: null, _suppressClick: false,
         },
@@ -24098,6 +24201,10 @@
           // pursuit, 'quick' always runs a single flat agent. One choice replaces the
           // old hardcoded pursuit-vs-single split (no separate "pursuit canvas" mode).
           launchDepth: (() => { try { const v = localStorage.getItem('meAiLaunchDepth'); return ['auto', 'deep', 'quick'].includes(v) ? v : 'auto'; } catch (_) { return 'auto'; } })(),
+          // Launch-time playbook override. 'auto' = adhoc (agent decides its own steps);
+          // otherwise force a specific playbook (review/implement/steward/comms/prep/admin)
+          // so a free-form launch runs with the tuned prompt for that kind of work.
+          launchPlaybook: (() => { try { const v = localStorage.getItem('meAiLaunchPlaybook'); return ['auto','review','implement','steward','comms','prep','admin'].includes(v) ? v : 'auto'; } catch (_) { return 'auto'; } })(),
           launchMenuFor: null,   // per-block Quick/Deep chooser popover: block id|title or null
           console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
           consoleBusy: false,    // a dispatch/act request is in flight
@@ -24180,6 +24287,10 @@
           checklistOpen: (() => { try { const v = localStorage.getItem('meai-checklist-open'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           // Dock the goals panel inline in the right column (default) vs float it over the page.
           checklistDocked: (() => { try { const v = localStorage.getItem('meai-checklist-docked'); return v === null ? false : v === '1'; } catch (_) { return false; } })(),
+          // To-dos: a SEPARATE tracked list (jul9) with its own floating icon + dock, parallel to
+          // the goals panel. Decoupled from agenda planning. Defaults collapsed to the FAB.
+          todosOpen: (() => { try { return localStorage.getItem('meai-todos-open') === '1'; } catch (_) { return false; } })(),
+          todosDocked: (() => { try { return localStorage.getItem('meai-todos-docked') === '1'; } catch (_) { return false; } })(),
           // Collapse the quick-nav "Jump to" rail into a slim icon strip docked next to the
           // sidebar (for constrained/mobile widths). Persists; narrow screens force it on via CSS.
           jumpCollapsed: (() => { try { return localStorage.getItem('meai-jump-collapsed') === '1'; } catch (_) { return false; } })(),
@@ -32199,13 +32310,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiAsstSend() {
           const raw = (this.meai.asst.input || '').trim();
           if (!raw || this.meai.asst.busy) return;
-          // "Run a task" mode — dispatch an ad-hoc Me agent instead of proposing agenda edits.
+          // "Run a task" mode — dispatch a Me agent instead of proposing agenda edits.
           if (this.meai.asst.mode === 'task') {
-            if (this.meai.consoleBusy) return;
+            if (this.meai.consoleBusy || this.meai.pursuit.busy) return;
+            // Thread the conversation so far into the agent so it has the context the
+            // user built up in chat (fixes tasks launching without the discussion).
+            const priorMsgs = (this.meai.asst.messages || [])
+              .filter(m => m.role === 'user' || m.role === 'assistant')
+              .map(m => (m.role === 'user' ? 'Me' : 'Assistant') + ': ' + (m.content || '').trim())
+              .filter(l => l.length > 3);
+            const convo = priorMsgs.length
+              ? 'Conversation with me leading up to this task (for context — the ask itself is the goal above):\n' + priorMsgs.slice(-12).join('\n')
+              : '';
+            // Record the user's turn in the assistant transcript.
+            this.meai.asst.messages.push({ role: 'user', content: raw });
             this.meai.asst.input = '';
             const title = raw.length > 80 ? raw.slice(0, 77) + '…' : raw;
-            this.meAiDispatch('adhoc', title, { goal: raw, date: this.meai.date });
-            this.meai.asst.messages.push({ role: 'assistant', content: 'On it — I launched a Me agent for “' + title + '”. Watch it in the console (opening now).', actions: [] });
+            const pb = this.meAiLaunchPb();
+            const deep = this.meai.launchDepth !== 'quick';
+            const detail = convo ? (raw + '\n\n' + convo) : raw;
+            if (deep) {
+              // Auto/Deep → dogged fan-out pursuit on the live canvas.
+              this.meAiLaunchPursuit(raw, { playbook: pb, title, context: { goal: raw, detail, date: this.meai.date } });
+            } else {
+              // Quick → one flat agent in the console.
+              const ctx = (pb === 'adhoc') ? { goal: raw, detail: convo || undefined, date: this.meai.date } : { goal: raw, detail, title, date: this.meai.date };
+              this.meAiDispatch(pb, title, ctx);
+            }
+            const how = deep ? 'a live pursuit (watch it on the canvas)' : 'a Me agent (opening the console)';
+            const pbLabel = pb === 'adhoc' ? '' : ' [' + pb + ']';
+            this.meai.asst.messages.push({ role: 'assistant', content: 'On it — I launched ' + how + ' for “' + title + '”' + pbLabel + '.', actions: [] });
             this.$nextTick(() => this._meAiAsstScroll());
             return;
           }
@@ -33327,6 +33461,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.todos.splice(i, 1);
           this.meAiPersistTodos();
         },
+        // jul9: "＋ To-do" from an inbox or backlog item — park it on the running to-do
+        // list (which is decoupled from agenda planning) so it never reshapes the day.
+        // De-dupes on link||title so the same item can't stack up.
+        meAiMakeTodo(item) {
+          if (!item) return;
+          const title = (item.title || item.label || item.subject || '').trim();
+          if (!title) return;
+          const link = item.link || item.prLink || item.url || '';
+          const scope = (item.scope === 'personal' || item.personal) ? 'personal' : 'work';
+          const key = (t) => (typeof t === 'string' ? t : ((t.link || '') + '|' + (t.title || ''))).toLowerCase();
+          const want = (link + '|' + title).toLowerCase();
+          const dup = (this.meai.todos || []).some(t => key(t) === want || (typeof t !== 'string' && !t.link && (t.title || '').toLowerCase() === title.toLowerCase()));
+          if (dup) { this.showToast('Already on your to-dos', title, 'info'); return; }
+          const todo = { title, scope, done: false, classifying: false };
+          if (link) todo.link = link;
+          this.meai.todos.push(todo);
+          this.meAiPersistTodos();
+          // Surface the list so the user sees it landed.
+          this.meAiTodosToggle(true);
+          this.showToast('Added to your to-dos', title, 'info');
+        },
         // Item 4: floating close-out checklist helpers.
         meAiChecklistToggle(open) {
           this.meai.checklistOpen = (open === undefined) ? !this.meai.checklistOpen : !!open;
@@ -33338,6 +33493,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.checklistDocked = (on === undefined) ? !this.meai.checklistDocked : !!on;
           try { localStorage.setItem('meai-checklist-docked', this.meai.checklistDocked ? '1' : '0'); } catch (_) {}
           if (!this.meai.checklistDocked) this.meAiChecklistToggle(true);
+        },
+        // To-dos dock — mirrors the goals dock (open/dock + persistence). Separate list.
+        meAiTodosToggle(open) {
+          this.meai.todosOpen = (open === undefined) ? !this.meai.todosOpen : !!open;
+          try { localStorage.setItem('meai-todos-open', this.meai.todosOpen ? '1' : '0'); } catch (_) {}
+        },
+        meAiTodosDock(on) {
+          this.meai.todosDocked = (on === undefined) ? !this.meai.todosDocked : !!on;
+          try { localStorage.setItem('meai-todos-docked', this.meai.todosDocked ? '1' : '0'); } catch (_) {}
+          if (!this.meai.todosDocked) this.meAiTodosToggle(true);
+        },
+        // Done / total for the To-dos FAB + dock header.
+        meAiTodoCounts() {
+          const l = this.meAiPlainTodos();
+          return { done: l.filter(t => t && typeof t !== 'string' && t.done).length, total: l.length };
         },
         meAiChecklistItems() { return (this.meai.todos || []).filter(t => t && typeof t !== 'string' && t.kind === 'checklist'); },
         meAiPlainTodos() { return (this.meai.todos || []).filter(t => !(t && typeof t !== 'string' && t.kind === 'checklist')); },
@@ -34165,6 +34335,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.launchDepth = d;
           try { localStorage.setItem('meAiLaunchDepth', d); } catch (_) {}
         },
+        // Persist the launch playbook choice ('auto' = adhoc / agent decides, else a
+        // specific tuned playbook). Applies to the free-form composer launch.
+        meAiSetPlaybook(p) {
+          const ok = ['auto','review','implement','steward','comms','prep','admin'];
+          if (!ok.includes(p)) return;
+          this.meai.launchPlaybook = p;
+          try { localStorage.setItem('meAiLaunchPlaybook', p); } catch (_) {}
+        },
         // Resolve the effective depth for a block: 'auto' defers to the block-type
         // heuristic (meAiBlockPursues); 'deep'/'quick' force the choice for any type.
         meAiEffectiveDeep(block) {
@@ -34187,14 +34365,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.meai.launchDepth === 'quick') this.meAiLaunchAdhoc();
           else this.meAiLaunchPursuit();
         },
+        // The effective free-form launch playbook: 'auto' means adhoc (let the agent
+        // work out its own steps); anything else forces a tuned playbook.
+        meAiLaunchPb() {
+          const p = this.meai.launchPlaybook;
+          return (p && p !== 'auto') ? p : 'adhoc';
+        },
         // Ad-hoc: dispatch a Me agent against a free-form goal typed by the user.
         // The agent decides the steps and does the work (more flexible than the
-        // structured per-block "Launch review agent").
+        // structured per-block "Launch review agent"). If the user picked a specific
+        // playbook, run with that tuned prompt instead of the self-driven adhoc one.
         meAiLaunchAdhoc() {
           const goal = (this.meai.adhocGoal || '').trim();
           if (!goal || this.meai.consoleBusy) return;
           const title = goal.length > 80 ? goal.slice(0, 77) + '…' : goal;
-          this.meAiDispatch('adhoc', title, { goal, date: this.meai.date });
+          const pb = this.meAiLaunchPb();
+          const ctx = (pb === 'adhoc') ? { goal, date: this.meai.date } : { goal, detail: goal, title, date: this.meai.date };
+          this.meAiDispatch(pb, title, ctx);
           this.meai.adhocGoal = '';
         },
         // Launch the agent scoped to a specific agenda block (e.g. a review block).
@@ -34458,6 +34645,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiCanLabel(b) {
           if (!b) return false;
+          // A real calendar/PR/work-item block carries a link — always labelable, even a
+          // real meeting whose title happens to contain "lunch" (e.g. a lunch social event).
+          // The type exclusions below are only meant to suppress the control on SYNTHETIC
+          // filler blocks (the generated lunch break + open-focus slots), which have no link.
+          if (b.link) return true;
           const t = String(b.type || '').toLowerCase();
           return t !== 'lunch' && t !== 'open' && t !== 'open-focus';
         },
@@ -34763,14 +34955,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // comms/prep/steward) so the server seeds the fan-out with its candidate angles.
         async meAiLaunchPursuit(goal, opts) {
           opts = opts || {};
-          const playbook = opts.playbook || 'adhoc';
+          // Free-form launches honor the composer's playbook picker unless the caller
+          // (e.g. a curated block-pursue) passed an explicit playbook.
+          const playbook = opts.playbook || this.meAiLaunchPb();
           const raw = String(goal == null ? this.meai.adhocGoal : goal || '').trim();
           if (playbook === 'adhoc' && !raw) { this.toast('Give the pursuit a goal first', 'info'); return; }
           if (this.meai.pursuit.busy) return;
           this.meai.pursuit.busy = true;
           try {
             const ctx = Object.assign({ date: this.meai.date }, opts.context || {});
-            if (playbook === 'adhoc') ctx.goal = raw;
+            if (playbook === 'adhoc') { ctx.goal = raw; }
+            else if (raw && !opts.context) {
+              // A free-form goal launched under a tuned playbook: feed the typed ask in
+              // as the task detail/title so the playbook prompt has the user's intent.
+              if (ctx.detail == null) ctx.detail = raw;
+              if (ctx.goal == null) ctx.goal = raw;
+            }
             const title = String(opts.title || raw || (playbook + ' pursuit')).slice(0, 120);
             const r = await this.request('/api/me-ai/task/dispatch', {
               method: 'POST',
@@ -34778,7 +34978,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
             if (r && r.task) {
               this.meai._taskById[r.task.id] = r.task;
-              if (playbook === 'adhoc') this.meai.adhocGoal = '';
+              if (goal == null) this.meai.adhocGoal = '';
               this.meAiLoadTasks();
               this.meAiPursuitOpen(r.task.id);
             }
@@ -41670,7 +41870,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapW() { let mx = 1600; for (const n of this.bmapNodes()) mx = Math.max(mx, n.x + 260); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.x || 0) + (+g.w || 0) + 40); return Math.round(mx + 400); },
         bmapH() { let mx = 1000; for (const n of this.bmapNodes()) mx = Math.max(mx, n.y + 160); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.y || 0) + (+g.h || 0) + 40); return Math.round(mx + 400); },
         bmapWorldStyle() { const v = this.bmap.view; return `width:${this.bmapW()}px;height:${this.bmapH()}px;transform:translate(${v.panX}px,${v.panY}px) scale(${v.zoom});transform-origin:0 0`; },
-        bmapNodeStyle(n) { return `left:${n.x}px;top:${n.y}px;z-index:${(n.z || 1) + 10}`; },
+        bmapNodeStyle(n) { return `left:${n.x}px;top:${n.y}px;z-index:${(n.z || 1) + 10};--k:${this.bmapKindColor(n.p)}`; },
+        // Distinct, theme-friendly hue per card type/kind — used for the top accent,
+        // the type label, a faint surface tint, and the link nub (via a --k CSS var).
+        bmapKindKey(p) { if (!p) return 'pin'; if (p.type === 'pin') return String(p.kind || 'pin'); return String(p.type || 'pin'); },
+        bmapKindColor(p) {
+          const map = {
+            pr: '#8957e5', dev: '#1f883d', agent: '#0969da', manager: '#bf3989',
+            task: '#bc4c00', assignment: '#bc4c00', flow: '#9a6700', session: '#57606a',
+            chat: '#0a7ea4', comment: '#0a7ea4', location: '#656d76',
+            note: '#d4a72c', checklist: '#6639ba', summary: '#0969da', pin: '#656d76'
+          };
+          return map[this.bmapKindKey(p)] || map.pin;
+        },
         bmapGroupStyle(g) { return `left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`; },
         bmapMarqueeStyle() { const mq = this.bmap.marquee; if (!mq) return 'display:none'; return `left:${mq.x}px;top:${mq.y}px;width:${mq.w}px;height:${mq.h}px`; },
         // -- card content --
@@ -41681,8 +41893,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             if (p.type === 'note') { const t = (p.note && p.note.text) || ''; return t.replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150); }
             if (p.type === 'checklist') { const items = (p.checklist && p.checklist.items) || []; const done = items.filter(i => i.done).length; const next = items.find(i => !i.done); return done + '/' + items.length + ' done' + (next ? ' · next: ' + (next.text || '').slice(0, 60) : ''); }
-            if (p.type === 'dev') { const d = p.dev || p.item || {}; return [d.repo, d.branch].filter(Boolean).join(' · ').slice(0, 150); }
-            if (p.type === 'pin') { const it = p.item || {}; return (it.title || it.name || it.subject || '').slice(0, 150); }
+            if (p.type === 'dev') { const d = p.dev || p.item || {}; const s = (d.summary && d.summary.text) ? String(d.summary.text) : ''; if (s) return s.replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); return [d.repo, d.branch].filter(Boolean).join(' · ').slice(0, 150) || 'Dev card'; }
+            if (p.type === 'pin') {
+              const it = p.item || {}; const kind = String(p.kind || '');
+              const body = it.summary || it.body || '';
+              let meta = it.sublabel || '';
+              if (kind === 'pr') { const m = it.meta || {}; meta = [m.state || m.status || it.state, m.repo || it.repo].filter(Boolean).join(' · ') || meta; }
+              const line = [meta, body].filter(Boolean).join(' — ') || body || this.boardKindLabel(kind);
+              return String(line || 'Pinned item').replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+            }
             return this.bmapCardType(p);
           } catch { return ''; }
         },
@@ -41701,8 +41920,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               return this.renderMarkdown(sum ? head + '\n\n' + sum : head);
             }
             if (p.type === 'pin') {
-              const it = p.item || {};
-              return this.renderMarkdown('**' + (it.title || it.name || it.subject || 'Pinned item') + '**\n\n' + (it.summary || it.body || ''));
+              const it = p.item || {}; const m = it.meta || {}; const kindL = this.boardKindLabel(p.kind);
+              const title = it.label || it.title || it.name || it.subject || kindL || 'Pinned item';
+              const rows = []; const add = (lbl, val) => { if (val || val === 0) rows.push('- **' + lbl + ':** ' + String(val)); };
+              add('Type', kindL);
+              if (it.sublabel) add('Detail', it.sublabel);
+              add('State', m.state || m.status || it.state);
+              add('Repo', m.repo || it.repo);
+              add('Branch', m.branch || it.branch);
+              add('Author', m.author || m.assignee || m.assignedTo);
+              add('Ref', it.refId || m.number || m.id);
+              const body = it.summary || it.body || m.summary || '';
+              let md = '**' + title + '**\n\n';
+              if (rows.length) md += rows.join('\n') + '\n\n';
+              md += body;
+              return this.renderMarkdown(md.trim());
             }
             return this._bmapEsc(this.bmapCardSummary(p));
           } catch { return ''; }
@@ -41736,6 +41968,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapPanStart(ev) {
           const v = this.bmap.view;
+          if (this.bmap.groupMode) {
+            const host = ev.currentTarget.getBoundingClientRect();
+            const wx = (ev.clientX - host.left - v.panX) / v.zoom, wy = (ev.clientY - host.top - v.panY) / v.zoom;
+            this.bmap.marquee = { sx: wx, sy: wy, x: wx, y: wy, w: 0, h: 0, hostLeft: host.left, hostTop: host.top, group: true };
+            return;
+          }
           if (ev.shiftKey) {
             const host = ev.currentTarget.getBoundingClientRect();
             const wx = (ev.clientX - host.left - v.panX) / v.zoom, wy = (ev.clientY - host.top - v.panY) / v.zoom;
@@ -41746,6 +41984,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapPanMove(ev) {
           const v = this.bmap.view;
+          if (this.bmap.link) {
+            const l = this.bmap.link;
+            l.x = (ev.clientX - l.hostLeft - v.panX) / v.zoom;
+            l.y = (ev.clientY - l.hostTop - v.panY) / v.zoom;
+            return;
+          }
           if (this.bmap.drag) {
             const d = this.bmap.drag;
             const dx = (ev.clientX - d.sx) / v.zoom, dy = (ev.clientY - d.sy) / v.zoom;
@@ -41769,9 +42013,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.bmap.pan) { const p = this.bmap.pan; v.panX = p.px + (ev.clientX - p.sx); v.panY = p.py + (ev.clientY - p.sy); }
         },
         bmapPanEnd() {
+          if (this.bmap.link) { this.bmap.link = null; return; }
           if (this.bmap.drag) { const moved = this.bmap.drag.moved; this.bmap.drag = null; this.bmap._suppressClick = moved; if (moved) this._bmapPersistSoon(); return; }
           if (this.bmap.groupDrag) { const moved = this.bmap.groupDrag.moved; this.bmap.groupDrag = null; if (moved) this._bmapPersistSoon(); return; }
-          if (this.bmap.marquee) { this._bmapFinishMarquee(); this.bmap.marquee = null; return; }
+          if (this.bmap.marquee) { const grp = this.bmap.marquee.group; if (grp) this._bmapFinishGroupRect(); else this._bmapFinishMarquee(); this.bmap.marquee = null; return; }
           if (this.bmap.pan) { this.bmap.pan = null; this._bmapSaveView(); }
         },
         _bmapFinishMarquee() {
@@ -41782,7 +42027,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) sel.push(n.base); }
           this.bmap.sel = sel;
         },
-        // -- node interaction --
+        _bmapFinishGroupRect() {
+          const mq = this.bmap.marquee; if (!mq) return;
+          const NW = 220, NH = 108;
+          if (mq.w < 24 && mq.h < 24) return;
+          const members = [];
+          for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) members.push(n.base); }
+          const name = window.prompt('Name this group', 'Group'); if (name === null) return;
+          const head = 26;
+          const m = this._bmapEnsure(); if (!m) return;
+          const g = { id: 'g' + Date.now().toString(36), name: name.trim(), x: Math.round(mq.x), y: Math.round(mq.y - head), w: Math.round(mq.w), h: Math.round(mq.h + head), members };
+          m.groups.push(g); this._bmapPersistSoon();
+        },
+        // -- drag-to-link (connector nub on each node) --
+        bmapLinkStart(n, ev) {
+          const host = document.querySelector('.board-map'); if (!host) return;
+          const r = host.getBoundingClientRect(); const v = this.bmap.view; const NW = 220, NH = 108;
+          const nd = (this.bmapData().nodes || {})[n.base] || {};
+          const fx = (+nd.x || 0) + NW, fy = (+nd.y || 0) + NH / 2;
+          this.bmap.link = { from: n.base, fx, fy, x: fx, y: fy, hostLeft: r.left, hostTop: r.top, dir: this.bmap.connect || 'uni' };
+        },
+        bmapNodeUp(n, ev) {
+          if (this.bmap.link) {
+            const from = this.bmap.link.from, dir = this.bmap.link.dir;
+            this.bmap.link = null;
+            if (from && from !== n.base) { this._bmapAddEdge(from, n.base, dir); this.bmap._suppressClick = true; return; }
+            return;
+          }
+          this.bmapPanEnd();
+        },
+        bmapLinkLivePath() {
+          const l = this.bmap.link; if (!l) return '';
+          return 'M ' + l.fx.toFixed(1) + ' ' + l.fy.toFixed(1) + ' L ' + l.x.toFixed(1) + ' ' + l.y.toFixed(1);
+        },
+        bmapToggleGroupMode() { this.bmap.groupMode = !this.bmap.groupMode; if (this.bmap.groupMode) { this.bmap.connect = null; this.bmap.connectFrom = null; } },
         bmapNodeDown(n, ev) {
           if (this.bmapConnectMode()) return;
           const m = this.bmapData(); const nodes = m.nodes || {};
@@ -41957,6 +42235,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapKeydown(ev) {
           if (ev.key === 'Escape') {
             if (this.bmap.full) { this.bmap.full = null; return; }
+            if (this.bmap.link) { this.bmap.link = null; return; }
+            if (this.bmap.groupMode) { this.bmap.groupMode = false; return; }
             if (this.bmap.connect) { this.bmap.connect = null; this.bmap.connectFrom = null; return; }
             if (this.bmap.sel.length) { this.bmap.sel = []; return; }
           }

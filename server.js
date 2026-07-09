@@ -16472,7 +16472,13 @@ function _meAiSeedChecklist(agenda, effTodos, day, opts = {}) {
       const tKey = norm(title);
       const sig = _meAiGoalSig(title);
       const ent = entKey(link, lf.meta);
-      if (haveTitle.has(tKey) || (origin && haveOrigin.has(origin))) continue;
+      // Title-only collapse applies ONLY when there's no distinguishing link. Two live
+      // entities (PRs / work items) with distinct links are separate goals even if their
+      // displayed titles collide or both fall back to the merged block title (owner: a
+      // 3-PR review block was surfacing only 2 day goals). Distinct links/prIds are kept
+      // apart by origin/ent below; sig dedup is already link-gated the same way.
+      if (haveTitle.has(tKey) && !link) continue;
+      if (origin && haveOrigin.has(origin)) continue;
       // Same live entity (work item / PR) already tracked → collapse, even if titles differ.
       if (ent && haveEnt.has(ent)) continue;
       // Already disposed today under any wording → never re-open it as a fresh goal.
@@ -17196,8 +17202,12 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // (the "Note team OOFs & regenerate PAT" duplicates) and resurrect a goal whose slot
   // merely ELAPSED un-checked — an elapsed un-checked goal means "haven't updated the
   // audit", not "still to do". Only real, user-typed todos seed the schedule.
-  const schedulableTodos = effTodos.filter(t => !(t && t.kind === 'checklist'));
-  let planTodos = schedulableTodos;
+  // jul9 — todos are DECOUPLED from agenda planning. They're a separate list the user
+  // tracks (the floating To-dos dock) and must never generate agenda blocks. We keep the
+  // durable todo store + carry-over (effTodos) fully intact, but hand the scheduler an
+  // EMPTY todo set so nothing a user tracks as a todo (e.g. a personal "gym workout") is
+  // ever scheduled onto the day or re-inserted by the personal-todo safety net below.
+  let planTodos = [];
   if (lockReservations.length) {
     const lockKeys = new Set(
       (overridesForPlan.locks || [])
@@ -17207,15 +17217,6 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     for (let i = planSignals.length - 1; i >= 0; i--) {
       const k = String((planSignals[i].link || planSignals[i].title) || '').trim().toLowerCase();
       if (k && lockKeys.has(k)) planSignals.splice(i, 1);
-    }
-    planTodos = schedulableTodos.filter(t => !lockKeys.has(String(t.title || '').trim().toLowerCase()));
-  }
-  // BACKLOG: a "set aside" todo must not be scheduled either (it stays visible in the
-  // Backlog view but off the agenda). Filter by the same curation key used for signals.
-  {
-    const _curItems = (backlogCuration && backlogCuration.items) || {};
-    if (Object.keys(_curItems).length) {
-      planTodos = planTodos.filter(t => { const c = _curItems[_meAiBacklogKey(t)]; return !(c && c.aside); });
     }
   }
   // Normalize urgency across signal types (PR vs dev card vs work item vs comms) on a
