@@ -13,7 +13,6 @@ const multer = require('multer');
 const { dataPath, getLocationInfo, setLocation, clearLocation } = require('./data-paths');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
-const ManagerAgent = require('./manager');
 const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
@@ -48,7 +47,7 @@ const BUILTIN_PLUGINS_DIR = path.join(__dirname, 'builtin-plugins');
     try {
       fs.mkdirSync(targetDir, { recursive: true });
       for (const entry of fs.readdirSync(legacyDir, { withFileTypes: true })) {
-        // The built-in manager plugin is re-seeded separately; skip it.
+        // Do not migrate the retired manager plugin into the runtime store.
         if (dirName === 'plugins' && entry.name === 'manager') continue;
         const dest = path.join(targetDir, entry.name);
         if (fs.existsSync(dest)) continue; // don't clobber existing runtime data
@@ -82,7 +81,6 @@ let RESOLVED_PORT = PORT;
 function getPort() { return RESOLVED_PORT; }
 const DB_PATH = dataPath('supervisor.db');
 const AGENTS_PATH = dataPath('agents.json');
-const MANAGERS_PATH = dataPath('managers.json');
 const TASKS_PATH = dataPath('tasks.json');
 const TEAMS_PATH = dataPath('teams.json');
 const LEGACY_ORGANIZATIONS_PATH = dataPath('organizations.json');
@@ -103,8 +101,8 @@ if (!fs.existsSync(AGENTS_PATH)) {
 }
 
 // One-time migration: "Organizations" were renamed to "Teams". Rename the data
-// file and normalize the per-operation scope key orgId -> teamId (and the manager
-// roster field org -> team) across all persisted runtime files. Reads remain
+// file and normalize the per-operation scope key orgId -> teamId across
+// persisted runtime files. Reads remain
 // backward-compatible (teamId ?? orgId) so any unswept/cloud-synced file still works.
 (function migrateOrgsToTeams() {
   try {
@@ -136,12 +134,6 @@ if (!fs.existsSync(AGENTS_PATH)) {
     sweepKey('tasks.json', moveOrgId);
     sweepKey('chains.json', moveOrgId);
     sweepKey('boards.json', moveOrgId);
-    sweepKey('managers.json', (m) => {
-      let changed = false;
-      if (m && m.org !== undefined && m.team === undefined) { m.team = m.org; delete m.org; changed = true; }
-      if (m && Array.isArray(m.assignments)) for (const a of m.assignments) if (moveOrgId(a)) changed = true;
-      return changed;
-    });
   } catch (e) { console.warn('[migrate] orgs->teams failed:', e.message); }
 })();
 
@@ -430,56 +422,6 @@ if (!process.env.COPILOT_PATH) {
   }
 }
 
-// Ensure manager plugin is registered in copilot config
-(function ensureManagerPlugin() {
-  const homeDir = process.env.USERPROFILE || process.env.HOME;
-  const configPath = path.join(homeDir, '.copilot', 'config.json');
-  const installedDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
-  const builtinManager = path.join(BUILTIN_PLUGINS_DIR, 'manager');
-  const runtimeManager = path.join(PLUGINS_DIR, 'manager');
-  const targetDir = path.join(installedDir, 'manager');
-
-  // Seed the built-in manager plugin from the repo into the runtime store.
-  try {
-    if (fs.existsSync(builtinManager) && !fs.existsSync(runtimeManager)) {
-      fs.mkdirSync(PLUGINS_DIR, { recursive: true });
-      fs.cpSync(builtinManager, runtimeManager, { recursive: true });
-      console.log('[supervisor] Seeded manager plugin into runtime store');
-    }
-  } catch (e) { console.warn('[supervisor] Could not seed manager plugin:', e.message); }
-
-  if (!fs.existsSync(runtimeManager)) return;
-
-  // Create junction if missing
-  if (!fs.existsSync(targetDir)) {
-    try {
-      fs.mkdirSync(installedDir, { recursive: true });
-      require('child_process').execSync(`mklink /J "${targetDir}" "${runtimeManager}"`, { shell: true });
-      console.log('[supervisor] Created manager plugin junction');
-    } catch (e) { console.warn('[supervisor] Could not create manager plugin junction:', e.message); }
-  }
-
-  // Register in config.json if missing
-  if (fs.existsSync(configPath)) {
-    try {
-      const raw = fs.readFileSync(configPath, 'utf-8').replace(/^\s*\/\/.*$/gm, '');
-      const config = JSON.parse(raw);
-      if (!config.installedPlugins) config.installedPlugins = [];
-      const hasManager = config.installedPlugins.some(p => p.name === 'manager');
-      if (!hasManager) {
-        config.installedPlugins.push({
-          name: 'manager', marketplace: '', version: '1.0.0',
-          installed_at: new Date().toISOString(), enabled: true,
-          cache_path: targetDir,
-          source: { source: 'local', path: managerPluginDir }
-        });
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        console.log('[supervisor] Registered manager plugin in copilot config');
-      }
-    } catch (e) { console.warn('[supervisor] Could not register manager plugin:', e.message); }
-  }
-})();
-
 // Generate the board MCP's .mcp.json at startup with an absolute path to the
 // committed board-mcp.js and the live server's base URL. The file is gitignored
 // (the path/port are machine-specific) but the server source + skill are
@@ -760,8 +702,8 @@ const supervisor = new Supervisor(db);
 // ---------------------------------------------------------------------------
 // Lightweight audit log for the "everything else" system events the Activity
 // page surfaces — marketplace installs/updates, dependency/system updates, and
-// emails sent. Agent/manager runs live in their own ledgers (agent_runs /
-// manager_runs) and AI work lives in usage_events; this table captures the
+// emails sent. Agent runs live in their own ledger (agent_runs) and AI work
+// lives in usage_events; this table captures the
 // non-run operational events those ledgers don't. Best-effort — never throws
 // into a request path.
 try {
@@ -1111,8 +1053,7 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
         buf.error = res.error || 'chat failed';
         chatErrors.set(sessionId, { error: buf.error, code: res.code, time: Date.now() });
       }
-      // Canonical usage ledger: one row per chat turn (agent/ad-hoc chats; manager
-      // chats are recorded via the manager run path, so no double counting).
+      // Canonical usage ledger: one row per chat turn.
       supervisor.recordUsage({
         ts: new Date().toISOString(),
         source: 'chat',
@@ -1153,30 +1094,10 @@ supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, ste
     } catch (e) { console.warn('[resilience] task completion hook failed:', e.message); }
   }
 });
-// Initialize manager agent system
-const managerAgent = new ManagerAgent(db, supervisor);
-
-// Forward manager orchestration progress to SSE clients, keyed by managerId, so
-// the assignment / manager live panel (liveOutput[managerId]) streams the
-// manager's thinking and each sub-agent's output in real time instead of being
-// stuck on "Waiting for output…". The client rebuilds a transcript from these.
-managerAgent.on('manager-running', ({ managerId, runId }) => {
-  broadcastSSE('manager-run', { id: managerId, runId, phase: 'running' });
-});
-managerAgent.on('manager-step', ({ managerId, runId, step, live }) => {
-  broadcastSSE('manager-run-step', { id: managerId, runId, live: !!live, step });
-});
-managerAgent.on('manager-completed', ({ managerId, runId, result }) => {
-  broadcastSSE('manager-run-done', { id: managerId, runId, code: 0, result: (typeof result === 'string' ? result : '').slice(-12000) });
-});
-managerAgent.on('manager-error', ({ managerId, runId, error }) => {
-  broadcastSSE('manager-run-done', { id: managerId, runId, code: 1, error: (((error && error.message) || String(error || 'error'))).slice(-2000) });
-});
-
-const eventListener = new EventListener(supervisor, managerAgent, db);
+const eventListener = new EventListener(supervisor, null, db);
 
 // Mobile command handler — processes structured JSON messages from phone app
-const mobileHandler = new MobileHandler(supervisor, managerAgent, db, eventListener);
+const mobileHandler = new MobileHandler(supervisor, null, db, eventListener);
 eventListener.mobileHandler = mobileHandler;
 // Let the handler reach the server's own HTTP endpoints (boards/insights live
 // here with all their resolution logic) without duplicating that logic.
@@ -1212,16 +1133,7 @@ function saveAgents(agents) {
   fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
 }
 
-// Load manager configs
-function loadManagers() {
-  if (!fs.existsSync(MANAGERS_PATH)) return [];
-  const managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  managers.forEach(m => managerAgent.register(m));
-  return managers;
-}
-
 loadAgents();
-loadManagers();
 
 // Config sync (cloud-based, leader election)
 const configSync = new ConfigSync({
@@ -1231,42 +1143,22 @@ const configSync = new ConfigSync({
   onConfigPulled: (version) => {
     console.log(`[config-sync] Config pulled (v${version}), reloading...`);
     loadAgents();
-    loadManagers();
     // Chain definitions are read fresh from chains.json on each access, but cron
     // schedules for pulled chains must be (re)registered.
     try { if (typeof chainEngine !== 'undefined' && chainEngine) chainEngine.rescheduleAll(); } catch (e) { console.warn('[config-sync] chain reschedule failed:', e.message); }
   }
 });
-// Each machine owns its own agents/managers/tasks and always runs its OWN scheduled
+// Each machine owns its own agents/tasks and always runs its OWN scheduled
 // work locally. Leadership only gates shared event-bus / relay handling (below), not a
 // machine's own scheduled agents — so we never suppress local schedules.
 const leaderCheck = () => true;
 supervisor.setLeaderCheck(leaderCheck);
-managerAgent.setLeaderCheck(leaderCheck);
 // Give the mobile handler access to leader/liveness status for get-status
 mobileHandler.configSync = configSync;
-// Let the mobile handler install agents/managers from other machines (browse + install).
+// Let the mobile handler install agents from other machines (browse + install).
 mobileHandler.installFromMachine = installFromMachine;
 // Start async (non-blocking)
 configSync.start().catch(err => console.log('[config-sync] Disabled:', err.message));
-
-// Auto-start managers that have scheduled assignments
-(() => {
-  const managers = managerAgent.managers;
-  for (const [id, entry] of managers) {
-    const hasScheduled = (entry.config.assignments || []).some(
-      a => a.enabled !== false && a.schedule && a.schedule.toLowerCase() !== 'never'
-    );
-    if (hasScheduled) {
-      try {
-        managerAgent.startSchedules(id);
-        console.log(`[manager] Auto-started schedules for "${entry.config.name || id}"`);
-      } catch (e) {
-        console.error(`[manager] Failed to auto-start "${id}":`, e.message);
-      }
-    }
-  }
-})();
 
 // Watch agents.json for external edits and reload
 let _reloadTimer = null;
@@ -1285,25 +1177,6 @@ fs.watch(AGENTS_PATH, () => {
     }
   }, 500);
 });
-
-// Watch managers.json for external edits and reload
-let _reloadManagerTimer = null;
-if (fs.existsSync(MANAGERS_PATH)) {
-  fs.watch(MANAGERS_PATH, () => {
-    if (_reloadManagerTimer) clearTimeout(_reloadManagerTimer);
-    _reloadManagerTimer = setTimeout(() => {
-      try {
-        console.log('[supervisor] managers.json changed, reloading...');
-        loadManagers();
-        if (configSync.enabled) {
-          configSync.pushConfig().catch(e => console.warn('[sync] auto-push (managers) failed:', e.message));
-        }
-      } catch (e) {
-        console.error('[supervisor] Failed to reload managers.json:', e.message);
-      }
-    }, 500);
-  });
-}
 
 // Express app
 const app = express();
@@ -5302,7 +5175,7 @@ function serveSpa(req, res) {
     res.status(503).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>TheOffice.AI</title></head><body style="font-family:system-ui;padding:40px"><h1>TheOffice.AI</h1><p>The SPA bundle (<code>public/app.html</code>) was not found. Please restore it and reload.</p></body></html>');
   }
 }
-['/', '/agents', '/dashboard', '/managers', '/tasks', '/chat', '/activity', '/marketplace'].forEach(route => {
+['/', '/agents', '/dashboard', '/tasks', '/chat', '/activity', '/marketplace'].forEach(route => {
   app.get(route, serveSpa);
 });
 
@@ -6128,7 +6001,7 @@ app.get('/api/agents/:id/session', (req, res) => {
 });
 
 app.put('/api/agents/:id/schedule', (req, res) => {
-  // Policy: only tasks, assignments, and flows carry saved schedules. Agents run
+  // Policy: only tasks and flows carry saved schedules. Agents run
   // via tasks (scheduled prompts), triggers, or manual execution — never on their
   // own saved schedule. This endpoint is intentionally disabled.
   res.status(410).json({ error: 'Agents cannot be scheduled. Create a scheduled Task for this agent instead.' });
@@ -6154,11 +6027,11 @@ app.put('/api/agents/:id/group', (req, res) => {
 // Update agent prompt
 app.put('/api/agents/:id/prompt', (req, res) => {
   // Deprecated: agents no longer carry a definition prompt. Prompts come from
-  // tasks, assignments, and chains/flows. Kept as a 410 so old clients fail loud.
-  res.status(410).json({ error: 'Agents no longer have a definition prompt. Create a Task, assignment, or flow instead.' });
+  // tasks and chains/flows. Kept as a 410 so old clients fail loud.
+  res.status(410).json({ error: 'Agents no longer have a definition prompt. Create a Task or flow instead.' });
 });
 
-// Update agent description and/or skills (used by managers to route requests)
+// Update agent description and/or skills
 app.put('/api/agents/:id/details', (req, res) => {
   const { description, skills } = req.body || {};
   const entry = supervisor.agents.get(req.params.id);
@@ -6519,7 +6392,7 @@ app.post('/api/agents', (req, res) => {
     return res.status(400).json({ error: 'Missing required fields: id, name, cwd, agent, schedule' });
   }
   // Agents no longer carry a definition prompt — prompts come from tasks,
-  // assignments, and chains/flows. Strip any legacy prompt before persisting.
+  // tasks and chains/flows. Strip any legacy prompt before persisting.
   delete config.prompt;
   // Save to agents.json
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
@@ -6637,19 +6510,9 @@ app.post('/api/standup-agents', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
-// and cascade-clean afterwards. Managers keep the agent id in their `team`
-// array; tasks reference it via `agentId`; flows reference it indirectly via a
-// step's task, or directly via an AI edge condition's `agentId`.
+// and cascade-clean afterwards. Tasks reference agents via `agentId`; flows reference
+// agents indirectly via a step's task, or directly via an AI edge condition's `agentId`.
 function computeAgentDependents(agentId) {
-  const managers = [];
-  try {
-    if (fs.existsSync(MANAGERS_PATH)) {
-      for (const m of JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'))) {
-        const roster = Array.isArray(m.team) ? m.team : (Array.isArray(m.org) ? m.org : []);
-        if (roster.includes(agentId)) managers.push({ id: m.id, name: m.name || m.id });
-      }
-    }
-  } catch {}
   const allTasks = loadTasks();
   const tasks = allTasks.filter(t => t.agentId === agentId).map(t => ({ id: t.id, name: t.name || t.id }));
   const taskIds = new Set(tasks.map(t => t.id));
@@ -6661,7 +6524,7 @@ function computeAgentDependents(agentId) {
       if (viaStep || viaCond) flows.push({ id: c.id, name: c.name || c.id });
     }
   } catch {}
-  return { managers, tasks, flows };
+  return { tasks, flows };
 }
 
 // What references this agent? Powers the pre-delete confirmation in the SPA.
@@ -6673,26 +6536,7 @@ app.delete('/api/agents/:id', (req, res) => {
   const agentId = req.params.id;
   const deps = computeAgentDependents(agentId);
 
-  // Cascade 1: strip the agent from every manager's team (runtime + managers.json)
-  // so managers stop advertising a tool they can no longer invoke.
-  const managersUpdated = [];
-  if (deps.managers.length) {
-    let managers = [];
-    try { managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8')); } catch {}
-    for (const m of deps.managers) {
-      try { managerAgent.removeFromOrg(m.id, agentId); } catch {}
-      const mi = managers.findIndex(x => x.id === m.id);
-      if (mi >= 0) {
-        const runtime = managerAgent.managers.get(m.id);
-        managers[mi].team = runtime ? (runtime.config.team || []) : ((managers[mi].team || managers[mi].org || []).filter(x => x !== agentId));
-        delete managers[mi].org;
-      }
-      managersUpdated.push(m);
-    }
-    try { fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2)); } catch {}
-  }
-
-  // Cascade 2: disable tasks that target the agent (they would silently no-op
+  // Cascade 1: disable tasks that target the agent (they would silently no-op
   // on every fire) and stop their schedules.
   const tasksDisabled = [];
   if (deps.tasks.length) {
@@ -6722,7 +6566,7 @@ app.delete('/api/agents/:id', (req, res) => {
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const filtered = agents.filter(a => a.id !== agentId);
   fs.writeFileSync(AGENTS_PATH, JSON.stringify(filtered, null, 2));
-  res.json({ ok: true, cascade: { managersUpdated, tasksDisabled, flowsDisabled } });
+  res.json({ ok: true, cascade: { tasksDisabled, flowsDisabled } });
 });
 
 // Reinstall an agent (re-read source definition and re-register)
@@ -6940,7 +6784,7 @@ function saveTasks(tasks) {
 // ---- Task scheduler ----
 // Tasks are the unit of scheduled work for an agent (agents themselves are chatted
 // with, not self-scheduled). A scheduled task fires its agent with the task's prompt,
-// mirroring how the supervisor schedules agents and the manager schedules assignments.
+// mirroring how the supervisor schedules agent work.
 // Manual runs still work via POST /api/tasks/:id/run.
 const { Cron: TaskCron } = require('croner');
 const { parseSchedule: parseTaskSchedule } = require('./scheduler');
@@ -7018,13 +6862,6 @@ function _anyAgentBusy() {
   try {
     for (const entry of supervisor.agents.values()) if (entry && entry.running) return true;
   } catch {}
-  try {
-    if (managerAgent && managerAgent.managers) {
-      for (const m of managerAgent.managers.values()) {
-        if (m && (m.running || (m.activeRuns && m.activeRuns.size > 0))) return true;
-      }
-    }
-  } catch {}
   return false;
 }
 
@@ -7036,9 +6873,9 @@ async function runDependencyAutoUpdate({ manual = false } = {}) {
     if (!s.depsAutoUpdate) return { skipped: 'auto-update-off' };
     if (!s.depsConsent) return { skipped: 'no-consent' };
   }
-  // Quiesce: never promote a new binary while an agent/manager run is in flight.
+  // Quiesce: never promote a new binary while an agent run is in flight.
   if (_anyAgentBusy()) {
-    console.log('[deps] auto-update deferred — agent/manager run in flight');
+    console.log('[deps] auto-update deferred — agent run in flight');
     return { skipped: 'busy' };
   }
   const globalChannel = s.depsChannel || 'stable';
@@ -8935,11 +8772,6 @@ app.get('/api/export', (req, res) => {
   // agents.json
   zip.addFile(AGENTS_PATH, 'agents.json');
 
-  // managers.json
-  if (fs.existsSync(MANAGERS_PATH)) {
-    zip.addFile(MANAGERS_PATH, 'managers.json');
-  }
-
   // events-config.json
   const eventsConfigPath = dataPath('events-config.json');
   if (fs.existsSync(eventsConfigPath)) {
@@ -9060,13 +8892,6 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
       results.imported.push(`agents.json: ${agents.length} agents`);
     }
 
-    // Import managers.json
-    if (entries['managers.json']) {
-      const managers = JSON.parse(entries['managers.json'].toString());
-      fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-      results.imported.push(`managers.json: ${managers.length} managers`);
-    }
-
     // Import events-config.json
     if (entries['events-config.json']) {
       const eventsPath = dataPath('events-config.json');
@@ -9162,7 +8987,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
 // Get sync status
 // --- Global settings: model selection (chat / executions / system AI) --------
 // Persisted server-side (settings.json) so schedules, triggers, chat and the
-// manager brain all honor the chosen models — not just the browser.
+// system AI all honor the chosen models — not just the browser.
 
 // List available models from the SDK (id, name, cost multiplier, reasoning).
 app.get('/api/models', async (req, res) => {
@@ -10950,7 +10775,8 @@ function _newsletterContext() {
   const items = (win.items || []).slice(0, 120);
   return { st, cfg, win, items };
 }
-
+
+
 // Process `shot:` image directives the writer leaves in the draft, e.g.
 //   ![Arcade PR review](shot:https://github.com/dotnet/arcade/pull/17018)
 //   ![Build board](shot:https://example.com/board|selector=.board&fullPage=1)
@@ -11411,7 +11237,7 @@ app.post('/api/newsletter/asset/upload', (req, res) => {
 });
 
 // Shared chat image upload — used by EVERY chat surface (main chat, board agent
-// cards, create-agent preview, and the Workspace / Connect / Manager assistants) so
+// cards, create-agent preview, and the Workspace / Connect assistants) so
 // a user can paste or drag an image into any conversation. We save the decoded image
 // under ~/.copilot/agent-supervisor/chat-uploads and hand back the ABSOLUTE path; the
 // client appends that path to the outgoing message so the agent's file tools can view
@@ -19430,14 +19256,6 @@ function _meAiInternalDirectory() {
       parts.push('SPECIALIST AGENTS I have registered (prefer using a matching one over generic external lookups):\n' + rows.join('\n'));
     }
   } catch (_) { /* best-effort */ }
-  try {
-    const roster = new Set();
-    for (const m of loadManagers()) {
-      const team = Array.isArray(m && m.team) ? m.team : (Array.isArray(m && m.org) ? m.org : []);
-      for (const p of team) { const n = String(p || '').trim(); if (n) roster.add(n); }
-    }
-    if (roster.size) parts.push('TEAM / people in my roster: ' + [...roster].slice(0, 30).join(', ') + '.');
-  } catch (_) { /* best-effort */ }
   return parts.join('\n\n');
 }
 
@@ -21910,7 +21728,7 @@ app.post('/api/agent-deps/:id/install', async (req, res) => {
 // Exhaustive usage + cost reporting backed by the canonical usage_events ledger.
 // Returns aggregate totals plus per-day, per-model and per-source breakdowns for
 // a time window (default: last 30 days). Every billable run path (agent, task,
-// manager, chat) writes exactly one ledger row, so nothing is double-counted.
+// chat) writes exactly one ledger row, so nothing is double-counted.
 app.get('/api/reports', (req, res) => {
   try {
     const reqDays = parseInt(req.query.days, 10);
@@ -22010,7 +21828,6 @@ app.get('/api/reports', (req, res) => {
       counts: {
         agentRuns: srcCount.agent || 0,
         taskRuns: srcCount.task || 0,
-        managerRuns: srcCount.manager || 0,
         chatTurns: srcCount.chat || 0,
         flowsRun,
         totalConversations: spaChats + mobileThreads,
@@ -22183,7 +22000,6 @@ app.post('/api/sync/pull', async (req, res) => {
   try {
     await configSync.pullConfig();
     loadAgents();
-    loadManagers();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -22203,7 +22019,7 @@ app.get('/api/machines', async (req, res) => {
   }
 });
 
-// Detail for a single machine: its published agents/managers catalog.
+// Detail for a single machine: its published agent catalog.
 app.get('/api/machines/:id', async (req, res) => {
   try {
     if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
@@ -22216,8 +22032,8 @@ app.get('/api/machines/:id', async (req, res) => {
   }
 });
 
-// Install one or more agents/managers from another machine into this machine's
-// own namespace. items: [{ type: 'agent'|'manager', id }]. Copies any referenced
+// Install one or more agents from another machine into this machine's
+// own namespace. items: [{ type: 'agent', id }]. Copies any referenced
 // plugin directory locally, rewrites pluginDir, dedupes by id, reloads, and pushes
 // the updated local namespace to the cloud. Shared by the REST endpoint and the
 // mobile protocol handler. Throws Error (with optional .status) on failure.
@@ -22233,14 +22049,11 @@ async function installFromMachine(machineId, items) {
     });
     const parse = (name) => { try { return JSON.parse(snap.files[name] || 'null'); } catch { return null; } };
     const srcAgents = Array.isArray(parse('agents.json')) ? parse('agents.json') : [];
-    const srcManagers = Array.isArray(parse('managers.json')) ? parse('managers.json') : [];
     const pluginFiles = parse('plugins.tar.json') || {};
     const mcpFiles = parse('mcp-configs.tar.json') || {};
 
     const localAgents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-    const localManagers = fs.existsSync(MANAGERS_PATH) ? JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8')) : [];
     const localAgentIds = new Set(localAgents.map(a => a.id));
-    const localManagerIds = new Set(localManagers.map(m => m.id));
     const results = { installed: [], skipped: [], warnings: [] };
 
     // Write a plugin directory (by basename) out of the source plugins.tar.json map.
@@ -22284,16 +22097,6 @@ async function installFromMachine(machineId, items) {
     for (const item of items) {
       if (item.type === 'agent') {
         installAgentById(item.id);
-      } else if (item.type === 'manager') {
-        if (localManagerIds.has(item.id)) { results.skipped.push(`manager ${item.id} (already installed)`); continue; }
-        const src = srcManagers.find(m => m.id === item.id);
-        if (!src) { results.warnings.push(`manager ${item.id} not found on source machine`); continue; }
-        const manager = JSON.parse(JSON.stringify(src));
-        // Pull in the manager's team agents too.
-        for (const agentId of (Array.isArray(manager.team) ? manager.team : (Array.isArray(manager.org) ? manager.org : []))) installAgentById(agentId);
-        localManagers.push(manager);
-        localManagerIds.add(item.id);
-        results.installed.push(`manager ${manager.name || item.id}`);
       } else {
         results.warnings.push(`unknown item type: ${item.type}`);
       }
@@ -22311,9 +22114,7 @@ async function installFromMachine(machineId, items) {
 
     if (results.installed.length) {
       fs.writeFileSync(AGENTS_PATH, JSON.stringify(localAgents, null, 2));
-      fs.writeFileSync(MANAGERS_PATH, JSON.stringify(localManagers, null, 2));
       loadAgents();
-      loadManagers();
       configSync.pushConfig().catch(e => results.warnings.push(`cloud push failed: ${e.message}`));
     }
 
@@ -22332,77 +22133,14 @@ app.post('/api/machines/:id/install', express.json(), async (req, res) => {
   }
 });
 
-// ============ Manager API Routes ============
-
-// List all managers
-app.get('/api/managers', (req, res) => {
-  res.json(managerAgent.getAllStatus());
-});
-
-// Get a single manager
-app.get('/api/managers/:id', (req, res) => {
-  const status = managerAgent.getStatus(req.params.id);
-  if (!status) return res.status(404).json({ error: 'Manager not found' });
-  res.json(status);
-});
-
-// Create or update a manager
-app.post('/api/managers', (req, res) => {
-  const config = req.body;
-  if (!config.id || !config.name) {
-    return res.status(400).json({ error: 'Missing required fields: id, name' });
-  }
-  if (config.team === undefined && Array.isArray(config.org)) config.team = config.org;
-  if (!config.team) config.team = [];
-  delete config.org;
-  if (!config.assignments) config.assignments = [];
-
-  // Save to managers.json
-  let managers = [];
-  if (fs.existsSync(MANAGERS_PATH)) {
-    managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  }
-  const existing = managers.findIndex(m => m.id === config.id);
-  if (existing >= 0) {
-    managers[existing] = config;
-  } else {
-    managers.push(config);
-  }
-  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-  managerAgent.register(config);
-  res.json({ ok: true });
-});
-
-// Delete a manager
-app.delete('/api/managers/:id', (req, res) => {
-  managerAgent.stopSchedules(req.params.id);
-  let managers = [];
-  if (fs.existsSync(MANAGERS_PATH)) {
-    managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  }
-  managers = managers.filter(m => m.id !== req.params.id);
-  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-  managerAgent.managers.delete(req.params.id);
-  res.json({ ok: true });
-});
-
 // ===== Teams API =====
-// A team groups "employees" (agent ids + manager ids) via memberIds.
+// A team groups employees (agent ids) via memberIds.
 // Operations carry a teamId; cross-team operations are not permitted.
 // Legacy note: teams were formerly called "organizations" — the /api/organizations
 // paths are kept as backward-compatible aliases.
 
 function _employeeExists(id) {
-  if (supervisor.agents.has(id)) return true;
-  if (managerAgent.managers && managerAgent.managers.has(id)) return true;
-  // managers.json fallback (in case runtime map is stale)
-  try {
-    if (fs.existsSync(MANAGERS_PATH)) {
-      const ms = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-      if (ms.some(m => m.id === id)) return true;
-    }
-  } catch {}
-  return false;
+  return supervisor.agents.has(id);
 }
 
 // List teams
@@ -22508,11 +22246,11 @@ app.delete(['/api/teams/:id/members/:employeeId', '/api/organizations/:id/member
 
 // Disable (not delete) every operation tied to this employee within this team.
 // Invoked when an employee is removed from a team: tasks the agent owns,
-// assignments the manager owns, and flows that reference the agent — all stamped
-// with this team — are flipped to enabled:false and unscheduled, preserving the
+// flows that reference the agent — all stamped with this team — are flipped
+// to enabled:false and unscheduled, preserving the
 // record while stopping them from firing without a valid team context.
 function disableOperationsForEmployeeInTeam(employeeId, teamId) {
-  const result = { tasks: [], assignments: [], flows: [] };
+  const result = { tasks: [], flows: [] };
   if (!teamId) return result;
   const opTeam = (x) => (x && (x.teamId !== undefined ? x.teamId : x.orgId)) || null;
 
@@ -22530,26 +22268,6 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
   if (tasksChanged) {
     saveTasks(tasks);
     for (const dt of result.tasks) { const t = tasks.find(x => x.id === dt.id); if (t) broadcastSSE('task-updated', t); }
-  }
-
-  // Assignments: an assignment's "employee" is its owning manager.
-  const entry = managerAgent.managers.get(employeeId);
-  if (entry && Array.isArray(entry.config.assignments)) {
-    let assignmentsChanged = false;
-    for (const a of entry.config.assignments) {
-      if (opTeam(a) === teamId && a.enabled !== false) {
-        a.enabled = false; assignmentsChanged = true;
-        result.assignments.push({ id: a.id, name: a.name || a.id });
-      }
-    }
-    if (assignmentsChanged) {
-      try {
-        const managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-        const mi = managers.findIndex(m => m.id === employeeId);
-        if (mi >= 0) { managers[mi] = entry.config; fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2)); }
-      } catch {}
-      try { _restartManagerSchedules(employeeId); } catch {}
-    }
   }
 
   // Flows: stamped with this team and referencing this agent (via a step's task or an AI edge).
@@ -22570,10 +22288,10 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
 
 // ===================== BOARDS =====================
 // A board is a personal pinboard for actively-tracked work. It groups pinned
-// references to CLI sessions, chats, tasks, flows, assignments, and agents, plus
+// references to CLI sessions, chats, tasks, flows, and agents, plus
 // freeform notes and checklists. Boards are team-scoped (teamId) or global (teamId
 // null). Stored wholesale in boards.json.
-const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'assignment', 'agent', 'manager', 'location', 'pr'];
+const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'agent', 'location', 'pr'];
 
 function _boardId(name) {
   return 'board-' + String(name || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) + '-' + Date.now().toString(36).slice(-4);
@@ -23537,10 +23255,9 @@ app.post('/api/fs/search', (req, res) => {
 
 
 // team for the board to be usable. An item belongs when:
-//   - operation (task/flow/assignment): its own teamId === board.teamId AND each
-//     of its component employees (the agent a task runs, the manager owning an
-//     assignment, every agent a flow references) is a member of the team.
-//   - employee pin (agent/manager): the employee is a member of the team.
+//   - operation (task/flow): its own teamId === board.teamId AND each
+//     component agent is a member of the team.
+//   - employee pin (agent): the employee is a member of the team.
 //   - chat/comment: the chat's target employee is a member of the team.
 //   - session/note/checklist: always compliant.
 // Boards with no team, or whose team was deleted, are never blocked. Pins whose
@@ -23551,8 +23268,6 @@ function _teamById(id) { return loadTeams().find(t => t.id === id) || null; }
 function _teamName(id) { const t = _teamById(id); return t ? (t.name || id) : (id || null); }
 function _employeeNameOf(id) {
   const a = supervisor.agents.get(id); if (a) return a.config.name || a.config.agent || id;
-  const m = managerAgent.managers.get(id); if (m) return (m.config && m.config.name) || id;
-  try { if (fs.existsSync(MANAGERS_PATH)) { const ms = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8')); const mm = ms.find(x => x.id === id); if (mm) return mm.name || id; } } catch {}
   return id;
 }
 function _opTeamOf(x) { return (x && (x.teamId !== undefined ? x.teamId : x.orgId)) || null; }
@@ -23560,21 +23275,6 @@ function _findTaskByRef(refId) {
   const tasks = loadTasks();
   const rawId = String(refId).replace(/^task-/, '');
   return tasks.find(x => x.id === rawId || ('task-' + x.id) === refId || x.id === refId) || null;
-}
-function _findAssignmentByRef(refId) {
-  // refId is `assignment-<managerId>-<assignmentId>`. Both ids can contain hyphens,
-  // so a regex split is ambiguous — instead match against the real manager/assignment
-  // pairs and find the one whose composed key equals the refId.
-  const rid = String(refId);
-  if (!rid.startsWith('assignment-')) return null;
-  for (const [managerId, entry] of managerAgent.managers) {
-    for (const a of ((entry.config && entry.config.assignments) || [])) {
-      if (`assignment-${managerId}-${a.id}` === rid) {
-        return { managerId, assignmentId: a.id, assignment: a, entry };
-      }
-    }
-  }
-  return null;
 }
 function _chatTargetEmployeeOf(refId, kind) {
   let chatId = String(refId);
@@ -23588,9 +23288,6 @@ function _opComponentEmployees(item) {
   if (item.kind === 'task') {
     const t = _findTaskByRef(item.refId);
     if (t && t.agentId) out.push({ employeeId: t.agentId, role: 'agent' });
-  } else if (item.kind === 'assignment') {
-    const a = _findAssignmentByRef(item.refId);
-    if (a) out.push({ employeeId: a.managerId, role: 'manager' });
   } else if (item.kind === 'flow') {
     let c = null; try { c = chainEngine.get(item.refId); } catch {}
     if (c) {
@@ -23613,8 +23310,8 @@ function computeBoardCompliance(boardRaw) {
   const teamName = team.name || teamId;
   const members = new Set(team.memberIds || []);
   const inTeam = (id) => members.has(id);
-  const OP_KINDS = new Set(['task', 'assignment', 'flow']);
-  const EMP_KINDS = new Set(['agent', 'manager']);
+  const OP_KINDS = new Set(['task', 'flow']);
+  const EMP_KINDS = new Set(['agent']);
   const EMP_ACTIONS = ['add_member', 'move_member'];
   const issues = [];
 
@@ -23623,7 +23320,6 @@ function computeBoardCompliance(boardRaw) {
     if (OP_KINDS.has(it.kind)) {
       let opTeam = null, found = false;
       if (it.kind === 'task') { const t = _findTaskByRef(it.refId); if (t) { found = true; opTeam = _opTeamOf(t); } }
-      else if (it.kind === 'assignment') { const a = _findAssignmentByRef(it.refId); if (a) { found = true; opTeam = _opTeamOf(a.assignment); } }
       else if (it.kind === 'flow') { let c = null; try { c = chainEngine.get(it.refId); } catch {} if (c) { found = true; opTeam = _opTeamOf(c); } }
       if (!found) continue; // unresolved pin — not a team problem
       if (opTeam !== teamId) {
@@ -23634,7 +23330,7 @@ function computeBoardCompliance(boardRaw) {
       }
     } else if (EMP_KINDS.has(it.kind)) {
       if (!_employeeExists(it.refId)) continue;
-      if (!inTeam(it.refId)) problems.push({ kind: 'employee', role: it.kind === 'manager' ? 'manager' : 'agent', employeeId: it.refId, employeeName: _employeeNameOf(it.refId), actions: EMP_ACTIONS });
+      if (!inTeam(it.refId)) problems.push({ kind: 'employee', role: 'agent', employeeId: it.refId, employeeName: _employeeNameOf(it.refId), actions: EMP_ACTIONS });
     } else if (it.kind === 'chat' || it.kind === 'comment') {
       const target = _chatTargetEmployeeOf(it.refId, it.kind);
       if (!target) continue;
@@ -23647,13 +23343,6 @@ function computeBoardCompliance(boardRaw) {
 }
 
 // ---- compliance mutation helpers ----
-function _persistManagerConfig(managerId, config) {
-  try {
-    const managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-    const mi = managers.findIndex(m => m.id === managerId);
-    if (mi >= 0) { managers[mi] = config; fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2)); }
-  } catch {}
-}
 function _addEmployeeToTeam(teamId, employeeId) {
   const teams = loadTeams();
   const idx = teams.findIndex(t => t.id === teamId);
@@ -23697,13 +23386,6 @@ function _moveOpToTeam(item, teamId) {
   if (item.kind === 'flow') {
     try { chainEngine.update(item.refId, { teamId: teamId || null }); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
   }
-  if (item.kind === 'assignment') {
-    const a = _findAssignmentByRef(item.refId); if (!a) return { ok: false, error: 'Assignment not found' };
-    a.assignment.teamId = teamId || null;
-    _persistManagerConfig(a.managerId, a.entry.config);
-    try { _restartManagerSchedules(a.managerId); } catch {}
-    return { ok: true };
-  }
   return { ok: false, error: 'Not an operation' };
 }
 // Create a team-scoped duplicate of an operation; returns the new pin refId so the
@@ -23729,17 +23411,6 @@ function _cloneOpToTeam(item, teamId) {
     const clone = { id: newId, name: `${c.name} (${suffix})`, description: c.description || '', teamId: teamId || null, schedule: c.schedule || 'never', enabled: c.enabled !== false, steps: (c.steps || []).map(s => ({ ...s })), edges: (c.edges || []).map(e => ({ ...e })) };
     try { chainEngine.create(clone); } catch (e) { return { ok: false, error: e.message }; }
     return { ok: true, newRefId: newId };
-  }
-  if (item.kind === 'assignment') {
-    const a = _findAssignmentByRef(item.refId); if (!a) return { ok: false, error: 'Assignment not found' };
-    const src = a.assignment;
-    const newAid = 'assign-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    const clone = { id: newAid, name: `${src.name} (${suffix})`, prompt: src.prompt, schedule: src.schedule || 'never', enabled: src.enabled !== false, teamId: teamId || null };
-    if (!a.entry.config.assignments) a.entry.config.assignments = [];
-    a.entry.config.assignments.push(clone);
-    _persistManagerConfig(a.managerId, a.entry.config);
-    try { _restartManagerSchedules(a.managerId); } catch {}
-    return { ok: true, newRefId: `assignment-${a.managerId}-${newAid}` };
   }
   return { ok: false, error: 'Not an operation' };
 }
@@ -23872,26 +23543,9 @@ function _resolveBoardItems(b, opts = {}) {
           if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.exit_code === 0 ? 'success' : (r0.status || 'error'); detail = clip(r0.output || r0.error || '', 240); context = clip(r0.output || r0.error || '', CTX_CLIP); }
           else { status = t.enabled === false ? 'disabled' : 'idle'; }
         }
-      } else if (it.kind === 'assignment') {
-        route = '#/assignments/' + encodeURIComponent(it.refId);
-        const found = _findAssignmentByRef(it.refId);
-        if (found) {
-          const { managerId, assignmentId } = found;
-          const all = managerAgent.getRunHistory(managerId, 20) || [];
-          // Prefer runs stamped with this assignment; fall back to the latest
-          // manager run only when none are stamped (mirrors the client).
-          let runs = all.filter(r => r.assignment_id === assignmentId || r.assignmentId === assignmentId);
-          if (!runs.length) runs = all;
-          const r0 = runs[0];
-          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = clip(r0.result || r0.error || '', 240); context = clip(r0.result || r0.error || '', CTX_CLIP); }
-        }
       } else if (it.kind === 'flow') {
         route = '#/chains/' + encodeURIComponent(it.refId);
         try { const c = chainEngine.get(it.refId); if (c) { status = c.enabled === false ? 'disabled' : 'idle'; if (c.lastRunAt) when = c.lastRunAt; detail = c.description || ''; context = clip(c.description || '', 600); } } catch {}
-      } else if (it.kind === 'manager') {
-        route = '#/managers/' + encodeURIComponent(it.refId);
-        const runs = managerAgent.getRunHistory(it.refId, 1) || [];
-        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].status || 'idle'; detail = clip(runs[0].result || runs[0].error || '', 240); context = clip(runs[0].result || runs[0].error || '', CTX_CLIP); }
       } else if (it.kind === 'chat') {
         route = '#/chat/' + encodeURIComponent(it.refId);
         const cf = path.join(CHATS_DIR, `${it.refId}.json`);
@@ -24148,7 +23802,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   } else if (notes.length || checklists.length || devItems.length) {
     digest = `Board "${b.name}" has no pinned operations yet, but you have ${manualLine} here.`;
   } else {
-    digest = `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
+    digest = `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, or agent to track it here.`;
   }
   if (deltas.length) {
     const dl = deltas.map(d => `${d.attention ? '⚠ ' : ''}${d.label}${d.status ? ' [' + d.status + ']' : ''}`).join(', ');
@@ -25918,7 +25572,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // Index of pins on this board so the model can only link checklist items to
   // things that are actually pinned here (kind:refId is the stable handle).
   const pinByKey = new Map(pins.map(p => [p.kind + ':' + p.refId, p]));
-  const RUNNABLE = new Set(['agent', 'task', 'assignment', 'flow']);
+  const RUNNABLE = new Set(['agent', 'task', 'flow']);
   // Installed-agent catalog (for query_agent labels + pin_agent candidates). Agents
   // already pinned to this board are excluded from the "available to pin" list.
   let installed = [];
@@ -26036,8 +25690,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     }).join('\n'));
   }
   // ---- Available OPERATIONS & EMPLOYEES catalog (beyond agents): lets the assistant
-  // examine the whole system and propose pinning the right managers, tasks, flows, and
-  // assignments to build out the board for a stated goal. Respects the board's team
+  // examine the whole system and propose pinning the right tasks and flows
+  // to build out the board for a stated goal. Respects the board's team
   // scope — only items that belong to the team are offered, so a proposed pin never
   // makes the board non-compliant. catalogByKey is also the resolver for pin_item.
   const pinnedKeys = new Set(pins.map(p => p.kind + ':' + p.refId));
@@ -26051,9 +25705,6 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     if (!refId || pinnedKeys.has(key) || catalogByKey.has(key)) return;
     catalogByKey.set(key, { kind, refId, label: clip(label || refId, 120), sublabel: clip(sublabel || '', 80) });
   };
-  const mgrName = (m) => (m && (m.name || (m.config && m.config.name))) || (m && m.id) || '';
-  const mgrAssignments = (m) => (m && (m.assignments || (m.config && m.config.assignments))) || [];
-  try { for (const m of loadManagers()) { if (inTeam(m.id)) offer('manager', m.id, mgrName(m), 'Manager'); } } catch {}
   try {
     for (const t of loadTasks()) {
       if (!opOk(_opTeamOf(t), t.agentId ? [t.agentId] : [])) continue;
@@ -26068,19 +25719,11 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       offer('flow', c.id, c.name || c.id, 'Flow' + ((c.steps || []).length ? ' · ' + c.steps.length + ' steps' : ''));
     }
   } catch {}
-  try {
-    for (const m of loadManagers()) {
-      for (const a of mgrAssignments(m)) {
-        if (!opOk(_opTeamOf(a), [m.id])) continue;
-        offer('assignment', 'assignment-' + m.id + '-' + a.id, a.name || a.id, 'Assignment · ' + clip(mgrName(m), 40));
-      }
-    }
-  } catch {}
   if (catalogByKey.size) {
     const byKind = {};
     for (const v of catalogByKey.values()) (byKind[v.kind] = byKind[v.kind] || []).push(v);
-    const order = ['manager', 'task', 'flow', 'assignment'];
-    const labelFor = { manager: 'managers (employees)', task: 'tasks (operations)', flow: 'flows (operations)', assignment: 'assignments (operations)' };
+    const order = ['task', 'flow'];
+    const labelFor = { task: 'tasks (operations)', flow: 'flows (operations)' };
     const lines = [];
     for (const k of order) {
       const arr = (byKind[k] || []).slice(0, 20);
@@ -26128,7 +25771,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"edit_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>","text":"<new item text>"}  (rewrites one item)',
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
-    '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment|pr>","refId":"<kind:refId from AVAILABLE AGENTS, AVAILABLE OPERATIONS & EMPLOYEES, or AVAILABLE PULL REQUESTS>"}  (adds an existing employee, operation, or pull request to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, a manager that owns the org, or a PR the user wants to track/work on. Employees: agent, manager. Operations: task, flow, assignment. Pull requests: pr.)',
+    '- {"type":"pin_item","kind":"<agent|task|flow|pr>","refId":"<kind:refId from AVAILABLE AGENTS, AVAILABLE OPERATIONS & EMPLOYEES, or AVAILABLE PULL REQUESTS>"}  (adds an existing employee, operation, or pull request to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow that already does the work, or a PR the user wants to track/work on. Employees: agent. Operations: task, flow. Pull requests: pr.)',
     (prPins.length ? '- {"type":"pr_action","prRefId":"<refId from PINNED PULL REQUESTS>","action":"<review|create-worktree|sync|push|post-comments|refresh|open-worktree|remove-worktree>"}  (drive a pinned PR: create-worktree clones+checks out the PR branch; review runs the AI code review on the worktree; sync pulls the worktree up to date with the PR branch; push pushes local commits (your PRs); post-comments posts the AI review comments (PRs you review); refresh re-reads the worktree/review state; open-worktree opens it in the editor; remove-worktree deletes the on-disk worktree. push/post-comments touch the remote — propose only on explicit request.)' : ''),
     (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV CARDS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev card: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
     '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","homeBoardId":"<board id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. The card is PINNED to a board: omit homeBoardId to pin it to the current board, or pass a board id to pin it elsewhere. Set createWorktree true if the user wants the worktree created right away.)',
@@ -26145,7 +25788,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     (devItems.length ? '- {"type":"uncheck_dev_note","devItemId":"<devId from DEV CARDS>","noteId":"<note-id>"}  (marks a Dev card note NOT done.)' : ''),
     (devItems.length ? '- {"type":"delete_dev_note","devItemId":"<devId from DEV CARDS>","noteId":"<note-id>"}  (removes ONE Dev card note — destructive, only on explicit request.)' : ''),
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
-    '- {"type":"set_layout", ...}  (LEGACY / rarely needed — the free-form pin canvas and per-panel tab layout it drove are NO LONGER USED; this board is organized with SECTIONS instead, see below. Only keep for a bare zoom/font nudge. Change how the board is PRESENTED — VISUAL ONLY, never touches content. Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI). Propose at most ONE set_layout per turn.)',
+    '- {"type":"set_layout", ...}  (LEGACY / rarely needed — the free-form pin canvas and per-panel tab layout it drove are NO LONGER USED; this board is organized with SECTIONS instead, see below. Only keep for a bare zoom/font nudge. Change how the board is PRESENTED — VISUAL ONLY, never touches content. Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|task|flow|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI). Propose at most ONE set_layout per turn.)',
     '',
     'SECTIONS (also called BOARDS) — how this workspace is arranged. IMPORTANT TERMINOLOGY: within a workspace the words "section", "board", and "tab" all mean the SAME thing — one named canvas shown as a tab across the top. When the user says "board" they mean one of these sections; treat "board" and "section" as interchangeable. The workspace is split into named SECTIONS/BOARDS. Each holds CARDS, and a card is just a reference to a workspace item (a note, checklist, pin, dev card, or the briefing) placed onto that board. The SAME item can live on several boards at once. The current boards, the cards on each, and the catalog of placeable items are given below under "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS". Reference a board by its id (e.g. sec-ab12cd) OR its exact name, and a card by its base (e.g. note:xyz, cl:xyz, pin:xyz, dev:xyz, wherewasi) OR its title as shown in context. CRITICAL: never invent a board named "Board" — "the board" refers to whichever section the user is currently on (the active/current section in context), NOT a section literally named "Board". You can propose these section actions:',
     '- {"type":"add_section","name":"<section name>","icon":"<optional emoji>"}  (create a NEW empty section/tab)',
@@ -26158,7 +25801,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
-    'Only use ref kind:refId pairs that appear under BOARD PINS below. Linking a runnable pin (agent/task/assignment/flow) makes the checklist item one-click runnable; linking an open-only pin (manager/chat/session) makes it one-click openable. Prefer a ref when the step is literally "run/check/open <a pinned thing>".',
+    'Only use ref kind:refId pairs that appear under BOARD PINS below. Linking a runnable pin (agent/task/flow) makes the checklist item one-click runnable; linking an open-only pin (chat/session) makes it one-click openable. Prefer a ref when the step is literally "run/check/open <a pinned thing>".',
     'Item "text" (and note text) renders inline MARKDOWN, so it supports clickable hyperlinks. When a step refers to something that has a real URL (a work item, PR, doc, dashboard, build, etc.) and that URL is present in the BOARD CONTEXT, embed it as a markdown link, e.g. "[#10842 — Queue wait-time](https://dev.azure.com/.../workitems/edit/10842)". When the user explicitly asks for hyperlinks/links, EVERY relevant item MUST contain a real markdown link — never give back plain text. Never invent or guess a URL: if you do not have the real URL, gather it first (run the relevant pinned agent via query_agent) rather than producing a linkless or fabricated list.',
     '',
     'Rules:',
@@ -26177,7 +25820,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     // Microsoft 365 (Teams & email) — the assistant has WorkIQ tools of its own.
     '- MICROSOFT 365 (Teams & email): you have WorkIQ tools that reach my Microsoft 365 — Teams channels/chats and Outlook email. PREFER WorkIQ directly for anything Teams- or email-related: use it live, in this turn, to READ channels/messages/mail, look up who said what, or gather M365 facts — reads are safe, so just do them and answer. Do NOT propose pinning or installing a separate "Teams notifier", "email", or similar messaging agent to talk to Teams/email — you already have that capability through WorkIQ; only pin such an agent if I explicitly ask for that specific agent. SENDING is different and stays confirm-gated: to SEND an email or POST/REPLY in Teams, do NOT do it in the same turn you first propose it — instead describe exactly what you would send (recipient/channel + the message text) in "reply" and ask me to confirm, then actually send it via WorkIQ only on a LATER turn after I explicitly say yes. After a send, report a verifiable reference (message id, Teams/message link, or draft id); if it fails or WorkIQ is unreachable, say so honestly — never claim a send that did not happen.',
     // Proactively help build/modify the board from a direction.
-    '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
+    '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
     '- SECTIONS / LAYOUT REQUESTS: to organize the workspace, work with SECTIONS/BOARDS — add_section, rename_section, delete_section, place_card, move_card, remove_card, pack_section — using the "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS" context below. Examples: "make a section for the release work" → add_section (then place_card the relevant items); "move the autoscaler agent to the Ops tab" → move_card; "put the release checklist on this board" → place_card; "get rid of the empty Scratch tab" → delete_section. CARD POSITIONS: each card sits at a real grid position on its board, and gaps CAN accumulate after cards are moved, resized or removed. When the user asks to "move the cards to the top", "line them up", "tidy / clean up / pack this board", or "remove the dead space", DO propose pack_section — that repacks the cards tightly to the top-left and closes the gaps. OMIT the sectionId (or use the current board\'s id) so it packs the board the user is looking at. GRID GEOMETRY: you are given each board\'s column count and every card\'s (x,y) WxH footprint in the "## GRID GEOMETRY" / "## BOARD SECTIONS" context. USE IT to COMPUTE clean, non-overlapping positions yourself and pass explicit "x"/"y" on place_card / move_card whenever the user asks to arrange, align, place side-by-side, stack, or drop something in a specific spot ("put the notes in a row across the top", "place the agent next to the checklist", "two columns"). pack_section is just the shortcut for "tidy / close gaps"; for deliberate placement, reason over the geometry and give x/y rather than relying on pack_section or auto-placement. Do NOT dismiss these requests as "already packed / no action needed", and NEVER respond to "top of the board" by creating or targeting a section literally named "Board" or by re-adding the cards elsewhere — that is wrong; pack_section the CURRENT board instead. DEFAULT TO THE CURRENT BOARD: whenever the user does not name a specific section, assume every section action (place_card, move_card, remove_card, pack_section) targets the CURRENT board shown in context; only target a different board when the user names it explicitly. NOTE: the OLD free-form "pins" canvas (dragging panels to x/y coordinates, pin-ifying, collapsing/locking panels) and the per-panel "tabs" view are DEPRECATED and no longer available — do not offer them or talk about pinning to positions, collapsing, stashing, or locking panels. For a bare zoom/font nudge you may still use one set_layout, but never for arranging content. Placing an item as a card does NOT duplicate or move the underlying content — the same item can appear on multiple boards.',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
     '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry NOTES (freeform status jots — general OR scoped to one repo section), ARTIFACTS (user-attached LINKS, each shown as "label → url (lnk-id)", plus read-only agent REPORTS), and extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)"). Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). NOTES are fully editable: add_dev_note (optionally scope it to a repo section with repoId = the slot id shown after "slot "), edit_dev_note, check_dev_note / uncheck_dev_note (toggle done), delete_dev_note (destructive) — identify a note by its (note-id). Notes often explain WHY a card matters, so read them when deciding what is interesting. For the card\'s ARTIFACT LINKS use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). Artifact REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link / delete_dev_note are destructive — only on explicit request.',
@@ -26547,8 +26190,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       }
       const hit = catalogByKey.get(kind + ':' + refId);
       if (!hit) return null;
-      const isEmp = kind === 'manager';
-      return { type: 'pin_item', kind, refId, pinLabel: hit.label, pinSublabel: hit.sublabel, label: isEmp ? 'Pin employee' : 'Pin operation', preview: `Pin ${hit.label} (${kind}) to this board` };
+      return { type: 'pin_item', kind, refId, pinLabel: hit.label, pinSublabel: hit.sublabel, label: 'Pin operation', preview: `Pin ${hit.label} (${kind}) to this board` };
     }
     if (type === 'set_layout') {
       // Presentation-only action: validate/normalize a layout directive. The client
@@ -26879,7 +26521,7 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
       '- height: optional explicit panel height in GRID ROWS (each row ≈ 36px) for an OPEN panel when you want to reserve space — e.g. a [LIVE-updates] panel that will grow/shrink should get a little head-room so an update will not shove its neighbours. Omit to let the panel fit its own content. Never reserve a large empty frame.',
       '- hidden: optional true/false to STASH a panel off the board or restore it. Omit to leave its visibility unchanged.',
       '',
-      'LIVE-updates panels: these stream or refresh on their own (sessions, chats, dev cards, running agents/managers, the briefing). Keep an important live panel OPEN and give it modest explicit head-room "height"; do not pin-ify a live panel you are actively highlighting.',
+      'LIVE-updates panels: these stream or refresh on their own (sessions, chats, dev cards, running agents, the briefing). Keep an important live panel OPEN and give it modest explicit head-room "height"; do not pin-ify a live panel you are actively highlighting.',
       '',
       'LOCKS — respect every tag: [vis-locked] never change "hidden"; [size-locked] never set width or height; [pos-locked] keeps its place. You may still set importance/collapsed/pinify on locked panels.',
       '',
@@ -26999,527 +26641,6 @@ app.post('/api/boards/:id/assistant/search', async (req, res) => {
     res.status(500).json({ ok: false, error: (e && e.message) || 'location search failed' });
   }
 });
-
-app.post('/api/managers/:id/start', (req, res) => {
-  try {
-    managerAgent.startSchedules(req.params.id);
-    broadcastSSE('manager-status', { id: req.params.id, status: 'running' });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Stop a manager's schedules
-app.post('/api/managers/:id/stop', (req, res) => {
-  managerAgent.stopSchedules(req.params.id);
-  broadcastSSE('manager-status', { id: req.params.id, status: 'stopped' });
-  res.json({ ok: true });
-});
-
-// Run an assignment (async — returns immediately with runId)
-app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
-  try {
-    const result = managerAgent.runAssignment(req.params.id, req.params.assignmentId, { liveStream: true });
-    broadcastSSE('run-started', { id: req.params.id, assignmentId: req.params.assignmentId, type: 'assignment', timestamp: new Date().toISOString() });
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Add an assignment
-app.post('/api/managers/:id/assignments', (req, res) => {
-  const { id: assignmentId, name, prompt, schedule, enabled, teamId, orgId } = req.body;
-  if (!assignmentId || !name || !prompt) {
-    return res.status(400).json({ error: 'Missing required fields: id, name, prompt' });
-  }
-
-  const entry = managerAgent.managers.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Manager not found' });
-
-  if (!entry.config.assignments) entry.config.assignments = [];
-  const existingIdx = entry.config.assignments.findIndex(a => a.id === assignmentId);
-  const prev = existingIdx >= 0 ? entry.config.assignments[existingIdx] : null;
-  const incomingTeam = teamId !== undefined ? teamId : orgId;
-  const resolvedTeamId = incomingTeam !== undefined ? (incomingTeam || null) : (prev ? ((prev.teamId !== undefined ? prev.teamId : prev.orgId) || null) : null);
-  const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false, teamId: resolvedTeamId };
-  if (existingIdx >= 0) {
-    entry.config.assignments[existingIdx] = assignment;
-  } else {
-    entry.config.assignments.push(assignment);
-  }
-
-  // Persist
-  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  const mi = managers.findIndex(m => m.id === req.params.id);
-  if (mi >= 0) { managers[mi] = entry.config; }
-  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-
-  // Restart schedules if this manager has active scheduled assignments
-  _restartManagerSchedules(req.params.id);
-
-  res.json({ ok: true });
-});
-
-// Delete an assignment
-app.delete('/api/managers/:id/assignments/:assignmentId', (req, res) => {
-  const entry = managerAgent.managers.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Manager not found' });
-
-  entry.config.assignments = (entry.config.assignments || []).filter(a => a.id !== req.params.assignmentId);
-
-  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  const mi = managers.findIndex(m => m.id === req.params.id);
-  if (mi >= 0) { managers[mi] = entry.config; }
-  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-
-  // Restart schedules to remove the deleted assignment's timer
-  _restartManagerSchedules(req.params.id);
-
-  res.json({ ok: true });
-});
-
-// Update a single assignment's schedule
-app.put('/api/managers/:id/assignments/:assignmentId/schedule', (req, res) => {
-  const { schedule } = req.body;
-  if (!schedule) return res.status(400).json({ error: 'schedule required' });
-
-  const entry = managerAgent.managers.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Manager not found' });
-
-  const assignment = (entry.config.assignments || []).find(a => a.id === req.params.assignmentId);
-  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
-
-  // Validate schedule string
-  try {
-    const { parseSchedule } = require('./scheduler');
-    const parsed = parseSchedule(schedule);
-    assignment.schedule = schedule;
-
-    // Persist
-    let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-    const mi = managers.findIndex(m => m.id === req.params.id);
-    if (mi >= 0) { managers[mi] = entry.config; }
-    fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-
-    // Restart schedules
-    _restartManagerSchedules(req.params.id);
-
-    res.json({ ok: true, description: parsed.description });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Update a single assignment's triggers (downstream assignment chaining)
-app.put('/api/managers/:id/assignments/:assignmentId/triggers', (req, res) => {
-  // Inline assignment triggers were replaced by Task Chains. Kept as a no-op
-  // for backward compatibility with any cached clients.
-  res.json({ ok: true, triggers: {} });
-});
-
-// Toggle assignment enabled/disabled
-app.put('/api/managers/:id/assignments/:assignmentId/toggle', (req, res) => {
-  const { enabled } = req.body;
-  const entry = managerAgent.managers.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Manager not found' });
-
-  const assignment = (entry.config.assignments || []).find(a => a.id === req.params.assignmentId);
-  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
-
-  assignment.enabled = enabled !== false;
-
-  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  const mi = managers.findIndex(m => m.id === req.params.id);
-  if (mi >= 0) { managers[mi] = entry.config; }
-  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-
-  _restartManagerSchedules(req.params.id);
-
-  res.json({ ok: true, enabled: assignment.enabled });
-});
-
-// Helper: restart schedules for a manager if it has any scheduled assignments
-function _restartManagerSchedules(managerId) {
-  const entry = managerAgent.managers.get(managerId);
-  if (!entry) return;
-  const hasScheduled = (entry.config.assignments || []).some(
-    a => a.enabled !== false && a.schedule && a.schedule.toLowerCase() !== 'never'
-  );
-  if (hasScheduled) {
-    managerAgent.startSchedules(managerId);
-  } else {
-    managerAgent.stopSchedules(managerId);
-  }
-}
-
-// Ad-hoc prompt to a manager (async — returns immediately with runId)
-app.post('/api/managers/:id/prompt', (req, res) => {
-  const { prompt, liveStream } = req.body;
-  if (!prompt) return res.status(400).json({ error: 'prompt required' });
-  try {
-    const result = managerAgent.executePrompt(req.params.id, prompt, null, { liveStream: !!liveStream });
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Poll a manager run for live status
-app.get('/api/managers/:id/runs/:runId', (req, res) => {
-  const run = managerAgent.getRun(parseInt(req.params.runId));
-  if (!run) return res.status(404).json({ error: 'Run not found' });
-  const messages = managerAgent.getRunMessages(req.params.id, parseInt(req.params.runId));
-  res.json({ ...run, messages, steps: JSON.parse(run.steps || '[]') });
-});
-
-// Get manager run history
-app.get('/api/managers/:id/history', (req, res) => {
-  const limit = parseInt(req.query.limit) || 20;
-  res.json(managerAgent.getRunHistory(req.params.id, limit));
-});
-
-// Manager statistics
-app.get('/api/managers/:id/stats', (req, res) => {
-  const managerId = req.params.id;
-  const rows = db.prepare(`SELECT status, started_at, finished_at FROM manager_runs WHERE manager_id = ? ORDER BY started_at DESC`).all(managerId);
-  const total = rows.length;
-  const success = rows.filter(r => r.status === 'completed').length;
-  const fail = rows.filter(r => r.status === 'error').length;
-  const durations = rows.filter(r => r.started_at && r.finished_at).map(r => new Date(r.finished_at) - new Date(r.started_at));
-  const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
-  const lastRun = rows.length > 0 ? rows[0].started_at : null;
-  res.json({ total, success, fail, avgDuration, lastRun });
-});
-
-// Get manager messages (chat history)
-app.get('/api/managers/:id/messages', (req, res) => {
-  const limit = parseInt(req.query.limit) || 50;
-  res.json(managerAgent.getMessages(req.params.id, limit));
-});
-
-// Manage team: add agent
-app.post(['/api/managers/:id/team', '/api/managers/:id/org'], (req, res) => {
-  const { agentId } = req.body;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
-  try {
-    managerAgent.addToOrg(req.params.id, agentId);
-    // Persist
-    let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-    const mi = managers.findIndex(m => m.id === req.params.id);
-    if (mi >= 0) { managers[mi].team = managerAgent.managers.get(req.params.id).config.team; delete managers[mi].org; }
-    fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Manage team: remove agent
-app.delete(['/api/managers/:id/team/:agentId', '/api/managers/:id/org/:agentId'], (req, res) => {
-  try {
-    managerAgent.removeFromOrg(req.params.id, req.params.agentId);
-    // Persist
-    let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-    const mi = managers.findIndex(m => m.id === req.params.id);
-    if (mi >= 0) { managers[mi].team = managerAgent.managers.get(req.params.id).config.team; delete managers[mi].org; }
-    fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Get available agents not in manager's team
-app.get('/api/managers/:id/available-agents', (req, res) => {
-  res.json(managerAgent.getAvailableAgents(req.params.id));
-});
-
-// Open manager agent file in VS Code
-app.post('/api/managers/:id/edit-agent', (req, res) => {
-  const entry = managerAgent.managers.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Manager not found' });
-  const agentRef = entry.config.agent || 'manager:manager';
-  const [plugin, agent] = agentRef.split(':');
-  const agentFile = path.join(PLUGINS_DIR, plugin, 'agents', `${agent}.agent.md`);
-  if (!fs.existsSync(agentFile)) return res.status(404).json({ error: `Agent file not found: ${agentFile}` });
-  const { spawn: sp } = require('child_process');
-  sp('code-insiders', [agentFile], { shell: true, detached: true, stdio: 'ignore' }).unref();
-  res.json({ ok: true, file: agentFile });
-});
-
-// ----- Manager Templates (the built-in "backing agents" managers derive from) -----
-// A template is a <name>.agent.md file under builtin-plugins/manager/agents/.
-// Managers reference one via config.agent === `manager:<name>`.
-const MANAGER_AGENTS_DIR = path.join(PLUGINS_DIR, 'manager', 'agents');
-const PROTECTED_MANAGER_TEMPLATES = new Set(['manager']);
-
-function ensureManagerAgentsDir() {
-  if (!fs.existsSync(MANAGER_AGENTS_DIR)) fs.mkdirSync(MANAGER_AGENTS_DIR, { recursive: true });
-}
-
-// Split a .agent.md into { frontmatter (raw), body, fields }
-function parseManagerAgentFile(content) {
-  content = String(content).replace(/\r\n?/g, '\n');
-  const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
-  if (!m) return { fields: {}, tools: [], body: content.trim() };
-  const fm = m[1];
-  const body = (m[2] || '').replace(/^\n+/, '');
-  const fields = {};
-  const tools = [];
-  let inTools = false;
-  for (const line of fm.split('\n')) {
-    const toolItem = line.match(/^\s*-\s*['"]?([^'"]+)['"]?\s*$/);
-    if (inTools && toolItem) { tools.push(toolItem[1].trim()); continue; }
-    inTools = false;
-    const kv = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
-    if (!kv) continue;
-    const key = kv[1].trim();
-    const val = kv[2].trim();
-    if (key === 'tools' && val === '') { inTools = true; continue; }
-    fields[key] = val.replace(/^['"]|['"]$/g, '');
-  }
-  return { fields, tools, body };
-}
-
-function buildManagerAgentFile({ name, description, tools, body }) {
-  const toolList = (Array.isArray(tools) ? tools : [])
-    .map(t => String(t).trim()).filter(Boolean);
-  const lines = ['---', `name: ${name}`];
-  if (description) lines.push(`description: ${description}`);
-  if (toolList.length) {
-    lines.push('tools:');
-    for (const t of toolList) lines.push(`  - '${t}'`);
-  }
-  lines.push('---', '', (body || '').trim(), '');
-  return lines.join('\n');
-}
-
-// Remove any "## Response Format" section from a template body. The action-block
-// contract is shared across all managers and injected at runtime, so it must
-// never live in (or be editable from) an individual template — that would let a
-// template drift and break orchestration. Strips the heading through the next
-// heading of any level (or end of body).
-function stripResponseFormatSection(body) {
-  if (!body) return body;
-  const lines = String(body).replace(/\r\n?/g, '\n').split('\n');
-  const out = [];
-  let skipping = false;
-  for (const line of lines) {
-    const h = line.match(/^(#{1,6})\s+(.*)$/);
-    if (h) {
-      const title = h[2].trim().toLowerCase();
-      if (title === 'response format') { skipping = true; continue; }
-      if (skipping) skipping = false; // next heading ends the skipped section
-    }
-    if (!skipping) out.push(line);
-  }
-  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function managerTemplateUsage(name) {
-  let managers = [];
-  try {
-    if (fs.existsSync(MANAGERS_PATH)) managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  } catch { managers = []; }
-  const ref = `manager:${name}`;
-  const usedBy = managers.filter(m => (m.agent || 'manager:manager') === ref).map(m => ({ id: m.id, name: m.name }));
-  return usedBy;
-}
-
-function readManagerTemplate(name) {
-  const file = path.join(MANAGER_AGENTS_DIR, `${name}.agent.md`);
-  if (!fs.existsSync(file)) return null;
-  const content = fs.readFileSync(file, 'utf-8');
-  const parsed = parseManagerAgentFile(content);
-  const usedBy = managerTemplateUsage(name);
-  return {
-    id: `manager:${name}`,
-    name,
-    description: parsed.fields.description || '',
-    tools: parsed.tools,
-    body: parsed.body,
-    raw: content,
-    builtin: PROTECTED_MANAGER_TEMPLATES.has(name),
-    inUse: usedBy.length,
-    usedBy
-  };
-}
-
-// List available manager templates (a.k.a. backing agent variants)
-app.get('/api/manager-agents', (req, res) => {
-  ensureManagerAgentsDir();
-  if (!fs.existsSync(MANAGER_AGENTS_DIR)) return res.json([]);
-  const files = fs.readdirSync(MANAGER_AGENTS_DIR).filter(f => f.endsWith('.agent.md'));
-  const variants = files.map(f => {
-    const name = f.replace('.agent.md', '');
-    const t = readManagerTemplate(name);
-    return {
-      id: `manager:${name}`,
-      name,
-      description: t?.description || '',
-      builtin: t?.builtin || false,
-      inUse: t?.inUse || 0,
-      usedBy: t?.usedBy || []
-    };
-  });
-  res.json(variants);
-});
-
-// Get a single manager template (full content)
-app.get('/api/manager-agents/:name', (req, res) => {
-  const t = readManagerTemplate(req.params.name);
-  if (!t) return res.status(404).json({ error: 'Template not found' });
-  res.json(t);
-});
-
-// Create a new manager template
-app.post('/api/manager-agents', (req, res) => {
-  ensureManagerAgentsDir();
-  const { name, description, tools, body } = req.body || {};
-  const clean = String(name || '').trim().toLowerCase();
-  if (!clean || !/^[a-z0-9][a-z0-9-]*$/.test(clean)) {
-    return res.status(400).json({ error: 'Template name must be lowercase letters, numbers, and dashes (e.g. "incident-manager").' });
-  }
-  const file = path.join(MANAGER_AGENTS_DIR, `${clean}.agent.md`);
-  if (fs.existsSync(file)) return res.status(409).json({ error: `A template named "${clean}" already exists.` });
-  if (!body || !String(body).trim()) return res.status(400).json({ error: 'Template body (the orchestration instructions) is required.' });
-  const content = buildManagerAgentFile({
-    name: clean,
-    description: String(description || '').trim(),
-    tools: tools && tools.length ? tools : ['powershell'],
-    body: stripResponseFormatSection(body)
-  });
-  fs.writeFileSync(file, content);
-  res.json(readManagerTemplate(clean));
-});
-
-// Update an existing manager template (name is immutable to preserve references)
-app.put('/api/manager-agents/:name', (req, res) => {
-  const name = req.params.name;
-  const file = path.join(MANAGER_AGENTS_DIR, `${name}.agent.md`);
-  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Template not found' });
-  const { description, tools, body } = req.body || {};
-  if (!body || !String(body).trim()) return res.status(400).json({ error: 'Template body is required.' });
-  const content = buildManagerAgentFile({
-    name,
-    description: String(description || '').trim(),
-    tools: tools && tools.length ? tools : ['powershell'],
-    body: stripResponseFormatSection(body)
-  });
-  fs.writeFileSync(file, content);
-  res.json(readManagerTemplate(name));
-});
-
-// Delete a manager template (blocked if built-in or actively used by a manager)
-app.delete('/api/manager-agents/:name', (req, res) => {
-  const name = req.params.name;
-  const file = path.join(MANAGER_AGENTS_DIR, `${name}.agent.md`);
-  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Template not found' });
-  if (PROTECTED_MANAGER_TEMPLATES.has(name)) {
-    return res.status(409).json({ error: 'The default Manager Template cannot be removed.' });
-  }
-  const usedBy = managerTemplateUsage(name);
-  if (usedBy.length) {
-    return res.status(409).json({ error: `Template is in use by ${usedBy.length} manager(s): ${usedBy.map(m => m.name).join(', ')}. Reassign them first.` });
-  }
-  fs.unlinkSync(file);
-  res.json({ ok: true });
-});
-
-// ===== Shared manager Response Format (the action-block contract) =====
-// One definition, used by every manager via manager.js _buildManagerSystemPrompt,
-// so editing it can't break orchestration for one template while leaving others.
-app.get('/api/manager-response-format', (req, res) => {
-  const format = ManagerAgent.loadResponseFormat();
-  const isDefault = format.trim() === String(ManagerAgent.DEFAULT_RESPONSE_FORMAT).trim();
-  res.json({ format, isDefault, default: ManagerAgent.DEFAULT_RESPONSE_FORMAT });
-});
-
-app.put('/api/manager-response-format', (req, res) => {
-  const { format } = req.body || {};
-  const txt = String(format == null ? '' : format).replace(/\r\n?/g, '\n').trim();
-  if (!txt) return res.status(400).json({ error: 'Response format cannot be empty.' });
-  // Guard: the manager decision parser keys off these verbs — refuse a format
-  // that drops any of them so a manager can never be left unable to act.
-  for (const verb of ['RUN_AGENT', 'COMPLETE', 'REQUEST_AGENT']) {
-    if (!txt.includes(verb)) {
-      return res.status(400).json({ error: `Response format must still define ${verb} — the manager parser depends on it.` });
-    }
-  }
-  try {
-    fs.mkdirSync(path.dirname(ManagerAgent.RESPONSE_FORMAT_PATH), { recursive: true });
-    fs.writeFileSync(ManagerAgent.RESPONSE_FORMAT_PATH, txt + '\n');
-  } catch (e) {
-    return res.status(500).json({ error: 'Failed to save response format: ' + e.message });
-  }
-  res.json({ ok: true, format: txt, isDefault: txt === String(ManagerAgent.DEFAULT_RESPONSE_FORMAT).trim() });
-});
-
-// Reset the shared response format to the built-in default.
-app.delete('/api/manager-response-format', (req, res) => {
-  try { if (fs.existsSync(ManagerAgent.RESPONSE_FORMAT_PATH)) fs.unlinkSync(ManagerAgent.RESPONSE_FORMAT_PATH); } catch (_) {}
-  res.json({ ok: true, format: ManagerAgent.DEFAULT_RESPONSE_FORMAT, isDefault: true });
-});
-
-// ===== Manager Template dev assistant =====
-// A copilot-backed chat that helps the user design a manager template persona and,
-// once aligned, emits a ```template JSON block the UI can apply. The shared action
-// contract is injected globally, so the assistant is told NOT to include it.
-const MANAGER_TEMPLATE_ASSISTANT_PERSONA = [
-  'You are the Manager Template Dev Assistant for an agent-orchestration platform.',
-  'Your job is to help the user design a "manager template" — the persona/brain for a Manager that ORCHESTRATES other agents (it never does work itself; it decides which sub-agent to run and in what order).',
-  '',
-  'Key facts about how managers work here:',
-  '- A manager runs ONE sub-agent per turn, reviews the output, then decides the next action.',
-  '- The machine-readable action-block response format (RUN_AGENT / COMPLETE / REQUEST_AGENT) is injected automatically at runtime and is shared across ALL managers. NEVER include it, restate it, or describe its syntax in the template body — that would duplicate and risk breaking it.',
-  '- The template body should focus on: persona/identity, what this manager is responsible for, decision guidelines (when to run which kind of agent, how to sequence them, how to pass context forward), tone, and how to summarize results for the user.',
-  '',
-  'How to collaborate:',
-  '- Ask brief clarifying questions about the manager\'s purpose, the kinds of agents it will coordinate, and any decision rules.',
-  '- Keep replies concise and conversational.',
-  '- When (and only when) you and the user are aligned on the design, output the proposal as a single fenced code block tagged `template` containing JSON with keys: name (kebab-case slug), description (one line), tools (array, default ["powershell"]), body (the markdown persona, WITHOUT any response-format/action-block section). Example:',
-  '```template',
-  '{',
-  '  "name": "incident-manager",',
-  '  "description": "Coordinates monitoring and notification agents during incidents",',
-  '  "tools": ["powershell"],',
-  '  "body": "# Incident Manager\\n\\nYou coordinate ..."',
-  '}',
-  '```',
-  '- Before emitting the block, briefly confirm with the user. After emitting it, tell them they can review and click Apply to create/update the template.',
-].join('\n');
-
-app.post('/api/manager-template-assistant/chat', async (req, res) => {
-  const { message, sessionId: incomingId, resume } = req.body || {};
-  if (!message || !String(message).trim()) return res.status(400).json({ error: 'message required' });
-  const sessionId = incomingId || require('crypto').randomUUID();
-  const isResume = !!resume && !!incomingId;
-  const prompt = isResume
-    ? String(message)
-    : MANAGER_TEMPLATE_ASSISTANT_PERSONA + '\n\n## User\n' + String(message);
-  try {
-    let acc = '';
-    const result = await sdkRunner.runChat({
-      config: null, prompt, sessionId, resume: isResume, cwd: __dirname,
-      onChunk: (c) => { acc += c; },
-      meta: { source: 'system', category: 'agents_tasks' }
-    });
-    // Deltas fire only for the current turn, so `acc` is just this reply. The
-    // result.output joins ALL assistant messages in the session (every prior
-    // turn too) — only fall back to it when no deltas streamed.
-    const output = acc.trim() ? acc : (result.output || '');
-    if (!result.ok && !output) {
-      return res.status(500).json({ error: result.error || 'assistant failed', sessionId });
-    }
-    res.json({ sessionId, output, steps: Array.isArray(result.steps) ? result.steps : [] });
-  } catch (e) {
-    res.status(500).json({ error: e.message, sessionId });
-  }
-});
-
-// ============ End Manager API Routes ============
 
 // ============ Execution "Design with AI" suggestions ============
 // AI looks at the available agents/tasks/flows and proposes creative NEW manual
@@ -28036,7 +27157,7 @@ app.delete('/api/chats/:id', (req, res) => {
 
 // ============ End Chat API ============
 
-// Unified view of every scheduled item (agents, tasks, manager assignments, flows).
+// Unified view of every scheduled item (agents, tasks, flows).
 // Only manual / "never" items are excluded — disabled-but-scheduled items are
 // included (flagged enabled:false) so they can be re-enabled from the dashboard.
 // Returns last run + computed next run, sorted soonest-first.
@@ -28053,7 +27174,7 @@ app.get('/api/schedules', (req, res) => {
   const out = [];
 
   try {
-    // Policy: only tasks, assignments, and flows have saved schedules. Agents are
+    // Policy: only tasks and flows have saved schedules. Agents are
     // intentionally NOT enumerated here — an agent runs via its scheduled Tasks,
     // triggers, or manual execution, never on its own saved schedule.
 
@@ -28070,21 +27191,6 @@ app.get('/api/schedules', (req, res) => {
         nextRun: nextRunIso(task.schedule), lastRun: last ? last.started_at : null, lastStatus: agentStatus(last),
         href: '#/tasks'
       });
-    }
-
-    // Manager assignments (a manager is "scheduled" when it has scheduled assignments)
-    for (const [mid, entry] of managerAgent.managers) {
-      const mgrName = (entry.config && entry.config.name) || mid;
-      for (const a of (entry.config.assignments || [])) {
-        if (!isScheduled(a.schedule)) continue;
-        const last = db.prepare('SELECT started_at, finished_at, status FROM manager_runs WHERE manager_id = ? AND assignment_id = ? ORDER BY id DESC LIMIT 1').get(mid, a.id);
-        out.push({
-          type: 'assignment', id: mid + '/' + a.id, managerId: mid, assignmentId: a.id, name: a.name, parentName: mgrName,
-          schedule: a.schedule, scheduleDescription: describe(a.schedule), enabled: a.enabled !== false,
-          nextRun: nextRunIso(a.schedule), lastRun: last ? last.started_at : null,
-          lastStatus: last ? last.status : null, href: '#/managers/' + mid
-        });
-      }
     }
 
     // Flows (chains)
@@ -28115,10 +27221,10 @@ app.get('/api/schedules', (req, res) => {
   }
 });
 
-// Unified activity feed across all agents and managers
+// Unified activity feed across all agents
 // Unified activity timeline. Merges four sources into one reverse-chronological
 // feed the Activity page renders + filters:
-//   - agent_runs / manager_runs  (drill-downable runs, keep `type`+`runId`)
+//   - agent_runs                 (drill-downable runs, keep `type`+`runId`)
 //   - usage_events               (AI deliverables: newsletters, connects, PR
 //                                 summaries, dev cards, insights, agent authoring)
 //   - activity_log               (operational events: marketplace installs,
@@ -28151,29 +27257,8 @@ app.get('/api/activity', (req, res) => {
     });
   }
 
-  // 2) Manager runs — drill-downable.
-  try {
-    const mgrRuns = db.prepare('SELECT * FROM manager_runs ORDER BY id DESC LIMIT ?').all(limit);
-    for (const run of mgrRuns) {
-      const mgr = managerAgent.managers.get(run.manager_id);
-      const name = mgr?.name || run.manager_id;
-      items.push({
-        kind: 'manager', type: 'manager', category: 'manager',
-        entityId: run.manager_id, entityName: name,
-        title: name, detail: (run.result || '').slice(0, 200),
-        action: run.assignment_id ? `assignment:${run.assignment_id}` : 'prompt',
-        status: run.status || 'completed',
-        timestamp: run.started_at, finishedAt: run.finished_at,
-        duration: (run.started_at && run.finished_at) ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime() : null,
-        output: (run.result || '').slice(0, 500),
-        runId: run.id, assignmentId: run.assignment_id || null,
-        triggerMode: run.assignment_id ? 'scheduled' : 'manual',
-      });
-    }
-  } catch {}
-
-  // 3) usage_events — surface the notable AI *deliverables* only (skip generic
-  // agent/manager/chat rows that already appear above or would be pure noise).
+  // 2) usage_events — surface the notable AI *deliverables* only (skip generic
+  // agent/chat rows that already appear above or would be pure noise).
   try {
     const catToKind = {
       newsletter: 'newsletter', connect: 'connect', pull_requests: 'pull_request',
@@ -28270,11 +27355,9 @@ function describeRunTrigger(row) {
   };
 }
 
-// Single run detail. Tries agent_runs first, then manager_runs so manager
-// assignment/ad-hoc runs are drill-downable too.
+// Single agent run detail.
 app.get('/api/activity/:id', (req, res) => {
-  const wantManager = req.query.type === 'manager';
-  const row = wantManager ? null : db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(req.params.id);
   if (row) {
     const entry = supervisor.agents.get(row.agent_id);
     return res.json({
@@ -28298,40 +27381,8 @@ app.get('/api/activity/:id', (req, res) => {
       sessionId: row.session_id
     });
   }
-  // Manager run fallback.
-  let mrow = null;
-  try { mrow = db.prepare('SELECT * FROM manager_runs WHERE id = ?').get(req.params.id); } catch {}
-  if (!mrow) return res.status(404).json({ error: 'Run not found' });
-  const mgr = managerAgent.managers.get(mrow.manager_id);
-  let assignmentName = null;
-  if (mrow.assignment_id && mgr && Array.isArray(mgr.assignments)) {
-    const a = mgr.assignments.find(x => x.id === mrow.assignment_id);
-    assignmentName = a ? (a.name || a.id) : mrow.assignment_id;
-  }
-  const ok = mrow.status === 'completed' || mrow.status === 'success';
-  const trigger = mrow.assignment_id
-    ? { reason: 'assignment', label: `Assignment: ${assignmentName}`, detail: `Ran from the manager assignment "${assignmentName}".`, route: '#/managers' }
-    : { reason: 'manual', label: 'Ad-hoc prompt', detail: 'Started from an ad-hoc prompt in the manager chat, not a schedule.', route: null };
-  res.json({
-    type: 'manager',
-    id: mrow.id,
-    managerId: mrow.manager_id,
-    agentName: mgr?.name || mrow.manager_id,
-    status: ok ? 'success' : (mrow.status === 'running' ? 'running' : 'failed'),
-    output: mrow.result || '',
-    error: '',
-    prompt: mrow.prompt || '',
-    assignmentId: mrow.assignment_id || null,
-    startedAt: mrow.started_at,
-    finishedAt: mrow.finished_at,
-    durationMs: (mrow.started_at && mrow.finished_at)
-      ? new Date(mrow.finished_at).getTime() - new Date(mrow.started_at).getTime()
-      : null,
-    trigger,
-    entityRoute: `#/managers/${mrow.manager_id}`
-  });
+  return res.status(404).json({ error: 'Run not found' });
 });
-
 // ─── Event Listeners API ───────────────────────────────────────────────────────
 
 app.get('/api/events/config', (req, res) => {
@@ -28622,12 +27673,6 @@ app.post('/api/events/simulate/stream', express.json(), async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  // Listen for manager step events
-  const stepHandler = (data) => {
-    sendEvent('step', data);
-  };
-  managerAgent.on('manager-step', stepHandler);
-
   // Capture reply
   let capturedReply = null;
   const originalReply = eventListener._reply.bind(eventListener);
@@ -28655,7 +27700,6 @@ app.post('/api/events/simulate/stream', express.json(), async (req, res) => {
   } catch (err) {
     sendEvent('reply', { status: 'error', error: err.message });
   } finally {
-    managerAgent.removeListener('manager-step', stepHandler);
     eventListener._reply = originalReply;
     res.end();
   }
@@ -29061,1330 +28105,3 @@ main().catch(err => {
   console.error('Failed to start supervisor:', err);
   process.exit(1);
 });
-
-function getManagersPageHtml() {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Managers — TheOffice.AI</title>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
-    
-    .top-nav {
-      display: flex; gap: 16px; align-items: center; margin-bottom: 24px;
-      border-bottom: 1px solid #30363d; padding-bottom: 16px;
-    }
-    .nav-link {
-      color: #8b949e; text-decoration: none; font-size: 0.9rem; padding: 6px 12px;
-      border-radius: 6px; transition: all 0.15s;
-    }
-    .nav-link:hover { color: #c9d1d9; background: #21262d; }
-    .nav-link.active { color: #58a6ff; background: #1f6feb22; font-weight: 600; }
-    .nav-title { font-size: 1.3rem; font-weight: 700; color: #f0f6fc; margin-right: auto; }
-
-    h2 { color: #58a6ff; margin-bottom: 16px; font-size: 1.2rem; }
-    
-    .managers-grid { display: grid; gap: 20px; margin-bottom: 32px; }
-    
-    .manager-card {
-      background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px;
-      transition: border-color 0.2s;
-    }
-    .manager-card:hover { border-color: #58a6ff; }
-    .manager-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .manager-name { font-size: 1.2rem; font-weight: 700; color: #f0f6fc; }
-    .manager-desc { color: #8b949e; font-size: 0.9rem; margin-bottom: 16px; }
-    
-    .status-badge {
-      padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
-    }
-    .status-idle { background: #1f6feb33; color: #58a6ff; }
-    .status-running { background: #f7883533; color: #f78835; }
-    .status-scheduled { background: #3fb95033; color: #3fb950; }
-    .status-error { background: #f8514933; color: #f85149; }
-
-    .org-section { margin-bottom: 16px; }
-    .org-label { font-size: 0.8rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .org-agents { display: flex; gap: 6px; flex-wrap: wrap; }
-    .org-chip {
-      display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
-      background: #21262d; border: 1px solid #30363d; border-radius: 16px;
-      font-size: 0.8rem; color: #c9d1d9;
-    }
-    .org-chip .remove-btn {
-      cursor: pointer; color: #f85149; font-size: 0.7rem; margin-left: 4px;
-      opacity: 0.6; transition: opacity 0.15s;
-    }
-    .org-chip .remove-btn:hover { opacity: 1; }
-    .org-add-btn {
-      display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
-      background: none; border: 1px dashed #30363d; border-radius: 16px;
-      font-size: 0.8rem; color: #58a6ff; cursor: pointer; transition: all 0.15s;
-    }
-    .org-add-btn:hover { border-color: #58a6ff; background: #1f6feb11; }
-
-    .assignments-section { margin-bottom: 16px; }
-    .assignment-list { display: grid; gap: 8px; }
-    .assignment-item {
-      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
-      background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
-      position: relative;
-    }
-    .assignment-name { font-weight: 600; font-size: 0.9rem; color: #f0f6fc; }
-    .assignment-schedule { font-size: 0.75rem; color: #8b949e; font-family: monospace; }
-    .assignment-prompt { font-size: 0.8rem; color: #8b949e; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .assignment-actions { display: flex; gap: 6px; }
-
-    .btn {
-      padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d;
-      color: #c9d1d9; cursor: pointer; font-size: 0.8rem; transition: all 0.15s;
-    }
-    .btn:hover { background: #30363d; border-color: #58a6ff; }
-    .btn-primary { background: #238636; border-color: #238636; color: #fff; }
-    .btn-primary:hover { background: #2ea043; }
-    .btn-danger { background: #da3633; border-color: #da3633; color: #fff; }
-    .btn-danger:hover { background: #f85149; }
-    .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
-
-    .chat-section {
-      margin-top: 16px; border-top: 1px solid #30363d; padding-top: 16px;
-    }
-    .chat-messages {
-      max-height: 300px; overflow-y: auto; margin-bottom: 12px;
-      padding: 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
-      display: none;
-    }
-    .chat-messages.visible { display: block; }
-    .chat-msg { margin-bottom: 8px; font-size: 0.85rem; }
-    .chat-msg.user { color: #58a6ff; }
-    .chat-msg.assistant { color: #c9d1d9; }
-    .chat-msg .role { font-weight: 600; margin-right: 6px; }
-    .chat-input-row { display: flex; gap: 8px; }
-    .chat-input {
-      flex: 1; padding: 10px 14px; background: #0d1117; border: 1px solid #30363d;
-      border-radius: 8px; color: #c9d1d9; font-size: 0.9rem; resize: none;
-    }
-    .chat-input:focus { border-color: #58a6ff; outline: none; }
-
-    .history-section { margin-top: 16px; }
-    .history-toggle { color: #58a6ff; cursor: pointer; font-size: 0.85rem; border: none; background: none; }
-    .history-list { display: none; margin-top: 8px; }
-    .history-list.visible { display: block; }
-    .history-item {
-      padding: 8px 12px; background: #0d1117; border: 1px solid #30363d;
-      border-radius: 6px; margin-bottom: 6px; font-size: 0.8rem;
-    }
-    .history-item .time { color: #8b949e; }
-    .history-item .status-ok { color: #3fb950; }
-    .history-item .status-err { color: #f85149; }
-
-    .empty-state {
-      text-align: center; padding: 60px 24px; color: #8b949e;
-    }
-    .empty-state h3 { color: #f0f6fc; margin-bottom: 8px; }
-
-    .asgn-sched-editor { display: none; position: fixed; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; z-index: 1000; min-width: 340px; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-    .asgn-sched-editor.visible { display: block; }
-    .asgn-sched-editor label { color: #8b949e; font-size: 0.75rem; display: block; margin-bottom: 4px; }
-    .asgn-sched-editor select, .asgn-sched-editor input[type="time"], .asgn-sched-editor input[type="number"] {
-      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 4px; font-size: 0.85rem; margin-bottom: 8px;
-    }
-    .asgn-sched-editor .day-checkboxes { display: flex; gap: 4px; margin: 8px 0; }
-    .asgn-sched-editor .day-checkboxes label { display: flex; align-items: center; gap: 2px; cursor: pointer; padding: 4px 6px; border-radius: 4px; border: 1px solid #30363d; color: #c9d1d9; font-size: 0.8rem; }
-    .asgn-sched-editor .day-checkboxes label:has(input:checked) { background: #1f6feb33; border-color: #1f6feb; color: #58a6ff; }
-    .asgn-sched-editor .day-checkboxes input { display: none; }
-    .asgn-sched-editor .sched-preview { margin-top: 10px; padding: 8px; background: #0d1117; border-radius: 4px; color: #7ee787; font-size: 0.8rem; min-height: 20px; }
-    .asgn-sched-editor .sched-actions { display: flex; gap: 8px; margin-top: 12px; }
-
-    .modal-overlay {
-      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-      z-index: 1000; align-items: center; justify-content: center;
-    }
-    .modal-overlay.visible { display: flex; }
-    .modal {
-      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
-      padding: 24px; width: 500px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
-    }
-    .modal h3 { color: #f0f6fc; margin-bottom: 16px; }
-    .form-group { margin-bottom: 14px; }
-    .form-group label { display: block; font-size: 0.85rem; color: #8b949e; margin-bottom: 4px; }
-    .form-group input, .form-group textarea, .form-group select {
-      width: 100%; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d;
-      border-radius: 6px; color: #c9d1d9; font-size: 0.9rem;
-    }
-    .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
-      border-color: #58a6ff; outline: none;
-    }
-    .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-
-    .steps-list { margin-top: 8px; }
-    .step-item { padding: 6px 10px; font-size: 0.8rem; border-left: 2px solid #30363d; margin-bottom: 4px; padding-left: 12px; }
-    .step-item.run_agent { border-color: #58a6ff; }
-    .step-item.complete { border-color: #3fb950; }
-    .step-item.error { border-color: #f85149; }
-
-    /* Manager Chat Modal Styles */
-    .mgr-chat-msg { margin-bottom: 16px; }
-    .mgr-chat-msg.user { }
-    .mgr-chat-msg.assistant { }
-    .mgr-chat-role { font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; }
-    .mgr-chat-msg.user .mgr-chat-role { color: #58a6ff; }
-    .mgr-chat-msg.assistant .mgr-chat-role { color: #8b949e; }
-    .mgr-chat-content { font-size: 0.9rem; line-height: 1.5; padding: 8px 12px; border-radius: 8px; }
-    .mgr-chat-msg.user .mgr-chat-content { background: #1f6feb22; border: 1px solid #1f6feb44; }
-    .mgr-chat-msg.assistant .mgr-chat-content { background: #0d1117; border: 1px solid #30363d; }
-    .mgr-chat-content.assistant-md table { border-collapse: collapse; margin: 8px 0; width: 100%; }
-    .mgr-chat-content.assistant-md th, .mgr-chat-content.assistant-md td { border: 1px solid #30363d; padding: 4px 8px; font-size: 0.8rem; }
-    .mgr-chat-content.assistant-md th { background: #161b22; color: #f0f6fc; }
-    .mgr-chat-content.assistant-md code { background: #21262d; padding: 1px 4px; border-radius: 3px; font-size: 0.8rem; }
-    .mgr-chat-content.assistant-md pre { background: #21262d; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
-    .mgr-chat-content.assistant-md pre code { background: none; padding: 0; }
-    .mgr-chat-content.assistant-md h1, .mgr-chat-content.assistant-md h2, .mgr-chat-content.assistant-md h3 { color: #f0f6fc; margin: 8px 0 4px; }
-    .mgr-chat-content.assistant-md ul, .mgr-chat-content.assistant-md ol { padding-left: 20px; margin: 4px 0; }
-    .mgr-chat-content.assistant-md strong { color: #f0f6fc; }
-    .mgr-steps { margin: 8px 0; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
-    .mgr-step { font-size: 0.8rem; padding: 4px 0; color: #8b949e; display: flex; align-items: center; gap: 6px; }
-    .mgr-step.run_agent { color: #58a6ff; }
-    .mgr-step.agent_result { color: #3fb950; }
-    .mgr-step.complete { color: #3fb950; }
-    .mgr-step.error { color: #f85149; }
-    .mgr-step.thinking { color: #f78835; }
-  </style>
-</head>
-<body>
-  <nav class="top-nav">
-    <span class="nav-title">TheOffice.AI</span>
-    <a href="/" class="nav-link active">Managers</a>
-    <a href="/agents" class="nav-link">Agents</a>
-  </nav>
-
-  <div id="app" x-data="managersApp()" x-init="init()">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-      <h2>Managers</h2>
-      <button class="btn btn-primary" @click="showCreateManager()">+ New Manager</button>
-    </div>
-
-    <template x-if="managers.length === 0">
-      <div class="empty-state">
-        <h3>No Managers Yet</h3>
-        <p>Create a manager to orchestrate your agents intelligently.</p>
-      </div>
-    </template>
-
-    <div id="managers-list" class="managers-grid" x-show="managers.length > 0">
-      <template x-for="m in managers" :key="m.manager_id">
-        <div class="manager-card" :id="'mgr-' + m.manager_id">
-          <div class="manager-header">
-            <span class="manager-name" x-text="(m.config && m.config.name) || m.manager_id"></span>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <span class="status-badge" :class="'status-' + (m.status || 'idle')" x-text="m.status || 'idle'"></span>
-              <button class="btn btn-sm" title="Edit manager" @click="showEditManager(m)">✎</button>
-              <button class="btn btn-sm btn-danger" title="Delete manager" @click="deleteManager(m.manager_id)">✕</button>
-            </div>
-          </div>
-          <div class="manager-desc" x-text="(m.config && m.config.description) || ''"></div>
-
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
-            <span style="font-size:0.8rem;color:#8b949e;">Agent:</span>
-            <code style="font-size:0.8rem;color:#58a6ff;background:#1f6feb22;padding:2px 8px;border-radius:4px;" x-text="managerAgentLabel(m)"></code>
-            <button class="btn btn-sm" @click="editManagerAgent(m.manager_id, managerAgentLabel(m))">🔄 Change</button>
-            <button class="btn btn-sm" @click="openManagerAgentInEditor(m.manager_id)">📝 Edit Prompt</button>
-          </div>
-
-          <div class="org-section">
-            <div class="org-label">Team (Agents)</div>
-            <div class="org-agents">
-              <template x-for="a in (m.orgDetails || [])" :key="a.id">
-                <span class="org-chip">
-                  <span x-text="a.name"></span>
-                  <span class="remove-btn" title="Remove" @click="removeFromOrg(m.manager_id, a.id)">✕</span>
-                </span>
-              </template>
-              <button class="org-add-btn" @click="showAddAgent(m.manager_id)">+ Add</button>
-            </div>
-          </div>
-
-          <div class="assignments-section">
-            <div class="org-label">
-              <span>Assignments</span>
-              <span x-show="(m.activeSchedules || 0) > 0" style="color:#3fb950;font-size:11px;" x-text="'(' + (m.activeSchedules || 0) + ' scheduled)'"></span>
-            </div>
-            <div class="assignment-list">
-              <template x-for="a in ((m.config && m.config.assignments) || [])" :key="a.id">
-                <div class="assignment-item">
-                  <span class="assignment-name" x-text="a.name"></span>
-                  <span class="assignment-schedule" :title="a.scheduleDescription || ''" x-text="assignmentScheduleLabel(a)"></span>
-                  <span x-show="a.nextRun" style="font-size:10px;color:#8b949e;" x-text="'next: ' + formatTime(a.nextRun)"></span>
-                  <span class="assignment-prompt" :title="a.prompt || ''" x-text="a.prompt || ''"></span>
-                  <div class="assignment-actions">
-                    <button class="btn btn-sm" title="Edit assignment" @click="showEditAssignment(m.manager_id, a)">✎</button>
-                    <button class="btn btn-sm" :title="a.enabled !== false ? 'Disable' : 'Enable'" @click="toggleAssignment(m.manager_id, a.id, a.enabled === false)" x-text="a.enabled !== false ? '⏸' : '▶️'"></button>
-                    <button class="btn btn-sm" title="Edit schedule" @click="openScheduleEditor(m.manager_id, a, $event)">🕐</button>
-                    <button class="btn btn-sm btn-primary" @click="runAssignment(m.manager_id, a.id)">▶ Run</button>
-                    <button class="btn btn-sm btn-danger" @click="deleteAssignment(m.manager_id, a.id)">✕</button>
-                  </div>
-                </div>
-              </template>
-              <button class="btn btn-sm" style="margin-top:6px;" @click="showAddAssignment(m.manager_id)">+ Add Assignment</button>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn btn-primary" @click="openManagerChat(m.manager_id, (m.config && m.config.name) || m.manager_id)">💬 Chat with Manager</button>
-            <button class="btn" @click="toggleHistory(m.manager_id)">📋 Run History</button>
-          </div>
-
-          <div class="history-section">
-            <div class="history-list" :class="{ visible: historyOpen[m.manager_id] }" x-show="historyOpen[m.manager_id]">
-              <template x-if="(histories[m.manager_id] || []).length === 0">
-                <div style="color:#8b949e;font-size:0.85rem;">No runs yet.</div>
-              </template>
-              <template x-for="run in (histories[m.manager_id] || [])" :key="run.id">
-                <div class="history-item" style="cursor:pointer;" @click="viewRun(m.manager_id, run.id)">
-                  <div>
-                    <span :class="run.status === 'completed' ? 'status-ok' : 'status-err'" x-text="run.status"></span>
-                    <span class="time" x-text="formatDateTime(run.started_at)"></span>
-                    <span x-text="run.assignment_id ? ' — ' + run.assignment_id : ' — ad-hoc'"></span>
-                  </div>
-                  <div style="margin-top:4px;color:#8b949e;font-size:0.75rem;" x-text="truncate(run.prompt || '', 100)"></div>
-                  <div class="steps-list" x-show="filteredHistorySteps(run).length > 0">
-                    <template x-for="step in filteredHistorySteps(run)" :key="historyStepKey(run, step)">
-                      <div class="step-item" :class="step.action" x-text="historyStepSummary(step)"></div>
-                    </template>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-        </div>
-      </template>
-    </div>
-
-    <div id="managerModal" class="modal-overlay" x-show="showManagerModal" :class="{ visible: showManagerModal }" @click.self="closeManagerModal()">
-      <div class="modal">
-        <h3 x-text="mgrForm.editing ? 'Edit Manager' : 'Create Manager'"></h3>
-        <div class="form-group">
-          <label>ID (unique slug)</label>
-          <input type="text" x-model="mgrForm.id" :disabled="mgrForm.editing" placeholder="e.g. helix-ops-manager">
-        </div>
-        <div class="form-group">
-          <label>Name</label>
-          <input type="text" x-model="mgrForm.name" placeholder="e.g. Helix Ops Manager">
-        </div>
-        <div class="form-group">
-          <label>Description</label>
-          <textarea rows="2" x-model="mgrForm.desc" placeholder="What this manager does..."></textarea>
-        </div>
-        <div class="form-group">
-          <label>Agent Plugin</label>
-          <select x-model="mgrForm.agent">
-            <template x-for="variant in managerAgents" :key="variant.id">
-              <option :value="variant.id" x-text="variant.id + ' — ' + variant.description"></option>
-            </template>
-          </select>
-        </div>
-        <div class="form-actions">
-          <button class="btn" @click="closeManagerModal()">Cancel</button>
-          <button class="btn btn-primary" @click="saveManager()">Save</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="assignmentModal" class="modal-overlay" x-show="showAssignmentModal" :class="{ visible: showAssignmentModal }" @click.self="closeAssignmentModal()">
-      <div class="modal">
-        <h3 x-text="asgnForm.editing ? 'Edit Assignment' : 'New Assignment'"></h3>
-        <div class="form-group">
-          <label>ID (unique slug)</label>
-          <input type="text" x-model="asgnForm.id" :disabled="asgnForm.editing" placeholder="e.g. monitor-azure">
-        </div>
-        <div class="form-group">
-          <label>Name</label>
-          <input type="text" x-model="asgnForm.name" placeholder="e.g. Monitor Azure">
-        </div>
-        <div class="form-group">
-          <label>Prompt</label>
-          <textarea rows="4" x-model="asgnForm.prompt" placeholder="What should the manager do?"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Schedule</label>
-          <input type="text" x-model="asgnForm.schedule" placeholder="e.g. 1h, daily at 9am, never">
-        </div>
-        <div class="form-actions">
-          <button class="btn" @click="closeAssignmentModal()">Cancel</button>
-          <button class="btn btn-primary" @click="saveAssignment()">Save</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="orgModal" class="modal-overlay" x-show="showOrgModal" :class="{ visible: showOrgModal }" @click.self="closeOrgModal()">
-      <div class="modal">
-        <h3>Add Agent to Team</h3>
-        <div class="form-group">
-          <label>Available Agents</label>
-          <select size="8" style="height:auto;" x-model="orgForm.agentId">
-            <template x-for="agent in availableOrgAgents" :key="agent.id">
-              <option :value="agent.id" x-text="agent.name + ' (' + agent.id + ')'"></option>
-            </template>
-          </select>
-        </div>
-        <div class="form-actions">
-          <button class="btn" @click="closeOrgModal()">Cancel</button>
-          <button class="btn btn-primary" @click="addAgentToOrg()">Add</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="agentSelectModal" class="modal-overlay" x-show="showAgentSelectModal" :class="{ visible: showAgentSelectModal }" @click.self="closeAgentSelectModal()">
-      <div class="modal">
-        <h3>Select Agent Plugin</h3>
-        <div class="form-group">
-          <label>Agent Variant</label>
-          <select size="1" style="width:100%;" x-model="agentSelect.agent">
-            <template x-for="variant in managerAgents" :key="variant.id">
-              <option :value="variant.id" x-text="variant.id + ' — ' + variant.description"></option>
-            </template>
-          </select>
-        </div>
-        <div class="form-actions">
-          <button class="btn" @click="closeAgentSelectModal()">Cancel</button>
-          <button class="btn btn-primary" @click="saveAgentSelect()">Save</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="asgn-sched-editor" x-show="schedEditor.show" :class="{ visible: schedEditor.show }" :style="'top:' + schedEditor.top + 'px; left:' + schedEditor.left + 'px;'" @click.outside="closeScheduleEditor()" x-transition.opacity>
-      <label>Schedule type</label>
-      <div style="margin-bottom:8px;">
-        <select x-model="schedEditor.mode" @change="onScheduleModeChanged()">
-          <option value="never">Never (manual only)</option>
-          <option value="interval">Interval (every N minutes/hours)</option>
-          <option value="daily">Daily (at a specific time)</option>
-          <option value="weekly">Weekly (pick days + time)</option>
-          <option value="cron">Advanced (cron / free text)</option>
-        </select>
-      </div>
-      <div>
-        <div x-show="schedEditor.mode === 'never'">
-          <span style="color:#8b949e;font-size:0.8rem;">Assignment will only run manually.</span>
-        </div>
-        <div x-show="schedEditor.mode === 'interval'" style="display:flex;gap:8px;align-items:center;">
-          <label style="margin:0">Every</label>
-          <input type="number" min="1" max="720" style="width:60px" x-model="schedEditor.num" @input="updateSchedulePreview()">
-          <select x-model="schedEditor.unit" @change="updateSchedulePreview()">
-            <option value="m">minutes</option>
-            <option value="h">hours</option>
-          </select>
-        </div>
-        <div x-show="schedEditor.mode === 'daily'" style="display:flex;gap:8px;align-items:center;">
-          <label style="margin:0">At</label>
-          <input type="time" x-model="schedEditor.dailyTime" @change="updateSchedulePreview()">
-          <span style="color:#8b949e;font-size:0.8rem">every day</span>
-        </div>
-        <div x-show="schedEditor.mode === 'weekly'">
-          <div class="day-checkboxes">
-            <label><input type="checkbox" value="mon" x-model="schedEditor.days" @change="updateSchedulePreview()"> Mon</label>
-            <label><input type="checkbox" value="tue" x-model="schedEditor.days" @change="updateSchedulePreview()"> Tue</label>
-            <label><input type="checkbox" value="wed" x-model="schedEditor.days" @change="updateSchedulePreview()"> Wed</label>
-            <label><input type="checkbox" value="thu" x-model="schedEditor.days" @change="updateSchedulePreview()"> Thu</label>
-            <label><input type="checkbox" value="fri" x-model="schedEditor.days" @change="updateSchedulePreview()"> Fri</label>
-            <label><input type="checkbox" value="sat" x-model="schedEditor.days" @change="updateSchedulePreview()"> Sat</label>
-            <label><input type="checkbox" value="sun" x-model="schedEditor.days" @change="updateSchedulePreview()"> Sun</label>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <label style="margin:0">At</label>
-            <input type="time" x-model="schedEditor.weeklyTime" @change="updateSchedulePreview()">
-          </div>
-        </div>
-        <div x-show="schedEditor.mode === 'cron'" style="display:flex;flex-direction:column;gap:4px;">
-          <label style="margin:0">Cron expression or free text</label>
-          <input type="text" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:100%;" x-model="schedEditor.cron" @input="updateSchedulePreview()" placeholder="e.g. 0 9 * * 1-5 or weekdays at 9am">
-          <span style="color:#8b949e;font-size:0.7rem">Examples: 0 */2 * * * (every 2h) | weekdays at 9am | every 30 minutes</span>
-        </div>
-      </div>
-      <div class="sched-preview" :style="'color:' + schedEditor.previewColor" x-text="schedEditor.previewText"></div>
-      <div class="sched-actions">
-        <button class="btn btn-primary" @click="saveScheduleEditor()">Save</button>
-        <button class="btn" @click="closeScheduleEditor()">Cancel</button>
-      </div>
-    </div>
-
-    <div id="mgrChatOverlay" class="modal-overlay" x-show="chat.show" :class="{ visible: chat.show }" @click.self="closeManagerChat()">
-      <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #30363d;flex-shrink:0;">
-          <h2 style="color:#f0f6fc;font-size:1.1rem;margin:0;" x-text="chat.title || 'Chat'"></h2>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show orchestration steps">
-              <input type="checkbox" x-model="chat.verbose" @change="toggleChatVerbose()">
-              🔧 Verbose
-            </label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Stream sub-agent output live as it runs (experimental)">
-              <input type="checkbox" x-model="chat.live" @change="toggleChatLive()">
-              📡 Live
-            </label>
-            <button class="btn" style="padding:4px 10px;font-size:1rem;line-height:1;" @click="closeManagerChat()">&times;</button>
-          </div>
-        </div>
-        <div x-ref="chatBody" style="flex:1;overflow-y:auto;padding:20px;">
-          <template x-if="chat.loading">
-            <div style="color:#8b949e;padding:20px;text-align:center;">Loading...</div>
-          </template>
-          <template x-if="!chat.loading && chat.messages.length === 0 && !chat.pending">
-            <div style="color:#8b949e;padding:20px;text-align:center;">Send a message to start chatting with the manager.</div>
-          </template>
-          <template x-for="(msg, index) in chat.messages" :key="chatMessageKey(msg, index)">
-            <div class="mgr-chat-msg" :class="msg.role">
-              <div class="mgr-chat-role">
-                <span x-text="msg.role === 'user' ? '👤 You' : '🤖 Manager'"></span>
-                <span style="color:#484f58;font-size:0.7rem;margin-left:8px;" x-show="msg.timestamp" x-text="formatTime(msg.timestamp)"></span>
-              </div>
-              <template x-if="shouldShowMessageSteps(msg)">
-                <div class="mgr-steps" x-html="renderSteps(msg.steps)"></div>
-              </template>
-              <div class="mgr-chat-content" :class="{ 'assistant-md': msg.role === 'assistant' }" x-html="renderChatContent(msg)"></div>
-            </div>
-          </template>
-          <template x-if="chat.pending">
-            <div class="mgr-chat-msg assistant">
-              <div class="mgr-chat-role">🤖 Manager</div>
-              <template x-if="chat.verbose && chat.pending.steps && chat.pending.steps.length">
-                <div class="mgr-steps" x-html="renderSteps(chat.pending.steps)"></div>
-              </template>
-              <template x-if="!chat.verbose && chat.live && chat.pending.steps && chat.pending.steps.length">
-                <div class="mgr-steps" x-html="renderSteps(chat.pending.steps.filter(s => s.streaming))"></div>
-              </template>
-              <div class="mgr-chat-content assistant-md" :style="'color:' + chat.pending.color" x-text="chat.pending.text"></div>
-            </div>
-          </template>
-        </div>
-        <div style="display:flex;gap:8px;padding:12px 20px;border-top:1px solid #30363d;flex-shrink:0;">
-          <input type="text" x-ref="chatInput" x-model="chat.input" @keydown.enter.exact.prevent="sendManagerChat()" placeholder="Ask the manager to do something..." style="flex:1;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:10px 12px;border-radius:6px;font-size:0.9rem;">
-          <button class="btn btn-primary" @click="sendManagerChat()">Send</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    function escapeHtml(str) {
-      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    function managersApp() {
-      return {
-        managers: [],
-        refreshTimer: null,
-        refreshInFlight: false,
-        showManagerModal: false,
-        showAssignmentModal: false,
-        showOrgModal: false,
-        showAgentSelectModal: false,
-        managerAgents: [],
-        availableOrgAgents: [],
-        mgrForm: { originalId: '', id: '', name: '', desc: '', agent: 'manager:manager', editing: false },
-        asgnForm: { managerId: '', originalId: '', id: '', name: '', prompt: '', schedule: 'never', editing: false },
-        orgForm: { managerId: '', agentId: '' },
-        agentSelect: { managerId: '', agent: 'manager:manager' },
-        historyOpen: {},
-        histories: {},
-        schedEditor: {
-          show: false,
-          top: 0,
-          left: 0,
-          managerId: '',
-          assignmentId: '',
-          rawSchedule: 'never',
-          mode: 'never',
-          num: 1,
-          unit: 'h',
-          dailyTime: '09:00',
-          weeklyTime: '09:00',
-          days: ['mon', 'tue', 'wed', 'thu', 'fri'],
-          cron: '',
-          previewText: '—',
-          previewColor: '#8b949e'
-        },
-        chat: {
-          show: false,
-          managerId: '',
-          title: 'Chat',
-          input: '',
-          messages: [],
-          pending: null,
-          runId: null,
-          verbose: false,
-          live: false,
-          poller: null,
-          loading: false
-        },
-
-        async init() {
-          this.chat.verbose = localStorage.getItem('mgrVerbose') === 'true';
-          this.chat.live = localStorage.getItem('mgrLive') === 'true';
-          document.addEventListener('keydown', this.handleGlobalKeydown.bind(this));
-          await this.refresh();
-          const self = this;
-          this.refreshTimer = setInterval(function() { self.refresh(); }, 10000);
-        },
-
-        handleGlobalKeydown(e) {
-          if (e.key !== 'Escape') return;
-          if (this.chat.show) {
-            this.closeManagerChat();
-          } else if (this.schedEditor.show) {
-            this.closeScheduleEditor();
-          } else if (this.showAgentSelectModal) {
-            this.closeAgentSelectModal();
-          } else if (this.showOrgModal) {
-            this.closeOrgModal();
-          } else if (this.showAssignmentModal) {
-            this.closeAssignmentModal();
-          } else if (this.showManagerModal) {
-            this.closeManagerModal();
-          }
-        },
-
-        async request(url, options) {
-          const res = await fetch(url, options || {});
-          let data = null;
-          const type = res.headers.get('content-type') || '';
-          if (type.includes('application/json')) {
-            data = await res.json();
-          } else {
-            const text = await res.text();
-            try { data = JSON.parse(text); } catch { data = text; }
-          }
-          if (!res.ok) {
-            throw new Error(data && data.error ? data.error : 'Request failed');
-          }
-          return data;
-        },
-
-        async refresh() {
-          if (this.refreshInFlight) return;
-          this.refreshInFlight = true;
-          try {
-            const data = await this.request('/api/managers');
-            this.managers = Array.isArray(data) ? data : [];
-            const openIds = Object.keys(this.historyOpen).filter((id) => this.historyOpen[id]);
-            await Promise.all(openIds.map((id) => this.refreshHistory(id, true)));
-          } catch (e) {
-            console.error(e);
-          } finally {
-            this.refreshInFlight = false;
-          }
-        },
-
-        findManager(managerId) {
-          return this.managers.find((m) => m.manager_id === managerId) || null;
-        },
-
-        managerAgentLabel(manager) {
-          return (manager && manager.config && manager.config.agent) || 'manager:manager';
-        },
-
-        assignmentScheduleLabel(assignment) {
-          const schedule = assignment && assignment.schedule ? assignment.schedule : 'never';
-          return assignment && assignment.scheduleDescription ? schedule + ' (' + assignment.scheduleDescription + ')' : schedule;
-        },
-
-        formatTime(value) {
-          if (!value) return '';
-          const d = new Date(value);
-          if (Number.isNaN(d.getTime())) return '';
-          return d.toLocaleTimeString();
-        },
-
-        formatDateTime(value) {
-          if (!value) return '';
-          const d = new Date(value);
-          if (Number.isNaN(d.getTime())) return '';
-          return d.toLocaleString();
-        },
-
-        truncate(value, maxLen) {
-          const text = value || '';
-          return text.length > maxLen ? text.substring(0, maxLen) : text;
-        },
-
-        async loadManagerAgents() {
-          try {
-            const variants = await this.request('/api/manager-agents');
-            this.managerAgents = Array.isArray(variants) && variants.length ? variants : [{ id: 'manager:manager', description: 'Default manager agent' }];
-          } catch {
-            this.managerAgents = [{ id: 'manager:manager', description: 'Default manager agent' }];
-          }
-        },
-
-        async showCreateManager() {
-          await this.loadManagerAgents();
-          this.mgrForm = { originalId: '', id: '', name: '', desc: '', agent: 'manager:manager', editing: false };
-          if (this.managerAgents.length && !this.managerAgents.some((v) => v.id === this.mgrForm.agent)) {
-            this.mgrForm.agent = this.managerAgents[0].id;
-          }
-          this.showManagerModal = true;
-          this.$nextTick(() => {
-            const input = document.querySelector('#managerModal input');
-            if (input) input.focus();
-          });
-        },
-
-        async showEditManager(manager) {
-          await this.loadManagerAgents();
-          this.mgrForm = {
-            originalId: manager.manager_id,
-            id: manager.manager_id,
-            name: (manager.config && manager.config.name) || '',
-            desc: (manager.config && manager.config.description) || '',
-            agent: this.managerAgentLabel(manager),
-            editing: true
-          };
-          this.showManagerModal = true;
-        },
-
-        closeManagerModal() {
-          this.showManagerModal = false;
-        },
-
-        async saveManager() {
-          const config = {
-            id: (this.mgrForm.id || '').trim(),
-            name: (this.mgrForm.name || '').trim(),
-            description: (this.mgrForm.desc || '').trim(),
-            agent: (this.mgrForm.agent || '').trim() || 'manager:manager',
-            org: [],
-            assignments: []
-          };
-          if (!config.id || !config.name) {
-            alert('ID and Name are required');
-            return;
-          }
-          const existing = this.findManager(this.mgrForm.originalId || config.id);
-          if (existing) {
-            config.team = (existing.config && (existing.config.team || existing.config.org)) || [];
-            config.assignments = (existing.config && existing.config.assignments) || [];
-          }
-          try {
-            await this.request('/api/managers', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(config)
-            });
-            this.closeManagerModal();
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async deleteManager(managerId) {
-          if (!confirm('Delete this manager?')) return;
-          try {
-            await this.request('/api/managers/' + managerId, { method: 'DELETE' });
-            if (this.chat.managerId === managerId) this.closeManagerChat();
-            delete this.historyOpen[managerId];
-            delete this.histories[managerId];
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async editManagerAgent(managerId, currentAgent) {
-          await this.loadManagerAgents();
-          this.agentSelect = { managerId: managerId, agent: currentAgent || 'manager:manager' };
-          this.showAgentSelectModal = true;
-        },
-
-        closeAgentSelectModal() {
-          this.showAgentSelectModal = false;
-        },
-
-        async saveAgentSelect() {
-          const manager = this.findManager(this.agentSelect.managerId);
-          if (!manager) return;
-          const config = Object.assign({}, manager.config || {}, { agent: (this.agentSelect.agent || '').trim() || 'manager:manager' });
-          try {
-            await this.request('/api/managers', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(config)
-            });
-            this.closeAgentSelectModal();
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async openManagerAgentInEditor(managerId) {
-          try {
-            await this.request('/api/managers/' + managerId + '/edit-agent', { method: 'POST' });
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async showAddAgent(managerId) {
-          try {
-            const agents = await this.request('/api/managers/' + managerId + '/available-agents');
-            this.availableOrgAgents = Array.isArray(agents) ? agents : [];
-            this.orgForm = { managerId: managerId, agentId: this.availableOrgAgents.length ? this.availableOrgAgents[0].id : '' };
-            this.showOrgModal = true;
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        closeOrgModal() {
-          this.showOrgModal = false;
-        },
-
-        async addAgentToOrg() {
-          if (!this.orgForm.agentId) return;
-          try {
-            await this.request('/api/managers/' + this.orgForm.managerId + '/team', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agentId: this.orgForm.agentId })
-            });
-            this.closeOrgModal();
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async removeFromOrg(managerId, agentId) {
-          try {
-            await this.request('/api/managers/' + managerId + '/team/' + agentId, { method: 'DELETE' });
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        showAddAssignment(managerId) {
-          this.asgnForm = { managerId: managerId, originalId: '', id: '', name: '', prompt: '', schedule: 'never', editing: false };
-          this.showAssignmentModal = true;
-        },
-
-        showEditAssignment(managerId, assignment) {
-          this.asgnForm = {
-            managerId: managerId,
-            originalId: assignment.id,
-            id: assignment.id,
-            name: assignment.name || '',
-            prompt: assignment.prompt || '',
-            schedule: assignment.schedule || 'never',
-            editing: true
-          };
-          this.showAssignmentModal = true;
-        },
-
-        closeAssignmentModal() {
-          this.showAssignmentModal = false;
-        },
-
-        async saveAssignment() {
-          const payload = {
-            id: (this.asgnForm.id || '').trim(),
-            name: (this.asgnForm.name || '').trim(),
-            prompt: (this.asgnForm.prompt || '').trim(),
-            schedule: (this.asgnForm.schedule || '').trim() || 'never'
-          };
-          if (!payload.id || !payload.name || !payload.prompt) {
-            alert('ID, Name, and Prompt are required');
-            return;
-          }
-          const manager = this.findManager(this.asgnForm.managerId);
-          const existing = manager && manager.config && manager.config.assignments
-            ? manager.config.assignments.find((assignment) => assignment.id === (this.asgnForm.originalId || payload.id))
-            : null;
-          if (existing && existing.enabled === false) {
-            payload.enabled = false;
-          }
-          try {
-            await this.request('/api/managers/' + this.asgnForm.managerId + '/assignments', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            this.closeAssignmentModal();
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async deleteAssignment(managerId, assignmentId) {
-          if (!confirm('Delete this assignment?')) return;
-          try {
-            await this.request('/api/managers/' + managerId + '/assignments/' + assignmentId, { method: 'DELETE' });
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        async toggleAssignment(managerId, assignmentId, enabled) {
-          try {
-            await this.request('/api/managers/' + managerId + '/assignments/' + assignmentId + '/toggle', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ enabled: enabled })
-            });
-            await this.refresh();
-          } catch (e) {
-            alert(e.message);
-          }
-        },
-
-        openScheduleEditor(managerId, assignment, evt) {
-          const rect = evt.currentTarget.getBoundingClientRect();
-          let top = rect.top - 280 - 8;
-          if (top < 10) top = rect.bottom + 8;
-          let left = rect.left - 160;
-          if (left < 10) left = 10;
-          if (left + 380 > window.innerWidth) left = window.innerWidth - 390;
-          this.schedEditor.show = true;
-          this.schedEditor.top = top;
-          this.schedEditor.left = left;
-          this.schedEditor.managerId = managerId;
-          this.schedEditor.assignmentId = assignment.id;
-          this.detectScheduleMode(assignment.schedule || 'never');
-        },
-
-        closeScheduleEditor() {
-          this.schedEditor.show = false;
-        },
-
-        detectScheduleMode(schedule) {
-          const current = schedule || 'never';
-          this.schedEditor.rawSchedule = current;
-          if (!current || current === 'never') {
-            this.schedEditor.mode = 'never';
-          } else if (/^\d+[mh]$/i.test(current) || /^every\s+\d+\s*(min|hour|sec)/i.test(current)) {
-            this.schedEditor.mode = 'interval';
-          } else if (/weekday|M,T|mon|tue|wed|thu|fri|sat|sun/i.test(current)) {
-            this.schedEditor.mode = 'weekly';
-          } else if (/daily|^at\s+\d/i.test(current)) {
-            this.schedEditor.mode = 'daily';
-          } else {
-            this.schedEditor.mode = 'cron';
-          }
-
-          let match;
-          match = current.match(/(\d+)\s*([mh])/i);
-          this.schedEditor.num = match ? parseInt(match[1], 10) : 1;
-          this.schedEditor.unit = match ? match[2].toLowerCase() : 'h';
-
-          let time = '09:00';
-          match = current.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-          if (match) {
-            let hours = parseInt(match[1], 10);
-            const minutes = match[2] || '00';
-            if (match[3] && match[3].toLowerCase() === 'pm' && hours < 12) hours += 12;
-            if (match[3] && match[3].toLowerCase() === 'am' && hours === 12) hours = 0;
-            time = String(hours).padStart(2, '0') + ':' + minutes;
-          }
-          this.schedEditor.dailyTime = time;
-          this.schedEditor.weeklyTime = time;
-
-          let checkedDays = [];
-          if (/weekday/i.test(current)) {
-            checkedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
-          } else {
-            const keys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-            checkedDays = keys.filter((day) => new RegExp(day, 'i').test(current));
-          }
-          if (!checkedDays.length) checkedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
-          this.schedEditor.days = checkedDays;
-          this.schedEditor.cron = current === 'never' ? '' : current;
-          this.updateSchedulePreview();
-        },
-
-        onScheduleModeChanged() {
-          if (this.schedEditor.mode === 'weekly' && !this.schedEditor.days.length) {
-            this.schedEditor.days = ['mon', 'tue', 'wed', 'thu', 'fri'];
-          }
-          if (this.schedEditor.mode === 'cron' && !this.schedEditor.cron && this.schedEditor.rawSchedule !== 'never') {
-            this.schedEditor.cron = this.schedEditor.rawSchedule || '';
-          }
-          this.updateSchedulePreview();
-        },
-
-        getScheduleValue() {
-          if (this.schedEditor.mode === 'never') return 'never';
-          if (this.schedEditor.mode === 'interval') {
-            const num = String(this.schedEditor.num || '1').trim() || '1';
-            return num + (this.schedEditor.unit || 'h');
-          }
-          if (this.schedEditor.mode === 'daily') {
-            const time = this.schedEditor.dailyTime || '09:00';
-            const pieces = time.split(':').map(Number);
-            const hours = pieces[0] || 0;
-            const minutes = pieces[1] || 0;
-            const ampm = hours >= 12 ? 'pm' : 'am';
-            const h12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-            return 'daily at ' + h12 + (minutes > 0 ? ':' + String(minutes).padStart(2, '0') : '') + ampm;
-          }
-          if (this.schedEditor.mode === 'weekly') {
-            const checked = this.schedEditor.days.slice();
-            if (!checked.length) return '';
-            const time = this.schedEditor.weeklyTime || '09:00';
-            const pieces = time.split(':').map(Number);
-            const hours = pieces[0] || 0;
-            const minutes = pieces[1] || 0;
-            const ampm = hours >= 12 ? 'pm' : 'am';
-            const h12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-            const timeStr = h12 + (minutes > 0 ? ':' + String(minutes).padStart(2, '0') : '') + ampm;
-            if (checked.length === 5 && !checked.includes('sat') && !checked.includes('sun')) {
-              return 'weekdays at ' + timeStr;
-            }
-            const dayMap = { mon: 'M', tue: 'T', wed: 'W', thu: 'Th', fri: 'F', sat: 'Sa', sun: 'Su' };
-            return checked.map((day) => dayMap[day]).join(',') + ' at ' + timeStr;
-          }
-          return (this.schedEditor.cron || '').trim();
-        },
-
-        async updateSchedulePreview() {
-          const value = this.getScheduleValue();
-          if (!value || value === 'never') {
-            this.schedEditor.previewText = value === 'never' ? 'Manual only' : '—';
-            this.schedEditor.previewColor = '#8b949e';
-            return;
-          }
-          try {
-            const data = await this.request('/api/schedule/describe', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ schedule: value })
-            });
-            this.schedEditor.previewText = '✓ ' + (data.description || value);
-            this.schedEditor.previewColor = '#7ee787';
-          } catch (e) {
-            this.schedEditor.previewText = '⚠ ' + e.message;
-            this.schedEditor.previewColor = '#f85149';
-          }
-        },
-
-        async saveScheduleEditor() {
-          const value = this.getScheduleValue();
-          if (!value) return;
-          try {
-            await this.request('/api/managers/' + this.schedEditor.managerId + '/assignments/' + this.schedEditor.assignmentId + '/schedule', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ schedule: value })
-            });
-            this.closeScheduleEditor();
-            await this.refresh();
-          } catch (e) {
-            alert('Invalid schedule: ' + e.message);
-          }
-        },
-
-        filteredHistorySteps(run) {
-          return ((run && run._steps) || []).filter((step) => step.action !== 'thinking');
-        },
-
-        historyStepKey(run, step) {
-          return String(run.id) + ':' + (step.timestamp || '') + ':' + (step.action || '') + ':' + (step.agentId || '');
-        },
-
-        historyStepSummary(step) {
-          const detail = step.agentId || this.truncate(step.result || '', 80) || step.message || '';
-          return step.action + ': ' + detail;
-        },
-
-        async toggleHistory(managerId) {
-          this.historyOpen[managerId] = !this.historyOpen[managerId];
-          if (this.historyOpen[managerId]) {
-            await this.refreshHistory(managerId);
-          }
-        },
-
-        async refreshHistory(managerId, silent) {
-          try {
-            const runs = await this.request('/api/managers/' + managerId + '/history');
-            this.histories[managerId] = (Array.isArray(runs) ? runs : []).map((run) => {
-              let steps = [];
-              try {
-                steps = Array.isArray(run.steps) ? run.steps : JSON.parse(run.steps || '[]');
-              } catch {
-                steps = [];
-              }
-              return Object.assign({}, run, { _steps: steps });
-            });
-          } catch (e) {
-            if (!silent) alert(e.message);
-          }
-        },
-
-        async openManagerChat(managerId, managerName) {
-          this.stopChatPolling();
-          this.chat.show = true;
-          this.chat.managerId = managerId;
-          this.chat.title = '💬 ' + (managerName || managerId);
-          this.chat.input = '';
-          this.chat.messages = [];
-          this.chat.pending = null;
-          this.chat.runId = null;
-          this.chat.loading = true;
-          try {
-            await this.loadChatHistory(managerId);
-          } catch (e) {
-            this.chat.messages = [{ role: 'assistant', content: 'Error: ' + e.message, timestamp: new Date().toISOString(), steps: [], alwaysShowSteps: false }];
-          } finally {
-            this.chat.loading = false;
-            this.scrollChatToBottom();
-            this.focusChatInput();
-          }
-        },
-
-        closeManagerChat() {
-          this.chat.show = false;
-          this.chat.managerId = '';
-          this.chat.title = 'Chat';
-          this.chat.input = '';
-          this.chat.messages = [];
-          this.chat.pending = null;
-          this.chat.runId = null;
-          this.chat.loading = false;
-          this.stopChatPolling();
-        },
-
-        toggleChatVerbose() {
-          localStorage.setItem('mgrVerbose', this.chat.verbose ? 'true' : 'false');
-          if (this.chat.runId) {
-            this.pollChatRun();
-          }
-        },
-
-        toggleChatLive() {
-          localStorage.setItem('mgrLive', this.chat.live ? 'true' : 'false');
-          if (this.chat.runId) {
-            this.startChatPolling();
-          }
-        },
-
-        async loadChatHistory(managerId) {
-          const messages = await this.request('/api/managers/' + managerId + '/messages?limit=30');
-          this.chat.messages = (Array.isArray(messages) ? messages : []).map((msg) => ({
-            role: msg.role,
-            content: msg.content,
-            timestamp: msg.created_at,
-            steps: [],
-            alwaysShowSteps: false
-          }));
-          this.chat.pending = null;
-          try {
-            const runs = await this.request('/api/managers/' + managerId + '/history?limit=1');
-            if (Array.isArray(runs) && runs.length > 0 && runs[0].status === 'running') {
-              this.chat.runId = runs[0].id;
-              this.chat.pending = { text: '🧠 Thinking...', steps: [], color: '#8b949e' };
-              this.startChatPolling();
-            }
-          } catch {}
-          this.scrollChatToBottom();
-        },
-
-        renderChatContent(msg) {
-          if (msg.role === 'user') return escapeHtml(msg.content || '');
-          return typeof marked !== 'undefined' ? marked.parse(msg.content || '') : escapeHtml(msg.content || '');
-        },
-
-        shouldShowMessageSteps(msg) {
-          return !!(msg && msg.steps && msg.steps.length && (this.chat.verbose || msg.alwaysShowSteps));
-        },
-
-        renderSteps(steps) {
-          const icons = { thinking: '🧠', run_agent: '▶️', agent_result: '✅', complete: '🏁', error: '❌', request_agent: '🔍' };
-          return (steps || []).map((step) => {
-            const icon = icons[step.action] || '•';
-            let detail = '';
-            if (step.action === 'thinking') {
-              detail = 'Analyzing...';
-            } else if (step.action === 'run_agent') {
-              detail = 'Running <strong>' + escapeHtml(step.agentId || '') + '</strong>: ' + escapeHtml((step.prompt || '').substring(0, 100));
-              if (step.streaming && step.partial) {
-                detail += '<pre style="margin:6px 0 0;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;max-height:240px;overflow:auto;white-space:pre-wrap;color:#8b949e;font-size:0.75rem;">' + escapeHtml(step.partial) + '<span style="color:#3fb950;">▋</span></pre>';
-              }
-            } else if (step.action === 'agent_result') {
-              detail = '<strong>' + escapeHtml(step.agentId || '') + '</strong> returned (exit ' + escapeHtml(String(step.exitCode ?? '')) + ', ' + escapeHtml(String(step.outputLength ?? '0')) + ' chars)';
-            } else if (step.action === 'complete') {
-              detail = 'Completed';
-            } else if (step.action === 'error') {
-              detail = escapeHtml(step.message || 'Error');
-            } else if (step.action === 'request_agent') {
-              detail = 'Requesting <strong>' + escapeHtml(step.agentId || '') + '</strong>: ' + escapeHtml(step.reason || '');
-            } else {
-              detail = escapeHtml(step.message || '');
-            }
-            const time = step.timestamp ? '<span style="color:#484f58;margin-left:8px;">' + this.formatTime(step.timestamp) + '</span>' : '';
-            return '<div class="mgr-step ' + escapeHtml(step.action || '') + '">' + icon + ' ' + detail + time + '</div>';
-          }).join('');
-        },
-
-        chatMessageKey(msg, index) {
-          return (msg.role || 'msg') + ':' + (msg.timestamp || '') + ':' + index;
-        },
-
-        scrollChatToBottom() {
-          this.$nextTick(() => {
-            if (this.$refs.chatBody) {
-              this.$refs.chatBody.scrollTop = this.$refs.chatBody.scrollHeight;
-            }
-          });
-        },
-
-        focusChatInput() {
-          this.$nextTick(() => {
-            if (this.$refs.chatInput) this.$refs.chatInput.focus();
-          });
-        },
-
-        getRunStatusText(run) {
-          const steps = run && run.steps ? run.steps : [];
-          const lastStep = steps.length ? steps[steps.length - 1] : null;
-          if (!lastStep) return 'Thinking...';
-          if (lastStep.action === 'run_agent') return 'Running ' + (lastStep.agentId || 'agent') + '...';
-          if (lastStep.action === 'agent_result') return 'Analyzing results...';
-          if (lastStep.action === 'error') return lastStep.message || 'Error';
-          return 'Thinking...';
-        },
-
-        async sendManagerChat() {
-          if (!this.chat.managerId) return;
-          const prompt = (this.chat.input || '').trim();
-          if (!prompt) return;
-          this.chat.input = '';
-          this.chat.messages.push({ role: 'user', content: prompt, timestamp: new Date().toISOString(), steps: [], alwaysShowSteps: false });
-          this.chat.pending = { text: 'Thinking...', steps: [], color: '#8b949e' };
-          this.scrollChatToBottom();
-          try {
-            const data = await this.request('/api/managers/' + this.chat.managerId + '/prompt', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: prompt, liveStream: !!this.chat.live })
-            });
-            if (data && data.runId) {
-              this.chat.runId = data.runId;
-              this.startChatPolling();
-            }
-          } catch (e) {
-            this.chat.pending = { text: 'Error: ' + e.message, steps: [], color: '#f85149' };
-            this.chat.runId = null;
-          }
-          this.focusChatInput();
-        },
-
-        async runAssignment(managerId, assignmentId) {
-          const manager = this.findManager(managerId);
-          await this.openManagerChat(managerId, (manager && manager.config && manager.config.name) || managerId);
-          try {
-            const data = await this.request('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
-            if (data && data.runId) {
-              this.chat.runId = data.runId;
-              this.chat.pending = { text: 'Thinking...', steps: [], color: '#8b949e' };
-              this.startChatPolling();
-            }
-          } catch (e) {
-            this.chat.pending = { text: 'Error: ' + e.message, steps: [], color: '#f85149' };
-          }
-        },
-
-        startChatPolling() {
-          this.stopChatPolling();
-          const self = this;
-          const interval = this.chat.live ? 1000 : 2000;
-          this.chat.poller = setInterval(function() { self.pollChatRun(); }, interval);
-          this.pollChatRun();
-        },
-
-        stopChatPolling() {
-          if (this.chat.poller) {
-            clearInterval(this.chat.poller);
-            this.chat.poller = null;
-          }
-        },
-
-        async pollChatRun() {
-          const managerId = this.chat.managerId;
-          const runId = this.chat.runId;
-          if (!managerId || !runId) return;
-          try {
-            const run = await this.request('/api/managers/' + managerId + '/runs/' + runId);
-            if (this.chat.managerId !== managerId || this.chat.runId !== runId) return;
-            const steps = Array.isArray(run.steps) ? run.steps : [];
-            if (run.status === 'running') {
-              this.chat.pending = { text: this.getRunStatusText(run), steps: steps, color: '#8b949e' };
-            } else {
-              this.stopChatPolling();
-              this.chat.pending = null;
-              this.chat.messages.push({
-                role: 'assistant',
-                content: run.result || run.error || 'No response',
-                timestamp: run.completed_at || run.started_at || new Date().toISOString(),
-                steps: steps,
-                alwaysShowSteps: false
-              });
-              this.chat.runId = null;
-              await this.refresh();
-              if (this.historyOpen[managerId]) {
-                await this.refreshHistory(managerId, true);
-              }
-            }
-            this.scrollChatToBottom();
-          } catch {}
-        },
-
-        async viewRun(managerId, runId) {
-          const manager = this.findManager(managerId);
-          this.stopChatPolling();
-          this.chat.show = true;
-          this.chat.managerId = managerId;
-          this.chat.title = '💬 ' + ((manager && manager.config && manager.config.name) || managerId);
-          this.chat.input = '';
-          this.chat.messages = [];
-          this.chat.pending = null;
-          this.chat.runId = null;
-          this.chat.loading = true;
-          try {
-            const run = await this.request('/api/managers/' + managerId + '/runs/' + runId);
-            const steps = Array.isArray(run.steps) ? run.steps : [];
-            if (run.prompt) {
-              this.chat.messages.push({ role: 'user', content: run.prompt, timestamp: run.started_at, steps: [], alwaysShowSteps: false });
-            }
-            if (run.status === 'running') {
-              this.chat.runId = run.id;
-              this.chat.pending = { text: this.getRunStatusText(run), steps: steps, color: '#8b949e' };
-              this.startChatPolling();
-            } else {
-              this.chat.messages.push({
-                role: 'assistant',
-                content: run.result || run.error || 'No response',
-                timestamp: run.completed_at || run.started_at,
-                steps: steps,
-                alwaysShowSteps: true
-              });
-            }
-          } catch (e) {
-            this.chat.messages = [{ role: 'assistant', content: 'Error: ' + e.message, timestamp: new Date().toISOString(), steps: [], alwaysShowSteps: false }];
-          } finally {
-            this.chat.loading = false;
-            this.scrollChatToBottom();
-            this.focusChatInput();
-          }
-        }
-      };
-    }
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
-</body>
-</html>`;
-}

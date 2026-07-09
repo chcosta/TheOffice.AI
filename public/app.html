@@ -984,7 +984,6 @@
       --cp-link: #b0b0b0; --cp-highlight: rgba(201,201,201,0.14);
     }
 
-
     /* ===== user appearance palettes =====
        Global palette applied via data-appearance on <html>. When a team is
        selected its org-theme wins: JS suppresses data-appearance while an
@@ -1646,7 +1645,6 @@
     .home-agenda-more a { color: var(--cp-accent); font-weight: 600; }
     .home-agenda-stat { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--cp-text-muted); }
     .home-agenda-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
-
 
     /* ----- Getting started (Basic mode onboarding) ----- */
     .gs-card {
@@ -3593,6 +3591,26 @@
     .lp-dot.idle { background: var(--cp-border-strong); }
     .lp-dot.active { background: var(--cp-success); }
     .lp-dot.all { background: var(--cp-accent); }
+    .ag-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--cp-border); margin: 14px 0 2px; }
+    .ag-tab { padding: 8px 2px; background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--cp-text-muted); transition: color .12s, border-color .12s; }
+    .ag-tab:hover { color: var(--cp-text); }
+    .ag-tab.on { color: var(--cp-accent); border-bottom-color: var(--cp-accent); }
+    .ag-tab .n { color: var(--cp-text-soft); font-weight: 700; font-size: 0.8rem; margin-left: 5px; }
+    .ag-groups { display: grid; gap: 14px; margin-top: 16px; }
+    .ag-gcard { border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 10px); background: var(--cp-surface); padding: 12px 16px; }
+    .ag-ghead { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .ag-ghead h3 { margin: 0; font-size: 0.98rem; }
+    .ag-ghead .n { color: var(--cp-text-soft); font-weight: 700; font-size: 0.82rem; }
+    .ag-ghead .sp { flex: 1; }
+    .ag-ghead button { background: transparent; border: 1px solid var(--cp-border); border-radius: 8px; padding: 4px 10px; font-size: 0.8rem; color: var(--cp-text-muted); cursor: pointer; }
+    .ag-ghead button:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
+    .ag-grow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--cp-border); }
+    .ag-grow .av { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; background: var(--cp-surface); border: 1px solid var(--cp-border); flex: 0 0 auto; }
+    .ag-grow .nm { flex: 1; min-width: 0; }
+    .ag-grow .nm b { font-weight: 600; font-size: 0.9rem; display: block; }
+    .ag-grow .nm span { font-size: 0.76rem; color: var(--cp-text-muted); }
+    .ag-grow select { padding: 6px 9px; border-radius: 8px; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); font: inherit; cursor: pointer; }
+    .ag-gempty { color: var(--cp-text-muted); font-size: 0.82rem; padding: 4px 0 8px; }
     .lp-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
     .lp-search { flex: 1 1 240px; min-width: 200px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: calc(var(--cp-radius-scale, 1) * 10px); border: 1px solid var(--cp-border); background: var(--cp-surface); }
     .lp-search input { border: none; background: transparent; color: var(--cp-text); font: inherit; width: 100%; outline: none; }
@@ -6117,7 +6135,7 @@
           <button class="org-menu-item" :class="{ active: currentTeamId === 'all' }" type="button" @click="setCurrentOrg('all')">
             <span class="org-emoji">🏛️</span>
             <span class="org-menu-label">All teams</span>
-            <span class="org-menu-count" x-text="data.agents.length + data.managers.length"></span>
+            <span class="org-menu-count" x-text="data.agents.length"></span>
           </button>
           <template x-for="org in data.teams" :key="org.id">
             <button class="org-menu-item" :class="{ active: currentTeamId === org.id }" type="button" @click="setCurrentOrg(org.id)">
@@ -6948,7 +6966,6 @@
               </div>
             </div>
 
-
             <!-- ===== Management home (workforce mode): pulse, attention, flow activity ===== -->
             <div class="home-workforce mgmt-home" x-show="appMode === 'workforce'" x-effect="mgmtEnsureFlowRuns()">
 
@@ -7526,6 +7543,12 @@
               </div>
             </div>
 
+            <div class="ag-tabs">
+              <button class="ag-tab" :class="agentStudioTab === 'roster' ? 'on' : ''" @click="agentStudioTab = 'roster'">Roster <span class="n" x-text="agentStatusCounts().all"></span></button>
+              <button class="ag-tab" :class="agentStudioTab === 'groups' ? 'on' : ''" @click="agentStudioTab = 'groups'">Groups <span class="n" x-text="groupBoard().length"></span></button>
+            </div>
+
+            <div x-show="agentStudioTab === 'roster'">
             <div class="lp-chips">
               <button class="lp-chip" :class="agentStatusFilter === 'all' ? 'on' : ''" @click="agentStatusFilter = 'all'"><span class="lp-dot all"></span>All <span class="n" x-text="agentStatusCounts().all"></span></button>
               <button class="lp-chip" :class="agentStatusFilter === 'running' ? 'on' : ''" @click="agentStatusFilter = 'running'"><span class="lp-dot run"></span>Running <span class="n" x-text="agentStatusCounts().running"></span></button>
@@ -7614,6 +7637,67 @@
             </div>
 
             <div class="empty-state" x-show="!displayedAgents().length" x-text="agentStatusCounts().all ? 'No agents matched your filter.' : (currentTeamId === 'all' ? 'No agents registered yet.' : 'No agents on this team yet.')"></div>
+            </div>
+
+            <div x-show="agentStudioTab === 'groups'">
+              <div class="lp-controls" style="margin-top:16px;margin-bottom:0">
+                <div style="flex:1;color:var(--cp-text-muted);font-size:0.85rem">Organize agents into groups. Groups appear as sections across the studio and boards.</div>
+                <button class="btn" type="button" @click="openNewBoardGroup()">＋ New group</button>
+              </div>
+              <div class="ag-groups">
+                <template x-for="grp in groupBoard()" :key="grp.name">
+                  <div class="ag-gcard">
+                    <div class="ag-ghead">
+                      <h3 x-text="grp.name"></h3>
+                      <span class="n" x-text="grp.agents.length"></span>
+                      <span class="sp"></span>
+                      <button type="button" @click="openRenameGroup(grp.name)">Rename</button>
+                      <button type="button" @click="openDeleteGroup(grp.name)">Delete</button>
+                    </div>
+                    <div class="ag-gempty" x-show="!grp.agents.length">No agents in this group yet — assign one below or from another group.</div>
+                    <template x-for="agent in grp.agents" :key="agent.id">
+                      <div class="ag-grow">
+                        <div class="av" x-text="agent.config.pluginDir ? '🧩' : '🤖'"></div>
+                        <div class="nm">
+                          <b class="clickable" @click="goTo('#/agents/' + encodeURIComponent(agent.id))" x-text="agent.name"></b>
+                          <span x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></span>
+                        </div>
+                        <select @change="changeAgentGroup(agent.id, $event.target.value)">
+                          <option value="" :selected="!agent.config.group">Ungrouped</option>
+                          <template x-for="g in groupBoard()" :key="g.name">
+                            <option :value="g.name" :selected="agent.config.group === g.name" x-text="g.name"></option>
+                          </template>
+                        </select>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <div class="ag-gcard" x-show="ungroupedAgents().length">
+                  <div class="ag-ghead">
+                    <h3>Ungrouped</h3>
+                    <span class="n" x-text="ungroupedAgents().length"></span>
+                  </div>
+                  <template x-for="agent in ungroupedAgents()" :key="agent.id">
+                    <div class="ag-grow">
+                      <div class="av" x-text="agent.config.pluginDir ? '🧩' : '🤖'"></div>
+                      <div class="nm">
+                        <b class="clickable" @click="goTo('#/agents/' + encodeURIComponent(agent.id))" x-text="agent.name"></b>
+                        <span x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></span>
+                      </div>
+                      <select @change="changeAgentGroup(agent.id, $event.target.value)">
+                        <option value="" selected>Ungrouped</option>
+                        <template x-for="g in groupBoard()" :key="g.name">
+                          <option :value="g.name" x-text="g.name"></option>
+                        </template>
+                      </select>
+                    </div>
+                  </template>
+                </div>
+
+                <div class="empty-state" x-show="!groupBoard().length && !ungroupedAgents().length">No agents to organize yet.</div>
+              </div>
+            </div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'agent-detail' && selectedAgent">
@@ -7763,20 +7847,8 @@
                 <!-- Where it's used -->
                 <div class="nlx-card">
                   <div class="mg-card-h">Where it's used</div>
-                  <template x-if="!managersForAgent(selectedAgent.id).length && !tasksForAgent(selectedAgent.id).length">
-                    <div class="hint">Not on any team or task yet.</div>
-                  </template>
-                  <template x-if="managersForAgent(selectedAgent.id).length">
-                    <div class="mg-wu-group">
-                      <div class="mg-wu-lbl">Managers <span class="mg-count" x-text="managersForAgent(selectedAgent.id).length"></span></div>
-                      <template x-for="mgr in managersForAgent(selectedAgent.id)" :key="mgr.id">
-                        <div class="mg-wu-item">
-                          <span class="mg-dot" :class="mgr.status === 'running' ? 'run' : 'on'"></span>
-                          <a :href="'#/managers/' + mgr.id" class="md-link mg-wu-name" x-text="mgr.name"></a>
-                          <span class="mg-wu-sub" x-text="(mgr.config?.assignments || []).length + ' assign'"></span>
-                        </div>
-                      </template>
-                    </div>
+                  <template x-if="!tasksForAgent(selectedAgent.id).length">
+                    <div class="hint">Not on any task yet.</div>
                   </template>
                   <template x-if="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">
                     <div class="mg-wu-group">
@@ -8194,324 +8266,6 @@
                 </div><!-- /nlx-scroll -->
               </div><!-- /nlx-stage -->
             </div><!-- /nlx-studio -->
-          </section>
-          </template>
-
-          <section x-show="!loading && !errorMessage && route === 'managers'">
-            <div class="page-header">
-              <div class="page-title">
-                <h1>Managers</h1>
-                <p>Supervise orchestration managers, their teams, and active assignments.</p>
-              </div>
-              <div class="toolbar">
-                <span class="badge-count" x-text="managerStatusCounts().all + ' total'"></span>
-                <button class="btn" type="button" @click="openManagerTemplates()">🧩 Manager Templates</button>
-                <button class="btn primary" type="button" @click="openCreateManager()">＋ Add Manager</button>
-              </div>
-            </div>
-
-            <div class="lp-chips">
-              <button class="lp-chip" :class="managerStatusFilter === 'all' ? 'on' : ''" @click="managerStatusFilter = 'all'"><span class="lp-dot all"></span>All <span class="n" x-text="managerStatusCounts().all"></span></button>
-              <button class="lp-chip" :class="managerStatusFilter === 'active' ? 'on' : ''" @click="managerStatusFilter = 'active'"><span class="lp-dot active"></span>Active <span class="n" x-text="managerStatusCounts().active"></span></button>
-              <button class="lp-chip" :class="managerStatusFilter === 'idle' ? 'on' : ''" @click="managerStatusFilter = 'idle'"><span class="lp-dot idle"></span>Idle <span class="n" x-text="managerStatusCounts().idle"></span></button>
-            </div>
-
-            <div class="lp-controls">
-              <div class="lp-search">
-                <span>🔍</span>
-                <input type="search" placeholder="Search managers by name, org member, or assignment…" x-model="managerSearch" />
-              </div>
-              <div class="lp-ctl">Sort <select x-model="managerSort"><option value="recent">Recent</option><option value="name">Name</option><option value="active">Active</option></select></div>
-              <div class="lp-viewtog">
-                <button :class="managerView === 'grid' ? 'on' : ''" @click="managerView = 'grid'" title="Grid view">▦</button>
-                <button :class="managerView === 'list' ? 'on' : ''" @click="managerView = 'list'" title="List view">☰</button>
-              </div>
-            </div>
-
-            <div class="lp-grid" x-show="managerView === 'grid'">
-              <template x-for="manager in displayedManagers()" :key="manager.id">
-                <article class="lp-card" @click="goTo('#/managers/' + encodeURIComponent(manager.id))">
-                  <div class="lp-qa">
-                    <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
-                    <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
-                    <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to workspace">📌</button>
-                    <button @click.stop="quickStarEmp(manager.id, manager.name, 'manager', '🧑‍💼', manager.teamId)" :title="empStarred(manager.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(manager.id) ? '★' : '☆'"></button>
-                    <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
-                  </div>
-                  <div class="lp-card-top">
-                    <div class="lp-av">👔</div>
-                    <div style="flex:1;min-width:0">
-                      <h3 x-text="manager.name"></h3>
-                      <div class="lp-sub" x-text="(manager.orgDetails || []).length + ' agents · ' + (manager.config.assignments || []).length + ' assignments'"></div>
-                    </div>
-                    <span class="lp-sdot" :class="managerActiveCount(manager) > 0 ? 'lp-dot active' : 'lp-dot idle'"></span>
-                  </div>
-                  <div class="lp-desc" x-text="manager.config.description || 'Manager orchestration agent'"></div>
-                  <div class="lp-cmeta">
-                    <div class="lp-avstack" x-show="(manager.orgDetails || []).length">
-                      <template x-for="(m, i) in (manager.orgDetails || []).slice(0, 4)" :key="m.id || i">
-                        <span class="mini" :title="m.name || m.id" x-text="(m.name || m.id || '?').slice(0,1).toUpperCase()"></span>
-                      </template>
-                      <span class="mini" x-show="(manager.orgDetails || []).length > 4" x-text="'+' + ((manager.orgDetails || []).length - 4)"></span>
-                    </div>
-                    <span class="lp-tag active" x-show="managerActiveCount(manager) > 0" x-text="managerActiveCount(manager) + ' active'"></span>
-                    <span class="lp-tag" x-show="manager.lastRun" x-text="'Ran ' + formatRelative((manager.lastRun || {}).finished_at || (manager.lastRun || {}).started_at)"></span>
-                  </div>
-                </article>
-              </template>
-            </div>
-
-            <div x-show="managerView === 'list'">
-              <table class="lp-tbl">
-                <thead><tr><th>Name</th><th>Org</th><th>Assignments</th><th>Active</th><th>Last run</th><th></th></tr></thead>
-                <tbody>
-                  <template x-for="manager in displayedManagers()" :key="manager.id">
-                    <tr @click="goTo('#/managers/' + encodeURIComponent(manager.id))">
-                      <td><div class="nm"><span class="lp-sdot" :class="managerActiveCount(manager) > 0 ? 'lp-dot active' : 'lp-dot idle'"></span><span x-text="manager.name"></span></div></td>
-                      <td x-text="(manager.orgDetails || []).length"></td>
-                      <td x-text="(manager.config.assignments || []).length"></td>
-                      <td x-text="managerActiveCount(manager)"></td>
-                      <td x-text="manager.lastRun ? formatRelative((manager.lastRun || {}).finished_at || (manager.lastRun || {}).started_at) : 'Never'"></td>
-                      <td><div class="lp-row-qa">
-                        <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
-                        <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
-                        <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to workspace">📌</button>
-                        <button @click.stop="quickStarEmp(manager.id, manager.name, 'manager', '🧑‍💼', manager.teamId)" :title="empStarred(manager.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(manager.id) ? '★' : '☆'"></button>
-                        <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
-                      </div></td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="empty-state" x-show="!displayedManagers().length" x-text="managerStatusCounts().all ? 'No managers matched your filter.' : (currentTeamId === 'all' ? 'No managers created yet.' : 'No managers on this team yet.')"></div>
-          </section>
-
-          <template x-if="!loading && !errorMessage && route === 'manager-detail' && selectedManager">
-          <section x-transition.opacity.duration.180ms>
-            <div class="ag-hero">
-              <div class="ag-avatar">👔</div>
-              <div class="ag-hero-main">
-                <div class="ag-crumb"><a class="md-link" href="#/managers">← Managers</a></div>
-                <h1 x-text="selectedManager.name"></h1>
-                <div class="ag-badges">
-                  <span class="tiny-badge">Manager</span>
-                  <span class="tiny-badge" x-text="(selectedManager.config?.team || []).length + ' agents'"></span>
-                  <span class="status-badge" :class="managerActiveCount(selectedManager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(selectedManager) + ' active'"></span>
-                </div>
-              </div>
-              <div class="ag-hero-actions">
-                <button class="btn primary" type="button" @click="managerTab = 'assignments'; resetManagerAssignmentForm()">＋ New Assignment</button>
-                <button class="btn" type="button" @click="openQuickPin('manager', selectedManager.id, selectedManager.name, 'Manager')" title="Pin to workspace">📌 Pin</button>
-                <button class="btn" type="button" @click="quickStarEmp(selectedManager.id, selectedManager.name, 'manager', '🧑‍💼', selectedManager.teamId)" :title="empStarred(selectedManager.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedManager.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedManager.id) ? 'Starred' : 'Star'"></span></button>
-                <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="selectedManager._menu = !selectedManager._menu" @click.outside="selectedManager._menu = false">⋯</button>
-                <div class="ag-menu" x-show="selectedManager._menu" x-transition style="display:none">
-                  <button type="button" @click="selectedManager._menu = false; openManagerEdit()">⚙ Edit manager</button>
-                  <button type="button" @click="selectedManager._menu = false; openOrgPicker()">＋ Add agent to org</button>
-                  <div class="ag-menu-sep"></div>
-                  <button type="button" @click="selectedManager._menu = false; removeManager(selectedManager.id)" style="color:var(--cp-danger)">🗑 Remove manager</button>
-                </div>
-              </div>
-            </div>
-            <div class="ag-stack">
-                <section class="detail-panel ag-identity" id="manager-details">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Identity</h2>
-                      <div class="hint">Manager identity and performance stats.</div>
-                    </div>
-                  </div>
-                  <div class="ag-identity-grid" x-init="$watch('selectedManager', async (m) => { if (m && m.id) { try { selectedManager._stats = await request('/api/managers/' + encodeURIComponent(m.id) + '/stats'); } catch {} } })">
-                    <div class="detail-table">
-                      <div class="detail-row"><span class="detail-label">Manager Name</span><span class="detail-value" x-text="selectedManager.name"></span></div>
-                      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedManager.id"></span></div>
-                      <div class="detail-row"><span class="detail-label">Backing Agent</span><span class="detail-value mono" x-text="selectedManager.config?.agent || '—'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Team Size</span><span class="detail-value" x-text="(selectedManager.config?.team || []).length + ' agents'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Assignments</span><span class="detail-value" x-text="(selectedManager.config?.assignments || []).length + ' total'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Active Assignments</span><span class="detail-value" x-text="managerActiveCount(selectedManager) + ' enabled'"></span></div>
-                    </div>
-                    <div class="detail-table" x-show="selectedManager._stats">
-                      <div class="detail-row"><span class="detail-label">Total Runs</span><span class="detail-value" x-text="selectedManager._stats?.total || 0"></span></div>
-                      <div class="detail-row"><span class="detail-label">Avg Run Time</span><span class="detail-value" x-text="formatDuration(selectedManager._stats?.avgDuration || 0)"></span></div>
-                      <div class="detail-row"><span class="detail-label">Success / Fail</span><span class="detail-value"><span style="color:var(--success)" x-text="selectedManager._stats?.success || 0"></span> / <span style="color:var(--danger)" x-text="selectedManager._stats?.fail || 0"></span></span></div>
-                      <div class="detail-row"><span class="detail-label">Success Rate</span><span class="detail-value" x-text="selectedManager._stats?.total ? Math.round((selectedManager._stats.success / selectedManager._stats.total) * 100) + '%' : '—'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Last Run</span><span class="detail-value" x-text="selectedManager._stats?.lastRun ? formatDateTime(selectedManager._stats.lastRun) : '—'"></span></div>
-                    </div>
-                  </div>
-                </section>
-              <div class="ag-main">
-                <div class="ag-tabs">
-                  <button class="ag-tab" type="button" :class="managerTab === 'runs' ? 'active' : ''" @click="managerTab = 'runs'">📊 Runs <span class="ag-count" x-text="managerHistory.length"></span></button>
-                  <button class="ag-tab" type="button" :class="managerTab === 'assignments' ? 'active' : ''" @click="managerTab = 'assignments'">🗂 Assignments <span class="ag-count" x-text="(selectedManager.config.assignments || []).length"></span></button>
-                  <button class="ag-tab" type="button" :class="managerTab === 'org' ? 'active' : ''" @click="managerTab = 'org'">🏢 Team <span class="ag-count" x-text="(selectedManager.config?.team || []).length"></span></button>
-                </div>
-
-                <div class="panel-stack" x-show="managerTab === 'org'">
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Team</h2>
-                      <div class="hint">Agents available to this manager.</div>
-                    </div>
-                    <button class="btn" type="button" @click="openOrgPicker()">＋ Add</button>
-                  </div>
-                  <div class="org-list" x-show="(selectedManager.orgDetails || []).length">
-                    <template x-for="agent in selectedManager.orgDetails" :key="agent.id">
-                      <div class="org-item">
-                        <div class="split-meta">
-                          <div>
-                            <strong x-text="agent.name || agent.id"></strong>
-                            <div class="hint" style="margin-top:6px" x-text="agent.capability || agent.group || agent.id"></div>
-                          </div>
-                          <button class="btn danger" type="button" @click="removeAgentFromOrg(agent.id)">Remove</button>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="empty-state" x-show="!(selectedManager.orgDetails || []).length">No agents assigned to this team.</div>
-                </section>
-                </div>
-
-                <div class="panel-stack" x-show="managerTab === 'assignments'">
-                <section class="detail-panel" id="manager-assignments">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Assignments</h2>
-                      <div class="hint">Schedules, latest activity, and ad-hoc execution controls.</div>
-                    </div>
-                  </div>
-                  <div class="assignment-list" x-show="(selectedManager.config.assignments || []).length">
-                    <template x-for="assignment in selectedManager.config.assignments" :key="assignment.id">
-                      <div class="assignment-item">
-                        <div class="assignment-top">
-                          <div>
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <strong x-text="assignment.name"></strong>
-                            </div>
-                            <div class="hint line-clamp" style="margin-top:6px" x-text="assignment.prompt"></div>
-                          </div>
-                          <div class="toolbar">
-                            <label class="toggle-switch" :title="assignment.enabled === false ? 'Enable assignment' : 'Disable assignment'">
-                              <input type="checkbox" :checked="assignment.enabled !== false" @change="toggleAssignmentEnabled(selectedManager.id, assignment.id, $event.target.checked)" />
-                              <span class="toggle-slider"></span>
-                            </label>
-                            <button class="btn" type="button" @click="editAssignmentInForm(assignment)">✏️ Edit</button>
-                            <button class="btn primary" type="button" @click="runAssignment(selectedManager.id, assignment.id)">▶ Run</button>
-                          </div>
-                        </div>
-                        <div style="margin-top:12px">
-                          <div class="field-label"><span>Schedule</span><span class="hint" x-text="assignment.scheduleDescription || humanizeSchedule(assignment.schedule)"></span></div>
-                          <div class="schedule-picker">
-                            <select class="field-input" x-model="assignment.schedulePreset" @change="applySchedulePresetTo(assignment, $event.target.value)">
-                              <option value="never">Manual only</option>
-                              <option value="5m">Every 5 minutes</option>
-                              <option value="15m">Every 15 minutes</option>
-                              <option value="30m">Every 30 minutes</option>
-                              <option value="1h">Every hour</option>
-                              <option value="6h">Every 6 hours</option>
-                              <option value="24h">Daily</option>
-                              <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                              <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
-                              <option value="custom">Advanced (cron / custom)…</option>
-                            </select>
-                            <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(assignment.scheduleDraft, 'Assignment schedule', v => { assignment.scheduleDraft = v; assignment.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
-                            <div x-show="assignment.schedulePreset === 'custom'" x-transition style="margin-top:8px">
-                              <input class="field-input mono" type="text" x-model="assignment.scheduleDraft" />
-                            </div>
-                          </div>
-                          <div class="inline-actions">
-                            <button class="btn" type="button" @click="saveAssignmentSchedule(assignment)">Save</button>
-                            <span class="hint" x-text="assignment.nextRun ? 'Next: ' + formatDateTime(assignment.nextRun) : 'No upcoming run'"></span>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="empty-state" x-show="!(selectedManager.config.assignments || []).length">No assignments configured.</div>
-                </section>
-
-                <section class="detail-panel" id="manager-assignment-editor">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title" x-text="selectedManager.editingAssignmentId ? 'Edit Assignment' : 'Create Assignment'"></h2>
-                      <div class="hint">Define a named assignment with a prompt and schedule for this manager.</div>
-                    </div>
-                    <button class="btn" type="button" x-show="selectedManager.editingAssignmentId" @click="resetManagerAssignmentForm()">＋ New</button>
-                  </div>
-                  <div class="config-grid">
-                    <div>
-                      <div class="field-label"><span>Assignment name</span></div>
-                      <input class="field-input" type="text" x-model="selectedManager.assignmentNameDraft" placeholder="e.g. Monitor Azure Health" />
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Prompt</span></div>
-                      <textarea class="field-input field-area" x-model="selectedManager.assignmentPromptDraft" placeholder="What should the manager do..."></textarea>
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Schedule</span></div>
-                      <div class="schedule-picker">
-                        <select class="field-input" x-model="selectedManager.assignmentSchedulePreset" @change="applyManagerAssignmentSchedulePreset($event.target.value)">
-                          <option value="never">Manual only (no schedule)</option>
-                          <option value="5m">Every 5 minutes</option>
-                          <option value="15m">Every 15 minutes</option>
-                          <option value="30m">Every 30 minutes</option>
-                          <option value="1h">Every hour</option>
-                          <option value="6h">Every 6 hours</option>
-                          <option value="24h">Daily</option>
-                          <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                          <option value="custom">Advanced (cron / custom)…</option>
-                        </select>
-                        <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(selectedManager.assignmentScheduleDraft, 'Assignment schedule', v => { selectedManager.assignmentScheduleDraft = v; selectedManager.assignmentSchedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
-                        <div x-show="selectedManager.assignmentSchedulePreset === 'custom'" x-transition style="margin-top:8px">
-                          <input class="field-input mono" type="text" x-model="selectedManager.assignmentScheduleDraft" placeholder="e.g. */15 * * * *" />
-                        </div>
-                      </div>
-                    </div>
-                    <div class="inline-actions">
-                      <button class="btn primary" type="button" @click="saveManagerAssignment()">Save Assignment</button>
-                    </div>
-                  </div>
-                </section>
-                </div>
-
-                <div class="panel-stack" x-show="managerTab === 'runs'">
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Recent Runs</h2>
-                      <div class="hint">Expandable manager orchestration history.</div>
-                    </div>
-                  </div>
-                  <div class="run-list" x-show="managerHistory.length">
-                    <template x-for="run in managerHistory" :key="'manager-run-' + run.id">
-                      <div class="run-item">
-                        <div class="split-meta">
-                          <div>
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <strong x-text="formatDateTime(run.started_at)"></strong>
-                              <span class="status-badge" :class="statusClass(managerRunStatus(run))" x-text="statusLabel(managerRunStatus(run))"></span>
-                              <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
-                            </div>
-                            <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
-                          </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click="toggleExpanded('manager-' + run.id)">Output</button>
-                            <button class="btn ghost" type="button" @click="openShareModal(run.result || run.error, 'Manager run — ' + formatDateTime(run.started_at), 'run-output')">📤</button>
-                          </div>
-                        </div>
-                        <div x-show="isExpanded('manager-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                          <div class="md-output" x-html="renderMarkdown(run.result || run.error || 'No output captured.')"></div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="empty-state" x-show="!managerHistory.length">No manager run history recorded.</div>
-                </section>
-                </div>
-              </div>
-            </div>
           </section>
           </template>
 
@@ -9075,184 +8829,6 @@
               </div>
             </div>
           </div>
-
-          <section x-show="!loading && !errorMessage && route === 'resources'">
-            <div class="page-header">
-              <div class="page-title">
-                <h1>Employees</h1>
-                <p>Your building blocks — the managers that orchestrate work, the agents that do it, and the marketplace of capabilities you can pull in to do more.</p>
-                <p class="hint" x-show="updatesAvailable > 0" style="margin-top:4px;color:var(--cp-warning)"
-                   x-text="updatesAvailable + ' update' + (updatesAvailable === 1 ? '' : 's') + ' available across your agents & plugins'"></p>
-              </div>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="loadMarketplace()" title="Refresh">↻ Refresh</button>
-                <button class="btn" type="button" @click="goTo('#/updates')" title="Check agents & plugins for updates">
-                  🔄 Updates<span class="upd-badge" x-show="updatesAvailable > 0" x-text="updatesAvailable"></span>
-                </button>
-                <button class="btn" type="button" @click="goTo('#/marketplace/design')">✨ Design with AI</button>
-                <button class="btn primary" type="button" @click="goTo('#/marketplace')">🛍️ Browse Marketplace</button>
-              </div>
-            </div>
-
-            <div class="filter-pills" style="margin-bottom:14px">
-              <button class="pill" type="button" :class="{ active: resTab === 'overview' }" @click="resTab='overview'">📊 Overview</button>
-              <button class="pill" type="button" :class="{ active: resTab === 'groups' }" @click="resTab='groups'">🏷️ Groups<span class="pill-count" x-show="groupBoard().length" x-text="groupBoard().length" style="margin-left:6px"></span></button>
-            </div>
-
-            <div x-show="resTab === 'overview'" x-transition.opacity.duration.150ms>
-            <!-- KPI tiles -->
-            <div class="card-grid" style="margin-bottom:18px">
-              <article class="card" :style="resMetrics().managersActive ? 'border-color:var(--cp-accent)' : ''">
-                <div class="hint">Managers</div>
-                <strong style="font-size:1.6rem" x-text="resMetrics().managers"></strong>
-                <div class="hint" style="margin-top:6px" x-text="resMetrics().managersActive + ' active · ' + (resMetrics().managers - resMetrics().managersActive) + ' idle'"></div>
-              </article>
-              <article class="card" :style="resMetrics().agentsRunning ? 'border-color:var(--cp-accent)' : ''">
-                <div class="hint">Agents</div>
-                <strong style="font-size:1.6rem" x-text="resMetrics().agents"></strong>
-                <div class="hint" style="margin-top:6px" x-text="resMetrics().agentsRunning + ' running · ' + resMetrics().agentsScheduled + ' scheduled · ' + resMetrics().agentsIdle + ' idle'"></div>
-              </article>
-              <article class="card">
-                <div class="hint">Marketplace sources</div>
-                <strong style="font-size:1.6rem" x-text="resMetrics().sources"></strong>
-                <div class="hint" style="margin-top:6px" x-text="resMetrics().sourcesLocal + ' local · ' + resMetrics().sourcesAzdo + ' Azure DevOps'"></div>
-              </article>
-              <article class="card">
-                <div class="hint">Catalog capabilities</div>
-                <strong style="font-size:1.6rem" x-text="resMetrics().skills + resMetrics().mcp"></strong>
-                <div class="hint" style="margin-top:6px" x-text="resMetrics().skills + ' skills · ' + resMetrics().mcp + ' MCP servers'"></div>
-              </article>
-            </div>
-
-            <!-- Managers + Agents -->
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:18px">
-              <section class="card">
-                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                  <strong>👔 Managers</strong>
-                  <a href="#" @click.prevent="goTo('#/managers')" class="hint" style="color:var(--cp-link)">All managers →</a>
-                </div>
-                <div x-show="resTopManagers(5).length" style="display:flex;flex-direction:column;gap:2px">
-                  <template x-for="m in resTopManagers(5)" :key="'res-mgr-' + m.id">
-                    <a href="#" @click.prevent="goTo('#/managers/' + m.id)" class="exec-row">
-                      <span class="status-badge" :class="managerStatusOf(m) === 'active' ? 'running' : 'idle'" x-text="managerStatusOf(m) === 'active' ? 'Active' : 'Idle'"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="m.name"></span>
-                        <span class="hint" style="display:block;font-size:0.72rem" x-text="((m.config && m.config.team || []).length) + ' agents · ' + ((m.config && m.config.assignments || []).length) + ' assignments'"></span>
-                      </span>
-                      <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="managerLastRunTs(m) ? formatRelative(new Date(managerLastRunTs(m)).toISOString()) : 'Never run'"></span>
-                    </a>
-                  </template>
-                </div>
-                <div class="hint" x-show="!resTopManagers(5).length" style="font-style:italic;padding:8px 0">No managers yet. Create one to orchestrate agents across an org.</div>
-              </section>
-
-              <section class="card">
-                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                  <strong>🤖 Agents</strong>
-                  <a href="#" @click.prevent="goTo('#/agents')" class="hint" style="color:var(--cp-link)">All agents →</a>
-                </div>
-                <div x-show="resTopAgents(5).length" style="display:flex;flex-direction:column;gap:2px">
-                  <template x-for="ag in resTopAgents(5)" :key="'res-ag-' + ag.id">
-                    <a href="#" @click.prevent="goTo('#/agents/' + ag.id)" class="exec-row">
-                      <span class="status-badge" :class="agentStatusOf(ag) === 'running' ? 'running' : (agentStatusOf(ag) === 'scheduled' ? 'success' : 'idle')" x-text="agentStatusOf(ag).charAt(0).toUpperCase() + agentStatusOf(ag).slice(1)"></span>
-                      <span style="flex:1;min-width:0">
-                        <span class="exec-row-name" x-text="ag.name"></span>
-                        <span class="hint" style="display:block;font-size:0.72rem" x-text="(ag.config && ag.config.pluginDir ? 'Plugin' : 'Copilot agent')"></span>
-                      </span>
-                      <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="agentLastRunTs(ag) ? formatRelative(new Date(agentLastRunTs(ag)).toISOString()) : 'Never run'"></span>
-                    </a>
-                  </template>
-                </div>
-                <div class="hint" x-show="!resTopAgents(5).length" style="font-style:italic;padding:8px 0">No agents yet. Install one from the Marketplace or design one with AI.</div>
-              </section>
-            </div>
-
-            <!-- Jump to areas -->
-            <div class="exec-jump">
-              <a href="#" @click.prevent="goTo('#/marketplace')" class="exec-jump-card">
-                <span class="exec-jump-icon">🛍️</span>
-                <span class="exec-jump-body">
-                  <span class="exec-jump-title">Marketplace <span class="exec-jump-count" x-text="resMetrics().catalogTotal"></span></span>
-                  <span class="hint">Browse and install agents, plugins, skills, and MCP servers.</span>
-                </span>
-                <span class="exec-jump-go">→</span>
-              </a>
-            </div>
-            </div><!-- /overview tab -->
-
-            <!-- GROUPS TAB -->
-            <div x-show="resTab === 'groups'" x-transition.opacity.duration.150ms>
-              <div class="org-layout">
-                <!-- Left: ungrouped agents -->
-                <aside class="org-pane org-pane--employees"
-                       :class="{ 'drag-over': groupDragOverName === '__ungrouped__' }"
-                       @dragover="_groupDragOverTarget='__ungrouped__'; onGroupDragOver($event)"
-                       @dragleave="groupDragOverName=null"
-                       @drop="onGroupDrop($event, '__ungrouped__')">
-                  <div class="org-pane-head">
-                    <span class="org-col-emoji">🗂️</span>
-                    <span class="org-pane-title">Ungrouped</span>
-                    <span class="org-col-count" x-text="ungroupedAgents().length"></span>
-                  </div>
-                  <div class="org-pane-sub">Agents with no group. Drag one onto a group to assign it. Drop here to remove an agent from its group.</div>
-                  <div class="org-pane-body">
-                    <template x-for="ag in ungroupedAgents()" :key="'ug-'+ag.agent_id">
-                      <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.agent_id)">
-                        <span class="emp-chip-icon">🤖</span>
-                        <span class="emp-chip-name" x-text="ag.config.name"></span>
-                        <span class="emp-chip-type" style="text-transform:capitalize" x-text="agentStatusOf(ag)"></span>
-                      </div>
-                    </template>
-                    <div class="org-col-empty" x-show="!ungroupedAgents().length">Every agent is in a group 🎉</div>
-                  </div>
-                </aside>
-
-                <!-- Right: groups as drop targets -->
-                <div class="org-pane org-pane--orgs">
-                  <div class="org-pane-head">
-                    <span class="org-col-emoji">🏷️</span>
-                    <span class="org-pane-title">Groups</span>
-                    <span class="org-col-count" x-text="groupBoard().length"></span>
-                    <button class="btn primary sm" type="button" @click="openNewBoardGroup()" style="margin-left:auto">＋ New group</button>
-                  </div>
-                  <div class="org-pane-body">
-                    <div class="org-grid">
-                      <template x-for="grp in groupBoard()" :key="'grp-'+grp.name">
-                        <div class="org-col"
-                             :class="{ 'drag-over': groupDragOverName === grp.name }"
-                             style="border-top:3px solid var(--cp-accent)"
-                             @dragover="_groupDragOverTarget=grp.name; onGroupDragOver($event)"
-                             @dragleave="groupDragOverName=null"
-                             @drop="onGroupDrop($event, grp.name)">
-                          <div class="org-col-head">
-                            <span class="org-col-emoji">🏷️</span>
-                            <span class="org-col-name" x-text="grp.name"></span>
-                            <span class="org-col-count" x-text="grp.agents.length"></span>
-                            <button class="icon-button" type="button" title="Rename group" @click="openRenameGroup(grp.name)" style="margin-left:auto">✏️</button>
-                            <button class="icon-button" type="button" title="Delete group" @click="openDeleteGroup(grp.name)">🗑</button>
-                          </div>
-                          <div class="org-col-body">
-                            <template x-for="ag in grp.agents" :key="grp.name+'-'+ag.agent_id">
-                              <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.agent_id)">
-                                <span class="emp-chip-icon">🤖</span>
-                                <span class="emp-chip-name" x-text="ag.config.name"></span>
-                                <button class="emp-chip-x" type="button" title="Remove from group" @click="changeAgentGroup(ag.agent_id, '')">✕</button>
-                              </div>
-                            </template>
-                            <div class="org-col-empty" x-show="!grp.agents.length">Drag agents here</div>
-                          </div>
-                        </div>
-                      </template>
-                      <div class="org-board-empty" x-show="!groupBoard().length">
-                        <p>No groups yet. Create one, then drag agents into it.</p>
-                        <button class="btn primary" type="button" @click="openNewBoardGroup()">＋ Create your first group</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
 
           <section class="board-calm" x-show="!loading && !errorMessage && route === 'boards'">
             <div class="nlx-top board-top">
@@ -10905,7 +10481,6 @@
                 </div>
               </div>
             </div>
-
 
             <!-- Confirm adding temporary sources before creating the agent -->
             <template x-teleport="body">
@@ -14103,7 +13678,6 @@
                   </div>
                 </div>
               </div>
-
 
               <!-- #2 Quick day mode: re-weights the plan (persisted + re-plans on change) -->
               <div class="meai-modebar" x-show="meai.loaded">
@@ -18698,7 +18272,6 @@
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'installed' }" @click="agentDiscoveryTab = 'installed'">Installed</button>
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'marketplace' }" @click="agentDiscoveryTab = 'marketplace'">Marketplace</button>
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'repository' }" @click="agentDiscoveryTab = 'repository'">Repository</button>
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'managers' }" @click="agentDiscoveryTab = 'managers'">Managers</button>
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'azdo' }" @click="agentDiscoveryTab = 'azdo'">Azure DevOps</button>
         </div>
 
@@ -18811,41 +18384,7 @@
           <div class="empty-state" x-show="!azdo.discovering && azdo.repo && azdo.branch && azdo.attempted && !azdo.discovered.length && !azdo.error">No agents or plugins found under any .github folder on this branch.</div>
         </div>
 
-        <div class="stack" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab === 'managers'">
-          <div class="discovery-group">
-            <div class="hint">Manager agents orchestrate other agents. They can monitor, analyze, and chain agent outputs.</div>
-            <div class="split-meta" style="margin-top:4px">
-              <span class="mono">Template: manager:manager</span>
-              <button class="btn primary" type="button" @click="agentDiscoveryManagerFormOpen = !agentDiscoveryManagerFormOpen">＋ Create Manager</button>
-            </div>
-            <div class="manager-create-form" x-show="agentDiscoveryManagerFormOpen" x-transition>
-              <input class="field-input" type="text" placeholder="Manager name" x-model="agentDiscoveryNewManager.name" />
-              <textarea class="field-input field-area" placeholder="Description (optional)" x-model="agentDiscoveryNewManager.description"></textarea>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="agentDiscoveryManagerFormOpen = false; agentDiscoveryNewManager = { name: '', description: '' }">Cancel</button>
-                <button class="btn primary" type="button" :disabled="agentDiscoveryCreatingManager" @click="createManager()" x-text="agentDiscoveryCreatingManager ? 'Saving…' : 'Save Manager'"></button>
-              </div>
-            </div>
-          </div>
-          <template x-for="manager in filteredDiscoveryManagers()" :key="'discovery-manager-' + manager.id">
-            <article class="discovery-item">
-              <div>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                  <strong x-text="manager.name || manager.id"></strong>
-                  <span class="source-badge source-plugin">Manager</span>
-                </div>
-                <div class="hint" style="margin-top:6px" x-text="manager.config?.description || manager.description || 'Manager orchestration agent'"></div>
-                <div class="hint mono" style="margin-top:8px" x-text="manager.id"></div>
-              </div>
-              <div class="discovery-actions">
-                <span class="badge-count" x-text="(manager.orgDetails || []).length + ' org'"></span>
-                <span class="badge-count" x-text="((manager.config && manager.config.assignments) || []).length + ' assignments'"></span>
-              </div>
-            </article>
-          </template>
-        </div>
-
-        <div class="empty-state" x-show="!agentDiscoveryLoading && !agentDiscoveryError && !filteredDiscoveryCount()" x-text="agentDiscoveryTab === 'managers' ? 'No matching managers found.' : 'No matching agents or plugins found.'"></div>
+        <div class="empty-state" x-show="!agentDiscoveryLoading && !agentDiscoveryError && !filteredDiscoveryCount()" x-text="'No matching agents or plugins found.'"></div>
             </div>
           </section>
 
@@ -20410,7 +19949,6 @@
               </div>
             </div><!-- /agents category -->
 
-
             <!-- ===== Integrations category ===== -->
             <div x-show="settingsCat === 'integrations'">
             <!-- Azure DevOps defaults (shared by Export + Dev cards) -->
@@ -20828,7 +20366,6 @@
             </div>
 
             </div><!-- /dependencies category -->
-
 
             <!-- ===== Connect category ===== -->
             <div x-show="settingsCat === 'connect'">
@@ -21647,7 +21184,6 @@
               </div>
             </div>
           </div>
-
 
           <section x-show="!loading && !errorMessage && route === 'activity'">
             <div class="page-header">
@@ -23095,7 +22631,6 @@
     </div>
   </div>
 
-
   <!-- Service Bus Config Modal (advanced) -->
   <div class="modal-backdrop modal-overlay" x-show="showServiceBusModal" x-transition.opacity @click.self="showServiceBusModal = false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:560px">
@@ -23334,10 +22869,6 @@
       </div>
     </div>
   </div>
-
-
-
-
 
   <div class="modal-backdrop" x-show="chatPickerOpen" x-transition.opacity.duration.150ms @click.self="chatPickerOpen = false" x-cloak>
     <section class="modal-card wc-newchat-card" style="max-width:560px">
@@ -23602,10 +23133,7 @@
     </section>
   </div>
 
-
-
   <!-- (Design with AI moved to its own page under Executions) -->
-
 
   <div class="toast-stack">
     <template x-for="toast in toasts" :key="toast.id">
@@ -23914,6 +23442,7 @@
         execAi: { loading: false, error: '', hint: '', focusAgentId: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
         agentTab: 'overview',
+        agentStudioTab: 'roster',
         _agentChatItem: null,
         agentSess: { panel: false, input: '', busy: false, matchIds: [], reasons: {}, matchActive: false },
         // Multi-agent chat: @-mention autocomplete + the "add agent" picker state.
@@ -25445,6 +24974,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         async handleRouteChange(opts = {}) {
           if (this.route === 'assignments') { this.goTo('#/tasks'); return; }
+          if (this.route === 'managers' || this.route === 'manager-detail' || this.route === 'resources') { this.goTo('#/agents'); return; }
           if (this.route === 'create-agent') {
             // Resilient deep-link: make sure the skills toolbox is populated even
             // if the user landed here without going through openCreateAgent().
@@ -25472,8 +25002,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (this.route === 'agent-detail' && this.app.routeParam) {
             await this.loadAgentDetail(this.app.routeParam);
-          } else if (this.route === 'manager-detail' && this.app.routeParam) {
-            await this.loadManagerDetail(this.app.routeParam);
           } else if (this.route === 'chat-detail' && this.app.routeParam) {
             await this.openChat(this.app.routeParam);
           } else if (this.route === 'chat' && !this.activeChat) {
@@ -25501,10 +25029,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadExecAi();
           } else if (this.route === 'executions') {
             await Promise.all([this.loadActivity(), this.loadSchedules()]);
-          } else if (this.route === 'resources') {
-            try { this.resCatalog = await this.request('/api/marketplace/catalog'); } catch (e) { this.resCatalog = { counts: {}, total: 0 }; }
-            try { const r = await this.request('/api/marketplace/sources'); this.mkt.sources = r.sources || []; } catch (e) {}
-            this.loadUpdatesAvailable();
           } else if (this.route === 'reports') {
             this.loadModels();
             await this.loadReports();
@@ -25634,9 +25158,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
-            const [agents, managers, version, chats, tasks, chains, organizations] = await Promise.all([
+            const [agents, version, chats, tasks, chains, organizations] = await Promise.all([
               this.request('/api/agents'),
-              this.request('/api/managers'),
               this.request('/api/version'),
               this.request('/api/chats'),
               this.request('/api/tasks'),
@@ -25644,7 +25167,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.request('/api/teams').catch(() => [])
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
-            this.data.managers = managers.map((manager) => this.normalizeManager(manager));
+            this.data.managers = [];
             this.data.version = version;
             this.data.chats = chats;
             this.data.tasks = tasks || [];
@@ -26477,7 +26000,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'newsletter': return mk('Newsletter', '📰', '#/newsletter', 'newsletter', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
             case 'watercooler': return mk('Water cooler', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
-            case 'managers': return mk('Managers', '👔', '#/managers', 'managers');
             case 'playbooks': return mk('Playbooks', '📓', '#/playbooks', 'playbooks');
             case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
             case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
@@ -26702,7 +26224,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
             const insights = { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false };
             const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
-            const managers = { key: 'managers', label: 'Managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [], collapsible: false };
             const tasks = { key: 'tasks', label: 'Tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [], collapsible: false };
             const flows = { key: 'chains', label: 'Flows', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [], collapsible: false };
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' };
@@ -26718,7 +26239,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (bf['me-ai']) out.push(meai);
             if (bf.insights) out.push(insights);
             out.push(agents);
-            if (bf.managers) out.push(managers);
             if (bf.tasks) out.push(tasks);
             if (bf.flows) out.push(flows);
             out.push(marketplace);
@@ -26734,10 +26254,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Agentic experience: the AI workforce and how it runs.
             return [
               home,
-              { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
-                { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
-                { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
-              ]},
+              { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
               { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
                 { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
                 { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] }
@@ -26770,7 +26287,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         isRouteGroup(group) {
           if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent' || this.route === 'export' || this.route === 'agent-discovery' || this.route === 'standup';
-          if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
           if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail' || this.route === 'new-task';
           if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail' || this.route === 'chain';
@@ -26958,7 +26474,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
-            { key: 'managers', label: 'Managers', icon: '👔', hint: 'AI managers that orchestrate your agents.' },
             { key: 'tasks', label: 'Tasks', icon: '⚡', hint: 'Scheduled prompts & recurring operations.' },
             { key: 'flows', label: 'Flows', icon: '🔗', hint: 'Multi-step agent chains.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
