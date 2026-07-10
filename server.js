@@ -27246,6 +27246,24 @@ const DEV_AGENT_PERSONAS = [
     ],
   },
   {
+    id: 'observability', label: 'Observability & telemetry', emoji: '📊',
+    gradFrom: '#0d9488', gradTo: '#14b8a6', readOnly: false,
+    tagline: 'Make the change measurable — logs, metrics, traces, and a health signal.',
+    tags: 'code-aware · instruments',
+    goal: 'Make the change for this work item observable in production: add the logs, metrics, traces, and health signals needed to tell whether it is working, catch regressions early, and answer "is this healthy right now?" without guessing.',
+    steps: [
+      'Understand what "healthy" and "degraded" mean for this change, and which signals would prove it — success/error rates, latency, throughput, saturation, key business/operational counts.',
+      'Audit what is already instrumented; find the blind spots where a failure or regression would currently go unnoticed.',
+      'Add structured logging, metrics, and/or traces at the right seams, following the project\'s existing telemetry conventions and cardinality limits (no unbounded label explosions).',
+      'Propose or wire the dashboards and alert thresholds that turn the new signals into an actionable health view, and validate the signals actually fire under normal and failure conditions.',
+      'Write a `dev-observability-report.html` listing the signals added, what each answers, where to see them, and the alert/threshold recommendations.',
+    ],
+    constraints: [
+      'Instrumentation must not change the behavior it observes, add meaningful overhead to a hot path, or leak secrets/PII into logs or labels.',
+      'Reuse the project\'s existing logging/metrics/tracing stack and naming conventions; do not introduce a new telemetry framework.',
+    ],
+  },
+  {
     id: 'documentation', label: 'Documentation', emoji: '📖',
     gradFrom: '#4b5563', gradTo: '#6b7280', readOnly: false,
     tagline: 'Update docs, changelog, and READMEs to match the change.',

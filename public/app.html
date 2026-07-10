@@ -10099,7 +10099,7 @@
                                           </div>
                                         </div>
 
-                                        <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'The dev agent works this item in a private git worktree — open it in VS Code or the CLI (the agent is auto-selected) to read the work item, PR & git status and build, test & validate the change. Nothing is pushed without you.' : 'Open a repo in a private git worktree — in VS Code or the CLI the dev agent is auto-selected to help you build, test & validate the change. Nothing is pushed without you.'"></p>
+                                        <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'A dev agent is auto-selected to work this item in a private git worktree — open it in VS Code or the CLI to read the work item, PR & git status and build, test & validate the change. Add specialized agents (design review, validation, observability…) below. Nothing is pushed without you.' : 'Open a repo in a private git worktree — a dev agent is auto-selected in VS Code or the CLI to help you build, test & validate. Add specialized agents (design review, validation, observability…) below. Nothing is pushed without you.'"></p>
 
                                         <!-- Work item done → offer to clean up worktrees (shown once at card level) -->
                                         <template x-if="devNeedsCleanup(d)">
@@ -11335,7 +11335,7 @@
                                             </template>
                                           </div>
                                         </div>
-                                        <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'The dev agent works this item in a private git worktree — open it in VS Code or the CLI (the agent is auto-selected) to read the work item, PR & git status and build, test & validate the change. Nothing is pushed without you.' : 'Open a repo in a private git worktree — in VS Code or the CLI the dev agent is auto-selected to help you build, test & validate the change. Nothing is pushed without you.'"></p>
+                                        <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'A dev agent is auto-selected to work this item in a private git worktree — open it in VS Code or the CLI to read the work item, PR & git status and build, test & validate the change. Add specialized agents (design review, validation, observability…) below. Nothing is pushed without you.' : 'Open a repo in a private git worktree — a dev agent is auto-selected in VS Code or the CLI to help you build, test & validate. Add specialized agents (design review, validation, observability…) below. Nothing is pushed without you.'"></p>
                                         <template x-if="devNeedsCleanup(d)">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:calc(var(--cp-radius-scale, 1) * 6px);padding:6px 8px">
                                             <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — worktrees can be cleaned up.'"></span>
