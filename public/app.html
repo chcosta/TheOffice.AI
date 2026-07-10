@@ -18267,6 +18267,78 @@
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="(cfWt(pr) && cfWt(pr).error) || 'Worktree failed'"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr) && cfWt(pr).reviewError"></span>
                         </div>
+                        <div class="cf-subsec" x-show="prReadyWt(pr) || prAgentList(pr).length" x-init="recommendPrAgents(pr)">
+                        <div class="cf-subhead">🎭 Playbook agents</div>
+                        <p class="cf-agent-explain">Add focused agents from a playbook — a rubber-duck reviewer, security or design review, test-coverage audit, release-note drafter. Each writes its own agent into the worktree; read-only personas review and propose without touching the PR.</p>
+                        <!-- Me.AI agent recommendations -->
+                        <div class="dcrec" x-show="prRecoList(pr).length" x-cloak>
+                          <div class="dcrec-h">
+                            <span class="t"><b>✦ Me.AI</b> recommends adding</span>
+                            <button class="dcrec-refresh" type="button" :disabled="prRecoBusy(pr)" @click="recommendPrAgents(pr,{force:true,noAuto:true})" x-text="prRecoBusy(pr) ? 'Thinking…' : '↻ Recommend agents'"></button>
+                          </div>
+                          <template x-for="rec in prRecoList(pr)" :key="rec.persona">
+                            <div class="dcrec-row">
+                              <span class="dagr-dot" :style="prAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
+                              <span class="dcrec-body">
+                                <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
+                                <span class="dcrec-why" x-html="rec.why"></span>
+                                <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="prRecoConfLabel(rec)"></span>
+                              </span>
+                              <span class="dcrec-acts">
+                                <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="prAgentBusy[cfPrKey(pr)+':'+rec.persona]" @click="addRecoPrAgent(pr, rec)" x-text="prAgentBusy[cfPrKey(pr)+':'+rec.persona] ? '…' : '＋ Add'"></button>
+                                <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissPrReco(pr, rec)">Dismiss</button>
+                              </span>
+                            </div>
+                          </template>
+                          <div class="dcrec-foot">
+                            <button class="dcrec-link" type="button" @click="addAllPrReco(pr)">Add all recommended</button>
+                            <button class="dcrec-link" type="button" @click="togglePrPicker(pr)">Browse all agents →</button>
+                          </div>
+                        </div>
+                        <div class="dagr-h">
+                          <span class="lbl">Agents on this PR</span>
+                          <span class="cnt" x-show="prAgentList(pr).length" x-text="(prAgentList(pr).length)+' '+(prAgentList(pr).length===1?'agent':'agents')"></span>
+                        </div>
+                        <template x-if="prAgentList(pr).length">
+                          <div class="dagr-list">
+                            <template x-for="ag in prAgentList(pr)" :key="ag.persona">
+                              <div class="dagr-row">
+                                <span class="dagr-dot" :style="prAgentDotStyle(ag)" x-text="ag.emoji||'🤖'"></span>
+                                <span class="dagr-nm">
+                                  <span class="n"><span x-text="ag.label"></span><span class="ro" x-show="ag.readOnly" title="Read-only — reviews and proposes, never changes the PR">· read-only</span></span>
+                                  <span class="d" x-text="prReadyWt(pr) ? 'Written into the worktree' : 'Staged — worktree needed to launch'"></span>
+                                </span>
+                                <span class="dagr-st" :class="prReadyWt(pr) ? 'ready' : 'needrepo'"><span class="sdot"></span><span x-text="prReadyWt(pr) ? 'ready' : 'no worktree'"></span></span>
+                                <span class="dagr-acts">
+                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" x-show="prReadyWt(pr)" @click="launchPrAgent(pr, ag)" title="Open the CLI with this agent selected">🤖 Launch</button>
+                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="prAgentBusy[cfPrKey(pr)+':'+ag.persona]" @click="removePrAgent(pr, ag)" x-text="prAgentBusy[cfPrKey(pr)+':'+ag.persona] ? '…' : 'Remove'"></button>
+                                </span>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                        <button class="dagr-add" type="button" @click="togglePrPicker(pr)" x-text="prPickerOpen[cfPrKey(pr)] ? '× Close' : '＋ Add an agent'"></button>
+                        <div class="dagr-picker" x-show="prPickerOpen[cfPrKey(pr)]" x-cloak>
+                          <div class="dagr-picker-h">
+                            <span class="t">Add an agent from a playbook</span>
+                            <span class="s">Each persona writes a focused agent into the worktree — add more than one.</span>
+                          </div>
+                          <div class="dagr-grid">
+                            <template x-for="p in prPersonas" :key="p.id">
+                              <button class="dagr-persona" type="button" :disabled="prAgentHas(pr,p.id) || prAgentBusy[cfPrKey(pr)+':'+p.id]" @click="createPrAgent(pr, p.id)">
+                                <span class="ph"><span class="dagr-dot sm" :style="prAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="prAgentHas(pr,p.id)">✓ added</span></span>
+                                <span class="pd" x-text="p.tagline"></span>
+                              </button>
+                            </template>
+                            <template x-for="pb in prCustomPlaybooks" :key="pb.id">
+                              <button class="dagr-persona custom" type="button" :disabled="prAgentHas(pr,'pb-'+pb.id) || prAgentBusy[cfPrKey(pr)+':pb-'+pb.id]" @click="createPrAgent(pr, 'custom', pb.id)">
+                                <span class="ph"><span class="dagr-dot sm" :style="prAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="prAgentHas(pr,'pb-'+pb.id)">✓ added</span></span>
+                                <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                        </div>
                         <div class="cf-subsec">
                         <div class="cf-subhead">🌿 Git</div>
                         <template x-if="!cfWt(pr) || cfWt(pr).worktreeStatus !== 'ready'">
@@ -24925,6 +24997,15 @@
         // High-confidence autoAdd personas are added silently; the rest surface here.
         devRecos: {},
         devRecoDismissed: {},
+        // PR-card playbook-agent parallel to the dev-card roster above: catalog +
+        // per-PR picker/busy state + recommendation strip (keyed by cfPrKey).
+        prPersonas: [],
+        prCustomPlaybooks: [],
+        prPersonasLoaded: false,
+        prPickerOpen: {},
+        prAgentBusy: {},
+        prRecos: {},
+        prRecoDismissed: {},
         // Per-slot commit-detail panel: open flag + loaded data keyed by slot.
         slotCommitsOpen: {},
         slotCommits: {},
@@ -48938,6 +49019,175 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devRecoConfLabel(rec) {
           if (!rec) return '';
           if (rec.confidence === 'high') return rec.readOnly ? 'High confidence \u00b7 read-only, won\u2019t change code' : 'High confidence';
+          return 'Medium confidence \u00b7 optional';
+        },
+        // --- PR-card playbook agents (parallel to the dev-card roster above) -------
+        // Identity payloads shared by every PR agent call.
+        _prReqBody(pr, extra) {
+          return Object.assign({ org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), provider: pr.provider }, extra || {});
+        },
+        _prQuery(pr, extra) {
+          const q = new URLSearchParams(Object.assign({
+            org: pr.org || '', project: pr.project || '', repo: pr.repo || '',
+            prId: String(pr.id != null ? pr.id : ''), provider: pr.provider || ''
+          }, extra || {}));
+          return '?' + q.toString();
+        },
+        // Roster lives on the worktree record (prAgents), like the reviewer/steward.
+        prAgentList(pr) { const w = this.cfWt(pr); return (w && Array.isArray(w.prAgents)) ? w.prAgents : []; },
+        prAgentHas(pr, personaId) { return this.prAgentList(pr).some(a => a && a.persona === personaId); },
+        // Is there a ready worktree to write the agent file into?
+        prReadyWt(pr) { const w = this.cfWt(pr); return !!(w && w.worktreeStatus === 'ready' && w.worktreePath); },
+        // Toggle the inline persona picker for a PR; lazily load the catalog.
+        togglePrPicker(pr) {
+          if (!pr) return;
+          const key = this.cfPrKey(pr);
+          const open = !this.prPickerOpen[key];
+          this.prPickerOpen[key] = open;
+          if (open) this.loadPrPersonas();
+        },
+        async loadPrPersonas() {
+          if (this.prPersonasLoaded) return;
+          try {
+            const r = await this.request('/api/pr-agent-personas');
+            if (r) {
+              this.prPersonas = (r.personas || []);
+              this.prCustomPlaybooks = (r.playbooks || []);
+              this.prPersonasLoaded = true;
+            }
+          } catch (e) { /* graceful empty picker */ }
+        },
+        // Add a playbook persona to a PR worktree; refresh the roster from the response.
+        async createPrAgent(pr, personaId, playbookId) {
+          if (!pr) return;
+          personaId = personaId || 'merge-steward';
+          const key = this.cfPrKey(pr);
+          const busyKey = key + ':' + (personaId === 'custom' ? 'pb-' + (playbookId || '') : personaId);
+          if (this.prAgentBusy[busyKey]) return;
+          if (!this.prReadyWt(pr)) { this.showToast('Pull request', 'Create a worktree first — the agent is written into it.', 'error'); return; }
+          this.prAgentBusy[busyKey] = true;
+          try {
+            const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: playbookId || '' })) });
+            if (r && r.worktree) {
+              this.codeflow.worktrees[key] = r.worktree;
+              const label = (this.prAgentList(pr).find(a => a.persona === personaId) || {}).label || 'Agent';
+              this.showToast('Pull request', '🤖 ' + label + ' ready — auto-selected in the CLI.', 'success');
+            } else {
+              this.showToast('Pull request', 'Agent returned no result — try again.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Pull request', (e && e.message) || 'Create agent failed', 'error');
+          } finally {
+            delete this.prAgentBusy[busyKey];
+          }
+        },
+        // createPrAgent without the worktree-first toast (used by auto-add, already gated).
+        async createPrAgentQuiet(pr, personaId) {
+          const key = this.cfPrKey(pr);
+          const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: '' })) });
+          if (r && r.worktree) this.codeflow.worktrees[key] = r.worktree;
+          return r;
+        },
+        async removePrAgent(pr, ag) {
+          if (!pr || !ag) return;
+          const key = this.cfPrKey(pr);
+          const busyKey = key + ':' + ag.persona;
+          if (this.prAgentBusy[busyKey]) return;
+          this.prAgentBusy[busyKey] = true;
+          try {
+            const r = await this.request('/api/codeflow/pr/playbook-agent/remove', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: ag.persona, playbookId: ag.playbookId || '' })) });
+            if (r && r.worktree) {
+              this.codeflow.worktrees[key] = r.worktree;
+              this.showToast('Pull request', 'Removed ' + (ag.label || 'agent') + '.', 'success');
+            }
+          } catch (e) {
+            this.showToast('Pull request', (e && e.message) || 'Remove agent failed', 'error');
+          } finally {
+            delete this.prAgentBusy[busyKey];
+          }
+        },
+        // Open the CLI in the PR worktree with a specific roster persona selected.
+        async launchPrAgent(pr, ag) {
+          if (!pr || !ag) return;
+          const rec = this.cfWt(pr);
+          if (!rec || !rec.worktreePath) { this.showToast('Pull request', 'No worktree to open.', 'error'); return; }
+          let dir = rec.worktreePath;
+          try {
+            const r = await this.request('/api/codeflow/pr/worktree/open-dir', { method: 'POST', body: JSON.stringify(this._prReqBody(pr)) });
+            if (r && r.dir) dir = r.dir;
+          } catch (e) { /* fall back to the review worktree path */ }
+          try {
+            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify({ path: dir, target: 'cli', agent: ag.slug || undefined }) });
+          } catch (e) {
+            this.showToast('Open', e.message, 'error');
+          }
+        },
+        // Round gradient dot for a PR persona/roster entry (shares the dev styler).
+        prAgentDotStyle(p) { return this.devAgentDotStyle(p); },
+        // Fetch signal-based PR recommendations; silently add the truly-obvious
+        // high-confidence personas once a worktree is ready; rest stay as suggestions.
+        async recommendPrAgents(pr, opts) {
+          if (!pr) return;
+          opts = opts || {};
+          const key = this.cfPrKey(pr);
+          const st = this.prRecos[key] || { suggest: [], loaded: false, busy: false };
+          if (st.busy) return;
+          if (st.loaded && !opts.force) return;
+          st.busy = true;
+          this.prRecos[key] = st;
+          try {
+            const r = await this.request('/api/codeflow/pr/recommend-agents' + this._prQuery(pr, { view: this.cfMode(pr) || '' }));
+            const recos = (r && r.recommendations) || [];
+            const autoAdd = recos.filter(x => x && x.autoAdd && !this.prAgentHas(pr, x.persona));
+            const ready = this.prReadyWt(pr);
+            if (ready && autoAdd.length && !opts.noAuto) {
+              let added = 0;
+              for (const x of autoAdd) {
+                try { await this.createPrAgentQuiet(pr, x.persona); added++; }
+                catch (e) { /* leave as a suggestion if the write fails */ }
+              }
+              if (added) this.showToast('Pull request', '🤖 Added ' + added + ' recommended ' + (added === 1 ? 'agent' : 'agents') + ' automatically.', 'success');
+            }
+            const dismissed = this.prRecoDismissed[key] || {};
+            const addedAuto = ready && !opts.noAuto;
+            st.suggest = recos.filter(x => x && !this.prAgentHas(pr, x.persona) && !dismissed[x.persona] && !(addedAuto && x.autoAdd));
+            st.loaded = true;
+          } catch (e) {
+            st.suggest = [];
+            st.loaded = true;
+          } finally {
+            st.busy = false;
+            this.prRecos[key] = { ...st };
+          }
+        },
+        async addRecoPrAgent(pr, rec) {
+          if (!pr || !rec) return;
+          await this.createPrAgent(pr, rec.persona);
+          const key = this.cfPrKey(pr);
+          const st = this.prRecos[key];
+          if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.prRecos[key] = { ...st }; }
+        },
+        async addAllPrReco(pr) {
+          const key = this.cfPrKey(pr);
+          const st = this.prRecos[key];
+          if (!pr || !st || !(st.suggest || []).length) return;
+          const list = st.suggest.slice();
+          for (const rec of list) { await this.addRecoPrAgent(pr, rec); }
+        },
+        dismissPrReco(pr, rec) {
+          if (!pr || !rec) return;
+          const key = this.cfPrKey(pr);
+          const dm = this.prRecoDismissed[key] || {};
+          dm[rec.persona] = true;
+          this.prRecoDismissed[key] = dm;
+          const st = this.prRecos[key];
+          if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.prRecos[key] = { ...st }; }
+        },
+        prRecoList(pr) { const st = this.prRecos[this.cfPrKey(pr)]; return (st && st.suggest) || []; },
+        prRecoBusy(pr) { const st = this.prRecos[this.cfPrKey(pr)]; return !!(st && st.busy); },
+        prRecoConfLabel(rec) {
+          if (!rec) return '';
+          if (rec.confidence === 'high') return rec.readOnly ? 'High confidence \u00b7 read-only, won\u2019t change the PR' : 'High confidence';
           return 'Medium confidence \u00b7 optional';
         },
         async createDevPr(d) {

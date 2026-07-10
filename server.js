@@ -27673,6 +27673,402 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent/remove', (req, res) => {
   res.json({ ok: true, dev: updated, removed });
 });
 
+// ---- PR playbook agents --------------------------------------------------
+// Review / stewardship personas a user can add to a Code Flow PR worktree. They
+// mirror the dev-card playbook agents: each writes a per-persona `.agent.md` into
+// the PR worktree (Launch-in-CLI), with a recommend strip + roster + picker on the
+// PR card. Because a PR already carries the change, these personas REVIEW and TEND
+// the change (they don't author it) — the one code-aware persona (merge steward)
+// tends YOUR OWN PR toward merge. The existing "Review with AI" button stays as-is;
+// these are ADDED on top.
+const PR_AGENT_PERSONAS = [
+  {
+    id: 'merge-steward', label: 'Merge steward', emoji: '🚦',
+    gradFrom: '#0891b2', gradTo: '#06b6d4', readOnly: false, default: true,
+    tagline: 'Drive your PR to a clean merge — address feedback, harden, validate.',
+    tags: 'code-aware · your PR',
+    goal: 'Tend this pull request toward a clean merge: work through every active reviewer comment, harden the change against regressions, validate with the repo\'s own build/lint/tests, and keep the branch mergeable — so the PR is ready to complete rather than lingering.',
+    steps: [
+      'Understand the PR\'s goal and the linked work items, then read the full diff so you know exactly what the change does.',
+      'Address EVERY active reviewer comment — either fix the code or draft a precise reply — and note anything you deliberately push back on.',
+      'Go above and beyond to harden the change: cover the edge cases, error paths, and regressions a reviewer would worry about.',
+      'Validate by running the repo\'s existing build / lint / tests until they pass; iterate until green.',
+      'Commit your changes locally (never push without being asked) and write a concise status report that shows the PR is merge-ready.',
+    ],
+    constraints: [
+      'This is a real pull request. Do NOT push, complete/merge, or post public comments unless the user explicitly asks — commit locally and PREPARE replies; the user approves anything that leaves the machine.',
+      'Every change must earn its place against the PR\'s actual goal — no drive-by refactors, no scope creep beyond making this PR mergeable.',
+    ],
+  },
+  {
+    id: 'rubber-duck', label: 'Reviewer / rubber-duck', emoji: '🦆',
+    gradFrom: '#ca8a04', gradTo: '#eab308', readOnly: true,
+    tagline: 'A demanding review pass for logic errors and edge-case bugs.',
+    tags: 'read-only · review',
+    goal: 'Give this pull request a demanding, sceptical code review: find the logic errors, edge-case bugs, and risky assumptions a careful reviewer would catch before it ships — grounded in the actual diff, not vibes.',
+    steps: [
+      'Read the PR goal, the linked work items, and the full diff so you understand what the change is trying to do.',
+      'Argue against the change — hunt for logic errors, off-by-one / boundary bugs, unhandled error paths, race conditions, and broken assumptions.',
+      'Check the edges: empty / invalid inputs, concurrency, failure modes, and anything the change might regress elsewhere.',
+      'For each finding, cite the exact file + location and explain the concrete failure it causes, ranked by severity.',
+      'Write a review report that leads with the high-confidence, defensible findings the author should fix before merging.',
+    ],
+    constraints: [
+      'Report only high-confidence, defensible findings — cite specific locations; no speculative nitpicks dressed up as bugs.',
+    ],
+  },
+  {
+    id: 'security-review', label: 'Security review', emoji: '🔒',
+    gradFrom: '#b91c1c', gradTo: '#dc2626', readOnly: true,
+    tagline: 'Audit the diff for exploitable security issues.',
+    tags: 'read-only · security',
+    goal: 'Audit this pull request for security vulnerabilities: examine the diff for injection, auth/authorization gaps, secret handling, unsafe input, and other exploitable issues — and report only high-confidence findings with concrete exploit paths.',
+    steps: [
+      'Read the diff and identify every place it handles input, auth, tokens/secrets, serialization, file/network/DB access, or crosses a trust boundary.',
+      'For each, reason about how it could be abused — injection (SQL/command/path), XSS/SSRF/CSRF, auth bypass, privilege escalation, secret leakage, unsafe deserialization.',
+      'Confirm exploitability in context (not a generic pattern match) and cite the exact location and the attack that would work.',
+      'Note the fix at a high level so the author can act, ranked by real-world severity.',
+      'Write a security report that leads with the concrete, exploitable findings and their severity.',
+    ],
+    constraints: [
+      'Report only findings you can defend with a concrete exploit path — no generic "this could theoretically be unsafe" noise.',
+    ],
+  },
+  {
+    id: 'test-coverage', label: 'Test-coverage auditor', emoji: '✅',
+    gradFrom: '#16a34a', gradTo: '#22c55e', readOnly: true,
+    tagline: 'Judge whether the change is actually tested.',
+    tags: 'read-only · tests',
+    goal: 'Judge whether this pull request is adequately tested: map the behavior the diff changes against the tests it adds or touches, and call out the untested paths and missing cases that should block merge.',
+    steps: [
+      'Read the diff and enumerate the behaviors, branches, and edge cases it introduces or changes.',
+      'Find the tests in the PR (and the existing suite) that cover each behavior; note which paths have no coverage.',
+      'Assess test quality — do they actually assert the new behavior, or just execute it? Are the important edge cases and failure paths covered?',
+      'Recommend the specific tests that should be added before merge, with a concrete description of each case.',
+      'Write a coverage report: what\'s covered, what\'s missing, and the exact gaps that matter.',
+    ],
+    constraints: [
+      'Ground every gap in the actual diff — name the untested behavior and where a test belongs; don\'t demand blanket coverage of unrelated code.',
+    ],
+  },
+  {
+    id: 'design-review', label: 'Design review', emoji: '📐',
+    gradFrom: '#7c3aed', gradTo: '#a855f7', readOnly: true,
+    tagline: 'Weigh the approach, alternatives, and long-term cost.',
+    tags: 'read-only · sign-off',
+    goal: 'Review the technical approach this pull request takes: whether it fits the system\'s architecture, how it compares to the alternatives, and what it costs in maintainability and blast radius — so the author gets a considered design critique, not just line-level nits.',
+    steps: [
+      'Understand the system and the constraints the change lives in by reading the surrounding code, tests, and docs.',
+      'Describe the approach the PR takes and at least one credible alternative, with the trade-offs of each.',
+      'Weigh the choice against the real goals — correctness, performance, blast radius, maintainability — and say whether it\'s the right one.',
+      'Surface the design risks, coupling, and future costs the author should address or consciously accept.',
+      'Write a design review that leads with a clear recommendation (ship / revise / rethink) and the reasoning behind it.',
+    ],
+    constraints: [
+      'Justify every recommendation against the PR\'s actual goals with the trade-offs made explicit — no hand-waving.',
+    ],
+  },
+  {
+    id: 'release-notes', label: 'Release notes', emoji: '📖',
+    gradFrom: '#4b5563', gradTo: '#6b7280', readOnly: true,
+    tagline: 'Draft the user-facing release notes / changelog for this PR.',
+    tags: 'docs · draft',
+    goal: 'Draft clear, user-facing release notes for this pull request: read the diff and linked work items, then write the changelog entry — what changed, why it matters to users, and any migration or breaking-change notes — ready for the author to drop into the release.',
+    steps: [
+      'Read the PR goal, linked work items, and diff to understand what actually changed from a user\'s perspective.',
+      'Classify the change (feature / fix / breaking / internal) and identify the audience-facing impact.',
+      'Draft the release-note entry in the project\'s existing changelog style — concise, user-oriented, no internal jargon.',
+      'Call out any breaking changes, migrations, or upgrade steps the user must take.',
+      'Write a report containing the ready-to-use release-note text plus a short rationale.',
+    ],
+    constraints: [
+      'Do NOT modify source code. Produce the release-note text as a draft the author places — match the repo\'s existing changelog conventions.',
+    ],
+  },
+];
+const PR_AGENT_PERSONA_MAP = Object.fromEntries(PR_AGENT_PERSONAS.map(p => [p.id, p]));
+
+// Resolve a PR persona id (or a custom-playbook reference) to a persona object.
+// Unknown / empty → merge steward. A 'custom' persona with a playbookId is
+// materialized from the Me.AI playbook store (parity with _devPersona).
+function _prPersona(id, playbookId) {
+  const key = String(id || '').trim().toLowerCase();
+  if (key === 'custom' || (!key && playbookId)) {
+    const def = _meAiPlaybookDef(playbookId);
+    if (def) {
+      return {
+        id: 'pb-' + def.id, label: def.label || def.id, emoji: def.icon || '✨',
+        gradFrom: '#6b7280', gradTo: '#9ca3af', readOnly: false, custom: true,
+        playbookId: def.id, tagline: def.description || '',
+        goal: def.goal || `Carry out the "${def.label || def.id}" playbook for this pull request.`,
+        steps: Array.isArray(def.steps) ? def.steps : [],
+        constraints: Array.isArray(def.constraints) ? def.constraints : [],
+      };
+    }
+  }
+  return PR_AGENT_PERSONA_MAP[key] || PR_AGENT_PERSONA_MAP['merge-steward'];
+}
+
+// Public catalog for the SPA PR persona picker (built-ins + custom playbooks).
+function _prPersonaCatalog() {
+  const builtins = PR_AGENT_PERSONAS.map(p => ({
+    id: p.id, label: p.label, emoji: p.emoji, gradFrom: p.gradFrom, gradTo: p.gradTo,
+    tagline: p.tagline, tags: p.tags, readOnly: !!p.readOnly, default: !!p.default,
+  }));
+  let playbooks = [];
+  try {
+    playbooks = _meAiPlaybookList().map(d => ({
+      id: d.id, label: d.label || d.id, emoji: d.icon || '✨', kind: d.kind,
+      tagline: d.description || '', readOnly: false,
+    }));
+  } catch {}
+  return { personas: builtins, playbooks };
+}
+
+// Deterministic, signal-based PR agent recommendation. Reads the PR (title /
+// description / branch), the linked work items, the view (mine → own PR), and the
+// current roster, and returns a ranked list — each with a plain-language rationale,
+// a text confidence ('high' | 'medium'), and an `autoAdd` flag for the truly-obvious
+// high-confidence ones. No LLM. Personas already on the roster are skipped.
+function _recommendPrAgents(pr, opts = {}) {
+  pr = pr || {};
+  const view = String(opts.view || '').toLowerCase();
+  const isMine = view === 'mine';
+  const wis = Array.isArray(opts.workItems) ? opts.workItems : [];
+  const wiText = wis.map(w => [w && w.title, w && w.type].filter(Boolean).join(' ')).join(' \n ');
+  const hay = [pr.title, pr.description, pr.sourceBranch, pr.targetBranch, wiText]
+    .filter(Boolean).join(' \n ').toLowerCase();
+  const has = (re) => re.test(hay);
+  const roster = new Set((Array.isArray(opts.roster) ? opts.roster : []).map(r => r.persona));
+  const recs = [];
+  const push = (id, confidence, autoAdd, why) => {
+    if (roster.has(id) || recs.some(r => r.persona === id)) return;
+    const p = PR_AGENT_PERSONA_MAP[id];
+    if (!p) return;
+    recs.push({
+      persona: id, label: p.label, emoji: p.emoji, gradFrom: p.gradFrom, gradTo: p.gradTo,
+      readOnly: !!p.readOnly, confidence, autoAdd: !!autoAdd, why,
+    });
+  };
+  // Your own PR → the merge steward is the obvious default: tend it to merge.
+  if (isMine) push('merge-steward', 'high', true, 'This is <b>your pull request</b> — the steward addresses reviewer feedback, hardens the change, and validates it toward a clean merge.');
+  // CI failing (best-effort from whatever status the PR carries).
+  const ciFailing = /\b(fail|failed|failing|error|broken|red)\b/.test(String(pr.checkState || pr.mergeStatus || pr.status || '').toLowerCase());
+  if (ciFailing && isMine) push('merge-steward', 'high', true, 'CI is <b>failing</b> on your PR — the steward can get it green and merge-ready.');
+  // Security-sensitive surface → security review (read-only, safe to auto-add).
+  const sec = has(/\b(auth|authn|authz|token|oauth|login|logout|credential|secret|password|session|permission|privilege|vuln|cve|exploit|inject|xss|csrf|ssrf|crypto|encrypt|decrypt|sanitiz|escap)/);
+  if (sec) push('security-review', 'high', true, 'Touches <b>auth / security-sensitive</b> code — a common place for exploitable bugs. Read-only; won\'t change the PR.');
+  const design = has(/\b(design|architect|refactor|approach|rewrite|migrat|redesign|proposal|rfc|new (system|service|component)|breaking)/);
+  if (design) push('design-review', 'medium', false, 'Non-trivial design / refactor — weigh the approach and long-term cost before merge.');
+  const tests = has(/\b(test|spec|coverage|regress|assert|fixture|mock|e2e|unit|integration)/);
+  if (tests) push('test-coverage', 'medium', false, 'Test-related change — audit whether the behavior is actually covered.');
+  const docs = has(/\b(release|changelog|release.?note|version|ship|user.?facing|feature|breaking)/);
+  if (docs || isMine) push('release-notes', 'medium', false, 'Draft the user-facing release note / changelog entry for this change.');
+  // Always-useful default review pass (suggested, never auto-added).
+  push('rubber-duck', sec ? 'high' : 'medium', false, 'A demanding review pass for logic errors and edge-case bugs before it merges.');
+  push('test-coverage', 'medium', false, 'Check the change is actually tested — untested paths and missing cases.');
+  const rank = c => (c === 'high' ? 0 : 1);
+  recs.sort((a, b) => (Number(b.autoAdd) - Number(a.autoAdd)) || (rank(a.confidence) - rank(b.confidence)));
+  return recs;
+}
+
+// Per-persona, per-PR agent slug (so multiple playbook agents coexist in a PR
+// worktree alongside the reviewer/steward). e.g. `security-review-arcade-pr17018`.
+function _prAgentSlug(pr, persona) {
+  const pid = pr && (pr.prId != null ? pr.prId : pr.id);
+  const base = String(persona.id).replace(/^pb-/, '');
+  return (base + '-' + ((pr && pr.repo) || 'repo') + '-pr' + pid)
+    .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase()
+    || (base + '-pr-agent');
+}
+
+// Build the Markdown for a PR playbook agent's `.agent.md`. Reuses the non-impl
+// dev-agent body shape (role / goal / working loop / constraints + shared code
+// quality + status report + hard rules) but grounds it in the PULL REQUEST and its
+// linked work items instead of a dev-card work item. Read-only personas are told,
+// in hard terms, to propose only and never mutate the repo.
+function _buildPrPlaybookAgentMd({ agentName, pr, workItems, persona, worktreePath }) {
+  persona = persona || PR_AGENT_PERSONA_MAP['merge-steward'];
+  const desc = (persona.label + ' agent') + (pr ? ` for PR #${pr.prId != null ? pr.prId : pr.id}` : '') + (pr && pr.repo ? ` in ${pr.repo}` : '');
+  const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
+  const ctx = [];
+  ctx.push('## The pull request');
+  const pid = pr && (pr.prId != null ? pr.prId : pr.id);
+  ctx.push(`- **PR #${pid}** ${pr && pr.title ? pr.title : ''}`);
+  const repoLine = [pr && pr.org, pr && pr.project, pr && pr.repo].filter(Boolean).join(' / ');
+  if (repoLine) ctx.push('- Repository: ' + repoLine);
+  if (pr && pr.sourceBranch) ctx.push(`- Branch: \`${String(pr.sourceBranch).replace(/^refs\/heads\//, '')}\`${pr.targetBranch ? ` → \`${String(pr.targetBranch).replace(/^refs\/heads\//, '')}\`` : ''}`);
+  if (pr && pr.createdBy) ctx.push('- Author: ' + (pr.createdBy.displayName || pr.createdBy.name || pr.createdBy));
+  if (pr && pr.url) ctx.push('- Link: ' + pr.url);
+  ctx.push('- The full diff for this PR is checked out in this worktree — read it before you form any conclusion.');
+  ctx.push('');
+  if (Array.isArray(workItems) && workItems.length) {
+    ctx.push('## Linked work items');
+    for (const w of workItems.slice(0, 8)) {
+      ctx.push(`- **#${w.id}${w.type ? ' [' + w.type + ']' : ''}** ${w.title || ''}${w.url ? '  (' + w.url + ')' : ''}`);
+    }
+    ctx.push('');
+  }
+  const steps = (persona.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n');
+  const cons = (persona.constraints || []).slice();
+  if (persona.readOnly) {
+    cons.unshift('You are a **READ-ONLY** agent. Do NOT create, modify, or delete any file in the repository, and do NOT run builds, tests, or any command that mutates state or the working tree. Your entire job is to investigate and **review / report** — the author acts on your findings.');
+  }
+  const reportName = 'pr-' + persona.id.replace(/^pb-/, '').replace(/[^a-z0-9-]+/gi, '-').toLowerCase() + '-report.html';
+  const pbody = `You are the **${persona.label}** agent working on this pull request in its checked-out worktree. ${persona.tagline || ''}
+
+${ctx.join('\n')}
+## Your goal
+${persona.goal || persona.tagline || ''}
+
+## How you work
+Follow this focused loop and narrate which step you are on:
+${steps}
+
+## Constraints
+${cons.map(c => '- ' + c).join('\n')}
+
+## Status report (HTML)
+When you finish, produce a **self-contained HTML status report** named \`${reportName}\` at the root of this worktree that makes your findings and their value obvious at a glance. Inline all CSS/JS (no external assets or CDNs) so it opens from disk; draw any charts with inline SVG or pure-CSS bars. Lead with the outcome — the specific findings, the evidence, and (where the persona measures anything) the before→after numbers — not prose. Give it a clean title, the PR id/link, and a timestamp. Do **not** commit or push this report; treat it like your agent file and leave it untracked.
+
+## Code quality bar
+${persona.readOnly
+  ? 'You do not write product code, but you hold the same rigor: ground every finding in the actual diff, cite specific locations, and report only high-confidence, defensible conclusions. Study the surrounding files enough to judge the change in context, and match the project\'s conventions when you suggest fixes.'
+  : `When you write code you write **production-quality code**:
+- **Match the existing codebase** — study the surrounding files for conventions (naming, layout, error handling, logging, async patterns, formatting) and mirror them so your changes are indistinguishable from code already in the repo.
+- **Reuse existing patterns and helpers** instead of inventing parallel ones.
+- **Be surgical and complete** — address the PR's goal and reviewer feedback without touching unrelated code; no drive-by refactors.
+- **Handle real-world conditions** — error paths, edge cases, empty/invalid inputs — the way the existing code does.
+- **No placeholders** — no \`TODO\`, stubs, or dead code.
+- **Leave it green** — respect the existing linters/formatters and validate with the project's own build/test tooling.`}
+
+## Hard rules
+- You have **no tool restrictions** — use whatever you need to ${persona.readOnly ? 'understand the diff and reach a high-confidence conclusion' : 'do your job well'}.${persona.readOnly ? '\n- **Do not modify the repository.** If you believe a change is warranted, describe it precisely in your report and hand it to the author — do not make it yourself.' : '\n- **Do not push, complete/merge, or post public PR comments** unless the user explicitly asks. Commit locally and PREPARE replies; leaving the machine requires the user\'s approval.'}
+- **Never check yourself in.** If asked to commit code, commit ONLY the code changes. NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`) or other agent-supervisor scaffolding.
+- Keep the working tree clean of agent artifacts; if you notice a \`.github/agents/*.agent.md\` file, leave it untracked and never add it.
+`;
+  return fm + pbody;
+}
+
+// Write a PR playbook persona's `.agent.md` into EVERY worktree the CLI could open
+// for this PR's branch (mirror _writeCfReviewAgentFile), git-excluding the file +
+// the persona's own report. Returns { slug, rel, dirs } or null when no worktree.
+function _writePrPlaybookAgentFile(rec, pr, workItems, persona) {
+  const wt = rec && rec.worktreePath;
+  if (!wt || !fs.existsSync(wt)) return null;
+  const slug = _prAgentSlug(pr, persona);
+  const rel = '.github/agents/' + slug + '.agent.md';
+  const reportName = 'pr-' + persona.id.replace(/^pb-/, '').replace(/[^a-z0-9-]+/gi, '-').toLowerCase() + '-report.html';
+  const md = _buildPrPlaybookAgentMd({ agentName: slug, pr, workItems, persona, worktreePath: wt });
+  const dirs = _cfAgentTargetDirs(rec);
+  if (!dirs.length) dirs.push(wt);
+  for (const d of dirs) {
+    try {
+      const agentsDir = path.join(d, '.github', 'agents');
+      fs.mkdirSync(agentsDir, { recursive: true });
+      fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), md);
+      try { devitems.addGitExclude(d, rel); } catch {}
+      try { devitems.addGitExclude(d, reportName); } catch {}
+    } catch {}
+  }
+  return { slug, rel, dirs: dirs.length };
+}
+
+// Remove a PR playbook persona's `.agent.md` from every on-branch worktree.
+function _removePrPlaybookAgentFile(rec, pr, persona) {
+  let removed = 0;
+  const slug = _prAgentSlug(pr, persona);
+  const dirs = _cfAgentTargetDirs(rec);
+  for (const d of dirs) {
+    try {
+      const f = path.join(d, '.github', 'agents', slug + '.agent.md');
+      if (fs.existsSync(f)) { fs.unlinkSync(f); removed++; }
+    } catch {}
+  }
+  return removed;
+}
+
+// Catalog of PR playbook personas for the SPA picker.
+app.get('/api/pr-agent-personas', (req, res) => {
+  try { res.json(_prPersonaCatalog()); }
+  catch (e) { res.status(500).json({ error: (e && e.message) || String(e) }); }
+});
+
+// Signal-based PR agent recommendations. Read-only, deterministic (no LLM).
+// Fetches the freshest PR + linked work items, reads the roster from the worktree
+// record, and returns { recommendations, roster }.
+app.get('/api/codeflow/pr/recommend-agents', async (req, res) => {
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const rec = _getCfWt(_cfWtKey(o));
+  const view = String(req.query.view || (rec && rec.view) || '').toLowerCase();
+  const roster = Array.isArray(rec && rec.prAgents) ? rec.prAgents : [];
+  let pr = null, workItems = [];
+  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); } catch {}
+  if (pr) { try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {} }
+  // Fall back to the cached title so a recommendation still renders if the PR
+  // fetch fails (offline / throttled).
+  const prCtx = pr ? { ...pr, org: o.org, project: o.project, repo: o.repo }
+    : { title: (rec && rec.prTitle) || '', sourceBranch: (rec && rec.sourceBranch) || '', org: o.org, project: o.project, repo: o.repo };
+  try {
+    res.json({ ok: true, recommendations: _recommendPrAgents(prCtx, { view, workItems, roster }), roster });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || String(e) });
+  }
+});
+
+// Add a PR playbook persona to a PR worktree: write its `.agent.md` into every
+// on-branch worktree + persist the roster on the worktree record. Gated on a
+// ready worktree (→ 400 'Create a worktree first.'). Body { org, project, repo,
+// prId, provider, persona, playbookId?, view? }.
+app.post('/api/codeflow/pr/playbook-agent', async (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) {
+    return res.status(400).json({ error: 'Create a worktree first.' });
+  }
+  const persona = _prPersona(b.persona || 'merge-steward', b.playbookId);
+  let pr;
+  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); }
+  catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
+  if (!pr) return res.status(404).json({ error: 'Pull request not found.' });
+  let workItems = [];
+  try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+  const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
+  let written;
+  try { written = _writePrPlaybookAgentFile(rec, prCtx, workItems, persona); }
+  catch (e) { return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) }); }
+  if (!written) return res.status(400).json({ error: 'Create a worktree first.' });
+  const roster = (Array.isArray(rec.prAgents) ? rec.prAgents : []).filter(r => r.persona !== persona.id);
+  roster.push({
+    persona: persona.id, label: persona.label, emoji: persona.emoji,
+    gradFrom: persona.gradFrom, gradTo: persona.gradTo, readOnly: !!persona.readOnly,
+    slug: written.slug, addedAt: new Date().toISOString(),
+  });
+  const updated = _saveCfWt(key, { prAgents: roster });
+  res.json({ ok: true, worktree: { key, ...updated }, agentName: written.slug, roster });
+});
+
+// Remove a PR playbook persona from a PR worktree: delete its `.agent.md` from
+// every on-branch worktree + drop it from the roster.
+app.post('/api/codeflow/pr/playbook-agent/remove', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec) return res.status(404).json({ error: 'No worktree record.' });
+  const persona = _prPersona(b.persona || 'merge-steward', b.playbookId);
+  let removed = 0;
+  try { removed = _removePrPlaybookAgentFile(rec, { ...o, prId: o.prId, id: o.prId }, persona); } catch {}
+  const roster = (Array.isArray(rec.prAgents) ? rec.prAgents : []).filter(r => r.persona !== persona.id);
+  const updated = _saveCfWt(key, { prAgents: roster });
+  res.json({ ok: true, worktree: { key, ...updated }, removed, roster });
+});
+
 // Best-effort extraction of a JSON object from an LLM reply (handles code
 // fences / surrounding prose).
 function _extractJsonObject(s) {
