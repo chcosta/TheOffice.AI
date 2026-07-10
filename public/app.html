@@ -43317,15 +43317,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                     + ' C ' + cv.cp1.x.toFixed(1) + ' ' + cv.cp1.y.toFixed(1)
                     + ' ' + cv.cp2.x.toFixed(1) + ' ' + cv.cp2.y.toFixed(1)
                     + ' ' + cv.p2.x.toFixed(1) + ' ' + cv.p2.y.toFixed(1);
-            let arrow = '';
-            if (dir === 'uni') {
-              // Chevron at the destination port, pointing INTO the card along the port's
-              // inward normal (matches the pursuit-map arrowheads: open, round-joined).
-              const tip = cv.p2; const ux = -cv.p2.nx, uy = -cv.p2.ny;   // travel dir into card
+            // Chevron at a port, pointing INTO the card along the port's inward normal
+            // (matches the pursuit-map arrowheads: open, round-joined). nx/ny is the port's
+            // OUTWARD normal, so travel-into-card is the negated normal.
+            const chevron = (tip) => {
+              const ux = -tip.nx, uy = -tip.ny;   // travel dir into card
               const qx = -uy, qy = ux; const len = 9, half = 5.5;
               const w1x = tip.x - ux * len + qx * half, w1y = tip.y - uy * len + qy * half;
               const w2x = tip.x - ux * len - qx * half, w2y = tip.y - uy * len - qy * half;
-              arrow = 'M ' + w1x.toFixed(1) + ' ' + w1y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2x.toFixed(1) + ' ' + w2y.toFixed(1);
+              return 'M ' + w1x.toFixed(1) + ' ' + w1y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2x.toFixed(1) + ' ' + w2y.toFixed(1);
+            };
+            const cFrom = this.bmapKindColor(pa), cTo = this._bmapLighten(this.bmapKindColor(pb), 0.35);
+            // uni: one arrowhead at the destination. bi (two-way): TWO arrowheads, one at
+            // each end, each coloured to match the card it points into.
+            const arrows = [];
+            if (dir === 'uni') {
+              arrows.push({ d: chevron(cv.p2), color: cTo });
+            } else {
+              arrows.push({ d: chevron(cv.p2), color: cTo });
+              arrows.push({ d: chevron(cv.p1), color: cFrom });
             }
             // Cubic-Bezier midpoint (t=0.5) — anchors the per-edge unlink control.
             const mx = (cv.p1.x + 3 * cv.cp1.x + 3 * cv.cp2.x + cv.p2.x) / 8;
@@ -43333,9 +43343,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out.push({
               id: String(e.id || (e.from + '__' + e.to)).replace(/[^a-zA-Z0-9_-]/g, '_'),
               eid: e.id || (e.from + '__' + e.to),
-              dir, d, arrow, mx: mx.toFixed(1), my: my.toFixed(1),
+              dir, d, arrows, mx: mx.toFixed(1), my: my.toFixed(1),
               x1: cv.p1.x.toFixed(1), y1: cv.p1.y.toFixed(1), x2: cv.p2.x.toFixed(1), y2: cv.p2.y.toFixed(1),
-              c1: this.bmapKindColor(pa), c2: this._bmapLighten(this.bmapKindColor(pb), 0.35)
+              c1: cFrom, c2: cTo
             });
           }
           return out;
@@ -43352,7 +43362,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   + '<stop offset="100%" stop-color="' + esc(e.c2) + '"></stop>'
                   + '</linearGradient>';
             body += '<path class="bmap-edge bmap-edge-' + e.dir + '" d="' + e.d + '" fill="none" stroke="url(#bmgrad-' + esc(e.id) + ')"></path>';
-            if (e.arrow) body += '<path class="bmap-arrow" d="' + e.arrow + '" fill="none" stroke="' + esc(e.c2) + '"></path>';
+            for (const ar of (e.arrows || [])) body += '<path class="bmap-arrow" d="' + ar.d + '" fill="none" stroke="' + esc(ar.color) + '"></path>';
           }
           defs += '</defs>';
           return defs + body;
