@@ -15245,6 +15245,11 @@ function _meAiEnforcePins(blocks, pins, winEnd) {
 function _meAiOrderPrepBeforeTarget(blocks) {
   if (!Array.isArray(blocks) || blocks.length < 2) return blocks || [];
   const isPrep = (b) => b && (String(b.type || '') === 'prep' || /^\s*prep\b/i.test(String(b.title || '')));
+  // A block that CANNOT yield its slot: an attending meeting, or anything the user/history froze.
+  const immovable = (b) => b && (
+    (String(b.type || '') === 'meeting' && !(b.meta && b.meta.attending === false)) ||
+    (b.meta && (b.meta.pinned || b.meta.imminent || b.meta.manual || b.meta.past))
+  );
   const targetKey = (title) => {
     const t = String(title || '').replace(/^\s*prep\s*(for|:|-|–|—)?\s*/i, '').trim();
     return _meAiActivityKey(t);
@@ -15267,20 +15272,45 @@ function _meAiOrderPrepBeforeTarget(blocks) {
     }
     if (!target) continue;
     const ts = _hmToMin(target.start);
-    if (ts == null || pe <= ts) continue; // already fully before its target — fine
-    const dur = pe - ps, newStart = ts - dur;
-    const collides = out.some(o => {
-      if (o === p || drop.has(o)) return false;
+    if (ts == null) continue;
+    const dur = Math.max(1, pe - ps);
+    const newStart = ts - dur;                       // EXACT: prep ends the instant its item begins
+    if (ps === newStart && pe === ts) continue;      // already exactly placed — leave it
+    if (newStart < 0) { drop.add(p); continue; }
+    // Cascade room-making: everything movable that currently overlaps the desired [newStart, ts]
+    // window is pushed back so the prep sits flush before its item. We keep each pushed block's
+    // START where it is and just trim its END back to the growing lower bound (so a 9:30–10:30
+    // review becomes 9:30–10:25 for a 10:25 prep); if a block would be squeezed to nothing we
+    // shift it wholesale earlier and lower the bound so the block before it cascades too. An
+    // immovable block (real meeting / pin / lock / history) in the window can't yield, so the
+    // prep-after is genuine noise and we drop it.
+    const window = out.filter(o => {
+      if (o === p || o === target || drop.has(o)) return false;
+      const os = _hmToMin(o.start), oe = _hmToMin(o.end);
+      if (os == null || oe == null) return false;
+      return os < ts && oe > newStart;               // overlaps the desired prep window
+    });
+    if (window.some(immovable)) { drop.add(p); continue; }
+    // Pushable = every movable block that ends after newStart and starts before the meeting,
+    // processed latest-start first so the bound cascades cleanly leftward.
+    const pushable = out.filter(o => {
+      if (o === p || o === target || drop.has(o) || immovable(o)) return false;
       const os = _hmToMin(o.start), oe = _hmToMin(o.end);
       if (os == null || oe == null) return false;
       return os < ts && oe > newStart;
-    });
-    if (newStart >= 0 && !collides) {
-      p.start = _minToHm(newStart); p.end = _minToHm(ts);
-      p.meta = Object.assign({}, p.meta || {}, { prepReordered: true });
-    } else {
-      drop.add(p); // no room before the target (imminent/packed) — a prep-after is useless
+    }).map(o => ({ o, s: _hmToMin(o.start), e: _hmToMin(o.end) }))
+      .sort((a, z) => z.s - a.s);
+    let ok = true, bound = newStart;
+    for (const x of pushable) {
+      if (x.e <= bound) continue;                    // already clears the bound
+      const d = x.e - x.s;
+      if (x.s < bound) { x.o.end = _minToHm(bound); bound = x.s; }      // trim end, keep start
+      else { x.o.end = _minToHm(bound); x.o.start = _minToHm(bound - d); bound = bound - d; } // shift wholesale
+      if (bound < 0) { ok = false; break; }
     }
+    if (!ok) { drop.add(p); continue; }
+    p.start = _minToHm(newStart); p.end = _minToHm(ts);
+    p.meta = Object.assign({}, p.meta || {}, { prepReordered: true });
   }
   const res = out.filter(b => !drop.has(b));
   res.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
@@ -15588,12 +15618,14 @@ function _meAiYieldOffMeetings(blocks, cfg) {
     // Prefer the title-matched target; else the nearest later meeting.
     let anchorStart = target ? target.s : null;
     if (anchorStart == null) { const later = meetings.find(([ms]) => ms >= bs); anchorStart = later ? later[0] : null; }
-    let placed = false;
     if (anchorStart != null) {
+      // Place prep to end EXACTLY when its item begins (no grid snap). If the slot before is
+      // free, take it here; otherwise leave the prep in place for the dedicated cascade pass
+      // (_meAiOrderPrepBeforeTarget) to place-and-push the preceding movable block — do NOT
+      // drop it, so a 10-min prep for a 10:35 meeting lands at 10:25 and trims the block before.
       const ds = anchorStart - dur, de = anchorStart;
-      if (ds >= wStart && slotFree(ds, de, b)) { b.start = _minToHm(ds); b.end = _minToHm(de); placed = true; }
+      if (ds >= wStart && slotFree(ds, de, b)) { b.start = _minToHm(ds); b.end = _minToHm(de); }
     }
-    if (!placed) drop.add(b);                                    // no room before the item -> noise
   }
   // (2) movable work blocks — slide off any meeting they overlap.
   const MOVABLE = new Set(['review', 'steward', 'comms', 'admin', 'pr', 'dev', 'work', 'task']);
@@ -23982,6 +24014,9 @@ function _normalizeBoard(b) {
     id: b.id,
     name: b.name,
     emoji: b.emoji || '📌',
+    // Accent colour for the workspace banner gradient (hex like '#6ea8fe'). Optional;
+    // null => neutral banner. Replaces the old per-workspace emoji as the identity cue.
+    color: (typeof b.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(b.color)) ? b.color : null,
     teamId: (b.teamId !== undefined ? b.teamId : b.orgId) || null,
     items: Array.isArray(b.items) ? b.items : [],
     notes: Array.isArray(b.notes) ? b.notes : [],
@@ -24284,13 +24319,14 @@ app.post('/api/boards/:id/lease', (req, res) => {
 
 
 app.post('/api/boards', (req, res) => {
-  const { name, emoji, teamId, orgId } = req.body || {};
+  const { name, emoji, color, teamId, orgId } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Missing required field: name' });
   const boards = loadBoards();
   const board = _normalizeBoard({
     id: _boardId(name),
     name: String(name).trim(),
     emoji: emoji || '📌',
+    color: color || null,
     teamId: (teamId !== undefined ? teamId : orgId) || null,
     items: [], notes: [], checklists: [],
     createdAt: new Date().toISOString(),
@@ -24308,7 +24344,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId, map } = req.body || {};
+  const { name, emoji, color, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId, map } = req.body || {};
   // Writer-lease guard: only the current lease holder may persist LAYOUT. A stale /
   // background client whose clientId != holder is rejected (409) so it cannot clobber
   // the focused client's layout. Non-layout updates (notes/checklists/items/star/...)
@@ -24321,6 +24357,7 @@ app.put('/api/boards/:id', (req, res) => {
   }
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
+  if (color !== undefined) b.color = (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) ? color : null;
   const teamScope = teamId !== undefined ? teamId : orgId;
   if (teamScope !== undefined) b.teamId = teamScope || null;
   if (Array.isArray(items)) b.items = items;
