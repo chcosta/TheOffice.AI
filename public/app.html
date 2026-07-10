@@ -8962,6 +8962,7 @@
                             <template x-for="n in bmapNodes()" :key="n.base">
                               <div class="bmap-node"
                                    :data-base="n.base"
+                                   x-init="_bmapGeomBump()"
                                    :class="{ sel: bmapIsSel(n.base), hl: bmapIsHl(n.base), 'group-preview': bmapInGroupPreview(n.base), 'connect-from': bmap.connectFrom===n.base }"
                                    :style="bmapNodeStyle(n)"
                                    @pointerdown.stop="bmapNodeDown(n,$event)"
@@ -18108,7 +18109,7 @@
           <section x-show="!loading && !errorMessage && (route === 'autonomous' || route === 'tasks' || route === 'chains')" class="nlx-scroll">
             <div class="nlx-top">
               <div class="page-title">
-                <h1>Autonomous</h1>
+                <h1>Automation</h1>
                 <p x-show="autoTab() === 'tasks'">Single-agent jobs — a saved prompt plus an optional schedule. Run on demand, watch run health, and keep what's coming up in view.</p>
                 <p x-show="autoTab() === 'flows'">Wire tasks into a conditional pipeline. When a task finishes, each outgoing rule (status, output expression, or AI judgment) decides which downstream tasks run next.</p>
               </div>
@@ -18129,7 +18130,7 @@
             </div>
 
             <!-- Section tabs: calm underline top menu, consistent with Code Flow / Marketplace -->
-            <div class="ag-tabs" role="tablist" aria-label="Autonomous section" style="margin:10px 0 18px">
+            <div class="ag-tabs" role="tablist" aria-label="Automation section" style="margin:10px 0 18px">
               <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'tasks'" :class="autoTab() === 'tasks' ? 'on' : ''" @click="autoView = 'tasks'">⚡ Tasks<span class="n" x-show="execTaskMetrics().total" x-text="execTaskMetrics().total"></span></button>
               <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'flows'" :class="autoTab() === 'flows' ? 'on' : ''" @click="autoView = 'flows'; $nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))">🔗 Flows<span class="n" x-show="execFlowMetrics().total" x-text="execFlowMetrics().total"></span></button>
             </div>
@@ -24153,6 +24154,7 @@
           connect: null, connectFrom: null, link: null, groupMode: false,
           sel: [], hover: null, full: null, editGroup: null, summaryGroup: null,
           groupPreview: [], aiSummary: {},
+          geomTick: 0,
           _boardId: null, _persistT: null, _suppressClick: false,
         },
         _tbxSwipeOpen: null,
@@ -26730,7 +26732,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'playbooks': return mk('Playbooks', '📓', '#/playbooks', 'playbooks');
             case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
             case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
-            case 'autonomous': return mk('Autonomous', '⚡', '#/autonomous', 'autonomous');
+            case 'autonomous': return mk('Automation', '⚡', '#/autonomous', 'autonomous');
             case 'marketplace': return mk('Marketplace', '🛍️', '#/marketplace', 'marketplace', { badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' });
             case 'sessions': return mk('CLI Sessions', '⌨', '#/sessions', 'sessions');
             case 'activity': return mk('Activity', '📜', '#/activity', 'activity');
@@ -27011,7 +27013,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
             const insights = { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false };
             const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
-            const autonomous = { key: 'autonomous', label: 'Autonomous', title: 'Autonomous', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false };
+            const autonomous = { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false };
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
             const connect = { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
@@ -27051,7 +27053,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
             { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
-            { key: 'autonomous', label: 'Autonomous', title: 'Autonomous', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false },
+            { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false },
             { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' },
             { key: 'newsletter', label: 'Newsletter', title: 'Newsletter', icon: '📰', href: '#/newsletter', routeGroup: 'newsletter', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' },
             watercooler,
@@ -27256,7 +27258,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
-            { key: 'autonomous', label: 'Autonomous', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
+            { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
@@ -27272,7 +27274,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
-            { key: 'autonomous', label: 'Autonomous', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
+            { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📓', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
@@ -42386,6 +42388,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch {}
           return { w: 272, h: 148 };
         },
+        // Coalesced bump of geomTick so edge curves recompute against real card sizes
+        // once cards have actually laid out (first paint measures fallback dims).
+        _bmapGeomBump() {
+          if (this._bmapGeomT) return;
+          this._bmapGeomT = setTimeout(() => {
+            this._bmapGeomT = null;
+            try { this.bmap.geomTick++; } catch {}
+          }, 60);
+        },
         _bmapGroupsOf(base) {
           const m = this.bmapData(); if (!m || !m.groups) return [];
           return m.groups.filter(g => (g.members || []).includes(base));
@@ -43141,9 +43152,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Endpoints snap to each card's nearest link port; control points extend along each
         // port's outward normal so the curve leaves the port cleanly and stays a smooth
         // bezier (never snaps straight), matching the live drag + the pursuit map.
-        _bmapEdgeCurve(c1, c2, hw, hh) {
-          const p1 = this._bmapPort(c1, c2, hw, hh);
-          const p2 = this._bmapPort(c2, c1, hw, hh);
+        _bmapEdgeCurve(c1, c2, hw1, hh1, hw2, hh2) {
+          // Backward-compat: if only one pair of half-dims passed, use it for both cards.
+          if (hw2 == null) { hw2 = hw1; hh2 = hh1; }
+          const p1 = this._bmapPort(c1, c2, hw1, hh1);
+          const p2 = this._bmapPort(c2, c1, hw2, hh2);
           const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
           const ext = Math.max(30, Math.min(120, dist * 0.42));
           const cp1 = { x: p1.x + p1.nx * ext, y: p1.y + p1.ny * ext };
@@ -43165,16 +43178,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // from the from-card colour to the to-card's lightened highlight colour.
         bmapEdgeList() {
           const m = this.bmapData(); const nodes = m.nodes || {};
-          const NW = 272, NH = 148, hw = NW / 2, hh = NH / 2;
+          void this.bmap.geomTick; // reactive dep: recompute once cards are measured / after drags
           const out = [];
           for (const e of (m.edges || [])) {
             const a = nodes[e.from], b = nodes[e.to];
             if (!a || !b) continue;
             const pa = this._panelByBase(e.from), pb = this._panelByBase(e.to);
             if (!pa || !pb) continue;
-            const c1 = { x: (+a.x || 0) + hw, y: (+a.y || 0) + hh };
-            const c2 = { x: (+b.x || 0) + hw, y: (+b.y || 0) + hh };
-            const cv = this._bmapEdgeCurve(c1, c2, hw, hh);
+            // Measure each card's REAL size so ports snap to the actual card edge
+            // (cards grow vertically to fit content — a fixed 148px buried arrowheads).
+            const da = this._bmapNodeDims(e.from), db = this._bmapNodeDims(e.to);
+            const hw1 = da.w / 2, hh1 = da.h / 2, hw2 = db.w / 2, hh2 = db.h / 2;
+            const c1 = { x: (+a.x || 0) + hw1, y: (+a.y || 0) + hh1 };
+            const c2 = { x: (+b.x || 0) + hw2, y: (+b.y || 0) + hh2 };
+            const cv = this._bmapEdgeCurve(c1, c2, hw1, hh1, hw2, hh2);
             const dir = (e.dir || 'bi');
             const d = 'M ' + cv.p1.x.toFixed(1) + ' ' + cv.p1.y.toFixed(1)
                     + ' C ' + cv.cp1.x.toFixed(1) + ' ' + cv.cp1.y.toFixed(1)
@@ -48607,6 +48624,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const b = this._baseResolve(base, title);
             return (b && m.nodes[b]) ? b : null;
           };
+          if (a.type === 'map_add') {
+            const b = this._baseResolve(a.base, a.title || a.cardTitle);
+            if (!b) return false;
+            if (m.nodes[b]) return true; // already on the map — treat as success
+            if (typeof this.bmapAddNode === 'function') this.bmapAddNode(b);
+            else { m.nodes[b] = { x: 60, y: 60, z: 1 }; this._bmapPersistSoon(); }
+            return !!m.nodes[b];
+          }
+          if (a.type === 'map_remove') {
+            const b = resolveOnMap(a.base, a.title || a.cardTitle);
+            if (!b) return false;
+            if (typeof this.bmapRemoveNode === 'function') this.bmapRemoveNode(b);
+            else { delete m.nodes[b]; this._bmapPersistSoon(); }
+            return true;
+          }
+          if (a.type === 'map_move') {
+            const b = resolveOnMap(a.base, a.title || a.cardTitle);
+            if (!b || !m.nodes[b]) return false;
+            const nx = Number(a.x), ny = Number(a.y);
+            if (Number.isFinite(nx)) m.nodes[b].x = Math.round(nx);
+            if (Number.isFinite(ny)) m.nodes[b].y = Math.round(ny);
+            this._bmapPersistSoon();
+            try { this.bmap.geomTick++; } catch {}
+            return true;
+          }
           if (a.type === 'add_link') {
             const from = resolveOnMap(a.from, a.fromTitle);
             const to = resolveOnMap(a.to, a.toTitle);
@@ -48731,11 +48773,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (nodeBases.length) {
                 lines.push('');
                 lines.push('## MAP (current board) — relationship graph of the board the user is looking at');
-                lines.push('This board is a relationship MAP. The cards below are its NODES; you can draw LINKS between');
-                lines.push('them (add_link), remove links (remove_link), and box related ones into named GROUPS');
-                lines.push('(create_group). These MAP actions apply to THIS board only. Reference a card by its base.');
+                lines.push('This board is a relationship MAP. The cards below are its NODES; you can add cards from the');
+                lines.push('toolbox onto it (map_add), remove cards from it (map_remove), move a card (map_move x,y), draw');
+                lines.push('LINKS between them (add_link), remove links (remove_link), and box related ones into named');
+                lines.push('GROUPS (create_group). These MAP actions apply to THIS board only. Reference a card by its base.');
                 lines.push('Cards on this map:');
                 nodeBases.forEach(b => { const t = baseTitle[b] || b; lines.push('  - ' + t + ' [base=' + b + ']'); });
+                // Items available in the toolbox but NOT yet placed on this map, so the
+                // assistant can add them (map_add), and answer "what's not on the board?".
+                try {
+                  const onMap = new Set(nodeBases);
+                  const off = panels.map(p => { try { return { title: this.panelTitle(p), base: this.panelBaseId(p) }; } catch { return null; } })
+                    .filter(x => x && x.base && !onMap.has(x.base));
+                  lines.push('Cards NOT on this map (in the toolbox — add with map_add):');
+                  if (off.length) off.forEach(x => lines.push('  - ' + x.title + ' [base=' + x.base + ']'));
+                  else lines.push('  (none — every card is already on the map)');
+                } catch (e) {}
                 const edges = Array.isArray(mp.edges) ? mp.edges : [];
                 if (edges.length) {
                   lines.push('Existing links:');
@@ -48821,6 +48874,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'add_link') return '🔗 Link';
           if (a.type === 'remove_link') return '✂ Unlink';
           if (a.type === 'create_group') return '▢ Group';
+          if (a.type === 'map_add') return '＋ Add to map';
+          if (a.type === 'map_remove') return '🗑 Remove';
+          if (a.type === 'map_move') return 'Move';
           if (a.type === 'add_dev_note') return '＋ Add note';
           if (a.type === 'edit_dev_note') return 'Save';
           if (a.type === 'check_dev_note') return '✓ Check';
@@ -48846,6 +48902,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'add_link') return '✓ linked';
           if (a.type === 'remove_link') return '✓ unlinked';
           if (a.type === 'create_group') return '✓ grouped';
+          if (a.type === 'map_add') return '✓ added to map';
+          if (a.type === 'map_remove') return '✓ removed';
+          if (a.type === 'map_move') return '✓ moved';
           if (a.type === 'replace_dev_link') return '✓ replaced';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item', 'edit_dev_note', 'check_dev_note', 'uncheck_dev_note'];
@@ -48878,7 +48937,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Presentation-only MAP actions: applied client-side against the current
           // board's per-section relationship map (nodes/edges/groups). Like the
           // section actions, the server never persists the map — it only proposes.
-          const MAP_TYPES = ['add_link', 'remove_link', 'create_group'];
+          const MAP_TYPES = ['add_link', 'remove_link', 'create_group', 'map_add', 'map_remove', 'map_move'];
           if (MAP_TYPES.includes(a.type)) {
             const applied = this.applyBoardMapAction(a);
             if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Map change') + ' applied', 'success'); }
