@@ -2756,11 +2756,14 @@
     .fr2-node.failed { border-color:color-mix(in srgb,var(--cp-danger) 55%,var(--cp-border)); }
     .fr2-node.running { border-color:color-mix(in srgb,var(--cp-warning) 55%,var(--cp-border)); }
     .fr2-node-head { display:flex; align-items:flex-start; gap:10px; padding:11px 14px; border-bottom:1px solid var(--cp-border); }
-    .fr2-node-ic { font-size:16px; line-height:1.2; }
+    .fr2-node-dot { width:9px; height:9px; border-radius:50%; margin-top:4px; flex:0 0 auto; background:var(--cp-text-muted); }
+    .fr2-node-dot.agent { background:var(--cp-accent); }
+    .fr2-node-dot.task { background:var(--cp-link); }
     .fr2-node-name { font-size:14px; font-weight:700; line-height:1.25; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .fr2-start { font-size:9px; font-weight:800; letter-spacing:.05em; color:var(--cp-accent); border:1px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale, 1) * 5px); padding:0 4px; }
     .fr2-node-sub { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; }
     .fr2-node-body { padding:12px 14px; }
+    .fr2-node-body .md-output { max-height:none; overflow:visible; }
     .fr2-reason { font-size:12.5px; color:var(--cp-text-soft); margin-bottom:10px; }
     .fr2-act { margin-bottom:12px; }
     .fr2-out-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:2px 0 6px; }
@@ -19351,7 +19354,7 @@
                         <div class="split-meta">
                           <div style="min-width:0">
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <span class="status-badge" style="font-size:0.7rem" :class="resilienceStatusClass(rt.status)" x-text="resilienceStatusLabel(rt.status)"></span>
+                              <span class="flow-stat" style="font-size:0.72rem" :class="resilienceStatusClass(rt.status)" x-text="resilienceStatusLabel(rt.status)"></span>
                               <span class="hint" x-text="'Attempt ' + rt.attempt + ' / ' + rt.maxRetries"></span>
                               <template x-if="rt.status === 'pending' && rt.dueAt"><span class="hint" x-text="'· due ' + formatDateTime(rt.dueAt)"></span></template>
                             </div>
@@ -19432,9 +19435,9 @@
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                       <button class="btn ghost" type="button" @click="goTo('#/chains')">‹ Back</button>
                       <h1 style="margin:0" x-text="detailChain().name"></h1>
-                      <span class="type-badge" x-text="(detailChain().steps?.length || 0) + ' tasks'"></span>
-                      <span class="status-badge" :class="detailChain().enabled === false ? 'idle' : 'success'" x-text="detailChain().enabled === false ? 'Disabled' : 'Enabled'"></span>
-                      <span class="status-badge" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                      <span class="flow-count" x-text="(detailChain().steps?.length || 0) + ' tasks'"></span>
+                      <span class="flow-stat" :class="detailChain().enabled === false ? 'idle' : 'success'" x-text="detailChain().enabled === false ? 'Disabled' : 'Enabled'"></span>
+                      <span class="flow-stat" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="statusLabel ? statusLabel(chainRunState[detailChain().id]?.status) : chainRunState[detailChain().id]?.status"></span>
                     </div>
                     <p x-text="(detailChain().description || 'No description') + ' • ' + chainScheduleSummary(detailChain())"></p>
                   </div>
@@ -19457,7 +19460,7 @@
                       <template x-if="chainRunState[detailChain().id] && !(chainRuns[detailChain().id] || []).some(r => String(r.id) === String(chainRunState[detailChain().id].id))">
                         <button type="button" class="fr2-run on" @click="refreshChainRun(detailChain())">
                           <span class="fr2-run-top">
-                            <span class="status-badge" style="font-size:0.6rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                            <span class="flow-stat" style="font-size:0.68rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="statusLabel ? statusLabel(chainRunState[detailChain().id]?.status) : chainRunState[detailChain().id]?.status"></span>
                             <span class="fr2-run-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
                           </span>
                           <span class="fr2-run-when">This session · <span x-text="formatRelative(chainRunState[detailChain().id].startedAt)"></span></span>
@@ -19466,7 +19469,7 @@
                       <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'fr2r-' + r.id">
                         <button type="button" class="fr2-run" :class="{ on: String(chainRunState[detailChain().id]?.id) === String(r.id) }" @click="openChainRun(detailChain().id, r.id)">
                           <span class="fr2-run-top">
-                            <span class="status-badge" style="font-size:0.6rem" :class="statusClass(r.status)" x-text="r.status"></span>
+                            <span class="flow-stat" style="font-size:0.68rem" :class="statusClass(r.status)" x-text="statusLabel ? statusLabel(r.status) : r.status"></span>
                           </span>
                           <span class="fr2-run-when" x-text="formatRelative(r.started_at || r.startedAt)"></span>
                           <span class="fr2-run-trig" x-show="r.trigger" x-text="r.trigger"></span>
@@ -19483,7 +19486,7 @@
                       <summary>
                         <span class="fr2-ov-t">Flow overview</span>
                         <span class="fr2-ov-meta" x-show="chainRunState[detailChain().id]">
-                          <span class="status-badge" style="font-size:0.6rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                        <span class="flow-stat" style="font-size:0.68rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="statusLabel ? statusLabel(chainRunState[detailChain().id]?.status) : chainRunState[detailChain().id]?.status"></span>
                           <span class="fr2-run-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
                           <span class="fr2-ov-when" x-show="chainRunState[detailChain().id]?.startedAt">· <span x-text="formatDateTime(chainRunState[detailChain().id].startedAt)"></span></span>
                           <span class="fr2-ov-when" x-show="chainRunState[detailChain().id]?.finishedAt">→ <span x-text="formatDateTime(chainRunState[detailChain().id].finishedAt)"></span></span>
@@ -19504,7 +19507,7 @@
                           <template x-if="entry.kind === 'node'">
                             <section class="fr2-node" :class="statusClass(entry.status)" :id="'fr2-node-' + entry.id">
                               <header class="fr2-node-head">
-                                <span class="fr2-node-ic" x-text="entry.inline ? '🤖' : '📋'"></span>
+                                <span class="fr2-node-dot" :class="entry.inline ? 'agent' : 'task'" :title="entry.inline ? 'Agent step' : 'Task step'"></span>
                                 <div style="min-width:0;flex:1">
                                   <div class="fr2-node-name"><span x-text="entry.name"></span><span class="fr2-start" x-show="entry.isStart">START</span></div>
                                   <div class="fr2-node-sub">
@@ -19513,7 +19516,7 @@
                                     <span x-show="entry.finished || entry.started" x-text="formatRelative(entry.finished || entry.started)"></span>
                                   </div>
                                 </div>
-                                <span class="status-badge" style="font-size:0.66rem" :class="statusClass(entry.status)" x-text="entry.statusLabel"></span>
+                                <span class="flow-stat" style="font-size:0.72rem" :class="statusClass(entry.status)" x-text="entry.statusLabel"></span>
                               </header>
                               <div class="fr2-node-body">
                                 <template x-if="entry.reason"><div class="fr2-reason" x-text="entry.reason"></div></template>
@@ -19573,7 +19576,7 @@
                         <div class="split-meta">
                           <div style="min-width:0">
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <span class="status-badge" style="font-size:0.7rem" :class="resilienceStatusClass(rt.status)" x-text="resilienceStatusLabel(rt.status)"></span>
+                              <span class="flow-stat" style="font-size:0.72rem" :class="resilienceStatusClass(rt.status)" x-text="resilienceStatusLabel(rt.status)"></span>
                               <span class="hint" x-text="'Attempt ' + rt.attempt + ' / ' + rt.maxRetries"></span>
                               <template x-if="rt.status === 'pending' && rt.dueAt"><span class="hint" x-text="'· due ' + formatDateTime(rt.dueAt)"></span></template>
                             </div>
