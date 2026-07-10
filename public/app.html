@@ -5057,20 +5057,6 @@
     .bmap-port-l:hover { transform: translateY(-50%) scale(1.25); }
     .bmap-port-r { right: -7px; top: 50%; transform: translateY(-50%); }
     .bmap-port-r:hover { transform: translateY(-50%) scale(1.25); }
-    /* hover full preview */
-    .bmap-node-preview {
-      position: absolute; top: calc(100% + 8px); left: 0; z-index: 50;
-      width: 320px; max-height: 300px; overflow: auto; padding: 12px 14px;
-      font-size: 12.5px; line-height: 1.5; color: var(--cp-ink);
-      background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px;
-      box-shadow: 0 10px 30px color-mix(in srgb, var(--cp-ink) 26%, transparent);
-      opacity: 0; pointer-events: none; transition: opacity .14s ease .25s;
-    }
-    .bmap-node:hover .bmap-node-preview { opacity: 1; }
-    .bmap-node.sel .bmap-node-preview { z-index: 55; }
-    .board-map.bmap-connecting .bmap-node-preview { display: none; }
-    .bmap-node-preview :where(h1,h2,h3,h4) { font-size: 13px; margin: 0 0 4px; }
-    .bmap-node-preview :where(p,ul,ol) { margin: 0 0 6px; }
     /* edges + arrows */
     .bmap-edges { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; overflow: visible; }
     .bmap-edge-bi { stroke: color-mix(in srgb, var(--cp-ink) 42%, transparent); stroke-width: 2; }
@@ -5140,7 +5126,7 @@
     .bmap-fv-title { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 600; color: var(--cp-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bmap-fullview-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px 22px; }
     @media (prefers-reduced-motion: reduce) {
-      .bmap-node, .bmap-node-acts, .bmap-node-preview, .bmap-group-acts { transition: none; }
+      .bmap-node, .bmap-node-acts, .bmap-group-acts { transition: none; }
     }
     /* Trash drop-target: pinned to the lower-left of the section stage. Floated + sticky
        so it stays visible while the stage scrolls and never adds scroll height. */
@@ -8877,7 +8863,6 @@
                                   <button type="button" @click="bmapSendBack(n.base)" title="Send to back">⬇</button>
                                   <button type="button" @click="bmapRemoveNode(n.base)" title="Remove from map">✕</button>
                                 </span>
-                                <div class="bmap-node-preview" x-html="bmapCardFull(n.p)"></div>
                                 <span class="bmap-linkhandle" title="Drag to another card to link them" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'right')" @click.stop></span>
                                 <template x-if="bmapConnectMode()">
                                   <span class="bmap-ports">
@@ -42139,6 +42124,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (p.type === 'dev') { const d = p.dev || p.item || {}; const s = (d.summary && d.summary.text) ? String(d.summary.text) : ''; if (s) return s.replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); return [d.repo, d.branch].filter(Boolean).join(' · ').slice(0, 150) || 'Dev card'; }
             if (p.type === 'pin') {
               const it = p.item || {}; const kind = String(p.kind || '');
+              if (kind === 'agent') { const a = this._bmapLive(p); const d = a && a.config && a.config.description; if (d) return String(d).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
+              if (kind === 'manager') { const m = this._bmapLive(p); const d = m && m.config && m.config.description; if (d) return String(d).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
+              if (kind === 'task' || kind === 'assignment') { const t = this._bmapLive(p); const d = t && (t.prompt || t.goal); if (d) return String(d).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
               const body = it.summary || it.body || '';
               let meta = it.sublabel || '';
               if (kind === 'pr') { const m = it.meta || {}; meta = [m.state || m.status || it.state, m.repo || it.repo].filter(Boolean).join(' · ') || meta; }
@@ -42184,6 +42172,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ---- Direction B dossier-card content (per-type, defensive; degrade gracefully) ----
         _bmapMeta(p) { return (p && p.item && p.item.meta) || {}; },
+        // Resolve the LIVE entity behind a board pin (pins only carry kind/refId/label,
+        // the rich fields live in this.data.* / allTasks() — mirror pinStatus()).
+        _bmapLive(p) {
+          try {
+            const it = (p && p.item) || {}; const k = String((p && (p.kind || p.type)) || '');
+            const id = it.refId;
+            if (!id) return null;
+            if (k === 'agent') return (this.data.agents || []).find(x => x.id === id) || null;
+            if (k === 'manager') return (this.data.managers || []).find(x => x.id === id) || null;
+            if (k === 'task' || k === 'assignment') return (this.allTasks ? this.allTasks() : []).find(x => x.taskKey === id) || null;
+            if (k === 'flow') return (this.data.chains || []).find(x => x.id === id) || null;
+            if (k === 'chat') return (this.data.chats || []).find(x => x.id === id) || null;
+            return null;
+          } catch { return null; }
+        },
+        _bmapStat(p) { try { return (p && p.item) ? this.pinStatus(p.item) : null; } catch { return null; } },
         _bmapAgo(ts) {
           try {
             const t = new Date(ts).getTime(); if (!t || isNaN(t)) return '';
@@ -42223,7 +42227,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return '';
           } catch { return ''; }
         },
-        bmapShowSummary(p) { return ['dev', 'agent', 'note', 'chat', 'comment', 'location', 'summary'].includes(this.bmapKindKey(p)); },
+        bmapShowSummary(p) { return ['dev', 'agent', 'manager', 'task', 'assignment', 'note', 'chat', 'comment', 'location', 'summary'].includes(this.bmapKindKey(p)); },
         bmapProgress(p) {
           try {
             if (p.type !== 'checklist') return null;
@@ -42243,17 +42247,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapStatusDot(p) {
           try {
-            const k = this.bmapKindKey(p); const m = this._bmapMeta(p);
-            const st = String(m.state || m.status || (p.item && p.item.state) || '').toLowerCase();
-            if (k === 'agent') {
-              if (/run|working|active|busy/.test(st)) return 'run';
-              if (m.schedule || /schedul/.test(st)) return 'sched';
-              if (/fail|error/.test(st)) return 'fail';
+            const k = this.bmapKindKey(p);
+            if (k === 'agent' || k === 'chat') {
+              const st = this._bmapStat(p);
+              if (st && st.state === 'running') return 'run';
+              if (st && st.state === 'failed') return 'fail';
+              const live = this._bmapLive(p);
+              if (live && live.schedule && live.schedule !== 'never') return 'sched';
               return 'idle';
             }
             if (k === 'session') {
-              if (/run|active|live|working/.test(st)) return 'run';
-              if (/fail|error/.test(st)) return 'fail';
+              const sub = String((p.item && p.item.sublabel) || '').toLowerCase();
+              if (/run|active|live|working/.test(sub)) return 'run';
               return 'idle';
             }
             return null;
@@ -42281,17 +42286,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const pr = this.checklistProgress(p.checklist) || {};
               return { text: (pr.done || 0) + '/' + (pr.total || 0), tone: 'k' };
             }
-            if (k === 'manager') return { text: 'Active', tone: 'open' };
+            if (k === 'manager') {
+              const st = this._bmapStat(p);
+              if (st && st.state === 'running') return { text: 'Running', tone: 'open' };
+              if (st && st.state === 'failed') return { text: 'Failed', tone: 'dang' };
+              return { text: 'Active', tone: 'open' };
+            }
             if (k === 'flow') {
-              const st = String(m.result || m.state || '').toLowerCase();
-              if (/fail|error/.test(st)) return { text: 'Failing', tone: 'dang' };
-              return { text: 'Healthy', tone: 'open' };
+              const c = this._bmapLive(p) || {}; const st = this._bmapStat(p);
+              if (c.enabled === false) return { text: 'Disabled', tone: 'mut' };
+              if (st && st.state === 'running') return { text: 'Running', tone: 'open' };
+              if (st && st.state === 'failed') return { text: 'Failing', tone: 'dang' };
+              return { text: 'Enabled', tone: 'open' };
             }
             if (k === 'task' || k === 'assignment') {
-              const due = m.due || m.dueDate;
-              if (due) { const t = new Date(due).getTime(); if (t && t < Date.now()) return { text: 'Overdue', tone: 'dang' }; }
-              const st = m.state || m.status;
-              return st ? { text: String(st), tone: 'mut' } : null;
+              const st = this._bmapStat(p);
+              if (st && st.state === 'running') return { text: 'Running', tone: 'open' };
+              if (st && st.state === 'failed') return { text: 'Failed', tone: 'dang' };
+              if (st && st.label) return { text: st.label, tone: 'mut' };
+              return null;
             }
             const st = m.state || m.status || it.state;
             return st ? { text: String(st), tone: 'mut' } : null;
@@ -42318,29 +42331,51 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               push('Diff', diff);
               push('Branch', branch);
             } else if (k === 'dev') {
-              const d = p.dev || it || {};
-              push('Repo', d.repo); push('Branch', d.branch);
-              const files = (d.files && d.files.length) || d.fileCount; push('Files', files != null ? files : '');
-              push('Stage', d.stage || d.status || m.state);
+              const d = p.dev || (it && it.meta) || it || {};
+              const stats = (this.devFaceStats ? this.devFaceStats(d) : []) || [];
+              stats.slice(0, 4).forEach(s => {
+                const tone = s.tone === 'bad' ? 'bad' : s.tone === 'warn' ? 'warn' : s.tone === 'ok' ? 'ok' : '';
+                push(s.k, s.v, tone);
+              });
+              if (!out.length) { push('Repo', d.repo); push('Branch', d.branch); }
             } else if (k === 'agent') {
-              push('Schedule', m.schedule); push('Last run', this._bmapAgo(m.lastRun || m.lastRunAt));
-              push('Playbook', m.playbook);
+              const a = this._bmapLive(p) || {}; const cfg = a.config || {}; const st = this._bmapStat(p);
+              const sched = a.scheduleSummary || (a.schedule && this.humanizeSchedule ? this.humanizeSchedule(a.schedule) : a.schedule);
+              push('Schedule', sched && sched !== 'never' ? sched : 'Manual');
+              push('Last run', st && st.relative ? st.relative : this._bmapAgo(a.lastRun || a.lastRunAt), st && st.state === 'failed' ? 'bad' : '');
+              const sk = (cfg.skills && cfg.skills.length) || 0; push('Skills', sk ? sk : '');
+              push('Playbook', cfg.playbook);
             } else if (k === 'manager') {
-              push('Team', m.team); const ag = m.agents != null ? (Array.isArray(m.agents) ? m.agents.length : m.agents) : ''; push('Agents', ag);
-              push('Last activity', this._bmapAgo(m.lastActivity || m.updatedAt)); push('Pending', m.pending);
+              const mgr = this._bmapLive(p) || {}; const cfg = mgr.config || {}; const st = this._bmapStat(p);
+              const team = cfg.team || cfg.agents || [];
+              const running = (Array.isArray(team) ? team : []).filter(id => { const a = (this.data.agents || []).find(x => x.id === id); return a && /run|work|busy|active/i.test(String(a.status || '')); }).length;
+              push('Agents', Array.isArray(team) && team.length ? (team.length + (running ? (' · ' + running + ' running') : '')) : '', running ? 'ok' : '');
+              const asg = (cfg.assignments && cfg.assignments.length) || 0; push('Assignments', asg ? asg : '');
+              push('Last run', st && st.relative ? st.relative : this._bmapAgo(mgr.lastRun || mgr.lastActivity), st && st.state === 'failed' ? 'bad' : '');
             } else if (k === 'task' || k === 'assignment') {
-              push('Due', m.due || m.dueDate); push('Assignee', m.assignee || m.assignedTo || m.author);
-              push('Board', m.board); push('Status', m.state || m.status);
+              const t = this._bmapLive(p) || {}; const st = this._bmapStat(p);
+              push('Owner', t.ownerName || t.owner);
+              const sched = t.scheduleSummary || (t.schedule && this.humanizeSchedule ? this.humanizeSchedule(t.schedule) : t.schedule);
+              push('Schedule', sched && sched !== 'never' ? sched : 'Manual');
+              push('Last run', st && st.relative ? st.relative : this._bmapAgo(t.lastRun), st && st.state === 'failed' ? 'bad' : '');
+              push('Status', st && st.label ? st.label : (t.status || ''), st && st.state === 'failed' ? 'bad' : st && st.state === 'running' ? 'ok' : '');
             } else if (k === 'flow') {
-              push('Trigger', m.trigger || m.schedule); push('Last run', this._bmapAgo(m.lastRun || m.lastRunAt));
-              push('Result', m.result); push('Next', m.next || m.nextRun);
+              const c = this._bmapLive(p) || {}; const st = this._bmapStat(p);
+              const steps = (c.steps && c.steps.length) || 0; push('Steps', steps ? steps : '');
+              const sched = (this.chainScheduleSummary ? this.chainScheduleSummary(c) : '') || (c.schedule && this.humanizeSchedule ? this.humanizeSchedule(c.schedule) : c.schedule);
+              push('Schedule', sched && sched !== 'never' ? sched : 'Manual');
+              push('Last run', st && st.relative ? st.relative : '', st && st.state === 'failed' ? 'bad' : '');
+              push('Enabled', c.enabled === false ? 'No' : 'Yes', c.enabled === false ? 'warn' : 'ok');
             } else if (k === 'session') {
-              push('Repo', m.repo || it.repo); push('Branch', m.branch || it.branch);
-              push('Diff', m.diff); push('PR', m.prId != null ? ('#' + m.prId) : '');
+              const sub = String(it.sublabel || '').split(/[·|]/).map(s => s.trim()).filter(Boolean);
+              push('Agent', sub[0] || m.agent); push('Repo', m.repo || it.repo || sub[1]);
+              push('Branch', m.branch || it.branch || sub[2]);
+            } else if (k === 'chat' || k === 'comment') {
+              const c = this._bmapLive(p) || {};
+              const msgs = (c.messages && c.messages.length) || 0; push('Messages', msgs ? msgs : '');
+              push('With', c.targetName || c.target);
             } else if (k === 'location') {
               push('Symbol', m.symbol); push('Lines', m.lines);
-            } else if (k === 'chat' || k === 'comment') {
-              push('Last speaker', m.author || m.lastSpeaker || m.by);
             }
             return out.slice(0, 4);
           } catch { return []; }
@@ -42355,9 +42390,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (pr.readyToMerge) return { text: 'Ready to merge', tone: 'ok' };
               if (pr.comments && pr.comments.activeComments > 0) return { text: pr.comments.activeComments + ' active comments', tone: 'warn' };
             }
-            if (k === 'task' || k === 'assignment') {
-              const m = it.meta || {}; const due = m.due || m.dueDate;
-              if (due) { const t = new Date(due).getTime(); if (t && t < Date.now()) return { text: 'Overdue', tone: 'crit' }; }
+            if (k === 'task' || k === 'assignment' || k === 'agent' || k === 'flow' || k === 'manager') {
+              const st = this._bmapStat(p);
+              if (st && st.state === 'failed') return { text: 'Last run failed', tone: 'crit' };
+              if (st && st.state === 'running') return { text: 'Running now', tone: 'ok' };
             }
             if (k === 'checklist') {
               const pr = this.checklistProgress(p.checklist) || {};
@@ -42369,9 +42405,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapCardMeta(p) {
           try {
             const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {};
+            if (k === 'pr' && this.boardPrFull && this.boardPrFull(it)) { const pr = this.boardPrFor(it); const a = this.codeflowAgeLabel ? this.codeflowAgeLabel(pr) : ''; if (a) return a; }
+            const st = this._bmapStat(p);
+            if (st && st.relative) return st.relative;
             const ago = this._bmapAgo(m.updatedAt || m.lastActivity || m.lastRun || m.ts || (p.dev && (p.dev.updatedAt || p.dev.createdAt)));
             if (ago) return ago;
-            if (k === 'pr' && this.boardPrFull && this.boardPrFull(it)) { const pr = this.boardPrFor(it); const a = this.codeflowAgeLabel ? this.codeflowAgeLabel(pr) : ''; if (a) return a; }
             const repo = m.repo || it.repo || (p.dev && p.dev.repo);
             if (repo) return String(repo);
             return this.bmapCardKind(p);
