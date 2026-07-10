@@ -768,6 +768,34 @@ class SdkRunner {
    * and returns the standard result shape. A session start failure degrades to
    * { fallback:true }.
    */
+  // Pull image file attachments out of the chat-attachment block that the client
+  // injects into a prompt (see chatAttConsume in app.html). Only paths inside our
+  // own marker block are considered, so we never grab arbitrary paths the user typed.
+  // Returns SDK MessageOptions.attachments entries [{type:'file', path, displayName}].
+  _imageAttachmentsFromPrompt(prompt) {
+    try {
+      const text = String(prompt || '');
+      if (!text) return [];
+      const start = text.indexOf('[The user attached ');
+      if (start === -1) return [];
+      const block = text.slice(start);
+      const IMG = /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i;
+      const re = /^-\s+(.+?)(?:\s+\(original name:[^)]*\))?\s*$/gm;
+      const out = [];
+      const seen = new Set();
+      let m;
+      while ((m = re.exec(block))) {
+        const p = (m[1] || '').trim();
+        if (!p || !IMG.test(p) || seen.has(p)) continue;
+        try { if (!fs.existsSync(p)) continue; } catch (_) { continue; }
+        seen.add(p);
+        out.push({ type: 'file', path: p, displayName: path.basename(p) });
+        if (out.length >= 8) break;
+      }
+      return out;
+    } catch (_) { return []; }
+  }
+
   async _execute(opts, prompt, sessionId, onChunk, onStep) {
     const client = await this._getClient();
     if (!client) {
@@ -777,10 +805,14 @@ class SdkRunner {
     const resume = !!opts.__resume;
     const keepAlive = !!opts.__keepAlive;
     const meta = opts.__meta || null;
+    const explicitAtts = Array.isArray(opts.__attachments) && opts.__attachments.length
+      ? opts.__attachments
+      : null;
     const sessionOpts = { ...opts };
     delete sessionOpts.__resume;
     delete sessionOpts.__keepAlive;
     delete sessionOpts.__meta;
+    delete sessionOpts.__attachments;
 
     let session = null;
     let entry = null;
@@ -859,7 +891,13 @@ class SdkRunner {
       let code = 0;
       let error = '';
       try {
-        await session.sendAndWait({ prompt }, this._timeoutMs);
+        // Hand image attachments to the model NATIVELY (SDK MessageOptions.attachments)
+        // so a vision-capable model actually SEES them, regardless of whether the agent's
+        // tool allowlist happens to include an image-capable `view` tool. We prefer an
+        // explicitly-provided list, else derive from the injected chat-attachment block.
+        const atts = explicitAtts || this._imageAttachmentsFromPrompt(prompt);
+        const payload = (atts && atts.length) ? { prompt, attachments: atts } : { prompt };
+        await session.sendAndWait(payload, this._timeoutMs);
       } catch (e) {
         code = 1;
         error = e && e.message ? e.message : String(e);

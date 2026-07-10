@@ -2808,6 +2808,8 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent-soft) 90%, transparent);
     }
     .field-area { min-height: 118px; resize: vertical; }
+    /* Disabled inputs stay legible (read-only display), not OS-dimmed. */
+    .field-input:disabled { color: var(--cp-text); -webkit-text-fill-color: var(--cp-text); opacity: 1; cursor: default; }
     .search-row {
       display: grid;
       grid-template-columns: minmax(240px, 360px) auto;
@@ -3353,6 +3355,10 @@
     .ag-rail { position: sticky; top: 16px; }
     @media (max-width: 900px) { .ag-rail { position: static; } }
     .ag-desc { width: 100%; font: inherit; font-size: 0.9em; padding: 8px 10px; border-radius: calc(var(--cp-radius-scale, 1) * 9px); border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text); resize: none; overflow: hidden; min-height: 0; }
+    /* Disabled = read-only display, not "unavailable". WebView2/Chromium dims disabled
+       controls via -webkit-text-fill-color + opacity; override both so the description
+       stays fully legible when not in edit mode. */
+    .ag-desc:disabled { color: var(--cp-text); -webkit-text-fill-color: var(--cp-text); opacity: 1; cursor: default; }
     .ag-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--cp-border); margin-bottom: 16px; flex-wrap: wrap; }
     .ag-tab { padding: 9px 14px; font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--cp-text-muted); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 7px; }
     .ag-tab:hover { color: var(--cp-text); }
@@ -4977,6 +4983,12 @@
     .bmap-tbtn:disabled { opacity: .4; cursor: default; }
     .bmap-zoomlbl { font-size: 12px; color: var(--cp-muted); min-width: 40px; text-align: center; }
     .bmap-tsep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--cp-border); }
+    .bmap-arrange {
+      appearance: none; -webkit-appearance: none; padding-right: 22px;
+      background-image: linear-gradient(45deg, transparent 50%, var(--cp-muted) 50%), linear-gradient(135deg, var(--cp-muted) 50%, transparent 50%);
+      background-position: right 9px center, right 5px center; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat;
+    }
+    .bmap-arrange:hover { background-color: color-mix(in srgb, var(--cp-ink) 8%, transparent); }
     .bmap-hint {
       position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 40;
       padding: 6px 12px; font-size: 12.5px; color: var(--cp-ink);
@@ -5431,6 +5443,9 @@
     .board-header-brief.locked { border-color: var(--cp-border-strong); }
     .board-tab-brief-body { margin-top: 8px; font-size: 14px; }
     .board-header-brief .board-tab-brief-body { max-height: 44vh; overflow: auto; }
+    /* As its OWN Briefing tab, the briefing is the whole page: expand vertically to fit
+       its content and let the tab column be the single scroller (no inner 44vh cap). */
+    .board-tab-brief.board-header-brief .board-tab-brief-body { max-height: none; overflow: visible; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
     .board-canvas-scroll.board-tabbed .board-panel-body { overflow: visible; }
     /* Out-specify the pin-view rule (.board-panel...> .board-panel-body{overflow:auto}) so the
@@ -8791,6 +8806,15 @@
                             <button type="button" class="bmap-tbtn" @click="bmapFit()" title="Fit to view">⤢ Fit</button>
                             <span class="bmap-tsep"></span>
                             <button type="button" class="bmap-tbtn" :class="{ on: bmap.groupMode }" @click="bmapToggleGroupMode()" title="Drag a rectangle around cards to frame them as a named group">▢ Group</button>
+                            <span class="bmap-tsep"></span>
+                            <select class="bmap-tbtn bmap-arrange" @change="bmapArrange($event.target.value); $event.target.value=''" title="Auto-arrange cards; linked cards are kept close together">
+                              <option value="">⧉ Arrange…</option>
+                              <option value="grid">Grid</option>
+                              <option value="rect">Rectangle</option>
+                              <option value="circle">Circle</option>
+                              <option value="hline">Horizontal line</option>
+                              <option value="vline">Vertical line</option>
+                            </select>
                           </div>
                           <div class="bmap-hint" x-show="!!bmapConnectMode()" x-cloak x-text="bmapConnectHint()"></div>
                           <div class="bmap-hint" x-show="bmap.groupMode" x-cloak>Drag a rectangle around the cards you want to group · Esc to cancel</div>
@@ -42536,6 +42560,75 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           v.zoom = z; v.panX = (r.width - W * z) / 2 - minX * z; v.panY = Math.max(30, (r.height - H * z) / 2) - minY * z;
           this._bmapSaveView();
         },
+        // Order bases so linked cards sit next to each other in every layout:
+        // group each connected component contiguously, BFS from the highest-degree
+        // seed, so a connector spans as few cards as possible.
+        _bmapArrangeOrder(bases) {
+          const set = new Set(bases);
+          const m = this.bmapData();
+          const adj = {}; bases.forEach(b => adj[b] = []);
+          for (const e of (m.edges || [])) {
+            if (set.has(e.from) && set.has(e.to)) { adj[e.from].push(e.to); adj[e.to].push(e.from); }
+          }
+          const deg = b => adj[b].length;
+          const seen = new Set(); const order = [];
+          const seeds = bases.slice().sort((a, b) => deg(b) - deg(a));
+          for (const s of seeds) {
+            if (seen.has(s)) continue;
+            const q = [s]; seen.add(s);
+            while (q.length) {
+              const cur = q.shift(); order.push(cur);
+              const nb = adj[cur].slice().sort((a, b) => deg(b) - deg(a));
+              for (const nx of nb) { if (!seen.has(nx)) { seen.add(nx); q.push(nx); } }
+            }
+          }
+          return order;
+        },
+        bmapArrange(kind) {
+          if (!kind) return;
+          const m = this._bmapEnsure(); if (!m) return;
+          const bases = this.bmapNodes().map(n => n.base);
+          if (!bases.length) return;
+          const order = this._bmapArrangeOrder(bases);
+          const n = order.length;
+          const NW = 272, NH = 148, GX = 64, GY = 56, OX = 60, OY = 60;
+          const CW = NW + GX, CH = NH + GY;
+          const pos = {};
+          if (kind === 'hline') {
+            order.forEach((b, i) => { pos[b] = { x: OX + i * CW, y: OY }; });
+          } else if (kind === 'vline') {
+            order.forEach((b, i) => { pos[b] = { x: OX, y: OY + i * CH }; });
+          } else if (kind === 'circle') {
+            if (n === 1) { pos[order[0]] = { x: OX, y: OY }; }
+            else {
+              const R = Math.max(NW, (n * CW) / (2 * Math.PI));
+              const cx = OX + R, cy = OY + R;
+              order.forEach((b, i) => {
+                const a = (i / n) * 2 * Math.PI - Math.PI / 2;
+                pos[b] = { x: Math.round(cx + R * Math.cos(a) - NW / 2), y: Math.round(cy + R * Math.sin(a) - NH / 2) };
+              });
+            }
+          } else if (kind === 'rect') {
+            // hollow rectangle: walk the perimeter of a cols×rows grid clockwise
+            let cols = Math.max(2, Math.ceil(Math.sqrt(n)));
+            let rows = cols;
+            const cap = () => 2 * cols + 2 * rows - 4;
+            let guard = 0;
+            while (cap() < n && guard++ < 200) { cols++; if (cap() < n) rows++; }
+            const cells = [];
+            for (let c = 0; c < cols; c++) cells.push([c, 0]);
+            for (let r = 1; r < rows; r++) cells.push([cols - 1, r]);
+            for (let c = cols - 2; c >= 0; c--) cells.push([c, rows - 1]);
+            for (let r = rows - 2; r >= 1; r--) cells.push([0, r]);
+            order.forEach((b, i) => { const [c, r] = cells[i % cells.length]; pos[b] = { x: OX + c * CW, y: OY + r * CH }; });
+          } else { // grid
+            const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
+            order.forEach((b, i) => { const c = i % cols, r = Math.floor(i / cols); pos[b] = { x: OX + c * CW, y: OY + r * CH }; });
+          }
+          for (const b in pos) { const nd = m.nodes[b]; if (nd) { nd.x = pos[b].x; nd.y = pos[b].y; } }
+          this._bmapPersistSoon();
+          this.$nextTick(() => this.bmapFit());
+        },
         bmapPanStart(ev) {
           const v = this.bmap.view;
           if (this.bmap.groupMode) {
@@ -49241,7 +49334,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.chatAttClear(key);
           if (!paths.length) return { display: raw, prompt: raw, count: 0 };
           const lines = paths.map(p => '- ' + p.path + (p.name ? ' (original name: ' + p.name + ')' : ''));
-          const block = '\n\n[The user attached ' + paths.length + ' image file' + (paths.length === 1 ? '' : 's') + '. Open and look at each one with your file/vision tools (e.g. the `view` tool on the absolute path) before you respond, and use what you see:\n' + lines.join('\n') + '\n]';
+          const block = '\n\n[The user attached ' + paths.length + ' image file' + (paths.length === 1 ? '' : 's') + ', delivered to you as image attachments — look at each image and use what you see. If for any reason an image did not come through, open the absolute path below with your file/vision tools (e.g. the `view` tool):\n' + lines.join('\n') + '\n]';
           const marker = '\n\n📎 ' + paths.length + ' image' + (paths.length === 1 ? '' : 's') + ' attached';
           return { display: (raw.trim() ? raw.trim() : '(see attached image)') + marker, prompt: (raw.trim() ? raw.trim() : 'Please look at the attached image(s) and tell me what you see.') + block, count: paths.length };
         },

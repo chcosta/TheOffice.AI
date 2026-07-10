@@ -15861,6 +15861,21 @@ function _meAiConflictWhy(agenda, pairs, cfg, label) {
     let reason;
     if (moverR >= 3) {
       reason = `Both sides are hard anchors (rank ≥ 3) — the resolver never moves an anchored block (${moverR === 5 ? 'a past block' : moverF.meeting ? 'an opted-in meeting' : 'a manual/locked block'}), so neither could yield.`;
+      // Upstream-localizer: a prep block overlapping a partner that starts MID-WINDOW usually
+      // isn't a resolver limitation at all — the prep was PLACED wrong (its end should sit
+      // exactly on the partner's start; if the partner starts off the grid, the prep must be
+      // allowed off-grid too, cascading the block before). Point the debugger upstream so the
+      // "both are anchors" framing doesn't send them to the resolver for a placement bug.
+      const prepS = fa.type === 'prep' ? p.a : (fb.type === 'prep' ? p.b : null);
+      const partS = prepS === p.a ? p.b : (prepS === p.b ? p.a : null);
+      const gridN = (cfg && cfg.grid) ? Number(cfg.grid) : 0;
+      if (prepS && partS) {
+        const partStart = _hmToMin(partS.start), prepEnd = _hmToMin(prepS.end), prepStart = _hmToMin(prepS.start);
+        const offGrid = gridN > 0 && partStart != null && (partStart % gridN !== 0);
+        if (partStart != null && prepEnd != null && prepStart != null && partStart > prepStart && partStart < prepEnd) {
+          reason += ` NOTE: \`${la === lbl(prepS) ? la : lbb}\` is a PREP block whose partner starts at ${partS.start}${offGrid ? ` (off the ${gridN}m grid)` : ''}; a prep should END exactly on its item's start (here ${partS.start}, not ${prepS.end})${offGrid ? ', which means prep placement must allow an off-grid start and cascade the block before it' : ''}. This is likely a PREP-PLACEMENT bug UPSTREAM of the overlap resolver, not a resolver limitation — investigate prep slotting first.`;
+        }
+      }
     } else {
       const anchorEnd = _hmToMin(anchorS.end);
       const dur = (_hmToMin(moverS.end) || 0) - (_hmToMin(moverS.start) || 0);
@@ -24069,6 +24084,11 @@ function _normalizeBoard(b) {
     //   groups:[{id,name,x,y,w,h,members:[panelBaseId]}], highlights:{ '<panelBaseId>':true },
     //   view:{zoom,panX,panY} }. Presence of a node key = "on the map".
     map: (b.map && typeof b.map === 'object' && !Array.isArray(b.map)) ? b.map : null,
+    // Per-section map store: { '<sectionId>': { nodes, edges, groups, highlights } }.
+    // The current map view is section-scoped (one free-canvas per board tab); this is
+    // where node positions, links, groups and "you are here" highlights persist. Must
+    // round-trip through load + PUT or the map silently resets on every save.
+    maps: (b.maps && typeof b.maps === 'object' && !Array.isArray(b.maps)) ? b.maps : {},
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
@@ -24344,7 +24364,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, color, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId, map } = req.body || {};
+  const { name, emoji, color, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId, map, maps } = req.body || {};
   // Writer-lease guard: only the current lease holder may persist LAYOUT. A stale /
   // background client whose clientId != holder is rejected (409) so it cannot clobber
   // the focused client's layout. Non-layout updates (notes/checklists/items/star/...)
@@ -24390,6 +24410,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(briefingPrompts)) b.briefingPrompts = briefingPrompts.filter(p => p && p.id).map(p => ({ id: String(p.id), name: String(p.name || 'Prompt'), text: String(p.text || '') }));
   if (activeBriefingPromptId !== undefined) b.activeBriefingPromptId = (activeBriefingPromptId != null ? String(activeBriefingPromptId) : null);
   if (map && typeof map === 'object' && !Array.isArray(map)) b.map = map;
+  if (maps && typeof maps === 'object' && !Array.isArray(maps)) b.maps = maps;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);
