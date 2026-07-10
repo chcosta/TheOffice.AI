@@ -2841,7 +2841,11 @@
     .status-badge.idle {
       color: var(--cp-text-soft);
     }
-    .status-badge.failed,
+    .status-badge.failed {
+      border-color: color-mix(in srgb, var(--cp-warning) 52%, var(--cp-border));
+      color: color-mix(in srgb, var(--cp-warning) 82%, var(--cp-text));
+      background: color-mix(in srgb, var(--cp-warning) 13%, transparent);
+    }
     .status-badge.error {
       border-color: color-mix(in srgb, var(--cp-danger) 50%, var(--cp-border));
       color: var(--cp-danger);
@@ -29291,7 +29295,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const sf = this.autoStatusFilter;
           if (sf === 'scheduled') tasks = tasks.filter(t => !!t.nextRun);
           else if (sf === 'succeeded') tasks = tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'success');
-          else if (sf === 'failed') tasks = tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'failed');
+          else if (sf === 'failed') { const bad = ['failed', 'error']; tasks = tasks.filter(t => bad.includes(this.scheduleStatusClass(t.lastRun && t.lastRun.status))); }
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
@@ -29321,7 +29325,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             all: tasks.length,
             scheduled: tasks.filter(t => !!t.nextRun).length,
             succeeded: tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'success').length,
-            failed: tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'failed').length,
+            failed: tasks.filter(t => ['failed', 'error'].includes(this.scheduleStatusClass(t.lastRun && t.lastRun.status))).length,
           };
         },
 
@@ -30799,8 +30803,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         scheduleStatusClass(status) {
           const v = (status || '').toLowerCase();
-          if (v === 'success' || v === 'complete' || v === 'completed' || v === 'done') return 'success';
-          if (v === 'failed' || v === 'error') return 'failed';
+          if (v === 'success' || v === 'succeeded' || v === 'complete' || v === 'completed' || v === 'done') return 'success';
+          if (v === 'error') return 'error';
+          if (v === 'failed') return 'failed';
           if (v === 'running') return 'running';
           return 'idle';
         },
@@ -30808,8 +30813,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         scheduleStatusLabel(status) {
           if (!status) return 'Never run';
           const v = status.toLowerCase();
-          if (v === 'success' || v === 'complete' || v === 'completed' || v === 'done') return 'Success';
-          if (v === 'failed' || v === 'error') return 'Failed';
+          if (v === 'success' || v === 'succeeded' || v === 'complete' || v === 'completed' || v === 'done') return 'Success';
+          if (v === 'error') return 'Error';
+          if (v === 'failed') return 'Failed';
           if (v === 'running') return 'Running';
           return status.charAt(0).toUpperCase() + status.slice(1);
         },
@@ -53317,14 +53323,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const value = (status || 'idle').toLowerCase();
           if (value === 'error') return 'Error';
           if (value === 'failed') return 'Failed';
-          if (value === 'success' || value === 'completed') return 'Success';
+          if (value === 'succeeded' || value === 'success') return 'Success';
+          if (value === 'completed' || value === 'complete' || value === 'done') return 'Completed';
+          if (value === 'running') return 'Running';
+          if (value === 'skipped') return 'Skipped';
           return value.charAt(0).toUpperCase() + value.slice(1);
         },
 
+        // Four distinct run states: error (a step crashed), failed (ran clean but a
+        // condition gate stopped it early), running, completed/success.
         statusClass(status) {
           const value = (status || 'idle').toLowerCase();
-          if (value === 'error') return 'failed';
-          if (value === 'completed') return 'success';
+          if (value === 'error') return 'error';
+          if (value === 'failed') return 'failed';
+          if (value === 'succeeded' || value === 'completed' || value === 'complete' || value === 'done') return 'success';
           return value;
         },
 

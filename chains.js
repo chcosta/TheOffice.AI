@@ -321,7 +321,24 @@ class ChainEngine extends EventEmitter {
   _finishRun(run) {
     run.finishedAt = new Date().toISOString();
     const anyFailed = Object.values(run.nodes).some(n => n.status === 'failed');
-    run.status = anyFailed ? 'error' : 'completed';
+    if (anyFailed) {
+      // A step actually errored (non-zero exit / exception) — a technical failure.
+      run.status = 'error';
+    } else {
+      // "failed" = the run completed cleanly but a condition gate closed and cut
+      // the pipeline short. Detect it when a node that RAN has outgoing edges that
+      // ALL evaluated false, so nothing downstream continued. (A branch where at
+      // least one outgoing edge passed is a normal completion, not a stop-early.)
+      const ran = Object.entries(run.nodes)
+        .filter(([, n]) => n.status === 'succeeded')
+        .map(([id]) => id);
+      let stoppedEarly = false;
+      for (const id of ran) {
+        const outs = run.edges.filter(e => e.from === id);
+        if (outs.length && outs.every(e => e.evaluated === false)) { stoppedEarly = true; break; }
+      }
+      run.status = stoppedEarly ? 'failed' : 'completed';
+    }
     this._persist(run);
     this.broadcast('chain-run-finished', this._public(run));
     console.log(`[chains] run ${run.id} ${run.status}`);
