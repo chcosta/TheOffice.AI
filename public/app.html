@@ -2464,9 +2464,17 @@
     /* ===== Flow canvas builder ===== */
     .flow-canvas-shell { display:flex; height:480px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); overflow:hidden; background:var(--cp-bg-elevated); }
     .flow-palette { width:230px; flex:0 0 230px; border-right:1px solid var(--cp-border); background:var(--cp-bg-elevated); display:flex; flex-direction:column; min-height:0; }
-    .flow-palette .fp-tabs { display:flex; gap:4px; padding:10px 10px 6px; }
-    .flow-palette .fp-tab { flex:1; font:inherit; font-size:12px; font-weight:600; padding:7px 4px; border-radius:calc(var(--cp-radius-scale, 1) * 9px); border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer; }
-    .flow-palette .fp-tab.on { border-color:var(--cp-accent); color:var(--cp-accent); background:var(--cp-accent-soft); }
+    .flow-palette .fp-tabs { display:flex; gap:2px; padding:8px 10px 0; border-bottom:1px solid var(--cp-border); }
+    .flow-palette .fp-tab { flex:1; font:inherit; font-size:12px; font-weight:600; padding:7px 4px; border:none; border-bottom:2px solid transparent; background:transparent; color:var(--cp-text-muted); cursor:pointer; margin-bottom:-1px; }
+    .flow-palette .fp-tab:hover { color:var(--cp-text); }
+    .flow-palette .fp-tab.on { border-bottom-color:var(--cp-accent); color:var(--cp-accent); }
+    .flow-palette .fp-tabs { margin-bottom:6px; }
+    .flow-palette .fp-var { display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 9px); border:1px solid var(--cp-border); background:var(--cp-surface); cursor:grab; transition:border-color .12s, box-shadow .12s; }
+    .flow-palette .fp-var:hover { border-color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft); }
+    .flow-palette .fp-var:active { cursor:grabbing; }
+    .flow-palette .fp-var-tok { font-family:var(--cp-font-mono, ui-monospace, monospace); font-size:12px; font-weight:600; color:var(--cp-accent); }
+    .flow-palette .fp-var-desc { font-size:11px; color:var(--cp-text-muted); line-height:1.3; }
+    .flow-palette .fp-var-hint { font-size:11px; color:var(--cp-text-muted); padding:2px 4px 8px; line-height:1.4; }
     .flow-palette .fp-search { margin:0 10px 8px; width:calc(100% - 20px); font:inherit; font-size:13px; padding:7px 9px; border-radius:calc(var(--cp-radius-scale, 1) * 9px); border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
     .flow-palette .fp-list { flex:1; overflow:auto; padding:0 10px 14px; display:flex; flex-direction:column; gap:7px; min-height:0; }
     .flow-palette .fp-item { display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 11px); border:1px solid var(--cp-border); background:var(--cp-surface); cursor:grab; transition:border-color .12s, box-shadow .12s; }
@@ -2502,6 +2510,7 @@
     .flow-node:hover .fn-del { opacity:1; }
     .flow-node .fn-own { font-size:11px; color:var(--cp-text-muted); padding:0 10px 6px; }
     .flow-node .fn-prompt { width:calc(100% - 16px); margin:0 8px 9px; font:inherit; font-size:12px; padding:6px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); border:1px solid var(--cp-border); background:var(--cp-surface-soft); color:var(--cp-text); resize:none; overflow:hidden; min-height:38px; box-sizing:border-box; line-height:1.4; }
+    .flow-node .fn-prompt.fn-prompt-drop { border-color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft); }
     .flow-node .fn-port { position:absolute; top:24px; width:15px; height:15px; border-radius:50%; background:var(--cp-surface); border:2.5px solid var(--cp-border-strong); cursor:crosshair; transition:border-color .12s, background .12s; }
     .flow-node .fn-port:hover { border-color:var(--cp-accent); background:var(--cp-accent-soft); }
     .flow-node .fn-port.out { right:-9px; }
@@ -19233,8 +19242,9 @@
                     <div class="fp-tabs">
                       <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'agents' }" @click="flowPaletteTab = 'agents'">🤖 Agents</button>
                       <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'tasks' }" @click="flowPaletteTab = 'tasks'">📋 Tasks</button>
+                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'vars' }" @click="flowPaletteTab = 'vars'">🔤 Variables</button>
                     </div>
-                    <input class="fp-search" type="text" placeholder="Search…" x-model="flowPaletteFilter" />
+                    <input class="fp-search" type="text" placeholder="Search…" x-model="flowPaletteFilter" x-show="flowPaletteTab !== 'vars'" />
                     <div class="fp-list">
                       <template x-if="flowPaletteTab === 'agents'">
                         <div>
@@ -19256,6 +19266,17 @@
                             </div>
                           </template>
                           <div class="fp-empty" x-show="!flowPaletteTasks().length">No saved tasks.</div>
+                        </div>
+                      </template>
+                      <template x-if="flowPaletteTab === 'vars'">
+                        <div>
+                          <div class="fp-var-hint">Drag a variable into any node's prompt, or click to insert it into the last prompt you edited. These resolve at run time.</div>
+                          <template x-for="v in flowPaletteVars()" :key="'fpv-' + v.token">
+                            <div class="fp-var" draggable="true" @dragstart="flowDragStart($event, 'var', v.token)" @click="flowInsertVar(v.token)" title="Drag into a prompt, or click to insert">
+                              <span class="fp-var-tok" x-text="v.token"></span>
+                              <span class="fp-var-desc" x-text="v.desc"></span>
+                            </div>
+                          </template>
                         </div>
                       </template>
                     </div>
@@ -51323,6 +51344,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const q = (this.flowPaletteFilter || '').toLowerCase();
           return (this.data.tasks || []).filter(t => !q || (t.name || t.id).toLowerCase().includes(q));
         },
+        flowPaletteVars() {
+          return [
+            { token: '{{ trigger.output }}', desc: "The upstream node's full output text (its result)." },
+            { token: '{{ trigger.name }}', desc: 'Name of the upstream node (agent or task).' },
+            { token: '{{ trigger.exitCode }}', desc: 'Exit code of the upstream node (0 = success).' },
+            { token: '{{ trigger.id }}', desc: "The upstream node's step id." }
+          ];
+        },
+        flowInsertVar(token) {
+          const ta = this._flowLastPrompt;
+          if (!ta || !ta.isConnected) {
+            this.showToast('Pick a prompt first', 'Click into a node\u2019s prompt box, then click the variable to insert it (or drag it in).', 'info');
+            return;
+          }
+          this._flowInsertIntoPrompt(ta, token);
+        },
+        _flowInsertIntoPrompt(ta, token) {
+          const start = ta.selectionStart ?? ta.value.length;
+          const end = ta.selectionEnd ?? ta.value.length;
+          const before = ta.value.slice(0, start), after = ta.value.slice(end);
+          ta.value = before + token + after;
+          const stepId = ta.dataset ? ta.dataset.step : null;
+          if (stepId && this.chainDraft) {
+            const s = (this.chainDraft.steps || []).find(x => x.id === stepId);
+            if (s) s.prompt = ta.value;
+          }
+          ta.focus();
+          const pos = start + token.length;
+          try { ta.setSelectionRange(pos, pos); } catch {}
+          this._flowLastPrompt = ta;
+        },
         _flowStepOwner(step) {
           if (step.taskId) {
             const t = (this.data.tasks || []).find(x => x.id === step.taskId);
@@ -51348,6 +51400,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ctl = this._flowCanvas; if (!ctl) return;
           let payload; try { payload = JSON.parse(ev.dataTransfer.getData('text/plain')); } catch { return; }
           if (!payload || !payload.kind) return;
+          if (payload.kind === 'var') return; // a variable is only meaningful dropped into a prompt, not the empty canvas
           const p = this._flowPt(ev);
           this._addFlowStep(payload.kind, payload.id, p.x - 105, p.y - 26);
         },
@@ -51494,9 +51547,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               '<div class="fn-port out" title="drag to connect"></div>';
             canvas.appendChild(el);
             const ta = el.querySelector('.fn-prompt'); ta.value = step.prompt || '';
+            ta.dataset.step = step.id;
             const autosize = () => { ta.style.height = 'auto'; ta.style.height = Math.max(38, ta.scrollHeight) + 'px'; };
             ta.addEventListener('input', () => { step.prompt = ta.value; autosize(); });
             ta.addEventListener('pointerdown', e => e.stopPropagation());
+            ta.addEventListener('focus', () => { self._flowLastPrompt = ta; });
+            ta.addEventListener('dragover', e => { e.preventDefault(); try { e.dataTransfer.dropEffect = 'copy'; } catch {} ta.classList.add('fn-prompt-drop'); });
+            ta.addEventListener('dragleave', () => ta.classList.remove('fn-prompt-drop'));
+            ta.addEventListener('drop', e => {
+              ta.classList.remove('fn-prompt-drop');
+              let payload; try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
+              if (!payload || payload.kind !== 'var') return; // only variables insert into the prompt
+              e.preventDefault(); e.stopPropagation();
+              self._flowInsertIntoPrompt(ta, payload.id);
+              autosize();
+            });
             requestAnimationFrame(autosize);
             el.querySelector('.fn-del').addEventListener('click', e => { e.stopPropagation(); self._removeFlowStep(step.id); });
             el.querySelector('.fn-head').addEventListener('pointerdown', e => self._startNodeDrag(e, step, el));
