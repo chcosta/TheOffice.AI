@@ -2532,7 +2532,17 @@
     /* Larger flow builder modal */
     .modal-card.flow-modal { width:min(1480px,96vw); max-width:none; max-height:94vh; }
     .flow-modal .flow-canvas-shell { height:calc(94vh - 446px); min-height:480px; }
-    .chain-page .flow-canvas-shell { height:calc(100vh - 320px); min-height:480px; }
+    .chain-page { display:flex; flex-direction:column; height:calc(100vh - var(--header-height) - 48px); min-height:560px; }
+    .chain-page .flow-editor-body { display:flex; flex-direction:column; gap:12px; flex:1; min-height:0; margin-top:14px; }
+    .chain-page .flow-settings { padding:0; flex:0 0 auto; }
+    .chain-page .flow-settings > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:13px 16px; font-size:13px; font-weight:600; color:var(--cp-text); }
+    .chain-page .flow-settings > summary::-webkit-details-marker { display:none; }
+    .chain-page .flow-settings > summary .fs-caret { transition:transform .15s ease; color:var(--cp-text-muted); font-size:10px; }
+    .chain-page .flow-settings[open] > summary .fs-caret { transform:rotate(90deg); }
+    .chain-page .flow-settings > summary .fs-sub { margin-left:auto; font-weight:400; font-size:12px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
+    .chain-page .flow-settings-inner { padding:2px 16px 16px; display:flex; flex-direction:column; gap:14px; }
+    .chain-page .flow-canvas-card { flex:1; min-height:0; padding:14px; display:flex; flex-direction:column; gap:10px; }
+    .chain-page .flow-canvas-card .flow-canvas-shell { flex:1; min-height:340px; height:auto; }
 
     /* Flow hover detail card */
     .flow-tip { position:fixed; z-index:80; width:280px; background:var(--cp-panel-strong); backdrop-filter:blur(8px); border:1px solid var(--cp-border-strong); border-radius:calc(var(--cp-radius-scale, 1) * 14px); box-shadow:var(--cp-shadow); padding:13px 14px; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity .1s, transform .1s; }
@@ -19149,52 +19159,50 @@
                     <button class="btn primary" type="button" @click="saveChain()" x-text="chainDraft._new ? 'Create flow' : 'Save flow'"></button>
                   </div>
                 </div>
-                <div class="card" style="margin-top:14px;padding:18px;overflow:auto">
-            <div style="display:flex;flex-direction:column;gap:16px">
-              <div class="config-grid">
-                <div>
-                  <div class="field-label"><span>Name</span></div>
-                  <input class="field-input" type="text" x-model="chainDraft.name" />
-                </div>
-                <div>
-                  <div class="field-label"><span>Schedule</span></div>
-                  <select class="field-input" x-model="chainDraft.schedule">
-                    <option value="never">Manual only</option>
-                    <option value="15m">Every 15 minutes</option>
-                    <option value="30m">Every 30 minutes</option>
-                    <option value="1h">Every hour</option>
-                    <option value="6h">Every 6 hours</option>
-                    <option value="24h">Daily</option>
-                    <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                    <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
-                      <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
-                    </template>
-                  </select>
-                  <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
-                </div>
-              </div>
-              <div>
-                <div class="field-label"><span>Description</span></div>
-                <input class="field-input" type="text" x-model="chainDraft.description" />
-              </div>
-              <div>
-                <div class="field-label"><span>Team</span><span class="hint">Teams containing every agent this flow uses</span></div>
-                <select class="field-input" x-model="chainDraft.teamId">
-                  <option value="">Unassigned</option>
-                  <template x-for="o in chainOrgOptions(chainDraft)" :key="'cmo-' + o.id">
-                    <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
-                  </template>
-                </select>
-                <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No team contains all of this flow's agents yet.</div>
-              </div>
-              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
-              <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.resilient" style="margin-top:2px" /> <span><span style="font-weight:500">Auto-retry on transient failures</span><span class="hint" style="display:block;margin-top:2px">If the flow fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the flow itself), the AI decides whether and when to re-run the whole flow. Its reasoning is shown in Recent Runs.</span></span></label>
-              <div x-show="chainDraft.resilient" x-transition style="display:flex;align-items:center;gap:8px;margin-left:24px"><span class="hint">Max retries</span><input class="field-input" type="number" min="1" max="10" x-model.number="chainDraft.maxRetries" style="width:80px" /></div>
+                <div class="flow-editor-body">
+                  <details class="card flow-settings" open>
+                    <summary>
+                      <span class="fs-caret">▶</span>
+                      <span>Flow settings</span>
+                      <span class="fs-sub" x-text="(chainDraft.name || 'Untitled flow') + ' · ' + (describeScheduleHuman(chainDraft.schedule) || 'Manual only') + (chainDraft.enabled ? ' · Enabled' : ' · Disabled')"></span>
+                    </summary>
+                    <div class="flow-settings-inner">
+                      <div class="config-grid">
+                        <div>
+                          <div class="field-label"><span>Name</span></div>
+                          <input class="field-input" type="text" x-model="chainDraft.name" />
+                        </div>
+                        <div>
+                          <div class="field-label"><span>Schedule</span></div>
+                          <select class="field-input" x-model="chainDraft.schedule">
+                            <option value="never">Manual only</option>
+                            <option value="15m">Every 15 minutes</option>
+                            <option value="30m">Every 30 minutes</option>
+                            <option value="1h">Every hour</option>
+                            <option value="6h">Every 6 hours</option>
+                            <option value="24h">Daily</option>
+                            <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                            <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
+                              <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
+                            </template>
+                          </select>
+                          <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
+                        </div>
+                      </div>
+                      <div>
+                        <div class="field-label"><span>Description</span></div>
+                        <input class="field-input" type="text" x-model="chainDraft.description" />
+                      </div>
+                      <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
+                      <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.resilient" style="margin-top:2px" /> <span><span style="font-weight:500">Auto-retry on transient failures</span><span class="hint" style="display:block;margin-top:2px">If the flow fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the flow itself), the AI decides whether and when to re-run the whole flow. Its reasoning is shown in Recent Runs.</span></span></label>
+                      <div x-show="chainDraft.resilient" x-transition style="display:flex;align-items:center;gap:8px;margin-left:24px"><span class="hint">Max retries</span><input class="field-input" type="number" min="1" max="10" x-model.number="chainDraft.maxRetries" style="width:80px" /></div>
+                    </div>
+                  </details>
 
-              <!-- Canvas builder -->
-              <div>
-                <div class="field-label"><span>Flow canvas</span><span class="hint">Drag agents or saved tasks onto the canvas, then drag from a node's right port to another node to connect them. Click a link to set its condition.</span></div>
-                <div class="flow-canvas-shell">
+                  <!-- Canvas builder -->
+                  <div class="card flow-canvas-card">
+                    <div class="field-label" style="margin:0"><span>Flow canvas</span><span class="hint">Drag agents or saved tasks onto the canvas, then drag from a node's right port to another node to connect them. Click a link to set its condition.</span></div>
+                    <div class="flow-canvas-shell">
                   <div class="flow-palette">
                     <div class="fp-tabs">
                       <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'agents' }" @click="flowPaletteTab = 'agents'">🤖 Agents</button>
@@ -19244,8 +19252,7 @@
                     <div class="flow-hint"><span>🖐</span><span><b>Drag</b> empty space to pan · <b>Scroll</b> to zoom</span></div>
                   </div>
                 </div>
-              </div>
-            </div>
+                  </div>
                 </div>
               </div>
             </template>
@@ -51630,7 +51637,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         removeChainEdge(idx) { this.chainDraft.edges.splice(idx, 1); },
 
         _cleanChainPayload(draft) {
-          const validOrgs = new Set(this.chainOrgOptions(draft).map(o => o.id));
           // Drop reference-less steps (no task and no agent): they are unrunnable
           // and only show up as misleading "unassigned" ghost nodes.
           const steps = (draft.steps || []).filter(s => s.taskId || s.agentId);
@@ -51639,7 +51645,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             id: draft.id,
             name: draft.name,
             description: draft.description,
-            teamId: (draft.teamId && validOrgs.has(draft.teamId)) ? draft.teamId : null,
             schedule: draft.schedule,
             enabled: draft.enabled !== false,
             resilient: !!draft.resilient,
