@@ -5443,9 +5443,13 @@
     .board-header-brief.locked { border-color: var(--cp-border-strong); }
     .board-tab-brief-body { margin-top: 8px; font-size: 14px; }
     .board-header-brief .board-tab-brief-body { max-height: 44vh; overflow: auto; }
-    /* As its OWN Briefing tab, the briefing is the whole page: expand vertically to fit
-       its content and let the tab column be the single scroller (no inner 44vh cap). */
-    .board-tab-brief.board-header-brief .board-tab-brief-body { max-height: none; overflow: visible; }
+    /* As its OWN Briefing tab, the briefing fills the stage: the (open) block grows to
+       fill the available vertical space and its BODY scrolls internally only when the
+       content exceeds that space — so short briefings show no scrollbar, and tall ones
+       never overflow the fixed-height canvas (which clips, leaving the tail unreachable). */
+    .board-tab-brief.board-header-brief:not(.collapsed) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .board-tab-brief.board-header-brief .board-tab-brief-head { flex: 0 0 auto; }
+    .board-tab-brief.board-header-brief .board-tab-brief-body { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
     .board-canvas-scroll.board-tabbed .board-panel-body { overflow: visible; }
     /* Out-specify the pin-view rule (.board-panel...> .board-panel-body{overflow:auto}) so the
