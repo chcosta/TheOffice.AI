@@ -16893,6 +16893,15 @@
               .nlx-stage { background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 14px); overflow:hidden; }
               .nlx-stage-bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--cp-border);
                 background:var(--cp-surface); position:sticky; top:0; z-index:2; flex-wrap:wrap; }
+              .auto-filts { display:flex; align-items:center; gap:2px; flex-wrap:wrap; padding:8px 14px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); }
+              .auto-filts .afl-lbl { font-size:11px; color:var(--cp-text-muted); margin-right:6px; text-transform:uppercase; letter-spacing:.04em; }
+              .auto-filts .afl-sep { width:1px; align-self:stretch; background:var(--cp-border); margin:2px 10px; }
+              .auto-filt { border:0; background:transparent; color:var(--cp-text-soft); padding:4px 8px 5px; font-size:12.5px; cursor:pointer;
+                border-bottom:2px solid transparent; display:inline-flex; align-items:center; gap:5px; }
+              .auto-filt:hover { color:var(--cp-text); }
+              .auto-filt.on { color:var(--cp-accent); border-bottom-color:var(--cp-accent); font-weight:600; }
+              .auto-filt .afc { font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              .auto-filt.on .afc { color:var(--cp-accent); }
               .nlx-seg { display:inline-flex; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 9px); overflow:hidden; }
               .nlx-seg button { border:0; background:transparent; color:var(--cp-text-soft); padding:6px 13px; font-size:12.5px; cursor:pointer; border-left:1px solid var(--cp-border); }
               .nlx-seg button:first-child { border-left:0; }
@@ -18382,6 +18391,19 @@
                     <button class="btn ghost primary" type="button" @click="openTaskModal()">＋ New Task</button>
                   </div>
                 </div>
+                <div class="auto-filts">
+                  <span class="afl-lbl">Kind</span>
+                  <button type="button" class="auto-filt" :class="taskKindFilter==='all'?'on':''" @click="taskKindFilter='all'">All<span class="afc" x-text="taskKindCounts().all"></span></button>
+                  <button type="button" class="auto-filt" :class="taskKindFilter==='agent'?'on':''" @click="taskKindFilter='agent'">Agent<span class="afc" x-text="taskKindCounts().agent"></span></button>
+                  <button type="button" class="auto-filt" :class="taskKindFilter==='manager'?'on':''" @click="taskKindFilter='manager'">Manager<span class="afc" x-text="taskKindCounts().manager"></span></button>
+                  <button type="button" class="auto-filt" x-show="taskKindCounts().plugin" :class="taskKindFilter==='plugin'?'on':''" @click="taskKindFilter='plugin'">Plugin<span class="afc" x-text="taskKindCounts().plugin"></span></button>
+                  <span class="afl-sep"></span>
+                  <span class="afl-lbl">Status</span>
+                  <button type="button" class="auto-filt" :class="autoStatusFilter==='all'?'on':''" @click="autoStatusFilter='all'">Any<span class="afc" x-text="autoStatusCounts().all"></span></button>
+                  <button type="button" class="auto-filt" :class="autoStatusFilter==='scheduled'?'on':''" @click="autoStatusFilter='scheduled'">Scheduled<span class="afc" x-text="autoStatusCounts().scheduled"></span></button>
+                  <button type="button" class="auto-filt" :class="autoStatusFilter==='succeeded'?'on':''" @click="autoStatusFilter='succeeded'">Succeeded<span class="afc" x-text="autoStatusCounts().succeeded"></span></button>
+                  <button type="button" class="auto-filt" :class="autoStatusFilter==='failed'?'on':''" @click="autoStatusFilter='failed'">Failed<span class="afc" x-text="autoStatusCounts().failed"></span></button>
+                </div>
                 <div style="padding:14px 16px 20px">
                   <div class="assignment-list">
                     <template x-for="task in filteredTasks()" :key="task.taskKey">
@@ -18441,6 +18463,13 @@
                   <div class="nlx-stage-actions">
                     <button class="btn ghost primary" type="button" @click="newChain()">＋ New Flow</button>
                   </div>
+                </div>
+                <div class="auto-filts">
+                  <span class="afl-lbl">Status</span>
+                  <button type="button" class="auto-filt" :class="chainStatusFilter==='all'?'on':''" @click="chainStatusFilter='all'">All<span class="afc" x-text="chainStatusCounts().all"></span></button>
+                  <button type="button" class="auto-filt" :class="chainStatusFilter==='enabled'?'on':''" @click="chainStatusFilter='enabled'">Enabled<span class="afc" x-text="chainStatusCounts().enabled"></span></button>
+                  <button type="button" class="auto-filt" :class="chainStatusFilter==='scheduled'?'on':''" @click="chainStatusFilter='scheduled'">Scheduled<span class="afc" x-text="chainStatusCounts().scheduled"></span></button>
+                  <button type="button" class="auto-filt" x-show="chainStatusCounts().disabled" :class="chainStatusFilter==='disabled'?'on':''" @click="chainStatusFilter='disabled'">Disabled<span class="afc" x-text="chainStatusCounts().disabled"></span></button>
                 </div>
                 <div style="padding:14px 16px 20px">
                   <div class="assignment-list">
@@ -24215,6 +24244,8 @@
         managerView: 'grid',
         taskSearch: '',
         taskKindFilter: 'all',
+        autoStatusFilter: 'all',
+        chainStatusFilter: 'all',
         assignmentSearch: '',
         newAssignmentOpen: false,
         newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
@@ -29212,17 +29243,55 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Unified Tasks list: both agent-backed tasks and manager assignments.
           // The card badge surfaces which kind (Agent vs Manager) each one is.
           let tasks = this.allTasks().filter(t => this.opInCurrentOrg(t.teamId));
-          if (this.taskKindFilter === 'agent') tasks = tasks.filter(t => t.type !== 'assignment');
+          if (this.taskKindFilter === 'agent') tasks = tasks.filter(t => t.type !== 'assignment' && !this._taskIsPlugin(t));
           else if (this.taskKindFilter === 'manager') tasks = tasks.filter(t => t.type === 'assignment');
+          else if (this.taskKindFilter === 'plugin') tasks = tasks.filter(t => this._taskIsPlugin(t));
+          const sf = this.autoStatusFilter;
+          if (sf === 'scheduled') tasks = tasks.filter(t => !!t.nextRun);
+          else if (sf === 'succeeded') tasks = tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'success');
+          else if (sf === 'failed') tasks = tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'failed');
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
+        },
+
+        // A task is "plugin" when its owning agent is a plugin package (config.pluginDir).
+        _taskIsPlugin(t) {
+          if (!t || t.type === 'assignment' || !t.agentId) return false;
+          const a = (this.data.agents || []).find(x => x.id === t.agentId);
+          return !!(a && a.config && a.config.pluginDir);
         },
 
         // Counts per kind for the Tasks page filter (org-scoped, ignores text query).
         taskKindCounts() {
           const tasks = this.allTasks().filter(t => this.opInCurrentOrg(t.teamId));
           const manager = tasks.filter(t => t.type === 'assignment').length;
-          return { all: tasks.length, agent: tasks.length - manager, manager };
+          const plugin = tasks.filter(t => this._taskIsPlugin(t)).length;
+          return { all: tasks.length, agent: tasks.length - manager - plugin, manager, plugin };
+        },
+
+        // Status counts over the current KIND-filtered task set (ignores the status filter itself).
+        autoStatusCounts() {
+          let tasks = this.allTasks().filter(t => this.opInCurrentOrg(t.teamId));
+          if (this.taskKindFilter === 'agent') tasks = tasks.filter(t => t.type !== 'assignment' && !this._taskIsPlugin(t));
+          else if (this.taskKindFilter === 'manager') tasks = tasks.filter(t => t.type === 'assignment');
+          else if (this.taskKindFilter === 'plugin') tasks = tasks.filter(t => this._taskIsPlugin(t));
+          return {
+            all: tasks.length,
+            scheduled: tasks.filter(t => !!t.nextRun).length,
+            succeeded: tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'success').length,
+            failed: tasks.filter(t => this.scheduleStatusClass(t.lastRun && t.lastRun.status) === 'failed').length,
+          };
+        },
+
+        // Counts per status for the Flows filter (org-scoped, ignores text query).
+        chainStatusCounts() {
+          const list = (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
+          return {
+            all: list.length,
+            enabled: list.filter(c => c.enabled !== false).length,
+            disabled: list.filter(c => c.enabled === false).length,
+            scheduled: list.filter(c => c.schedule && c.schedule !== 'never').length,
+          };
         },
 
         filteredAssignments() {
@@ -51317,7 +51386,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         filteredChains() {
           const q = (this.chainSearch || '').trim().toLowerCase();
-          const list = (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
+          let list = (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
+          const sf = this.chainStatusFilter;
+          if (sf === 'enabled') list = list.filter(c => c.enabled !== false);
+          else if (sf === 'disabled') list = list.filter(c => c.enabled === false);
+          else if (sf === 'scheduled') list = list.filter(c => c.schedule && c.schedule !== 'never');
           if (!q) return list;
           return list.filter(c => (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q));
         },
