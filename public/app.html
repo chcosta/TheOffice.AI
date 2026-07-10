@@ -2825,9 +2825,10 @@
     .lmap-canvas { display:flex; align-items:flex-start; gap:0; width:max-content; min-width:100%; transform-origin:top left; }
     .lmap-seg { display:contents; }
     .lmap-col { display:flex; flex-direction:column; gap:22px; flex:0 0 auto; }
-    .lmap-gap { display:flex; flex-direction:column; justify-content:center; gap:18px; flex:0 0 96px; align-self:stretch; padding:0; }
-    /* Single edge: anchor the wire to the node HEADER line so it visibly links both nodes. */
-    .lmap-gap:has(.lmap-wirewrap:only-child) { justify-content:flex-start; padding-top:23px; }
+    /* Anchor wires to the node HEADER line (both columns are top-aligned) so a
+       connector always intersects BOTH nodes, regardless of their differing heights.
+       Fan-out edges then stack downward from that header line. */
+    .lmap-gap { display:flex; flex-direction:column; justify-content:flex-start; gap:18px; flex:0 0 96px; align-self:stretch; padding:23px 0 0; }
     .lmap-node { position:relative; width:var(--lmap-node-w, 340px); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-surface); overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.14); scroll-margin:18px; }
     .lmap-nresize { position:absolute; top:0; right:0; width:10px; height:100%; cursor:ew-resize; z-index:3; touch-action:none; }
     .lmap-nresize::after { content:''; position:absolute; top:50%; right:3px; transform:translateY(-50%); width:3px; height:36px; border-radius:2px; background:var(--cp-border-strong); opacity:0; transition:opacity .12s ease; }
@@ -24975,7 +24976,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         flowRunSel: '',
         flowRunZoomLevel: 1,
         flowMapZoom: 1,
-        flowMapNodeW: (() => { try { const v = parseInt(localStorage.getItem('flow-map-node-w'), 10); return (v >= 260 && v <= 680) ? v : 340; } catch (_) { return 340; } })(),
+        flowMapNodeW: (() => { try { const v = parseInt(localStorage.getItem('flow-map-node-w'), 10); return (v >= 260 && v <= 1200) ? v : 340; } catch (_) { return 340; } })(),
         _lmapPan: null,
         _flowRunCanvas: null,
         chatPickerOpen: false,
@@ -52332,7 +52333,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.flowMapZoom = Math.round(z * 100) / 100;
         },
         flowMapNodeBy(delta) {
-          const w = Math.min(680, Math.max(260, (Number(this.flowMapNodeW) || 340) + delta));
+          const w = Math.min(1200, Math.max(260, (Number(this.flowMapNodeW) || 340) + delta));
           this.flowMapNodeW = w;
           try { localStorage.setItem('flow-map-node-w', String(w)); } catch (_) {}
         },
@@ -52344,7 +52345,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const startW = Number(this.flowMapNodeW) || 340;
           const zoom = Number(this.flowMapZoom) || 1;
           const move = (e) => {
-            const w = Math.min(680, Math.max(260, startW + (e.clientX - startX) / zoom));
+            const w = Math.min(1200, Math.max(260, startW + (e.clientX - startX) / zoom));
             this.flowMapNodeW = Math.round(w);
           };
           const up = () => {
