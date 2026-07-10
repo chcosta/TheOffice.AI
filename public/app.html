@@ -4737,7 +4737,22 @@
     .board-top { margin-bottom: 18px; }
     .board-picker { display: inline-flex; align-items: center; gap: 8px; }
     .board-picker-lbl { font-size: 11px; color: var(--cp-text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-    .board-select { max-width: 360px; min-width: 210px; padding: 7px 30px 7px 11px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .board-picker-wrap { position: relative; }
+    .board-select { display: inline-flex; align-items: center; gap: 8px; max-width: 360px; min-width: 210px; padding: 7px 10px 7px 10px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
+    .board-select-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board-select-caret { flex: 0 0 auto; color: var(--cp-muted); font-size: 11px; }
+    .board-swatch { flex: 0 0 auto; width: 14px; height: 14px; border-radius: 5px; background: var(--cp-muted); box-shadow: inset 0 0 0 1px rgba(0,0,0,.14); }
+    .board-picker-menu {
+      position: absolute; left: 0; top: calc(100% + 5px); z-index: 60;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: var(--radius-md, 8px); box-shadow: 0 12px 32px rgba(0,0,0,.20);
+      padding: 5px; min-width: 240px; max-width: 360px; max-height: 340px; overflow: auto;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .board-picker-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; background: transparent; border: 0; border-radius: var(--radius-md, 8px); cursor: pointer; text-align: left; color: var(--cp-ink); font-size: 13px; font-weight: 600; }
+    .board-picker-item:hover { background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+    .board-picker-item.active { background: color-mix(in srgb, var(--cp-accent) 12%, transparent); }
+    .board-picker-item-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* Workspace accent color swatches (create/edit modal). */
     .board-color-row { display: flex; flex-wrap: wrap; gap: 8px; }
     .board-color-sw { width: 26px; height: 26px; border-radius: 8px; background: var(--sw); border: 2px solid transparent;
@@ -4963,7 +4978,7 @@
     }
     .board-map.panning { cursor: grabbing; }
     .board-map.bmap-connecting { cursor: crosshair; }
-    .bmap-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+    .bmap-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
     .bmap-toolbar {
       position: absolute; top: 12px; left: 12px; z-index: 40;
       display: flex; align-items: center; gap: 4px; padding: 5px 7px;
@@ -5020,7 +5035,7 @@
     .bmap-node.connect-from { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent); }
     /* header */
     .bmap-node-hd {
-      display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+      display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px;
       background: linear-gradient(180deg, color-mix(in srgb, var(--k, var(--cp-accent)) 16%, transparent), transparent);
       border-bottom: 1px solid color-mix(in srgb, var(--k, var(--cp-accent)) 24%, var(--cp-border));
       border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0;
@@ -5031,9 +5046,9 @@
       background: var(--k, var(--cp-accent)); color: #0c1322;
       box-shadow: 0 1px 4px color-mix(in srgb, var(--cp-ink) 30%, transparent);
     }
-    .bmap-node-lbl { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .bmap-node-lbl { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-top: 1px; }
     .bmap-node-kind { display: block; max-width: 100%; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--k, var(--cp-accent)); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bmap-node-name { display: block; max-width: 100%; font-size: 13px; font-weight: 650; line-height: 1.2; color: var(--cp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bmap-node-name { display: block; max-width: 100%; font-size: 13px; font-weight: 650; line-height: 1.25; color: var(--cp-ink); word-break: break-word; overflow-wrap: anywhere; }
     .bmap-node-badge { flex: 0 0 auto; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; line-height: 1.35; white-space: nowrap; }
     .bmap-statusdot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; }
     .bmst-open { background: color-mix(in srgb, var(--cp-success) 20%, transparent); color: var(--cp-success); }
@@ -5050,11 +5065,12 @@
     .bmap-node-ttl { font-size: 13.5px; font-weight: 650; line-height: 1.32; color: var(--cp-ink); word-break: break-word; overflow-wrap: anywhere; }
     .bmap-node-sum { font-size: 11.5px; line-height: 1.45; color: color-mix(in srgb, var(--cp-ink) 80%, var(--cp-muted)); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .bmap-node-sum.tall { -webkit-line-clamp: 4; }
-    .bmap-node-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; }
+    .bmap-node-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; align-items: start; }
     .bmap-node-facts.one { grid-template-columns: 1fr; }
     .bmap-node-f { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .bmap-node-f.wide { grid-column: 1 / -1; }
     .bmap-node-f .k { font-size: 9.5px; letter-spacing: .03em; text-transform: uppercase; color: var(--cp-muted); line-height: 1.3; }
-    .bmap-node-f .v { font-size: 12px; font-weight: 600; color: var(--cp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bmap-node-f .v { font-size: 12px; font-weight: 600; color: var(--cp-ink); line-height: 1.32; word-break: break-word; overflow-wrap: anywhere; }
     .bmap-node-f .v.ok { color: var(--cp-success); }
     .bmap-node-f .v.bad { color: var(--cp-danger); }
     .bmap-node-f .v.warn { color: var(--cp-warning); }
@@ -8431,15 +8447,21 @@
               <div class="nlx-actions">
                 <label class="board-picker" x-show="!boardsLoading && visibleBoards().length">
                   <span class="board-picker-lbl">Workspace</span>
-                  <select class="field-input board-select" @change="selectBoard($event.target.value)" title="Switch workspace">
-                    <template x-for="g in boardPickerGroups()" :key="'bpg-' + g.key">
-                      <optgroup :label="g.label">
-                        <template x-for="b in g.boards" :key="b.id">
-                          <option :value="b.id" :selected="b.id === activeBoardId" x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + b.name"></option>
-                        </template>
-                      </optgroup>
-                    </template>
-                  </select>
+                  <div class="board-picker-wrap">
+                    <button type="button" class="field-input board-select" @click="boardPickerOpen = !boardPickerOpen" title="Switch workspace" :aria-expanded="boardPickerOpen">
+                      <span class="board-swatch" :style="boardSwatchStyle(activeBoard())"></span>
+                      <span class="board-select-name" x-text="activeBoard() ? ((activeBoard().starred ? '★ ' : '') + activeBoard().name) : 'Select workspace…'"></span>
+                      <span class="board-select-caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="board-picker-menu" x-show="boardPickerOpen" @click.outside="boardPickerOpen = false" x-transition.opacity.duration.120ms x-cloak>
+                      <template x-for="b in visibleBoards()" :key="b.id">
+                        <button type="button" class="board-picker-item" :class="{ active: b.id === activeBoardId }" @click="selectBoard(b.id); boardPickerOpen = false">
+                          <span class="board-swatch" :style="boardSwatchStyle(b)"></span>
+                          <span class="board-picker-item-name" x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + b.name"></span>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
                 </label>
                 <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
                   x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
@@ -8905,7 +8927,7 @@
                                   <template x-if="bmapFacts(n.p).length">
                                     <div class="bmap-node-facts" :class="{ one: bmapFacts(n.p).length===1 }">
                                       <template x-for="(f,fi) in bmapFacts(n.p)" :key="fi">
-                                        <div class="bmap-node-f"><span class="k" x-text="f.k"></span><span class="v" :class="f.tone" x-text="f.v"></span></div>
+                                        <div class="bmap-node-f" :class="{ wide: f.wide }"><span class="k" x-text="f.k"></span><span class="v" :class="f.tone" x-text="f.v"></span></div>
                                       </template>
                                     </div>
                                   </template>
@@ -24086,6 +24108,7 @@
         boardSwitchOverflow: false,
         activeBoardId: (() => { try { return localStorage.getItem('active-board-id') || ''; } catch { return ''; } })(),
         boardModalOpen: false,
+        boardPickerOpen: false,
         boardForm: { id: '', name: '', color: '' },
         boardPinOpen: false,
         boardPinKind: 'task',
@@ -39933,6 +39956,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!c) return '';
           return `background:linear-gradient(135deg, color-mix(in srgb, ${c} 22%, transparent) 0%, transparent 58%);`;
         },
+        // Small gradient chip for the workspace picker — same accent color the board's
+        // banner uses, so the dropdown reads as color-coded without team grouping.
+        boardSwatchStyle(board) {
+          const c = board && board.color;
+          if (!c) return 'background:var(--cp-muted);';
+          return `background:linear-gradient(135deg, ${c} 0%, color-mix(in srgb, ${c} 60%, #000) 100%);`;
+        },
         async saveBoard() {
           const name = (this.boardForm.name || '').trim();
           if (!name) { this.showToast('Board', 'Name is required', 'error'); return; }
@@ -42167,7 +42197,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // -- world size / styles --
         bmapW() { let mx = 1600; for (const n of this.bmapNodes()) mx = Math.max(mx, n.x + 300); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.x || 0) + (+g.w || 0) + 40); return Math.round(mx + 400); },
         bmapH() { let mx = 1000; for (const n of this.bmapNodes()) mx = Math.max(mx, n.y + 240); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.y || 0) + (+g.h || 0) + 40); return Math.round(mx + 400); },
-        bmapWorldStyle() { const v = this.bmap.view; return `width:${this.bmapW()}px;height:${this.bmapH()}px;transform:translate(${v.panX}px,${v.panY}px) scale(${v.zoom});transform-origin:0 0`; },
+        bmapWorldStyle() { const v = this.bmap.view; const busy = !!(this.bmap.pan || this.bmap.drag || this.bmap.groupDrag || this.bmap.marquee || this.bmap.link); return `width:${this.bmapW()}px;height:${this.bmapH()}px;transform:translate(${v.panX}px,${v.panY}px) scale(${v.zoom});transform-origin:0 0;will-change:${busy ? 'transform' : 'auto'}`; },
         bmapNodeStyle(n) { return `left:${n.x}px;top:${n.y}px;z-index:${(n.z || 1) + 10};--k:${this.bmapKindColor(n.p)}`; },
         // Distinct, theme-friendly hue per card type/kind — used for the top accent,
         // the type label, a faint surface tint, and the link nub (via a --k CSS var).
@@ -42396,7 +42426,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return st ? { text: String(st), tone: 'mut' } : null;
           } catch { return null; }
         },
-        _bmapFact(k, v, tone) { const val = (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim(); return val ? { k, v: val, tone: tone || '' } : null; },
+        _bmapFact(k, v, tone) { const val = (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim(); return val ? { k, v: val, tone: tone || '', wide: val.length > 16 } : null; },
         bmapFacts(p) {
           try {
             const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {}; const out = [];
