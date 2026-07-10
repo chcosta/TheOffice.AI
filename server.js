@@ -18943,6 +18943,147 @@ function _meAiBacklogKind(c) {
   if (t === 'focus' || t === 'dev' || t === 'implement' || t === 'work') return 'dev';
   return 'action';
 }
+// --- #5 Backlog auto-resolve: drop items whose underlying work is already done ------
+// A backlog ask stops being relevant once its dev card's PR merges (or the linked
+// work item / PR reaches a terminal state). We infer completion from OUR OWN system —
+// the global dev-store cards and their stored PR / work-item status — and auto-mark
+// such backlog items done (recording WHY, so it's transparent + auditable + undoable),
+// so finished work stops nagging as noise. Conservative: only unambiguous
+// merged / closed / done states auto-resolve; anything uncertain is left alone.
+const _ME_AI_WI_DONE = new Set(['closed', 'done', 'resolved', 'completed', 'removed', 'merged']);
+
+function _meAiNormLink(u) {
+  let s = String(u || '').trim().toLowerCase();
+  if (!s) return '';
+  const q = s.search(/[?#]/); if (q >= 0) s = s.slice(0, q);
+  return s.replace(/\/+$/, '');
+}
+// Pull a stable "<host-ish>|pr|<n>" / "…|wi|<n>" identity out of a PR / work-item URL
+// so a signal link and a dev card link for the SAME entity match even when the exact
+// URL shape differs (e.g. _workitems/edit/N vs _apis/wit/workItems/N). Best-effort;
+// returns '' when it can't confidently identify the entity. Org/owner tokens are kept
+// in the key so ids don't collide across projects.
+function _meAiLinkId(u) {
+  const s = _meAiNormLink(u);
+  if (!s) return '';
+  let m;
+  if ((m = s.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/))) return `gh:${m[1]}|pr|${m[2]}`;
+  if ((m = s.match(/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/))) return `gh:${m[1]}|wi|${m[2]}`;
+  if ((m = s.match(/dev\.azure\.com\/([^/]+).*?\/pullrequests?\/(\d+)/))) return `azdo:${m[1]}|pr|${m[2]}`;
+  if ((m = s.match(/([^/.]+)\.visualstudio\.com.*?\/pullrequests?\/(\d+)/))) return `azdo:${m[1]}|pr|${m[2]}`;
+  if ((m = s.match(/\/pullrequests?\/(\d+)/))) return `azdo|pr|${m[1]}`;
+  if ((m = s.match(/dev\.azure\.com\/([^/]+).*?_workitems\/edit\/(\d+)/))) return `azdo:${m[1]}|wi|${m[2]}`;
+  if ((m = s.match(/([^/.]+)\.visualstudio\.com.*?_workitems\/edit\/(\d+)/))) return `azdo:${m[1]}|wi|${m[2]}`;
+  if ((m = s.match(/_workitems\/edit\/(\d+)/)) || (m = s.match(/\/wit\/workitems\/(\d+)/))) return `azdo|wi|${m[1]}`;
+  return '';
+}
+// Does a dev card show the work is finished? Reads only STORED provider status
+// (cheap, no network). PR status is normalized to active|completed|abandoned by both
+// forges (github: open→active, merged_at→completed, closed-unmerged→abandoned).
+function _meAiDevCardDone(d) {
+  if (!d) return null;
+  const prs = [];
+  if (d.pr) prs.push(d.pr);
+  for (const r of (Array.isArray(d.repos) ? d.repos : [])) { if (r && r.pr) prs.push(r.pr); }
+  for (const pr of prs) {
+    const st = String(pr.status || '').toLowerCase();
+    if (st === 'completed' || st === 'merged') return 'its pull request merged';
+    if (st === 'abandoned') return 'its pull request was closed';
+  }
+  const wi = d.workItem;
+  const ws = String((wi && wi.state) || '').toLowerCase();
+  if (ws && _ME_AI_WI_DONE.has(ws)) return `its work item is ${wi.state}`;
+  return null;
+}
+// Index every dev card's identity links (work item + PR urls, direct + id-based) so a
+// backlog item can be matched to the card that tracks it, with the card's completion
+// reason attached. Scans ALL cards INCLUDING archived — a finished dev card is usually
+// archived, and that's exactly the case we want to resolve.
+function _meAiDevCardIndex() {
+  const byLink = new Map();
+  const byId = new Map();
+  let cards = [];
+  try { cards = devStore.all() || []; } catch (_) { cards = []; }
+  for (const d of cards) {
+    const entry = { done: _meAiDevCardDone(d), title: d.title || '', card: d };
+    const links = [];
+    if (d.workItem && d.workItem.url) links.push(d.workItem.url);
+    if (d.link) links.push(d.link);
+    if (d.pr && d.pr.url) links.push(d.pr.url);
+    for (const r of (Array.isArray(d.repos) ? d.repos : [])) { if (r && r.pr && r.pr.url) links.push(r.pr.url); }
+    for (const u of links) {
+      const n = _meAiNormLink(u); if (n && !byLink.has(n)) byLink.set(n, entry);
+      const id = _meAiLinkId(u); if (id && !byId.has(id)) byId.set(id, entry);
+    }
+  }
+  return { byLink, byId };
+}
+// Find the dev-card index entry that tracks a given backlog item (by link, then id).
+function _meAiMatchDevCard(idx, link) {
+  if (!idx || !link) return null;
+  const n = _meAiNormLink(link);
+  let hit = (n && idx.byLink.get(n)) || null;
+  if (!hit) { const id = _meAiLinkId(link); if (id) hit = idx.byId.get(id) || null; }
+  return hit;
+}
+// Auto-mark backlog items done when OUR dev cards show the work is finished. Writes are
+// idempotent (curation done-flag) and mirror the manual done path exactly (durable
+// decision so a re-derived signal doesn't re-nag + Diary gap-fill), so the audit trail
+// is identical. Returns { items:<remaining>, autoResolved:[{key,title,reason}] } — the
+// resolved items land in Done / history (never silently vanish).
+function _meAiBacklogAutoResolve(date, items) {
+  const list = Array.isArray(items) ? items : _meAiAssembleBacklog(date);
+  let idx;
+  try { idx = _meAiDevCardIndex(); } catch (_) { return { items: list, autoResolved: [] }; }
+  const autoResolved = [];
+  const remaining = [];
+  for (const it of list) {
+    const hit = _meAiMatchDevCard(idx, it && it.link);
+    const reason = (hit && hit.done) || null;
+    if (reason) {
+      try {
+        const note = `Auto-resolved: ${reason}.`;
+        const rec = _meAiSetCuration({ key: it.key, title: it.title, done: true, doneNote: note });
+        try { _meAiRecordDecisionByKey(it.key, 'done', it.title); } catch (_) {}
+        try { _meAiBacklogDoneToDiary(rec || { title: it.title, doneNote: note }, it.key); } catch (_) {}
+      } catch (_) {}
+      autoResolved.push({ key: it.key, title: it.title, reason });
+    } else {
+      remaining.push(it);
+    }
+  }
+  return { items: remaining, autoResolved };
+}
+// LIVE variant: before resolving, re-pull PR / work-item status from the provider for the
+// dev cards a current backlog item points at (and that aren't already terminal), so an
+// explicit Refresh reflects the authoritative latest status. Bounded + best-effort so a
+// slow/unreachable API never blocks the refresh.
+async function _meAiBacklogRefreshDevStatus(items) {
+  let cards = [];
+  try { cards = devStore.all() || []; } catch (_) { return; }
+  const links = new Set(), ids = new Set();
+  for (const it of (items || [])) {
+    if (!it || !it.link) continue;
+    const n = _meAiNormLink(it.link); if (n) links.add(n);
+    const id = _meAiLinkId(it.link); if (id) ids.add(id);
+  }
+  const matched = cards.filter(d => {
+    if (_meAiDevCardDone(d)) return false; // already terminal — nothing to refresh
+    const us = [];
+    if (d.workItem && d.workItem.url) us.push(d.workItem.url);
+    if (d.link) us.push(d.link);
+    if (d.pr && d.pr.url) us.push(d.pr.url);
+    for (const r of (Array.isArray(d.repos) ? d.repos : [])) { if (r && r.pr && r.pr.url) us.push(r.pr.url); }
+    for (const u of us) { if (links.has(_meAiNormLink(u))) return true; const id = _meAiLinkId(u); if (id && ids.has(id)) return true; }
+    return false;
+  }).slice(0, 12);
+  for (const d of matched) {
+    const patch = {};
+    try { if (d.prId && d.org && d.repo && (d.provider === 'github' || d.project)) patch.pr = await _devPullRequest(_devDesc(d), d.prId); } catch (_) {}
+    try { if (d.workItemId && d.org && (d.provider === 'github' ? d.repo : d.project)) patch.workItem = await _devWorkItem(_devDesc(d), d.workItemId); } catch (_) {}
+    if (Object.keys(patch).length) { try { devStore.patch(d.id, patch); } catch (_) {} }
+  }
+}
 // Assemble the durable backlog candidate set for a date from every future-work source —
 // the built agenda's spillover backlog, inbox items the user parked ('later') or hasn't
 // resolved, and prior-day deferrals ("didn't fit today") rolled forward — then overlay
@@ -19042,10 +19183,14 @@ function _meAiAssembleBacklog(date) {
 app.get('/api/me-ai/backlog', (req, res) => {
   try {
     const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
-    const items = _meAiAssembleBacklog(date);
+    const assembled = _meAiAssembleBacklog(date);
+    // Cheap LOCAL auto-resolve: drop items whose dev card already shows the work is done
+    // (reads only stored PR / work-item status, no network). Resolved items move to Done.
+    const ar = _meAiBacklogAutoResolve(date, assembled);
+    const items = ar.items;
     const groups = {};
     for (const it of items) { if (it.group) (groups[it.group] = groups[it.group] || []).push(it.key); }
-    res.json({ ok: true, date, items, count: items.length, groups });
+    res.json({ ok: true, date, items, count: items.length, groups, autoResolved: ar.autoResolved });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -19203,15 +19348,20 @@ app.post('/api/me-ai/backlog/workitem', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/backlog/refresh { date? } → re-poll the inbox then re-assemble (so newly
-// arrived asks land in the queue on demand).
+// POST /api/me-ai/backlog/refresh { date? } → re-poll the inbox, LIVE-refresh the status of
+// dev cards linked to current backlog items, then auto-resolve + re-assemble (so newly
+// arrived asks land and finished work drops off with the authoritative latest status).
 app.post('/api/me-ai/backlog/refresh', async (req, res) => {
   try {
     const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     const s = settings.getSettings();
     const cfg = _meAiConfig(s);
     try { await _meAiRefreshInbox(s, cfg, date, { force: true }); } catch (_) {}
-    res.json({ ok: true, date, items: _meAiAssembleBacklog(date) });
+    // LIVE dev-card status refresh for anything a current backlog item points at, then
+    // resolve from the freshly-pulled status.
+    try { await _meAiBacklogRefreshDevStatus(_meAiAssembleBacklog(date)); } catch (_) {}
+    const ar = _meAiBacklogAutoResolve(date);
+    res.json({ ok: true, date, items: ar.items, autoResolved: ar.autoResolved });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

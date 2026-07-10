@@ -4869,6 +4869,36 @@
       flex: 0 0 auto; width: 216px; display: flex; flex-direction: column; gap: 12px;
       min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px;
       background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 14px);
+      position: relative;
+    }
+    .board-toolbox .board-tbx-body { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; min-height: 0; }
+    /* Collapse toggle (« in the header) — quiet, appears with the header row. */
+    .board-tbx-collapse { flex: 0 0 auto; border: 0; background: none; color: var(--cp-text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 0 0 2px; }
+    .board-tbx-collapse:hover { color: var(--cp-text); }
+    /* Collapsed: thin rail. Body hides; hovering (or focusing) the rail floats the full
+       tray over the stage without pushing the map, so it's an opt-in peek. */
+    .board-toolbox.collapsed { flex: 0 0 44px; padding: 8px 0; overflow: visible; align-items: center; }
+    .board-toolbox.collapsed .board-tbx-body { display: none; }
+    .board-tbx-rail { display: none; }
+    .board-toolbox.collapsed .board-tbx-rail {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      width: 100%; border: 0; background: none; cursor: pointer; padding: 4px 0; color: var(--cp-text-soft);
+    }
+    .board-toolbox.collapsed .board-tbx-rail:hover { color: var(--cp-text); }
+    .board-tbx-rail-x { font-size: 14px; line-height: 1; }
+    .board-tbx-railtext { writing-mode: vertical-rl; text-orientation: mixed; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+    .board-toolbox.collapsed:hover .board-tbx-body,
+    .board-toolbox.collapsed:focus-within .board-tbx-body {
+      display: flex; position: absolute; left: 0; top: 0; bottom: 0; z-index: 30;
+      width: var(--tbx-w, 216px); padding: 10px; overflow-y: auto;
+      background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+      border-radius: calc(var(--cp-radius-scale, 1) * 14px);
+      box-shadow: 0 14px 34px color-mix(in srgb, var(--cp-ink) 26%, transparent);
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .board-toolbox.collapsed:hover .board-tbx-body,
+      .board-toolbox.collapsed:focus-within .board-tbx-body { animation: tbxPeek .16s ease; }
+      @keyframes tbxPeek { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
     }
     /* Draggable splitter between the toolbox and the stage (resize toolbox width). */
     .board-tbx-splitter { flex: 0 0 auto; width: 8px; margin: 0 -6px; align-self: stretch; cursor: col-resize; position: relative; z-index: 3; border-radius: calc(var(--cp-radius-scale, 1) * 4px); }
@@ -4985,6 +5015,16 @@
       background: color-mix(in srgb, var(--cp-surface) 92%, transparent);
       border: 1px solid var(--cp-border); border-radius: 10px;
       box-shadow: 0 4px 14px color-mix(in srgb, var(--cp-ink) 12%, transparent);
+      opacity: 0; pointer-events: none; transform: translateY(-2px);
+      transition: opacity .16s ease, transform .16s ease;
+    }
+    .board-map:hover .bmap-toolbar,
+    .bmap-toolbar:hover,
+    .bmap-toolbar:focus-within { opacity: 1; pointer-events: auto; transform: none; }
+    @media (hover: none) { .bmap-toolbar { opacity: 1; pointer-events: auto; transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      .bmap-toolbar { transition: opacity .16s ease; transform: none; }
+      .board-map:hover .bmap-toolbar, .bmap-toolbar:hover, .bmap-toolbar:focus-within { transform: none; }
     }
     .bmap-tbtn {
       display: inline-flex; align-items: center; gap: 4px;
@@ -8638,7 +8678,12 @@
                     </template>
                     <!-- Unified SECTIONS studio: left toolbox tray + section tabs and stage. -->
                     <div class="board-studio">
-                      <aside class="board-toolbox scrollfade" :style="'width:' + boardTbxW + 'px'">
+                      <aside class="board-toolbox scrollfade" :class="{ collapsed: boardTbxCollapsed }" :style="'--tbx-w:' + boardTbxW + 'px;width:' + (boardTbxCollapsed ? 44 : boardTbxW) + 'px'">
+                        <button type="button" class="board-tbx-rail" x-show="boardTbxCollapsed" @click="toggleTbxCollapse()" title="Expand the card toolbox (or hover to peek)">
+                          <span class="board-tbx-rail-x">»</span>
+                          <span class="board-tbx-railtext">Cards</span>
+                        </button>
+                        <div class="board-tbx-body">
                         <div class="board-tbx-group">
                           <div class="board-tbx-label">
                             <span>Cards <span class="muted-count" x-text="toolboxPanels().length"></span></span>
@@ -8647,6 +8692,7 @@
                                     @click.stop="toggleTbxGroup()"
                                     :title="boardTbxGroup ? 'Ungroup — show a flat list' : 'Group cards by type'"
                                     x-text="boardTbxGroup ? 'Grouped' : 'Group'"></button>
+                            <button type="button" class="board-tbx-collapse" @click.stop="toggleTbxCollapse()" title="Collapse the toolbox to a rail">«</button>
                           </div>
                           <template x-if="!toolboxPanels().length">
                             <div class="hint" style="font-size:11.5px">Nothing pinned yet — use “Add new” below.</div>
@@ -8695,6 +8741,7 @@
                           <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                           <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()">📝 Note</button>
                           <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()">📋 Checklist</button>
+                        </div>
                         </div>
                       </aside>
                       <div class="board-tbx-splitter" @mousedown.prevent="startTbxResize($event)" title="Drag to resize the toolbox"></div>
@@ -15449,6 +15496,20 @@
               .meai-bk-facet .n { color:var(--cp-text-soft); font-weight:400; margin-left:5px; font-variant-numeric:tabular-nums; }
               .meai-bk-facet.on .n { color:var(--cp-text-muted); }
               .meai-bk-facet-sep { width:1px; height:16px; background:var(--cp-border); margin:0 6px; }
+              .meai-bk-autoresolved { border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface);
+                padding:10px 12px; margin:0 0 12px; }
+              .meai-bk-ar-head { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text); font-weight:600; }
+              .meai-bk-ar-dot { width:8px; height:8px; border-radius:999px; background:var(--cp-success, #3fb950); flex:0 0 auto; }
+              .meai-bk-ar-x { margin-left:auto; appearance:none; background:transparent; border:0; color:var(--cp-text-muted);
+                cursor:pointer; font-size:13px; line-height:1; padding:2px 4px; border-radius:6px; }
+              .meai-bk-ar-x:hover { color:var(--cp-text); background:var(--cp-surface-soft); }
+              .meai-bk-ar-list { list-style:none; margin:8px 0 4px; padding:0; display:flex; flex-direction:column; gap:4px;
+                font-size:12.5px; color:var(--cp-text-muted); }
+              .meai-bk-ar-title { color:var(--cp-text); }
+              .meai-bk-ar-why { color:var(--cp-text-muted); }
+              .meai-bk-ar-link { appearance:none; background:transparent; border:0; color:var(--cp-accent); cursor:pointer;
+                font:inherit; font-size:12.5px; padding:2px 0; }
+              .meai-bk-ar-link:hover { text-decoration:underline; }
               .meai-bk-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 12px; padding:0 2px;
                 font-size:12.5px; color:var(--cp-text-muted); }
               .meai-bk-chk { display:inline-flex; align-items:center; gap:7px; cursor:pointer; user-select:none; }
@@ -15575,6 +15636,21 @@
                     <span x-text="f.label"></span><span class="n" x-text="f.n === null ? '' : f.n"></span>
                   </button>
                 </template>
+              </div>
+
+              <!-- auto-resolved note: items the system completed because their dev card / PR already finished -->
+              <div class="meai-bk-autoresolved" x-show="meaiBk.autoResolved && meaiBk.autoResolved.length" x-cloak>
+                <div class="meai-bk-ar-head">
+                  <span class="meai-bk-ar-dot"></span>
+                  <span x-text="meaiBk.autoResolved.length + ' item' + (meaiBk.autoResolved.length===1?'':'s') + ' auto-completed — the work was already done'"></span>
+                  <button class="meai-bk-ar-x" @click="meaiBkDismissAutoResolved()" title="Dismiss" aria-label="Dismiss">✕</button>
+                </div>
+                <ul class="meai-bk-ar-list">
+                  <template x-for="a in meaiBk.autoResolved" :key="a.key">
+                    <li><span class="meai-bk-ar-title" x-text="a.title"></span><span class="meai-bk-ar-why" x-text="' — ' + a.reason"></span></li>
+                  </template>
+                </ul>
+                <button class="meai-bk-ar-link" @click="meaiBkSelectFacet('done')">See them in Done →</button>
               </div>
 
               <!-- toolbar -->
@@ -24328,6 +24404,7 @@
           history: [],         // completed items (lazy-loaded for the Done facet)
           historyLoaded: false,
           historyBusy: false,
+          autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
         meai: {
           loaded: false,
@@ -24621,6 +24698,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _groupDrag: { label: null, overLabel: null },
         // Toolbox: group catalog cards by type (drag grips to reorder). Persisted.
         boardTbxGroup: (() => { try { return localStorage.getItem('board-tbx-group') === '1'; } catch { return false; } })(),
+        boardTbxCollapsed: (() => { try { return localStorage.getItem('board-tbx-collapsed') === '1'; } catch { return false; } })(),
         _tbxOverBase: null, // toolbox reorder drop-target highlight (base id)
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
@@ -32151,6 +32229,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/me-ai/backlog?date=' + encodeURIComponent(this.meai.date));
             this.meaiBk.items = (r && Array.isArray(r.items)) ? r.items : [];
             this.meaiBk.loaded = true;
+            this._meaiBkNoteAutoResolved(r);
           } catch (e) {
             this.toast('Failed to load backlog: ' + (e.message || e), 'error');
             this.meaiBk.items = [];
@@ -32164,13 +32243,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/backlog/refresh', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) });
             if (r && Array.isArray(r.items)) this.meaiBk.items = r.items;
-            this.toast('Refreshed from inbox + agenda');
+            this._meaiBkNoteAutoResolved(r);
+            if (!(r && r.autoResolved && r.autoResolved.length)) this.toast('Refreshed from inbox + agenda');
           } catch (e) {
             this.toast('Refresh failed: ' + (e.message || e), 'error');
           } finally {
             this.meaiBk.busy = false;
           }
         },
+        // When the server auto-completes backlog items (their dev card / PR already finished),
+        // surface it calmly: a note the user can dismiss + refetch Done so they land in history.
+        _meaiBkNoteAutoResolved(r) {
+          const ar = (r && Array.isArray(r.autoResolved)) ? r.autoResolved : [];
+          this.meaiBk.autoResolved = ar;
+          if (ar.length) {
+            this.meaiBk.historyLoaded = false;  // Done view refetches to include the resolved items
+            this.toast(ar.length + ' item' + (ar.length === 1 ? '' : 's') + ' auto-completed — the work was already done', 'success');
+          }
+        },
+        meaiBkDismissAutoResolved() { this.meaiBk.autoResolved = []; },
         meaiBkKindLabel(k) { return ({ action: 'Action item', review: 'PR review', comms: 'Comms', dev: "Didn't fit" })[k] || 'Work'; },
         _meaiBkUrg(i) { return (i && i.urgencyOverride != null) ? Number(i.urgencyOverride) : Number((i && i.urgency) || 0); },
         meaiBkUrgClass(u) { return u >= 5 ? 'now' : u >= 4 ? 'soon' : u >= 2 ? 'later' : 'whenever'; },
@@ -41644,13 +41735,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         toolboxPanels() { return this.boardTabPanels(); },
         panelInActiveSection(p) {
           const sec = this.activeSection(); if (!sec) return false;
-          const b = this.panelBaseId(p);
-          return (sec.cards || []).some(c => c.base === b);
+          // Fade a toolbox item only when it is actually placed on the CURRENTLY shown
+          // map (b.maps[secId].nodes), not the legacy sec.cards seed — otherwise cards
+          // added via drop/bmapAddNode never fade and removed cards stay faded.
+          return this.bmapOnMap(this.panelBaseId(p));
         },
         // ----- Toolbox catalog: optional grouping by card type -----
         toggleTbxGroup() {
           this.boardTbxGroup = !this.boardTbxGroup;
           try { localStorage.setItem('board-tbx-group', this.boardTbxGroup ? '1' : '0'); } catch {}
+        },
+        toggleTbxCollapse() {
+          this.boardTbxCollapsed = !this.boardTbxCollapsed;
+          try { localStorage.setItem('board-tbx-collapsed', this.boardTbxCollapsed ? '1' : '0'); } catch {}
         },
         // Grouped view of the catalog: reuse the rail's group taxonomy so headers,
         // icons and order stay consistent with the tab rail. Empty groups are dropped.
