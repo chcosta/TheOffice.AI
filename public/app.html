@@ -48596,6 +48596,65 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return false;
         },
+        // Presentation-only MAP actions from the assistant: draw/remove links and box
+        // related cards into groups on the CURRENT board's relationship map. Operates on
+        // the live per-section map via the same helpers the manual gestures use
+        // (_bmapAddEdge / edge filter / group push + _bmapFitGroup), then persists.
+        applyBoardMapAction(a) {
+          const m = (typeof this._bmapEnsure === 'function') ? this._bmapEnsure() : this.bmapData();
+          if (!m || !m.nodes) return false;
+          const resolveOnMap = (base, title) => {
+            const b = this._baseResolve(base, title);
+            return (b && m.nodes[b]) ? b : null;
+          };
+          if (a.type === 'add_link') {
+            const from = resolveOnMap(a.from, a.fromTitle);
+            const to = resolveOnMap(a.to, a.toTitle);
+            if (!from || !to || from === to) return false;
+            this._bmapAddEdge(from, to, (a.dir === 'uni' ? 'uni' : 'bi'));
+            return true;
+          }
+          if (a.type === 'remove_link') {
+            const before = (m.edges || []).length;
+            if (a.linkId) {
+              m.edges = (m.edges || []).filter(e => e.id !== a.linkId);
+            } else {
+              const from = resolveOnMap(a.from, a.fromTitle);
+              const to = resolveOnMap(a.to, a.toTitle);
+              if (!from || !to) return false;
+              m.edges = (m.edges || []).filter(e => !((e.from === from && e.to === to) || (e.from === to && e.to === from)));
+            }
+            if ((m.edges || []).length === before) return false;
+            this._bmapPersistSoon();
+            return true;
+          }
+          if (a.type === 'create_group') {
+            const members = [...new Set((a.members || []).map(x => resolveOnMap(typeof x === 'string' ? x : (x && (x.base || x.refId)), null)).filter(Boolean))];
+            if (members.length < 2) return false;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const b of members) {
+              const nd = m.nodes[b]; if (!nd) continue;
+              const d = (typeof this._bmapNodeDims === 'function') ? this._bmapNodeDims(b) : { w: 272, h: 148 };
+              minX = Math.min(minX, +nd.x || 0); minY = Math.min(minY, +nd.y || 0);
+              maxX = Math.max(maxX, (+nd.x || 0) + d.w); maxY = Math.max(maxY, (+nd.y || 0) + d.h);
+            }
+            if (!isFinite(minX)) return false;
+            const pad = 22, head = 26;
+            const g = {
+              id: 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+              name: (a.name || 'Group'),
+              x: Math.round(minX - pad), y: Math.round(minY - pad - head),
+              w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head),
+              members,
+            };
+            m.groups = m.groups || [];
+            m.groups.push(g);
+            this._bmapPersistSoon();
+            this.$nextTick(() => { try { this._bmapFitGroup(g); } catch {} this._bmapPersistSoon(); });
+            return true;
+          }
+          return false;
+        },
         // Snapshot of the CLIENT-SIDE sections model (which the server has no
         // knowledge of) so the assistant can reason about the current board
         // layout: the sections/tabs, the cards on each, and the catalog of board
@@ -48661,6 +48720,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 try { lines.push('- ' + this.panelTitle(p) + ' [base=' + this.panelBaseId(p) + ']'); } catch {}
               });
             }
+            // MAP graph of the CURRENT board: nodes (cards placed on the map), the
+            // links between them, and any groups (with cached AI group summaries). This
+            // is what lets the assistant reason about relationships and propose add_link
+            // / remove_link / create_group. Purely client-side — the server never sees
+            // the per-section maps otherwise.
+            try {
+              const mp = this.bmapData();
+              const nodeBases = Object.keys((mp && mp.nodes) || {});
+              if (nodeBases.length) {
+                lines.push('');
+                lines.push('## MAP (current board) — relationship graph of the board the user is looking at');
+                lines.push('This board is a relationship MAP. The cards below are its NODES; you can draw LINKS between');
+                lines.push('them (add_link), remove links (remove_link), and box related ones into named GROUPS');
+                lines.push('(create_group). These MAP actions apply to THIS board only. Reference a card by its base.');
+                lines.push('Cards on this map:');
+                nodeBases.forEach(b => { const t = baseTitle[b] || b; lines.push('  - ' + t + ' [base=' + b + ']'); });
+                const edges = Array.isArray(mp.edges) ? mp.edges : [];
+                if (edges.length) {
+                  lines.push('Existing links:');
+                  edges.forEach(e => {
+                    const ft = baseTitle[e.from] || e.from, tt = baseTitle[e.to] || e.to;
+                    const arrow = (e.dir === 'uni') ? ' → ' : ' ↔ ';
+                    lines.push('  - ' + ft + ' [' + e.from + ']' + arrow + tt + ' [' + e.to + '] (' + ((e.dir === 'uni') ? 'one-way' : 'two-way') + '; linkId=' + (e.id || '') + ')');
+                  });
+                } else {
+                  lines.push('Existing links: (none yet)');
+                }
+                const groups = Array.isArray(mp.groups) ? mp.groups : [];
+                if (groups.length) {
+                  lines.push('Groups:');
+                  groups.forEach(g => {
+                    const mem = (g.members || []).map(b => (baseTitle[b] || b) + ' [' + b + ']').join(', ');
+                    lines.push('  - "' + (g.name || '(unnamed)') + '" — members: ' + (mem || '(none)'));
+                    let sum = '';
+                    try { const st = this.bmap && this.bmap.aiSummary && this.bmap.aiSummary[g.id]; if (st && st.text) sum = st.text; } catch {}
+                    if (sum) lines.push('      summary: ' + String(sum).replace(/\s+/g, ' ').trim().slice(0, 600));
+                  });
+                }
+              }
+            } catch (e) {}
             return lines.join('\n');
           } catch (e) { return ''; }
         },
@@ -48719,6 +48818,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'place_card' || a.type === 'move_card') return 'Apply';
           if (a.type === 'remove_card') return '🗑 Remove';
           if (a.type === 'pack_section') return '✨ Tidy';
+          if (a.type === 'add_link') return '🔗 Link';
+          if (a.type === 'remove_link') return '✂ Unlink';
+          if (a.type === 'create_group') return '▢ Group';
           if (a.type === 'add_dev_note') return '＋ Add note';
           if (a.type === 'edit_dev_note') return 'Save';
           if (a.type === 'check_dev_note') return '✓ Check';
@@ -48741,6 +48843,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'move_card') return '✓ moved';
           if (a.type === 'remove_card') return '✓ removed';
           if (a.type === 'pack_section') return '✓ tidied';
+          if (a.type === 'add_link') return '✓ linked';
+          if (a.type === 'remove_link') return '✓ unlinked';
+          if (a.type === 'create_group') return '✓ grouped';
           if (a.type === 'replace_dev_link') return '✓ replaced';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item', 'edit_dev_note', 'check_dev_note', 'uncheck_dev_note'];
@@ -48768,6 +48873,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const applied = this.applyBoardSectionAction(a);
             if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Section change') + ' applied', 'success'); }
             else this.showToast('Board assistant', "Couldn't apply that section change", 'error');
+            return;
+          }
+          // Presentation-only MAP actions: applied client-side against the current
+          // board's per-section relationship map (nodes/edges/groups). Like the
+          // section actions, the server never persists the map — it only proposes.
+          const MAP_TYPES = ['add_link', 'remove_link', 'create_group'];
+          if (MAP_TYPES.includes(a.type)) {
+            const applied = this.applyBoardMapAction(a);
+            if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Map change') + ' applied', 'success'); }
+            else this.showToast('Board assistant', "Couldn't apply that — the cards must be on the current map", 'error');
             return;
           }
           const now = new Date().toISOString();
