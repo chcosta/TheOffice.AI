@@ -4955,8 +4955,15 @@
     }
     .bmap-node:hover { box-shadow: 0 8px 22px color-mix(in srgb, var(--cp-ink) 22%, transparent); border-color: color-mix(in srgb, var(--k, var(--cp-accent)) 45%, var(--cp-border)); }
     .bmap-node.sel { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 8px 22px color-mix(in srgb, var(--cp-ink) 22%, transparent); }
-    .bmap-node.hl { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f5a623) 70%, transparent), 0 8px 22px color-mix(in srgb, var(--cp-ink) 20%, transparent); }
-    .bmap-node.hl.sel { box-shadow: 0 0 0 2px var(--cp-accent), 0 0 0 5px color-mix(in srgb, var(--cp-warning, #f5a623) 60%, transparent); }
+    .bmap-node.hl { border-color: var(--cp-warning, #f5a623); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f5a623) 85%, transparent), 0 0 0 7px color-mix(in srgb, var(--cp-warning, #f5a623) 22%, transparent), 0 10px 26px color-mix(in srgb, var(--cp-ink) 20%, transparent); }
+    .bmap-node.hl.sel { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 0 0 6px color-mix(in srgb, var(--cp-warning, #f5a623) 70%, transparent), 0 10px 26px color-mix(in srgb, var(--cp-ink) 20%, transparent); }
+    .bmap-node-here {
+      position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%); z-index: 9;
+      display: inline-flex; align-items: center; height: 20px; padding: 0 9px; white-space: nowrap;
+      font-size: 10.5px; font-weight: 700; letter-spacing: .02em; border-radius: 7px;
+      background: var(--cp-warning, #f5a623); color: color-mix(in srgb, var(--cp-ink) 90%, #000);
+      box-shadow: 0 2px 6px color-mix(in srgb, var(--cp-ink) 22%, transparent);
+    }
     .bmap-node.connect-from { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent); }
     /* header */
     .bmap-node-hd {
@@ -5040,8 +5047,10 @@
     .bmap-node:hover .bmap-linkhandle { opacity: 1; }
     .bmap-linkhandle:hover { background: var(--k, var(--cp-accent)); }
     .board-map.bmap-connecting .bmap-linkhandle { display: none; }
-    /* 4-side connection ports (shown only in link mode) */
-    .bmap-ports { position: absolute; inset: 0; pointer-events: none; z-index: 7; }
+    /* 4-side connection ports — revealed on card hover (drag one to another card to link) */
+    .bmap-ports { position: absolute; inset: 0; pointer-events: none; z-index: 7; opacity: 0; transition: opacity .12s ease; }
+    .bmap-node:hover .bmap-ports, .bmap-node.sel .bmap-ports, .bmap-node.connect-from .bmap-ports { opacity: 1; }
+    .board-map:focus-within .bmap-node:hover .bmap-ports { opacity: 1; }
     .bmap-port {
       position: absolute; width: 13px; height: 13px; border-radius: 999px; box-sizing: border-box;
       background: var(--cp-surface); border: 2px solid var(--k, var(--cp-accent)); pointer-events: auto;
@@ -5059,9 +5068,10 @@
     .bmap-port-r:hover { transform: translateY(-50%) scale(1.25); }
     /* edges + arrows */
     .bmap-edges { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; overflow: visible; }
-    .bmap-edge-bi { stroke: color-mix(in srgb, var(--cp-ink) 42%, transparent); stroke-width: 2; }
-    .bmap-edge-uni { stroke: var(--cp-accent); stroke-width: 2; }
-    .bmap-arrow { stroke: var(--cp-accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .bmap-edge { stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .bmap-edge-bi { stroke-width: 2.25; }
+    .bmap-edge-uni { stroke-width: 2.25; }
+    .bmap-arrow { stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
     .bmap-linkline { stroke: var(--cp-accent); stroke-width: 2; stroke-dasharray: 5 4; stroke-linecap: round; opacity: .85; }
     .board-map.bmap-grouping { cursor: crosshair; }
     /* groups */
@@ -6885,6 +6895,95 @@
                             <strong x-text="b.name"></strong>
                             <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
                           </div>
+                    <!-- Where was I? briefing — relocated BELOW the stage-bar. Collapsed
+                         by default; expands on hover; a lock (📌) keeps it open. -->
+                    <template x-if="boardIsTabbed() && isBriefView()">
+                      <div class="board-tab-brief board-header-brief" :class="{ collapsed: !boardBriefOpen(), locked: boardBriefLocked() }" style="margin:0 0 16px" @mouseenter="setBoardBriefHover(true)" @mouseleave="setBoardBriefHover(false)">
+                        <div class="board-tab-brief-head" @click="toggleBoardBrief()" :title="boardBriefLocked() ? 'Locked open — click to collapse (hover to peek)' : 'Click to lock open (hover to peek)'">
+                          <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
+                          <span style="flex:0 0 auto">🧭 Briefing</span>
+                          <span class="board-tab-brief-lock" x-text="boardBriefLocked() ? '📌' : ''" title="Locked open"></span>
+                          <template x-if="!boardBriefOpen()">
+                            <div class="board-tab-brief-next" :class="{ empty: !briefNextStepShort() }">
+                              <template x-if="briefNextStepShort()">
+                                <span class="btb-next">
+                                  <span class="btb-next-label">Next</span>
+                                  <span class="btb-next-text" x-text="briefNextStepShort()"></span>
+                                  <span class="btb-next-more" x-show="briefNextStepsMore()" x-text="'+' + briefNextStepsMore() + ' more'"></span>
+                                </span>
+                              </template>
+                              <template x-if="!briefNextStepShort()">
+                                <span class="btb-next-text" x-text="(activeBoard().summary && activeBoard().summary.text) ? 'No immediate next steps' : 'Not generated yet — click ↻ Update'"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <div style="margin-left:auto;display:flex;align-items:center;gap:6px" @click.stop>
+                            <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
+                              <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
+                              <div class="board-prompt-pop" x-show="boardPromptPop" x-cloak @click.stop>
+                                <div class="board-prompt-row">
+                                  <button class="board-prompt-item" :class="{active: !activeBriefingPromptId()}" type="button" @click="setActiveBriefingPrompt(null)"><span style="width:12px" x-text="!activeBriefingPromptId() ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis">Default (no guidance)</span></button>
+                                </div>
+                                <template x-for="bp in briefingPrompts()" :key="bp.id">
+                                  <div class="board-prompt-row">
+                                    <button class="board-prompt-item" :class="{active: activeBriefingPromptId()===bp.id}" type="button" @click="setActiveBriefingPrompt(bp.id)" :title="bp.text"><span style="width:12px" x-text="activeBriefingPromptId()===bp.id ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis" x-text="bp.name"></span></button>
+                                    <button class="board-prompt-iconbtn" type="button" @click.stop="openBriefingPromptEditor(bp.id)" title="Edit">✎</button>
+                                    <button class="board-prompt-iconbtn del" type="button" @click.stop="deleteBriefingPrompt(bp.id)" title="Delete">🗑</button>
+                                  </div>
+                                </template>
+                                <div class="board-prompt-sep"></div>
+                                <template x-if="_briefEdit.open">
+                                  <div class="board-prompt-edit">
+                                    <input type="text" x-model="_briefEdit.name" placeholder="Prompt name (e.g. Risks only)" />
+                                    <textarea x-model="_briefEdit.text" placeholder="Guidance for the LLM, e.g. 'Focus on blockers and failing runs; keep it to 3 sentences.'"></textarea>
+                                    <div class="board-prompt-edit-actions">
+                                      <button class="btn ghost" type="button" @click.stop="cancelBriefingPromptEditor()">Cancel</button>
+                                      <button class="btn" type="button" @click.stop="saveBriefingPrompt()">Save</button>
+                                    </div>
+                                  </div>
+                                </template>
+                                <button class="board-prompt-item" type="button" x-show="!_briefEdit.open" @click.stop="openBriefingPromptEditor(null)" style="color:var(--cp-accent)">＋ New prompt</button>
+                              </div>
+                            </div>
+                            <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                          </div>
+                        </div>
+                        <div class="board-tab-brief-body" x-show="boardBriefOpen()">
+                          <div class="hint" style="font-size:11px;margin-bottom:8px" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
+                          <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+                              <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
+                              <template x-for="d in (activeBoard().summary.deltas||[])" :key="d.kind + ':' + d.label">
+                                <span class="pill" :style="'cursor:pointer;font-size:11px;padding:2px 8px;' + (d.attention ? 'border-color:var(--cp-danger);color:var(--cp-danger)' : '')" @click="d.route && goTo(d.route)" :title="d.status + (d.when ? ' · ' + formatRelative(d.when) : '')" x-text="(d.attention ? '⚠ ' : '') + d.label"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
+                          <template x-if="briefingSources().length">
+                            <div class="brief-sources">
+                              <div class="brief-sources-label" @click="toggleBriefSources()">
+                                <span class="brief-sources-caret" x-text="briefSourcesOpen() ? '▾' : '▸'"></span>
+                                <span>Sources</span>
+                                <span class="brief-sources-count" x-text="briefingSources().length"></span>
+                              </div>
+                              <template x-if="briefSourcesOpen()">
+                                <div>
+                                  <template x-for="s in briefingSources()" :key="s.id">
+                                    <div class="brief-source-row">
+                                    <template x-if="s.route"><a class="brief-source-link" href="#" @click.prevent="goTo(s.route)" x-text="s.label || s.refId"></a></template>
+                                    <template x-if="!s.route"><span class="brief-source-link no-route" x-text="s.label || s.refId"></span></template>
+                                     <span class="brief-source-type" x-text="boardKindLabel(s.kind)"></span>
+                                     <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
+                                   </div>
+                                 </template>
+                               </div>
+                              </template>
+                              </div>
+                          </template>
+                          <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
+                        </div>
+                      </div>
+                    </template>
                           <div class="hint" style="margin-top:6px" x-show="homeBoardSnippet(b)" x-text="homeBoardSnippet(b)"></div>
                         </div>
                       </template>
@@ -8420,6 +8519,25 @@
                 </label>
                 <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
                   x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
+                <!-- Board controls relocated here from the removed stage-bar banner (Star / Focus / More). Hidden in focus mode, where the focus header carries them. -->
+                <template x-if="!boardsLoading && activeBoard() && !boardFocus">
+                  <div class="toolbar" style="display:flex;align-items:center;gap:6px">
+                    <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
+                    <button class="btn ghost" type="button" @click="toggleBoardFocus()" title="Focus — fill the screen with just this board to eliminate distractions">⛶ Focus</button>
+                    <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
+                      <button class="btn ghost" type="button" @click="open = !open" :class="{ active: open }" title="More board actions" aria-haspopup="true" :aria-expanded="open">⋯ More</button>
+                      <div class="org-menu" x-show="open" x-transition.opacity.duration.120ms x-cloak style="min-width:180px" @click="open = false">
+                        <button class="org-menu-item" type="button" @click="openBoardModal(activeBoard())"><span>✏</span><span class="org-menu-label">Edit</span></button>
+                        <button class="org-menu-item" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)"><span>🗄</span><span class="org-menu-label">Archive</span></button>
+                        <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
+                        <button class="org-menu-item" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)"><span>✅</span><span class="org-menu-label">Enable</span></button>
+                        <button class="org-menu-item" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)"><span>⏸</span><span class="org-menu-label">Disable</span></button>
+                        <div class="org-menu-sep"></div>
+                        <button class="org-menu-item" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)"><span>🗑</span><span class="org-menu-label">Delete</span></button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -8440,9 +8558,11 @@
                     <!-- Where was I? briefing — relocated BELOW the stage-bar (board
                          name / starred / focus); see just after the toolbar. -->
 
-                    <!-- Active board toolbar — a stage-bar pinned atop the board. The
-                         "Where was I?" briefing sits directly BELOW it (relocated per
-                         owner ask) so the board name / starred / focus come first. -->
+                    <!-- Active board toolbar. Shown ONLY in focus mode, where it pins atop
+                         the board as the focus header (name + Star / Exit focus / More). In
+                         the normal workspace view the banner is hidden and these controls
+                         live up in the workspace header next to the dropdown. -->
+                    <template x-if="boardFocus">
                     <div class="card board-stagebar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
                       <div style="display:flex;align-items:center;gap:10px;min-width:0">
                         <span style="font-size:22px" x-text="activeBoard().emoji || '📌'"></span>
@@ -8470,96 +8590,9 @@
                         </div>
                       </div>
                     </div>
-
-                    <!-- Where was I? briefing — relocated BELOW the stage-bar. Collapsed
-                         by default; expands on hover; a lock (📌) keeps it open. -->
-                    <template x-if="boardIsTabbed()">
-                      <div class="board-tab-brief board-header-brief" :class="{ collapsed: !boardBriefOpen(), locked: boardBriefLocked() }" style="margin:0 0 16px" @mouseenter="setBoardBriefHover(true)" @mouseleave="setBoardBriefHover(false)">
-                        <div class="board-tab-brief-head" @click="toggleBoardBrief()" :title="boardBriefLocked() ? 'Locked open — click to collapse (hover to peek)' : 'Click to lock open (hover to peek)'">
-                          <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
-                          <span style="flex:0 0 auto">🧭 Briefing</span>
-                          <span class="board-tab-brief-lock" x-text="boardBriefLocked() ? '📌' : ''" title="Locked open"></span>
-                          <template x-if="!boardBriefOpen()">
-                            <div class="board-tab-brief-next" :class="{ empty: !briefNextStepShort() }">
-                              <template x-if="briefNextStepShort()">
-                                <span class="btb-next">
-                                  <span class="btb-next-label">Next</span>
-                                  <span class="btb-next-text" x-text="briefNextStepShort()"></span>
-                                  <span class="btb-next-more" x-show="briefNextStepsMore()" x-text="'+' + briefNextStepsMore() + ' more'"></span>
-                                </span>
-                              </template>
-                              <template x-if="!briefNextStepShort()">
-                                <span class="btb-next-text" x-text="(activeBoard().summary && activeBoard().summary.text) ? 'No immediate next steps' : 'Not generated yet — click ↻ Update'"></span>
-                              </template>
-                            </div>
-                          </template>
-                          <div style="margin-left:auto;display:flex;align-items:center;gap:6px" @click.stop>
-                            <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
-                              <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
-                              <div class="board-prompt-pop" x-show="boardPromptPop" x-cloak @click.stop>
-                                <div class="board-prompt-row">
-                                  <button class="board-prompt-item" :class="{active: !activeBriefingPromptId()}" type="button" @click="setActiveBriefingPrompt(null)"><span style="width:12px" x-text="!activeBriefingPromptId() ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis">Default (no guidance)</span></button>
-                                </div>
-                                <template x-for="bp in briefingPrompts()" :key="bp.id">
-                                  <div class="board-prompt-row">
-                                    <button class="board-prompt-item" :class="{active: activeBriefingPromptId()===bp.id}" type="button" @click="setActiveBriefingPrompt(bp.id)" :title="bp.text"><span style="width:12px" x-text="activeBriefingPromptId()===bp.id ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis" x-text="bp.name"></span></button>
-                                    <button class="board-prompt-iconbtn" type="button" @click.stop="openBriefingPromptEditor(bp.id)" title="Edit">✎</button>
-                                    <button class="board-prompt-iconbtn del" type="button" @click.stop="deleteBriefingPrompt(bp.id)" title="Delete">🗑</button>
-                                  </div>
-                                </template>
-                                <div class="board-prompt-sep"></div>
-                                <template x-if="_briefEdit.open">
-                                  <div class="board-prompt-edit">
-                                    <input type="text" x-model="_briefEdit.name" placeholder="Prompt name (e.g. Risks only)" />
-                                    <textarea x-model="_briefEdit.text" placeholder="Guidance for the LLM, e.g. 'Focus on blockers and failing runs; keep it to 3 sentences.'"></textarea>
-                                    <div class="board-prompt-edit-actions">
-                                      <button class="btn ghost" type="button" @click.stop="cancelBriefingPromptEditor()">Cancel</button>
-                                      <button class="btn" type="button" @click.stop="saveBriefingPrompt()">Save</button>
-                                    </div>
-                                  </div>
-                                </template>
-                                <button class="board-prompt-item" type="button" x-show="!_briefEdit.open" @click.stop="openBriefingPromptEditor(null)" style="color:var(--cp-accent)">＋ New prompt</button>
-                              </div>
-                            </div>
-                            <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
-                          </div>
-                        </div>
-                        <div class="board-tab-brief-body" x-show="boardBriefOpen()">
-                          <div class="hint" style="font-size:11px;margin-bottom:8px" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
-                          <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
-                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
-                              <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
-                              <template x-for="d in (activeBoard().summary.deltas||[])" :key="d.kind + ':' + d.label">
-                                <span class="pill" :style="'cursor:pointer;font-size:11px;padding:2px 8px;' + (d.attention ? 'border-color:var(--cp-danger);color:var(--cp-danger)' : '')" @click="d.route && goTo(d.route)" :title="d.status + (d.when ? ' · ' + formatRelative(d.when) : '')" x-text="(d.attention ? '⚠ ' : '') + d.label"></span>
-                              </template>
-                            </div>
-                          </template>
-                          <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
-                          <template x-if="briefingSources().length">
-                            <div class="brief-sources">
-                              <div class="brief-sources-label" @click="toggleBriefSources()">
-                                <span class="brief-sources-caret" x-text="briefSourcesOpen() ? '▾' : '▸'"></span>
-                                <span>Sources</span>
-                                <span class="brief-sources-count" x-text="briefingSources().length"></span>
-                              </div>
-                              <template x-if="briefSourcesOpen()">
-                                <div>
-                                  <template x-for="s in briefingSources()" :key="s.id">
-                                    <div class="brief-source-row">
-                                    <template x-if="s.route"><a class="brief-source-link" href="#" @click.prevent="goTo(s.route)" x-text="s.label || s.refId"></a></template>
-                                    <template x-if="!s.route"><span class="brief-source-link no-route" x-text="s.label || s.refId"></span></template>
-                                     <span class="brief-source-type" x-text="boardKindLabel(s.kind)"></span>
-                                     <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
-                                   </div>
-                                 </template>
-                               </div>
-                              </template>
-                              </div>
-                          </template>
-                          <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
-                        </div>
-                      </div>
                     </template>
+
+
 
                     <!-- Manually disabled: a board the user paused. Distinct from the
                          team-compliance gate; greyed but trivially re-enabled. -->
@@ -8727,6 +8760,9 @@
                           <button type="button" class="board-sectiontab" :class="{ active: isMapView() }" @click="setActiveSection('map')" title="Map — a free canvas of item cards you can arrange, connect and group">
                             <span class="st-emoji">🗺</span><span>Map</span>
                           </button>
+                          <button type="button" class="board-sectiontab" :class="{ active: isBriefView() }" @click="setActiveSection('brief')" title="Briefing — the AI 'where was I?' summary for this board">
+                            <span class="st-emoji">🧭</span><span>Briefing</span>
+                          </button>
                           <template x-for="s in boardSections()" :key="s.id">
                             <button type="button" class="board-sectiontab"
                                     :class="{ active: activeSectionId() === s.id, 'drag-over': _boardDragOverSec === s.id }"
@@ -8762,8 +8798,6 @@
                             <button type="button" class="bmap-tbtn" @click="bmapZoom('in')" title="Zoom in">＋</button>
                             <button type="button" class="bmap-tbtn" @click="bmapFit()" title="Fit to view">⤢ Fit</button>
                             <span class="bmap-tsep"></span>
-                            <button type="button" class="bmap-tbtn" :class="{ on: bmapConnectMode()==='uni' }" @click="bmapToggleConnect('uni')" title="Link parent → child (directional)">→ Link</button>
-                            <button type="button" class="bmap-tbtn" :class="{ on: bmapConnectMode()==='bi' }" @click="bmapToggleConnect('bi')" title="Link two cards (two-way)">↔ Link</button>
                             <button type="button" class="bmap-tbtn" :class="{ on: bmap.groupMode }" @click="bmapToggleGroupMode()" title="Drag a rectangle around cards to frame them as a named group">▢ Group</button>
                           </div>
                           <div class="bmap-hint" x-show="!!bmapConnectMode()" x-cloak x-text="bmapConnectHint()"></div>
@@ -8797,9 +8831,7 @@
 
                             <!-- edges (single concatenated path per type; NOT x-for) -->
                             <svg class="bmap-edges" :width="bmapW()" :height="bmapH()">
-                              <path class="bmap-edge bmap-edge-bi" :d="bmapEdgePath('bi')" fill="none"></path>
-                              <path class="bmap-edge bmap-edge-uni" :d="bmapEdgePath('uni')" fill="none"></path>
-                              <path class="bmap-arrow" :d="bmapArrowPath()" fill="none"></path>
+                              <g x-html="bmapEdgesSvg()"></g>
                               <path class="bmap-linkline" x-show="!!bmap.link" :d="bmapLinkLivePath()" fill="none"></path>
                             </svg>
 
@@ -8812,6 +8844,9 @@
                                    @pointerup.stop="bmapNodeUp(n,$event)"
                                    @click.stop="bmapNodeClick(n,$event)"
                                    @dblclick.stop="bmapOpenReal(n.base)">
+                                <template x-if="bmapIsHl(n.base)">
+                                  <span class="bmap-node-here">You are here</span>
+                                </template>
                                 <div class="bmap-node-hd">
                                   <span class="bmap-node-ico" x-text="bmapCardIcon(n.p)"></span>
                                   <span class="bmap-node-lbl">
@@ -8863,15 +8898,12 @@
                                   <button type="button" @click="bmapSendBack(n.base)" title="Send to back">⬇</button>
                                   <button type="button" @click="bmapRemoveNode(n.base)" title="Remove from map">✕</button>
                                 </span>
-                                <span class="bmap-linkhandle" title="Drag to another card to link them" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'right')" @click.stop></span>
-                                <template x-if="bmapConnectMode()">
-                                  <span class="bmap-ports">
-                                    <span class="bmap-port bmap-port-t" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'top')" @click.stop></span>
-                                    <span class="bmap-port bmap-port-r" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'right')" @click.stop></span>
-                                    <span class="bmap-port bmap-port-b" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'bottom')" @click.stop></span>
-                                    <span class="bmap-port bmap-port-l" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'left')" @click.stop></span>
-                                  </span>
-                                </template>
+                                <span class="bmap-ports">
+                                  <span class="bmap-port bmap-port-t" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'top')" @click.stop></span>
+                                  <span class="bmap-port bmap-port-r" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'right')" @click.stop></span>
+                                  <span class="bmap-port bmap-port-b" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'bottom')" @click.stop></span>
+                                  <span class="bmap-port bmap-port-l" title="Drag to another card to link" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'left')" @click.stop></span>
+                                </span>
                               </div>
                             </template>
 
@@ -8935,7 +8967,7 @@
                             </div>
                           </div>
                         </div>
-                        <div class="board-sectionstage scrollfade" x-show="!isMapView()" :class="{ 'drag-over': _boardDragOver }"
+                        <div class="board-sectionstage scrollfade" x-show="!isMapView() && !isBriefView()" :class="{ 'drag-over': _boardDragOver }"
                              @pointerdown="boardStagePanStart($event)"
                              @dragenter.prevent
                              @dragover.prevent="_boardDragOver = true; _boardDragAutoPan($event); try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
@@ -9614,7 +9646,6 @@
                                             <template x-if="devReadyWorktrees(d) >= 2">
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='workspace'" @click="openDevWorkspace(d,'editor')" title="Open every ready worktree together as one VS Code multi-root workspace" x-text="devBusy[d.id]==='workspace' ? 'Opening…' : '🗂 Open workspace'"></button>
                                             </template>
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevRepoDraft(d)" x-text="(devRepoDraft[d.id] && devRepoDraft[d.id].open) ? 'Cancel' : '＋ Track another repo'"></button>
                                           </div>
                                         </div>
 
@@ -9797,53 +9828,6 @@
                                             <span class="status-inline" title="Per-repo dev agents written — each worktree has its own named agent, selectable in VS Code / Copilot and auto-selected when opening the CLI"><span class="status-dot clean"></span>🤖 Dev agents ready</span>
                                           </template>
                                         </div>
-                                        <template x-if="devRepoDraft[d.id] && devRepoDraft[d.id].open">
-                                          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:6px">
-                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                              <select class="input" style="font-size:11px;flex:0 0 auto;min-width:76px" x-model="devRepoDraft[d.id].provider" @change="devDraftProviderChange(d)" title="Repository host">
-                                                <option value="azdo">Azure DevOps</option>
-                                                <option value="github">GitHub</option>
-                                              </select>
-                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" :placeholder="devRepoDraft[d.id].provider==='github' ? 'owner' : 'org'" x-model="devRepoDraft[d.id].org" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
-                                              <input x-show="devRepoDraft[d.id].provider!=='github'" class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="project" x-model="devRepoDraft[d.id].project" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
-                                            </div>
-                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                              <div x-data="repoCombo()" style="position:relative;flex:1 1 90px;min-width:80px">
-                                                <input class="input" type="text" style="font-size:11px;width:100%"
-                                                  :placeholder="devRepoDraft[d.id].loadingRepos ? 'Loading repos…' : (devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length ? 'Search repos…' : 'repo')"
-                                                  :value="open ? q : (devRepoDraft[d.id].repo || '')"
-                                                  @focus="open=true; q=''; if((!devRepoDraft[d.id].repos || !devRepoDraft[d.id].repos.length) && !devRepoDraft[d.id].loadingRepos) devDraftLoadRepos(d)"
-                                                  @input="q=$event.target.value; open=true"
-                                                  @blur="closeSoon()"
-                                                  @keydown.escape.stop="open=false; $el.blur()" />
-                                                <div x-show="open" x-transition.opacity.duration.120ms
-                                                  style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:200px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);box-shadow:var(--cp-shadow)">
-                                                  <template x-if="devRepoDraft[d.id].loadingRepos">
-                                                    <div class="hint" style="padding:6px 10px;font-size:11px">Loading repos…</div>
-                                                  </template>
-                                                  <template x-for="r in comboFilterRepos(devRepoDraft[d.id].repos, q)" :key="r.id || r.name">
-                                                    <div @mousedown.prevent="devRepoDraft[d.id].repo=r.name; devDraftRepoChange(d); open=false"
-                                                      style="padding:6px 10px;cursor:pointer;font-size:12px;border-radius:calc(var(--cp-radius-scale, 1) * 6px)"
-                                                      :style="r.name===devRepoDraft[d.id].repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
-                                                      @mouseenter="if(r.name!==devRepoDraft[d.id].repo) $el.style.background='var(--cp-surface-soft)'"
-                                                      @mouseleave="if(r.name!==devRepoDraft[d.id].repo) $el.style.background=''"
-                                                      x-text="r.name"></div>
-                                                  </template>
-                                                  <template x-if="!devRepoDraft[d.id].loadingRepos && !comboFilterRepos(devRepoDraft[d.id].repos, q).length">
-                                                    <div class="hint" style="padding:6px 10px;font-size:11px" x-text="(devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length) ? 'No match.' : (devRepoDraft[d.id].provider==='github' ? (devRepoDraft[d.id].org ? 'No repos found.' : 'Enter owner.') : (devRepoDraft[d.id].org && devRepoDraft[d.id].project ? 'No repos found.' : 'Enter org / project.'))"></div>
-                                                  </template>
-                                                </div>
-                                              </div>
-                                              <select class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" x-model="devRepoDraft[d.id].baseBranch" :disabled="!devRepoDraft[d.id].branches || !devRepoDraft[d.id].branches.length">
-                                                <option value="" x-text="devRepoDraft[d.id].loadingBranches ? 'Loading…' : ((devRepoDraft[d.id].branches && devRepoDraft[d.id].branches.length) ? 'base branch…' : 'pick repo first')"></option>
-                                                <template x-for="b in (devRepoDraft[d.id].branches || [])" :key="b"><option :value="b" x-text="b"></option></template>
-                                              </select>
-                                            </div>
-                                            <div style="display:flex;justify-content:flex-end;gap:6px">
-                                              <button class="btn primary" type="button" style="font-size:11px;padding:2px 10px" :disabled="devBusy[d.id]==='addrepo' || !devRepoDraft[d.id].repo" @click="addDevRepo(d)" x-text="devBusy[d.id]==='addrepo' ? 'Creating…' : 'Create dev card'"></button>
-                                            </div>
-                                          </div>
-                                        </template>
                                       </div>
                                           </div>
                                          <div class="cf-pane" x-show="devActivePane(d)==='artifacts'">
@@ -9957,7 +9941,7 @@
                             <span class="board-trash-ico">🗑</span>
                           </div>
                         </div>
-                        <div class="board-sectbar" x-show="!isViewTab() && !isMapView()">
+                        <div class="board-sectbar" x-show="!isViewTab() && !isMapView() && !isBriefView()">
                           <div class="board-editsec" x-show="boardEditSecOpen" x-cloak @click.outside="boardEditSecOpen = false">
                             <div class="board-editsec-head">
                               <span x-text="'Edit cards' + (activeSection() ? ' · ' + activeSection().name : '')"></span>
@@ -10860,7 +10844,6 @@
                                             <template x-if="devReadyWorktrees(d) >= 2">
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='workspace'" @click="openDevWorkspace(d,'editor')" title="Open every ready worktree together as one VS Code multi-root workspace" x-text="devBusy[d.id]==='workspace' ? 'Opening…' : '🗂 Open workspace'"></button>
                                             </template>
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevRepoDraft(d)" x-text="(devRepoDraft[d.id] && devRepoDraft[d.id].open) ? 'Cancel' : '＋ Track another repo'"></button>
                                           </div>
                                         </div>
                                         <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'The dev agent works this item in a private git worktree — open it in VS Code or the CLI (the agent is auto-selected) to read the work item, PR & git status and build, test & validate the change. Nothing is pushed without you.' : 'Open a repo in a private git worktree — in VS Code or the CLI the dev agent is auto-selected to help you build, test & validate the change. Nothing is pushed without you.'"></p>
@@ -11036,53 +11019,6 @@
                                             <span class="status-inline" title="Per-repo dev agents written — each worktree has its own named agent"><span class="status-dot clean"></span>🤖 Dev agents ready</span>
                                           </template>
                                         </div>
-                                        <template x-if="devRepoDraft[d.id] && devRepoDraft[d.id].open">
-                                          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:6px">
-                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                              <select class="input" style="font-size:11px;flex:0 0 auto;min-width:76px" x-model="devRepoDraft[d.id].provider" @change="devDraftProviderChange(d)" title="Repository host">
-                                                <option value="azdo">Azure DevOps</option>
-                                                <option value="github">GitHub</option>
-                                              </select>
-                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" :placeholder="devRepoDraft[d.id].provider==='github' ? 'owner' : 'org'" x-model="devRepoDraft[d.id].org" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
-                                              <input x-show="devRepoDraft[d.id].provider!=='github'" class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="project" x-model="devRepoDraft[d.id].project" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
-                                            </div>
-                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                              <div x-data="repoCombo()" style="position:relative;flex:1 1 90px;min-width:80px">
-                                                <input class="input" type="text" style="font-size:11px;width:100%"
-                                                  :placeholder="devRepoDraft[d.id].loadingRepos ? 'Loading repos…' : (devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length ? 'Search repos…' : 'repo')"
-                                                  :value="open ? q : (devRepoDraft[d.id].repo || '')"
-                                                  @focus="open=true; q=''; if((!devRepoDraft[d.id].repos || !devRepoDraft[d.id].repos.length) && !devRepoDraft[d.id].loadingRepos) devDraftLoadRepos(d)"
-                                                  @input="q=$event.target.value; open=true"
-                                                  @blur="closeSoon()"
-                                                  @keydown.escape.stop="open=false; $el.blur()" />
-                                                <div x-show="open" x-transition.opacity.duration.120ms
-                                                  style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:200px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);box-shadow:var(--cp-shadow)">
-                                                  <template x-if="devRepoDraft[d.id].loadingRepos">
-                                                    <div class="hint" style="padding:6px 10px;font-size:11px">Loading repos…</div>
-                                                  </template>
-                                                  <template x-for="r in comboFilterRepos(devRepoDraft[d.id].repos, q)" :key="r.id || r.name">
-                                                    <div @mousedown.prevent="devRepoDraft[d.id].repo=r.name; devDraftRepoChange(d); open=false"
-                                                      style="padding:6px 10px;cursor:pointer;font-size:12px;border-radius:calc(var(--cp-radius-scale, 1) * 6px)"
-                                                      :style="r.name===devRepoDraft[d.id].repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
-                                                      @mouseenter="if(r.name!==devRepoDraft[d.id].repo) $el.style.background='var(--cp-surface-soft)'"
-                                                      @mouseleave="if(r.name!==devRepoDraft[d.id].repo) $el.style.background=''"
-                                                      x-text="r.name"></div>
-                                                  </template>
-                                                  <template x-if="!devRepoDraft[d.id].loadingRepos && !comboFilterRepos(devRepoDraft[d.id].repos, q).length">
-                                                    <div class="hint" style="padding:6px 10px;font-size:11px" x-text="(devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length) ? 'No match.' : (devRepoDraft[d.id].provider==='github' ? (devRepoDraft[d.id].org ? 'No repos found.' : 'Enter owner.') : (devRepoDraft[d.id].org && devRepoDraft[d.id].project ? 'No repos found.' : 'Enter org / project.'))"></div>
-                                                  </template>
-                                                </div>
-                                              </div>
-                                              <select class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" x-model="devRepoDraft[d.id].baseBranch" :disabled="!devRepoDraft[d.id].branches || !devRepoDraft[d.id].branches.length">
-                                                <option value="" x-text="devRepoDraft[d.id].loadingBranches ? 'Loading…' : ((devRepoDraft[d.id].branches && devRepoDraft[d.id].branches.length) ? 'base branch…' : 'pick repo first')"></option>
-                                                <template x-for="b in (devRepoDraft[d.id].branches || [])" :key="b"><option :value="b" x-text="b"></option></template>
-                                              </select>
-                                            </div>
-                                            <div style="display:flex;justify-content:flex-end;gap:6px">
-                                              <button class="btn primary" type="button" style="font-size:11px;padding:2px 10px" :disabled="devBusy[d.id]==='addrepo' || !devRepoDraft[d.id].repo" @click="addDevRepo(d)" x-text="devBusy[d.id]==='addrepo' ? 'Creating…' : 'Create dev card'"></button>
-                                            </div>
-                                          </div>
-                                        </template>
                                       </div>
                                     </div>
                                     <div class="cf-pane" x-show="devActivePane(d)==='artifacts'">
@@ -41443,7 +41379,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // LOCK it open so it stays expanded without hovering (owner ask). "Open" =
         // locked OR currently hovered.
         boardBriefLocked() { return this.boardCanvas.briefLocked === true; },
-        boardBriefOpen() { return this.boardBriefLocked() || this.boardBriefHover; },
+        boardBriefOpen() { return this.isBriefView() || this.boardBriefLocked() || this.boardBriefHover; },
         toggleBoardBrief() {
           // Head click toggles the LOCK (persisted). Hover handles transient expand.
           this.boardCanvas = { ...this.boardCanvas, briefLocked: !this.boardBriefLocked() };
@@ -41487,22 +41423,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const cur = this.boardCanvas && this.boardCanvas.sec;
           if (cur === 'view') return 'view';
           if (cur === 'map') return 'map';
+          if (cur === 'brief') return 'brief';
           const secs = this.boardSections();
           if (cur && secs.some(s => s.id === cur)) return cur;
           return secs.length ? secs[0].id : null;
         },
         isViewTab() { return this.activeSectionId() === 'view'; },
         isMapView() { return this.activeSectionId() === 'map'; },
+        isBriefView() { return this.activeSectionId() === 'brief'; },
         activeSection() {
           const id = this.activeSectionId();
-          if (id === 'view' || id === 'map' || !id) return null;
+          if (id === 'view' || id === 'map' || id === 'brief' || !id) return null;
           return this.sectionById(id);
         },
         setActiveSection(id) {
           if (!this.boardCanvas || this.boardCanvas.sec === id) return;
           this.boardEditSecOpen = false;
           const patch = { sec: id };
-          if (id && id !== 'view' && id !== 'map') patch.secLast = id;
+          if (id && id !== 'view' && id !== 'map' && id !== 'brief') patch.secLast = id;
           this.boardCanvas = { ...this.boardCanvas, ...patch };
           this._saveBoardCanvas();
           if (id === 'map') this.bmapEnter();
@@ -42560,14 +42498,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _bmapFinishGroupRect() {
           const mq = this.bmap.marquee; if (!mq) return;
           const NW = 272, NH = 148;
-          if (mq.w < 24 && mq.h < 24) return;
+          if (mq.w < 24 && mq.h < 24) { this.bmap.groupMode = false; return; }
+          // Any card whose box INTERSECTS the drawn rectangle is captured (not just
+          // center-in-rect) so a loose lasso still grabs what it visually covers.
           const members = [];
-          for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) members.push(n.base); }
-          const head = 26;
-          const m = this._bmapEnsure(); if (!m) return;
-          const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(mq.x), y: Math.round(mq.y - head), w: Math.round(mq.w), h: Math.round(mq.h + head), members };
-          m.groups.push(g); this._bmapPersistSoon();
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const n of this.bmapNodes()) {
+            const l = n.x, t = n.y, r = n.x + NW, b = n.y + NH;
+            if (r < mq.x || l > mq.x + mq.w || b < mq.y || t > mq.y + mq.h) continue;
+            members.push(n.base);
+            minX = Math.min(minX, l); minY = Math.min(minY, t);
+            maxX = Math.max(maxX, r); maxY = Math.max(maxY, b);
+          }
           this.bmap.groupMode = false;
+          if (!members.length) { try { this.toast('No cards inside that area — drag around the cards you want to group.'); } catch {} return; }
+          // Shrink the frame to tightly wrap the captured cards (matches bmapStartGroup).
+          const pad = 22, head = 26;
+          const m = this._bmapEnsure(); if (!m) return;
+          const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members };
+          m.groups.push(g); this._bmapPersistSoon();
           this.bmap.editGroup = g.id;
         },
         // -- drag-to-link (connector nub / side ports on each node) --
@@ -42687,8 +42636,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         _bmapAddEdge(from, to, dir) {
           const m = this._bmapEnsure(); if (!m) return;
-          const exists = (m.edges || []).some(e => (e.dir || 'bi') === dir && ((e.from === from && e.to === to) || (dir === 'bi' && e.from === to && e.to === from)));
+          m.edges = m.edges || [];
+          // Exact edge already present → no-op.
+          const exists = m.edges.some(e => (e.dir || 'bi') === dir && ((e.from === from && e.to === to) || (dir === 'bi' && e.from === to && e.to === from)));
           if (exists) return;
+          // A bi link between this pair already covers both directions.
+          if (m.edges.some(e => (e.dir || 'bi') === 'bi' && ((e.from === from && e.to === to) || (e.from === to && e.to === from)))) return;
+          // Drag the reverse of an existing one-way link → upgrade the pair to two-way.
+          if (dir === 'uni') {
+            const revIdx = m.edges.findIndex(e => (e.dir || 'bi') === 'uni' && e.from === to && e.to === from);
+            if (revIdx >= 0) {
+              m.edges[revIdx] = { ...m.edges[revIdx], dir: 'bi' };
+              this._bmapPersistSoon();
+              try { this.toast('Upgraded to a two-way link.'); } catch {}
+              return;
+            }
+          }
           m.edges.push({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, dir });
           this._bmapPersistSoon();
         },
@@ -42704,58 +42667,82 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Bezier control points for a curved connector between two node CENTERS.
         // p1/p2 sit on each node's box edge (toward the other centre); control points
-        // push outward along the box-edge normal so the curve bows like the pursuit map.
+        // push perpendicular to the run so the curve ALWAYS bows (never snaps straight),
+        // matching the bezier feel of the live drag + the pursuit map.
         _bmapEdgeCurve(c1, c2, hw, hh) {
           const p1 = this._bmapAnchor(c2, c1, hw, hh);
           const p2 = this._bmapAnchor(c1, c2, hw, hh);
-          const n1x = p1.x - c1.x, n1y = p1.y - c1.y; const l1 = Math.hypot(n1x, n1y) || 1;
-          const n2x = p2.x - c2.x, n2y = p2.y - c2.y; const l2 = Math.hypot(n2x, n2y) || 1;
-          const dist = Math.hypot(c2.x - c1.x, c2.y - c1.y);
-          const k = Math.max(30, Math.min(140, dist * 0.4));
-          const cp1 = { x: p1.x + (n1x / l1) * k, y: p1.y + (n1y / l1) * k };
-          const cp2 = { x: p2.x + (n2x / l2) * k, y: p2.y + (n2y / l2) * k };
+          const vx = p2.x - p1.x, vy = p2.y - p1.y;
+          const dist = Math.hypot(vx, vy) || 1;
+          const px = -vy / dist, py = vx / dist;          // perpendicular unit (consistent bow side)
+          const bow = Math.max(18, Math.min(70, dist * 0.22));
+          const cp1 = { x: p1.x + vx * 0.28 + px * bow, y: p1.y + vy * 0.28 + py * bow };
+          const cp2 = { x: p1.x + vx * 0.72 + px * bow, y: p1.y + vy * 0.72 + py * bow };
           return { p1, cp1, cp2, p2 };
         },
-        bmapEdgePath(dir) {
-          const m = this.bmapData(); const nodes = m.nodes || {};
-          const NW = 272, NH = 148, hw = NW / 2, hh = NH / 2;
-          let d = '';
-          for (const e of (m.edges || [])) {
-            if ((e.dir || 'bi') !== dir) continue;
-            const a = nodes[e.from], b = nodes[e.to];
-            if (!a || !b) continue;
-            if (!this._panelByBase(e.from) || !this._panelByBase(e.to)) continue;
-            const c1 = { x: (+a.x || 0) + hw, y: (+a.y || 0) + hh };
-            const c2 = { x: (+b.x || 0) + hw, y: (+b.y || 0) + hh };
-            const cv = this._bmapEdgeCurve(c1, c2, hw, hh);
-            d += 'M ' + cv.p1.x.toFixed(1) + ' ' + cv.p1.y.toFixed(1)
-               + ' C ' + cv.cp1.x.toFixed(1) + ' ' + cv.cp1.y.toFixed(1)
-               + ' ' + cv.cp2.x.toFixed(1) + ' ' + cv.cp2.y.toFixed(1)
-               + ' ' + cv.p2.x.toFixed(1) + ' ' + cv.p2.y.toFixed(1) + ' ';
-          }
-          return d.trim();
+        // Lighten a hex colour toward white by amt (0..1) — for the "to" end of the edge gradient.
+        _bmapLighten(hex, amt) {
+          try {
+            let h = String(hex || '').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join('');
+            const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+            const a = Math.max(0, Math.min(1, amt == null ? 0.32 : amt));
+            const mix = v => Math.round(v + (255 - v) * a);
+            const to2 = v => v.toString(16).padStart(2, '0');
+            return '#' + to2(mix(r)) + to2(mix(g)) + to2(mix(b));
+          } catch { return hex; }
         },
-        bmapArrowPath() {
+        // Per-edge geometry: each edge is its OWN path + gradient so the stroke can run
+        // from the from-card colour to the to-card's lightened highlight colour.
+        bmapEdgeList() {
           const m = this.bmapData(); const nodes = m.nodes || {};
           const NW = 272, NH = 148, hw = NW / 2, hh = NH / 2;
-          let d = '';
+          const out = [];
           for (const e of (m.edges || [])) {
-            if ((e.dir || 'bi') !== 'uni') continue;
             const a = nodes[e.from], b = nodes[e.to];
             if (!a || !b) continue;
-            if (!this._panelByBase(e.from) || !this._panelByBase(e.to)) continue;
+            const pa = this._panelByBase(e.from), pb = this._panelByBase(e.to);
+            if (!pa || !pb) continue;
             const c1 = { x: (+a.x || 0) + hw, y: (+a.y || 0) + hh };
             const c2 = { x: (+b.x || 0) + hw, y: (+b.y || 0) + hh };
             const cv = this._bmapEdgeCurve(c1, c2, hw, hh);
-            const tip = cv.p2;
-            // tangent at the curve end = tip - cp2 (direction the curve arrives from)
-            const dx = tip.x - cv.cp2.x, dy = tip.y - cv.cp2.y; const dist = Math.hypot(dx, dy) || 1;
-            const ux = dx / dist, uy = dy / dist; const px = -uy, py = ux; const len = 12, half = 6.5;
-            const w1x = tip.x - ux * len + px * half, w1y = tip.y - uy * len + py * half;
-            const w2x = tip.x - ux * len - px * half, w2y = tip.y - uy * len - py * half;
-            d += 'M ' + w1x.toFixed(1) + ' ' + w1y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2x.toFixed(1) + ' ' + w2y.toFixed(1) + ' ';
+            const dir = (e.dir || 'bi');
+            const d = 'M ' + cv.p1.x.toFixed(1) + ' ' + cv.p1.y.toFixed(1)
+                    + ' C ' + cv.cp1.x.toFixed(1) + ' ' + cv.cp1.y.toFixed(1)
+                    + ' ' + cv.cp2.x.toFixed(1) + ' ' + cv.cp2.y.toFixed(1)
+                    + ' ' + cv.p2.x.toFixed(1) + ' ' + cv.p2.y.toFixed(1);
+            let arrow = '';
+            if (dir === 'uni') {
+              const tip = cv.p2; const dx = tip.x - cv.cp2.x, dy = tip.y - cv.cp2.y; const dd = Math.hypot(dx, dy) || 1;
+              const ux = dx / dd, uy = dy / dd; const qx = -uy, qy = ux; const len = 12, half = 6.5;
+              const w1x = tip.x - ux * len + qx * half, w1y = tip.y - uy * len + qy * half;
+              const w2x = tip.x - ux * len - qx * half, w2y = tip.y - uy * len - qy * half;
+              arrow = 'M ' + w1x.toFixed(1) + ' ' + w1y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2x.toFixed(1) + ' ' + w2y.toFixed(1);
+            }
+            out.push({
+              id: String(e.id || (e.from + '__' + e.to)).replace(/[^a-zA-Z0-9_-]/g, '_'),
+              dir, d, arrow,
+              x1: cv.p1.x.toFixed(1), y1: cv.p1.y.toFixed(1), x2: cv.p2.x.toFixed(1), y2: cv.p2.y.toFixed(1),
+              c1: this.bmapKindColor(pa), c2: this._bmapLighten(this.bmapKindColor(pb), 0.35)
+            });
           }
-          return d.trim();
+          return out;
+        },
+        // SVG inner markup (defs + per-edge paths) rendered via x-html so gradients live in
+        // the SVG namespace (Alpine <template x-for> can't create SVG-namespaced nodes).
+        bmapEdgesSvg() {
+          const list = this.bmapEdgeList();
+          const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+          let defs = '<defs>'; let body = '';
+          for (const e of list) {
+            defs += '<linearGradient id="bmgrad-' + esc(e.id) + '" gradientUnits="userSpaceOnUse" x1="' + e.x1 + '" y1="' + e.y1 + '" x2="' + e.x2 + '" y2="' + e.y2 + '">'
+                  + '<stop offset="0%" stop-color="' + esc(e.c1) + '"></stop>'
+                  + '<stop offset="100%" stop-color="' + esc(e.c2) + '"></stop>'
+                  + '</linearGradient>';
+            body += '<path class="bmap-edge bmap-edge-' + e.dir + '" d="' + e.d + '" fill="none" stroke="url(#bmgrad-' + esc(e.id) + ')"></path>';
+            if (e.arrow) body += '<path class="bmap-arrow" d="' + e.arrow + '" fill="none" stroke="' + esc(e.c2) + '"></path>';
+          }
+          defs += '</defs>';
+          return defs + body;
         },
         // -- groups --
         bmapStartGroup() {
