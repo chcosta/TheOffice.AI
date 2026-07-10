@@ -9179,7 +9179,7 @@
                              @pointermove="bmapPanMove($event)"
                              @pointerup="bmapPanEnd()"
                              @pointerleave="bmapPanEnd()"
-                             @dragover.prevent="try{$event.dataTransfer.dropEffect='copy'}catch(e){}"
+                             @dragover.prevent="bmapDragOver($event)"
                              @drop.prevent="bmapDrop($event)"
                              :class="{ 'bmap-connecting': !!bmapConnectMode(), 'bmap-grouping': bmap.groupMode }">
                           <!-- floating toolbar -->
@@ -14125,7 +14125,7 @@
                           <div class="meai-chk-row" :class="{ done: t.done }">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
-                              <div class="meai-chk-title" :class="{ 'meai-chk-title-nav': meAiGoalActionable(t) }" @click="meAiGoalActionable(t) && meAiGoalOpen(t)" :title="meAiGoalHasBlock(t) ? 'Go to the agenda block that gets this done' : (t.link ? 'Open' : 'Not on today\\'s agenda — an audit-only goal')"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span><span class="meai-chk-noagenda" x-show="!meAiGoalActionable(t)" title="This goal isn't tied to a block on today's agenda — it's here for tracking only">not on today's agenda</span></div>
+                              <div class="meai-chk-title" :class="{ 'meai-chk-title-nav': meAiGoalActionable(t) }" @click="meAiGoalActionable(t) && meAiGoalOpen(t)" :title="meAiGoalHasBlock(t) ? 'Go to the agenda block that gets this done' : (t.link ? 'Open' : 'Not on today\'s agenda — an audit-only goal')"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span><span class="meai-chk-noagenda" x-show="!meAiGoalActionable(t)" title="This goal isn't tied to a block on today's agenda — it's here for tracking only">not on today's agenda</span></div>
                               <div class="meai-chk-meta meai-chk-hoveracts" x-show="t.carried || t.link || t.live || meAiGoalHasBlock(t)">
                                 <span class="meai-chk-carried" x-show="t.carried">↷ carried over</span>
                                 <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
@@ -43786,6 +43786,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.bmap.full = null;
           if (p.type === 'pin' && p.item && typeof this.boardJump === 'function') { try { this.boardJump(p.item); return; } catch {} }
           this.openInView(p);
+        },
+        // Signal a copy-drop affordance while dragging a card over the board map.
+        // Kept as a method (not an inline try/catch) so Alpine can compile it as an expression.
+        bmapDragOver(ev) {
+          try { if (ev && ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy'; } catch (e) {}
         },
         // -- add / remove nodes --
         bmapDrop(ev) {
