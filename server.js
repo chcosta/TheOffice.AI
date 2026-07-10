@@ -12774,6 +12774,7 @@ function _meAiApplyBacklogCuration(planSignals, curation) {
   const groups = new Map();
   const kept = [];
   for (const sig of planSignals) {
+    if (sig && (sig.type === 'meeting' || sig.kind === 'meeting')) { kept.push(sig); continue; }
     const key = _meAiBacklogKey(sig);
     const cur = key && items[key];
     if (cur) {
@@ -14832,6 +14833,76 @@ function _meAiGatherDevCards() {
   return signals;
 }
 
+// Normalize a Graph calendar dateTime ({dateTime,timeZone}, default UTC) to the
+// SERVER-LOCAL wall clock. The server runs on the user's own machine, so server-local
+// === the user's local time — this is where the UTC→local conversion the LLM collector
+// kept getting wrong is made deterministic. Returns { hm:'HH:MM', date:'YYYY-MM-DD' } or null.
+function _meAiGraphLocal(obj) {
+  try {
+    if (!obj) return null;
+    let dt = typeof obj === 'string' ? obj : (obj.dateTime || obj.DateTime || '');
+    if (!dt || typeof dt !== 'string') return null;
+    const tz = String((typeof obj === 'object' && (obj.timeZone || obj.TimeZone)) || 'UTC');
+    dt = dt.trim().replace(/\.\d+$/, ''); // drop fractional seconds
+    let d;
+    if (/([zZ]|[+-]\d{2}:?\d{2})$/.test(dt)) {
+      d = new Date(dt);                       // already carries an offset
+    } else {
+      // Graph returns a naive local-to-timeZone string; default (and the common case) is UTC.
+      // We can't cheaply resolve arbitrary Windows tz names here, so treat naive as UTC —
+      // correct for the UTC default WorkIQ returns.
+      d = new Date(dt + 'Z');
+      void tz;
+    }
+    if (isNaN(d.getTime())) return null;
+    const pad = n => String(n).padStart(2, '0');
+    return {
+      hm: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    };
+  } catch { return null; }
+}
+
+// Deterministic calendar gather. The generic LLM collector kept DROPPING tentative +
+// recurring-instance/exception meetings and mis-converting timezones, so a real lunch
+// meeting could silently vanish from the day. Here the agent's only job is to ECHO the
+// raw calendarView events verbatim; the server does the (deterministic) filtering and
+// UTC→local conversion. Best-effort — tolerates empty/garbled output.
+async function _meAiGatherMeetings(date) {
+  try {
+    const prompt = `Using WorkIQ, read my Microsoft 365 calendar for ${date} (my local day) by calling the calendar view function /me/calendarView?startDateTime=${date}T00:00:00&endDateTime=${date}T23:59:59 with $select=subject,start,end,isAllDay,showAs,type,isCancelled,webLink and $orderby=start/dateTime and a high $top. Return ONLY a JSON array (no prose, no code fence), one element per event, copied VERBATIM from the tool result: {"subject":string,"start":{"dateTime":string,"timeZone":string},"end":{"dateTime":string,"timeZone":string},"isAllDay":boolean,"showAs":string,"type":string,"isCancelled":boolean,"webLink":string|null}. CRITICAL: include EVERY event that overlaps the day — tentative, not-yet-responded, and recurring-instance/exception events too. Do NOT omit, filter, summarize, or convert the times; hand back exactly what the tool returned. If there are none, return [].`;
+    const text = await _connectRunAgent('collector', prompt);
+    const arr = _connectExtractJson(text);
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (const e of arr) {
+      if (!e || typeof e !== 'object') continue;
+      if (e.isAllDay === true || e.isCancelled === true) continue;
+      const showAs = String(e.showAs || '').toLowerCase();
+      if (showAs === 'free') continue; // a "free"-marked hold is not a commitment that owns the slot
+      const sd = _meAiGraphLocal(e.start);
+      if (!sd) continue;
+      if (sd.date !== date) continue;      // belongs to a neighbouring local day
+      const ed = _meAiGraphLocal(e.end);
+      out.push({
+        kind: 'meeting',
+        type: 'meeting',
+        title: String(e.subject || 'Meeting').slice(0, 200),
+        detail: showAs === 'tentative' ? 'Tentative' : (showAs === 'oof' ? 'Out of office' : ''),
+        start: sd.hm,
+        end: ed ? ed.hm : null,
+        link: (typeof e.webLink === 'string') ? e.webLink : '',
+        prLink: '',
+        ts: '',
+        directMention: true,   // a calendar event I'm on is a personal commitment
+        urgency: 5,
+        source: 'm365',
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
 // M365 (calendar + actionable email/Teams) via the WorkIQ collector agent.
 // Best-effort: constrained agent, so we tolerate empty/unparseable output and
 // never let it sink agenda generation.
@@ -14841,8 +14912,7 @@ async function _meAiGatherM365(date) {
     const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean,"directMention":boolean,"prLink":string|null,"ts":string|null}. "directMention" is true ONLY if I am personally named / @mentioned or explicitly added as a required reviewer or attendee (NOT merely on a distribution list, CC line, or broad channel). "prLink" is the URL of the specific pull request this item is about, or null if it is not about a PR. "ts" is the ISO 8601 timestamp (local) when the email was received or the Teams message was sent, or null for meetings / when unknown. CRITICAL — "link": it MUST be the exact deep-link that WorkIQ returns for THIS specific item, copied verbatim from the tool result. WorkIQ exposes it as a first-class field, so ASK for it explicitly and select it: for a Teams message it is the chatMessage/channel-message "webUrl" (fetch the message with $select including webUrl, e.g. /me/chats/{id}/messages/{id}?$select=id,subject,from,webUrl); for an email it is the message "webLink"; for a meeting it is the event "webLink". Do NOT guess, shorten, template, or construct a Teams/Outlook URL yourself, and never reuse another item's link — a wrong link opens the wrong conversation. If the tool did not return a real webUrl/webLink for that exact item, set "link" to null. If there is nothing, return [].`;
     const text = await _connectRunAgent('collector', prompt);
     const arr = _connectExtractJson(text);
-    if (!Array.isArray(arr)) return [];
-    return arr.map(x => {
+    const mapped = (Array.isArray(arr) ? arr : []).map(x => {
       const kind = x && x.kind === 'meeting' ? 'meeting' : (x && x.kind === 'teams' ? 'teams' : 'email');
       const hm = v => (typeof v === 'string' && /^\d{1,2}:\d{2}$/.test(v)) ? v : null;
       const needsReply = !!(x && x.needsReply);
@@ -14874,6 +14944,15 @@ async function _meAiGatherM365(date) {
         source: 'm365',
       };
     }).filter(x => x.title);
+    // Meetings from the generic collector are unreliable (it drops tentative /
+    // recurring-exception events and mis-converts timezones), so gather them
+    // deterministically and PREFER those. The LLM meetings remain only as a
+    // fallback when the deterministic calendar read comes back empty.
+    let detMeetings = [];
+    try { detMeetings = await _meAiGatherMeetings(date); } catch { detMeetings = []; }
+    const comms = mapped.filter(x => x.kind !== 'meeting');
+    const meetings = detMeetings.length ? detMeetings : mapped.filter(x => x.kind === 'meeting');
+    return meetings.concat(comms);
   } catch { return []; }
 }
 
