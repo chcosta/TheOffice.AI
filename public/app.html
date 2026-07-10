@@ -1422,10 +1422,11 @@
     /* ----- Home: Today's agenda glance (Me.AI) ----- */
     .home-agenda-list { display: flex; flex-direction: column; gap: 6px; }
     .home-agenda-row {
-      display: flex; align-items: center; gap: 12px; padding: 8px 12px;
-      border-left: 3px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 8px);
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 8px);
       background: var(--cp-surface-soft);
     }
+    .home-agenda-lead { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
     .home-agenda-row.is-now { background: color-mix(in srgb, var(--cp-accent) 10%, var(--cp-surface-soft)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
     .home-agenda-time { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; color: var(--cp-text-muted); min-width: 42px; }
     .home-agenda-title { min-width: 0; flex: 1 1 auto; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -6852,7 +6853,7 @@
                      @dragover.prevent="homeReorderOver('agenda')" @drop.prevent="homeReorderDrop('agenda')">
                   <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('agenda',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Today's agenda</span>
+                    <span class="has-name" x-text="homeAgenda.isTomorrow ? \"Tomorrow's agenda\" : \"Today's agenda\""></span>
                     <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('agenda',-1)" title="Move up">↑</button>
@@ -6862,7 +6863,10 @@
                   <section class="card home-agenda-card">
                     <div class="card-header">
                       <div>
-                        <h2 class="card-title">🗓️ Today's agenda</h2>
+                        <h2 class="card-title clickable" role="button" tabindex="0"
+                            @click="homeAgendaOpen()" @keydown.enter.prevent="homeAgendaOpen()"
+                            title="Open Me.AI"
+                            x-text="(homeAgenda.isTomorrow ? '🗓️ Tomorrow\'s agenda' : '🗓️ Today\'s agenda')"></h2>
                         <div class="card-subtitle">Your AI-planned day at a glance</div>
                       </div>
                       <div style="display:flex;align-items:center;gap:8px">
@@ -6872,7 +6876,6 @@
                             <span x-text="homeAgenda.status.label"></span>
                           </span>
                         </template>
-                        <a class="btn ghost" href="#/me-ai" @click.prevent="goTo('#/me-ai')">Open Me.AI</a>
                       </div>
                     </div>
                     <div x-show="homeAgenda.loading && !homeAgenda.blocks.length" class="hint" style="padding:14px">🗓️ Loading today's plan…</div>
@@ -6881,7 +6884,8 @@
                     </div>
                     <div class="home-agenda-list" x-show="homeAgenda.blocks.length">
                       <template x-for="(b, bi) in homeAgendaUpcoming(5)" :key="'ha-'+bi">
-                        <div class="home-agenda-row" :class="{ 'is-now': homeAgendaIsNow(b) }" :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
+                        <div class="home-agenda-row" :class="{ 'is-now': homeAgendaIsNow(b) }">
+                          <span class="home-agenda-lead" :style="'background:' + meAiBlockTypeColor(b.type)"></span>
                           <span class="home-agenda-time" x-text="_meAiFmtHm(b.start)"></span>
                           <span class="home-agenda-title" x-text="b.title"></span>
                           <span class="home-agenda-type" x-show="b.type" x-text="b.type"></span>
@@ -24853,14 +24857,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['greeting', 'agenda', 'insights', 'devwork', 'whatsnew', 'newsletter', 'flowchart', 'boards', 'prs'],
+        homeSectionsDefault: ['greeting', 'agenda', 'devwork', 'whatsnew', 'newsletter', 'flowchart', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeSectionHidden: [],
         homeDrag: null,
         homeDragOver: null,
         homeCustomizeOpen: false,
-        homeAgenda: { loading: false, loaded: false, blocks: [], meta: null, status: null, nowMin: 0, hasSnapshot: false },
+        homeAgenda: { loading: false, loaded: false, blocks: [], meta: null, status: null, nowMin: 0, hasSnapshot: false, day: null, isTomorrow: false },
         mgmtSectionsDefault: ['greeting', 'glance', 'whatsnew', 'attention', 'pulse', 'recent', 'flowchart'],
         mgmtSectionOrder: [],
         mgmtSectionHidden: [],
@@ -26921,7 +26925,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'newsletter': return mk('Newsletter', '📰', '#/newsletter', 'newsletter', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
             case 'watercooler': return mk('Water cooler', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
-            case 'playbooks': return mk('Playbooks', '📓', '#/playbooks', 'playbooks');
+            case 'playbooks': return mk('Playbooks', '📘', '#/playbooks', 'playbooks');
             case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
             case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
             case 'autonomous': return mk('Automation', '⚡', '#/autonomous', 'autonomous');
@@ -27240,7 +27244,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             scope,
             home,
             { key: 'me-ai', label: 'Me.AI', title: 'Me.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false },
-            { key: 'playbooks', label: 'Playbooks', title: 'Playbooks', icon: '📓', href: '#/playbooks', routeGroup: 'playbooks', items: [], collapsible: false },
+            { key: 'playbooks', label: 'Playbooks', title: 'Playbooks', icon: '📘', href: '#/playbooks', routeGroup: 'playbooks', items: [], collapsible: false },
             { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
@@ -27467,7 +27471,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
-            { key: 'playbooks', label: 'Playbooks', icon: '📓', hint: 'Author & tune the Me-agent playbook prompts.' },
+            { key: 'playbooks', label: 'Playbooks', icon: '📘', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
@@ -29517,7 +29521,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'boards': return true;
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
-            case 'insights': return this.featureVisible('insights') && !!(this.digest && (this.digest.needsYou.length || this.digest.changed.length || this.digest.nudges.length || this.digestLoading));
+            case 'insights': return false; /* "Needs you" home section retired per owner feedback */
             case 'flowchart': return (this.featureVisible('tasks') || this.featureVisible('flows')) && !!this.mgmtRunPoints().length;
             default: return false;
           }
@@ -29634,19 +29638,51 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const today = this._meLocalDay();
           this.homeAgenda.loading = true;
           try {
-            const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(today));
-            const ag = (r && r.agenda) ? r.agenda : null;
+            const d = new Date();
+            const nowMin = d.getHours() * 60 + d.getMinutes();
+            const fetchDay = async (day) => {
+              const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(day));
+              return (r && r.agenda) ? r.agenda : null;
+            };
+            let ag = await fetchDay(today);
+            let day = today, isTomorrow = false;
+            // Roll over to tomorrow once today's work is done (all non-lunch blocks are in the past).
+            const nonLunch = (b) => b && b.type !== 'lunch';
+            const todayBlocks = (ag && Array.isArray(ag.blocks)) ? ag.blocks.filter(nonLunch) : [];
+            const allPast = todayBlocks.length > 0 &&
+              todayBlocks.every(b => (b.endMin ?? this._hmToMin(b.end)) <= nowMin);
+            if (allPast) {
+              const tomorrow = this._meLocalDay(new Date(Date.now() + 86400000));
+              const tAg = await fetchDay(tomorrow);
+              if (tAg && Array.isArray(tAg.blocks) && tAg.blocks.filter(nonLunch).length) {
+                ag = tAg; day = tomorrow; isTomorrow = true;
+              }
+            }
             this.homeAgenda.blocks = (ag && Array.isArray(ag.blocks)) ? ag.blocks : [];
             this.homeAgenda.meta = (ag && ag.meta) ? ag.meta : null;
             this.homeAgenda.hasSnapshot = !!ag;
-            const d = new Date(); this.homeAgenda.nowMin = d.getHours() * 60 + d.getMinutes();
-            this.homeAgenda.status = this._homeAgendaStatus();
+            this.homeAgenda.day = day;
+            this.homeAgenda.isTomorrow = isTomorrow;
+            // Tomorrow's blocks are all "upcoming"; today uses the wall clock.
+            this.homeAgenda.nowMin = isTomorrow ? -1 : nowMin;
+            this.homeAgenda.status = isTomorrow
+              ? { state: 'ahead', label: 'Tomorrow', detail: '' }
+              : this._homeAgendaStatus();
             this.homeAgenda.loaded = true;
           } catch (_) {
             this.homeAgenda.blocks = []; this.homeAgenda.hasSnapshot = false; this.homeAgenda.loaded = true;
           } finally {
             this.homeAgenda.loading = false;
           }
+        },
+        // Navigate to Me.AI, opening the agenda on the day the home card is showing.
+        homeAgendaOpen() {
+          const day = this.homeAgenda.day || this._meLocalDay();
+          try {
+            this.meai.date = day;
+            localStorage.setItem('meAiDate', day);
+          } catch (_) {}
+          this.goTo('#/me-ai');
         },
         // On-track glance mirroring meAiStatus() but against homeAgenda (today only).
         _homeAgendaStatus() {
