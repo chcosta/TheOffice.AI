@@ -17324,117 +17324,23 @@ function _meAiClassifyDay(agenda) {
 // Leader-gated (the board is shared / cloud-synced) and TODAY-only. Best-effort:
 // never blocks agenda generation. Managed content is deterministically keyed so a
 // re-sync REPLACES the managed set while preserving anything the user added.
-function _meAiSyncDayBoard(agenda, date) {
+// The "My Day" board was removed as a feature. This retained hook only tears
+// down anything the old sync created — the managed board (so it stops showing
+// in Workspaces) and the dev-meai-* cards it projected — leaving every user
+// board/card untouched. It runs on agenda generation and is a no-op once clean.
+function _meAiSyncDayBoard(_agenda, _date) {
   try {
     if (!leaderCheck()) return;
-    const today = _meAiLocalDay();
-    if (String(date || '').slice(0, 10) !== today) return;
-    const { prs, devs, rows } = _meAiClassifyDay(agenda || {});
-    const { boards, idx } = _meAiEnsureDayBoard();
-    const board = _normalizeBoard(boards[idx]);
-    const now = new Date().toISOString();
-
-    // Preserve everything the user added; index their existing pins so we never
-    // create a managed duplicate of a PR/dev card they already pinned here.
-    const items = Array.isArray(board.items) ? board.items : [];
-    const userItems = items.filter(it => it && !it.meAi);
-    const prevPr = new Map(items.filter(it => it && it.meAi && it.kind === 'pr').map(it => [it.refId, it]));
-    const prevDevPin = new Map(items.filter(it => it && it.meAi && it.kind === 'dev').map(it => [it.refId, it]));
-    const prevAgent = new Map(items.filter(it => it && it.meAi && it.kind === 'agent').map(it => [it.refId, it]));
-    const userPrRefs = new Set(userItems.filter(it => it.kind === 'pr').map(it => it.refId));
-    const userDevRefs = new Set(userItems.filter(it => it.kind === 'dev').map(it => it.refId));
-    const userAgentRefs = new Set(userItems.filter(it => it.kind === 'agent').map(it => it.refId));
-
-    // 1) PR cards — pin as board items (kind:'pr'); skip any the user already pinned.
-    const managedPr = prs.filter(p => !userPrRefs.has(p.refId)).map(p => {
-      const old = prevPr.get(p.refId);
-      return { ...p, id: (old && old.id) || p.id, addedAt: (old && old.addedAt) || now };
-    });
-
-    // 2) Dev cards — REUSE a pre-existing store card that already tracks this work
-    //    item (just pin it); only create a managed dev-meai-* card when none exists.
-    const existingByWi = new Map();
+    let changed = false;
+    const boards = loadBoards();
+    const idx = boards.findIndex(b => b && b.id === ME_AI_DAY_BOARD_ID);
+    if (idx >= 0) { boards.splice(idx, 1); saveBoards(boards); changed = true; }
     for (const c of devStore.all()) {
-      if (!c || c.archived || (c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID)) continue; // skip archived + our own managed cards
-      const k = _meAiDevCardKey(c);
-      if (k && !existingByWi.has(k)) existingByWi.set(k, c);
-    }
-    const desiredDevIds = new Set();     // managed dev-meai-* ids to keep
-    const managedDevPins = [];           // board items pinning pre-existing cards
-    for (const d of devs) {
-      const existing = existingByWi.get(d.wiKey);
-      if (existing) {
-        // Already have a card for this work item — pin it (unless already homed here
-        // or the user already pinned it). Never duplicate.
-        if (existing.homeBoardId !== ME_AI_DAY_BOARD_ID && !userDevRefs.has(existing.id)) {
-          const old = prevDevPin.get(existing.id);
-          managedDevPins.push({ id: (old && old.id) || 'pin-' + _meAiHash('dev|' + existing.id), kind: 'dev', refId: existing.id, meAi: true, addedAt: (old && old.addedAt) || now });
-        }
-        continue;
-      }
-      const devId = _meAiDayDevId(d.wiKey);
-      desiredDevIds.add(devId);
-      const fields = {
-        id: devId, title: d.title, org: d.org, project: d.project, repo: d.repo,
-        homeBoardId: ME_AI_DAY_BOARD_ID, meAi: true, source: 'me-ai',
-        workItem: { id: d.workItemId, url: d.link, title: d.title, provider: d.provider },
-      };
-      if (devStore.find(devId)) devStore.patch(devId, { title: d.title, workItem: fields.workItem, org: d.org, project: d.project, repo: d.repo, meAi: true, homeBoardId: ME_AI_DAY_BOARD_ID });
-      else { try { devStore.create(fields); } catch (_) {} }
-    }
-    // Remove stale managed created cards no longer on today's agenda.
-    for (const c of devStore.all()) {
-      if (c && c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID && typeof c.id === 'string' && c.id.startsWith('dev-meai-') && !desiredDevIds.has(c.id)) {
+      if (c && c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID && typeof c.id === 'string' && c.id.startsWith('dev-meai-')) {
         try { devStore.remove(c.id); } catch (_) {}
       }
     }
-
-    board.items = [...userItems, ...managedPr, ...managedDevPins];
-    // 2b) Relevant AGENTS — pin the agents whose purpose matches today's work so the
-    //     board also offers the right helpers to act on it (not just what to do). Skip
-    //     any the user pinned themselves; stable ids across syncs like PR/dev pins.
-    const managedAgentPins = _meAiRelevantAgents(agenda)
-      .filter(p => !userAgentRefs.has(p.refId))
-      .map(p => { const old = prevAgent.get(p.refId); return { ...p, id: (old && old.id) || p.id, addedAt: (old && old.addedAt) || now }; });
-    board.items = [...board.items, ...managedAgentPins];
-    // 3) "Today" checklist — one managed checklist, done-state preserved across syncs.
-    const cls = Array.isArray(board.checklists) ? board.checklists : [];
-    const prevCl = cls.find(c => c && c.id === ME_AI_DAY_CL_ID);
-    const prevDone = new Map((prevCl && Array.isArray(prevCl.items) ? prevCl.items : []).map(i => [i && i.id, !!(i && i.done)]));
-    const clItems = rows.map(r => ({ id: r.id, text: r.text, done: prevDone.has(r.id) ? prevDone.get(r.id) : !!r.done }));
-    const otherCls = cls.filter(c => c && c.id !== ME_AI_DAY_CL_ID);
-    board.checklists = clItems.length
-      ? [{ id: ME_AI_DAY_CL_ID, title: 'Today', items: clItems, createdAt: (prevCl && prevCl.createdAt) || now, updatedAt: now, meAi: true }, ...otherCls]
-      : otherCls;
-
-    // 4) Migration — drop the legacy managed `me-note-*` notes (preserve user notes).
-    const notes = Array.isArray(board.notes) ? board.notes : [];
-    board.notes = notes.filter(n => !(n && typeof n.id === 'string' && n.id.startsWith(ME_AI_DAY_NOTE_PREFIX)));
-
-    // 5) Curated layout — give the managed cards a purposeful, non-overlapping grid
-    //    (checklist → PRs → dev cards → agents, banded top→bottom). The SPA only
-    //    auto-positions panels WITHOUT a layout entry and preserves existing ones, so
-    //    we (re)write geometry for our managed panels every sync and keep any layout the
-    //    user set for their own panels. Panel-id convention: pins → 'pin:'+id, dev-store
-    //    cards → 'dev:'+id, checklists → 'cl:'+id.
-    const layoutIds = {
-      checklist: clItems.length ? ('cl:' + ME_AI_DAY_CL_ID) : null,
-      prs: managedPr.map(p => 'pin:' + p.id),
-      devs: [...managedDevPins.map(p => 'pin:' + p.id), ...[...desiredDevIds].map(id => 'dev:' + id)],
-      agents: managedAgentPins.map(p => 'pin:' + p.id),
-    };
-    const managedLayout = _meAiDayLayout(layoutIds, clItems.length);
-    const managedKeys = new Set(Object.keys(managedLayout));
-    const prevLayout = (board.layout && typeof board.layout === 'object') ? board.layout : {};
-    const nextLayout = {};
-    for (const k of Object.keys(prevLayout)) { if (!managedKeys.has(k)) nextLayout[k] = prevLayout[k]; } // keep user panels
-    Object.assign(nextLayout, managedLayout);
-    board.layout = nextLayout;
-
-    board.updatedAt = now;
-    boards[idx] = board;
-    saveBoards(boards);
-    try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {}
+    if (changed) { try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {} }
   } catch (_) { /* best-effort — never block agenda generation */ }
 }
 // Mark the "Today" checklist row bound to a completed task done (called from complete).

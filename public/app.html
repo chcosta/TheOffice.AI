@@ -1866,6 +1866,16 @@
     .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .5; }
     .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
     .cnav-row > .nav-link { flex: 1; min-width: 0; }
+    .cnav-star {
+      flex: none; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+      background: none; border: 0; padding: 0; cursor: pointer; font-size: 12px; line-height: 1;
+      color: var(--cp-text-soft); opacity: 0; border-radius: calc(var(--cp-radius-scale, 1) * 6px);
+      transition: opacity .12s ease, color .12s ease;
+    }
+    .cnav-row:hover .cnav-star { opacity: .55; }
+    .cnav-star:hover { opacity: 1 !important; color: var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 12%, transparent); }
+    .cnav-star.on { opacity: 1; color: var(--cp-accent); }
+    @media (prefers-reduced-motion: reduce) { .cnav-star { transition: none; } }
     /* Group */
     .cnav-group { padding: 0; margin: 12px 0 2px; }
     .cnav-group.drop-into { border: 1px dashed var(--cp-accent); border-radius: calc(var(--cp-radius-scale, 1) * 12px); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
@@ -2328,6 +2338,16 @@
     .cf-pr-card.cf-attn { border-color:var(--cp-accent); }
     .cf-pr-card.cf-focus { border-color:var(--cp-accent); box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); animation:cfFocusPulse 1.2s ease-out 1; }
     @keyframes cfFocusPulse { 0% { box-shadow:0 0 0 0 var(--cp-accent); } 70% { box-shadow:0 0 0 6px var(--cp-accent-soft); } 100% { box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); } }
+    /* "You are here" — a global identity highlight shared with the board maps. Full
+       border + soft ring + a small corner tag (no side-stripe, no pill). */
+    .cf-pr-card.cf-here, .dvx-card.cf-here { position:relative; border-color:var(--cp-accent); box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); }
+    .cf-here-tag {
+      position:absolute; top:-9px; left:12px; z-index:2;
+      font-size:0.62rem; font-weight:700; letter-spacing:0.02em;
+      padding:2px 8px; border-radius:6px; background:var(--cp-accent); color:var(--cp-on-accent, #fff);
+      box-shadow:0 1px 2px rgba(0,0,0,0.18);
+    }
+    .board-act.is-here, .cf-pr-actions .btn.ghost.is-here { color:var(--cp-accent); }
     .cf-pr-top { display:flex; align-items:flex-start; gap:12px; }
     /* Quiet collapse caret shared by PR + dev cards. Not a pill: bare glyph,
        modest radius, muted until hover. */
@@ -6781,6 +6801,10 @@
                           </span>
                         </template>
                       </a>
+                      <button class="cnav-star" type="button" :class="{ on: navQuickPinned(node.key) }"
+                              @click.prevent.stop="toggleNavPin(node.key)"
+                              :title="navQuickPinned(node.key) ? 'Remove from Quick launch' : 'Add to Quick launch'"
+                              x-text="navQuickPinned(node.key) ? '★' : '☆'"></button>
                     </div>
                   </template>
                   <!-- Group -->
@@ -6825,6 +6849,10 @@
                                 </span>
                               </template>
                             </a>
+                            <button class="cnav-star" type="button" :class="{ on: navQuickPinned(child.key) }"
+                                    @click.prevent.stop="toggleNavPin(child.key)"
+                                    :title="navQuickPinned(child.key) ? 'Remove from Quick launch' : 'Add to Quick launch'"
+                                    x-text="navQuickPinned(child.key) ? '★' : '☆'"></button>
                           </div>
                         </template>
                       </div>
@@ -6837,7 +6865,6 @@
                    @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropEnd = true; _navDropKey = null; _navDropGroup = null"
                    @dragleave="_navDropEnd = false"
                    @drop.prevent.stop="onNavEndDrop($event)"></div>
-              <div class="cnav-hint">Drag an item onto another to group them.</div>
             </div>
           </template>
           <template x-if="!navIsCustom()">
@@ -11180,7 +11207,8 @@
                       </div>
                       <div class="dvx-group-cards" x-show="!grp.label || devGroupIsOpen(grp.key)">
                         <template x-for="card in grp.cards" :key="'dvc-' + card.id">
-                          <article class="dvx-card" :class="{ sel: devPage.selectedId === card.id }" :id="'devcard-' + card.id">
+                          <article class="dvx-card" :class="{ sel: devPage.selectedId === card.id, 'cf-here': yahIsOn('dev:' + card.id) }" :id="'devcard-' + card.id">
+                            <div class="cf-here-tag" x-show="yahIsOn('dev:' + card.id)">You are here</div>
                             <template x-for="d in [card]" :key="d.id">
                               <div style="display:flex;flex-direction:column;gap:10px">
                                 <!-- Header: title + board assignment + actions -->
@@ -11196,6 +11224,9 @@
                                         a card that isn't on a board yet. -->
                                   </div>
                                   <div class="dvx-hover-acts" style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
+                                    <button class="board-act" type="button" :class="{ 'is-here': yahIsOn('dev:' + d.id) }"
+                                            :data-tip="yahIsOn('dev:' + d.id) ? 'Clear “You are here” (also clears it on every board map)' : 'Mark “You are here” — highlights this card on every board map too'"
+                                            @click.stop="yahToggle('dev:' + d.id)">◎</button>
                                     <button x-show="!d.homeBoardId" class="board-act" type="button" data-tip="Pin to workspace"
                                             @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)">📌</button>
                                     <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
@@ -13228,11 +13259,6 @@
                       <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
                       <span x-show="meai.rebuilding && !meai.generating">Updating…</span>
                     </button>
-                    <button class="btn ghost" type="button" @click="meAiOpenDayBoard()"
-                            x-show="meai.date===meai.today"
-                            title="Today's actionable work is mirrored to a 'My Day' board so it lives alongside your other workspaces.">
-                      📅 My Day board
-                    </button>
                     <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
                             title="Me.AI settings — working hours, work week, grid, focus times & triage">
                       ⚙ Settings
@@ -13243,6 +13269,27 @@
                     <span class="meai-datelabel" x-text="meAiDateLabel()"></span>
                     <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(1)" title="Next day">›</button>
                     <input type="date" class="field-input" style="width:150px" :value="meai.date" @change="meAiSetDate($event.target.value)">
+                    <!-- Per-day work window: start early / stay late today without touching
+                         prefs. Lives beside the date so hours are adjustable at a glance;
+                         the full editor stays in Hours & grid. -->
+                    <div class="meai-daywin" x-show="meai.loaded && meai.agenda && meai.agenda.config" style="position:relative">
+                      <button class="btn ghost" type="button" @click="meAiOpenDayWin()"
+                              :title="meAiDayWinOverridden() ? 'Custom hours for this day — click to edit' : 'Set a one-off start/end for this day'">
+                        <span x-text="meAiDayWinLabel()"></span>
+                        <span x-show="meAiDayWinOverridden()" class="meai-daywin-dot" title="Custom hours for this day"></span>
+                      </button>
+                      <div class="meai-daywin-pop" x-show="meai.dayWin.open" x-transition x-cloak @click.outside="meai.dayWin.open=false">
+                        <div class="meai-daywin-grid">
+                          <label>Start</label><input type="time" x-model="meai.dayWin.start">
+                          <label>End</label><input type="time" x-model="meai.dayWin.end">
+                        </div>
+                        <div class="meai-daywin-acts">
+                          <button class="btn primary" type="button" @click="meAiApplyDayWindow()" :disabled="meai.generating">Apply to this day</button>
+                          <button class="btn ghost" type="button" x-show="meai.date===meai.today" @click="meAiStartNow()" :disabled="meai.generating" title="Set the start to right now (rounded to the grid)">Start now</button>
+                          <button class="btn ghost" type="button" x-show="meAiDayWinOverridden()" @click="meAiResetDayWindow()" :disabled="meai.generating">Reset to schedule</button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -13269,28 +13316,6 @@
               <div class="meai-datebar">
                 <span class="meai-status-detail" x-text="meai.notice"></span>
                 <span style="flex:1"></span>
-                <!-- Per-day work window: start early / stay late today without touching prefs.
-                     Decluttered — hours are intuited from the agenda itself, so this quick
-                     access stays out of the way until you hover the bar (full editor lives in
-                     Hours & grid). -->
-                <div class="meai-daywin meai-hover-item" x-show="meai.loaded && meai.agenda && meai.agenda.config" style="position:relative">
-                  <button class="btn ghost" type="button" @click="meAiOpenDayWin()"
-                          :title="meAiDayWinOverridden() ? 'Custom hours for this day — click to edit' : 'Set a one-off start/end for this day'">
-                    <span x-text="meAiDayWinLabel()"></span>
-                    <span x-show="meAiDayWinOverridden()" class="meai-daywin-dot" title="Custom hours for this day"></span>
-                  </button>
-                  <div class="meai-daywin-pop" x-show="meai.dayWin.open" x-transition x-cloak @click.outside="meai.dayWin.open=false">
-                    <div class="meai-daywin-grid">
-                      <label>Start</label><input type="time" x-model="meai.dayWin.start">
-                      <label>End</label><input type="time" x-model="meai.dayWin.end">
-                    </div>
-                    <div class="meai-daywin-acts">
-                      <button class="btn primary" type="button" @click="meAiApplyDayWindow()" :disabled="meai.generating">Apply to this day</button>
-                      <button class="btn ghost" type="button" x-show="meai.date===meai.today" @click="meAiStartNow()" :disabled="meai.generating" title="Set the start to right now (rounded to the grid)">Start now</button>
-                      <button class="btn ghost" type="button" x-show="meAiDayWinOverridden()" @click="meAiResetDayWindow()" :disabled="meai.generating">Reset to schedule</button>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               <!-- REQ-7 auto-regen + change tracking + end-of-day day-shape report -->
@@ -17780,7 +17805,8 @@
                   </div>
                   <div class="cf-group-items" x-show="!grp.label || cfGrpIsOpen(grp)">
                     <template x-for="pr in grp.items" :key="pr.org + '/' + pr.repo + '/' + pr.id">
-                <article class="cf-pr-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr) }">
+                <article class="cf-pr-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr), 'cf-here': yahIsOn('pr:' + cfPrKey(pr)) }">
+                  <div class="cf-here-tag" x-show="yahIsOn('pr:' + cfPrKey(pr))">You are here</div>
                   <div class="cf-pr-top">
                     <button type="button" class="cf-collapse-btn" :aria-expanded="(!cfPrCollapsed(pr)).toString()"
                             :title="cfPrCollapsed(pr) ? 'Expand card' : 'Collapse to title'"
@@ -17810,6 +17836,10 @@
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
                     </div>
                     <div class="cf-pr-actions cf-hover-acts" style="flex:0 0 auto;display:flex;gap:6px">
+                      <button class="btn ghost" type="button" style="font-size:0.82rem;padding:4px 8px"
+                              :class="{ 'is-here': yahIsOn('pr:' + cfPrKey(pr)) }"
+                              :title="yahIsOn('pr:' + cfPrKey(pr)) ? 'Clear “You are here” (this also clears it on every board map)' : 'Mark “You are here” — highlights this PR on every board map too'"
+                              @click.stop="yahToggle('pr:' + cfPrKey(pr))">◎</button>
                       <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="!pr.devCard && codeflow.view !== 'other'"
                               title="Link this pull request to an existing dev card (or create one)"
                               @click.stop="openLinkToDevCard(pr)">🔗 Link to dev card</button>
@@ -24404,7 +24434,7 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': false, diary: true, managers: false, tasks: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
@@ -24653,6 +24683,10 @@
           geomTick: 0,
           _boardId: null, _persistT: null, _suppressClick: false,
         },
+        // Global "you are here" identity store (spans every board map + Code Flow).
+        // Keyed by a canonical entity identity (pr:<cfPrKey> / dev:<devId>) so marking
+        // a card highlights the SAME entity everywhere it appears, not one board's copy.
+        youAreHere: (() => { try { return JSON.parse(localStorage.getItem('you-are-here') || '{}') || {}; } catch (e) { return {}; } })(),
         _tbxSwipeOpen: null,
         _tbxSwipeDragBase: null,
         _tbxSwipeDX: 0,
@@ -34305,10 +34339,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         // REQ-1: jump to the persistent "My Day" board that mirrors today's agenda.
-        meAiOpenDayBoard() {
-          this.goTo('#/boards');
-          this.$nextTick(() => { try { this.selectBoard('board-me-ai-day'); } catch (_) {} });
-        },
         async meAiSaveSettings() {
           this.meai.savingSettings = true;
           try {
@@ -38754,12 +38784,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/codeflow/pullrequests?view=active');
             let items = Array.isArray(r && r.pullRequests) ? r.pullRequests : [];
-            // The Home card is a "needs you" digest — float the ones flagged for your
-            // attention to the top, then oldest-first so nothing stale hides at the bottom.
-            items = items.slice().sort((a, b) => {
-              if (!!a.attention !== !!b.attention) return a.attention ? -1 : 1;
-              return (b.ageDays || 0) - (a.ageDays || 0);
-            });
+            // The Home card is a "needs you" digest, mirroring Code Flow's "Active PRs"
+            // count: the server's active view returns every open PR across the watched
+            // repos (often dozens), but only the ones flagged `attention` are actually
+            // awaiting your (or your group's) review. Keep just those so the subtitle
+            // "N PRs waiting on your review" matches the Code Flow tab instead of the
+            // raw active-PR total.
+            items = items.filter(p => !!p.attention);
+            // Oldest-first so nothing stale hides at the bottom.
+            items = items.slice().sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0));
             this.homeActivePrs.items = items;
             this.homeActivePrs.fetchedAt = (r && r.fetchedAt) || Date.now();
           } catch (e) {
@@ -40523,6 +40556,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               items.push({ kind: 'boardsection', kindLabel: 'Section', id: p.id, name: p.name, emoji: p.emoji || '🗂', teamId: p.teamId || null, boardId: p.boardId, sectionId: p.sectionId });
               continue;
             }
+            if (p.kind === 'nav') {
+              const def = this._navItemDef(p.id) || {};
+              items.push({ kind: 'nav', kindLabel: 'Menu', id: p.id, name: def.label || p.name || p.id, emoji: def.icon || p.emoji || '🔗', route: def.href || p.route || ('#/' + p.id), teamId: null });
+              continue;
+            }
             const kindLabel = p.kind === 'employee' ? 'Employee' : 'Operation';
             const fallback = p.kind === 'employee' ? '🧑' : '⚙️';
             items.push({ kind: p.kind, kindLabel, id: p.id, name: p.name, emoji: p.emoji || fallback, teamId: p.teamId || null, route: p.route });
@@ -40560,6 +40598,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const i = (this.quickPins || []).findIndex(p => p.kind === 'operation' && p.id === op.key);
           if (i >= 0) this.quickPins.splice(i, 1);
           else this.quickPins.push({ kind: 'operation', id: op.key, name: op.name, emoji: op.icon || '⚙️', route: this.homeOpRoute(op), teamId: op.teamId || null });
+          this._saveQuickPins();
+        },
+        // Pin/unpin a MENU (nav) item to the quick-launch bar. Keyed by its nav key;
+        // label/icon/href resolve live from _navItemDef so a renamed feature stays correct.
+        navQuickPinned(key) { return (this.quickPins || []).some(p => p.kind === 'nav' && p.id === key); },
+        toggleNavPin(key) {
+          if (!key) return;
+          const i = (this.quickPins || []).findIndex(p => p.kind === 'nav' && p.id === key);
+          if (i >= 0) this.quickPins.splice(i, 1);
+          else {
+            const def = this._navItemDef(key) || {};
+            this.quickPins.push({ kind: 'nav', id: key, name: def.label || key, emoji: def.icon || '🔗', route: def.href || ('#/' + key) });
+          }
           this._saveQuickPins();
         },
         // Remove an item from the bar via its ✕ (board -> unstar; others -> unpin).
@@ -43956,8 +44007,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapCancelGroupName() { this.bmap.editGroup = null; },
         bmapRemoveGroup(g) { const m = this._bmapEnsure(); if (!m) return; m.groups = (m.groups || []).filter(x => x.id !== g.id); this._bmapPersistSoon(); },
         // -- highlights ("you are here") --
-        bmapIsHl(base) { const m = this.bmapData(); return !!(m.highlights && m.highlights[base]); },
-        bmapToggleHl(base) { const m = this._bmapEnsure(); if (!m) return; if (m.highlights[base]) delete m.highlights[base]; else m.highlights[base] = true; this._bmapPersistSoon(); },
+        // Global, identity-keyed for PR & dev cards so ALL matching cards (every board +
+        // Code Flow) light up together; falls back to the per-board store for board-native
+        // items (notes/checklists/agents) that have no cross-surface identity.
+        _yahSave() { try { localStorage.setItem('you-are-here', JSON.stringify(this.youAreHere || {})); } catch (_) {} },
+        yahIsOn(id) { return !!(id && this.youAreHere && this.youAreHere[id]); },
+        yahToggle(id) {
+          if (!id) return;
+          if (this.youAreHere[id]) delete this.youAreHere[id];
+          else this.youAreHere[id] = true;
+          this._yahSave();
+        },
+        _yahIdentity(p) {
+          if (!p) return null;
+          const k = this.bmapKindKey(p);
+          if (k === 'pr') { const r = (p.item && p.item.refId) || p.refId; return r ? ('pr:' + String(r).toLowerCase()) : null; }
+          if (k === 'dev') { const id = (p.dev && p.dev.id) || (p.item && p.item.refId) || p.refId; return id ? ('dev:' + id) : null; }
+          return null;
+        },
+        _yahIdentityByBase(base) { return this._yahIdentity(this._panelByBase(base)); },
+        bmapIsHl(base) {
+          const id = this._yahIdentityByBase(base);
+          if (id) return this.yahIsOn(id);
+          const m = this.bmapData(); return !!(m.highlights && m.highlights[base]);
+        },
+        bmapToggleHl(base) {
+          const id = this._yahIdentityByBase(base);
+          if (id) { this.yahToggle(id); return; }
+          const m = this._bmapEnsure(); if (!m) return; if (m.highlights[base]) delete m.highlights[base]; else m.highlights[base] = true; this._bmapPersistSoon();
+        },
         // -- selection panel --
         bmapIsSel(base) { return this.bmap.sel.includes(base); },
         bmapClearSel() { this.bmap.sel = []; },
