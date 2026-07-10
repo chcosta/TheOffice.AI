@@ -17742,7 +17742,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     blocks: finalBlocks,
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
-    dismissed: Object.keys(dismissed).filter(k => dismissed[k] && dismissed[k].manual).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '', reason: dismissed[k] && dismissed[k].reason || 'dismissed' })),
+    dismissed: Object.keys(dismissed).filter(k => dismissed[k] && dismissed[k].manual && String(dismissed[k].at || '').slice(0, 10) === day).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '', reason: dismissed[k] && dismissed[k].reason || 'dismissed' })),
     todos: effTodos,
     meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals), backboneFp: _meAiBackboneFingerprint(liveSignals, day) },
   };
@@ -19816,7 +19816,7 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
       agenda.blocks = (agenda.blocks || []).filter(keep);
       agenda.backlog = (agenda.backlog || []).filter(keep);
       agenda.needsAttention = (agenda.needsAttention || []).filter(keep);
-      agenda.dismissed = Object.keys(map).filter(k => map[k] && map[k].manual).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
+      agenda.dismissed = Object.keys(map).filter(k => map[k] && map[k].manual && String(map[k].at || '').slice(0, 10) === date).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
       _meAiCleanSnapshotBlocks(agenda);
       saveAgendaForDate(date, agenda);
     }
@@ -19835,7 +19835,7 @@ app.post('/api/me-ai/agenda/undismiss', (req, res) => {
     if (key && map[key]) { delete map[key]; saveDismissForDate(date, map); }
     const agenda = loadAgendaForDate(date);
     if (agenda) {
-      agenda.dismissed = Object.keys(map).filter(k => map[k] && map[k].manual).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
+      agenda.dismissed = Object.keys(map).filter(k => map[k] && map[k].manual && String(map[k].at || '').slice(0, 10) === date).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
       _meAiCleanSnapshotBlocks(agenda);
       saveAgendaForDate(date, agenda);
     }
@@ -21983,6 +21983,7 @@ function _meAiFoldLeg(t, leg, r) {
     _meAiEmit(t, {
       kind: 'fold',
       leg: leg.title || 'A pursuit leg',
+      legRef: leg.id || null,            // which leg fed this into the main thread (click → open its node)
       legId: null,                       // stays in the flat main thread (not a per-leg substep)
       outcome: r.outcome || 'done',
       confidence: r.confidence || 'medium',

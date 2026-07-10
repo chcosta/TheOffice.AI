@@ -2605,6 +2605,9 @@
     .flow-palette .fp-name { font-size:13px; font-weight:600; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .flow-palette .fp-sub { font-size:11px; color:var(--cp-text-muted); }
     .flow-palette .fp-empty { font-size:12px; color:var(--cp-text-muted); padding:10px 4px; }
+    .flow-palette-resizer { flex:0 0 6px; align-self:stretch; cursor:col-resize; background:transparent; border-right:1px solid var(--cp-border); position:relative; touch-action:none; }
+    .flow-palette-resizer::after { content:''; position:absolute; inset:0 -3px; }
+    .flow-palette-resizer:hover, .flow-palette-resizer.dragging { background:var(--cp-accent-soft); border-right-color:var(--cp-accent); }
     .flow-canvas-wrap { flex:1; position:relative; overflow:hidden; background:radial-gradient(circle at 1px 1px, color-mix(in srgb,var(--cp-border-strong) 55%,transparent) 1px, transparent 0) 0 0/22px 22px, var(--cp-bg); min-width:0; touch-action:none; cursor:grab; }
     .flow-canvas-wrap.panning { cursor:grabbing; }
     .flow-hint { position:absolute; left:12px; bottom:12px; z-index:19; display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 9px); border:1px solid var(--cp-border); background:var(--cp-panel-strong); backdrop-filter:blur(8px); font-size:11px; color:var(--cp-text-muted); pointer-events:none; box-shadow:0 4px 14px rgba(0,0,0,.12); }
@@ -2837,7 +2840,11 @@
     .lmap-fail { display:flex; flex-direction:column; gap:3px; margin-bottom:10px; padding:8px 10px; border:1px solid color-mix(in srgb,var(--cp-danger) 45%,var(--cp-border)); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:color-mix(in srgb,var(--cp-danger) 8%,var(--cp-surface)); font-size:12px; color:var(--cp-text-soft); }
     .lmap-fail strong { font-size:10px; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-danger); }
     .lmap-out { font-size:12.5px; max-height:none; overflow:visible; }
+    /* Node output must fully expand — never scroll inside a node (pan the canvas instead).
+       Needs the compound selector to beat the later base .md-output cap (max-height:300px). */
+    .lmap-out.md-output { max-height:none; overflow:visible; }
     .lmap-trace { margin-top:10px; }
+    .lmap-trace .live-stream-pre { max-height:none; overflow:visible; }
     .lmap-nfoot { margin-top:10px; font-size:11px; color:var(--cp-text-muted); }
     /* Connectors — condition on the wire between columns */
     .lmap-wirewrap { display:flex; flex-direction:column; align-items:center; gap:5px; }
@@ -12529,6 +12536,15 @@
               .meai-pu-fold-ic { flex:0 0 auto; font-size:13px; }
               .meai-pu-fold-leg { font-weight:700; font-size:13px; color:var(--cp-text); min-width:0; }
               .meai-pu-fold-oc { font-size:11px; color:var(--cp-text-muted); font-weight:600; text-transform:lowercase; margin-left:auto; flex:0 0 auto; }
+              .meai-pu-fold.is-click { cursor:pointer; transition:border-color .12s ease, background .12s ease; }
+              .meai-pu-fold.is-click:hover { border-color:color-mix(in srgb,var(--cp-accent) 55%, var(--cp-border)); background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); }
+              .meai-pu-fold-open { margin-top:8px; font-size:11.5px; font-weight:600; color:var(--cp-accent); opacity:0; transition:opacity .12s ease; }
+              .meai-pu-fold.is-click:hover .meai-pu-fold-open { opacity:1; }
+              @media (prefers-reduced-motion: reduce) { .meai-pu-fold.is-click, .meai-pu-fold-open { transition:none; } }
+              .meai-pu-chat-tools { display:flex; justify-content:flex-end; margin:0 0 6px; }
+              .meai-pu-stepall { background:transparent; border:1px solid color-mix(in srgb,var(--cp-border) 70%, transparent); border-radius:8px; padding:4px 10px; font-size:11.5px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; transition:color .12s ease, border-color .12s ease; }
+              .meai-pu-stepall:hover { color:var(--cp-text); border-color:var(--cp-accent); }
+              @media (prefers-reduced-motion: reduce) { .meai-pu-stepall { transition:none; } }
               .meai-pu-fold-sum { font-size:13px; color:var(--cp-text); line-height:1.5; margin-top:6px; }
               .meai-pu-fold-find { margin:7px 0 0; padding-left:18px; }
               .meai-pu-fold-find li { font-size:12.5px; color:var(--cp-text); line-height:1.5; margin:2px 0; }
@@ -14596,6 +14612,11 @@
                       <!-- CHAT: the main-thread conversation (goal → reasoning → outcome + steer) -->
                       <template x-if="meai.pursuit.nav==='chat'">
                         <div class="meai-pu-chat">
+                          <!-- Expand/collapse every step in the transcript at once -->
+                          <div class="meai-pu-chat-tools" x-show="meAiPursuitHasSteps('spine', meAiPursuitChatEvents())">
+                            <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleAllSteps('spine', meAiPursuitChatEvents())"
+                              x-text="meAiPursuitAllStepsOpen('spine', meAiPursuitChatEvents()) ? '▾ Collapse all steps' : '▸ Expand all steps'"></button>
+                          </div>
                           <!-- Scrolling transcript: your goal → the agent's reasoning/tools/responses → its conclusion -->
                           <div class="meai-pu-thread">
                             <!-- Original goal, framed as your opening request -->
@@ -14609,7 +14630,9 @@
                               <div style="display:contents">
                                 <!-- A leg that rejoined the main thread → a calm folded agent message. -->
                                 <template x-if="ev.kind==='fold'">
-                                  <div class="meai-pu-fold">
+                                  <div class="meai-pu-fold" :class="{ 'is-click': ev.legRef && meAiPursuitOpenNodeById }"
+                                    @click="ev.legRef && meAiPursuitOpenNodeById(ev.legRef)"
+                                    :title="ev.legRef ? 'See how this agent worked' : ''">
                                     <div class="meai-pu-fold-h">
                                       <span class="meai-pu-fold-ic" x-text="ev.icon || '✔'"></span>
                                       <span class="meai-pu-fold-leg" x-text="ev.leg || 'A pursuit leg'"></span>
@@ -14623,6 +14646,7 @@
                                     </ul>
                                     <div class="meai-pu-fold-q" x-show="ev.question" x-text="ev.question"></div>
                                     <div class="meai-pu-fold-pr" x-show="ev.proposed"><span class="k">Proposed:</span> <span x-text="ev.proposed"></span></div>
+                                    <div class="meai-pu-fold-open" x-show="ev.legRef">See how this agent worked →</div>
                                   </div>
                                 </template>
                                 <!-- Every other spine event → the existing collapsible substep row. -->
@@ -14883,7 +14907,13 @@
                           </template>
                           <!-- Transcript (reasoning / tools / thinking / response) -->
                           <div class="meai-pu-nodeview-tr">
-                            <div class="meai-pu-det-lbl">What this leg did</div>
+                            <div class="meai-pu-det-lbl" style="display:flex;align-items:center;gap:8px;">
+                              <span>What this leg did</span>
+                              <button type="button" class="meai-pu-stepall" style="margin-left:auto;"
+                                x-show="meAiPursuitHasSteps('nv', meAiPursuitNodeEvents(meai.pursuit.nodeView))"
+                                @click="meAiPursuitToggleAllSteps('nv', meAiPursuitNodeEvents(meai.pursuit.nodeView))"
+                                x-text="meAiPursuitAllStepsOpen('nv', meAiPursuitNodeEvents(meai.pursuit.nodeView)) ? '▾ Collapse all' : '▸ Expand all'"></button>
+                            </div>
                             <template x-for="(ev, ei) in meAiPursuitNodeEvents(meai.pursuit.nodeView)" :key="'nv-'+ei">
                               <div class="meai-pu-ev" :class="['ev-'+ev.kind, meAiPursuitEvHasDetail(ev)?'has-detail':'']">
                                 <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
@@ -19162,7 +19192,7 @@
                   <div class="card flow-canvas-card">
                     <div class="field-label" style="margin:0"><span>Flow canvas</span><span class="hint">Drag agents or saved tasks onto the canvas, then drag from a node's right port to another node to connect them. Click a link to set its condition.</span></div>
                     <div class="flow-canvas-shell">
-                  <div class="flow-palette">
+                  <div class="flow-palette" :style="'flex:0 0 ' + flowPaletteW + 'px;width:' + flowPaletteW + 'px'">
                     <div class="fp-tabs">
                       <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'agents' }" @click="flowPaletteTab = 'agents'">🤖 Agents</button>
                       <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'tasks' }" @click="flowPaletteTab = 'tasks'">📋 Tasks</button>
@@ -19205,6 +19235,7 @@
                       </template>
                     </div>
                   </div>
+                  <div class="flow-palette-resizer" title="Drag to resize" @pointerdown.prevent="flowPaletteResizeStart($event)"></div>
                   <div id="flow-canvas-wrap" class="flow-canvas-wrap" @dragover.prevent @drop="flowCanvasDrop($event)">
                     <svg id="flow-wires" class="flow-wires"></svg>
                     <div id="flow-canvas" class="flow-canvas"></div>
@@ -24909,6 +24940,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         autoView: 'tasks',
         flowPaletteFilter: '',
         flowPaletteTab: 'agents',
+        flowPaletteW: (() => { const v = parseInt(localStorage.getItem('flow-palette-w') || '', 10); return (v >= 190 && v <= 520) ? v : 230; })(),
         flowZoomLevel: 1,
         _flowCanvas: null,
         flowRunSel: '',
@@ -28580,13 +28612,56 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const liveKey = t.type === 'assignment' ? t.managerId : t.agentId;
           if (liveKey) this.hydrateLiveOutput(liveKey);
         },
+        // Drag the splitter between the flow palette and the canvas to resize the palette.
+        flowPaletteResizeStart(ev) {
+          const bar = ev.currentTarget;
+          const shell = bar.closest('.flow-canvas-shell');
+          const startX = ev.clientX;
+          const startW = this.flowPaletteW;
+          const maxW = shell ? Math.max(190, shell.clientWidth - 260) : 520;
+          bar.classList.add('dragging');
+          const move = (e) => {
+            const w = Math.round(startW + (e.clientX - startX));
+            this.flowPaletteW = Math.max(190, Math.min(maxW, w));
+          };
+          const up = () => {
+            bar.classList.remove('dragging');
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            try { localStorage.setItem('flow-palette-w', String(this.flowPaletteW)); } catch (e) {}
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        },
+
         async loadChainDetail(id) {
           const c = (this.data.chains || []).find(x => x.id === id);
           if (!c) return;
-          this.refreshChainRun(c);
-          if (!this.chainRuns[id]) this.loadChainRuns(id);
+          if (this.chainRunState[id] && this.chainRunState[id].id) {
+            // A run is already open from this session — refresh it in place.
+            this.refreshChainRun(c);
+          } else {
+            // Fresh navigation: load history and open the most recent completed run so the
+            // storyline is populated on arrival instead of showing a blank canvas.
+            await this.loadChainRuns(id);
+            this.autoSelectChainRun(id);
+          }
           if (c.resilient) this.loadResilience('flow', id);
           this.$nextTick(() => { const cc = this.detailChain(); if (cc) this.renderChainDiagram(cc); });
+        },
+        // Pick a sensible default run for the flow detail page: the most recent completed
+        // run, falling back to the most recent terminal run, then the most recent run of any
+        // state. Runs come back most-recent-first. No-op if a run is already selected.
+        autoSelectChainRun(chainId) {
+          if (this.chainRunState[chainId] && this.chainRunState[chainId].id) return;
+          const runs = this.chainRuns[chainId] || [];
+          if (!runs.length) return;
+          const norm = r => String((r && r.status) || '').toLowerCase();
+          const done = new Set(['completed', 'succeeded', 'success', 'done', 'ok']);
+          const pick = runs.find(r => done.has(norm(r)))
+            || runs.find(r => norm(r) !== 'running')
+            || runs[0];
+          if (pick && pick.id) this.openChainRun(chainId, pick.id);
         },
         async deleteOpFromDetail(t) {
           if (!t) return;
@@ -36070,6 +36145,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiPursuitEvToggle(key) {
           const m = this.meai.pursuit.evOpen; m[key] = !m[key];
+        },
+        // ── Expand / collapse ALL detail-bearing steps in a transcript at once ────
+        // Only 'fold' events skip; every substep row with detail gets one key in evOpen.
+        meAiPursuitHasSteps(scope, events) {
+          return (events || []).some((ev, ei) => ev.kind !== 'fold' && this.meAiPursuitEvHasDetail(ev));
+        },
+        meAiPursuitAllStepsOpen(scope, events) {
+          const m = this.meai.pursuit.evOpen;
+          const steps = (events || []).map((ev, ei) => ({ ev, ei }))
+            .filter(x => x.ev.kind !== 'fold' && this.meAiPursuitEvHasDetail(x.ev));
+          if (!steps.length) return false;
+          return steps.every(x => !!m[this.meAiPursuitEvKey(scope, x.ei, x.ev)]);
+        },
+        meAiPursuitToggleAllSteps(scope, events) {
+          const open = !this.meAiPursuitAllStepsOpen(scope, events);
+          const m = this.meai.pursuit.evOpen;
+          (events || []).forEach((ev, ei) => {
+            if (ev.kind === 'fold' || !this.meAiPursuitEvHasDetail(ev)) return;
+            m[this.meAiPursuitEvKey(scope, ei, ev)] = open;
+          });
         },
         // The one-line summary shown collapsed for an event.
         // Short lowercase outcome phrase for a folded leg conclusion.
