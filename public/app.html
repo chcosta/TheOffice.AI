@@ -1399,6 +1399,12 @@
        swatch tinted by the board's assigned color (boardSwatchStyle). */
     .home-ws-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 999px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--cp-ink) 12%, transparent); }
     .home-devrow-meta a:hover { text-decoration: underline; text-underline-offset: 2px; }
+    /* Inline "maps in this workspace" index — quiet text links (no pills, no chips)
+       separated by middots; opens the workspace directly to that map. */
+    .home-ws-maps { margin-top: 6px; font-size: 12px; line-height: 1.7; color: var(--cp-text-muted); }
+    .home-ws-map-sep { color: var(--cp-text-muted); opacity: .55; margin: 0 6px; }
+    .home-ws-map-link { color: var(--cp-text-soft); text-decoration: none; }
+    .home-ws-map-link:hover { color: var(--cp-accent); text-decoration: underline; text-underline-offset: 2px; }
     /* hsl-actions/hsl-toggle reused inside a .card-header (not only .home-section-label). */
     .card-header .hsl-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
     .card-header .hsl-toggle { font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 8px); padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
@@ -7124,6 +7130,14 @@
                             <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
                           </div>
                           <div class="hint" style="margin-top:6px" x-show="homeBoardSnippet(b)" x-text="homeBoardSnippet(b)"></div>
+                          <div class="home-ws-maps" x-show="homeBoardMaps(b).length" @click.stop>
+                            <template x-for="(m, mi) in homeBoardMaps(b)" :key="'home-map-' + b.id + '-' + m.id">
+                              <span>
+                                <span class="home-ws-map-sep" x-show="mi > 0" aria-hidden="true">·</span>
+                                <a href="#" class="home-ws-map-link" @click.prevent="homeOpenBoardMap(b.id, m.id)" x-text="m.name" :title="'Open map: ' + m.name"></a>
+                              </span>
+                            </template>
+                          </div>
                         </div>
                       </template>
                     </div>
@@ -29306,6 +29320,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return t.length > 180 ? t.slice(0, 180) + '…' : t;
         },
         homePinCount(b) { return Array.isArray(b && b.items) ? b.items.length : 0; },
+        // Maps (sections) inside a workspace, read from the persisted per-board canvas
+        // (localStorage 'board-canvas', keyed by board id) so Home can surface them
+        // without loading each board. Returns [{id, name, icon}] (real map sections only).
+        homeBoardMaps(b) {
+          if (!b || !b.id) return [];
+          let map = {};
+          try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch { return []; }
+          const secs = map[b.id] && Array.isArray(map[b.id].sections) ? map[b.id].sections : [];
+          return secs
+            .filter(s => s && s.id && s.id !== 'view' && s.id !== 'map' && s.id !== 'brief')
+            .map(s => ({ id: s.id, name: (s.name || 'Map').trim() || 'Map', icon: s.icon || '🗺' }));
+        },
+        // Open a workspace directly to one of its maps from Home. Reuses the quick-launch
+        // deep-link path (_applyPendingSection runs once the board canvas loads).
+        homeOpenBoardMap(boardId, sectionId) {
+          if (!boardId) return;
+          if (sectionId) this._pendingBoardSection = { boardId, sectionId };
+          this.goTo('#/boards/' + boardId);
+          if (sectionId) this.$nextTick(() => this._applyPendingSection());
+        },
         // Active dev work surfaced on Home: every in-progress Dev card across this
         // team's boards (a card is "active" while a worktree exists, a PR is still
         // open, or the work item isn't done). Each card carries `_board` so we can
