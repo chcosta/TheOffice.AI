@@ -2547,6 +2547,59 @@
     .flow-tip .ft-desc { font-size:12px; color:var(--cp-text-soft); line-height:1.45; margin-top:8px; max-height:120px; overflow:hidden; }
     .flow-tip .ft-prompt { font-size:11.5px; font-family:Consolas,"Courier New",monospace; color:var(--cp-text-soft); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:7px 8px; margin-top:8px; line-height:1.4; max-height:120px; overflow:hidden; white-space:pre-wrap; }
 
+    /* ===== Flow run monitor (read-only run graph + inspector) ===== */
+    .flow-run { display:grid; grid-template-columns:1fr 340px; gap:14px; align-items:stretch; }
+    .flow-run-graph { position:relative; height:min(62vh,560px); min-height:360px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); overflow:hidden; background:radial-gradient(circle at 1px 1px, color-mix(in srgb,var(--cp-border-strong) 55%,transparent) 1px, transparent 0) 0 0/22px 22px, var(--cp-bg); touch-action:none; cursor:grab; }
+    .flow-run-graph.panning { cursor:grabbing; }
+    .frx-canvas { position:absolute; top:0; left:0; width:1px; height:1px; transform-origin:0 0; }
+    svg.frx-wires { position:absolute; top:0; left:0; width:1px; height:1px; pointer-events:none; overflow:visible; transform-origin:0 0; }
+    .frx-node { position:absolute; width:210px; border-radius:calc(var(--cp-radius-scale, 1) * 14px); border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 6px 18px rgba(0,0,0,.10); cursor:pointer; user-select:none; transition:border-color .12s, box-shadow .12s; }
+    .frx-node:hover { border-color:var(--cp-accent); }
+    .frx-node.sel { border-color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft), 0 6px 18px rgba(0,0,0,.12); }
+    .frx-node.running { border-color:var(--cp-accent); }
+    .frx-node.running::after { content:''; position:absolute; inset:-1px; border-radius:inherit; border:1.5px solid var(--cp-accent); opacity:.6; animation:frxpulse 1.5s ease-out infinite; pointer-events:none; }
+    .frx-node.succeeded { border-color:color-mix(in srgb,var(--cp-accent) 55%,var(--cp-border)); }
+    .frx-node.failed { border-color:var(--cp-danger); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-danger) 20%,transparent); }
+    .frx-node.skipped { opacity:.5; }
+    @keyframes frxpulse { 0%{opacity:.7;transform:scale(1)} 100%{opacity:0;transform:scale(1.035)} }
+    @media (prefers-reduced-motion: reduce) { .frx-node.running::after { animation:none; opacity:.55; } }
+    .frx-head { display:flex; align-items:center; gap:8px; padding:9px 10px 6px; }
+    .frx-ic { font-size:16px; line-height:1; }
+    .frx-title { font-size:13px; font-weight:700; line-height:1.15; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .frx-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; background:var(--cp-border-strong); }
+    .frx-dot.running { background:var(--cp-accent); }
+    .frx-dot.succeeded { background:var(--cp-accent); }
+    .frx-dot.failed { background:var(--cp-danger); }
+    .frx-dot.skipped { background:var(--cp-text-muted); }
+    .frx-foot { display:flex; align-items:center; gap:6px; padding:0 10px 9px; font-size:11px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .frx-live { color:var(--cp-accent); font-weight:700; }
+    .frx-wires .fx-line { fill:none; stroke:var(--cp-border-strong); stroke-width:2.5px; }
+    .frx-wires .fx-line.taken { stroke:var(--cp-accent); }
+    .frx-wires .fx-line.blocked { stroke:var(--cp-danger); stroke-dasharray:5 5; }
+    .frx-wires .fx-line.dim { stroke:color-mix(in srgb,var(--cp-border) 75%,transparent); stroke-dasharray:4 6; }
+    .frx-arrow { fill:var(--cp-border-strong); }
+    .frx-arrow.taken { fill:var(--cp-accent); }
+    .frx-arrow.blocked { fill:var(--cp-danger); }
+    .frx-arrow.dim { fill:color-mix(in srgb,var(--cp-border) 75%,transparent); }
+    .frx-lbl { position:absolute; transform:translate(-50%,-50%); z-index:6; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 7px); border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); white-space:nowrap; pointer-events:none; box-shadow:0 1px 2px rgba(0,0,0,.12); }
+    .frx-lbl.taken { border-color:var(--cp-accent); color:var(--cp-accent); }
+    .frx-lbl.blocked { border-color:var(--cp-danger); color:var(--cp-danger); }
+    .flow-run-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; text-align:center; color:var(--cp-text-muted); pointer-events:none; padding:0 30px; }
+    .flow-run-empty > div:first-child { font-size:26px; }
+    /* Inspector */
+    .flow-insp { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-bg-elevated); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+    .flow-insp-head { padding:11px 14px; border-bottom:1px solid var(--cp-border); }
+    .flow-insp-title { font-size:14px; font-weight:700; line-height:1.2; display:flex; align-items:center; gap:8px; }
+    .flow-insp-body { flex:1; overflow:auto; padding:12px 14px; min-height:0; }
+    .flow-insp-empty { color:var(--cp-text-muted); font-size:12.5px; text-align:center; padding:34px 16px; line-height:1.5; }
+    .fri-row { display:flex; gap:8px; font-size:12px; margin-top:6px; }
+    .fri-row .fri-k { color:var(--cp-text-muted); flex:0 0 70px; }
+    .fri-row .fri-v { color:var(--cp-text); flex:1; min-width:0; word-break:break-word; }
+    .flow-run-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    .flow-run-bar .frb-runs { display:flex; align-items:center; gap:6px; margin-left:auto; }
+    .flow-run-bar select.frb-sel { font:inherit; font-size:12.5px; padding:6px 9px; border-radius:calc(var(--cp-radius-scale, 1) * 9px); border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); max-width:280px; }
+    @media (max-width:900px){ .flow-run { grid-template-columns:1fr; } .flow-run-graph { height:46vh; } }
+
     /* Sleek mini-flow (list/detail card) */
     .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
     .mini-flow .mf-node { display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:calc(var(--cp-radius-scale, 1) * 11px); border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 1px 2px rgba(0,0,0,.10); max-width:240px; }
@@ -19608,40 +19661,86 @@
                   </div>
                 </div>
 
-                <!-- Flow visualization -->
-                <div class="card" style="overflow:auto">
-                  <div class="chain-diagram" :id="'chain-diagram-detail-' + detailChain().id"></div>
+                <!-- Run monitor: run bar -->
+                <div class="flow-run-bar">
+                  <span class="field-label" style="margin:0">Run monitor</span>
+                  <span class="status-badge" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                  <span class="hint" x-text="chainRunState[detailChain().id] ? formatRelative(chainRunState[detailChain().id].startedAt) : 'No run in this session'"></span>
+                  <span class="frx-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
+                  <div class="frb-runs">
+                    <select class="frb-sel" x-show="(chainRuns[detailChain().id] || []).length"
+                            @change="if ($event.target.value) openChainRun(detailChain().id, $event.target.value)">
+                      <option value="">Jump to a past run…</option>
+                      <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'dsel-' + r.id">
+                        <option :value="r.id" x-text="(r.status || '') + ' · ' + formatDateTime(r.started_at || r.startedAt) + (r.trigger ? (' · ' + r.trigger) : '')"></option>
+                      </template>
+                    </select>
+                    <button class="btn ghost" style="font-size:0.72rem" type="button" @click="loadChainRuns(detailChain().id)" title="Load run history">📊 History</button>
+                    <button class="btn ghost" style="font-size:0.72rem" type="button" @click="refreshChainRun(detailChain())">↻ Refresh</button>
+                  </div>
                 </div>
 
-                <!-- Live / last run nodes -->
-                <div style="margin-top:16px">
-                  <div class="field-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    <span>Last run</span>
-                    <span class="hint" x-text="chainRunState[detailChain().id] ? formatRelative(chainRunState[detailChain().id].startedAt) : 'No run yet'"></span>
-                    <span class="status-badge" style="font-size:0.7rem" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
-                    <button class="btn ghost" style="font-size:0.72rem;margin-left:auto" type="button" @click="refreshChainRun(detailChain())">↻ Refresh</button>
+                <!-- Run monitor: two-pane graph + inspector -->
+                <div class="flow-run">
+                  <div class="flow-run-graph" id="flow-run-wrap">
+                    <div class="frx-canvas" id="flow-run-canvas"></div>
+                    <svg class="frx-wires" id="flow-run-wires"></svg>
+                    <div class="flow-run-empty" id="flow-run-empty" x-show="!(detailChain().steps || []).length">
+                      <div>🔀</div>
+                      <div>No tasks in this flow yet. <strong>✏️ Edit</strong> to add some.</div>
+                    </div>
+                    <div class="flow-canvas-ctrls" style="position:absolute;right:10px;bottom:10px;z-index:8;display:flex;gap:6px">
+                      <button class="btn ghost" type="button" style="padding:3px 9px" @click="flowRunZoom(1)" title="Zoom in">＋</button>
+                      <button class="btn ghost" type="button" style="padding:3px 9px" @click="flowRunZoom(-1)" title="Zoom out">－</button>
+                      <button class="btn ghost" type="button" style="padding:3px 9px" @click="flowRunFit()" title="Fit to view">⤢</button>
+                    </div>
                   </div>
-                  <div class="run-list" style="margin-top:6px" x-show="chainRunState[detailChain().id]">
-                    <template x-for="(node, sid) in (chainRunState[detailChain().id]?.nodes || {})" :key="'drn-' + detailChain().id + '-' + sid">
-                      <div class="run-item" style="padding:0;flex-direction:column;align-items:stretch">
-                        <div style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="toggleChainNode(detailChain().id, sid)">
-                          <span class="hint" x-text="(expandedChainNodes[detailChain().id + '/' + sid]) ? '▾' : '▸'"></span>
-                          <span class="status-badge" style="font-size:0.7rem" :class="statusClass(node.status)" x-text="node.status"></span>
-                          <span x-text="node.taskName || sid"></span>
-                          <span class="hint" x-show="node.streaming && node.status === 'running'" style="color:var(--cp-accent)">● live</span>
-                          <span class="hint" x-show="node.code !== undefined && node.code !== null" x-text="'exit ' + node.code"></span>
-                          <span class="hint" x-show="node.reason" x-text="'· ' + node.reason"></span>
-                        </div>
-                        <div x-show="expandedChainNodes[detailChain().id + '/' + sid]" style="padding:0 12px 12px">
-                          <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
-                            <button class="btn ghost" style="font-size:0.72rem" type="button" x-show="node.output" @click.stop="openShareModal(node.output, (node.taskName || sid) + ' — output', 'run-output')">📤 Share</button>
+                  <div class="flow-insp">
+                    <template x-if="flowRunInspect()">
+                      <div style="display:flex;flex-direction:column;min-height:0;flex:1">
+                        <div class="flow-insp-head">
+                          <div class="flow-insp-title">
+                            <span x-text="flowRunInspect().inline ? '🤖' : '📋'"></span>
+                            <span x-text="flowRunInspect().name" style="flex:1;min-width:0"></span>
+                            <span class="status-badge" style="font-size:0.68rem" :class="statusClass(flowRunInspect().status)" x-text="flowRunInspect().statusLabel"></span>
                           </div>
-                          <div class="md-output" x-html="renderMarkdown(node.output || (node.status === 'running' ? 'Waiting for output…' : 'No output captured for this task (it may not have run).'))"></div>
+                          <template x-if="flowRunInspect().owner">
+                            <div class="hint" style="margin-top:4px" x-text="flowRunInspect().owner"></div>
+                          </template>
+                        </div>
+                        <div class="flow-insp-body">
+                          <div class="fri-row"><span class="fri-k">Status</span><span class="fri-v" x-text="flowRunInspect().statusLabel"></span></div>
+                          <template x-if="flowRunInspect().finished"><div class="fri-row"><span class="fri-k">Finished</span><span class="fri-v" x-text="formatDateTime(flowRunInspect().finished)"></span></div></template>
+                          <template x-if="flowRunInspect().code !== undefined && flowRunInspect().code !== null"><div class="fri-row"><span class="fri-k">Exit code</span><span class="fri-v" x-text="flowRunInspect().code"></span></div></template>
+                          <template x-if="flowRunInspect().reason"><div class="fri-row"><span class="fri-k">Reason</span><span class="fri-v" x-text="flowRunInspect().reason"></span></div></template>
+                          <div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 6px">
+                            <span class="field-label" style="margin:0">Output</span>
+                            <button class="btn ghost" style="font-size:0.7rem" type="button" x-show="flowRunInspect().output" @click="openShareModal(flowRunInspect().output, flowRunInspect().name + ' — output', 'run-output')">📤 Share</button>
+                          </div>
+                          <div class="md-output" x-html="renderMarkdown(flowRunInspect().output || (flowRunInspect().status === 'running' ? 'Waiting for output…' : 'No output captured for this task.'))"></div>
+                        </div>
+                      </div>
+                    </template>
+                    <template x-if="!flowRunInspect()">
+                      <div style="display:flex;flex-direction:column;min-height:0;flex:1">
+                        <div class="flow-insp-head"><div class="flow-insp-title">Run overview</div></div>
+                        <div class="flow-insp-body">
+                          <template x-if="chainRunState[detailChain().id]">
+                            <div>
+                              <div class="fri-row"><span class="fri-k">Status</span><span class="fri-v" x-text="chainRunState[detailChain().id].status"></span></div>
+                              <div class="fri-row"><span class="fri-k">Started</span><span class="fri-v" x-text="formatDateTime(chainRunState[detailChain().id].startedAt)"></span></div>
+                              <template x-if="chainRunState[detailChain().id].finishedAt"><div class="fri-row"><span class="fri-k">Finished</span><span class="fri-v" x-text="formatDateTime(chainRunState[detailChain().id].finishedAt)"></span></div></template>
+                              <template x-if="chainRunState[detailChain().id].trigger"><div class="fri-row"><span class="fri-k">Trigger</span><span class="fri-v" x-text="chainRunState[detailChain().id].trigger"></span></div></template>
+                              <p class="hint" style="margin-top:14px">Click any task to trace its status, timing and output. Edges light up as the run takes each path — <span style="color:var(--cp-accent)">accent</span> = taken, faint dashed = not taken, <span style="color:var(--cp-danger)">red</span> = blocked by a failure.</p>
+                            </div>
+                          </template>
+                          <template x-if="!chainRunState[detailChain().id]">
+                            <div class="flow-insp-empty">This flow has not run in this session.<br>Click <strong>▶ Run</strong> to start it, or load a past run from the bar above.</div>
+                          </template>
                         </div>
                       </div>
                     </template>
                   </div>
-                  <div class="hint" x-show="!chainRunState[detailChain().id]" style="margin-top:6px">This flow has not run in this session. Click <strong>▶ Run</strong> to start it, or load a past run below.</div>
                 </div>
 
                 <!-- Resilience (AI auto-retry) reasoning -->
@@ -24791,6 +24890,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         flowPaletteTab: 'agents',
         flowZoomLevel: 1,
         _flowCanvas: null,
+        flowRunSel: '',
+        flowRunZoomLevel: 1,
+        _flowRunCanvas: null,
         chatPickerOpen: false,
         chatPicker: { search: '', selected: [] },
         wcSessionOpen: false,
@@ -25688,6 +25790,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         async handleRouteChange(opts = {}) {
+          if (this.route !== 'chain-detail' && this._flowRunCanvas) this.unmountFlowRunCanvas();
           if (this.route === 'assignments') { this.goTo('#/tasks'); return; }
           if (this.route === 'executions') { this.goTo('#/tasks'); return; }
           if (this.route === 'managers' || this.route === 'manager-detail' || this.route === 'resources') { this.goTo('#/agents'); return; }
@@ -26662,7 +26765,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.chainRunState[run.chainId] = run;
               this.chainRunState = { ...this.chainRunState };
               const chain = this.data.chains.find(c => c.id === run.chainId);
-              if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+              if (chain) this.$nextTick(() => { this.renderChainDiagram(chain); this._flowRunRepaint(); });
             });
             source.addEventListener('chain-run-step', (event) => {
               const { runId, stepId, status } = JSON.parse(event.data || '{}');
@@ -26673,7 +26776,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.chainRunState = { ...this.chainRunState };
               if (status === 'running') this.expandedChainNodes[cid + '/' + stepId] = true;
               const chain = this.data.chains.find(c => c.id === cid);
-              if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+              if (chain) this.$nextTick(() => { this.renderChainDiagram(chain); this._flowRunRepaint(); });
             });
             source.addEventListener('chain-run-output', (event) => {
               const { runId, stepId, output } = JSON.parse(event.data || '{}');
@@ -26684,12 +26787,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.chainRunState[cid].nodes[stepId].streaming = true;
               this.chainRunState = { ...this.chainRunState };
             });
+            source.addEventListener('chain-run-edge', (event) => {
+              const { runId, from, to, pass, reason } = JSON.parse(event.data || '{}');
+              const cid = chainOf(runId);
+              if (!cid || !this.chainRunState[cid]) return;
+              const edges = this.chainRunState[cid].edges || [];
+              const e = edges.find(x => x.from === from && x.to === to);
+              if (e) { e.evaluated = !!pass; if (reason !== undefined) e.reason = reason; }
+              this.chainRunState = { ...this.chainRunState };
+              this.$nextTick(() => this._flowRunRepaint());
+            });
             source.addEventListener('chain-run-finished', (event) => {
               const run = JSON.parse(event.data || '{}');
               this.chainRunState[run.chainId] = run;
               this.chainRunState = { ...this.chainRunState };
               const chain = this.data.chains.find(c => c.id === run.chainId);
-              if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+              if (chain) this.$nextTick(() => { this.renderChainDiagram(chain); this._flowRunRepaint(); });
             });
             ['chain-created', 'chain-updated', 'chain-deleted'].forEach((ev) => {
               source.addEventListener(ev, () => this.scheduleRefresh());
@@ -28440,10 +28553,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async loadChainDetail(id) {
           const c = (this.data.chains || []).find(x => x.id === id);
           if (!c) return;
-          this.$nextTick(() => this.renderChainDiagram(c, 'chain-diagram-detail-' + c.id));
           this.refreshChainRun(c);
           if (!this.chainRuns[id]) this.loadChainRuns(id);
           if (c.resilient) this.loadResilience('flow', id);
+          this.$nextTick(() => this.mountFlowRunCanvas());
         },
         async deleteOpFromDetail(t) {
           if (!t) return;
@@ -51599,7 +51712,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const fresh = await this.request('/api/chain-runs/' + encodeURIComponent(run.id));
             this.chainRunState[chain.id] = fresh;
             this.chainRunState = { ...this.chainRunState };
-            this.$nextTick(() => this.renderChainDiagram(chain));
+            this.$nextTick(() => { this.renderChainDiagram(chain); this._flowRunRepaint(); });
           } catch (e) { this.showToast('Refresh failed', e.message, 'error'); }
         },
 
@@ -51617,7 +51730,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.chainRunState[chainId] = fresh;
             this.chainRunState = { ...this.chainRunState };
             const chain = this.data.chains.find(c => c.id === chainId);
-            if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+            if (chain) this.$nextTick(() => { this.renderChainDiagram(chain); this._flowRunRepaint(); });
           } catch (e) { this.showToast('Could not load run', e.message, 'error'); }
         },
 
@@ -51666,6 +51779,216 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           startList.forEach(r => { html += '<div class="mini-flow mf-tree">' + renderNode(r.id, new Set()) + '</div>'; });
           steps.forEach(s => { if (!rendered.has(s.id)) { rendered.add(s.id); html += '<div class="mini-flow mf-tree">' + renderNode(s.id, new Set()) + '</div>'; } });
           els.forEach(el => el.innerHTML = html);
+        },
+
+        // ===== Read-only flow run monitor canvas =====
+        _flowRunLayout(chain, ctl) {
+          const steps = chain.steps || [], edges = chain.edges || [];
+          const pos = {};
+          steps.forEach(s => { if ((Number(s.x) || 0) > 0 || (Number(s.y) || 0) > 0) pos[s.id] = { x: Number(s.x) || 0, y: Number(s.y) || 0 }; });
+          const need = steps.filter(s => !pos[s.id]);
+          if (need.length) {
+            const incoming = {}; edges.forEach(e => incoming[e.to] = (incoming[e.to] || 0) + 1);
+            const adj = {}; steps.forEach(s => adj[s.id] = []);
+            edges.forEach(e => { if (adj[e.from]) adj[e.from].push(e.to); });
+            const depth = {}; const q = steps.filter(s => !incoming[s.id]).map(s => s.id);
+            q.forEach(id => depth[id] = 0);
+            if (!q.length && steps.length) { depth[steps[0].id] = 0; q.push(steps[0].id); }
+            while (q.length) { const id = q.shift(); (adj[id] || []).forEach(to => { const nd = (depth[id] || 0) + 1; if (depth[to] === undefined || nd > depth[to]) { depth[to] = nd; q.push(to); } }); }
+            const colCount = {};
+            need.forEach(s => { if (depth[s.id] === undefined) depth[s.id] = 0; const col = depth[s.id]; const row = (colCount[col] || 0); colCount[col] = row + 1; pos[s.id] = { x: 40 + col * 340, y: 30 + row * 170 }; });
+          }
+          ctl.pos = pos;
+        },
+        mountFlowRunCanvas(_tries = 0) {
+          const chain = this.detailChain && this.detailChain();
+          if (!chain) return;
+          const wrap = document.getElementById('flow-run-wrap');
+          const canvas = document.getElementById('flow-run-canvas');
+          const wires = document.getElementById('flow-run-wires');
+          if (!wrap || !canvas || !wires) {
+            if (_tries < 30) requestAnimationFrame(() => this.mountFlowRunCanvas(_tries + 1));
+            return;
+          }
+          if (this._flowRunCanvas && this._flowRunCanvas.wrap === wrap && this._flowRunCanvas.chainId === chain.id) { this._flowRunRepaint(); return; }
+          this.unmountFlowRunCanvas();
+          const self = this;
+          const ctl = { wrap, canvas, wires, chainId: chain.id, zoom: 1, panX: 0, panY: 0, pos: {} };
+          this._flowRunCanvas = ctl;
+          this._flowRunLayout(chain, ctl);
+          ctl._onResize = () => self.drawFlowRunWires();
+          window.addEventListener('resize', ctl._onResize);
+          ctl._onDown = (e) => {
+            const bgHit = (e.target === wrap || e.target === canvas || e.target === wires);
+            const midBtn = (e.button === 1);
+            if (!bgHit && !midBtn) return;
+            if (midBtn) e.preventDefault();
+            const sx = e.clientX, sy = e.clientY, px = ctl.panX, py = ctl.panY;
+            wrap.classList.add('panning');
+            const mv = (ev) => { ctl.panX = px + (ev.clientX - sx); ctl.panY = py + (ev.clientY - sy); self._applyFlowRunTransform(); };
+            const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); wrap.classList.remove('panning'); };
+            document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+          };
+          wrap.addEventListener('pointerdown', ctl._onDown);
+          ctl._onWheel = (e) => {
+            e.preventDefault();
+            const r = wrap.getBoundingClientRect();
+            if (e.ctrlKey || e.metaKey || !e.shiftKey) self._flowRunZoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
+            else { ctl.panX -= e.deltaX || 0; ctl.panY -= e.deltaY || 0; self._applyFlowRunTransform(); }
+          };
+          wrap.addEventListener('wheel', ctl._onWheel, { passive: false });
+          this.renderFlowRunNodes();
+          this._applyFlowRunTransform();
+          this.drawFlowRunWires();
+          let fitTries = 0;
+          const tryFit = () => {
+            if (self._flowRunCanvas !== ctl) return;
+            const r = wrap.getBoundingClientRect();
+            if ((r.width < 40 || r.height < 40) && fitTries++ < 20) { setTimeout(tryFit, 40); return; }
+            self.flowRunFit();
+          };
+          requestAnimationFrame(tryFit);
+        },
+        unmountFlowRunCanvas() {
+          const ctl = this._flowRunCanvas; if (!ctl) return;
+          try { window.removeEventListener('resize', ctl._onResize); } catch {}
+          try { ctl.wrap.removeEventListener('pointerdown', ctl._onDown); } catch {}
+          try { ctl.wrap.removeEventListener('wheel', ctl._onWheel); } catch {}
+          this._flowRunCanvas = null;
+        },
+        _flowRunRepaint() {
+          if (!this._flowRunCanvas) return;
+          const chain = this.detailChain && this.detailChain();
+          if (chain && this._flowRunCanvas.chainId === chain.id) { this.renderFlowRunNodes(); this.drawFlowRunWires(); }
+        },
+        _flowRunPortCenter(id, side) {
+          const ctl = this._flowRunCanvas; const p = ctl && ctl.pos[id]; if (!p) return { x: 0, y: 0 };
+          const W = 210, PORT_Y = (Number(p.y) || 0) + 31.5;
+          return { x: (Number(p.x) || 0) + (side === 'out' ? W : 0), y: PORT_Y };
+        },
+        renderFlowRunNodes() {
+          const ctl = this._flowRunCanvas; if (!ctl) return;
+          const self = this, chain = this.detailChain && this.detailChain(); if (!chain) return;
+          const run = this.chainRunState[chain.id];
+          const canvas = ctl.canvas;
+          const incoming = {}; (chain.edges || []).forEach(e => incoming[e.to] = (incoming[e.to] || 0) + 1);
+          canvas.querySelectorAll('.frx-node').forEach(x => x.remove());
+          (chain.steps || []).forEach(step => {
+            const p = ctl.pos[step.id] || { x: 0, y: 0 };
+            const inline = !step.taskId && step.agentId;
+            const nodeState = run && run.nodes && run.nodes[step.id];
+            const st = (nodeState && nodeState.status) || 'pending';
+            const el = document.createElement('div');
+            el.className = 'frx-node ' + st + (self.flowRunSel === step.id ? ' sel' : '');
+            el.style.left = (p.x || 0) + 'px'; el.style.top = (p.y || 0) + 'px';
+            el.dataset.id = step.id;
+            const name = self.flowStepName(step), owner = self._flowStepOwner(step);
+            const foot = st === 'running' ? '<span class="frx-live">● running…</span>'
+              : (nodeState && nodeState.finishedAt) ? self._esc(self.formatRelative(nodeState.finishedAt))
+              : (owner ? self._esc(owner) : (incoming[step.id] ? 'pending' : 'start'));
+            el.innerHTML =
+              '<div class="frx-head">' +
+                '<span class="frx-ic">' + (inline ? '🤖' : '📋') + '</span>' +
+                '<span class="frx-title" title="' + self._esc(name) + '">' + self._esc(name) + '</span>' +
+                '<span class="frx-dot ' + st + '"></span>' +
+              '</div>' +
+              '<div class="frx-foot">' + foot + '</div>';
+            el.addEventListener('click', () => self.flowRunSelect(step.id));
+            canvas.appendChild(el);
+          });
+        },
+        _flowRunEdgeClass(chain, run, e) {
+          if (!run) return 'dim';
+          if (e.evaluated === true) return 'taken';
+          if (e.evaluated === false) { const src = run.nodes && run.nodes[e.from]; return (src && src.status === 'failed') ? 'blocked' : 'dim'; }
+          return 'dim';
+        },
+        drawFlowRunWires() {
+          const ctl = this._flowRunCanvas; if (!ctl) return;
+          const self = this, chain = this.detailChain && this.detailChain(); if (!chain) return;
+          const run = this.chainRunState[chain.id];
+          const wires = ctl.wires, canvas = ctl.canvas, NS = 'http://www.w3.org/2000/svg';
+          wires.innerHTML = '';
+          canvas.querySelectorAll('.frx-lbl').forEach(x => x.remove());
+          (chain.edges || []).forEach(e => {
+            if (!ctl.pos[e.from] || !ctl.pos[e.to]) return;
+            const a = self._flowRunPortCenter(e.from, 'out'), b = self._flowRunPortCenter(e.to, 'in');
+            const cls = self._flowRunEdgeClass(chain, run, e);
+            const path = self._flowBez(a.x, a.y, b.x, b.y);
+            const ln = document.createElementNS(NS, 'path');
+            ln.setAttribute('d', path); ln.setAttribute('class', 'fx-line ' + cls); wires.appendChild(ln);
+            const tri = document.createElementNS(NS, 'polygon');
+            tri.setAttribute('points', (b.x - 9) + ',' + (b.y - 5) + ' ' + b.x + ',' + b.y + ' ' + (b.x - 9) + ',' + (b.y + 5));
+            tri.setAttribute('class', 'frx-arrow ' + cls); wires.appendChild(tri);
+            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            const lbl = self._flowCondLabel(e.condition);
+            if (lbl) {
+              const el = document.createElement('div');
+              el.className = 'frx-lbl ' + cls;
+              el.style.left = mx + 'px'; el.style.top = my + 'px';
+              el.textContent = lbl;
+              if (e.reason) el.title = e.reason;
+              canvas.appendChild(el);
+            }
+          });
+        },
+        flowRunSelect(id) {
+          this.flowRunSel = (this.flowRunSel === id) ? '' : id;
+          const ctl = this._flowRunCanvas;
+          if (ctl) ctl.canvas.querySelectorAll('.frx-node').forEach(n => n.classList.toggle('sel', n.dataset.id === this.flowRunSel));
+        },
+        flowRunInspect() {
+          const chain = this.detailChain && this.detailChain(); if (!chain || !this.flowRunSel) return null;
+          const step = (chain.steps || []).find(s => s.id === this.flowRunSel); if (!step) return null;
+          const run = this.chainRunState[chain.id];
+          const node = (run && run.nodes && run.nodes[step.id]) || {};
+          const st = node.status || 'pending';
+          const labels = { pending: 'Pending', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped' };
+          return {
+            id: step.id,
+            name: this.flowStepName(step),
+            owner: this._flowStepOwner(step),
+            inline: !step.taskId && step.agentId,
+            status: st,
+            statusLabel: labels[st] || st,
+            finished: node.finishedAt || null,
+            code: node.code,
+            reason: node.reason || '',
+            output: node.output || ''
+          };
+        },
+        _applyFlowRunTransform() {
+          const ctl = this._flowRunCanvas; if (!ctl) return;
+          const tf = 'translate(' + (ctl.panX || 0) + 'px,' + (ctl.panY || 0) + 'px) scale(' + (ctl.zoom || 1) + ')';
+          ctl.canvas.style.transform = tf; ctl.wires.style.transform = tf;
+          this.flowRunZoomLevel = ctl.zoom || 1;
+        },
+        _flowRunZoomAt(factor, cx, cy) {
+          const ctl = this._flowRunCanvas; if (!ctl) return;
+          const z0 = ctl.zoom || 1, z = Math.min(2.5, Math.max(0.2, z0 * factor));
+          if (z === z0) return;
+          const wx = (cx - (ctl.panX || 0)) / z0, wy = (cy - (ctl.panY || 0)) / z0;
+          ctl.zoom = z; ctl.panX = cx - wx * z; ctl.panY = cy - wy * z;
+          this._applyFlowRunTransform();
+        },
+        flowRunZoom(dir) {
+          const ctl = this._flowRunCanvas; if (!ctl) return;
+          const r = ctl.wrap.getBoundingClientRect();
+          this._flowRunZoomAt(dir > 0 ? 1.2 : 1 / 1.2, r.width / 2, r.height / 2);
+        },
+        flowRunFit() {
+          const ctl = this._flowRunCanvas, chain = this.detailChain && this.detailChain(); if (!ctl || !chain) return;
+          const ids = Object.keys(ctl.pos); const r = ctl.wrap.getBoundingClientRect();
+          if (!ids.length) { ctl.zoom = 1; ctl.panX = 0; ctl.panY = 0; this._applyFlowRunTransform(); return; }
+          const W = 210, H = 96, pad = 48;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          ids.forEach(id => { const p = ctl.pos[id]; const x = Number(p.x) || 0, y = Number(p.y) || 0; minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + W); maxY = Math.max(maxY, y + H); });
+          const cw = (maxX - minX) + pad * 2, ch = (maxY - minY) + pad * 2;
+          const z = Math.min(2.5, Math.max(0.2, Math.min(r.width / cw, r.height / ch, 1)));
+          ctl.zoom = z;
+          ctl.panX = (r.width - (maxX - minX) * z) / 2 - minX * z;
+          ctl.panY = (r.height - (maxY - minY) * z) / 2 - minY * z;
+          this._applyFlowRunTransform();
         },
 
         async openOrgPicker() {
