@@ -3945,6 +3945,66 @@
     .schedule-picker select {
       max-width: 320px;
     }
+    /* ---- Dev-agent roster + persona picker (Part B) ---- */
+    .dagr-h { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+    .dagr-h .lbl { font-size:11px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-muted); text-transform:uppercase; }
+    .dagr-h .cnt { font-size:11px; color:var(--cp-text-muted); font-weight:500; }
+    .dagr-list { display:flex; flex-direction:column; gap:4px; }
+    .dagr-row { display:flex; align-items:center; gap:10px; padding:6px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); }
+    .dagr-dot { flex:0 0 auto; width:26px; height:26px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:13px; color:#fff; }
+    .dagr-dot.sm { width:20px; height:20px; font-size:11px; }
+    .dagr-nm { flex:1 1 auto; min-width:0; }
+    .dagr-nm .n { font-size:12.5px; font-weight:600; color:var(--cp-text); display:flex; align-items:center; gap:6px; }
+    .dagr-nm .n .ro { font-size:10px; font-weight:600; color:var(--cp-text-muted); }
+    .dagr-nm .d { font-size:11px; color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dagr-st { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); display:inline-flex; align-items:center; gap:5px; }
+    .dagr-st .sdot { width:7px; height:7px; border-radius:999px; background:var(--cp-border); }
+    .dagr-st.ready .sdot { background:var(--cp-success); }
+    .dagr-st.needrepo { color:var(--cp-warning); }
+    .dagr-st.needrepo .sdot { background:var(--cp-warning); }
+    .dagr-acts { flex:0 0 auto; display:flex; align-items:center; gap:4px; }
+    .dagr-add { font-size:11px; padding:3px 10px; margin-top:8px; }
+    /* inline (non-absolute) persona picker — avoids overflow-clip inside the drawer card */
+    .dagr-picker { margin-top:8px; border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-bg); padding:12px; }
+    .dagr-picker-h { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:10px; }
+    .dagr-picker-h .t { font-size:12.5px; font-weight:700; color:var(--cp-text); }
+    .dagr-picker-h .s { font-size:11px; color:var(--cp-text-muted); }
+    .dagr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:8px; }
+    .dagr-persona { display:flex; flex-direction:column; gap:6px; text-align:left; padding:10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); cursor:pointer; transition:border-color .12s ease, background .12s ease; }
+    .dagr-persona:hover { border-color:var(--cp-accent); background:color-mix(in srgb, var(--cp-accent) 5%, var(--cp-surface)); }
+    .dagr-persona:disabled { opacity:.55; cursor:default; }
+    .dagr-persona:disabled:hover { border-color:var(--cp-border); background:var(--cp-surface); }
+    .dagr-persona.custom { border-style:dashed; }
+    .dagr-persona .ph { display:flex; align-items:center; gap:8px; }
+    .dagr-persona .ph .pn { font-size:12px; font-weight:600; color:var(--cp-text); flex:1 1 auto; }
+    .dagr-persona .ph .have { font-size:10px; font-weight:600; color:var(--cp-success); }
+    .dagr-persona .pd { font-size:11px; color:var(--cp-text-muted); line-height:1.4; margin:0; }
+    @media (prefers-reduced-motion: reduce) { .dagr-persona { transition:none; } }
+    /* ---- Auto-create dev cards (Part A) ---- */
+    .dac-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .dac-switch { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; white-space:nowrap; }
+    .dac-rule { border:1px solid var(--cp-border); border-radius:10px; padding:16px; margin-top:14px; background:var(--cp-bg); }
+    .dac-rule-head { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+    .dac-rule-head .dac-name { flex:1 1 auto; }
+    .dac-en { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--cp-text-muted); white-space:nowrap; }
+    .dac-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px 16px; }
+    .dac-maps { margin-top:16px; padding-top:14px; border-top:1px solid var(--cp-border); }
+    .dac-maps-h { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--cp-text); }
+    .dac-map { display:grid; grid-template-columns:auto minmax(0,1fr) auto minmax(0,1.2fr) auto; align-items:center; gap:8px; margin-bottom:8px; }
+    .dac-arrow { color:var(--cp-text-muted); }
+    .dac-actions { display:flex; align-items:center; gap:12px; margin-top:14px; }
+    .dac-prev { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:12px; }
+    .dac-prev-h { font-size:13px; font-weight:600; color:var(--cp-text); margin-bottom:8px; }
+    .dac-wi { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--cp-border); }
+    .dac-wi:last-child { border-bottom:0; }
+    .dac-wi-id { color:var(--cp-text-muted); font-size:12px; white-space:nowrap; }
+    .dac-wi-t { flex:1 1 auto; min-width:0; }
+    .dac-wi-title { font-size:14px; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dac-wi-meta { font-size:11px; color:var(--cp-text-muted); }
+    .dac-repo-ok { font-size:12px; color:var(--cp-success); white-space:nowrap; }
+    .dac-repo-none { font-size:12px; color:var(--cp-text-muted); white-space:nowrap; }
+    .dac-foot { display:flex; align-items:center; gap:10px; margin-top:16px; }
+    @media (max-width: 720px) { .dac-grid { grid-template-columns:1fr; } .dac-map { grid-template-columns:1fr; } }
     /* ---- Water cooler studio (Groups / Chats index rail) ---- */
     .wc-sidebar { padding: 8px 6px 12px; }
     .wc-section { margin-bottom: 4px; }
@@ -10183,13 +10243,50 @@
                                         </template>
 
                                         <!-- Card-level actions: write per-repo dev agents into every worktree. PRs are created per repo (in each slot above). -->
-                                        <div x-show="devReadyWorktrees(d) >= 1" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px dashed var(--cp-border);padding-top:8px">
-                                          <template x-if="!d.devAgentName">
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='agent'" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into every ready worktree — each repo gets its own named agent (selectable in VS Code / Copilot; auto-selected in the CLI)" x-text="devBusy[d.id]==='agent' ? 'Creating agents…' : '🤖 Create dev agents'"></button>
+                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                          <div class="dagr-h">
+                                            <span class="lbl">Agents on this card</span>
+                                            <span class="cnt" x-show="(d.devAgents||[]).length" x-text="((d.devAgents||[]).length)+' '+((d.devAgents||[]).length===1?'agent':'agents')"></span>
+                                          </div>
+                                          <template x-if="(d.devAgents||[]).length">
+                                            <div class="dagr-list">
+                                              <template x-for="ag in (d.devAgents||[])" :key="ag.persona">
+                                                <div class="dagr-row">
+                                                  <span class="dagr-dot" :style="devAgentDotStyle(ag)" x-text="ag.emoji||'🤖'"></span>
+                                                  <span class="dagr-nm">
+                                                    <span class="n"><span x-text="ag.label"></span><span class="ro" x-show="ag.readOnly" title="Read-only — reviews and proposes, never writes code">· read-only</span></span>
+                                                    <span class="d" x-text="devReadyWorktrees(d)>=1 ? 'Written into every ready worktree' : 'Staged — add a repo/worktree to launch'"></span>
+                                                  </span>
+                                                  <span class="dagr-st" :class="devReadyWorktrees(d)>=1 ? 'ready' : 'needrepo'"><span class="sdot"></span><span x-text="devReadyWorktrees(d)>=1 ? 'ready' : 'needs repo'"></span></span>
+                                                  <span class="dagr-acts">
+                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" x-show="devReadyWorktrees(d)>=1" @click="launchDevAgent(d, ag)" title="Open the CLI with this agent selected">🤖 Launch</button>
+                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="devAgentBusy[d.id+':'+ag.persona]" @click="removeDevAgent(d, ag)" x-text="devAgentBusy[d.id+':'+ag.persona] ? '…' : 'Remove'"></button>
+                                                  </span>
+                                                </div>
+                                              </template>
+                                            </div>
                                           </template>
-                                          <template x-if="d.devAgentName">
-                                            <span class="status-inline" title="Per-repo dev agents written — each worktree has its own named agent, selectable in VS Code / Copilot and auto-selected when opening the CLI"><span class="status-dot clean"></span>🤖 Dev agents ready</span>
-                                          </template>
+                                          <button class="dagr-add" type="button" @click="toggleDevPicker(d)" x-text="devPickerOpen[d.id] ? '× Close' : '＋ Add an agent'"></button>
+                                          <div class="dagr-picker" x-show="devPickerOpen[d.id]" x-cloak>
+                                            <div class="dagr-picker-h">
+                                              <span class="t">Add an agent from a playbook</span>
+                                              <span class="s">Each persona writes a focused agent into the worktree — add more than one.</span>
+                                            </div>
+                                            <div class="dagr-grid">
+                                              <template x-for="p in devPersonas" :key="p.id">
+                                                <button class="dagr-persona" type="button" :disabled="devAgentHas(d,p.id) || devAgentBusy[d.id+':'+p.id]" @click="createDevAgent(d, p.id)">
+                                                  <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="devAgentHas(d,p.id)">✓ added</span></span>
+                                                  <span class="pd" x-text="p.tagline"></span>
+                                                </button>
+                                              </template>
+                                              <template x-for="pb in devCustomPlaybooks" :key="pb.id">
+                                                <button class="dagr-persona custom" type="button" :disabled="devAgentHas(d,'pb-'+pb.id) || devAgentBusy[d.id+':pb-'+pb.id]" @click="createDevAgent(d, 'custom', pb.id)">
+                                                  <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="devAgentHas(d,'pb-'+pb.id)">✓ added</span></span>
+                                                  <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
+                                                </button>
+                                              </template>
+                                            </div>
+                                          </div>
                                         </div>
                                       </div>
                                           </div>
@@ -11372,13 +11469,50 @@
                                             </div>
                                           </div>
                                         </template>
-                                        <div x-show="devReadyWorktrees(d) >= 1" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px dashed var(--cp-border);padding-top:8px">
-                                          <template x-if="!d.devAgentName">
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='agent'" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into every ready worktree" x-text="devBusy[d.id]==='agent' ? 'Creating agents…' : '🤖 Create dev agents'"></button>
+                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                          <div class="dagr-h">
+                                            <span class="lbl">Agents on this card</span>
+                                            <span class="cnt" x-show="(d.devAgents||[]).length" x-text="((d.devAgents||[]).length)+' '+((d.devAgents||[]).length===1?'agent':'agents')"></span>
+                                          </div>
+                                          <template x-if="(d.devAgents||[]).length">
+                                            <div class="dagr-list">
+                                              <template x-for="ag in (d.devAgents||[])" :key="ag.persona">
+                                                <div class="dagr-row">
+                                                  <span class="dagr-dot" :style="devAgentDotStyle(ag)" x-text="ag.emoji||'🤖'"></span>
+                                                  <span class="dagr-nm">
+                                                    <span class="n"><span x-text="ag.label"></span><span class="ro" x-show="ag.readOnly" title="Read-only — reviews and proposes, never writes code">· read-only</span></span>
+                                                    <span class="d" x-text="devReadyWorktrees(d)>=1 ? 'Written into every ready worktree' : 'Staged — add a repo/worktree to launch'"></span>
+                                                  </span>
+                                                  <span class="dagr-st" :class="devReadyWorktrees(d)>=1 ? 'ready' : 'needrepo'"><span class="sdot"></span><span x-text="devReadyWorktrees(d)>=1 ? 'ready' : 'needs repo'"></span></span>
+                                                  <span class="dagr-acts">
+                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" x-show="devReadyWorktrees(d)>=1" @click="launchDevAgent(d, ag)" title="Open the CLI with this agent selected">🤖 Launch</button>
+                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="devAgentBusy[d.id+':'+ag.persona]" @click="removeDevAgent(d, ag)" x-text="devAgentBusy[d.id+':'+ag.persona] ? '…' : 'Remove'"></button>
+                                                  </span>
+                                                </div>
+                                              </template>
+                                            </div>
                                           </template>
-                                          <template x-if="d.devAgentName">
-                                            <span class="status-inline" title="Per-repo dev agents written — each worktree has its own named agent"><span class="status-dot clean"></span>🤖 Dev agents ready</span>
-                                          </template>
+                                          <button class="dagr-add" type="button" @click="toggleDevPicker(d)" x-text="devPickerOpen[d.id] ? '× Close' : '＋ Add an agent'"></button>
+                                          <div class="dagr-picker" x-show="devPickerOpen[d.id]" x-cloak>
+                                            <div class="dagr-picker-h">
+                                              <span class="t">Add an agent from a playbook</span>
+                                              <span class="s">Each persona writes a focused agent into the worktree — add more than one.</span>
+                                            </div>
+                                            <div class="dagr-grid">
+                                              <template x-for="p in devPersonas" :key="p.id">
+                                                <button class="dagr-persona" type="button" :disabled="devAgentHas(d,p.id) || devAgentBusy[d.id+':'+p.id]" @click="createDevAgent(d, p.id)">
+                                                  <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="devAgentHas(d,p.id)">✓ added</span></span>
+                                                  <span class="pd" x-text="p.tagline"></span>
+                                                </button>
+                                              </template>
+                                              <template x-for="pb in devCustomPlaybooks" :key="pb.id">
+                                                <button class="dagr-persona custom" type="button" :disabled="devAgentHas(d,'pb-'+pb.id) || devAgentBusy[d.id+':pb-'+pb.id]" @click="createDevAgent(d, 'custom', pb.id)">
+                                                  <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="devAgentHas(d,'pb-'+pb.id)">✓ added</span></span>
+                                                  <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
+                                                </button>
+                                              </template>
+                                            </div>
+                                          </div>
                                         </div>
                                       </div>
                                     </div>
@@ -21430,6 +21564,141 @@
                   <p class="hint" x-show="devSettingsSaved" style="margin-top:8px">✅ Saved.</p>
                 </div>
               </div>
+
+              <!-- Auto-create dev cards (Part A) -->
+              <div class="card" style="margin-top:16px" x-data>
+                <div class="dac-head">
+                  <div>
+                    <h2 style="font-size:1rem;margin-bottom:6px">Auto-create dev cards from Azure DevOps</h2>
+                    <p style="color:var(--cp-text-muted);font-size:0.85rem;max-width:74ch;margin:0">
+                      Watch Azure DevOps for work items assigned to you that match a rule (type, state, area path)
+                      and create a dev card for any that don't already have one. No duplicates — each work item gets
+                      at most one auto-created card.
+                    </p>
+                  </div>
+                  <label class="dac-switch" :title="devAuto.enabled ? 'On' : 'Off'">
+                    <input type="checkbox" x-model="devAuto.enabled" @change="saveDevAuto()" />
+                    <span x-text="devAuto.enabled ? 'On' : 'Off'"></span>
+                  </label>
+                </div>
+
+                <template x-if="!devAuto.rules.length">
+                  <p class="hint" style="margin-top:14px">No rules yet. Add one to describe which work items should become dev cards.</p>
+                </template>
+
+                <template x-for="(rule, ri) in devAuto.rules" :key="rule.id">
+                  <div class="dac-rule">
+                    <div class="dac-rule-head">
+                      <input class="field-input dac-name" type="text" x-model="rule.name" placeholder="Rule name (e.g. My Dev work items)" @change="saveDevAuto()" />
+                      <label class="dac-en"><input type="checkbox" x-model="rule.enabled" @change="saveDevAuto()" /> Enabled</label>
+                      <button class="btn ghost sm" type="button" @click="devAutoRemoveRule(ri)" title="Delete rule">Remove</button>
+                    </div>
+                    <div class="dac-grid">
+                      <div>
+                        <label class="field-label">Organization</label>
+                        <input class="field-input" type="text" x-model="rule.org" placeholder="Default (dnceng)" @change="saveDevAuto()" />
+                      </div>
+                      <div>
+                        <label class="field-label">Project</label>
+                        <input class="field-input" type="text" x-model="rule.project" placeholder="Default (internal)" @change="saveDevAuto()" />
+                      </div>
+                      <div>
+                        <label class="field-label">Work item type</label>
+                        <select class="field-input" x-model="rule.workItemType" @change="saveDevAuto()">
+                          <option>DNCeng Task</option><option>Task</option><option>Bug</option><option>User Story</option><option>Feature</option><option>Epic</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="field-label">Work item state</label>
+                        <input class="field-input" type="text" x-model="rule.state" placeholder="Dev" @change="saveDevAuto()" />
+                      </div>
+                      <div style="grid-column:1 / -1">
+                        <label class="field-label">Area path</label>
+                        <input class="field-input" type="text" x-model="rule.areaPath" placeholder="internal\.NET Engineering Services" @change="saveDevAuto()" />
+                        <p class="hint" style="margin-top:4px">Matches this path and everything under it. Leave blank for any area.</p>
+                      </div>
+                      <div>
+                        <label class="field-label">Check frequency</label>
+                        <select class="field-input" x-model.number="rule.frequencyMin" @change="saveDevAuto()">
+                          <option :value="15">Every 15 minutes</option>
+                          <option :value="30">Every 30 minutes</option>
+                          <option :value="60">Hourly</option>
+                          <option :value="180">Every 3 hours</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="field-label">Assigned to</label>
+                        <input class="field-input" type="text" value="Me" disabled />
+                      </div>
+                    </div>
+
+                    <!-- repo mappings -->
+                    <div class="dac-maps">
+                      <div class="dac-maps-h">
+                        <span>Assign a repository</span>
+                        <button class="btn ghost sm" type="button" @click="devAutoAddMapping(rule)">＋ Add mapping</button>
+                      </div>
+                      <p class="hint" style="margin:0 0 8px">Map a work-item area path or tag to a repo. Unmatched work items become cards with no repo assigned.</p>
+                      <template x-if="!(rule.repoMappings && rule.repoMappings.length)">
+                        <p class="hint" style="margin:0">No mappings — every card will be created unassigned.</p>
+                      </template>
+                      <template x-for="(m, mi) in rule.repoMappings" :key="mi">
+                        <div class="dac-map">
+                          <select class="field-input" x-model="m.field" @change="saveDevAuto()">
+                            <option value="area">area contains</option>
+                            <option value="tag">tag contains</option>
+                          </select>
+                          <input class="field-input" type="text" x-model="m.match" placeholder="e.g. helix or …/Runtime" @change="saveDevAuto()" />
+                          <span class="dac-arrow">→</span>
+                          <input class="field-input" type="text" x-model="m.repo" placeholder="dotnet/arcade or org/project/repo" @change="saveDevAuto()" />
+                          <button class="btn ghost sm" type="button" @click="devAutoRemoveMapping(rule, mi); saveDevAuto()" title="Remove mapping">✕</button>
+                        </div>
+                      </template>
+                    </div>
+
+                    <!-- preview -->
+                    <div class="dac-actions">
+                      <button class="btn sm" type="button" @click="devAutoPreview(rule)">Preview matches</button>
+                      <span class="hint" x-show="devAuto.saved" style="color:var(--cp-success)">✅ Saved</span>
+                    </div>
+                    <template x-if="devAuto.previews[rule.id]">
+                      <div class="dac-prev">
+                        <template x-if="devAuto.previews[rule.id].loading">
+                          <p class="hint" style="margin:0">Checking Azure DevOps…</p>
+                        </template>
+                        <template x-if="devAuto.previews[rule.id].error">
+                          <p class="hint" style="margin:0;color:var(--cp-danger)" x-text="'Error: ' + devAuto.previews[rule.id].error"></p>
+                        </template>
+                        <template x-if="!devAuto.previews[rule.id].loading && !devAuto.previews[rule.id].error">
+                          <div>
+                            <div class="dac-prev-h">
+                              <span x-text="devAuto.previews[rule.id].matched + ' matching'"></span> ·
+                              <span x-text="devAuto.previews[rule.id].wouldCreate + ' would create now'"></span>
+                            </div>
+                            <template x-for="wi in (devAuto.previews[rule.id].samples || [])" :key="wi.id">
+                              <div class="dac-wi">
+                                <span class="mono dac-wi-id" x-text="'#' + wi.id"></span>
+                                <div class="dac-wi-t">
+                                  <div class="dac-wi-title" x-text="wi.title"></div>
+                                  <div class="mono dac-wi-meta" x-text="wi.state + (wi.areaPath ? ' · ' + wi.areaPath : '')"></div>
+                                </div>
+                                <span x-show="wi.repo" class="dac-repo-ok" x-text="wi.repo"></span>
+                                <span x-show="!wi.repo" class="dac-repo-none">◇ No repo assigned</span>
+                              </div>
+                            </template>
+                            <p class="hint" x-show="!(devAuto.previews[rule.id].samples || []).length" style="margin:0">Nothing new to create.</p>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <div class="dac-foot">
+                  <button class="btn ghost sm" type="button" @click="devAutoAddRule()">＋ Add rule</button>
+                  <button class="btn sm" type="button" :disabled="devAuto.running || !devAuto.enabled" @click="devAutoRunNow()" x-text="devAuto.running ? 'Running…' : 'Run now'"></button>
+                </div>
+              </div>
             </div><!-- /storage category -->
 
             <!-- ===== About category ===== -->
@@ -24500,6 +24769,13 @@
         // Dev cards — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
         // the create/edit modal form state.
         devBusy: {},
+        // Dev-agent persona roster: catalog (built-ins + custom playbooks) + which
+        // card's "add an agent" picker is open + per-persona busy flag.
+        devPersonas: [],
+        devCustomPlaybooks: [],
+        devPersonasLoaded: false,
+        devPickerOpen: {},
+        devAgentBusy: {},
         // Per-slot commit-detail panel: open flag + loaded data keyed by slot.
         slotCommitsOpen: {},
         slotCommits: {},
@@ -25089,6 +25365,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
+        // Part A: auto-create dev cards from Azure DevOps work-item conditions.
+        devAuto: { enabled: false, rules: [], loaded: false, saving: false, saved: false, running: false, previews: {} },
         cfGroups: { github: [], azdo: [], inputGithub: '', inputAzdo: '', saved: false, loaded: false },
         standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '', sortKey: 'id', sortDir: 'asc' },
         externalAccessDisabled: false,
@@ -25966,7 +26244,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.loadModels();
             this.loadModelSettings();
             if (this.settingsCat === 'dependencies') { this.loadDependencies(); this.loadAgentDeps(); }
-            if (this.settingsCat === 'storage') { this.loadDataLocation(); this.ensureConnectConfig(); this.ensureDevSettings(); }
+            if (this.settingsCat === 'storage') { this.loadDataLocation(); this.ensureConnectConfig(); this.ensureDevSettings(); this.loadDevAuto(); }
             if (this.settingsCat === 'integrations') { this.ensureCfGroups(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
             if (this.settingsCat === 'agents') this.loadSystemAgents();
@@ -30467,6 +30745,65 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s) this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '', worktreeRoot: s.worktreeRoot || '' };
           } catch {}
           this._devSettingsLoaded = true;
+        },
+        // ----- Part A: auto-create dev cards from AzDO work-item conditions -----
+        _devAutoBlankRule() {
+          return { id: 'devrule-' + Date.now().toString(36), enabled: true, name: '', org: '', project: '',
+            workItemType: 'DNCeng Task', state: 'Dev', areaPath: '', frequencyMin: 30, repoMappings: [] };
+        },
+        async loadDevAuto() {
+          if (this.devAuto.loaded) return;
+          try {
+            const r = await this.request('/api/dev-auto-create');
+            if (r) {
+              this.devAuto.enabled = !!r.enabled;
+              this.devAuto.rules = Array.isArray(r.rules) ? r.rules : [];
+            }
+          } catch {}
+          this.devAuto.loaded = true;
+        },
+        devAutoAddRule() { this.devAuto.rules.push(this._devAutoBlankRule()); },
+        devAutoRemoveRule(i) { this.devAuto.rules.splice(i, 1); this.saveDevAuto(); },
+        devAutoAddMapping(rule) {
+          if (!Array.isArray(rule.repoMappings)) rule.repoMappings = [];
+          rule.repoMappings.push({ field: 'area', match: '', repo: '', provider: '' });
+        },
+        devAutoRemoveMapping(rule, i) { rule.repoMappings.splice(i, 1); },
+        async saveDevAuto() {
+          this.devAuto.saving = true; this.devAuto.saved = false;
+          try {
+            await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({
+              devAutoCreate: !!this.devAuto.enabled,
+              devAutoCreateRules: this.devAuto.rules
+            }) });
+            // Re-read normalized rules from the server so ids/defaults settle.
+            const r = await this.request('/api/dev-auto-create');
+            if (r) { this.devAuto.enabled = !!r.enabled; this.devAuto.rules = Array.isArray(r.rules) ? r.rules : []; }
+            this.devAuto.saved = true;
+            setTimeout(() => { this.devAuto.saved = false; }, 2500);
+          } catch (e) { this.toast('Could not save auto-create rules', 'error'); }
+          this.devAuto.saving = false;
+        },
+        async devAutoPreview(rule) {
+          this.devAuto.previews[rule.id] = { loading: true };
+          try {
+            const r = await this.request('/api/dev-auto-create/preview', { method: 'POST', body: JSON.stringify({ rule }) });
+            this.devAuto.previews[rule.id] = r || { error: 'no result' };
+          } catch (e) {
+            this.devAuto.previews[rule.id] = { error: (e && e.message) || 'preview failed' };
+          }
+        },
+        async devAutoRunNow() {
+          if (this.devAuto.running) return;
+          this.devAuto.running = true;
+          try {
+            const r = await this.request('/api/dev-auto-create/run', { method: 'POST', body: JSON.stringify({}) });
+            const n = (r && r.created) || 0;
+            this.toast(n ? ('Created ' + n + ' dev card' + (n === 1 ? '' : 's')) : 'No new cards — everything already tracked', n ? 'success' : 'info');
+          } catch (e) {
+            this.toast((e && e.message) || 'Run failed', 'error');
+          }
+          this.devAuto.running = false;
         },
         // ----- Code Flow reviewer groups (per-forge: github + azdo) -----
         async ensureCfGroups() {
@@ -48247,24 +48584,80 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Write a focused .github/agents dev agent into the worktree (no agents.json
         // entry — just the *.agent.md file so VS Code / Copilot can select it, and the
         // CLI auto-selects it). The file is git-excluded so it never lands in a commit/PR.
-        async createDevAgent(d) {
-          if (!d || this.devBusy[d.id]) return;
-          if (this.devReadyWorktrees(d) < 1) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
-          this.devBusy[d.id] = 'agent';
-          this.showToast('Dev card', '🤖 Creating focused dev agents for each worktree…', 'info');
+        async createDevAgent(d, personaId, playbookId) {
+          if (!d) return;
+          personaId = personaId || 'implementer';
+          const busyKey = d.id + ':' + (personaId === 'custom' ? 'pb-' + (playbookId || '') : personaId);
+          if (this.devAgentBusy[busyKey] || this.devBusy[d.id]) return;
+          if (this.devReadyWorktrees(d) < 1) { this.showToast('Dev card', 'Create a worktree first — the agent is written into the worktree.', 'error'); return; }
+          this.devAgentBusy[busyKey] = true;
           try {
-            const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: '{}' });
+            const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: JSON.stringify({ persona: personaId, playbookId: playbookId || '' }) });
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
-              this.showToast('Dev card', '🤖 Dev agent ready — selectable in VS Code / Copilot; the CLI will auto-select it.', 'success');
+              const label = (r.agents && r.agents.length ? (r.agents.find(a => a.persona === personaId) || {}).label : '') || 'Agent';
+              this.showToast('Dev card', '🤖 ' + label + ' ready — selectable in VS Code / Copilot; auto-selected in the CLI.', 'success');
             } else {
               this.showToast('Dev card', 'Dev agent returned no result — try again.', 'error');
             }
           } catch (e) {
             this.showToast('Dev card', (e && e.message) || 'Create dev agent failed', 'error');
           } finally {
-            delete this.devBusy[d.id];
+            delete this.devAgentBusy[busyKey];
           }
+        },
+        // Remove a persona's agent files + roster entry from this dev card.
+        async removeDevAgent(d, ag) {
+          if (!d || !ag) return;
+          const busyKey = d.id + ':' + ag.persona;
+          if (this.devAgentBusy[busyKey]) return;
+          this.devAgentBusy[busyKey] = true;
+          try {
+            const r = await this.request(this._devUrl(d, 'dev-agent/remove'), { method: 'POST', body: JSON.stringify({ persona: ag.custom ? 'custom' : ag.persona, playbookId: ag.playbookId || '' }) });
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Dev card', 'Removed ' + (ag.label || 'agent') + '.', 'success');
+            }
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Remove dev agent failed', 'error');
+          } finally {
+            delete this.devAgentBusy[busyKey];
+          }
+        },
+        // Open the CLI with a specific roster persona's agent selected (first ready slot).
+        launchDevAgent(d, ag) {
+          if (!d || !ag) return;
+          const slot = (ag.slots || []).find(s => s && s.agentName) || null;
+          this.openDevItem(d, 'cli', slot ? slot.agentName : (ag.slug || ''));
+        },
+        // Does this card already have the given persona/playbook on its roster?
+        devAgentHas(d, personaId) {
+          return !!(d && (d.devAgents || []).some(a => a && a.persona === personaId));
+        },
+        // Round gradient dot style for a persona/roster entry.
+        devAgentDotStyle(p) {
+          const a = (p && (p.gradFrom || p.gradfrom)) || '#4b5563';
+          const b = (p && (p.gradTo || p.gradto)) || '#6b7280';
+          return 'background:linear-gradient(135deg,' + a + ',' + b + ')';
+        },
+        // Toggle the inline persona picker for a card; lazily load the catalog.
+        toggleDevPicker(d) {
+          if (!d) return;
+          const open = !this.devPickerOpen[d.id];
+          this.devPickerOpen[d.id] = open;
+          if (open) this.loadDevPersonas();
+        },
+        // Fetch the persona catalog (built-ins + custom playbooks) once.
+        async loadDevPersonas() {
+          if (this.devPersonasLoaded) return;
+          try {
+            const r = await this.request('/api/dev-agent-personas');
+            if (r) {
+              this.devPersonas = (r.personas || []);
+              this.devCustomPlaybooks = (r.playbooks || []);
+              this.devPersonasLoaded = true;
+            }
+          } catch (e) { /* leave picker with a graceful empty state */ }
         },
         // Push the branch and have AI open a nicely-formatted PR linked to this dev card.
         async createDevPr(d) {
@@ -48343,13 +48736,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             delete this.devBusy[d.id];
           }
         },
-        async openDevItem(d, target) {
+        async openDevItem(d, target, agentOverride) {
           if (!d || !d.worktreePath) { this.showToast('Dev card', 'No worktree to open — create one first.', 'error'); return; }
           if (target === 'diff') this.devBusy[d.id] = 'diff';
           try {
             const body = { path: d.worktreePath, target };
             // When a dev agent has been written into the worktree, auto-select it in the CLI.
-            if (target === 'cli' && d.devAgentName) body.agent = d.devAgentName;
+            if (target === 'cli' && (agentOverride || d.devAgentName)) body.agent = agentOverride || d.devAgentName;
             const r = await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
             if (target === 'diff') {
               if (r && r.empty) this.showToast('Diff', 'No changes vs ' + (r.base || 'base') + ' yet.', 'info');

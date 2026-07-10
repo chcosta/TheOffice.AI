@@ -26230,6 +26230,211 @@ async function _devCreatePullRequest(desc, body) {
   return pr;
 }
 
+// ---- Dev-card auto-creation from Azure DevOps work-item conditions ---------
+// (Part A) When settings.devAutoCreate is on, a leader-gated poller queries ADO
+// for work items matching each enabled rule and creates a dev card for any match
+// that doesn't already have one (deduped by the shared _meAiDevKey identity). A
+// rule's optional area/tag→repo mappings assign a repo; unmatched cards land in a
+// clear "no repo assigned" state. Scoped to ADO work items (WIQL has no GitHub
+// equivalent). Routes use a /api/dev-auto-create/* prefix so they don't collide
+// with the /api/dev-items/:devId/:op alias middleware below.
+function _devAutoNormRule(r, i, s) {
+  r = (r && typeof r === 'object') ? r : {};
+  const str = (v, d) => { const x = String(v == null ? '' : v).trim(); return x || d; };
+  const def = _connectAdoTargets(s)[0] || {};
+  const defOrg = def.org || 'dnceng';
+  const defProject = (def.projects && def.projects[0]) || 'internal';
+  const freq = (() => { const n = Number(r.frequencyMin); return (Number.isFinite(n) && n >= 5) ? Math.min(1440, Math.round(n)) : 30; })();
+  const mappings = (Array.isArray(r.repoMappings) ? r.repoMappings : []).map(m => {
+    m = (m && typeof m === 'object') ? m : {};
+    return {
+      match: str(m.match, ''),
+      field: (String(m.field || 'area').toLowerCase() === 'tag') ? 'tag' : 'area',
+      repo: str(m.repo, ''),
+      provider: (() => { const p = String(m.provider || '').toLowerCase(); return (p === 'github' || p === 'azdo') ? p : ''; })()
+    };
+  }).filter(m => m.match && m.repo);
+  return {
+    id: str(r.id, 'devrule-' + i),
+    enabled: r.enabled !== false,
+    name: str(r.name, ''),
+    org: str(r.org, defOrg),
+    project: str(r.project, defProject),
+    workItemType: str(r.workItemType || r.type, 'DNCeng Task'),
+    state: str(r.state, 'Dev'),
+    areaPath: str(r.areaPath || r.area, ''),
+    frequencyMin: freq,
+    repoMappings: mappings
+  };
+}
+function _devAutoRules(s) {
+  s = s || settings.getSettings();
+  if (!s.devAutoCreate) return [];
+  const raw = Array.isArray(s.devAutoCreateRules) ? s.devAutoCreateRules : [];
+  return raw.map((r, i) => _devAutoNormRule(r, i, s)).filter(r => r.enabled && r.org && r.project);
+}
+// Parse a free-form repo spec. 3 segments ⇒ azdo org/project/repo; 2 ⇒ github owner/repo.
+function _devParseRepoSpec(spec, provider) {
+  const parts = String(spec || '').split('/').map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 3) return { provider: provider || 'azdo', org: parts[0], project: parts[1], repo: parts.slice(2).join('/') };
+  if (parts.length === 2) return { provider: provider || 'github', org: parts[0], project: '', repo: parts[1] };
+  return null;
+}
+// First area/tag mapping whose match substring is in the work item's area/tags.
+function _devAutoRepoFor(rule, wi) {
+  for (const m of (rule.repoMappings || [])) {
+    const hay = String((m.field === 'tag' ? wi.tags : wi.areaPath) || '').toLowerCase();
+    if (hay && hay.includes(m.match.toLowerCase())) {
+      const spec = _devParseRepoSpec(m.repo, m.provider);
+      if (spec) return spec;
+    }
+  }
+  return null;
+}
+// Build devStore.create fields for a matched work item. Top-level org/project always
+// stay the WORK ITEM's (they double as the work-item fetch location — see _devWorkItem),
+// so an assigned repo goes primary ONLY when it's the same azdo org/project; a
+// cross-provider/cross-org repo attaches as an extra slot instead (provider coupling).
+function _devAutoBuildFields(rule, wi) {
+  const fields = {
+    title: wi.title || ('Work item ' + wi.id),
+    provider: 'azdo',
+    org: rule.org,
+    project: rule.project,
+    workItemId: String(wi.id),
+    workItem: { id: wi.id, url: wi.url, title: wi.title, type: wi.type, state: wi.state, provider: 'azdo' },
+    source: 'azdo-auto',
+    autoRuleId: rule.id
+  };
+  const spec = _devAutoRepoFor(rule, wi);
+  if (spec) {
+    const sameAzdo = spec.provider === 'azdo'
+      && spec.org.toLowerCase() === rule.org.toLowerCase()
+      && spec.project.toLowerCase() === rule.project.toLowerCase();
+    if (sameAzdo) fields.repo = spec.repo;
+    else fields.repos = [{
+      id: 'r-' + _meAiHash([spec.provider, spec.org, spec.project, spec.repo].join('|')),
+      provider: spec.provider, org: spec.org, project: spec.project, repo: spec.repo
+    }];
+  }
+  return fields;
+}
+function _devAutoExistingKeys() {
+  const set = new Set();
+  for (const c of devStore.all()) {
+    if (!c || c.archived) continue;
+    const k = _meAiDevCardKey(c);
+    if (k) set.add(k);
+  }
+  return set;
+}
+async function _runDevAutoCreateRule(rule, { manual = false } = {}) {
+  let items = [];
+  try {
+    items = await azdo.queryWorkItems(rule.org, rule.project, {
+      type: rule.workItemType, state: rule.state, areaPath: rule.areaPath, assignedToMe: true, top: 100
+    });
+  } catch (e) {
+    return { rule: rule.id, matched: 0, created: 0, error: (e && e.message) || 'query failed' };
+  }
+  const existing = _devAutoExistingKeys();
+  const cards = [];
+  for (const wi of items) {
+    const key = _meAiDevKey('azdo', rule.org, rule.project, wi.id);
+    if (existing.has(key)) continue;
+    existing.add(key);
+    try {
+      const card = devStore.create(_devAutoBuildFields(rule, wi));
+      cards.push(card);
+      broadcastSSE('boards-changed', { id: card.homeBoardId || null, devId: card.id, dev: card });
+    } catch (_) { /* keep going */ }
+  }
+  return { rule: rule.id, matched: items.length, created: cards.length, cards: cards.map(c => c.id) };
+}
+async function _previewDevAutoCreateRule(rule) {
+  let items = [];
+  try {
+    items = await azdo.queryWorkItems(rule.org, rule.project, {
+      type: rule.workItemType, state: rule.state, areaPath: rule.areaPath, assignedToMe: true, top: 100
+    });
+  } catch (e) {
+    return { rule: rule.id, matched: 0, wouldCreate: 0, error: (e && e.message) || 'query failed' };
+  }
+  const existing = _devAutoExistingKeys();
+  const fresh = items.filter(wi => !existing.has(_meAiDevKey('azdo', rule.org, rule.project, wi.id)));
+  return {
+    rule: rule.id,
+    matched: items.length,
+    wouldCreate: fresh.length,
+    samples: fresh.slice(0, 8).map(wi => {
+      const spec = _devAutoRepoFor(rule, wi);
+      return {
+        id: wi.id, title: wi.title, state: wi.state, areaPath: wi.areaPath,
+        repo: spec ? [spec.org, spec.project, spec.repo].filter(Boolean).join('/') : null,
+        repoProvider: spec ? spec.provider : null
+      };
+    })
+  };
+}
+const _devAutoLastRun = new Map();
+let _devAutoBusy = false;
+setInterval(async () => {
+  if (_devAutoBusy) return;
+  if (!leaderCheck()) return;
+  const s = settings.getSettings();
+  if (!s.devAutoCreate) return;
+  const rules = _devAutoRules(s);
+  if (!rules.length) return;
+  _devAutoBusy = true;
+  try {
+    const now = Date.now();
+    for (const rule of rules) {
+      const last = _devAutoLastRun.get(rule.id) || 0;
+      if (now - last < rule.frequencyMin * 60 * 1000) continue;
+      _devAutoLastRun.set(rule.id, now);
+      await _runDevAutoCreateRule(rule, { manual: false });
+    }
+  } catch (_) { /* leader-gated background sweep, never throw */ }
+  finally { _devAutoBusy = false; }
+}, 5 * 60 * 1000);
+
+// GET saved rules (normalized) + on/off state.
+app.get('/api/dev-auto-create', (req, res) => {
+  const s = settings.getSettings();
+  const raw = Array.isArray(s.devAutoCreateRules) ? s.devAutoCreateRules : [];
+  res.json({
+    enabled: !!s.devAutoCreate,
+    rules: raw.map((r, i) => _devAutoNormRule(r, i, s))
+  });
+});
+// Preview a rule (defaults to the first saved rule; or pass { rule } to preview an
+// unsaved edit). Read-only — reports match + would-create counts, no cards created.
+app.post('/api/dev-auto-create/preview', async (req, res) => {
+  try {
+    const s = settings.getSettings();
+    let rule;
+    if (req.body && req.body.rule && typeof req.body.rule === 'object') rule = _devAutoNormRule(req.body.rule, 0, s);
+    else rule = _devAutoRules(s)[0];
+    if (!rule) return res.status(400).json({ error: 'no rule to preview' });
+    res.json(await _previewDevAutoCreateRule(rule));
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'preview failed' }); }
+});
+// Run all enabled saved rules now (manual), regardless of per-rule frequency.
+app.post('/api/dev-auto-create/run', async (req, res) => {
+  if (_devAutoBusy) return res.status(409).json({ error: 'auto-create already running' });
+  const s = settings.getSettings();
+  const rules = _devAutoRules(s);
+  if (!rules.length) return res.status(400).json({ error: 'no enabled rules' });
+  _devAutoBusy = true;
+  try {
+    const results = [];
+    const now = Date.now();
+    for (const rule of rules) { _devAutoLastRun.set(rule.id, now); results.push(await _runDevAutoCreateRule(rule, { manual: true })); }
+    res.json({ ran: results.length, created: results.reduce((n, r) => n + (r.created || 0), 0), results });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'run failed' }); }
+  finally { _devAutoBusy = false; }
+});
+
 // ---- Global dev-card store routes ----------------------------------------
 // Dev cards are first-class objects in dev-store.js (not owned by a board). These
 // routes serve the store directly; the per-op action routes below (worktree/
@@ -27030,26 +27235,212 @@ app.post('/api/boards/:id/dev-items/:devId/archive', (req, res) => {
   res.json({ ok: true, dev: updated });
 });
 
+// ── Dev-card agent personas (Part B) ────────────────────────────────────────
+// A dev card is no longer limited to a single hardcoded implementer agent: it
+// carries a ROSTER of playbook-driven personas, each written into the worktree
+// as its own `.github/agents/<slug>.agent.md`. 'implementer' is the default and
+// preserves the exact legacy behavior + slug (`dev-<repo>-<wi>`); every other
+// persona swaps the role, goal, working loop, and constraints. `readOnly`
+// personas never modify files — they propose / critique / sign off only.
+const DEV_AGENT_PERSONAS = [
+  {
+    id: 'implementer', label: 'Implementer', emoji: '🛠️',
+    gradFrom: '#2563eb', gradTo: '#3b82f6', readOnly: false, default: true,
+    tagline: 'Build a focused, validated change that fully solves the item.',
+    tags: 'code-aware · measures baseline',
+  },
+  {
+    id: 'design-review', label: 'Technical design review', emoji: '📐',
+    gradFrom: '#7c3aed', gradTo: '#a855f7', readOnly: true,
+    tagline: 'Propose the approach, weigh alternatives, surface risks before coding.',
+    tags: 'read-only · sign-off',
+    goal: 'Before any code is written, produce a clear technical design for this work item: the recommended approach, the alternatives you weighed, the trade-offs, and the risks — so the implementer starts from a considered plan rather than guessing.',
+    steps: [
+      'Understand the system, architecture, and constraints relevant to the work item by reading the surrounding code, tests, and docs.',
+      'Enumerate at least two viable approaches. For each, describe how it works, what it touches, and its cost/complexity.',
+      'Weigh the alternatives explicitly against the work item\'s real goals (correctness, performance, blast radius, maintainability) and recommend one.',
+      'Surface the risks, unknowns, and edge cases the implementer must handle, and note how each should be validated.',
+      'Write the design as a concise, decision-ready document (a `dev-design-review.html` status report is ideal) with a clear recommendation and sign-off.',
+    ],
+    constraints: [
+      'You are READ-ONLY. Do NOT modify, create, or delete source files, and do NOT run builds, tests, or anything that mutates the repository. Investigate and PROPOSE only.',
+      'Do not hand-wave. Every recommendation must be justified against the work item\'s actual goals, with the trade-offs made explicit.',
+    ],
+  },
+  {
+    id: 'validation-qa', label: 'Validation & QA', emoji: '✅',
+    gradFrom: '#16a34a', gradTo: '#22c55e', readOnly: false,
+    tagline: 'Prove it works — tests, baselines, measured before→after evidence.',
+    tags: 'code-aware · adversarial to claims',
+    goal: 'Prove — not assume — that the change for this work item actually works. Build or strengthen the tests, establish a measurable baseline, and produce before→after evidence that the desired behavior is met and nothing regressed.',
+    steps: [
+      'Understand the intended behavior of the work item and identify exactly what "done well" means and how to measure it.',
+      'Capture a baseline with a concrete, repeatable method before trusting any claim of success.',
+      'Identify gaps in test coverage; write or extend tests that capture the desired behavior AND the edge cases most likely to break.',
+      'Run the full relevant build/lint/test suite; treat every failure or flake as a real defect until proven otherwise.',
+      'Re-measure against the baseline and report the before→after delta as hard evidence. Write a `dev-validation-report.html` summarizing method, baseline, result, and any residual risk.',
+    ],
+    constraints: [
+      'Be adversarial to claims of success. A change is not done until it is provably done — qualitative assertions are not evidence.',
+      'You MAY add or modify tests and test harnesses, but do not alter the feature/product code under review except to make it testable (and call out any such change explicitly).',
+    ],
+  },
+  {
+    id: 'chaos-monkey', label: 'Chaos monkey', emoji: '🐒',
+    gradFrom: '#dc2626', gradTo: '#f97316', readOnly: false,
+    tagline: 'Try to break the change — fuzz inputs, races, failure injection, edge cases.',
+    tags: 'code-aware · destructive in a sandbox',
+    goal: 'Actively try to BREAK the change for this work item. Fuzz inputs, force race conditions, inject failures, and hammer the edge cases until something gives — then document every weakness you find with a reproduction.',
+    steps: [
+      'Map the change\'s inputs, boundaries, concurrency, external dependencies, and failure modes.',
+      'Attack systematically: malformed / boundary / adversarial inputs; concurrent access and ordering; injected dependency failures, timeouts, and resource exhaustion.',
+      'Build small, repeatable repros (fuzz scripts, stress loops, failure-injection harnesses) rather than one-off manual pokes.',
+      'For each defect found, capture a minimal reproduction, the observed vs. expected behavior, and its severity.',
+      'Write a `dev-chaos-report.html` listing everything you broke, with repros ranked by severity, plus what held up under fire.',
+    ],
+    constraints: [
+      'Destructive testing stays IN THE SANDBOX (this worktree / local test fixtures). Never fuzz, stress, or inject failures against production, shared, or external live systems.',
+      'You may add throwaway test/repro harnesses; do not commit them and do not alter the feature code except where needed to trigger a bug (call it out).',
+    ],
+  },
+  {
+    id: 'security-review', label: 'Security review', emoji: '🔒',
+    gradFrom: '#b91c1c', gradTo: '#dc2626', readOnly: true,
+    tagline: 'Threat-model the change — injection, authz, secrets, unsafe deserialization.',
+    tags: 'read-only',
+    goal: 'Threat-model the change for this work item and find real, exploitable security weaknesses: injection, broken authn/authz, secret handling, unsafe deserialization, SSRF, path traversal, and similar — with high-confidence findings only.',
+    steps: [
+      'Understand the change\'s trust boundaries, inputs, privileges, and the data it touches.',
+      'Systematically review for injection (SQL/command/template), authn/authz gaps, secret exposure/logging, unsafe deserialization, SSRF, path traversal, and insecure defaults.',
+      'For each candidate issue, trace a concrete exploit path and confirm it is genuinely reachable before reporting it.',
+      'Rate each finding by severity and likelihood; propose a concrete, minimal remediation.',
+      'Write a `dev-security-review.html` with high-confidence findings, exploit paths, severity, and fixes. Explicitly note what you checked and found clean.',
+    ],
+    constraints: [
+      'You are READ-ONLY. Do NOT modify code or run anything that mutates state. Investigate, threat-model, and PROPOSE fixes only.',
+      'Report only HIGH-CONFIDENCE, exploitable findings with a traced path. Do not pad the report with theoretical or low-value noise.',
+    ],
+  },
+  {
+    id: 'performance', label: 'Performance', emoji: '⚡',
+    gradFrom: '#0891b2', gradTo: '#06b6d4', readOnly: false,
+    tagline: 'Profile & benchmark, find regressions, optimize hot paths with numbers.',
+    tags: 'code-aware · measures',
+    goal: 'Make the change for this work item fast and prove it with numbers. Profile the hot paths, catch regressions, and optimize where it measurably matters — never on a hunch.',
+    steps: [
+      'Identify the performance-critical paths relevant to the work item and pick the right metric (latency, throughput, memory, allocations, CPU).',
+      'Establish a repeatable benchmark and capture the baseline before changing anything.',
+      'Profile to find the actual hot spots and regressions — do not optimize by intuition.',
+      'Apply the smallest change that moves the metric; re-benchmark after each change to confirm the win and guard against regressions elsewhere.',
+      'Write a `dev-performance-report.html` with the baseline, method, before→after deltas (e.g. "p95 412ms → 168ms"), and a chart making the change readable.',
+    ],
+    constraints: [
+      'Every optimization must be justified by a measurement. A speedup with no reproducible benchmark is not a speedup.',
+      'Do not trade correctness for speed — re-run the relevant tests after each change and keep them green.',
+    ],
+  },
+  {
+    id: 'documentation', label: 'Documentation', emoji: '📖',
+    gradFrom: '#4b5563', gradTo: '#6b7280', readOnly: false,
+    tagline: 'Update docs, changelog, and READMEs to match the change.',
+    tags: 'code-aware · docs only',
+    goal: 'Bring the documentation in line with the change for this work item: update the READMEs, changelog, inline docs, and any user- or developer-facing guides so they accurately reflect what changed and how to use it.',
+    steps: [
+      'Understand what the change actually does and who is affected (users, operators, other developers).',
+      'Find every doc that is now stale or missing because of the change — READMEs, changelog/release notes, API docs, inline comments, guides.',
+      'Update them to be accurate, clear, and consistent with the project\'s existing documentation voice and structure.',
+      'Add a changelog / release-note entry describing the change in user-facing terms.',
+      'Verify examples and commands in the docs still work, then summarize what you updated.',
+    ],
+    constraints: [
+      'You edit DOCUMENTATION only (Markdown, docs, comments, changelog). Do NOT change product/feature code or tests.',
+      'Match the project\'s existing documentation conventions; do not impose a new structure or voice.',
+    ],
+  },
+  {
+    id: 'rubber-duck', label: 'Reviewer / rubber-duck', emoji: '🦆',
+    gradFrom: '#ca8a04', gradTo: '#eab308', readOnly: true,
+    tagline: 'Critique the diff — catch bugs, logic errors, and design flaws.',
+    tags: 'read-only',
+    goal: 'Critically review the change for this work item as a demanding reviewer: catch real bugs, logic errors, edge-case failures, and design flaws that the author may have missed — high-signal, high-confidence findings only.',
+    steps: [
+      'Read the diff and enough surrounding code to understand intent and blast radius.',
+      'Reason adversarially about correctness: off-by-one, null/empty/invalid inputs, error paths, concurrency, resource leaks, and incorrect assumptions.',
+      'Assess the design: is this the right approach, does it fit the codebase, will it be maintainable, does it introduce coupling or duplication.',
+      'For each issue, cite the specific location, explain why it is a problem, and suggest a concrete fix.',
+      'Write a `dev-review.html` (or a concise findings list) grouped by severity, and explicitly note what you reviewed and found solid.',
+    ],
+    constraints: [
+      'You are READ-ONLY. Do NOT modify code, run mutating commands, or fix issues yourself — critique and PROPOSE only.',
+      'Report only high-confidence bugs, logic errors, and design flaws. Skip style nits and trivia unless they cause real harm.',
+    ],
+  },
+];
+const DEV_AGENT_PERSONA_MAP = Object.fromEntries(DEV_AGENT_PERSONAS.map(p => [p.id, p]));
+
+// Resolve a persona id (or a custom-playbook reference) to a persona object of the
+// shape the builder consumes. Unknown / empty → the default implementer. A
+// 'custom' persona with a playbookId is materialized from the Me.AI playbook store
+// so a dev card can run any playbook the user authored on the Playbooks page.
+function _devPersona(id, playbookId) {
+  const key = String(id || '').trim().toLowerCase();
+  if (key === 'custom' || (!key && playbookId)) {
+    const def = _meAiPlaybookDef(playbookId);
+    if (def) {
+      return {
+        id: 'pb-' + def.id, label: def.label || def.id, emoji: def.icon || '✨',
+        gradFrom: '#6b7280', gradTo: '#9ca3af', readOnly: false, custom: true,
+        playbookId: def.id, tagline: def.description || '',
+        goal: def.goal || `Carry out the "${def.label || def.id}" playbook for this work item.`,
+        steps: Array.isArray(def.steps) ? def.steps : [],
+        constraints: Array.isArray(def.constraints) ? def.constraints : [],
+      };
+    }
+  }
+  return DEV_AGENT_PERSONA_MAP[key] || DEV_AGENT_PERSONA_MAP.implementer;
+}
+
+// The public catalog for the SPA persona picker (built-ins + the user's custom
+// playbooks). Kept light — no prompt bodies leak to the client.
+function _devPersonaCatalog() {
+  const builtins = DEV_AGENT_PERSONAS.map(p => ({
+    id: p.id, label: p.label, emoji: p.emoji, gradFrom: p.gradFrom, gradTo: p.gradTo,
+    tagline: p.tagline, tags: p.tags, readOnly: !!p.readOnly, default: !!p.default,
+  }));
+  let playbooks = [];
+  try {
+    playbooks = _meAiPlaybookList().map(d => ({
+      id: d.id, label: d.label || d.id, emoji: d.icon || '✨', kind: d.kind,
+      tagline: d.description || '', readOnly: false,
+    }));
+  } catch {}
+  return { personas: builtins, playbooks };
+}
+
 // Build the Markdown for a dev card's `.agent.md` (frontmatter + persona). No
 // `tools:` key ⇒ the agent is unrestricted. The persona forbids the agent from
 // ever committing/pushing its own definition.
 // Build a per-repo, human-readable dev-agent slug so you can tell which generated
-// agent belongs to which repo/worktree: `dev-<repo>-<workItemId>` (falls back to a
-// short dev-card id when there's no work item). Sanitized + lowercased.
-function _devAgentSlug(d, slot) {
+// agent belongs to which repo/worktree. The implementer keeps its legacy
+// `dev-<repo>-<workItemId>` slug; other personas prefix with the persona id
+// (`<persona>-<repo>-<wi>`) so multiple agents coexist in one worktree.
+function _devAgentSlug(d, slot, persona) {
   const repoPart = String((slot && slot.repo) || d.repo || 'repo');
   const idPart = d.workItemId ? String(d.workItemId) : String(d.id || '').replace(/[^A-Za-z0-9]+/g, '').slice(-6);
-  const raw = 'dev-' + repoPart + (idPart ? '-' + idPart : '');
+  const prefix = (persona && persona.id && persona.id !== 'implementer') ? persona.id : 'dev';
+  const raw = prefix + '-' + repoPart + (idPart ? '-' + idPart : '');
   return raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase() || 'dev-agent';
 }
 
-function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot }) {
+function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot, persona }) {
+  persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
+  const isImpl = persona.id === 'implementer' && !persona.custom;
   const repoOrg = (slot && slot.org) || dev.org;
   const repoProj = (slot && slot.project) || dev.project;
   const repoName = (slot && slot.repo) || dev.repo;
   const repoBranch = (slot && slot.branch) || dev.branch;
   const repoBase = (slot && slot.baseBranch) || dev.baseBranch;
-  const desc = 'Focused dev agent' + (wi ? ` for work item #${wi.id}` : '') + (repoName ? ` in ${repoName}` : '');
+  const desc = (isImpl ? 'Focused dev agent' : (persona.label + ' agent')) + (wi ? ` for work item #${wi.id}` : '') + (repoName ? ` in ${repoName}` : '');
   const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
   const ctx = [];
   if (wi) {
@@ -27071,6 +27462,51 @@ function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot }) {
       ctx.push(`- **${s.repo}** — \`${s.worktreePath}\`${here ? '  ← you are here' : ''}`);
     }
     ctx.push('');
+  }
+  // Non-implementer personas get a persona-scoped body (role, goal, working loop,
+  // constraints) that reuses the shared work-item / repository / worktrees context
+  // plus the shared code-quality + status-report + hard-rules sections. Read-only
+  // personas are told, in hard terms, to propose only and never mutate the repo.
+  if (!isImpl) {
+    const steps = (persona.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n');
+    const cons = (persona.constraints || []).slice();
+    if (persona.readOnly) {
+      cons.unshift('You are a **READ-ONLY** agent. Do NOT create, modify, or delete any file in the repository, and do NOT run builds, tests, or any command that mutates state or the working tree. Your entire job is to investigate and **propose / report** — the implementer acts on your findings.');
+    }
+    const reportName = 'dev-' + persona.id.replace(/^pb-/, '').replace(/[^a-z0-9-]+/gi, '-').toLowerCase() + '-report.html';
+    const pbody = `You are the **${persona.label}** agent working in this repository worktree.${wi ? ' You focus on the work item described below.' : ''} ${persona.tagline || ''}
+
+${ctx.join('\n')}
+## Your goal
+${persona.goal || persona.tagline || ''}
+
+## How you work
+Follow this focused loop and narrate which step you are on:
+${steps}
+
+## Constraints
+${cons.map(c => '- ' + c).join('\n')}
+
+## Status report (HTML)
+When you finish, produce a **self-contained HTML status report** named \`${reportName}\` at the root of this worktree that makes your findings and their value obvious at a glance. Inline all CSS/JS (no external assets or CDNs) so it opens from disk; draw any charts with inline SVG or pure-CSS bars. Lead with the outcome — the specific findings, the evidence, and (where the persona measures anything) the before→after numbers — not prose. Give it a clean title, the work item id/link if present, and a timestamp. Do **not** commit or push this report; treat it like your agent file and leave it untracked.
+
+## Code quality bar
+${persona.readOnly
+  ? 'You do not write product code, but you hold the same rigor: ground every finding in the actual code, cite specific locations, and report only high-confidence, defensible conclusions. Study the surrounding files enough to judge the change in context, and match the project\'s conventions when you suggest fixes.'
+  : `When you write code you write **production-quality code**:
+- **Match the existing codebase** — study the surrounding files for conventions (naming, layout, error handling, logging, async patterns, formatting) and mirror them so your changes are indistinguishable from code already in the repo.
+- **Reuse existing patterns and helpers** instead of inventing parallel ones.
+- **Be surgical and complete** — fully solve the task without touching unrelated code; no drive-by refactors.
+- **Handle real-world conditions** — error paths, edge cases, empty/invalid inputs — the way the existing code does.
+- **No placeholders** — no \`TODO\`, stubs, or dead code.
+- **Leave it green** — respect the existing linters/formatters and validate with the project's own build/test tooling.`}
+
+## Hard rules
+- You have **no tool restrictions** — use whatever you need to ${persona.readOnly ? 'understand the code and reach a high-confidence conclusion' : 'do your job well'}.${persona.readOnly ? '\n- **Do not modify the repository.** If you believe a change is warranted, describe it precisely in your report and hand it to the implementer — do not make it yourself.' : ''}
+- **Never check yourself in.** If asked to commit code, commit ONLY the user's code changes. NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`) or other agent-supervisor scaffolding. Do not create or push a pull request unless the user explicitly asks you to.
+- Keep the working tree clean of agent artifacts; if you notice a \`.github/agents/*.agent.md\` file, leave it untracked and never add it.
+`;
+    return fm + pbody;
   }
   const body = `You are a focused software-development agent working in this repository worktree.${wi ? ' Your job is to solve the work item described below.' : ' Your job is to help the developer make and validate code changes in this repository.'}
 
@@ -27125,49 +27561,88 @@ You write **production-quality code**. This is non-negotiable:
   return fm + body;
 }
 
-// Write the focused dev agent (with sibling-worktree awareness) into EVERY ready
+// Write a dev-agent PERSONA (with sibling-worktree awareness) into EVERY ready
 // worktree of a dev card, so whichever repo you open the agent from understands
 // the whole work item — and so adding a new worktree later refreshes the others.
-// Each worktree gets a PER-REPO agent name (`dev-<repo>-<workItemId>`) so you can
-// tell which generated agent applies to which repo. Returns
-// { written:[{slotId, agentName, rel}], slug, rel, slots } or null when no worktree is ready.
-function _writeDevAgentFiles(d, wi) {
+// Each worktree gets a PER-REPO agent name (implementer=`dev-<repo>-<wi>`, other
+// personas=`<persona>-<repo>-<wi>`). Returns
+// { written:[{slotId, agentName, rel}], slug, rel, slots, persona } or null when no worktree is ready.
+function _writeDevAgentFiles(d, wi, persona) {
+  persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
   const slots = _devRepoSlots(d).filter(s => s.worktreePath && fs.existsSync(s.worktreePath));
   if (!slots.length) return null;
   const written = [];
   for (const s of slots) {
-    const slug = _devAgentSlug(d, s);
+    const slug = _devAgentSlug(d, s, persona);
     const rel = '.github/agents/' + slug + '.agent.md';
     const agentsDir = path.join(s.worktreePath, '.github', 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
-    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi, slots, currentPath: s.worktreePath, slot: s }));
+    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi, slots, currentPath: s.worktreePath, slot: s, persona }));
     try { devitems.addGitExclude(s.worktreePath, rel); } catch {}
     written.push({ slotId: s.id, agentName: slug, rel });
   }
   const primary = written.find(w => w.slotId === 'primary') || written[0];
-  return { written, slug: primary.agentName, rel: primary.rel, slots };
+  return { written, slug: primary.agentName, rel: primary.rel, slots, persona };
 }
 
-// Persist the per-slot agent names produced by _writeDevAgentFiles: the primary
-// repo's name goes to the top-level devAgentName/devAgentFile; each extra repo's
-// name goes onto its entry in d.repos[]. `extra` lets a caller fold in other fields
-// (e.g. a refreshed workItem) into the same single save. Returns the updated card.
+// Remove a persona's agent files from every ready worktree of a dev card. Returns
+// the number of files removed.
+function _removeDevAgentFiles(d, persona) {
+  persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
+  let removed = 0;
+  for (const s of _devRepoSlots(d)) {
+    if (!s.worktreePath) continue;
+    const slug = _devAgentSlug(d, s, persona);
+    const p = path.join(s.worktreePath, '.github', 'agents', slug + '.agent.md');
+    try { if (fs.existsSync(p)) { fs.unlinkSync(p); removed++; } } catch {}
+  }
+  return removed;
+}
+
+// Persist the roster entry for the persona just written, plus (for the implementer,
+// for backward-compat) the top-level devAgentName/devAgentFile + per-repo names so
+// the CLI auto-select (d.devAgentName) and the multi-root workspace keep working.
+// `extra` lets a caller fold in other fields (e.g. a refreshed workItem) into the
+// same single save. Returns the updated card.
 function _persistDevAgentNames(ctx, written, extra) {
   if (!written || !written.written) return ctx.dev;
+  const persona = written.persona || DEV_AGENT_PERSONA_MAP.implementer;
+  const isImpl = persona.id === 'implementer' && !persona.custom;
   const map = {};
   for (const w of written.written) map[w.slotId] = w;
   const partial = Object.assign({}, extra || {});
-  if (map.primary) { partial.devAgentName = map.primary.agentName; partial.devAgentFile = map.primary.rel; }
-  partial.repos = _devExtraRepos(ctx.dev).map(r => {
-    const w = r && map[r.id];
-    return w ? { ...r, agentName: w.agentName, agentFile: w.rel } : r;
-  });
+  // Roster (all personas). Keyed by persona id; re-creating replaces the entry.
+  const roster = Array.isArray(ctx.dev.devAgents) ? ctx.dev.devAgents.slice() : [];
+  const prev = roster.find(r => r.persona === persona.id);
+  const entry = {
+    persona: persona.id, label: persona.label, emoji: persona.emoji,
+    readOnly: !!persona.readOnly, playbookId: persona.playbookId || null,
+    slug: written.slug, file: written.rel, slots: written.written,
+    createdAt: (prev && prev.createdAt) || new Date().toISOString(),
+  };
+  const idx = roster.findIndex(r => r.persona === persona.id);
+  if (idx >= 0) roster[idx] = entry; else roster.push(entry);
+  partial.devAgents = roster;
+  if (isImpl) {
+    if (map.primary) { partial.devAgentName = map.primary.agentName; partial.devAgentFile = map.primary.rel; }
+    partial.repos = _devExtraRepos(ctx.dev).map(r => {
+      const w = r && map[r.id];
+      return w ? { ...r, agentName: w.agentName, agentFile: w.rel } : r;
+    });
+  }
   return ctx.save(partial);
 }
 
+// The persona catalog for the dev-agent roster picker (built-ins + custom playbooks).
+app.get('/api/dev-agent-personas', (req, res) => {
+  try { res.json(_devPersonaCatalog()); }
+  catch (e) { res.status(500).json({ error: (e && e.message) || String(e) }); }
+});
+
 // Create a focused dev agent for a dev card by writing a `.github/agents/<name>.agent.md`
 // into the item's worktree so VS Code / Copilot can select it. The file is kept
-// out of git so it never lands in the user's commits or PR.
+// out of git so it never lands in the user's commits or PR. Accepts an optional
+// { persona, playbookId } — defaults to the implementer (legacy behavior).
 app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
@@ -27175,18 +27650,39 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   if (!_devRepoSlots(d).some(s => s.worktreePath && fs.existsSync(s.worktreePath))) {
     return res.status(400).json({ error: 'Create a worktree first.' });
   }
+  const persona = _devPersona((req.body && req.body.persona) || 'implementer', req.body && req.body.playbookId);
   // Freshest work item for the persona (best-effort).
   let wi = d.workItem;
   try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
   let written;
   try {
-    written = _writeDevAgentFiles(d, wi);
+    written = _writeDevAgentFiles(d, wi, persona);
   } catch (e) {
     return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) });
   }
   if (!written) return res.status(400).json({ error: 'Create a worktree first.' });
   const updated = _persistDevAgentNames(ctx, written, { workItem: wi || d.workItem });
   res.json({ ok: true, dev: updated, agentName: written.slug, agentFile: written.rel, agents: written.written });
+});
+
+// Remove a dev-agent persona from a card: delete its .agent.md from every worktree
+// and drop it from the roster. Body { persona } (defaults to implementer).
+app.post('/api/boards/:id/dev-items/:devId/dev-agent/remove', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const persona = _devPersona((req.body && req.body.persona) || 'implementer', req.body && req.body.playbookId);
+  const isImpl = persona.id === 'implementer' && !persona.custom;
+  let removed = 0;
+  try { removed = _removeDevAgentFiles(d, persona); } catch {}
+  const roster = (Array.isArray(d.devAgents) ? d.devAgents : []).filter(r => r.persona !== persona.id);
+  const partial = { devAgents: roster };
+  if (isImpl) {
+    partial.devAgentName = null; partial.devAgentFile = null;
+    partial.repos = _devExtraRepos(d).map(r => { const c = { ...r }; delete c.agentName; delete c.agentFile; return c; });
+  }
+  const updated = ctx.save(partial);
+  res.json({ ok: true, dev: updated, removed });
 });
 
 // Best-effort extraction of a JSON object from an LLM reply (handles code

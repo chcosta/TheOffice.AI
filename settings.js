@@ -243,6 +243,17 @@ const DEFAULTS = {
   meAiWorkItemIteration: '',
   meAiWorkItemTags: '',
 
+  // Dev-card auto-creation from Azure DevOps work-item conditions. When on, a
+  // leader-gated poller queries ADO for work items matching each enabled rule
+  // and creates a dev card for any match that doesn't already have one (deduped
+  // by provider/org/project/workItemId). A rule is a filter — org/project (blank
+  // ⇒ the ADO defaults), workItemType, state, areaPath (UNDER), always scoped to
+  // items assigned to @Me — plus optional area/tag→repo mappings so a matching
+  // card gets a repo assigned; unmatched cards are created in a clear
+  // "no repo assigned" state. Rules array is replaced wholesale on update.
+  devAutoCreate: false,
+  devAutoCreateRules: [],
+
   // The app ships several built-in AI "system agents" (Connect assistant,
   // Newsletter writer/editor, Me.AI agent + external-act, Agenda assistant,
   // Workspace/Board assistant, Code Flow reviewer/steward). Settings → System

@@ -881,6 +881,73 @@ async function listMyWorkItems(org, project, { start, end, top = 200 } = {}) {
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
+// Query work items in a project by a filter (used by the dev-card auto-create
+// rules). Filters are AND-combined; any omitted filter is simply not constrained.
+// `state` may be a single value or an array of allowed states. `areaPath` matches
+// UNDER the given node (so a parent area path also catches children). Always
+// scopes to items ASSIGNED to @Me unless assignedToMe is explicitly false.
+// Returns compact items hydrated via the batch endpoint. Never throws on empty.
+async function queryWorkItems(org, project, { type, state, areaPath, assignedToMe = true, top = 100 } = {}) {
+  // WIQL escapes a single quote by doubling it.
+  const lit = (v) => `'${String(v == null ? '' : v).replace(/'/g, "''")}'`;
+  const clauses = [];
+  const t = String(type || '').trim();
+  if (t) clauses.push(`[System.WorkItemType] = ${lit(t)}`);
+  const states = (Array.isArray(state) ? state : [state])
+    .map(s => String(s == null ? '' : s).trim()).filter(Boolean);
+  if (states.length === 1) clauses.push(`[System.State] = ${lit(states[0])}`);
+  else if (states.length > 1) clauses.push(`( ${states.map(s => `[System.State] = ${lit(s)}`).join(' OR ')} )`);
+  const area = String(areaPath || '').trim();
+  if (area) clauses.push(`[System.AreaPath] UNDER ${lit(area)}`);
+  if (assignedToMe !== false) clauses.push(`[System.AssignedTo] = @Me`);
+  // Exclude terminal states unless the caller pinned a specific state list.
+  if (!states.length) clauses.push(`[System.State] <> 'Closed' AND [System.State] <> 'Removed' AND [System.State] <> 'Done'`);
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')} ` : '';
+  const wiql =
+    `SELECT [System.Id] FROM WorkItems ${where}ORDER BY [System.ChangedDate] DESC`;
+  const res = await apiSend(org, `${seg(project)}/_apis/wit/wiql?api-version=${API_VERSION}`, {
+    method: 'POST', body: { query: wiql }, contentType: 'application/json'
+  });
+  const ids = (res.workItems || []).map(w => w.id).filter(Boolean).slice(0, Math.max(1, Math.min(200, top)));
+  if (!ids.length) return [];
+  const batch = await apiSend(org, `${seg(project)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`, {
+    method: 'POST',
+    body: {
+      ids,
+      fields: [
+        'System.Id', 'System.Title', 'System.State', 'System.WorkItemType',
+        'System.AreaPath', 'System.IterationPath', 'System.Tags',
+        'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo', 'System.CreatedBy'
+      ]
+    },
+    contentType: 'application/json'
+  });
+  const order = new Map(ids.map((id, i) => [id, i]));
+  const person = (v) => (v ? (v.displayName || v.uniqueName || '') : '');
+  const personId = (v) => (v ? (v.id || v.descriptor || '') : '');
+  return (batch.value || [])
+    .map(d => {
+      const f = d.fields || {};
+      return {
+        id: d.id,
+        title: f['System.Title'] || '',
+        type: f['System.WorkItemType'] || '',
+        state: f['System.State'] || '',
+        areaPath: f['System.AreaPath'] || '',
+        iterationPath: f['System.IterationPath'] || '',
+        tags: f['System.Tags'] || '',
+        changedDate: f['System.ChangedDate'] || '',
+        createdDate: f['System.CreatedDate'] || '',
+        assignedTo: person(f['System.AssignedTo']),
+        assignedToId: personId(f['System.AssignedTo']),
+        createdBy: person(f['System.CreatedBy']),
+        org, project,
+        url: workItemUrl(org, project, d.id)
+      };
+    })
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
 // Comment threads on a PR. Returns active/resolved counts (user threads only)
 // plus a light list of resolvable threads for context.
 async function getPrThreads(org, project, repo, prId) {
@@ -1224,5 +1291,6 @@ module.exports = {
   getPullRequest,
   getSignInStatus,
   listProjectPullRequests,
-  listMyWorkItems
+  listMyWorkItems,
+  queryWorkItems
 };
