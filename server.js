@@ -19111,10 +19111,20 @@ async function _meAiBacklogRefreshDevStatus(items) {
     for (const u of us) { if (links.has(_meAiNormLink(u))) return true; const id = _meAiLinkId(u); if (id && ids.has(id)) return true; }
     return false;
   }).slice(0, 12);
+  // Resilience: a slow/unreachable provider (gh/az shells out per card) must never hang
+  // the refresh. Cap each call (~7s) and the whole pass (~25s budget); return with
+  // whatever landed. Best-effort throughout — a timeout yields null, not a throw.
+  const deadline = Date.now() + 25000;
+  const withTimeout = (p, ms) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    new Promise(r => setTimeout(() => r(null), ms)),
+  ]);
   for (const d of matched) {
+    if (Date.now() > deadline) break;
     const patch = {};
-    try { if (d.prId && d.org && d.repo && (d.provider === 'github' || d.project)) patch.pr = await _devPullRequest(_devDesc(d), d.prId); } catch (_) {}
-    try { if (d.workItemId && d.org && (d.provider === 'github' ? d.repo : d.project)) patch.workItem = await _devWorkItem(_devDesc(d), d.workItemId); } catch (_) {}
+    try { if (d.prId && d.org && d.repo && (d.provider === 'github' || d.project)) { const pr = await withTimeout(_devPullRequest(_devDesc(d), d.prId), 7000); if (pr) patch.pr = pr; } } catch (_) {}
+    if (Date.now() > deadline) { if (Object.keys(patch).length) { try { devStore.patch(d.id, patch); } catch (_) {} } break; }
+    try { if (d.workItemId && d.org && (d.provider === 'github' ? d.repo : d.project)) { const wi = await withTimeout(_devWorkItem(_devDesc(d), d.workItemId), 7000); if (wi) patch.workItem = wi; } } catch (_) {}
     if (Object.keys(patch).length) { try { devStore.patch(d.id, patch); } catch (_) {} }
   }
 }
@@ -19173,6 +19183,16 @@ function _meAiAssembleBacklog(date) {
   for (const c of byKey.values()) {
     const cur = curItems[c.key] || {};
     if (cur.done || cur.todo || cur.duplicateOf) continue; // completed / pulled into to-dos / folded → hidden here
+    // Purge PR/review items with no actionable link — you can't open or review a PR
+    // without a URL, so a linkless entry is noise. They resurface automatically once a
+    // fresh gather produces a real PR URL. Preserve anything the user has explicitly
+    // curated (aside / grouped / promoted / annotated) so no decision silently vanishes.
+    if (c.kind === 'review') {
+      const curated = !!(cur.aside || cur.group || cur.workItem || cur.week || cur.note ||
+        (cur.urgencyOverride != null) || (Array.isArray(cur.duplicates) && cur.duplicates.length));
+      const actionable = /^https?:\/\//i.test(String(c.link || '').trim());
+      if (!actionable && !curated) continue;
+    }
     out.push({
       ...c,
       week: !!cur.week,
@@ -19390,10 +19410,18 @@ app.post('/api/me-ai/backlog/refresh', async (req, res) => {
     const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     const s = settings.getSettings();
     const cfg = _meAiConfig(s);
-    try { await _meAiRefreshInbox(s, cfg, date, { force: true }); } catch (_) {}
-    // LIVE dev-card status refresh for anything a current backlog item points at, then
-    // resolve from the freshly-pulled status.
-    try { await _meAiBacklogRefreshDevStatus(_meAiAssembleBacklog(date)); } catch (_) {}
+    // Resilience: the heavy live re-pull (inbox re-poll + per-card PR/work-item status,
+    // each shelling out to gh/az) can be slow or wedge on an unreachable provider. Race it
+    // against an overall budget so the request ALWAYS returns promptly. If it overruns, we
+    // respond with the freshest locally-assembled + auto-resolved backlog and let the
+    // re-pull finish in the background (its writes land for the next load). Never blocks,
+    // never throws — a stalled provider degrades to "slightly stale", not a hung refresh.
+    const live = (async () => {
+      try { await _meAiRefreshInbox(s, cfg, date, { force: true }); } catch (_) {}
+      try { await _meAiBacklogRefreshDevStatus(_meAiAssembleBacklog(date)); } catch (_) {}
+    })();
+    live.catch(() => {}); // detach: keep running past the budget without an unhandled rejection
+    await Promise.race([live, new Promise(r => setTimeout(r, 20000))]);
     const ar = _meAiBacklogAutoResolve(date);
     res.json({ ok: true, date, items: ar.items, autoResolved: ar.autoResolved });
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -8899,7 +8899,7 @@
                             <button type="button" class="bmap-tbtn" :class="{ on: bmap.groupMode }" @click="bmapToggleGroupMode()" title="Drag a rectangle around cards to frame them as a named group">▢ Group</button>
                             <span class="bmap-tsep"></span>
                             <select class="bmap-tbtn bmap-arrange" @change="bmapArrange($event.target.value); $event.target.value=''" title="Auto-arrange cards; linked cards are kept close together">
-                              <option value="">⧉ Arrange…</option>
+                              <option value="" disabled hidden>⧉ Arrange…</option>
                               <option value="grid">Grid</option>
                               <option value="rect">Rectangle</option>
                               <option value="circle">Circle</option>
