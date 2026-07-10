@@ -12507,7 +12507,7 @@ function _meAiTopicAction(a) {
 // the item (now/today/done/seen) CLEARS its durable decision so it can surface again.
 // This ONLY mutates inbox triage state — never the agenda or goals.
 const ME_AI_DECISIONS_PATH = path.join(dataPath('me-ai'), 'triage-decisions.json');
-const ME_AI_DECISION_DURABLE = new Set(['later', 'dismiss', 'dismissed', 'wontfix']);
+const ME_AI_DECISION_DURABLE = new Set(['later', 'dismiss', 'dismissed', 'wontfix', 'todo']);
 // Re-engagement (actively working it) clears a durable decision so it stops re-parking.
 // NOTE: 'done' is deliberately NOT here — a handled item must be REMEMBERED (see
 // _meAiRecordDecision) so it doesn't resurface as a brand-new alert the next day.
@@ -12605,6 +12605,13 @@ function _meAiSetCuration(patch) {
   } else if (next.urgencyOverride === '' ) next.urgencyOverride = null;
   next.week = !!next.week;
   next.aside = !!next.aside;
+  // Todo state — the user pulled this into their to-do list; it's removed from the backlog
+  // list AND from agenda planning (tracked via the to-do dock instead), but STAYS in the
+  // dedupe index so future reworded arrivals fold in as "already tracked" rather than
+  // re-surfacing. Restorable by clearing the flag.
+  next.todo = !!next.todo;
+  if (next.todo) { if (!next.todoAt) next.todoAt = next.updatedAt; }
+  else next.todoAt = null;
   if (next.group != null) next.group = String(next.group).trim().slice(0, 120) || null;
   // Done state — completed backlog work moves to history + never resurfaces on the agenda.
   next.done = !!next.done;
@@ -12642,7 +12649,7 @@ function _meAiApplyBacklogCuration(planSignals, curation) {
     const key = _meAiBacklogKey(sig);
     const cur = key && items[key];
     if (cur) {
-      if (cur.aside || cur.done || cur.duplicateOf) { asideKeys.add(key); continue; }
+      if (cur.aside || cur.done || cur.todo || cur.duplicateOf) { asideKeys.add(key); continue; }
       if (cur.urgencyOverride != null && Number.isFinite(Number(cur.urgencyOverride))) {
         sig.urgency = Math.max(0, Math.min(5, Number(cur.urgencyOverride)));
       } else if (cur.week) {
@@ -12787,7 +12794,7 @@ function _meAiBuildBacklogDedupeIndex(date) {
     const items = (store && store.items) || {};
     for (const [k, cur] of Object.entries(items)) {
       if (!cur || cur.done || cur.duplicateOf) continue;
-      const curated = cur.aside || cur.week || cur.group || cur.workItem || cur.urgencyOverride != null || cur.note || (Array.isArray(cur.duplicates) && cur.duplicates.length);
+      const curated = cur.aside || cur.todo || cur.week || cur.group || cur.workItem || cur.urgencyOverride != null || cur.note || (Array.isArray(cur.duplicates) && cur.duplicates.length);
       if (!curated) continue;
       add(k, cur.title || k, cur.notDuplicate);
     }
@@ -18500,7 +18507,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const id = String(b.id || '').trim();
     const action = String(b.action || '').trim();
-    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done'];
+    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done', 'todo'];
     if (!id || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
     const inbox = loadInboxForDate(date);
     const now = new Date().toISOString();
@@ -18511,7 +18518,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
       // re-merged since the client loaded it). Upsert a minimal stub so "Mark as done" /
       // "Remove" never fail with a confusing "Triage failed: not found" toast. Actions
       // that need real signal data to schedule ('today'/'now'/'later') still 404.
-      if (action === 'done' || action === 'dismiss' || action === 'wontfix' || action === 'seen') {
+      if (action === 'done' || action === 'dismiss' || action === 'wontfix' || action === 'seen' || action === 'todo') {
         it = { id, title: String(b.title || '').trim() || 'Item', link: String(b.link || '').trim() || '', triage: 'seen', firstSeen: now, stub: true };
         inbox.items.push(it);
       } else {
@@ -18539,6 +18546,19 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
       // completed, not declined. It drops off the inbox like any resolved item.
       it.triage = 'done';
       it.doneAt = now;
+    } else if (action === 'todo') {
+      // "Make a to-do" = I own this and want to track it on my to-do list rather than
+      // schedule it today. It leaves the attention inbox AND the backlog (tracked via the
+      // to-do dock instead), but a curation record keeps it in the dedupe index so a
+      // reworded re-arrival folds in as "already tracked" instead of re-surfacing.
+      it.triage = 'todo';
+      it.todoAt = now;
+      try {
+        _meAiSetCuration({
+          key: _meAiBacklogKey(it), title: it.title, link: it.link || it.prLink || '',
+          kind: _meAiBacklogKind(it), source: it.source || 'inbox', todo: true,
+        });
+      } catch (_) { /* best-effort */ }
     } else if (action === 'seen') {
       if (it.triage === 'new') it.triage = 'seen';
     } else {
@@ -18552,9 +18572,9 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     it.triagedAt = now;
     saveInboxForDate(date, inbox);
     // REQ-9: learn from the explicit triage decision. 'seen' just clears the flag;
-    // 'done' is a situational completion (already replied), not a routing preference,
-    // so neither feeds the learned model.
-    if (action !== 'seen' && action !== 'done') {
+    // 'done' is a situational completion (already replied) and 'todo' is a personal
+    // tracking choice, not a routing preference — none feed the learned routing model.
+    if (action !== 'seen' && action !== 'done' && action !== 'todo') {
       try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
     }
     // Phase 6 Layer-1: a manual dismiss/wontfix seeds a durable topic so the same subject
@@ -18600,6 +18620,14 @@ function _meAiTriageItemInPlace(date, it, action, now, opts = {}) {
     it.triage = action === 'wontfix' ? 'wontfix' : 'dismissed';
   } else if (action === 'done') {
     it.triage = 'done'; it.doneAt = now;
+  } else if (action === 'todo') {
+    it.triage = 'todo'; it.todoAt = now;
+    try {
+      _meAiSetCuration({
+        key: _meAiBacklogKey(it), title: it.title, link: it.link || it.prLink || '',
+        kind: _meAiBacklogKind(it), source: it.source || 'inbox', todo: true,
+      });
+    } catch (_) { /* best-effort */ }
   } else if (action === 'seen') {
     if (it.triage === 'new') it.triage = 'seen';
   } else {
@@ -18610,7 +18638,7 @@ function _meAiTriageItemInPlace(date, it, action, now, opts = {}) {
   }
   it.auto = false;
   it.triagedAt = now;
-  if (action !== 'seen' && action !== 'done') {
+  if (action !== 'seen' && action !== 'done' && action !== 'todo') {
     try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
   }
   // Phase 6 Layer-1: seed a durable topic on a suppressive triage. The batch route passes
@@ -18648,7 +18676,7 @@ app.post('/api/me-ai/inbox/triage-batch', async (req, res) => {
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     const ids = Array.from(new Set((b.ids || []).map(x => String(x).trim()).filter(Boolean)));
     const action = String(b.action || '').trim();
-    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done'];
+    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done', 'todo'];
     if (!ids.length || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
     const inbox = loadInboxForDate(date);
     const now = new Date().toISOString();
@@ -18765,7 +18793,7 @@ function _meAiAssembleBacklog(date) {
     const inbox = loadInboxForDate(date);
     for (const it of (inbox.items || [])) {
       const tr = String(it.triage || '');
-      if (tr === 'dismissed' || tr === 'done' || tr === 'wontfix' || tr === 'now' || tr === 'today') continue;
+      if (tr === 'dismissed' || tr === 'done' || tr === 'wontfix' || tr === 'now' || tr === 'today' || tr === 'todo') continue;
       add(it, 'inbox');
     }
   } catch (_) {}
@@ -18776,7 +18804,7 @@ function _meAiAssembleBacklog(date) {
   const out = [];
   for (const c of byKey.values()) {
     const cur = curItems[c.key] || {};
-    if (cur.done || cur.duplicateOf) continue; // completed or folded-into-a-primary → hidden here
+    if (cur.done || cur.todo || cur.duplicateOf) continue; // completed / pulled into to-dos / folded → hidden here
     out.push({
       ...c,
       week: !!cur.week,
@@ -18797,7 +18825,7 @@ function _meAiAssembleBacklog(date) {
   // decision never silently vanishes.
   for (const [k, cur] of Object.entries(curItems)) {
     if (byKey.has(k)) continue;
-    if (!cur || cur.done || cur.duplicateOf) continue;
+    if (!cur || cur.done || cur.todo || cur.duplicateOf) continue;
     const hasDups = Array.isArray(cur.duplicates) && cur.duplicates.length;
     if (!cur.aside && !cur.group && !cur.workItem && !cur.week && cur.urgencyOverride == null && !hasDups) continue;
     out.push({
@@ -18846,6 +18874,7 @@ app.post('/api/me-ai/backlog/item', (req, res) => {
     if ('group' in b) patch.group = (b.group == null || b.group === '') ? null : String(b.group).slice(0, 120);
     if ('urgency' in b) patch.urgencyOverride = (b.urgency == null || b.urgency === '') ? null : Number(b.urgency);
     if ('done' in b) patch.done = !!b.done;
+    if ('todo' in b) patch.todo = !!b.todo;
     if (b.doneNote != null) patch.doneNote = String(b.doneNote).slice(0, 400);
     const rec = _meAiSetCuration(patch);
     if (!rec) return res.status(400).json({ error: 'bad request' });
@@ -18859,6 +18888,13 @@ app.post('/api/me-ai/backlog/item', (req, res) => {
       } else {
         try { _meAiRecordDecisionByKey(key, 'seen', title); } catch (_) {}
       }
+    }
+    // Make-a-to-do side effects: record a durable 'todo' decision so a re-derived signal folds
+    // into the tracked to-do (stays in the dedupe index) instead of re-surfacing on the backlog.
+    // Clearing it restores the item.
+    if ('todo' in b) {
+      const title = rec.title || key;
+      try { _meAiRecordDecisionByKey(key, rec.todo ? 'todo' : 'seen', title); } catch (_) {}
     }
     const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
     res.json({ ok: true, item: rec, items: _meAiAssembleBacklog(date) });
