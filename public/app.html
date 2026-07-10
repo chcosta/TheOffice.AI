@@ -7331,7 +7331,6 @@
                           <span class="mh-leg-lbl">Source</span>
                           <template x-for="d in mgmtChartCatDefs()" :key="'hw-src-'+d.key">
                             <button type="button" class="mh-leg" :class="mgmtChartFilters[d.key] ? '' : 'off'" @click="mgmtToggleChartFilter(d.key)">
-                              <span class="ld" :style="'background:'+d.color"></span>
                               <span class="lname" x-text="d.name"></span>
                               <span class="lavg" x-text="mgmtCatCount(d.key)"></span>
                             </button>
@@ -7572,7 +7571,6 @@
                           <span class="mh-leg-lbl">Source</span>
                           <template x-for="d in mgmtChartCatDefs()" :key="'mh-src-'+d.key">
                             <button type="button" class="mh-leg" :class="mgmtChartFilters[d.key] ? '' : 'off'" @click="mgmtToggleChartFilter(d.key)">
-                              <span class="ld" :style="'background:'+d.color"></span>
                               <span class="lname" x-text="d.name"></span>
                               <span class="lavg" x-text="mgmtCatCount(d.key)"></span>
                             </button>
@@ -12127,7 +12125,7 @@
               /* Collapsed rail: slim icon strip docked beside the sidebar. Each segment expands
                  into a label flyout on hover. Shared by the manual toggle (.is-mini) and the
                  narrow-screen media query below. */
-              .meai-jump.is-mini { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; }
+              .meai-jump.is-mini { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; overflow:visible; max-height:none; }
               .meai-jump.is-mini .meai-jump-head { justify-content:center; padding:0 0 2px; }
               .meai-jump.is-mini .meai-jump-t { display:none; }
               .meai-jump.is-mini .meai-jump-btn { position:relative; display:flex; align-items:center; justify-content:center; width:34px; max-width:34px; height:30px; padding:0; overflow:visible; }
@@ -12142,7 +12140,7 @@
               /* Narrow screens: don't hide the rail — auto-collapse it to the icon strip so it
                  stays reachable without eating horizontal space. */
               @media (max-width: 1180px) {
-                .meai-jump { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; }
+                .meai-jump { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; overflow:visible; max-height:none; }
                 .meai-jump .meai-jump-t { display:none; }
                 .meai-jump .meai-jump-head { justify-content:center; padding:0 0 2px; }
                 .meai-jump .meai-jump-btn { position:relative; display:flex; align-items:center; justify-content:center; width:34px; max-width:34px; height:30px; padding:0; overflow:visible; }
@@ -13087,8 +13085,9 @@
                 padding:9px 13px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.14);
                 transition:transform .16s cubic-bezier(.22,1,.36,1), border-color .16s; }
               .meai-chk-fab:hover { transform:translateY(-1px); border-color:var(--cp-accent); }
-              /* jul9: To-dos FAB stacks above the goals FAB (goals bottom:88px, todos bottom:140px). */
-              .meai-todo-fab { bottom:140px; }
+              /* jul9 → fb-float-icons: the To-dos control lives at the bottom-LEFT (content
+                 edge, clear of the sidebar) so the chat FAB owns the bottom-right alone. */
+              .meai-todo-fab { right:auto; left:calc(var(--sidebar-width, 240px) + 24px); bottom:24px; }
               .meai-chk-fab .meai-chk-dot { width:8px; height:8px; border-radius:999px; background:var(--cp-text-muted); }
               .meai-chk-fab.has-open .meai-chk-dot { background:var(--cp-warning,#d97706); }
               .meai-chk-fab .meai-chk-n { color:var(--cp-text-muted); font-weight:600; font-size:12px; }
@@ -13108,6 +13107,9 @@
                 border-radius:calc(var(--cp-radius-scale, 1) * 12px); box-shadow:0 18px 48px rgba(0,0,0,.24); overflow:hidden; }
               /* Docked: sits inline in the right column (normal flow), grows with content. */
               .meai-chk-panel.is-docked { position:static; right:auto; bottom:auto; z-index:auto; width:auto; max-height:none; box-shadow:none; }
+              /* fb-float-icons: the To-dos panel floats at the bottom-LEFT (left of the agenda),
+                 mirroring its FAB; the quick-nav hides while it's open so they never overlap. */
+              .meai-todo-panel:not(.is-docked) { right:auto; left:calc(var(--sidebar-width, 240px) + 24px); }
               .meai-chk-headacts { display:inline-flex; align-items:center; gap:2px; }
               .meai-chk-realign { appearance:none; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-muted);
                 font-size:11.5px; font-weight:600; line-height:1; cursor:pointer; padding:5px 8px; margin-right:4px;
@@ -13370,21 +13372,12 @@
                 <button class="btn primary" type="button" @click="meAiSetConsent(true)" :disabled="meai.savingSettings">Turn on &amp; save</button>
               </div>
 
-              <!-- Status band (today only) -->
-              <template x-if="meAiStatus()">
-                <div class="meai-status">
-                  <span class="meai-status-dot" :style="'background:' + (meAiStatus().state==='on' ? 'var(--cp-success)' : meAiStatus().state==='done' ? 'var(--cp-text-muted)' : 'var(--cp-warning)')"></span>
-                  <span class="meai-status-txt" x-text="meAiStatus().label"></span>
-                  <span class="meai-status-detail" x-text="meAiStatus().detail"></span>
-                  <span style="flex:1"></span>
-                  <span class="meai-status-detail" x-text="'Now ' + meAiNowLabel()"></span>
-                </div>
-              </template>
-
               <div class="meai-datebar">
-                <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating">
-                  <span x-show="!meai.generating" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
+                <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating || meai.rebuilding"
+                        :title="meai.rebuilding ? 'Me.AI is updating this agenda — hold on…' : ''">
+                  <span x-show="!meai.generating && !meai.rebuilding" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
                   <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
+                  <span x-show="meai.rebuilding && !meai.generating">Updating…</span>
                 </button>
                 <span class="meai-status-detail" x-show="meai.agenda && meai.agenda.meta">
                   <span x-show="meai.agenda?.meta?.refined">AI-refined</span>
@@ -13756,6 +13749,17 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Status band (today only) — sits below the attention inbox so "between blocks" reads as a day-state footer, not a header -->
+              <template x-if="meAiStatus()">
+                <div class="meai-status">
+                  <span class="meai-status-dot" :style="'background:' + (meAiStatus().state==='on' ? 'var(--cp-success)' : meAiStatus().state==='done' ? 'var(--cp-text-muted)' : 'var(--cp-warning)')"></span>
+                  <span class="meai-status-txt" x-text="meAiStatus().label"></span>
+                  <span class="meai-status-detail" x-text="meAiStatus().detail"></span>
+                  <span style="flex:1"></span>
+                  <span class="meai-status-detail" x-text="'Now ' + meAiNowLabel()"></span>
+                </div>
+              </template>
 
               <!-- #2 Quick day mode: re-weights the plan (persisted + re-plans on change) -->
               <div class="meai-modebar" x-show="meai.loaded">
@@ -15420,14 +15424,13 @@
                  would cover this icon, so shift the assistant to the bottom-left (the goals dock
                  button is hidden while the panel is open, so that corner is free). -->
             <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
-              :style="((meai.checklistOpen && !meai.checklistDocked) || (meai.todosOpen && !meai.todosDocked)) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
+              :style="(meai.checklistOpen && !meai.checklistDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
               @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
 
             <!-- Item 4: floating today's-goals FAB (stacked above the assistant). Shown only
                  when the goals panel is neither docked nor floating open, and no console/pursuit. -->
             <button class="meai-chk-fab" :class="{ 'has-open': meAiGoalTabCount('open') > 0 }" type="button"
               x-show="route==='me-ai' && !meai.checklistDocked && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
-              :style="(meai.todosOpen && !meai.todosDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
               @click="meAiChecklistToggle(true)"
               :title="meAiGoalCountsTitle()"
               aria-label="Open today's goals">
@@ -15448,7 +15451,6 @@
                  when the goals panel floats open (so it clears the bottom-right corner). -->
             <button class="meai-chk-fab meai-todo-fab" :class="{ 'has-open': meAiTodoCounts().total - meAiTodoCounts().done > 0 }" type="button"
               x-show="route==='me-ai' && !meai.todosDocked && !meai.todosOpen && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
-              :style="(meai.checklistOpen && !meai.checklistDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
               @click="meAiTodosToggle(true)"
               title="To-dos — a separate list of things to get to when you have time"
               aria-label="Open to-dos">
@@ -15460,7 +15462,7 @@
             <!-- Quick-nav: fixed at the left, vertically centered. Hidden while a Me-agent
                  console / pursuit is open so it never overlaps that workspace. Collapses to a
                  slim icon rail docked beside the sidebar (owner ask, for narrow screens). -->
-            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open" x-cloak>
+            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open && !(meai.todosOpen && !meai.todosDocked)" x-cloak>
               <div class="meai-jump-head">
                 <div class="meai-jump-t">Jump to</div>
                 <button type="button" class="meai-jump-toggle" @click="meAiJumpToggleCollapse()"
