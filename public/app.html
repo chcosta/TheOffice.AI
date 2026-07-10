@@ -5073,6 +5073,8 @@
       box-shadow: 0 2px 6px color-mix(in srgb, var(--cp-ink) 22%, transparent);
     }
     .bmap-node.connect-from { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent); }
+    /* live group-selection preview: cards the drag will capture */
+    .bmap-node.group-preview { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 0 0 6px color-mix(in srgb, var(--cp-accent) 20%, transparent); }
     /* header */
     .bmap-node-hd {
       display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px;
@@ -5210,6 +5212,22 @@
     }
     .bmap-sum-overview { font-size: 11.5px; line-height: 1.5; color: var(--cp-muted); padding: 8px 0 10px; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 60%, transparent); margin-bottom: 8px; }
     .bmap-sum-overview b { color: var(--cp-ink); font-weight: 600; }
+    /* AI analysis of the whole group */
+    .bmap-sum-ai { margin-bottom: 12px; }
+    .bmap-sum-ai-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .bmap-sum-ai-ttl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-accent); font-weight: 600; }
+    .bmap-sum-ai-regen { font-size: 11px; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--cp-border); background: transparent; color: var(--cp-ink); cursor: pointer; }
+    .bmap-sum-ai-regen:hover:not(:disabled) { background: color-mix(in srgb, var(--cp-accent) 14%, transparent); border-color: var(--cp-accent); }
+    .bmap-sum-ai-regen:disabled { opacity: .5; cursor: default; }
+    .bmap-sum-ai-loading { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--cp-muted); padding: 6px 0; }
+    .bmap-sum-ai-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--cp-accent) 30%, transparent); border-top-color: var(--cp-accent); animation: bmapSumSpin .7s linear infinite; }
+    @keyframes bmapSumSpin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .bmap-sum-ai-spin { animation: none; } }
+    .bmap-sum-ai-body { font-size: 12.5px; line-height: 1.55; color: var(--cp-ink); }
+    .bmap-sum-ai-body p:first-child { margin-top: 0; }
+    .bmap-sum-ai-body p:last-child { margin-bottom: 0; }
+    .bmap-sum-ai-err { font-size: 12px; line-height: 1.45; color: color-mix(in srgb, var(--cp-ink) 70%, var(--cp-danger, #c0392b)); padding: 4px 0; }
+    .bmap-sum-cards-ttl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-muted); margin-bottom: 6px; padding-top: 10px; border-top: 1px solid var(--cp-border); }
     /* marquee */
     .bmap-marquee { position: absolute; z-index: 45; border: 1px solid var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 12%, transparent); border-radius: 4px; pointer-events: none; }
     /* empty state */
@@ -8933,7 +8951,7 @@
                             <!-- nodes -->
                             <template x-for="n in bmapNodes()" :key="n.base">
                               <div class="bmap-node"
-                                   :class="{ sel: bmapIsSel(n.base), hl: bmapIsHl(n.base), 'connect-from': bmap.connectFrom===n.base }"
+                                   :class="{ sel: bmapIsSel(n.base), hl: bmapIsHl(n.base), 'group-preview': bmapInGroupPreview(n.base), 'connect-from': bmap.connectFrom===n.base }"
                                    :style="bmapNodeStyle(n)"
                                    @pointerdown.stop="bmapNodeDown(n,$event)"
                                    @pointerup.stop="bmapNodeUp(n,$event)"
@@ -9023,6 +9041,23 @@
                                   <button type="button" @click="bmap.summaryGroup=null" title="Close">✕</button>
                                 </div>
                                 <div class="bmap-selpanel-body">
+                                  <!-- AI analysis of the group as a whole -->
+                                  <div class="bmap-sum-ai">
+                                    <div class="bmap-sum-ai-head">
+                                      <span class="bmap-sum-ai-ttl">AI analysis</span>
+                                      <button type="button" class="bmap-sum-ai-regen" @click="bmapGroupAiSummary(bmapSummaryGroupObj(), true)" :disabled="bmapGroupAiState(bmapSummaryGroupObj()) && bmapGroupAiState(bmapSummaryGroupObj()).loading" x-text="(bmapGroupAiState(bmapSummaryGroupObj()) && bmapGroupAiState(bmapSummaryGroupObj()).text) ? 'Regenerate' : 'Analyze'"></button>
+                                    </div>
+                                    <template x-if="bmapGroupAiState(bmapSummaryGroupObj()) && bmapGroupAiState(bmapSummaryGroupObj()).loading">
+                                      <div class="bmap-sum-ai-loading"><span class="bmap-sum-ai-spin"></span> Analyzing the group…</div>
+                                    </template>
+                                    <template x-if="bmapGroupAiState(bmapSummaryGroupObj()) && bmapGroupAiState(bmapSummaryGroupObj()).text">
+                                      <div class="bmap-sum-ai-body md-output" x-html="renderMarkdown(bmapGroupAiState(bmapSummaryGroupObj()).text)"></div>
+                                    </template>
+                                    <template x-if="bmapGroupAiState(bmapSummaryGroupObj()) && bmapGroupAiState(bmapSummaryGroupObj()).error && !bmapGroupAiState(bmapSummaryGroupObj()).loading">
+                                      <div class="bmap-sum-ai-err" x-text="bmapGroupAiState(bmapSummaryGroupObj()).error"></div>
+                                    </template>
+                                  </div>
+                                  <div class="bmap-sum-cards-ttl">Cards in this group</div>
                                   <div class="bmap-sum-overview" x-html="bmapGroupOverview(bmapSummaryGroupObj())"></div>
                                   <template x-for="it in bmapGroupItems(bmapSummaryGroupObj())" :key="it.base">
                                     <div class="bmap-sel-item">
@@ -15821,7 +15856,7 @@
                       <template x-if="meaiBkDrawerItem().when"><div class="meai-bk-kv"><span class="k">Seen</span><span class="v" x-text="meaiBkDrawerItem().when"></span></div></template>
                       <template x-if="meaiBkDrawerItem().recordingUrl"><div class="meai-bk-kv"><span class="k">Recording</span><span class="v"><a :href="meaiBkDrawerItem().recordingUrl" target="_blank" rel="noopener">Open recording ↗</a></span></div></template>
                       <template x-if="meaiBkDrawerItem().meetingLink"><div class="meai-bk-kv"><span class="k">Meeting</span><span class="v"><a :href="meaiBkDrawerItem().meetingLink" target="_blank" rel="noopener">Open in calendar ↗</a></span></div></template>
-                      <template x-if="meaiBkDrawerItem().link && meaiBkDrawerItem().link !== meaiBkDrawerItem().recordingUrl && meaiBkDrawerItem().link !== meaiBkDrawerItem().meetingLink"><div class="meai-bk-kv"><span class="k">Link</span><span class="v"><a :href="meaiBkDrawerItem().link" target="_blank" rel="noopener">Open ↗</a></span></div></template>
+                      <template x-if="meaiBkDrawerItem().link && meaiBkDrawerItem().link !== meaiBkDrawerItem().recordingUrl && meaiBkDrawerItem().link !== meaiBkDrawerItem().meetingLink"><div class="meai-bk-kv"><span class="k" x-text="meaiBkDrawerItem().source === 'codeflow' ? 'Pull request' : 'Link'"></span><span class="v"><a :href="meaiBkDrawerItem().link" target="_blank" rel="noopener" x-text="(meaiBkDrawerItem().source === 'codeflow' ? 'Open PR' : 'Open') + ' ↗'"></a></span></div></template>
                       <template x-if="meaiBkDrawerItem().workItem"><div class="meai-bk-kv"><span class="k">Work item</span><span class="v"><a :href="meaiBkDrawerItem().workItem.url" target="_blank" rel="noopener" x-text="'#' + meaiBkDrawerItem().workItem.id + ' ↗'"></a></span></div></template>
                     </div>
                     <template x-if="meaiBkDrawerItem().detail">
@@ -15871,7 +15906,7 @@
                       <button class="meai-bk-btn sm good" @click="meaiBkMark(meaiBkDrawerItem().key,'done'); meaiBkCloseDrawer()">✓ Done</button>
                       <button class="meai-bk-btn sm" @click="meaiBkMark(meaiBkDrawerItem().key,'week')" x-text="meaiBkDrawerItem().week ? '★ On this week' : '★ Do this week'"></button>
                       <button class="meai-bk-btn sm" @click="meaiBkMakeTodo(meaiBkDrawerItem().key)" title="Track on your to-do list and remove from the backlog">＋ To-do</button>
-                      <template x-if="meaiBkDrawerItem().link"><a class="meai-bk-btn sm" :href="meaiBkDrawerItem().link" target="_blank" rel="noopener" style="text-decoration:none;">Open ↗</a></template>
+                      <template x-if="meaiBkDrawerItem().link"><a class="meai-bk-btn sm" :href="meaiBkDrawerItem().link" target="_blank" rel="noopener" style="text-decoration:none;" x-text="(meaiBkDrawerItem().source === 'codeflow' ? 'Open PR' : 'Open') + ' ↗'"></a></template>
                     </div>
                     <div class="row">
                       <button class="meai-bk-btn sm" @click="meaiBkStartGroupFrom(meaiBkDrawerItem().key)">⛓ Group with…</button>
@@ -24106,6 +24141,7 @@
           drag: null, groupDrag: null, marquee: null, pan: null,
           connect: null, connectFrom: null, link: null, groupMode: false,
           sel: [], hover: null, full: null, editGroup: null, summaryGroup: null,
+          groupPreview: [], aiSummary: {},
           _boardId: null, _persistT: null, _suppressClick: false,
         },
         _tbxSwipeOpen: null,
@@ -42810,6 +42846,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const mq = this.bmap.marquee;
             const wx = (ev.clientX - mq.hostLeft - v.panX) / v.zoom, wy = (ev.clientY - mq.hostTop - v.panY) / v.zoom;
             mq.x = Math.min(mq.sx, wx); mq.y = Math.min(mq.sy, wy); mq.w = Math.abs(wx - mq.sx); mq.h = Math.abs(wy - mq.sy);
+            if (mq.group) this.bmap.groupPreview = this._bmapNodesInRect(mq);
             return;
           }
           if (this.bmap.pan) { const p = this.bmap.pan; v.panX = p.px + (ev.clientX - p.sx); v.panY = p.py + (ev.clientY - p.sy); }
@@ -42829,10 +42866,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) sel.push(n.base); }
           this.bmap.sel = sel;
         },
+        _bmapNodesInRect(mq) {
+          const NW = 272, NH = 148; const out = [];
+          for (const n of this.bmapNodes()) {
+            const l = n.x, t = n.y, r = n.x + NW, b = n.y + NH;
+            if (r < mq.x || l > mq.x + mq.w || b < mq.y || t > mq.y + mq.h) continue;
+            out.push(n.base);
+          }
+          return out;
+        },
+        bmapInGroupPreview(base) { const gp = this.bmap.groupPreview; return !!(gp && gp.length && gp.indexOf(base) !== -1); },
         _bmapFinishGroupRect() {
           const mq = this.bmap.marquee; if (!mq) return;
           const NW = 272, NH = 148;
-          if (mq.w < 24 && mq.h < 24) { this.bmap.groupMode = false; return; }
+          // A bare click (no drag) is not a group attempt — stay in group mode.
+          if (mq.w < 24 && mq.h < 24) { this.bmap.groupPreview = []; return; }
           // Any card whose box INTERSECTS the drawn rectangle is captured (not just
           // center-in-rect) so a loose lasso still grabs what it visually covers.
           const members = [];
@@ -42844,8 +42892,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             minX = Math.min(minX, l); minY = Math.min(minY, t);
             maxX = Math.max(maxX, r); maxY = Math.max(maxY, b);
           }
+          this.bmap.groupPreview = [];
+          // A group needs at least two cards. With 0 or 1 captured, don't create one —
+          // stay in group mode so the user can try selecting more.
+          if (members.length < 2) {
+            this.bmap.groupMode = true;
+            try { this.toast(members.length ? 'Select at least two cards to group — keep dragging around more.' : 'No cards inside that area — drag around the cards you want to group.'); } catch {}
+            return;
+          }
           this.bmap.groupMode = false;
-          if (!members.length) { try { this.toast('No cards inside that area — drag around the cards you want to group.'); } catch {} return; }
           // Shrink the frame to tightly wrap the captured cards (matches bmapStartGroup).
           const pad = 22, head = 26;
           const m = this._bmapEnsure(); if (!m) return;
@@ -42892,7 +42947,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                + ' ' + cp2x.toFixed(1) + ' ' + cp2y.toFixed(1)
                + ' ' + l.x.toFixed(1) + ' ' + l.y.toFixed(1);
         },
-        bmapToggleGroupMode() { this.bmap.groupMode = !this.bmap.groupMode; if (this.bmap.groupMode) { this.bmap.connect = null; this.bmap.connectFrom = null; } },
+        bmapToggleGroupMode() { this.bmap.groupMode = !this.bmap.groupMode; this.bmap.groupPreview = []; if (this.bmap.groupMode) { this.bmap.connect = null; this.bmap.connectFrom = null; } },
         bmapNodeDown(n, ev) {
           if (this.bmapConnectMode()) return;
           const m = this.bmapData(); const nodes = m.nodes || {};
@@ -43140,7 +43195,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return out;
         },
         // -- group summary panel --
-        bmapGroupSummary(g) { const id = (g && g.id) || g; this.bmap.summaryGroup = (this.bmap.summaryGroup === id) ? null : id; },
+        bmapGroupSummary(g) {
+          const id = (g && g.id) || g;
+          const opening = (this.bmap.summaryGroup !== id);
+          this.bmap.summaryGroup = opening ? id : null;
+          if (opening) { const obj = this.bmapSummaryGroupObj(); if (obj) this.bmapGroupAiSummary(obj, false); }
+        },
         bmapSummaryGroupObj() { const id = this.bmap.summaryGroup; if (!id) return null; const m = this.bmapData(); return (m.groups || []).find(x => x.id === id) || null; },
         bmapGroupItems(g) { return (g.members || []).map(b => { const p = this._panelByBase(b); return p ? { base: b, p } : null; }).filter(Boolean); },
         bmapGroupRels(g) {
@@ -43152,6 +43212,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out.push({ id: e.id, dir: e.dir || 'bi', fromTitle: this.bmapCardTitle(pf), toTitle: this.bmapCardTitle(pt) });
           }
           return out;
+        },
+        // AI-driven analysis of the whole group: relationships, combined status,
+        // priority order, key takeaway — not a per-card restatement. Cached per group
+        // id in bmap.aiSummary; re-run with force=true from the Regenerate control.
+        bmapGroupAiState(g) { const id = (g && g.id) || g; return (this.bmap.aiSummary && this.bmap.aiSummary[id]) || null; },
+        async bmapGroupAiSummary(g, force) {
+          const id = (g && g.id) || g; if (!id) return;
+          const obj = (g && g.members) ? g : this.bmapSummaryGroupObj(); if (!obj) return;
+          const cur = this.bmap.aiSummary[id];
+          if (!force && cur && (cur.loading || cur.text)) return;   // already have it / in flight
+          const items = this.bmapGroupItems(obj).map(it => {
+            const p = it.p;
+            let status = '';
+            try { const s = this.bmapSignal(p); if (s && s.text) status = s.text; } catch {}
+            if (!status) { try { const d = this.bmapStatusDot(p); if (d) status = d; } catch {} }
+            let facts = [];
+            try { facts = (this.bmapFacts(p) || []).map(f => ({ k: f.k, v: f.v })); } catch {}
+            return {
+              type: this.bmapCardType(p) || 'item',
+              title: this.bmapCardTitle(p) || 'Item',
+              summary: this.bmapCardSummary(p) || '',
+              status, facts,
+              meta: (() => { try { return this.bmapCardMeta(p) || ''; } catch { return ''; } })(),
+            };
+          });
+          if (items.length < 2) { this.bmap.aiSummary[id] = { loading: false, text: '', error: 'Group at least two cards to get a connected analysis.' }; return; }
+          const rels = this.bmapGroupRels(obj).map(r => ({ from: r.fromTitle, to: r.toTitle, dir: r.dir }));
+          this.bmap.aiSummary[id] = { loading: true, text: (cur && cur.text) || '', error: '' };
+          const bid = this.bmap._boardId;
+          try {
+            const res = await fetch('/api/boards/' + encodeURIComponent(bid) + '/group-summary', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ items, rels, groupName: obj.name || '' })
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok || !j.ok) throw new Error((j && j.error) || ('HTTP ' + res.status));
+            this.bmap.aiSummary[id] = { loading: false, text: j.summary || '', error: '' };
+          } catch (e) {
+            this.bmap.aiSummary[id] = { loading: false, text: (cur && cur.text) || '', error: (e && e.message) || 'Analysis failed' };
+          }
         },
         bmapGroupOverview(g) {
           const items = this.bmapGroupItems(g);
@@ -43171,7 +43271,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.bmap.summaryGroup) { this.bmap.summaryGroup = null; return; }
             if (this.bmap.full) { this.bmap.full = null; return; }
             if (this.bmap.link) { this.bmap.link = null; return; }
-            if (this.bmap.groupMode) { this.bmap.groupMode = false; return; }
+            if (this.bmap.groupMode) { this.bmap.groupMode = false; this.bmap.groupPreview = []; return; }
             if (this.bmap.connect) { this.bmap.connect = null; this.bmap.connectFrom = null; return; }
             if (this.bmap.sel.length) { this.bmap.sel = []; return; }
           }

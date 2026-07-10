@@ -14684,14 +14684,48 @@ async function _meAiGatherGithub(s, date) {
 }
 
 // Code Flow worktrees → in-progress work you're actively coding on.
+// Every worktree record is PR-keyed (org|project|repo|prId), so we can always
+// surface a direct link to its pull request — both as a user-visible "Open PR"
+// link AND as the link the backlog auto-resolver keys on (a merged/closed PR
+// then completes the item automatically). Prefer the forge-provided prUrl; fall
+// back to a provider-shaped web URL built from the record's ids.
+function _meAiCodeflowPrUrl(rec) {
+  try {
+    if (rec && rec.prUrl) return String(rec.prUrl);
+    const org = rec && rec.org, repo = rec && rec.repo, prId = rec && rec.prId;
+    if (!org || !repo || prId == null || prId === '') return '';
+    const provider = String((rec && rec.provider) || 'azdo').toLowerCase();
+    if (provider === 'github') return `https://github.com/${org}/${repo}/pull/${prId}`;
+    const project = (rec && rec.project) || '';
+    if (!project) return '';
+    return `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_git/${encodeURIComponent(repo)}/pullrequest/${prId}`;
+  } catch { return ''; }
+}
 function _meAiGatherCodeflow() {
   const signals = [];
   try {
     const map = loadCodeflowWorktrees();
+    const DONE = new Set(['closed', 'completed', 'merged', 'abandoned']);
     for (const [key, rec] of Object.entries(map || {})) {
       if (!rec || typeof rec !== 'object') continue;
+      // A PR that already merged/closed is not in-progress work — drop it so a
+      // stale worktree record doesn't linger on the agenda/backlog.
+      if (rec.prStatus && DONE.has(String(rec.prStatus).toLowerCase())) continue;
       const title = rec.title || rec.prTitle || rec.workItemTitle || rec.branch || key;
-      signals.push({ kind: 'worktree', type: 'focus', title: `Code Flow: ${title}`, detail: rec.branch ? `branch ${rec.branch}` : '', link: '', urgency: 2, source: 'codeflow' });
+      const prUrl = _meAiCodeflowPrUrl(rec);
+      const bits = [];
+      if (rec.branch) bits.push(`branch ${rec.branch}`);
+      if (rec.prId != null && rec.prId !== '') bits.push(`PR #${rec.prId}`);
+      signals.push({
+        kind: 'worktree', type: 'focus',
+        title: `Code Flow: ${title}`,
+        detail: bits.join(' · '),
+        link: prUrl, prLink: prUrl,
+        urgency: 2, source: 'codeflow',
+        provider: (rec.provider || 'azdo'), org: rec.org || '', project: rec.project || '', repo: rec.repo || '',
+        prId: (rec.prId != null ? rec.prId : ''),
+        meta: { repo: rec.repo || '' },
+      });
     }
   } catch { /* best-effort */ }
   return signals;
@@ -28223,6 +28257,79 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'assistant failed' });
+  }
+});
+
+// Group summary — AI analysis of a set of grouped cards on a board map. The client
+// sends a digest of each grouped card (type/title/summary/status/facts/meta) plus the
+// links between them; the model returns a short, connective analysis of the GROUP as a
+// whole: what ties the items together, their combined status, whether there's a natural
+// priority/sequence, and the single most important takeaway. It is explicitly told NOT
+// to just re-describe each card one by one (the UI already lists them).
+app.post('/api/boards/:id/group-summary', async (req, res) => {
+  const clip = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
+  const inItems = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+  const inRels = Array.isArray(req.body && req.body.rels) ? req.body.rels : [];
+  const groupName = clip((req.body && req.body.groupName) || '', 120);
+  if (!inItems.length) return res.status(400).json({ error: 'No items' });
+  const items = inItems.slice(0, 24).map((it, i) => {
+    const facts = Array.isArray(it.facts) ? it.facts.slice(0, 8).map(f => clip(f.k, 40) + ': ' + clip(f.v, 80)).filter(Boolean) : [];
+    return {
+      n: i + 1,
+      type: clip(it.type || 'item', 40),
+      title: clip(it.title, 200),
+      summary: clip(it.summary, 600),
+      status: clip(it.status, 80),
+      facts,
+      meta: clip(it.meta, 80),
+    };
+  });
+  const rels = inRels.slice(0, 60).map(r => ({ from: clip(r.from, 200), to: clip(r.to, 200), dir: (r.dir === 'uni' ? 'uni' : 'bi') })).filter(r => r.from && r.to);
+
+  const lines = [];
+  lines.push('You are analyzing a GROUP of cards a user framed together on a work board map.');
+  lines.push('Each card represents a real work item: an agent, a dev card (a coding task, usually tied to a work item + branch), a pull request, a checklist, a note, a backlog item, etc.');
+  lines.push('');
+  lines.push('YOUR JOB is to understand the group as a WHOLE and surface the connective analysis a smart teammate would give at a glance. Specifically:');
+  lines.push('  • What actually ties these items together (shared work item / branch / repo / feature / incident / theme)?');
+  lines.push('  • What is the combined, current STATUS of this cluster of work — where is it in the pipeline, what is blocked, what is done, what is in flight?');
+  lines.push('  • Is there a natural PRIORITY ORDER or dependency sequence among them (what should happen first / next / last, and why)?');
+  lines.push('  • The single most important takeaway or next action for the group.');
+  lines.push('');
+  lines.push('DO NOT just describe each card one by one — the UI already lists the individual cards below. Add value by connecting them, not restating them. Infer relationships from titles, work-item numbers, branch/PR names, repos, and status even when no explicit link is drawn.');
+  lines.push('');
+  lines.push('OUTPUT: concise GitHub-flavored markdown, no title heading, ~120-200 words. Lead with a 1-2 sentence read of what this group IS and its overall state. Then, only if warranted, a short "**Suggested order**" list or a one-line "**Watch:**" / "**Next:**" callout. Be specific and actionable; skip filler. Do not wrap the whole thing in a code fence.');
+  lines.push('');
+  if (groupName) lines.push('Group name: ' + groupName);
+  lines.push('Cards in the group (' + items.length + '):');
+  for (const it of items) {
+    let l = `  ${it.n}. [${it.type}] ${it.title}`;
+    if (it.status) l += ` — status: ${it.status}`;
+    lines.push(l);
+    if (it.summary) lines.push(`     summary: ${it.summary}`);
+    if (it.facts.length) lines.push(`     facts: ${it.facts.join(' · ')}`);
+    if (it.meta) lines.push(`     meta: ${it.meta}`);
+  }
+  if (rels.length) {
+    lines.push('');
+    lines.push('Explicit links the user drew between cards (' + rels.length + '):');
+    for (const r of rels) lines.push(`  • ${r.from} ${r.dir === 'uni' ? '→' : '↔'} ${r.to}`);
+  } else {
+    lines.push('');
+    lines.push('(No explicit links drawn — infer relationships yourself from the card details.)');
+  }
+  const prompt = lines.join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'boards' } });
+    let text = (acc.trim() || (result && result.output) || '').trim();
+    // Strip an accidental wrapping code fence.
+    text = text.replace(/^```(?:markdown|md)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    if (!text) return res.status(502).json({ ok: false, error: 'The model returned no analysis.' });
+    res.json({ ok: true, summary: text });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) || 'group summary failed' });
   }
 });
 
