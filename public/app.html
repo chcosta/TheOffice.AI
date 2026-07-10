@@ -7366,7 +7366,7 @@
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">📈 Flow / Task activity</h2>
-                      <div class="card-subtitle">When flows, tasks &amp; assignments ran and how long they took — last 14 days</div>
+                      <div class="card-subtitle">When flows &amp; tasks ran and how long they took — last 14 days</div>
                     </div>
                     <div style="display:flex;gap:8px">
                       <a class="btn ghost" href="#/tasks">Open tasks</a>
@@ -7617,7 +7617,7 @@
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">📈 Flow / Task activity</h2>
-                      <div class="card-subtitle">When flows, tasks &amp; assignments ran and how long they took — last 14 days</div>
+                      <div class="card-subtitle">When flows &amp; tasks ran and how long they took — last 14 days</div>
                     </div>
                     <div style="display:flex;gap:8px">
                       <a class="btn ghost" href="#/tasks">Open tasks</a>
@@ -24503,7 +24503,7 @@
         chainRunState: {},
         chainRuns: {},
         mgmtFlowHidden: {},
-        mgmtChartFilters: { flows: true, tasks: true, assignments: true, scheduled: true, manual: true },
+        mgmtChartFilters: { flows: true, tasks: true, scheduled: true, manual: true },
         mgmtChartPerItem: (() => { try { return localStorage.getItem('mgmt-chart-peritem') === '1'; } catch { return false; } })(),
         mgmtFaItemsOpen: (() => { try { return localStorage.getItem('mgmt-fa-items-open') === '1'; } catch { return false; } })(),
         mgmtToggleFaItems() { this.mgmtFaItemsOpen = !this.mgmtFaItemsOpen; try { localStorage.setItem('mgmt-fa-items-open', this.mgmtFaItemsOpen ? '1' : '0'); } catch {} },
@@ -29149,8 +29149,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const dur = (a.durationMs || 0) / 60000;
             if (a.runKind === 'agent' && a.taskId) {
               pts.push({ t, dur, status: a.status, cat: 'tasks', mode: a.triggerMode || null, name: a.entityName });
-            } else if (a.runKind === 'manager' && a.assignmentId) {
-              pts.push({ t, dur, status: a.status, cat: 'assignments', mode: a.triggerMode || null, name: a.entityName });
             }
           });
           return pts;
@@ -29167,7 +29165,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'flows', name: 'Flows', color: '#3b82f6' },
             { key: 'tasks', name: 'Tasks', color: '#22c55e' },
-            { key: 'assignments', name: 'Assignments', color: '#a855f7' },
           ];
         },
         mgmtChartCats() {
@@ -29182,8 +29179,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         mgmtItemSeries() {
           const palette = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6', '#eab308', '#ec4899', '#0ea5e9', '#84cc16', '#f97316', '#8b5cf6'];
-          const catOrder = { flows: 0, tasks: 1, assignments: 2 };
-          const catLabel = { flows: 'Flow', tasks: 'Task', assignments: 'Assignment' };
+          const catOrder = { flows: 0, tasks: 1 };
+          const catLabel = { flows: 'Flow', tasks: 'Task' };
           const groups = {};
           this.mgmtRunPoints().filter(p => this.mgmtPointVisible(p)).forEach(p => {
             const name = (p.name && String(p.name).trim()) || '(unnamed)';
