@@ -26183,6 +26183,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.handleRouteChange(opts);
             if (this.route === 'boards') this.refreshBoardPinDetails();
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
+            // Lazy-load per-flow run history so automation metrics + recent-runs
+            // derive from the authoritative source (matches loadChains()).
+            this.data.chains.forEach(c => { if (this.chainRuns[c.id] === undefined) { this.chainRuns[c.id] = []; this.loadChainRuns(c.id); } });
             this.initUpdater();
             this.maybeShowWhatsNew();
           } catch (error) {
@@ -28762,6 +28765,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         _runOk(s) { s = (s || '').toLowerCase(); return s === 'success' || s === 'completed' || s === 'complete' || s === 'done'; },
         _runFail(s) { s = (s || '').toLowerCase(); return s === 'failed' || s === 'error'; },
+        _runRunning(s) { s = (s || '').toLowerCase(); return s === 'running' || s === 'active' || s === 'in_progress' || s === 'started' || s === 'queued' || s === 'pending'; },
+        // Flatten the authoritative per-flow run history (chainRuns) into a single
+        // newest-first list. Flow metrics AND the recent-runs list both read from
+        // here so the "runs · 24h" stat can never disagree with a flow's "last run"
+        // relative time (which also reads chainRuns).
+        _allFlowRuns() {
+          const out = [];
+          for (const f of this.opsFlows()) {
+            const runs = this.chainRuns[f.id] || [];
+            for (const r of runs) {
+              const startedAt = r.started_at || r.startedAt || null;
+              const finishedAt = r.finished_at || r.finishedAt || null;
+              const ts = new Date(finishedAt || startedAt || 0).getTime();
+              out.push({
+                id: 'flowrun-' + f.id + '-' + (r.id != null ? r.id : ts),
+                entityId: f.id,
+                entityName: f.name || f.id,
+                status: r.status,
+                startedAt, finishedAt,
+                durationMs: (startedAt && finishedAt) ? Math.max(0, new Date(finishedAt) - new Date(startedAt)) : 0,
+                route: '#/flows',
+                ts: Number.isFinite(ts) ? ts : 0,
+              });
+            }
+          }
+          return out.sort((a, b) => b.ts - a.ts);
+        },
         // Aggregate run health for the Executions landing page (last 24h),
         // drawn from the activity feed + live supervisor status + schedules.
         execMetrics() {
@@ -28836,9 +28866,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             .slice(0, n || 6);
         },
         execFlowRecent(n) {
-          const flows = this.opsFlows();
-          return (this.data.activity || [])
-            .filter(a => (this._runOk(a.status) || this._runFail(a.status)) && this.activityInCurrentOrg(a) && this._flowActivityMatch(a, flows))
+          return this._allFlowRuns()
+            .filter(a => !this._runRunning(a.status))
             .slice(0, n || 6);
         },
         execTaskMetrics() {
@@ -28854,11 +28883,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         execFlowMetrics() {
           const dayAgo = Date.now() - 864e5;
           const flows = this.opsFlows();
-          const runs = (this.data.activity || []).filter(a => this.activityInCurrentOrg(a) && this._flowActivityMatch(a, flows));
-          const done = runs.filter(a => { const t = new Date(a.finishedAt || a.startedAt).getTime(); return (this._runOk(a.status) || this._runFail(a.status)) && t >= dayAgo; });
-          const ok = done.filter(a => this._runOk(a.status)).length;
-          const failed = done.filter(a => this._runFail(a.status)).length;
-          const total = ok + failed;
+          const runs = this._allFlowRuns();
+          const recent = runs.filter(a => a.ts >= dayAgo);
+          const done = recent.filter(a => !this._runRunning(a.status));
+          const failed = recent.filter(a => this._runFail(a.status)).length;
+          const ok = recent.filter(a => this._runOk(a.status)).length;
+          const total = done.length;
           const enabled = flows.filter(f => f.enabled !== false).length;
           return { total: flows.length, enabled, runs24h: total, failed24h: failed, successRate: total ? Math.round((ok / total) * 100) : null };
         },
