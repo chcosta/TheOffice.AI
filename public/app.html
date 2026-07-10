@@ -31449,7 +31449,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         async openOrCreateChat(targetType, target) {
-          const existing = this.data.chats.find((chat) => chat.targetType === targetType && chat.target === target);
+          // Prefer a true 1:1 thread — a group chat (roster >= 2) may still carry the
+          // originating agent as its target, so never resolve "open chat" onto a group.
+          const existing = this.data.chats.find((chat) => chat.targetType === targetType && chat.target === target && !this.chatIsGroup(chat));
           if (existing) {
             this.goTo(`#/chat/${existing.id}`);
             return;
