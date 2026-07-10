@@ -2489,6 +2489,21 @@
     .cf-dtab.active .rc { color:var(--cp-accent); }
     .cf-dtab-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
     .cf-dtab-panes { margin-top:12px; }
+    /* Primary "Workspaces" row on dev/PR cards — color-coded chips (no per-board icons),
+       promoted out of the details drawer so pins are visible without expanding a tab. */
+    .cf-ws-row { display:flex; align-items:center; flex-wrap:wrap; gap:6px 8px; margin-top:10px; }
+    .cf-ws-label { font-size:11px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.02em; }
+    .cf-ws-item { display:inline-flex; align-items:center; gap:2px; }
+    .cf-ws-chip { display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--cp-text);
+      font-size:12px; font-weight:600; padding:2px 6px; border-radius:6px; max-width:200px; }
+    .cf-ws-chip:hover { background:var(--cp-accent-soft); }
+    .cf-ws-chip .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-ws-dot { flex:0 0 auto; width:12px; height:12px; border-radius:4px; }
+    .cf-ws-x { opacity:0; border:0; background:none; color:var(--cp-text-soft); cursor:pointer; font-size:11px; line-height:1; padding:0 2px; }
+    .cf-ws-item:hover .cf-ws-x { opacity:.75; }
+    .cf-ws-x:hover { color:var(--cp-danger, var(--cp-text)); opacity:1; }
+    .cf-ws-pin { background:none; border:0; color:var(--cp-accent); font-size:11px; font-weight:600; cursor:pointer; padding:2px 6px; border-radius:6px; }
+    .cf-ws-pin:hover { background:var(--cp-accent-soft); }
     /* Right-side card action buttons stay quiet until the card is hovered/focused. */
     .cf-hover-acts { opacity:0; transition:opacity .12s ease; }
     .cf-pr-card:hover .cf-hover-acts, .cf-pr-card:focus-within .cf-hover-acts { opacity:1; }
@@ -10074,6 +10089,19 @@
                                         </div>
                                       </div>
 
+                                      <!-- Workspaces (primary, color-coded, no per-board icons) -->
+                                      <div class="cf-ws-row">
+                                        <span class="cf-ws-label">Workspaces</span>
+                                        <template x-for="b in devPinnedBoards(d)" :key="b.id">
+                                          <span class="cf-ws-item">
+                                            <a class="cf-ws-chip" href="#" @click.prevent.stop="boardJumpToBoard(b)" :title="'Open ' + b.name"><span class="cf-ws-dot" :style="boardSwatchStyle(b)"></span><span class="nm" x-text="b.name"></span></a>
+                                            <button class="cf-ws-x" type="button" data-tip="Remove from this workspace" @click.stop="devUnpinFromBoard(d, b)">&#10005;</button>
+                                          </span>
+                                        </template>
+                                        <span class="hint" x-show="!devPinnedBoards(d).length" style="font-size:11px">Not on a workspace yet</span>
+                                        <button class="cf-ws-pin" type="button" @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)" x-text="devPinnedBoards(d).length ? '&#128204; Change' : '&#128204; Pin to a workspace'"></button>
+                                      </div>
+
                                       <!-- Details &amp; actions drawer (rail + panes) -->
                                       <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
@@ -11311,6 +11339,19 @@
                                       </div>
                                     </template>
                                   </div>
+                                </div>
+
+                                <!-- Workspaces (primary, color-coded, no per-board icons) -->
+                                <div class="cf-ws-row">
+                                  <span class="cf-ws-label">Workspaces</span>
+                                  <template x-for="b in devPinnedBoards(d)" :key="b.id">
+                                    <span class="cf-ws-item">
+                                      <a class="cf-ws-chip" href="#" @click.prevent.stop="boardJumpToBoard(b)" :title="'Open ' + b.name"><span class="cf-ws-dot" :style="boardSwatchStyle(b)"></span><span class="nm" x-text="b.name"></span></a>
+                                      <button class="cf-ws-x" type="button" data-tip="Remove from this workspace" @click.stop="devUnpinFromBoard(d, b)">&#10005;</button>
+                                    </span>
+                                  </template>
+                                  <span class="hint" x-show="!devPinnedBoards(d).length" style="font-size:11px">Not on a workspace yet</span>
+                                  <button class="cf-ws-pin" type="button" @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)" x-text="devPinnedBoards(d).length ? '&#128204; Change' : '&#128204; Pin to a workspace'"></button>
                                 </div>
 
                                 <!-- Details &amp; actions drawer (rail + panes) -->
@@ -23551,9 +23592,10 @@
         <div style="display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto">
           <template x-for="b in visibleBoards()" :key="b.id">
             <button type="button" class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;text-align:left" @click="quickPinTo(b)">
-              <span style="min-width:0">
-                <span style="font-weight:600" x-text="(b.emoji || '📌') + ' ' + b.name"></span>
-                <span class="hint" style="margin-left:6px" x-text="'· ' + boardOrgLabel(b)"></span>
+              <span style="min-width:0;display:inline-flex;align-items:center;gap:8px">
+                <span class="cf-ws-dot" :style="boardSwatchStyle(b)"></span>
+                <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="b.name"></span>
+                <span class="hint" x-text="'· ' + boardOrgLabel(b)"></span>
               </span>
               <span class="status-badge small" x-show="quickPinBoardHas(b)" x-text="'✓ Pinned'"></span>
             </button>
@@ -47750,8 +47792,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           secs.push({ id: 'repos', label: '🗃 Code', count: slots.length, attn: repoAttn });
           const artCount = ((d && d.reports && d.reports.length) || 0) + ((d && d.links && d.links.length) || 0);
           secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount, disabled: !artCount });
-          const dPinned = this.devPinnedBoards(d);
-          secs.push({ id: 'boards', label: '📌 Boards', count: dPinned.length || undefined });
           return secs;
         },
         devActivePane(d) {
