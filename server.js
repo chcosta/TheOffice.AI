@@ -1719,7 +1719,7 @@ async function _githubStatus(force = false) {
   try {
     value = await github.getStatus();
   } catch (e) {
-    value = { connected: false, login: '', name: '', source: null, reason: (e && e.message) || 'GitHub status check failed.' };
+    value = { connected: false, login: '', name: '', source: null, accounts: [], preferred: '', reason: (e && e.message) || 'GitHub status check failed.' };
   }
   _ghStatusCache = { at: now, value };
   return value;
@@ -1767,6 +1767,27 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
           { detached: true, stdio: 'ignore' });
       }
       return res.json({ ok: true, launched: true, message: 'A GitHub sign-out window has opened. Complete it to switch or remove the account.' });
+    }
+    if (method === 'select') {
+      // Pin a preferred GitHub account (login + host) so every gh-backed API
+      // call uses it — without mutating the user's global `gh` active account.
+      // An empty login clears the preference (falls back to gh's active login).
+      const login = (req.body.login || '').trim();
+      const host = (req.body.host || 'github.com').trim() || 'github.com';
+      if (login) {
+        const accounts = github.listAccounts();
+        const match = accounts.find(a => a.login === login && a.host === host);
+        if (!match) {
+          return res.status(400).json({ error: `"${login}" isn't a signed-in GitHub account. Add it first.`, status: await _githubStatus(true) });
+        }
+      }
+      settings.updateSettings({ githubAccount: { host: login ? host : '', login } });
+      github.getToken(true); // re-mint against the newly selected account
+      const status = await _githubStatus(true);
+      if (login && !status.connected) {
+        return res.status(400).json({ error: status.reason || `Could not use the "${login}" account.`, status });
+      }
+      return res.json({ ok: true, status });
     }
     // method === 'cli' — launch an interactive sign-in in its own window.
     const { spawn } = require('child_process');

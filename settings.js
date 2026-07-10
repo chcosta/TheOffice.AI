@@ -48,6 +48,12 @@ const DEFAULTS = {
   githubOwner: '',
   githubPat: '',
   githubAuthMode: 'cli',
+  // Preferred GitHub account when the `gh` CLI holds more than one login
+  // (e.g. a personal github.com account alongside a GitHub EMU/enterprise
+  // account). Empty login = use whichever account `gh` reports as active.
+  // Threaded into every gh-backed API call via github.getToken so selecting
+  // an account here scopes all GitHub access without mutating global gh state.
+  githubAccount: { host: '', login: '' },
   // Filesystem root under which dev-card AND code-flow review worktrees are
   // created. Empty = a short auto-chosen default (e.g. C:\a) to maximize Windows
   // MAX_PATH headroom. Set to any short directory to relocate all new worktrees.

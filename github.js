@@ -48,6 +48,57 @@ function _settingsPat() {
 
 let _tokenCache = { token: null, expiresAt: 0 };
 
+// Preferred GitHub account (host + login) chosen in the app when `gh` holds
+// more than one login. Threaded into the token seam below so selecting an
+// account scopes EVERY gh-backed API call — without mutating the user's global
+// `gh` active account (their terminal keeps working as before). Read lazily so
+// a missing settings module never breaks the primary path.
+function _preferredAccount() {
+  try {
+    const settings = require('./settings');
+    const s = (settings.getSettings && settings.getSettings()) || {};
+    const a = s.githubAccount;
+    if (a && a.login) return { host: (a.host || HOST).trim(), login: String(a.login).trim() };
+  } catch {}
+  return null;
+}
+
+// Active host for the current account (github.com unless a preferred account
+// pins an enterprise host).
+function _activeHost() {
+  const a = _preferredAccount();
+  return (a && a.host) || HOST;
+}
+
+// REST API root for a host. github.com → api.github.com; a GitHub Enterprise
+// Server host → https://<host>/api/v3.
+function _apiRoot() {
+  const host = _activeHost();
+  return host === HOST ? API_ROOT : `https://${host}/api/v3`;
+}
+
+// Run `gh auth token` for the preferred account. When an account is pinned we
+// pass `--user` so gh returns THAT account's token even if GH_TOKEN is set in
+// the environment (which otherwise wins). Falls back to the plain call if the
+// installed gh predates `--user` on `auth token`.
+function _ghAuthToken() {
+  const a = _preferredAccount();
+  const host = (a && a.host) || HOST;
+  if (a && a.login) {
+    try {
+      const raw = execSync(`gh auth token --hostname ${host} --user ${a.login}`, {
+        encoding: 'utf-8', timeout: 15_000, shell: true
+      }).trim();
+      if (raw && !/not logged|no oauth|error|unknown|invalid/i.test(raw)) return raw;
+    } catch { /* old gh or account gone — fall through to the plain call */ }
+  }
+  try {
+    return execSync(`gh auth token --hostname ${host}`, {
+      encoding: 'utf-8', timeout: 15_000, shell: true
+    }).trim();
+  } catch { return ''; }
+}
+
 // Get a GitHub token. Primary: `gh auth token`. Fallbacks: env, settings PAT.
 // gh tokens don't expose an expiry, so we cache for a conservative window and
 // refresh on demand. forceRefresh bypasses the cache after a 401.
@@ -57,16 +108,15 @@ function getToken(forceRefresh = false) {
     return _tokenCache.token;
   }
   let token = '';
-  // 1) GitHub CLI (secretless, primary).
+  // 1) GitHub CLI (secretless, primary) — honours the preferred account.
   try {
-    const raw = execSync(`gh auth token --hostname ${HOST}`, {
-      encoding: 'utf-8', timeout: 15_000, shell: true
-    }).trim();
+    const raw = _ghAuthToken();
     if (/^gh[opsu]_|^github_pat_/.test(raw)) token = raw;
     else if (raw && !/not logged|no oauth|error/i.test(raw)) token = raw;
   } catch {}
-  // 2) Environment (CI / shells that exported a token).
-  if (!token) token = (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim();
+  // 2) Environment (CI / shells that exported a token) — only when NO explicit
+  //    account is pinned, so a chosen account is never silently overridden.
+  if (!token && !_preferredAccount()) token = (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim();
   // 3) Optional stored PAT.
   if (!token) token = _settingsPat();
 
@@ -105,7 +155,7 @@ function _ssoMessage(res) {
 // Single request. Returns parsed JSON (or raw text when accept is a raw type).
 // On 401 refreshes the token once. Follows no pagination itself — see apiAll.
 async function api(rest, { method = 'GET', body, accept, raw = false } = {}) {
-  const url = rest.startsWith('http') ? rest : API_ROOT + rest;
+  const url = rest.startsWith('http') ? rest : _apiRoot() + rest;
   const doFetch = (token) => fetch(url, {
     method,
     headers: {
@@ -136,7 +186,7 @@ async function api(rest, { method = 'GET', body, accept, raw = false } = {}) {
 
 // Follow RFC5988 Link-header pagination and concatenate array results.
 async function apiAll(rest, { cap = 500 } = {}) {
-  let url = rest.startsWith('http') ? rest : API_ROOT + rest;
+  let url = rest.startsWith('http') ? rest : _apiRoot() + rest;
   const sep = url.includes('?') ? '&' : '?';
   if (!/[?&]per_page=/.test(url)) url += sep + 'per_page=100';
   const out = [];
@@ -1040,18 +1090,79 @@ async function pushFiles(owner, _project, repo, { baseBranch, newBranch, changes
 // Returns { source: 'cli'|'env'|'pat'|null, hasToken }.
 function _tokenSource() {
   try {
-    const raw = execSync(`gh auth token --hostname ${HOST}`, {
-      encoding: 'utf-8', timeout: 15_000, shell: true
-    }).trim();
+    const raw = _ghAuthToken();
     if (/^gh[opsu]_|^github_pat_/.test(raw) || (raw && !/not logged|no oauth|error/i.test(raw))) {
       return { source: 'cli', hasToken: true };
     }
   } catch {}
-  if ((process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim()) {
+  if (!_preferredAccount() && (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim()) {
     return { source: 'env', hasToken: true };
   }
   if (_settingsPat()) return { source: 'pat', hasToken: true };
   return { source: null, hasToken: false };
+}
+
+// Enumerate every account the `gh` CLI is logged into, across hosts, by parsing
+// `gh auth status`. Lets the app offer a real account picker (e.g. a personal
+// github.com login alongside a GitHub EMU/enterprise login). Never throws.
+// Returns [{ host, login, active, source, protocol }].
+function listAccounts() {
+  let out;
+  try {
+    // --show-token would leak secrets; we only need logins + which is active.
+    const raw = execSync('gh auth status', {
+      encoding: 'utf-8', timeout: 15_000, shell: true
+    });
+    out = _parseGhAuthStatus(raw);
+  } catch (e) {
+    // gh prints the status to stderr on some versions / non-zero exits.
+    const raw = (e && (e.stdout || e.stderr)) ? String(e.stdout || '') + String(e.stderr || '') : '';
+    out = raw ? _parseGhAuthStatus(raw) : [];
+  }
+  const pref = _preferredAccount();
+  if (pref) {
+    for (const a of out) a.preferred = (a.host === pref.host && a.login === pref.login);
+  }
+  // Collapse duplicate host+login rows (gh can list the same login twice when
+  // it lives in both a token env var and the keyring). One picker row per
+  // account; keep the active flag + a real source if either copy has one.
+  const seen = new Map();
+  for (const a of out) {
+    const k = a.host + '\u0000' + a.login;
+    const prev = seen.get(k);
+    if (!prev) { seen.set(k, a); continue; }
+    prev.active = prev.active || a.active;
+    prev.preferred = prev.preferred || a.preferred;
+    if (!prev.source) prev.source = a.source;
+    if (!prev.protocol) prev.protocol = a.protocol;
+  }
+  return [...seen.values()];
+}
+
+// Parse `gh auth status` output into account records. Format (gh ≥2.40):
+//   github.com
+//     ✓ Logged in to github.com account <login> (<source>)
+//     - Active account: true|false
+//     - Git operations protocol: https|ssh
+function _parseGhAuthStatus(text) {
+  const accts = [];
+  const lines = String(text || '').split(/\r?\n/);
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/Logged in to\s+(\S+)\s+account\s+(\S+)\s*(?:\(([^)]*)\))?/i);
+    if (m) {
+      cur = { host: m[1], login: m[2], source: (m[3] || '').trim(), active: false, protocol: '', preferred: false };
+      accts.push(cur);
+      continue;
+    }
+    if (cur) {
+      const am = line.match(/Active account:\s*(true|false)/i);
+      if (am) { cur.active = /true/i.test(am[1]); continue; }
+      const pm = line.match(/Git operations protocol:\s*(\S+)/i);
+      if (pm) { cur.protocol = pm[1]; continue; }
+    }
+  }
+  return accts;
 }
 
 // Non-throwing GitHub connection status for the in-app indicator.
@@ -1059,12 +1170,18 @@ function _tokenSource() {
 // or an SSO-blocked token reports connected:false with an actionable reason).
 async function getStatus() {
   const src = _tokenSource();
+  let accounts = [];
+  try { accounts = listAccounts(); } catch {}
+  const pref = _preferredAccount();
+  const preferred = pref ? pref.login : '';
   if (!src.hasToken) {
     return {
       connected: false,
       login: '',
       name: '',
       source: null,
+      accounts,
+      preferred,
       reason: 'Not signed in to GitHub. Run "gh auth login" or add a Personal Access Token.'
     };
   }
@@ -1075,6 +1192,8 @@ async function getStatus() {
       login: u.login || '',
       name: u.name || u.login || '',
       source: src.source,
+      accounts,
+      preferred,
       reason: ''
     };
   } catch (e) {
@@ -1084,6 +1203,8 @@ async function getStatus() {
       login: '',
       name: '',
       source: src.source,
+      accounts,
+      preferred,
       reason: msg || 'GitHub token present but could not be validated.'
     };
   }
@@ -1094,6 +1215,7 @@ module.exports = {
   GITHUB_STORE,
   getToken,
   getStatus,
+  listAccounts,
   getCurrentUser,
   voteLabel,
   getRepoContributors,

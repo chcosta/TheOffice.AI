@@ -1143,6 +1143,22 @@
     .conn-pop-btn:disabled { opacity: 0.55; cursor: default; }
     .conn-pop-link { align-self: flex-start; background: none; border: none; color: var(--cp-link);
       font-size: 12px; cursor: pointer; padding: 0; }
+    /* GitHub multi-account picker */
+    .gh-acct-list { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; }
+    .gh-acct-hd { font-size: 11px; color: var(--cp-text-muted); margin: 2px 0 1px; }
+    .gh-acct { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+      background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+      border-radius: calc(var(--cp-radius-scale, 1) * 8px); padding: 6px 8px; cursor: pointer; }
+    .gh-acct:hover { border-color: var(--cp-border-strong); }
+    .gh-acct.sel { border-color: var(--cp-accent); background: var(--cp-accent-soft, var(--cp-surface-soft)); }
+    .gh-acct:disabled { opacity: 0.6; cursor: default; }
+    .gh-acct-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
+    .gh-acct-dot.on { background: var(--cp-success, #2ea043); }
+    .gh-acct-dot.off { background: var(--cp-border-strong); }
+    .gh-acct-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+    .gh-acct-login { font-size: 12.5px; color: var(--cp-text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gh-acct-meta { font-size: 11px; color: var(--cp-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gh-acct-tag { font-size: 10.5px; color: var(--cp-text-muted); flex: 0 0 auto; }
     .conn-pop-cta { background: var(--cp-accent); color: var(--cp-accent-fg); border: none;
       border-radius: calc(var(--cp-radius-scale, 1) * 8px); padding: 8px 10px; font-size: 13px; cursor: pointer; }
     .conn-pop-cta:disabled { opacity: 0.6; cursor: default; }
@@ -6776,8 +6792,24 @@
                   <div class="conn-pop-body">
                     <div class="conn-pop-row"><span class="conn-dot on"></span><b x-text="ghStatus.name || ghStatus.login"></b></div>
                     <div class="conn-pop-sub" x-text="'@' + ghStatus.login + (ghStatus.source ? ' · ' + ghSourceLabel(ghStatus.source) : '')"></div>
+                    <template x-if="ghStatus.accounts && ghStatus.accounts.length > 1">
+                      <div class="gh-acct-list">
+                        <div class="gh-acct-hd">Use this account</div>
+                        <template x-for="a in ghStatus.accounts" :key="a.host + '/' + a.login">
+                          <button class="gh-acct" type="button" :class="{ 'sel': ghAcctActive(a) }" :disabled="ghBusy" @click="selectGithubAccount(a.login, a.host)">
+                            <span class="gh-acct-dot" :class="ghAcctActive(a) ? 'on' : 'off'"></span>
+                            <span class="gh-acct-main">
+                              <span class="gh-acct-login" x-text="'@' + a.login"></span>
+                              <span class="gh-acct-meta" x-text="ghSourceLabel(a.source) + (a.host && a.host !== 'github.com' ? ' · ' + a.host : '')"></span>
+                            </span>
+                            <span class="gh-acct-tag" x-show="ghAcctActive(a)" x-text="a.preferred ? 'pinned' : 'active'"></span>
+                          </button>
+                        </template>
+                        <button class="conn-pop-link" type="button" x-show="ghStatus.preferred" @click="selectGithubAccount('', '')">Clear pinned account</button>
+                      </div>
+                    </template>
                     <div class="conn-pop-actions">
-                      <button class="conn-pop-btn" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening…' : 'Switch / add account'"></button>
+                      <button class="conn-pop-btn" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening…' : 'Add another account'"></button>
                       <button class="conn-pop-btn danger" type="button" @click="signOutGithub()" :disabled="ghBusy">Sign out</button>
                     </div>
                     <button class="conn-pop-link" type="button" @click="refreshGithubStatus(true)">↻ Re-check</button>
@@ -27409,7 +27441,38 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ===== GitHub connection indicator =====
         ghSourceLabel(src) {
-          return src === 'cli' ? 'GitHub CLI' : src === 'env' ? 'environment token' : src === 'pat' ? 'Personal Access Token' : '';
+          if (!src) return '';
+          if (src === 'cli') return 'GitHub CLI';
+          if (src === 'env') return 'environment token';
+          if (src === 'pat') return 'Personal Access Token';
+          // Per-account sources from `gh auth status`.
+          if (src === 'GH_TOKEN' || src === 'GITHUB_TOKEN') return 'environment token';
+          if (src === 'keyring') return 'signed in via GitHub CLI';
+          if (src === 'oauth_token') return 'GitHub CLI';
+          return src;
+        },
+        // Is this listed account the one the app is currently using? An account
+        // is active when it's pinned (preferred) or, when nothing is pinned, the
+        // gh active login that the status resolved to.
+        ghAcctActive(a) {
+          if (!a || !this.ghStatus) return false;
+          if (this.ghStatus.preferred) return a.login === this.ghStatus.preferred;
+          return a.active || a.login === this.ghStatus.login;
+        },
+        // Pin (or clear, when login is empty) the preferred GitHub account so
+        // every gh-backed call uses it. Never touches the global gh active login.
+        async selectGithubAccount(login, host) {
+          if (this.ghBusy) return;
+          this.ghErr = ''; this.ghBusy = true;
+          try {
+            const r = await this.request('/api/github/connect', { method: 'POST', body: JSON.stringify({ method: 'select', login: login || '', host: host || '' }) });
+            this.ghStatus = r.status || this.ghStatus;
+            if (login) this.toast('Now using GitHub as @' + login, 'success');
+            else this.toast('Cleared the pinned account.', 'info');
+          } catch (e) {
+            this.ghErr = (e && e.message) || 'Could not switch account.';
+            await this.refreshGithubStatus(true);
+          } finally { this.ghBusy = false; }
         },
         ghConnLabel() {
           if (!this.ghStatus) return 'GitHub';
