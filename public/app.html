@@ -3416,6 +3416,13 @@
     .lp-ghead .gt { font-size: 0.74rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--cp-text-soft); }
     .lp-ghead .gn { font-size: 0.7rem; background: transparent; border: none; border-radius: 0; padding: 0; color: var(--cp-text-muted); font-weight: 700; }
     .lp-ghead .gline { flex: 1; height: 1px; background: var(--cp-border); }
+    .lp-ghead-acts { display: inline-flex; gap: 4px; opacity: 0; transition: opacity .15s ease-out; }
+    .lp-ghead:hover .lp-ghead-acts, .lp-ghead:focus-within .lp-ghead-acts { opacity: 1; }
+    .lp-ghead-acts button { font-size: 0.72rem; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 8px; padding: 2px 8px; cursor: pointer; }
+    .lp-ghead-acts button:hover { color: var(--cp-text); border-color: var(--cp-text-soft); }
+    .lp-groupsel { font-size: 0.72rem; color: var(--cp-text-muted); background: transparent; border: none; border-radius: 0; padding: 0; cursor: pointer; max-width: 130px; }
+    .lp-groupsel:hover, .lp-groupsel:focus { color: var(--cp-text); }
+    @media (prefers-reduced-motion: reduce) { .lp-ghead-acts { transition: none; } }
     .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
     .lp-card { position: relative; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 14px); padding: 15px 16px; cursor: pointer; transition: border-color .12s, transform .12s; }
     .lp-card:hover { border-color: var(--cp-accent); transform: translateY(-1px); }
@@ -3433,7 +3440,7 @@
     .lp-avstack { display: flex; align-items: center; }
     .lp-avstack .mini { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--cp-surface); margin-left: -7px; display: flex; align-items: center; justify-content: center; font-size: 11px; background: var(--cp-surface-soft); color: var(--cp-text); }
     .lp-avstack .mini:first-child { margin-left: 0; }
-    .lp-qa { position: absolute; top: 10px; right: 10px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: calc(100% - 56px); opacity: 0; transition: opacity .12s; background: var(--cp-panel-strong); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 10px); padding: 5px; box-shadow: var(--cp-shadow); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 2; }
+    .lp-qa { position: absolute; bottom: 10px; right: 10px; display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 5px; opacity: 0; transition: opacity .12s; background: var(--cp-panel-strong); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 10px); padding: 5px; box-shadow: var(--cp-shadow); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 2; }
     .lp-card:hover .lp-qa { opacity: 1; }
     .lp-qa button { width: 28px; height: 28px; border-radius: calc(var(--cp-radius-scale, 1) * 7px); border: 1px solid var(--cp-border); background: var(--cp-bg-elevated); color: var(--cp-text); cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
     .lp-qa button:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
@@ -4114,6 +4121,19 @@
       color: var(--cp-accent-fg);
       border-color: color-mix(in srgb, var(--cp-accent) 60%, var(--cp-border));
     }
+    /* Links inside a user bubble inherit --cp-link (blue) which is invisible on the
+       blue bubble — force the high-contrast on-accent colour instead. */
+    .message-row.user .message-bubble .md-output a,
+    .message-row.user .message-bubble .md-inline a,
+    .message-row.user .message-bubble a.md-link {
+      color: var(--cp-accent-fg);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      font-weight: 600;
+    }
+    .message-row.user .message-bubble .md-output a:hover,
+    .message-row.user .message-bubble .md-inline a:hover,
+    .message-row.user .message-bubble a.md-link:hover { color: var(--cp-accent-fg); opacity: .82; }
     /* Group chats: tint each agent's bubble with its identity colour so multiple
        speakers are distinguishable at a glance. Subtle enough to keep body text
        (--cp-ink) readable; the coloured speaker header carries the name. */
@@ -4709,6 +4729,18 @@
     .board-picker { display: inline-flex; align-items: center; gap: 8px; }
     .board-picker-lbl { font-size: 11px; color: var(--cp-text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
     .board-select { max-width: 360px; min-width: 210px; padding: 7px 30px 7px 11px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    /* "⋯ More" board actions dropdown. Was previously unstyled markup (no CSS existed for
+       .org-menu*), so the items spilled out as loose inline buttons near the workspace
+       dropdown. Anchor it as a floating card to the right edge of its relative wrapper. */
+    .org-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: flex; flex-direction: column;
+      gap: 2px; padding: 6px; background: var(--cp-bg-elevated, var(--cp-surface)); border: 1px solid var(--cp-border);
+      border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.28); }
+    .org-menu-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px;
+      background: transparent; color: var(--cp-text); font-size: 13px; text-align: left; cursor: pointer; white-space: nowrap; }
+    .org-menu-item:hover { background: var(--cp-highlight); }
+    .org-menu-item > span:first-child { width: 16px; text-align: center; flex: 0 0 auto; }
+    .org-menu-label { flex: 1 1 auto; }
+    .org-menu-sep { height: 1px; margin: 4px 2px; background: var(--cp-border); }
     /* Frame the tabbed board as a calm studio layout: a rail "card" on the left and a
        bordered "stage" panel on the right — mirroring the Newsletter studio (rail + stage). */
     .board-canvas-scroll.board-tabbed .board-tab-rail { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 12px); padding: 8px; }
@@ -7605,12 +7637,7 @@
               </div>
             </div>
 
-            <div class="ag-tabs">
-              <button class="ag-tab" :class="agentStudioTab === 'roster' ? 'on' : ''" @click="agentStudioTab = 'roster'">Roster <span class="n" x-text="agentStatusCounts().all"></span></button>
-              <button class="ag-tab" :class="agentStudioTab === 'groups' ? 'on' : ''" @click="agentStudioTab = 'groups'">Groups <span class="n" x-text="groupBoard().length"></span></button>
-            </div>
-
-            <div x-show="agentStudioTab === 'roster'">
+            <div>
             <div class="lp-chips">
               <button class="lp-chip" :class="agentStatusFilter === 'all' ? 'on' : ''" @click="agentStatusFilter = 'all'"><span class="lp-dot all"></span>All <span class="n" x-text="agentStatusCounts().all"></span></button>
               <button class="lp-chip" :class="agentStatusFilter === 'running' ? 'on' : ''" @click="agentStatusFilter = 'running'"><span class="lp-dot run"></span>Running <span class="n" x-text="agentStatusCounts().running"></span></button>
@@ -7629,6 +7656,7 @@
                 <button :class="agentView === 'grid' ? 'on' : ''" @click="agentView = 'grid'" title="Grid view">▦</button>
                 <button :class="agentView === 'list' ? 'on' : ''" @click="agentView = 'list'" title="List view">☰</button>
               </div>
+              <button class="btn" type="button" @click="openNewBoardGroup()" title="Create a group to organize agents">＋ New group</button>
             </div>
 
             <div x-show="agentView === 'grid'">
@@ -7639,6 +7667,10 @@
                     <span class="gt" x-text="group.name"></span>
                     <span class="gn" x-text="group.agents.length"></span>
                     <span class="gline"></span>
+                    <span class="lp-ghead-acts" x-show="group.name && group.name !== 'Ungrouped'">
+                      <button @click.stop="openRenameGroup(group.name)" title="Rename group">Rename</button>
+                      <button @click.stop="openDeleteGroup(group.name)" title="Delete group">Delete</button>
+                    </span>
                   </div>
                   <div class="lp-grid" x-show="!group.name || !app.sidebarCollapsed['ag-' + group.name]" x-transition.opacity>
                     <template x-for="agent in group.agents" :key="agent.id">
@@ -7649,7 +7681,6 @@
                           <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
                           <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to workspace">📌</button>
                           <button @click.stop="quickStarEmp(agent.id, agent.name, 'agent', agent.config.pluginDir ? '🧩' : '🤖', agent.teamId)" :title="empStarred(agent.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(agent.id) ? '★' : '☆'"></button>
-                          <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                         </div>
                         <div class="lp-card-top">
                           <div class="lp-av" x-text="agent.config.pluginDir ? '🧩' : '🤖'"></div>
@@ -7661,7 +7692,12 @@
                         </div>
                         <div class="lp-desc" x-text="agent.config.description || 'No description'"></div>
                         <div class="lp-cmeta">
-                          <span class="lp-tag" x-text="agent.config.group || 'Ungrouped'"></span>
+                          <select class="lp-groupsel" @click.stop @change="changeAgentGroup(agent.id, $event.target.value)" title="Move to group">
+                            <option value="" :selected="!agent.config.group">Ungrouped</option>
+                            <template x-for="g in groupBoard()" :key="g.name">
+                              <option :value="g.name" :selected="agent.config.group === g.name" x-text="g.name"></option>
+                            </template>
+                          </select>
                           <span class="lp-tag run" x-show="agent.status === 'running'">⚡ running</span>
                           <span class="lp-tag" x-show="agent.schedule && agent.schedule !== 'never'" x-text="'⏱ ' + (agent.scheduleSummary || 'scheduled')"></span>
                           <span class="lp-tag" x-show="agent.lastRun" x-text="'Ran ' + formatRelative((agent.lastRun || {}).finished_at || (agent.lastRun || {}).started_at)"></span>
@@ -7690,7 +7726,6 @@
                         <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
                         <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to workspace">📌</button>
                         <button @click.stop="quickStarEmp(agent.id, agent.name, 'agent', agent.config.pluginDir ? '🧩' : '🤖', agent.teamId)" :title="empStarred(agent.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(agent.id) ? '★' : '☆'"></button>
-                        <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                       </div></td>
                     </tr>
                   </template>
@@ -7699,66 +7734,6 @@
             </div>
 
             <div class="empty-state" x-show="!displayedAgents().length" x-text="agentStatusCounts().all ? 'No agents matched your filter.' : (currentTeamId === 'all' ? 'No agents registered yet.' : 'No agents on this team yet.')"></div>
-            </div>
-
-            <div x-show="agentStudioTab === 'groups'">
-              <div class="lp-controls" style="margin-top:16px;margin-bottom:0">
-                <div style="flex:1;color:var(--cp-text-muted);font-size:0.85rem">Organize agents into groups. Groups appear as sections across the studio and boards.</div>
-                <button class="btn" type="button" @click="openNewBoardGroup()">＋ New group</button>
-              </div>
-              <div class="ag-groups">
-                <template x-for="grp in groupBoard()" :key="grp.name">
-                  <div class="ag-gcard">
-                    <div class="ag-ghead">
-                      <h3 x-text="grp.name"></h3>
-                      <span class="n" x-text="grp.agents.length"></span>
-                      <span class="sp"></span>
-                      <button type="button" @click="openRenameGroup(grp.name)">Rename</button>
-                      <button type="button" @click="openDeleteGroup(grp.name)">Delete</button>
-                    </div>
-                    <div class="ag-gempty" x-show="!grp.agents.length">No agents in this group yet — assign one below or from another group.</div>
-                    <template x-for="agent in grp.agents" :key="agent.id">
-                      <div class="ag-grow">
-                        <div class="av" x-text="agent.config.pluginDir ? '🧩' : '🤖'"></div>
-                        <div class="nm">
-                          <b class="clickable" @click="goTo('#/agents/' + encodeURIComponent(agent.id))" x-text="agent.name"></b>
-                          <span x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></span>
-                        </div>
-                        <select @change="changeAgentGroup(agent.id, $event.target.value)">
-                          <option value="" :selected="!agent.config.group">Ungrouped</option>
-                          <template x-for="g in groupBoard()" :key="g.name">
-                            <option :value="g.name" :selected="agent.config.group === g.name" x-text="g.name"></option>
-                          </template>
-                        </select>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-
-                <div class="ag-gcard" x-show="ungroupedAgents().length">
-                  <div class="ag-ghead">
-                    <h3>Ungrouped</h3>
-                    <span class="n" x-text="ungroupedAgents().length"></span>
-                  </div>
-                  <template x-for="agent in ungroupedAgents()" :key="agent.id">
-                    <div class="ag-grow">
-                      <div class="av" x-text="agent.config.pluginDir ? '🧩' : '🤖'"></div>
-                      <div class="nm">
-                        <b class="clickable" @click="goTo('#/agents/' + encodeURIComponent(agent.id))" x-text="agent.name"></b>
-                        <span x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></span>
-                      </div>
-                      <select @change="changeAgentGroup(agent.id, $event.target.value)">
-                        <option value="" selected>Ungrouped</option>
-                        <template x-for="g in groupBoard()" :key="g.name">
-                          <option :value="g.name" x-text="g.name"></option>
-                        </template>
-                      </select>
-                    </div>
-                  </template>
-                </div>
-
-                <div class="empty-state" x-show="!groupBoard().length && !ungroupedAgents().length">No agents to organize yet.</div>
-              </div>
             </div>
           </section>
 
@@ -7941,8 +7916,7 @@
               <div class="nlx-stage">
                 <div class="nlx-stage-bar">
                   <div class="nlx-seg">
-                    <button type="button" :class="agentTab === 'overview' ? 'active' : ''" @click="agentTab = 'overview'">Overview</button>
-                    <button type="button" :class="agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'tools'">Tools &amp; skills <span class="mg-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
+                    <button type="button" :class="agentTab === 'overview' || agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'overview'">Overview <span class="mg-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
                     <button type="button" x-show="selectedAgent.config?.pluginDir" :class="agentTab === 'files' ? 'active' : ''" @click="agentTab = 'files'; loadAgentFiles(selectedAgent.id)">Files <span class="mg-count" x-text="agentFiles.loaded ? agentFiles.files.length : '…'"></span></button>
                     <button type="button" :class="agentTab === 'chat' ? 'active' : ''" @click="agentTab = 'chat'; openAgentChatTab()">Chat<span class="mg-dot" style="margin-left:7px" :class="(boardAgentChatState(agentChatItem()) && boardAgentChatState(agentChatItem()).running) ? 'run' : ''" x-show="boardAgentChatState(agentChatItem()) && boardAgentChatState(agentChatItem()).running"></span></button>
                   </div>
@@ -7974,13 +7948,15 @@
                     </section>
                   </div>
 
-                <div class="panel-stack" x-show="agentTab === 'tools'">
+                <div class="panel-stack" x-show="agentTab === 'overview' || agentTab === 'tools'">
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
-                      <h2 class="panel-title">Tools &amp; Skills</h2>
-                      <div class="hint">MCP servers and skills this agent can use at runtime. Attach more from the catalog to empower it.</div>
+                      <h2 class="panel-title">Tools &amp; skills</h2>
+                      <div class="hint" x-show="agentIsEditable()">MCP servers and skills this agent can use at runtime. Add more from the catalog to empower it.</div>
+                      <div class="hint" x-show="!agentIsEditable()">MCP servers and skills this agent can use at runtime. This is an installed agent, so its tools are fixed — create a new agent based on it to change them.</div>
                     </div>
+                    <button class="btn ghost" type="button" @click="openCreateAgentFrom()">🛠️ Create a new agent from this one</button>
                   </div>
                   <div class="ag-cap-cols">
                     <div class="ag-cap-panel">
@@ -8023,12 +7999,12 @@
                   </div>
                   <div class="empty-state" x-show="selectedAgent.caps && !selectedAgent.caps.effective.mcp.length">No MCP servers attached.</div>
 
-                  <!-- Add MCP: catalog + custom -->
-                  <div class="toolbar" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+                  <!-- Add MCP: catalog + custom (created agents only) -->
+                  <div class="toolbar" x-show="agentIsEditable()" style="margin-top:10px;flex-wrap:wrap;gap:8px">
                     <input class="field-input" style="max-width:240px" type="text" x-model="selectedAgent.capCatalogFilter" placeholder="Filter catalog…" />
                     <button class="btn ghost" type="button" @click="selectedAgent.showMcpForm = !selectedAgent.showMcpForm">＋ Custom MCP server</button>
                   </div>
-                  <div class="assignment-list" x-show="capCatalogAvailableMcp().length">
+                  <div class="assignment-list" x-show="agentIsEditable() && capCatalogAvailableMcp().length">
                     <template x-for="c in capCatalogAvailableMcp()" :key="c.sourcePath + '::' + c.name">
                       <div class="assignment-item">
                         <div class="assignment-top">
@@ -8044,7 +8020,7 @@
                       </div>
                     </template>
                   </div>
-                  <div class="detail-panel" style="margin-top:10px;padding:12px" x-show="selectedAgent.showMcpForm">
+                  <div class="detail-panel" style="margin-top:10px;padding:12px" x-show="agentIsEditable() && selectedAgent.showMcpForm">
                     <div class="field-label"><span>Server name</span></div>
                     <input class="field-input" type="text" x-model="selectedAgent.mcpDraft.name" placeholder="my-mcp-server" />
                     <div class="field-label" style="margin-top:8px"><span>Command</span></div>
@@ -8083,7 +8059,7 @@
                     </template>
                   </div>
                   <div class="empty-state" x-show="selectedAgent.caps && !selectedAgent.caps.effective.skills.length">No skills attached.</div>
-                  <div class="assignment-list" x-show="capCatalogAvailableSkills().length" style="margin-top:10px">
+                  <div class="assignment-list" x-show="agentIsEditable() && capCatalogAvailableSkills().length" style="margin-top:10px">
                     <template x-for="c in capCatalogAvailableSkills()" :key="c.sourceDir + '::' + c.name">
                       <div class="assignment-item">
                         <div class="assignment-top">
@@ -8151,6 +8127,7 @@
                           <span class="hint" x-show="boardAgentChatState(item) && boardAgentChatState(item).running">thinking…</span>
                         </div>
                         <button class="ag-chatbar-btn" type="button" :class="agentSess.panel ? 'on' : ''" @click="agentSess.panel = !agentSess.panel" x-text="(agentSess.panel ? '✕ Hide sessions' : ('🗂 Sessions & search' + (agentSessionsAll().length ? ' · ' + agentSessionsAll().length : '')))"></button>
+                        <button class="ag-chatbar-btn" type="button" @click="openOrCreateChat('agent', item.refId)" title="Continue this conversation at the Water cooler">💬 Open in water cooler</button>
                       </div>
                       <!-- Roster: this chat's agents. Add more to make it a group chat; @mention forces a reply. -->
                       <div class="mac-roster">
@@ -8519,6 +8496,7 @@
                 </label>
                 <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
                   x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
+                <button type="button" class="btn ghost" x-show="!boardsLoading" @click="openBoardModal(null)" title="Create a new workspace">＋ New workspace</button>
                 <!-- Board controls relocated here from the removed stage-bar banner (Star / Focus / More). Hidden in focus mode, where the focus header carries them. -->
                 <template x-if="!boardsLoading && activeBoard() && !boardFocus">
                   <div class="toolbar" style="display:flex;align-items:center;gap:6px">
@@ -8754,14 +8732,11 @@
                       <div class="board-stagewrap">
                         <div class="board-sectiontabs scrollfade">
                           <span class="board-sectiontabs-label" title="Each tab is a Board (also called a section). Say “add a board / put this on the X board” to the Workspace Assistant.">Boards</span>
-                          <button type="button" class="board-sectiontab" :class="{ active: isViewTab() }" @click="setActiveSection('view')" title="Card View — focus a single card full size">
-                            <span class="st-emoji">🔎</span><span>Card View</span>
-                          </button>
-                          <button type="button" class="board-sectiontab" :class="{ active: isMapView() }" @click="setActiveSection('map')" title="Map — a free canvas of item cards you can arrange, connect and group">
-                            <span class="st-emoji">🗺</span><span>Map</span>
-                          </button>
                           <button type="button" class="board-sectiontab" :class="{ active: isBriefView() }" @click="setActiveSection('brief')" title="Briefing — the AI 'where was I?' summary for this board">
                             <span class="st-emoji">🧭</span><span>Briefing</span>
+                          </button>
+                          <button type="button" class="board-sectiontab" :class="{ active: isViewTab() }" @click="setActiveSection('view')" title="Card View — focus a single card full size">
+                            <span class="st-emoji">🔎</span><span>Card View</span>
                           </button>
                           <template x-for="s in boardSections()" :key="s.id">
                             <button type="button" class="board-sectiontab"
@@ -8775,10 +8750,10 @@
                               <span class="st-emoji" x-text="s.icon || '🗂'"></span>
                               <span x-text="s.name"></span>
                               <span class="st-star" :class="{ on: isSectionStarred(s.id) }" @click.stop="toggleSectionStar(s.id)" :title="isSectionStarred(s.id) ? 'Unstar — remove from Quick Launch' : 'Star — pin this section to Quick Launch'" x-text="isSectionStarred(s.id) ? '★' : '☆'"></span>
-                              <span class="st-x" @click.stop="deleteSection(s.id)" title="Delete section">✕</span>
+                              <span class="st-x" @click.stop="deleteSection(s.id)" title="Delete map">✕</span>
                             </button>
                           </template>
-                          <button type="button" class="board-sectiontab-add" @click="addSection()" title="New section">＋</button>
+                          <button type="button" class="board-sectiontab-add" @click="addSection()" title="New map">＋</button>
                         </div>
                         <!-- ===== Board Map (pan/zoom canvas of item cards) ===== -->
                         <div class="board-map" x-show="isMapView()" x-cloak tabindex="0"
@@ -25832,8 +25807,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.selectedAgent.showMcpForm = false;
               this.selectedAgent.capCatalogFilter = '';
               this.selectedAgent._menu = false;
-              this.agentTab = 'overview';
+              this.agentTab = 'chat';
               this.mcpProbe = {};
+              this.openAgentChatTab();
               this.agentFiles = { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false };
             }
             this.agentHistory = history;
@@ -40337,6 +40313,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const top = el.getBoundingClientRect().top;
             if (top <= 0) return; // hidden / not yet laid out — skip a stale measure
             el.style.height = Math.max(360, Math.round(window.innerHeight - top - 48)) + 'px';
+            // Land on the most recent output whenever the Chat tab becomes visible.
+            this.$nextTick(() => { try { const log = el.querySelector('.ag-chatlog'); if (log) log.scrollTop = log.scrollHeight; } catch {} });
           } catch {}
         },
         // All CLI sessions belonging to this agent (matched by agentName), newest first.
@@ -41422,14 +41400,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         activeSectionId() {
           const cur = this.boardCanvas && this.boardCanvas.sec;
           if (cur === 'view') return 'view';
-          if (cur === 'map') return 'map';
           if (cur === 'brief') return 'brief';
           const secs = this.boardSections();
           if (cur && secs.some(s => s.id === cur)) return cur;
           return secs.length ? secs[0].id : null;
         },
         isViewTab() { return this.activeSectionId() === 'view'; },
-        isMapView() { return this.activeSectionId() === 'map'; },
+        // Every real (custom) section is now its own map canvas, so "map view" simply
+        // means an actual section is active (not the Card View or Briefing pseudo-tabs).
+        isMapView() { return !!this.activeSection(); },
         isBriefView() { return this.activeSectionId() === 'brief'; },
         activeSection() {
           const id = this.activeSectionId();
@@ -41443,7 +41422,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (id && id !== 'view' && id !== 'map' && id !== 'brief') patch.secLast = id;
           this.boardCanvas = { ...this.boardCanvas, ...patch };
           this._saveBoardCanvas();
-          if (id === 'map') this.bmapEnter();
+          if (this.activeSection()) this.bmapEnter();
         },
         // The section a drop should land in. On the View tab (no active section)
         // we route to the last board section the user was looking at (or the first,
@@ -41925,15 +41904,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ----- Section CRUD -----
         addSection() {
+          const name = window.prompt('Name this map', 'New map');
+          if (name == null) return;
           const secs = this.boardSections().slice();
-          const s = { id: this._newSectionId(), name: 'New section', icon: '🗂', zoom: 1, cols: 12, starred: false, showGrid: false, cards: [] };
+          const s = { id: this._newSectionId(), name: String(name).trim() || 'New map', icon: '🗺', zoom: 1, starred: false };
           secs.push(s);
-          this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: s.id };
+          this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: s.id, secLast: s.id };
           this._saveBoardCanvas();
+          this.bmapEnter();
         },
         renameSection(id) {
           const s = this.sectionById(id); if (!s) return;
-          const name = window.prompt('Section name', s.name || '');
+          const name = window.prompt('Map name', s.name || '');
           if (name == null) return;
           s.name = String(name).trim() || s.name;
           this._touchSections();
@@ -41942,12 +41924,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const secs = this.boardSections().slice();
           const i = secs.findIndex(s => s.id === id);
           if (i === -1) return;
-          if (!window.confirm('Delete section "' + (secs[i].name || '') + '"? Pinned items stay on the board and in other sections.')) return;
+          if (!window.confirm('Delete map "' + (secs[i].name || '') + '"? The items stay pinned to the board.')) return;
           this._removeSectionQuick(id);
+          const b = this.activeBoard();
+          if (b && b.maps && b.maps[id]) { delete b.maps[id]; this._patchBoard(b, { maps: JSON.parse(JSON.stringify(b.maps)) }); }
           secs.splice(i, 1);
           const nextSec = secs.length ? secs[Math.max(0, i - 1)].id : 'view';
           this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: nextSec };
           this._saveBoardCanvas();
+          if (this.activeSection()) this.bmapEnter();
         },
         // ----- View tab: focus a single panel full-size -----
         openInView(p) {
@@ -41956,10 +41941,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._saveBoardCanvas();
         },
         // ===== Board Map view (pursuit-style pan/zoom canvas of item cards) =====
+        // Each custom SECTION is its own named map. Section metadata lives client-side in
+        // boardCanvas (localStorage); the map arrangement (nodes/edges/groups/highlights)
+        // lives server-side on the board, keyed by section id, under b.maps[secId].
         _bmapEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
+        _bmapSecId() { const s = this.activeSection(); return s ? s.id : null; },
+        _bmapStore() {
+          const b = this.activeBoard(); if (!b) return null;
+          if (!b.maps || typeof b.maps !== 'object' || Array.isArray(b.maps)) b.maps = {};
+          return b.maps;
+        },
+        _bmapViewKey() { const b = this.activeBoard(); const id = this._bmapSecId(); return b ? ('bmap-view-' + b.id + '::' + (id || '')) : ''; },
         bmapData() {
-          const b = this.activeBoard();
-          const m = b && b.map;
+          const store = this._bmapStore();
+          const id = this._bmapSecId();
+          const m = (store && id) ? store[id] : null;
           if (m && typeof m === 'object' && !Array.isArray(m)) {
             return {
               nodes: (m.nodes && typeof m.nodes === 'object') ? m.nodes : {},
@@ -41970,11 +41966,43 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return { nodes: {}, edges: [], groups: [], highlights: {} };
         },
+        // Seed a fresh map for a section (non-destructive migration): the FIRST section
+        // inherits any legacy single-canvas b.map; otherwise lay the section's pinned grid
+        // cards out on an auto-grid so existing pins still appear.
+        _bmapSeedForSection(b, sec) {
+          const secs = this.boardSections();
+          const isFirst = secs.length && secs[0].id === sec.id;
+          if (isFirst && b && b.map && b.map.nodes && Object.keys(b.map.nodes).length) {
+            try {
+              return JSON.parse(JSON.stringify({
+                nodes: b.map.nodes || {},
+                edges: b.map.edges || [],
+                groups: b.map.groups || [],
+                highlights: b.map.highlights || {}
+              }));
+            } catch {}
+          }
+          const nodes = {};
+          const cards = Array.isArray(sec.cards) ? sec.cards : [];
+          let i = 0;
+          for (const c of cards) {
+            if (!c || !c.base) continue;
+            const col = i % 4, row = Math.floor(i / 4);
+            nodes[c.base] = { x: 40 + col * 288, y: 40 + row * 208, z: i + 1 };
+            i++;
+          }
+          return { nodes, edges: [], groups: [], highlights: {} };
+        },
         _bmapEnsure() {
+          const store = this._bmapStore();
           const b = this.activeBoard();
-          if (!b) return null;
-          if (!b.map || typeof b.map !== 'object' || Array.isArray(b.map)) b.map = { nodes: {}, edges: [], groups: [], highlights: {} };
-          const m = b.map;
+          const sec = this.activeSection();
+          if (!store || !b || !sec) return null;
+          const id = sec.id;
+          if (!store[id] || typeof store[id] !== 'object' || Array.isArray(store[id])) {
+            store[id] = this._bmapSeedForSection(b, sec);
+          }
+          const m = store[id];
           if (!m.nodes || typeof m.nodes !== 'object') m.nodes = {};
           if (!Array.isArray(m.edges)) m.edges = [];
           if (!Array.isArray(m.groups)) m.groups = [];
@@ -41994,26 +42022,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           clearTimeout(this.bmap._persistT);
           this.bmap._persistT = setTimeout(() => {
             const b = this.activeBoard();
-            if (!b) return;
-            this._patchBoard(b, { map: this._bmapSerialize() });
+            if (!b || !b.maps) return;
+            this._patchBoard(b, { maps: JSON.parse(JSON.stringify(b.maps)) });
           }, 500);
         },
         _bmapSaveView() {
-          try { const b = this.activeBoard(); if (b) localStorage.setItem('bmap-view-' + b.id, JSON.stringify(this.bmap.view)); } catch {}
+          try { const k = this._bmapViewKey(); if (k) localStorage.setItem(k, JSON.stringify(this.bmap.view)); } catch {}
         },
         bmapEnter() {
           const b = this.activeBoard();
           if (!b) return;
-          if (this.bmap._boardId === b.id) return;
+          const secId = this._bmapSecId();
+          if (!secId) return;
+          const key = b.id + '::' + secId;
+          if (this.bmap._key === key) return;
+          this.bmap._key = key;
           this.bmap._boardId = b.id;
           this.bmap.sel = []; this.bmap.full = null;
           this.bmap.connect = null; this.bmap.connectFrom = null;
           this.bmap.drag = null; this.bmap.groupDrag = null; this.bmap.marquee = null; this.bmap.pan = null;
           let v = null;
-          try { v = JSON.parse(localStorage.getItem('bmap-view-' + b.id) || 'null'); } catch {}
+          try { v = JSON.parse(localStorage.getItem(this._bmapViewKey()) || 'null'); } catch {}
           this.bmap.view = (v && typeof v === 'object')
             ? { zoom: +v.zoom || 1, panX: +v.panX || 0, panY: +v.panY || 0 }
             : { zoom: 1, panX: 40, panY: 40 };
+          this._bmapEnsure();
         },
         // -- catalog / resolution --
         bmapNodes() {
@@ -42043,9 +42076,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapKindColor(p) {
           const map = {
             pr: '#a371f7', dev: '#3fb950', agent: '#4493f8', manager: '#db61a2',
-            task: '#e0823d', assignment: '#e0823d', flow: '#d29922', session: '#8b949e',
-            chat: '#39c5cf', comment: '#39c5cf', location: '#8b949e',
-            note: '#e3b341', checklist: '#a371f7', summary: '#4493f8', pin: '#8b949e'
+            task: '#e0823d', assignment: '#f0776c', flow: '#d29922', session: '#8b949e',
+            chat: '#39c5cf', comment: '#26a3ab', location: '#6e7681',
+            note: '#f2cc60', checklist: '#2dd4bf', summary: '#79c0ff', pin: '#adbac7'
           };
           return map[this.bmapKindKey(p)] || map.pin;
         },
@@ -42665,19 +42698,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const s = Math.min(sx, sy);
           return { x: to.x + dx * s, y: to.y + dy * s };
         },
+        // Snap an endpoint to the nearest of a card's 4 link ports (top/right/bottom/left
+        // midpoints) — the same attachment points used when dragging a connection — so the
+        // arrow lands on a fixed port and never slides around the rounded card edge.
+        // Returns the port point plus its outward normal (nx,ny) so the curve can leave the
+        // port perpendicular to that side (matching the pursuit-map bezier feel).
+        _bmapPort(center, other, hw, hh) {
+          const dx = other.x - center.x, dy = other.y - center.y;
+          if (Math.abs(dx) / hw >= Math.abs(dy) / hh) {
+            const s = dx >= 0 ? 1 : -1;               // right or left side
+            return { x: center.x + s * hw, y: center.y, nx: s, ny: 0 };
+          }
+          const s = dy >= 0 ? 1 : -1;                 // bottom or top side
+          return { x: center.x, y: center.y + s * hh, nx: 0, ny: s };
+        },
         // Bezier control points for a curved connector between two node CENTERS.
-        // p1/p2 sit on each node's box edge (toward the other centre); control points
-        // push perpendicular to the run so the curve ALWAYS bows (never snaps straight),
-        // matching the bezier feel of the live drag + the pursuit map.
+        // Endpoints snap to each card's nearest link port; control points extend along each
+        // port's outward normal so the curve leaves the port cleanly and stays a smooth
+        // bezier (never snaps straight), matching the live drag + the pursuit map.
         _bmapEdgeCurve(c1, c2, hw, hh) {
-          const p1 = this._bmapAnchor(c2, c1, hw, hh);
-          const p2 = this._bmapAnchor(c1, c2, hw, hh);
-          const vx = p2.x - p1.x, vy = p2.y - p1.y;
-          const dist = Math.hypot(vx, vy) || 1;
-          const px = -vy / dist, py = vx / dist;          // perpendicular unit (consistent bow side)
-          const bow = Math.max(18, Math.min(70, dist * 0.22));
-          const cp1 = { x: p1.x + vx * 0.28 + px * bow, y: p1.y + vy * 0.28 + py * bow };
-          const cp2 = { x: p1.x + vx * 0.72 + px * bow, y: p1.y + vy * 0.72 + py * bow };
+          const p1 = this._bmapPort(c1, c2, hw, hh);
+          const p2 = this._bmapPort(c2, c1, hw, hh);
+          const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+          const ext = Math.max(30, Math.min(120, dist * 0.42));
+          const cp1 = { x: p1.x + p1.nx * ext, y: p1.y + p1.ny * ext };
+          const cp2 = { x: p2.x + p2.nx * ext, y: p2.y + p2.ny * ext };
           return { p1, cp1, cp2, p2 };
         },
         // Lighten a hex colour toward white by amt (0..1) — for the "to" end of the edge gradient.
@@ -42712,8 +42757,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                     + ' ' + cv.p2.x.toFixed(1) + ' ' + cv.p2.y.toFixed(1);
             let arrow = '';
             if (dir === 'uni') {
-              const tip = cv.p2; const dx = tip.x - cv.cp2.x, dy = tip.y - cv.cp2.y; const dd = Math.hypot(dx, dy) || 1;
-              const ux = dx / dd, uy = dy / dd; const qx = -uy, qy = ux; const len = 12, half = 6.5;
+              // Chevron at the destination port, pointing INTO the card along the port's
+              // inward normal (matches the pursuit-map arrowheads: open, round-joined).
+              const tip = cv.p2; const ux = -cv.p2.nx, uy = -cv.p2.ny;   // travel dir into card
+              const qx = -uy, qy = ux; const len = 9, half = 5.5;
               const w1x = tip.x - ux * len + qx * half, w1y = tip.y - uy * len + qy * half;
               const w2x = tip.x - ux * len - qx * half, w2y = tip.y - uy * len - qy * half;
               arrow = 'M ' + w1x.toFixed(1) + ' ' + w1y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2x.toFixed(1) + ' ' + w2y.toFixed(1);
@@ -43042,8 +43089,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const base = this._dragBase(ev);
           this._boardCardDrag = null;
           if (!base) return;
-          this.placeCard(sectionId, base, null, null);
           this.setActiveSection(sectionId);
+          this.bmapAddNode(base);
         },
         onGridDragOver(ev) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch {} },
         onGridDrop(ev) {
@@ -44157,6 +44204,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: 'tabbed', tab: c.tab || null, briefOpen: (c.briefOpen !== false), briefLocked: (c.briefLocked === true), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null), groupOrder: (Array.isArray(c.groupOrder) ? c.groupOrder : null), sections: (Array.isArray(c.sections) ? c.sections : null), sec: (c.sec || null), viewBase: (c.viewBase || null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'tabbed', tab: null, briefOpen: true, briefLocked: false, tabOrder: null, groupOrder: null, sections: null, sec: null, viewBase: null };
           this._seedSectionsIfEmpty();
           this._applyPendingSection();
+          // If the persisted section is already a real map section, initialize its canvas
+          // now (bmapEnter is otherwise only fired from setActiveSection on a tab switch).
+          if (this.activeSection()) this.bmapEnter();
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
@@ -52751,6 +52801,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.caLoadSkills();
           this.caLoadMcps();
           this.goTo('#/create-agent');
+        },
+        // Created agents (source.type === 'design') are flexible: the user may add/detach
+        // tools + skills. Installed agents (azdo/local/plugins) are fixed — the Overview
+        // tools listing is read-only and the path to change them is "create a new agent".
+        agentIsEditable() {
+          const a = this.selectedAgent;
+          return !!(a && a.config && a.config.source && a.config.source.type === 'design');
+        },
+        // Quick "clone into the create flow" from any agent. Preloads name/description +
+        // the agent's current skills (and matches MCP servers by name) so the user starts
+        // from this agent but produces a SEPARATE new agent — the original is untouched.
+        async openCreateAgentFrom() {
+          const a = this.selectedAgent;
+          if (!a) { this.openCreateAgent(); return; }
+          this.caReset();
+          const c = this.createAgent;
+          c.name = ((a.name || a.id || 'Agent') + ' copy').slice(0, 80);
+          c.description = a.descriptionDraft || (a.config && a.config.description) || '';
+          const caps = a.caps && a.caps.effective;
+          if (caps && Array.isArray(caps.skills)) {
+            caps.skills.forEach(s => { if (s && s.name) c.selected[s.name] = true; });
+          }
+          this.goTo('#/create-agent');
+          this.caLoadSkills();
+          try {
+            await this.caLoadMcps();
+            if (caps && Array.isArray(caps.mcp)) {
+              const want = new Set(caps.mcp.map(m => m && m.name).filter(Boolean));
+              (c.mcps || []).forEach(m => { if (want.has(m.name)) c.mcpSelected[this.caMcpKey(m)] = true; });
+            }
+          } catch (e) { /* catalog load already toasts */ }
         },
         caReset() {
           this.createAgent = {
