@@ -22114,15 +22114,27 @@ function _meAiDoggedClause() {
     `  search GitHub org-wide (not just the local clone), Azure DevOps, connected MCP`,
     `  servers, and the web. A PR/file/repo not being in the local checkout is a starting`,
     `  point for the hunt, not a dead end — locate where it actually lives and read it there.`,
+    `- If the source you need is not in the local checkout, GET it: clone the repo or create`,
+    `  a git worktree of the relevant branch in your working directory and work THERE. "It's`,
+    `  an external repo / a different ADO project, not a local bug" is NOT a valid place to`,
+    `  stop — check it out and reproduce it there. Record any worktree/clone you create as an`,
+    `  artifact (path + what it is) so it can be cleaned up later.`,
     `- Never quit at the first locked door. If one path is blocked, try another angle,`,
     `  another tool, another identifier. Only report a blocker after the alternatives fail.`,
     `- If you're missing a capability (access, a credential, an MCP/tool, or a skill), do`,
     `  NOT file that as a finished result. First try to unblock yourself with what's`,
-    `  available (e.g. delegate to a registered specialist agent whose scope covers it, or`,
-    `  stand up an agent equipped with the needed skill/MCP and run it). If you still can't,`,
-    `  raise it as a gated action/decision naming EXACTLY what would unblock you (e.g. "grant`,
-    `  ADO read on org X", "add the Azure DevOps MCP", "spin up a review agent with access to`,
-    `  <repo>") so I can approve it in one click — never a flat "cannot".`,
+    `  available: delegate to a registered specialist agent whose scope covers it, or browse`,
+    `  the MARKETPLACE and CREATE a purpose-built agent equipped with the needed skill/MCP`,
+    `  and run it (list any agent you create as an artifact so it can be torn down when done).`,
+    `  If you still can't, raise it as a gated action/decision naming EXACTLY what would`,
+    `  unblock you (e.g. "grant ADO read on org X", "add the Azure DevOps MCP", "spin up a`,
+    `  review agent with access to <repo>") so I can approve it in one click — never a flat "cannot".`,
+    `- If the literal task turns out to be genuinely blocked or already resolved, do NOT just`,
+    `  stop: re-read the underlying WORK-ITEM requirements and propose the most useful`,
+    `  constructive work you CAN do toward the goal — e.g. a missing test/validation harness,`,
+    `  documentation, a metric/measurement, or a follow-on change — and offer to do it. A`,
+    `  dead end is only acceptable after you have both exhausted the direct path AND have no`,
+    `  constructive alternative that advances the goal.`,
   ];
 }
 
@@ -22361,7 +22373,7 @@ async function _meAiRunLeg(t, leg) {
 // file edits + tests/build/local-git but still BLOCKS external push/PR/mcp writes —
 // the PR push itself stays a separate, explicitly-approved external action.
 const _MEAI_DELIVERY_PHASES = [
-  { key: 'repro', title: 'Reproduce & measure', ask: 'Establish a concrete reproduction of the problem and capture the BEFORE state (a failing test, the exact error, or a measurable metric). If you genuinely cannot reproduce it, say so honestly and stop — do not proceed on a guess.' },
+  { key: 'repro', title: 'Reproduce & measure', ask: 'Establish a concrete reproduction of the problem and capture the BEFORE state (a failing test, the exact error, or a measurable metric). If the code/repo you need is not checked out here, clone it or create a git worktree and reproduce it THERE — "it lives in another repo/ADO project" is not a reason to stop. Only if you genuinely cannot reproduce it even after checking out the real source should you say so honestly — and then pivot to the most useful constructive work toward the goal (a validation harness, docs, a metric, or a follow-on change) rather than dead-ending.' },
   { key: 'implement', title: 'Implement the fix', ask: 'Make the smallest correct code change that fixes the confirmed problem. Edit the actual files in your working directory. Do NOT push, open a PR, or take any external action.' },
   { key: 'critique', title: 'Self-critique', ask: 'Critically review your OWN change for correctness, code quality, scalability, performance, and side-effects. Fix any real issues you find now. Be honest about tradeoffs and any residual risk.' },
   { key: 'validate', title: 'Validate & measure', ask: 'Validate the fix: run the relevant tests/build, confirm the reproduction from phase 1 now passes, and capture the AFTER state. Compare before vs after. If it does NOT actually fix the problem, say so honestly rather than declaring success.' },
@@ -22382,6 +22394,7 @@ function _meAiBuildLegPrompt(t, phase, priorSummary) {
     'You MAY read and EDIT local files and run local tests/build/git in your working directory.',
     'You MUST NOT push, open a PR, post comments, send mail, or take ANY external action — those are gated and require the user\u2019s explicit approval.',
     _meAiSteerBlock(t),
+    _meAiDoggedClause().join('\n'),
     'End your reply with a fenced ```json block: {"summary": string, "confidence":"high|medium|low", "outcome":"done|dead-end|needs-info", "findings":[{"claim":string,"confidence":string}], "question": string|null}',
   ].filter(Boolean).join('\n\n');
 }
@@ -22971,11 +22984,23 @@ function _meAiReconcileAsks(t, tree) {
     const openAuth = (tree.stops || []).filter(s => s && s.status === 'open' && s.type === 'needs-auth' && s.action);
     if (openAuth.length) {
       const s = openAuth[0]; const a = s.action || {};
-      t.nextActions = [
-        { label: 'Approve: ' + (a.op || 'action'), intent: 'approve', primary: true, risk: a.risk === 'external' ? 'external' : 'write', detail: a.summary || s.prompt || '', _stopId: s.id },
-        { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: s.id },
-        { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' },
-      ];
+      const isDelivery = !!(s.delivery || a.op === 'deliver');
+      if (isDelivery) {
+        // A delivery offer mirrors the merge report EXACTLY: the headline is
+        // "execute", not a generic "Approve: deliver" + "Deny". Both options are
+        // approve-intent so the shown recommendation can never read as "Abandon"
+        // while the report body still offers to implement the fix.
+        t.nextActions = [
+          { label: 'Execute the fix', intent: 'approve', primary: true, risk: 'write', detail: a.summary || s.prompt || '', _stopId: s.id },
+          { label: 'Just give me the report', intent: 'approve', primary: false, risk: 'none' },
+        ];
+      } else {
+        t.nextActions = [
+          { label: 'Approve: ' + (a.op || 'action'), intent: 'approve', primary: true, risk: a.risk === 'external' ? 'external' : 'write', detail: a.summary || s.prompt || '', _stopId: s.id },
+          { label: 'Deny', intent: 'abandon', primary: false, risk: 'none', _stopId: s.id },
+          { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' },
+        ];
+      }
       t.question = null;
     } else {
       const openInfo = (tree.stops || []).filter(s => s && s.status === 'open' && s.type !== 'needs-auth');
@@ -22986,6 +23011,20 @@ function _meAiReconcileAsks(t, tree) {
       t.question = openInfo.length ? (openInfo[0].prompt || t.question || null) : null;
     }
     _meAiFilterDeclined(t);
+    // Guard: if declining stripped the approve, a paired "Deny"/abandon must not
+    // survive as the ONLY (and therefore headline) recommendation — that reads as
+    // "recommended next: Abandon" while the report body still offers to act. When no
+    // approve/act option remains, fall back to a neutral finish/continue pair.
+    if (Array.isArray(t.nextActions)) {
+      const hasApprove = t.nextActions.some(a => a && (a.risk === 'write' || a.risk === 'external' || (a.intent === 'approve' && a.primary)));
+      const onlyAbandon = t.nextActions.length && t.nextActions.every(a => a && (a.intent === 'abandon' || a.intent === 'deny'));
+      if (!hasApprove || onlyAbandon) {
+        t.nextActions = [
+          { label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' },
+          { label: 'Continue', intent: 'continue', primary: false, risk: 'none' },
+        ];
+      }
+    }
     try { _meAiEmit(t, { kind: 'report', summary: (t.report && t.report.summary) || '', findings: (t.report && t.report.findings) || [] }); } catch (_) {}
   } catch (_) { /* best-effort */ }
 }

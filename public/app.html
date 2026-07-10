@@ -2825,8 +2825,14 @@
     .lmap-canvas { display:flex; align-items:flex-start; gap:0; width:max-content; min-width:100%; transform-origin:top left; }
     .lmap-seg { display:contents; }
     .lmap-col { display:flex; flex-direction:column; gap:22px; flex:0 0 auto; }
-    .lmap-gap { display:flex; flex-direction:column; justify-content:center; gap:16px; flex:0 0 100px; align-self:stretch; padding:0 4px; }
-    .lmap-node { width:340px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-surface); overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.14); scroll-margin:18px; }
+    .lmap-gap { display:flex; flex-direction:column; justify-content:center; gap:18px; flex:0 0 96px; align-self:stretch; padding:0; }
+    /* Single edge: anchor the wire to the node HEADER line so it visibly links both nodes. */
+    .lmap-gap:has(.lmap-wirewrap:only-child) { justify-content:flex-start; padding-top:23px; }
+    .lmap-node { position:relative; width:var(--lmap-node-w, 340px); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-surface); overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.14); scroll-margin:18px; }
+    .lmap-nresize { position:absolute; top:0; right:0; width:10px; height:100%; cursor:ew-resize; z-index:3; touch-action:none; }
+    .lmap-nresize::after { content:''; position:absolute; top:50%; right:3px; transform:translateY(-50%); width:3px; height:36px; border-radius:2px; background:var(--cp-border-strong); opacity:0; transition:opacity .12s ease; }
+    .lmap-node:hover .lmap-nresize::after, .lmap-nresize:active::after { opacity:.65; }
+    @media (prefers-reduced-motion: reduce){ .lmap-nresize::after { transition:none; } }
     .lmap-node.success { border-color:color-mix(in srgb,var(--cp-success) 45%,var(--cp-border)); }
     .lmap-node.failed, .lmap-node.error { border-color:color-mix(in srgb,var(--cp-danger) 60%,var(--cp-border)); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-danger) 15%,transparent); }
     .lmap-node.running { border-color:color-mix(in srgb,var(--cp-warning) 55%,var(--cp-border)); }
@@ -2839,6 +2845,12 @@
     .lmap-nbody { padding:11px 13px; }
     .lmap-fail { display:flex; flex-direction:column; gap:3px; margin-bottom:10px; padding:8px 10px; border:1px solid color-mix(in srgb,var(--cp-danger) 45%,var(--cp-border)); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:color-mix(in srgb,var(--cp-danger) 8%,var(--cp-surface)); font-size:12px; color:var(--cp-text-soft); }
     .lmap-fail strong { font-size:10px; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-danger); }
+    .lmap-failbar { display:flex; gap:11px; align-items:flex-start; margin:0 0 12px; padding:12px 14px; border:1px solid color-mix(in srgb,var(--cp-danger) 45%,var(--cp-border)); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:color-mix(in srgb,var(--cp-danger) 7%,var(--cp-surface)); }
+    .lmap-failbar-icon { flex:0 0 auto; font-size:16px; line-height:1.3; color:var(--cp-danger); }
+    .lmap-failbar-body { min-width:0; }
+    .lmap-failbar-t { font-size:13px; font-weight:700; color:var(--cp-text); }
+    .lmap-failbar-c { font-size:12px; color:var(--cp-text-soft); margin-top:4px; line-height:1.4; }
+    .lmap-zsep { width:1px; height:16px; background:var(--cp-border); margin:0 3px; align-self:center; }
     .lmap-out { font-size:12.5px; max-height:none; overflow:visible; }
     /* Node output must fully expand — never scroll inside a node (pan the canvas instead).
        Needs the compound selector to beat the later base .md-output cap (max-height:300px). */
@@ -2846,12 +2858,13 @@
     .lmap-trace { margin-top:10px; }
     .lmap-trace .live-stream-pre { max-height:none; overflow:visible; }
     .lmap-nfoot { margin-top:10px; font-size:11px; color:var(--cp-text-muted); }
-    /* Connectors — condition on the wire between columns */
-    .lmap-wirewrap { display:flex; flex-direction:column; align-items:center; gap:5px; }
-    .lmap-condtag { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 7px); border:1px solid var(--cp-border-strong); background:var(--cp-surface); color:var(--cp-text-muted); white-space:nowrap; max-width:92px; overflow:hidden; text-overflow:ellipsis; }
+    /* Connectors — the wire spans the full gap so it touches BOTH nodes; the
+       condition chip floats above and the target label below so neither shifts the wire. */
+    .lmap-wirewrap { position:relative; width:100%; height:2px; }
+    .lmap-condtag { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 7px); border:1px solid var(--cp-border-strong); background:var(--cp-surface); color:var(--cp-text-muted); white-space:nowrap; max-width:150px; overflow:hidden; text-overflow:ellipsis; z-index:1; }
     .lmap-condtag.taken { border-color:color-mix(in srgb,var(--cp-success) 55%,var(--cp-border)); color:var(--cp-success); }
     .lmap-condtag.untaken { border-color:var(--cp-border); color:var(--cp-text-muted); opacity:.75; }
-    .lmap-wire { position:relative; width:80px; height:2px; background:var(--cp-border-strong); flex:0 0 auto; }
+    .lmap-wire { position:absolute; left:-1px; right:-1px; top:0; height:2px; background:var(--cp-border-strong); }
     .lmap-wire::after { content:''; position:absolute; right:-1px; top:50%; transform:translateY(-50%); border-top:5px solid transparent; border-bottom:5px solid transparent; border-left:8px solid var(--cp-border-strong); }
     .lmap-wirewrap.taken .lmap-wire { background:var(--cp-accent); height:2.5px; }
     .lmap-wirewrap.taken .lmap-wire::after { border-left-color:var(--cp-accent); }
@@ -2859,8 +2872,8 @@
     .lmap-wirewrap.blocked .lmap-wire::after { border-left-color:var(--cp-danger); }
     .lmap-wirewrap.untaken .lmap-wire { background:color-mix(in srgb,var(--cp-border-strong) 70%,transparent); opacity:.55; }
     .lmap-wirewrap.untaken .lmap-wire::after { border-left-color:color-mix(in srgb,var(--cp-border-strong) 70%,transparent); opacity:.55; }
-    .lmap-wto { font-size:9.5px; color:var(--cp-text-muted); opacity:.75; max-width:96px; text-align:center; line-height:1.25; }
-    @media (max-width:760px){ .lmap-node { width:264px; } .lmap-stage { height:auto; min-height:auto; max-height:70vh; touch-action:auto; } }
+    .lmap-wto { position:absolute; left:50%; top:8px; transform:translateX(-50%); font-size:9.5px; color:var(--cp-text-muted); opacity:.75; max-width:120px; text-align:center; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    @media (max-width:760px){ .lmap-node { width:var(--lmap-node-w, 264px); } .lmap-stage { height:auto; min-height:auto; max-height:70vh; touch-action:auto; } }
 
     /* Sleek mini-flow (list/detail card) */
     .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
@@ -19728,12 +19741,27 @@
                       <div class="lmap-bar">
                         <span class="lmap-hint">Runs left → right. Each node shows its full output; the condition rides the wire to the next node.</span>
                         <span class="lmap-zoom">
+                          <button class="btn ghost" type="button" @click="flowMapNodeBy(-40)" title="Narrower nodes">◧</button>
+                          <button class="btn ghost" type="button" @click="flowMapNodeBy(40)" title="Wider nodes">◨</button>
+                          <span class="lmap-zsep"></span>
                           <button class="btn ghost" type="button" @click="flowMapZoomBy(-1)" title="Zoom out">−</button>
                           <span class="lmap-zpct" x-text="Math.round(flowMapZoom * 100) + '%'"></span>
                           <button class="btn ghost" type="button" @click="flowMapZoomBy(1)" title="Zoom in">+</button>
                           <button class="btn ghost" type="button" @click="flowMapZoom = 1" title="Reset zoom">Reset</button>
                         </span>
                       </div>
+                      <template x-if="flowRunFailure().failed">
+                        <div class="lmap-failbar">
+                          <span class="lmap-failbar-icon">⚠</span>
+                          <div class="lmap-failbar-body">
+                            <div class="lmap-failbar-t" x-text="flowRunFailure().title"></div>
+                            <template x-for="(c, ci) in flowRunFailure().causes" :key="'lfc-' + ci">
+                              <div class="lmap-failbar-c" x-text="c"></div>
+                            </template>
+                            <div class="lmap-failbar-c" x-show="!flowRunFailure().causes.length && flowRunFailure().detail" x-text="flowRunFailure().detail"></div>
+                          </div>
+                        </div>
+                      </template>
                       <div class="lmap-stage" x-ref="lmapStage"
                            @wheel="flowMapWheel($event)"
                            @pointerdown="flowMapPanStart($event)"
@@ -19741,7 +19769,7 @@
                            @pointerup="flowMapPanEnd($event)"
                            @pointercancel="flowMapPanEnd($event)"
                            @pointerleave="flowMapPanEnd($event)">
-                        <div class="lmap-canvas" :style="'zoom:' + flowMapZoom">
+                        <div class="lmap-canvas" :style="'zoom:' + flowMapZoom + ';--lmap-node-w:' + flowMapNodeW + 'px'">
                           <template x-for="(seg, si) in flowRunMap().segments" :key="'lseg-' + si">
                             <div class="lmap-seg">
                               <template x-if="seg.type === 'col'">
@@ -19789,6 +19817,7 @@
                                           <button class="btn ghost" style="font-size:0.66rem;padding:2px 8px" type="button" @click="openShareModal(n.output, n.name + ' — output', 'run-output')">📤 Share</button>
                                         </div>
                                       </div>
+                                      <span class="lmap-nresize" @pointerdown="flowNodeResizeStart($event)" title="Drag to resize node width"></span>
                                     </section>
                                   </template>
                                 </div>
@@ -24946,6 +24975,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         flowRunSel: '',
         flowRunZoomLevel: 1,
         flowMapZoom: 1,
+        flowMapNodeW: (() => { try { const v = parseInt(localStorage.getItem('flow-map-node-w'), 10); return (v >= 260 && v <= 680) ? v : 340; } catch (_) { return 340; } })(),
         _lmapPan: null,
         _flowRunCanvas: null,
         chatPickerOpen: false,
@@ -51919,13 +51949,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         async openChainRun(chainId, runId) {
-          try {
-            const fresh = await this.request('/api/chain-runs/' + encodeURIComponent(runId));
+          // A run fetch can hit a brief network gap (server restarting, laptop waking,
+          // config-sync leader handoff). A single "Failed to fetch" shouldn't dead-end the
+          // click — retry once after a short beat, then surface an actionable message.
+          const fetchRun = () => this.request('/api/chain-runs/' + encodeURIComponent(runId));
+          const apply = (fresh) => {
             this.chainRunState[chainId] = fresh;
             this.chainRunState = { ...this.chainRunState };
             const chain = this.data.chains.find(c => c.id === chainId);
             if (chain) this.$nextTick(() => { this.renderChainDiagram(chain); this._flowRunRepaint(); });
-          } catch (e) { this.showToast('Could not load run', e.message, 'error'); }
+          };
+          try {
+            apply(await fetchRun());
+          } catch (e) {
+            const raw = String((e && e.message) || e || '');
+            const transient = !e || e.status === 0 || /failed to fetch|networkerror|load failed/i.test(raw);
+            if (transient) {
+              await new Promise(r => setTimeout(r, 900));
+              try { apply(await fetchRun()); return; }
+              catch (e2) {
+                this.showToast('Could not load run', 'The server didn’t respond — it may be restarting. Try that run again in a moment.', 'error');
+                return;
+              }
+            }
+            this.showToast('Could not load run', raw || 'Unknown error', 'error');
+          }
         },
 
         renderChainDiagram(chain, containerId) {
@@ -52282,6 +52330,74 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         flowMapZoomBy(dir) {
           const z = Math.min(1.6, Math.max(0.5, (Number(this.flowMapZoom) || 1) + (dir > 0 ? 0.1 : -0.1)));
           this.flowMapZoom = Math.round(z * 100) / 100;
+        },
+        flowMapNodeBy(delta) {
+          const w = Math.min(680, Math.max(260, (Number(this.flowMapNodeW) || 340) + delta));
+          this.flowMapNodeW = w;
+          try { localStorage.setItem('flow-map-node-w', String(w)); } catch (_) {}
+        },
+        // Drag a node's right edge to set the (uniform) node width across the storyline.
+        flowNodeResizeStart(ev) {
+          if (ev.button !== undefined && ev.button !== 0) return;
+          ev.preventDefault(); ev.stopPropagation();
+          const startX = ev.clientX;
+          const startW = Number(this.flowMapNodeW) || 340;
+          const zoom = Number(this.flowMapZoom) || 1;
+          const move = (e) => {
+            const w = Math.min(680, Math.max(260, startW + (e.clientX - startX) / zoom));
+            this.flowMapNodeW = Math.round(w);
+          };
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            try { localStorage.setItem('flow-map-node-w', String(this.flowMapNodeW)); } catch (_) {}
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        },
+        // Surfaces WHY a run failed. The stopping edge (evaluated:false) and its reason
+        // live on the edge, and the un-run downstream node stays 'pending' (excluded from
+        // the storyline), so without this the failure is invisible on the map.
+        flowRunFailure() {
+          const chain = this.detailChain && this.detailChain(); if (!chain) return { failed: false, causes: [] };
+          const run = this.chainRunState[chain.id]; if (!run) return { failed: false, causes: [] };
+          const status = String(run.status || '').toLowerCase();
+          if (status !== 'failed' && status !== 'error') return { failed: false, causes: [] };
+          const steps = chain.steps || [];
+          const byId = {}; steps.forEach(s => { byId[s.id] = s; });
+          const nm = (id) => byId[id] ? this.flowStepName(byId[id]) : id;
+          const nodes = run.nodes || {};
+          const causes = [];
+          // 1) Any node that actually failed/errored.
+          steps.forEach(s => {
+            const n = nodes[s.id]; if (!n) return;
+            const st = String(n.status || '').toLowerCase();
+            if (st === 'failed' || st === 'error') {
+              causes.push('“' + nm(s.id) + '” ' + (st === 'error' ? 'errored' : 'failed') + (n.reason ? ': ' + n.reason : '.'));
+            }
+          });
+          // 2) A condition that evaluated false and stopped the chain (source ran, target never did).
+          const evalMap = {};
+          const collect = (arr) => (arr || []).forEach(e => {
+            if (!e || e.from == null || e.to == null) return;
+            const k = e.from + '\u0000' + e.to;
+            if (!(k in evalMap) || e.evaluated !== undefined) evalMap[k] = { evaluated: e.evaluated, reason: e.reason };
+          });
+          collect(chain.edges); collect(run.edges);
+          (chain.edges || []).forEach(e => {
+            if (!e || e.from == null || e.to == null) return;
+            const ev = evalMap[e.from + '\u0000' + e.to] || {};
+            if (ev.evaluated !== false) return;
+            const src = nodes[e.from];
+            const tgt = nodes[e.to];
+            const srcOk = src && String(src.status || '').toLowerCase() === 'succeeded';
+            const tgtRan = tgt && String(tgt.status || '').toLowerCase() !== 'pending' && tgt.status;
+            if (srcOk && !tgtRan) {
+              causes.push('The condition after “' + nm(e.from) + '” didn’t pass, so “' + nm(e.to) + '” didn’t run' + (ev.reason ? ' — ' + ev.reason : '.'));
+            }
+          });
+          const title = causes.length ? 'This run stopped early.' : 'This run failed.';
+          return { failed: true, title, detail: run.error || run.reason || '', causes };
         },
         // Living-map wheel zoom, anchored to the cursor so the point under the pointer
         // stays put. CSS `zoom` scales layout, so scroll coords scale with it.
