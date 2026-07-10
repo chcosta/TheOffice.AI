@@ -2511,9 +2511,9 @@
     .flow-wires .fw-line.sel { stroke:var(--cp-accent); }
     .flow-wires .fw-lbl { font-size:11px; font-weight:700; }
     .flow-wires .fw-lbl-bg { fill:var(--cp-bg-elevated); stroke:var(--cp-border); }
-    .flow-canvas .fw-lbl-html { position:absolute; transform:translate(-50%,-50%); z-index:6; font:inherit; font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text); cursor:pointer; white-space:nowrap; box-shadow:0 1px 3px rgba(0,0,0,.16); transition:border-color .12s, color .12s, box-shadow .12s; }
-    .flow-canvas .fw-lbl-html:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
-    .flow-canvas .fw-lbl-html.sel { border-color:var(--cp-accent); color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft); }
+    .flow-canvas .fw-lbl-html { position:absolute; transform:translate(-50%,-50%); z-index:12; font:inherit; font-size:11px; font-weight:700; padding:4px 11px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); border:1px solid var(--cp-border-strong); background:var(--cp-surface); color:var(--cp-text); cursor:pointer; white-space:nowrap; box-shadow:0 2px 8px rgba(0,0,0,.22); transition:border-color .12s, color .12s, box-shadow .12s; }
+    .flow-canvas .fw-lbl-html:hover { border-color:var(--cp-accent); color:var(--cp-accent); box-shadow:0 3px 12px rgba(0,0,0,.26); }
+    .flow-canvas .fw-lbl-html.sel { border-color:var(--cp-accent); color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft), 0 2px 8px rgba(0,0,0,.22); }
     .flow-canvas .fw-lbl-html.ai { color:var(--cp-accent); border-color:color-mix(in srgb,var(--cp-accent) 40%,transparent); }
     .flow-empty-hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; text-align:center; color:var(--cp-text-muted); pointer-events:none; padding:0 30px; }
     .flow-empty-hint > div:first-child { font-size:26px; }
@@ -2558,7 +2558,18 @@
     .flow-tip .ft-prompt { font-size:11.5px; font-family:Consolas,"Courier New",monospace; color:var(--cp-text-soft); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:7px 8px; margin-top:8px; line-height:1.4; max-height:120px; overflow:hidden; white-space:pre-wrap; }
 
     /* ===== Flow run monitor (read-only run graph + inspector) ===== */
-    .flow-run { display:grid; grid-template-columns:1fr 340px; gap:14px; align-items:stretch; }
+    .flow-run { display:grid; grid-template-columns:210px 1fr 340px; gap:14px; align-items:stretch; }
+    /* Runs rail */
+    .flow-runs-rail { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-bg-elevated); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+    .flow-runs-rail .fruns-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--cp-border); font-size:12px; font-weight:700; color:var(--cp-text); }
+    .flow-runs-rail .fruns-list { flex:1; overflow:auto; min-height:0; padding:6px; display:flex; flex-direction:column; gap:5px; }
+    .flow-runs-rail .fruns-item { display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left; width:100%; padding:8px 10px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 9px); background:var(--cp-surface); color:var(--cp-text); cursor:pointer; font:inherit; transition:border-color .12s, background .12s; }
+    .flow-runs-rail .fruns-item:hover { border-color:var(--cp-accent); }
+    .flow-runs-rail .fruns-item.on { border-color:var(--cp-accent); box-shadow:inset 0 0 0 1px var(--cp-accent); }
+    .flow-runs-rail .fruns-item.live { border-style:dashed; }
+    .flow-runs-rail .fruns-when { font-size:11.5px; color:var(--cp-text-muted); }
+    .flow-runs-rail .fruns-trig { font-size:11px; color:var(--cp-text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+    .flow-runs-rail .fruns-empty { padding:14px 12px; font-size:12px; color:var(--cp-text-muted); line-height:1.5; }
     .flow-run-graph { position:relative; height:min(62vh,560px); min-height:360px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); overflow:hidden; background:radial-gradient(circle at 1px 1px, color-mix(in srgb,var(--cp-border-strong) 55%,transparent) 1px, transparent 0) 0 0/22px 22px, var(--cp-bg); touch-action:none; cursor:grab; }
     .flow-run-graph.panning { cursor:grabbing; }
     .frx-canvas { position:absolute; top:0; left:0; width:1px; height:1px; transform-origin:0 0; }
@@ -2591,7 +2602,7 @@
     .frx-arrow.taken { fill:var(--cp-accent); }
     .frx-arrow.blocked { fill:var(--cp-danger); }
     .frx-arrow.dim { fill:color-mix(in srgb,var(--cp-border) 75%,transparent); }
-    .frx-lbl { position:absolute; transform:translate(-50%,-50%); z-index:6; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 7px); border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); white-space:nowrap; pointer-events:none; box-shadow:0 1px 2px rgba(0,0,0,.12); }
+    .frx-lbl { position:absolute; transform:translate(-50%,-50%); z-index:12; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:calc(var(--cp-radius-scale, 1) * 7px); border:1px solid var(--cp-border-strong); background:var(--cp-surface); color:var(--cp-text-muted); white-space:nowrap; pointer-events:none; box-shadow:0 2px 8px rgba(0,0,0,.20); }
     .frx-lbl.taken { border-color:var(--cp-accent); color:var(--cp-accent); }
     .frx-lbl.blocked { border-color:var(--cp-danger); color:var(--cp-danger); }
     .flow-run-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; text-align:center; color:var(--cp-text-muted); pointer-events:none; padding:0 30px; }
@@ -2607,8 +2618,7 @@
     .fri-row .fri-v { color:var(--cp-text); flex:1; min-width:0; word-break:break-word; }
     .flow-run-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
     .flow-run-bar .frb-runs { display:flex; align-items:center; gap:6px; margin-left:auto; }
-    .flow-run-bar select.frb-sel { font:inherit; font-size:12.5px; padding:6px 9px; border-radius:calc(var(--cp-radius-scale, 1) * 9px); border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); max-width:280px; }
-    @media (max-width:900px){ .flow-run { grid-template-columns:1fr; } .flow-run-graph { height:46vh; } }
+    @media (max-width:900px){ .flow-run { grid-template-columns:1fr; } .flow-run-graph { height:46vh; } .flow-runs-rail .fruns-list { max-height:200px; } }
 
     /* Sleek mini-flow (list/detail card) */
     .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
@@ -18408,6 +18418,22 @@
                           </div>
                         </div>
 
+                        <!-- Summary row: last run + result -->
+                        <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))">
+                          <div class="task-meta-item">
+                            <span class="meta-label">Last run</span>
+                            <span x-text="chainLastRun(chain) ? formatRelative(chainLastRun(chain).finished_at || chainLastRun(chain).finishedAt || chainLastRun(chain).started_at || chainLastRun(chain).startedAt) : 'Never'"></span>
+                          </div>
+                          <div class="task-meta-item" x-show="chainLastRun(chain)">
+                            <span class="meta-label">Result</span>
+                            <span class="status-badge" style="font-size:0.72rem" :class="statusClass(chainLastRun(chain)?.status || 'idle')" x-text="statusLabel(chainLastRun(chain)?.status || 'idle')"></span>
+                          </div>
+                          <div class="task-meta-item" x-show="chainLastRun(chain)">
+                            <span class="meta-label">Duration</span>
+                            <span x-text="chainLastRun(chain) ? formatDuration(durationBetween(chainLastRun(chain).started_at || chainLastRun(chain).startedAt, chainLastRun(chain).finished_at || chainLastRun(chain).finishedAt)) : '—'"></span>
+                          </div>
+                        </div>
+
                         <!-- Inline flow visualization -->
                         <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))"></div>
                       </article>
@@ -19672,23 +19698,38 @@
                 <div class="flow-run-bar">
                   <span class="field-label" style="margin:0">Run monitor</span>
                   <span class="status-badge" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
-                  <span class="hint" x-text="chainRunState[detailChain().id] ? formatRelative(chainRunState[detailChain().id].startedAt) : 'No run in this session'"></span>
                   <span class="frx-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
                   <div class="frb-runs">
-                    <select class="frb-sel" x-show="(chainRuns[detailChain().id] || []).length"
-                            @change="if ($event.target.value) openChainRun(detailChain().id, $event.target.value)">
-                      <option value="">Jump to a past run…</option>
-                      <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'dsel-' + r.id">
-                        <option :value="r.id" x-text="(r.status || '') + ' · ' + formatDateTime(r.started_at || r.startedAt) + (r.trigger ? (' · ' + r.trigger) : '')"></option>
-                      </template>
-                    </select>
-                    <button class="btn ghost" style="font-size:0.72rem" type="button" @click="loadChainRuns(detailChain().id)" title="Load run history">📊 History</button>
-                    <button class="btn ghost" style="font-size:0.72rem" type="button" @click="refreshChainRun(detailChain())">↻ Refresh</button>
+                    <button class="btn ghost" style="font-size:0.72rem" type="button" @click="loadChainRuns(detailChain().id)" title="Reload run history">↻ Refresh runs</button>
                   </div>
                 </div>
 
-                <!-- Run monitor: two-pane graph + inspector -->
+                <!-- Run monitor: runs rail + graph + inspector -->
                 <div class="flow-run">
+                  <div class="flow-runs-rail">
+                    <div class="fruns-head">
+                      <span>Runs</span>
+                      <span class="hint" x-text="(chainRuns[detailChain().id] || []).length || ''"></span>
+                    </div>
+                    <div class="fruns-list">
+                      <template x-if="chainRunState[detailChain().id] && !(chainRuns[detailChain().id] || []).some(r => String(r.id) === String(chainRunState[detailChain().id].id))">
+                        <button type="button" class="fruns-item live" @click="refreshChainRun(detailChain())">
+                          <span class="status-badge" style="font-size:0.66rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                          <span class="fruns-when">This session · <span x-text="formatRelative(chainRunState[detailChain().id].startedAt)"></span></span>
+                        </button>
+                      </template>
+                      <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'drail-' + r.id">
+                        <button type="button" class="fruns-item" :class="{ on: String(chainRunState[detailChain().id]?.id) === String(r.id) }" @click="openChainRun(detailChain().id, r.id)">
+                          <span class="status-badge" style="font-size:0.66rem" :class="statusClass(r.status)" x-text="r.status"></span>
+                          <span class="fruns-when" x-text="formatRelative(r.started_at || r.startedAt)"></span>
+                          <span class="fruns-trig" x-show="r.trigger" x-text="r.trigger"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <div class="fruns-empty" x-show="!(chainRuns[detailChain().id] || []).length && !chainRunState[detailChain().id]">
+                      No runs yet. Click <strong>▶ Run</strong> to start this flow.
+                    </div>
+                  </div>
                   <div class="flow-run-graph" id="flow-run-wrap">
                     <div class="frx-canvas" id="flow-run-canvas"></div>
                     <svg class="frx-wires" id="flow-run-wires"></svg>
@@ -19742,7 +19783,10 @@
                             </div>
                           </template>
                           <template x-if="!chainRunState[detailChain().id]">
-                            <div class="flow-insp-empty">This flow has not run in this session.<br>Click <strong>▶ Run</strong> to start it, or load a past run from the bar above.</div>
+                            <div class="flow-insp-empty" x-show="(chainRuns[detailChain().id] || []).length">Select a run from the left, then click any task to trace its status, timing and output.</div>
+                          </template>
+                          <template x-if="!chainRunState[detailChain().id]">
+                            <div class="flow-insp-empty" x-show="!(chainRuns[detailChain().id] || []).length">This flow has not run yet.<br>Click <strong>▶ Run</strong> to start it.</div>
                           </template>
                         </div>
                       </div>
@@ -19775,19 +19819,6 @@
                 </div>
 
                 <!-- Recent runs -->
-                <div style="margin-top:16px">
-                  <div class="field-label"><span>Recent runs</span><span class="hint">Load a past run to inspect its output.</span></div>
-                  <div class="run-list" style="margin-top:6px" x-show="(chainRuns[detailChain().id] || []).length">
-                    <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'dhist-' + r.id">
-                      <div class="run-item" style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="openChainRun(detailChain().id, r.id)">
-                        <span class="status-badge" style="font-size:0.7rem" :class="statusClass(r.status)" x-text="r.status"></span>
-                        <span x-text="formatDateTime(r.started_at || r.startedAt)"></span>
-                        <span class="hint" x-text="r.trigger ? ('· ' + r.trigger) : ''"></span>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="hint" x-show="!(chainRuns[detailChain().id] || []).length">No runs loaded yet. <a href="#" @click.prevent="loadChainRuns(detailChain().id)" style="color:var(--cp-link)">Load history</a></div>
-                </div>
               </div>
             </template>
           </section>
@@ -51112,7 +51143,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const chains = await this.request('/api/chains');
             this.data.chains = Array.isArray(chains) ? chains : [];
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
+            // Lazy-load run history so the list can surface last-run + result.
+            this.data.chains.forEach(c => { if (this.chainRuns[c.id] === undefined) { this.chainRuns[c.id] = []; this.loadChainRuns(c.id); } });
           } catch (e) { /* ignore */ }
+        },
+
+        // Latest run for a flow (used by the list card meta-row). Runs come back
+        // newest-first from loadChainRuns.
+        chainLastRun(chain) {
+          if (!chain) return null;
+          return (this.chainRuns[chain.id] || [])[0] || null;
         },
 
         chainScheduleSummary(chain) {
