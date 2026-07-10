@@ -27341,6 +27341,49 @@ function _devPersonaCatalog() {
   return { personas: builtins, playbooks };
 }
 
+// Deterministic, signal-based agent recommendation for a dev card. Reads the work
+// item (type / title / description / area / tags) plus the card fields and returns
+// a ranked list of personas, each with a plain-language rationale, a text
+// confidence ('high' | 'medium'), and an `autoAdd` flag for the truly-obvious
+// high-confidence ones. No LLM — cheap, stable, and explainable. Personas already
+// on the card are skipped so a re-run never re-suggests what's applied.
+function _recommendDevAgents(d, wi) {
+  wi = wi || (d && d.workItem) || {};
+  const tags = Array.isArray(wi.tags) ? wi.tags.join(' ') : (wi.tags || '');
+  const hay = [wi.title, wi.description, wi.type, (d && d.title), tags,
+    wi.areaPath || (d && d.areaPath)].filter(Boolean).join(' \n ').toLowerCase();
+  const has = (re) => re.test(hay);
+  const roster = new Set((Array.isArray(d && d.devAgents) ? d.devAgents : []).map(r => r.persona));
+  const recs = [];
+  const push = (id, confidence, autoAdd, why) => {
+    if (roster.has(id) || recs.some(r => r.persona === id)) return;
+    const p = DEV_AGENT_PERSONA_MAP[id];
+    if (!p) return;
+    recs.push({
+      persona: id, label: p.label, emoji: p.emoji, gradFrom: p.gradFrom, gradTo: p.gradTo,
+      readOnly: !!p.readOnly, confidence, autoAdd: !!autoAdd, why,
+    });
+  };
+  const sec = has(/\b(auth|authn|authz|token|oauth|login|logout|credential|secret|password|session|permission|privilege|vuln|cve|exploit|inject|xss|csrf|ssrf|crypto|encrypt|decrypt|sanitiz|escap)/);
+  if (sec) push('security-review', 'high', true, 'Touches <b>auth / security-sensitive</b> code — a common place for exploitable bugs. Read-only; won\'t change your code.');
+  const perf = has(/\b(perf|performance|latency|throughput|slow|slower|regress|optimi[sz]e|memory|allocation|cpu|hot ?path|benchmark|scale|scaling|bottleneck)/);
+  if (perf) push('performance', 'high', true, 'Mentions <b>performance</b> work — worth a measured before→after so the change is proven, not assumed.');
+  const obs = has(/\b(telemetry|metric|observab|logging|monitor|alert|dashboard|trace|instrument|health.?check|health.?signal|diagnostic)/);
+  if (obs) push('observability', 'high', true, 'This is about <b>observability</b> — add the logs / metrics / health signal so the change is measurable in prod.');
+  const docs = has(/\b(documentation|readme|changelog|release.?note|user.?guide|tutorial|wiki|docs?\b)/);
+  if (docs) push('documentation', 'high', true, 'A <b>documentation</b>-oriented item — keep docs / changelog in step with the change.');
+  const chaos = has(/\b(race|concurren|deadlock|flaky|flake|reliab|resilien|fuzz|stress|failure|timeout|retr(y|ies)|chaos|robust)/);
+  if (chaos) push('chaos-monkey', 'medium', false, 'Reliability / concurrency risk — try to break it with fuzzing, races, and failure injection.');
+  const design = has(/\b(design|architect|refactor|approach|rewrite|migrat|redesign|proposal|rfc|new (system|service|component)|greenfield)/);
+  if (design) push('design-review', 'medium', false, 'Non-trivial design choice — weigh approaches and surface risks before coding.');
+  // Always-useful defaults for a real code change (suggested, never auto-added).
+  push('validation-qa', (sec || perf) ? 'high' : 'medium', false, 'Prove it works — tests, a baseline, and before→after evidence for the change.');
+  push('rubber-duck', 'medium', false, 'A demanding review pass for logic errors and edge-case bugs before it ships.');
+  const rank = c => (c === 'high' ? 0 : 1);
+  recs.sort((a, b) => (Number(b.autoAdd) - Number(a.autoAdd)) || (rank(a.confidence) - rank(b.confidence)));
+  return recs;
+}
+
 // Build the Markdown for a dev card's `.agent.md` (frontmatter + persona). No
 // `tools:` key ⇒ the agent is unrestricted. The persona forbids the agent from
 // ever committing/pushing its own definition.
@@ -27561,6 +27604,27 @@ function _persistDevAgentNames(ctx, written, extra) {
 app.get('/api/dev-agent-personas', (req, res) => {
   try { res.json(_devPersonaCatalog()); }
   catch (e) { res.status(500).json({ error: (e && e.message) || String(e) }); }
+});
+
+// Signal-based agent recommendations for a dev card. Read-only, deterministic (no
+// LLM); returns { recommendations: [...], roster: [...] } so the SPA can show the
+// "Me.AI recommends adding" strip. Optionally refreshes the work item first so
+// recommendations reflect the latest title/state.
+app.get('/api/boards/:id/dev-items/:devId/recommend-agents', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  let wi = d.workItem;
+  try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
+  try {
+    res.json({
+      ok: true,
+      recommendations: _recommendDevAgents(d, wi || d.workItem),
+      roster: Array.isArray(d.devAgents) ? d.devAgents : [],
+    });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || String(e) });
+  }
 });
 
 // Create a focused dev agent for a dev card by writing a `.github/agents/<name>.agent.md`

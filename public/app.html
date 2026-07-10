@@ -4022,6 +4022,26 @@
     .dagr-persona .ph .have { font-size:10px; font-weight:600; color:var(--cp-success); }
     .dagr-persona .pd { font-size:11px; color:var(--cp-text-muted); line-height:1.4; margin:0; }
     @media (prefers-reduced-motion: reduce) { .dagr-persona { transition:none; } }
+    /* ---- Me.AI agent recommendation strip (dc-autoadd) ---- */
+    .dcrec { border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-bg-elevated, var(--cp-bg)); padding:10px 12px; margin-bottom:10px; }
+    .dcrec-h { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .dcrec-h .t { font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--cp-text-muted); flex:1 1 auto; }
+    .dcrec-h .t b { color:var(--cp-accent); font-weight:700; }
+    .dcrec-refresh { font-size:11px; padding:2px 8px; color:var(--cp-text-muted); }
+    .dcrec-note { font-size:11px; color:var(--cp-text-muted); margin:-2px 0 8px; }
+    .dcrec-row { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-top:1px solid var(--cp-border); }
+    .dcrec-row:first-of-type { border-top:0; }
+    .dcrec-body { flex:1 1 auto; min-width:0; }
+    .dcrec-nm { font-size:12.5px; font-weight:600; color:var(--cp-text); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .dcrec-nm .ro { font-size:10px; font-weight:600; color:var(--cp-text-muted); }
+    .dcrec-why { font-size:11.5px; color:var(--cp-text-muted); line-height:1.45; margin:2px 0 3px; }
+    .dcrec-why b { color:var(--cp-text); font-weight:600; }
+    .dcrec-conf { font-size:11px; color:var(--cp-text-muted); }
+    .dcrec-conf.high { color:var(--cp-success); }
+    .dcrec-acts { flex:0 0 auto; display:flex; align-items:center; gap:4px; padding-top:1px; }
+    .dcrec-foot { display:flex; align-items:center; gap:14px; margin-top:8px; padding-top:8px; border-top:1px solid var(--cp-border); }
+    .dcrec-link { font-size:11.5px; color:var(--cp-accent); background:none; border:0; cursor:pointer; padding:0; }
+    .dcrec-link:hover { text-decoration:underline; }
     /* ---- Auto-create dev cards (Part A) ---- */
     .dac-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
     .dac-switch { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; white-space:nowrap; }
@@ -10315,7 +10335,32 @@
                                         </template>
 
                                         <!-- Card-level actions: write per-repo dev agents into every worktree. PRs are created per repo (in each slot above). -->
-                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                          <!-- Me.AI agent recommendations -->
+                                          <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
+                                            <div class="dcrec-h">
+                                              <span class="t"><b>✦ Me.AI</b> recommends adding</span>
+                                              <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
+                                            </div>
+                                            <template x-for="rec in devRecoList(d)" :key="rec.persona">
+                                              <div class="dcrec-row">
+                                                <span class="dagr-dot" :style="devAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
+                                                <span class="dcrec-body">
+                                                  <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
+                                                  <span class="dcrec-why" x-html="rec.why"></span>
+                                                  <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="devRecoConfLabel(rec)"></span>
+                                                </span>
+                                                <span class="dcrec-acts">
+                                                  <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="devAgentBusy[d.id+':'+rec.persona]" @click="addRecoAgent(d, rec)" x-text="devAgentBusy[d.id+':'+rec.persona] ? '…' : '＋ Add'"></button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissReco(d, rec)">Dismiss</button>
+                                                </span>
+                                              </div>
+                                            </template>
+                                            <div class="dcrec-foot">
+                                              <button class="dcrec-link" type="button" @click="addAllReco(d)">Add all recommended</button>
+                                              <button class="dcrec-link" type="button" @click="toggleDevPicker(d)">Browse all agents →</button>
+                                            </div>
+                                          </div>
                                           <div class="dagr-h">
                                             <span class="lbl">Agents on this card</span>
                                             <span class="cnt" x-show="(d.devAgents||[]).length" x-text="((d.devAgents||[]).length)+' '+((d.devAgents||[]).length===1?'agent':'agents')"></span>
@@ -11558,7 +11603,32 @@
                                             </div>
                                           </div>
                                         </template>
-                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                          <!-- Me.AI agent recommendations -->
+                                          <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
+                                            <div class="dcrec-h">
+                                              <span class="t"><b>✦ Me.AI</b> recommends adding</span>
+                                              <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
+                                            </div>
+                                            <template x-for="rec in devRecoList(d)" :key="rec.persona">
+                                              <div class="dcrec-row">
+                                                <span class="dagr-dot" :style="devAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
+                                                <span class="dcrec-body">
+                                                  <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
+                                                  <span class="dcrec-why" x-html="rec.why"></span>
+                                                  <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="devRecoConfLabel(rec)"></span>
+                                                </span>
+                                                <span class="dcrec-acts">
+                                                  <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="devAgentBusy[d.id+':'+rec.persona]" @click="addRecoAgent(d, rec)" x-text="devAgentBusy[d.id+':'+rec.persona] ? '…' : '＋ Add'"></button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissReco(d, rec)">Dismiss</button>
+                                                </span>
+                                              </div>
+                                            </template>
+                                            <div class="dcrec-foot">
+                                              <button class="dcrec-link" type="button" @click="addAllReco(d)">Add all recommended</button>
+                                              <button class="dcrec-link" type="button" @click="toggleDevPicker(d)">Browse all agents →</button>
+                                            </div>
+                                          </div>
                                           <div class="dagr-h">
                                             <span class="lbl">Agents on this card</span>
                                             <span class="cnt" x-show="(d.devAgents||[]).length" x-text="((d.devAgents||[]).length)+' '+((d.devAgents||[]).length===1?'agent':'agents')"></span>
@@ -24851,6 +24921,10 @@
         devPersonasLoaded: false,
         devPickerOpen: {},
         devAgentBusy: {},
+        // Me.AI agent recommendations per dev card: { suggest:[], loaded, busy }.
+        // High-confidence autoAdd personas are added silently; the rest surface here.
+        devRecos: {},
+        devRecoDismissed: {},
         // Per-slot commit-detail panel: open flag + loaded data keyed by slot.
         slotCommitsOpen: {},
         slotCommits: {},
@@ -48789,7 +48863,83 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } catch (e) { /* leave picker with a graceful empty state */ }
         },
-        // Push the branch and have AI open a nicely-formatted PR linked to this dev card.
+        // --- Me.AI agent recommendations for a dev card (dc-autoadd) --------------
+        // Fetch signal-based recommendations, silently add the truly-obvious
+        // (autoAdd:true) high-confidence personas when a worktree is ready, and
+        // keep the rest as dismissible suggestions in the .dcrec strip.
+        async recommendDevAgents(d, opts) {
+          if (!d) return;
+          opts = opts || {};
+          const st = this.devRecos[d.id] || { suggest: [], loaded: false, busy: false };
+          if (st.busy) return;
+          if (st.loaded && !opts.force) return;
+          st.busy = true;
+          this.devRecos[d.id] = st;
+          try {
+            const r = await this.request(this._devUrl(d, 'recommend-agents'));
+            const recos = (r && r.recommendations) || [];
+            // Silently add the truly-obvious high-confidence agents (once a worktree
+            // exists to write them into). The rest become suggestions.
+            const autoAdd = recos.filter(x => x && x.autoAdd && !this.devAgentHas(d, x.persona));
+            const ready = this.devReadyWorktrees(d) >= 1;
+            if (ready && autoAdd.length && !opts.noAuto) {
+              let added = 0;
+              for (const x of autoAdd) {
+                try { await this.createDevAgentQuiet(d, x.persona); added++; }
+                catch (e) { /* leave as a suggestion if the write fails */ }
+              }
+              if (added) this.showToast('Dev card', '🤖 Added ' + added + ' recommended ' + (added === 1 ? 'agent' : 'agents') + ' automatically — read-only, won\u2019t change code.', 'success');
+            }
+            const dismissed = this.devRecoDismissed[d.id] || {};
+            const addedAuto = ready && !opts.noAuto;
+            st.suggest = recos.filter(x => x && !this.devAgentHas(d, x.persona) && !dismissed[x.persona] && !(addedAuto && x.autoAdd));
+            st.loaded = true;
+          } catch (e) {
+            st.suggest = [];
+            st.loaded = true;
+          } finally {
+            st.busy = false;
+            this.devRecos[d.id] = { ...st };
+          }
+        },
+        // createDevAgent without the "worktree first" toast (used by auto-add, which
+        // already gates on a ready worktree).
+        async createDevAgentQuiet(d, personaId) {
+          const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: JSON.stringify({ persona: personaId, playbookId: '' }) });
+          if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+          return r;
+        },
+        // Add one recommended persona (respects the normal worktree gate + toast).
+        async addRecoAgent(d, rec) {
+          if (!d || !rec) return;
+          await this.createDevAgent(d, rec.persona);
+          const st = this.devRecos[d.id];
+          if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.devRecos[d.id] = { ...st }; }
+        },
+        // Add every remaining suggestion.
+        async addAllReco(d) {
+          const st = this.devRecos[d.id];
+          if (!d || !st || !(st.suggest || []).length) return;
+          const list = st.suggest.slice();
+          for (const rec of list) { await this.addRecoAgent(d, rec); }
+        },
+        // Dismiss a suggestion for this card (persists for the session so a refresh
+        // of recommendations doesn't resurface it).
+        dismissReco(d, rec) {
+          if (!d || !rec) return;
+          const dm = this.devRecoDismissed[d.id] || {};
+          dm[rec.persona] = true;
+          this.devRecoDismissed[d.id] = dm;
+          const st = this.devRecos[d.id];
+          if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.devRecos[d.id] = { ...st }; }
+        },
+        devRecoList(d) { return (d && this.devRecos[d.id] && this.devRecos[d.id].suggest) || []; },
+        devRecoBusy(d) { return !!(d && this.devRecos[d.id] && this.devRecos[d.id].busy); },
+        devRecoConfLabel(rec) {
+          if (!rec) return '';
+          if (rec.confidence === 'high') return rec.readOnly ? 'High confidence \u00b7 read-only, won\u2019t change code' : 'High confidence';
+          return 'Medium confidence \u00b7 optional';
+        },
         async createDevPr(d) {
           if (!d || this.devBusy[d.id]) return;
           if (!d.worktreePath) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
