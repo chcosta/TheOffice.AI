@@ -3343,6 +3343,12 @@
       transition: transform 160ms ease;
       transform: rotate(0deg);
     }
+    /* Recent-runs: whole row toggles; share reveals on hover; output not capped. */
+    .run-item.run-clickable { cursor: pointer; }
+    .run-item .run-share { opacity: 0; transition: opacity 140ms ease; }
+    .run-item:hover .run-share,
+    .run-item:focus-within .run-share { opacity: 1; }
+    .run-out .md-output { max-height: none; overflow: visible; }
     .row-chevron.open { transform: rotate(90deg); color: var(--cp-accent); }
     .item-row:hover,
     .timeline-item:hover,
@@ -17970,7 +17976,7 @@
                   <div x-show="execTaskRecent(5).length" style="display:flex;flex-direction:column;gap:2px">
                     <template x-for="a in execTaskRecent(5)" :key="a.id">
                       <a :href="a.route" class="exec-row">
-                        <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
+                        <span class="flow-stat" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
                         <span style="flex:1;min-width:0">
                           <span class="exec-row-name" x-text="a.entityName"></span>
                           <span class="hint" style="display:block;font-size:0.7rem" x-text="a.durationMs ? formatDuration(a.durationMs) : '—'"></span>
@@ -18006,7 +18012,7 @@
                   <div x-show="execFlowUpcoming(5).length" style="display:flex;flex-direction:column;gap:2px">
                     <template x-for="row in execFlowUpcoming(5)" :key="row.type + ':' + row.id">
                       <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
-                        <span class="type-badge">🔗</span>
+                        <span class="flow-stat" style="color:var(--cp-link)"></span>
                         <span style="flex:1;min-width:0">
                           <span class="exec-row-name" x-text="row.name"></span>
                           <span class="hint" style="display:block;font-size:0.7rem" x-text="row.scheduleDescription || row.schedule"></span>
@@ -18026,7 +18032,7 @@
                   <div x-show="execFlowRecent(5).length" style="display:flex;flex-direction:column;gap:2px">
                     <template x-for="a in execFlowRecent(5)" :key="a.id">
                       <a :href="a.route" class="exec-row">
-                        <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
+                        <span class="flow-stat" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
                         <span style="flex:1;min-width:0">
                           <span class="exec-row-name" x-text="a.entityName"></span>
                           <span class="hint" style="display:block;font-size:0.7rem" x-text="a.durationMs ? formatDuration(a.durationMs) : '—'"></span>
@@ -19365,22 +19371,23 @@
                   <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(opDetail())">↻ Refresh</button></div>
                   <div x-show="(taskHistoryCache[opDetail().taskKey] || []).length" class="run-list" style="margin-top:8px">
                     <template x-for="run in (taskHistoryCache[opDetail().taskKey] || []).slice(0, 10)" :key="'opth-' + run.id">
-                      <div class="run-item" style="padding:10px 14px">
+                      <div class="run-item run-clickable" style="padding:10px 14px" @click="toggleExpanded('opdetail-run-' + run.id)">
                         <div class="split-meta">
                           <div>
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="row-chevron" :class="isExpanded('opdetail-run-' + run.id) ? 'open' : ''">›</span>
                               <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
-                              <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
+                              <span class="flow-stat" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
                               <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
                             </div>
                             <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
                           </div>
                           <div class="toolbar">
-                            <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('opdetail-run-' + run.id)">Output</button>
-                            <button class="btn ghost" style="font-size:0.72rem" type="button" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
+                            <button class="btn ghost run-share" style="font-size:0.72rem" type="button" title="Share output" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
                           </div>
                         </div>
-                        <div x-show="isExpanded('opdetail-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
+                        <div x-show="isExpanded('opdetail-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px" @click.stop>
+                          <div class="run-out">
                           <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
                           <template x-if="runSteps(run).length">
                             <details class="msg-activity" style="margin-top:10px">
@@ -19402,9 +19409,10 @@
                               </div>
                             </details>
                           </template>
-                        </div>
-                      </div>
-                    </template>
+                         </div>
+                       </div>
+                     </div>
+                   </template>
                   </div>
                   <div class="hint" x-show="!(taskHistoryCache[opDetail().taskKey] || []).length" style="margin-top:8px">No run history yet. <a href="#" @click.prevent="loadTaskHistory(opDetail())" style="color:var(--cp-link)">Load history</a></div>
                 </div>
