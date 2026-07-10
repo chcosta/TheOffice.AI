@@ -151,15 +151,14 @@
       }
       document.documentElement.setAttribute("data-theme", pref === "dark" ? "dark" : "light");
       try {
-        const ot = localStorage.getItem("current-org-theme");
-        if (ot) document.documentElement.setAttribute("data-org-theme", ot);
+        // Org/team themes were removed — clear any stale attribute so it can't
+        // suppress the user's global palette.
+        localStorage.removeItem("current-org-theme");
+        document.documentElement.removeAttribute("data-org-theme");
       } catch {}
       try {
-        // A selected team's theme wins over the global appearance palette, so
-        // skip applying the saved appearance while an org-theme is active.
-        const hasOrgTheme = !!document.documentElement.getAttribute("data-org-theme");
         const ap = localStorage.getItem("current-appearance");
-        if (ap && !hasOrgTheme) document.documentElement.setAttribute("data-appearance", ap);
+        if (ap) document.documentElement.setAttribute("data-appearance", ap);
         const ic = localStorage.getItem("current-iconset");
         if (ic && ic !== "emoji") document.documentElement.setAttribute("data-iconset", ic);
         const corners = localStorage.getItem("cp-corners");
@@ -430,7 +429,15 @@
 
   more:'<circle class="dot" cx="5.5" cy="12" r="1.5"/><circle class="dot" cx="12" cy="12" r="1.5"/><circle class="dot" cx="18.5" cy="12" r="1.5"/>',
   moon:'<path class="acc" d="M15.5 4.2a8 8 0 1 0 4.3 11.6A7 7 0 0 1 15.5 4.2z"/>',
-  sun:'<circle class="acc" cx="12" cy="12" r="3.6"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M6 6l1.7 1.7M16.3 16.3 18 18M18 6l-1.7 1.7M7.7 16.3 6 18"/>'
+  sun:'<circle class="acc" cx="12" cy="12" r="3.6"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M6 6l1.7 1.7M16.3 16.3 18 18M18 6l-1.7 1.7M7.7 16.3 6 18"/>',
+
+  book:'<path d="M6.5 4H18v16H6.5A1.5 1.5 0 0 1 5 18.5v-13A1.5 1.5 0 0 1 6.5 4z"/><path class="acc" d="M8.5 4v16"/><path d="M11 8.5h4M11 11.5h4"/>',
+
+  'book-open':'<path d="M12 7c-1.7-1.2-4.2-1.4-6.3-1a1 1 0 0 0-.7 1v10a1 1 0 0 0 1.2 1c1.9-.4 4.2-.2 5.8 1"/><path class="acc" d="M12 7c1.7-1.2 4.2-1.4 6.3-1a1 1 0 0 1 .7 1v10a1 1 0 0 1-1.2 1c-1.9-.4-4.2-.2-5.8 1z"/>',
+
+  newspaper:'<path d="M4 6h13v13H5.5A1.5 1.5 0 0 1 4 17.5z"/><path class="acc" d="M17 8.5h2.5A1.5 1.5 0 0 1 21 10v7.5a1.5 1.5 0 0 1-1.5 1.5H17"/><path d="M7 9.5h7M7 12.5h7M7 15.5h4"/>',
+
+  keyboard:'<rect x="3" y="6.5" width="18" height="11" rx="1.5"/><path d="M6.5 10h1M10.5 10h1M14.5 10h1M17.5 10h1M6.5 13h1M10.5 13h1M14.5 13h1"/><line class="acc" x1="9" y1="15.3" x2="15" y2="15.3"/>'
 }; return I; })();
     const RAW = {
     "🤖": "agent",
@@ -525,6 +532,14 @@
     "📄": "report",
     "📃": "report",
     "📜": "raw",
+    "📖": "book-open",
+    "📰": "newspaper",
+    "📘": "book",
+    "📙": "book",
+    "📗": "book",
+    "📚": "book",
+    "⌨️": "keyboard",
+    "⌨": "keyboard",
     "🧹": "clean",
     "👁️": "view",
     "👁": "view",
@@ -719,12 +734,8 @@
     // appearance (palette) runtime
     function applyAppearance(id, persist){
       const el = document.documentElement;
-      // A selected team's theme wins over the global palette: persist the choice
-      // but don't visually apply it while an org-theme is active (it applies when
-      // the user returns to "All teams").
-      const hasOrgTheme = !!el.getAttribute('data-org-theme');
-      if (id && !hasOrgTheme) el.setAttribute('data-appearance', id);
-      else if (!id) el.removeAttribute('data-appearance');
+      if (id) el.setAttribute('data-appearance', id);
+      else el.removeAttribute('data-appearance');
       if (persist){ try { if (id) localStorage.setItem('current-appearance', id); else localStorage.removeItem('current-appearance'); } catch {} }
     }
 
@@ -926,6 +937,70 @@
       --cp-accent:#fd8ea1; --cp-accent-hover:#fd9eae; --cp-accent-soft:rgba(253,142,161,0.16); --cp-accent-fg:#1a0d12;
       --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
       --cp-link:#fd8ea1; --cp-highlight:rgba(253,142,161,0.14);
+    }
+    html[data-theme="light"][data-appearance="violet"] {
+      --cp-bg:#f6f5fb; --cp-bg-elevated:#fbfafe; --cp-surface:#ffffff; --cp-surface-soft:#eeecf6;
+      --cp-border:#e0dcee; --cp-border-strong:#aca4c2;
+      --cp-text:#1f1b27; --cp-text-muted:#5d5670; --cp-text-soft:#726b82;
+      --cp-accent:#7c3aed; --cp-accent-hover:#6d31d4; --cp-accent-soft:rgba(124,58,237,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#7c3aed; --cp-highlight:rgba(124,58,237,0.12);
+    }
+    html[data-theme="dark"][data-appearance="violet"] {
+      --cp-bg:#18161f; --cp-bg-elevated:#1d1a26; --cp-surface:#23202d; --cp-surface-soft:#292534;
+      --cp-border:#372f47; --cp-border-strong:#4d4463;
+      --cp-text:#e6e3ec; --cp-text-muted:#9d95ad; --cp-text-soft:#b8b0c6;
+      --cp-accent:#a78bfa; --cp-accent-hover:#b39dfb; --cp-accent-soft:rgba(167,139,250,0.16); --cp-accent-fg:#160f2b;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#a78bfa; --cp-highlight:rgba(167,139,250,0.14);
+    }
+    html[data-theme="light"][data-appearance="sky"] {
+      --cp-bg:#f2f7fb; --cp-bg-elevated:#f9fcfe; --cp-surface:#ffffff; --cp-surface-soft:#e8f0f6;
+      --cp-border:#d5e2ec; --cp-border-strong:#9fb1c0;
+      --cp-text:#182028; --cp-text-muted:#556571; --cp-text-soft:#6a7a86;
+      --cp-accent:#0284c7; --cp-accent-hover:#0272ad; --cp-accent-soft:rgba(2,132,199,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#0284c7; --cp-highlight:rgba(2,132,199,0.12);
+    }
+    html[data-theme="dark"][data-appearance="sky"] {
+      --cp-bg:#131a20; --cp-bg-elevated:#182028; --cp-surface:#1e2730; --cp-surface-soft:#242e39;
+      --cp-border:#2f3d49; --cp-border-strong:#455563;
+      --cp-text:#e2e8ee; --cp-text-muted:#93a1ad; --cp-text-soft:#aebac6;
+      --cp-accent:#38bdf8; --cp-accent-hover:#54c7f9; --cp-accent-soft:rgba(56,189,248,0.16); --cp-accent-fg:#04222f;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#38bdf8; --cp-highlight:rgba(56,189,248,0.14);
+    }
+    html[data-theme="light"][data-appearance="copper"] {
+      --cp-bg:#f8f4f0; --cp-bg-elevated:#fdfbf8; --cp-surface:#ffffff; --cp-surface-soft:#f1eae2;
+      --cp-border:#e6ddd2; --cp-border-strong:#b6a897;
+      --cp-text:#251d16; --cp-text-muted:#665a4e; --cp-text-soft:#7b6e60;
+      --cp-accent:#c2410c; --cp-accent-hover:#a9390a; --cp-accent-soft:rgba(194,65,12,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#c2410c; --cp-highlight:rgba(194,65,12,0.12);
+    }
+    html[data-theme="dark"][data-appearance="copper"] {
+      --cp-bg:#211b17; --cp-bg-elevated:#27201c; --cp-surface:#2d2622; --cp-surface-soft:#332b26;
+      --cp-border:#403630; --cp-border-strong:#564a41;
+      --cp-text:#ece5df; --cp-text-muted:#a89b90; --cp-text-soft:#bcb0a5;
+      --cp-accent:#fb923c; --cp-accent-hover:#fca055; --cp-accent-soft:rgba(251,146,60,0.16); --cp-accent-fg:#2a1606;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#fb923c; --cp-highlight:rgba(251,146,60,0.14);
+    }
+    html[data-theme="light"][data-appearance="plum"] {
+      --cp-bg:#f8f4f8; --cp-bg-elevated:#fdfafd; --cp-surface:#ffffff; --cp-surface-soft:#f0eaf0;
+      --cp-border:#e5dae4; --cp-border-strong:#b39fb2;
+      --cp-text:#241b23; --cp-text-muted:#635661; --cp-text-soft:#7b6d79;
+      --cp-accent:#a21caf; --cp-accent-hover:#8e199a; --cp-accent-soft:rgba(162,28,175,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#a21caf; --cp-highlight:rgba(162,28,175,0.12);
+    }
+    html[data-theme="dark"][data-appearance="plum"] {
+      --cp-bg:#1e161d; --cp-bg-elevated:#241b23; --cp-surface:#2a2129; --cp-surface-soft:#30262f;
+      --cp-border:#3f3240; --cp-border-strong:#554556;
+      --cp-text:#ece3ea; --cp-text-muted:#a894a6; --cp-text-soft:#bfb0bd;
+      --cp-accent:#e879f9; --cp-accent-hover:#ec8dfa; --cp-accent-soft:rgba(232,121,249,0.16); --cp-accent-fg:#2a0a30;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#e879f9; --cp-highlight:rgba(232,121,249,0.14);
     }
 
     /* ===== themed icon engine ===== */
@@ -1789,8 +1864,8 @@
     .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
     .cnav-row > .nav-link { flex: 1; min-width: 0; }
     /* Group */
-    .cnav-group { border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 12px); padding: 4px; margin: 2px 0; background: color-mix(in srgb, var(--cp-surface-soft) 40%, transparent); }
-    .cnav-group.drop-into { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
+    .cnav-group { padding: 0; margin: 12px 0 2px; }
+    .cnav-group.drop-into { border: 1px dashed var(--cp-accent); border-radius: calc(var(--cp-radius-scale, 1) * 12px); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
     .cnav-ghead { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 2px; }
     .cnav-gchev { background: none; border: none; color: var(--cp-text-soft); cursor: pointer; padding: 2px 4px; font-size: 10px; line-height: 1; border-radius: calc(var(--cp-radius-scale, 1) * 4px); }
     .cnav-gchev:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
@@ -20750,14 +20825,10 @@
             <!-- Color Palette Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">🎨 Color palette</h3>
-              <p class="hint" style="margin-bottom:14px">Recolor the whole dashboard. "Follow organization" uses the current org's theme, or the neutral <strong>Graphite</strong> default when no org is selected.</p>
+              <p class="hint" style="margin-bottom:14px">Recolor the whole dashboard. <strong>Graphite</strong> is the neutral default. Changes apply instantly.</p>
               <div class="appearance-grid">
-                <button type="button" class="appearance-swatch" :class="{ active: appearancePref === '' }" @click="setAppearance('')">
-                  <span class="appearance-chip appearance-chip-follow"><span>Aa</span></span>
-                  <span class="appearance-name">Follow organization</span>
-                </button>
                 <template x-for="p in appearancePalettes" :key="p.id">
-                  <button type="button" class="appearance-swatch" :class="{ active: appearancePref === p.id }" @click="setAppearance(p.id)">
+                  <button type="button" class="appearance-swatch" :class="{ active: (appearancePref || 'graphite') === p.id }" @click="setAppearance(p.id)">
                     <span class="appearance-chip" :style="'background:'+p.bg+';border-color:'+p.border">
                       <span class="appearance-dot" :style="'background:'+p.accent"></span>
                       <span class="appearance-dot appearance-dot-2" :style="'background:'+p.text"></span>
@@ -24144,13 +24215,17 @@
           { id: 'flip', name: 'Flip' },
         ],
         appearancePalettes: [
-          { id: 'slate', name: 'Slate Blue', bg: '#f6f8fb', border: '#dbe2ea', accent: '#2563eb', text: '#1f2937' },
-          { id: 'emerald', name: 'Emerald', bg: '#f5faf7', border: '#d7e7df', accent: '#059669', text: '#1f2937' },
-          { id: 'indigo', name: 'Indigo', bg: '#f7f7fc', border: '#dedef0', accent: '#4f46e5', text: '#1f2937' },
-          { id: 'teal', name: 'Teal', bg: '#f3faf9', border: '#d3e8e6', accent: '#0d9488', text: '#1f2937' },
-          { id: 'amber', name: 'Amber', bg: '#faf7f0', border: '#e9e0cd', accent: '#d97706', text: '#26211a' },
           { id: 'graphite', name: 'Graphite (default)', bg: '#f6f7f8', border: '#dcdfe2', accent: '#1f2937', text: '#111827' },
-          { id: 'rose', name: 'Rose', bg: '#faf4f1', border: '#e6d8d3', accent: '#b11f4b', text: '#242424' }
+          { id: 'slate', name: 'Slate Blue', bg: '#f6f8fb', border: '#dbe2ea', accent: '#2563eb', text: '#1f2937' },
+          { id: 'sky', name: 'Sky', bg: '#f2f7fb', border: '#d5e2ec', accent: '#0284c7', text: '#182028' },
+          { id: 'indigo', name: 'Indigo', bg: '#f7f7fc', border: '#dedef0', accent: '#4f46e5', text: '#1f2937' },
+          { id: 'violet', name: 'Violet', bg: '#f6f5fb', border: '#e0dcee', accent: '#7c3aed', text: '#1f1b27' },
+          { id: 'plum', name: 'Plum', bg: '#f8f4f8', border: '#e5dae4', accent: '#a21caf', text: '#241b23' },
+          { id: 'rose', name: 'Rose', bg: '#faf4f1', border: '#e6d8d3', accent: '#b11f4b', text: '#242424' },
+          { id: 'copper', name: 'Copper', bg: '#f8f4f0', border: '#e6ddd2', accent: '#c2410c', text: '#251d16' },
+          { id: 'amber', name: 'Amber', bg: '#faf7f0', border: '#e9e0cd', accent: '#d97706', text: '#26211a' },
+          { id: 'emerald', name: 'Emerald', bg: '#f5faf7', border: '#d7e7df', accent: '#059669', text: '#1f2937' },
+          { id: 'teal', name: 'Teal', bg: '#f3faf9', border: '#d3e8e6', accent: '#0d9488', text: '#1f2937' }
         ],
         iconSets: [
           { id: 'emoji', name: '😀 Emoji (classic)' },
@@ -27906,24 +27981,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         applyOrgTheme() {
-          const org = this.currentOrg();
-          const theme = org && org.theme && org.theme !== 'default' ? org.theme : null;
+          // Org/team themes were removed. Keep this as a safe no-op that clears
+          // any stale attribute and ensures the user's global palette is applied.
           const el = document.documentElement;
-          if (theme) el.setAttribute('data-org-theme', theme);
-          else el.removeAttribute('data-org-theme');
-          try { if (theme) localStorage.setItem('current-org-theme', theme); else localStorage.removeItem('current-org-theme'); } catch {}
-          // A selected team's theme must win over the global appearance palette
-          // (org-theme and appearance CSS have equal specificity). Suppress the
-          // appearance attribute while a team theme is active, and restore the
-          // user's saved global palette when reverting to "All teams"/no theme.
-          if (theme) {
-            el.removeAttribute('data-appearance');
-          } else {
-            let ap = '';
-            try { ap = localStorage.getItem('current-appearance') || ''; } catch {}
-            if (ap) el.setAttribute('data-appearance', ap);
-            else el.removeAttribute('data-appearance');
-          }
+          el.removeAttribute('data-org-theme');
+          try { localStorage.removeItem('current-org-theme'); } catch {}
+          let ap = '';
+          try { ap = localStorage.getItem('current-appearance') || ''; } catch {}
+          if (ap) el.setAttribute('data-appearance', ap);
+          else el.removeAttribute('data-appearance');
         },
         // Resolve an organization's theme preset (id, name, bg, accent) for previews.
         orgThemePreset(org) {
