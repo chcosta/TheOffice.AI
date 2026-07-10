@@ -2541,7 +2541,7 @@
     /* Larger flow builder modal */
     .modal-card.flow-modal { width:min(1480px,96vw); max-width:none; max-height:94vh; }
     .flow-modal .flow-canvas-shell { height:calc(94vh - 446px); min-height:480px; }
-    .chain-page { display:flex; flex-direction:column; height:calc(100vh - var(--header-height) - 48px); min-height:560px; }
+    .chain-page { display:flex; flex-direction:column; height:calc(100vh - var(--header-height) - var(--ql-h, 0px) - 48px); min-height:520px; }
     .chain-page .flow-editor-body { display:flex; flex-direction:column; gap:12px; flex:1; min-height:0; margin-top:14px; }
     .chain-page .flow-settings { padding:0; flex:0 0 auto; }
     .chain-page .flow-settings > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:13px 16px; font-size:13px; font-weight:600; color:var(--cp-text); }
@@ -6356,7 +6356,7 @@
   </style>
 </head>
 <body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)" :class="{ 'nav-collapsed': navCollapsed }">
-  <div class="app-shell" x-effect="syncBaDock(); syncConnectDock()">
+  <div class="app-shell" x-effect="syncBaDock(); syncConnectDock()" :style="'--ql-h:' + (quickLaunchItems().length ? '38px' : '0px')">
     <header class="topbar">
       <div class="brand">
         <button class="brand-home" type="button" @click="goHome()" title="Back home">
@@ -19195,7 +19195,7 @@
                   </div>
                 </div>
                 <div class="flow-editor-body">
-                  <details class="card flow-settings" open>
+                  <details class="card flow-settings" :open="chainDraft._new">
                     <summary>
                       <span class="fs-caret">▶</span>
                       <span>Flow settings</span>
