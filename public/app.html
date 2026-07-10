@@ -2648,6 +2648,60 @@
     .flow-run-bar .frb-runs { display:flex; align-items:center; gap:6px; margin-left:auto; }
     @media (max-width:900px){ .flow-run { grid-template-columns:1fr; } .flow-run-graph { height:46vh; } .flow-runs-rail .fruns-list { max-height:200px; } }
 
+    /* Flow run storyline (fr2) */
+    .fr2 { display:grid; grid-template-columns:190px 1fr; gap:18px; align-items:start; }
+    .fr2-runs { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); overflow:hidden; position:sticky; top:8px; }
+    .fr2-runs-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 11px; font-size:12px; font-weight:700; color:var(--cp-text); border-bottom:1px solid var(--cp-border); }
+    .fr2-runs-list { display:flex; flex-direction:column; max-height:520px; overflow:auto; }
+    .fr2-run { display:flex; flex-direction:column; gap:3px; align-items:flex-start; text-align:left; padding:9px 11px; background:none; border:none; border-bottom:1px solid var(--cp-border); cursor:pointer; width:100%; }
+    .fr2-run:hover { background:var(--cp-bg-elevated); }
+    .fr2-run.on { background:color-mix(in srgb,var(--cp-accent) 10%,var(--cp-surface)); box-shadow:inset 2px 0 0 var(--cp-accent); }
+    .fr2-run-top { display:flex; align-items:center; gap:6px; }
+    .fr2-run-live { font-size:10px; font-weight:700; color:var(--cp-warning); }
+    .fr2-run-when { font-size:11.5px; color:var(--cp-text); }
+    .fr2-run-trig { font-size:10.5px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+    .fr2-runs-empty { padding:16px 12px; font-size:11.5px; color:var(--cp-text-muted); line-height:1.5; }
+    .fr2-main { min-width:0; display:flex; flex-direction:column; gap:14px; }
+    .fr2-overview { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); overflow:hidden; }
+    .fr2-overview > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; font-size:13px; }
+    .fr2-overview > summary::-webkit-details-marker { display:none; }
+    .fr2-ov-t { font-weight:700; color:var(--cp-text); }
+    .fr2-ov-meta { display:inline-flex; align-items:center; gap:7px; flex-wrap:wrap; font-size:11.5px; color:var(--cp-text-muted); }
+    .fr2-ov-when { color:var(--cp-text-muted); }
+    .fr2-map { padding:8px 14px 16px; opacity:.85; }
+    .fr2-empty { color:var(--cp-text-muted); font-size:13px; text-align:center; padding:30px 16px; line-height:1.6; border:1px dashed var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); }
+    .fr2-story { display:flex; flex-direction:column; gap:10px; }
+    .fr2-node { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); overflow:hidden; scroll-margin-top:12px; }
+    .fr2-node.succeeded, .fr2-node.success { border-color:color-mix(in srgb,var(--cp-success) 45%,var(--cp-border)); }
+    .fr2-node.failed { border-color:color-mix(in srgb,var(--cp-danger) 55%,var(--cp-border)); }
+    .fr2-node.running { border-color:color-mix(in srgb,var(--cp-warning) 55%,var(--cp-border)); }
+    .fr2-node-head { display:flex; align-items:flex-start; gap:10px; padding:11px 14px; border-bottom:1px solid var(--cp-border); }
+    .fr2-node-ic { font-size:16px; line-height:1.2; }
+    .fr2-node-name { font-size:14px; font-weight:700; line-height:1.25; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .fr2-start { font-size:9px; font-weight:800; letter-spacing:.05em; color:var(--cp-accent); border:1px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale, 1) * 5px); padding:0 4px; }
+    .fr2-node-sub { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; }
+    .fr2-node-body { padding:12px 14px; }
+    .fr2-reason { font-size:12.5px; color:var(--cp-text-soft); margin-bottom:10px; }
+    .fr2-act { margin-bottom:12px; }
+    .fr2-out-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:2px 0 6px; }
+    .fr2-decision { display:flex; flex-direction:column; gap:6px; padding:4px 0 4px 14px; margin-left:14px; border-left:1px solid var(--cp-border); }
+    .fr2-dec-t { font-size:10.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-muted); }
+    .fr2-branch { display:flex; align-items:center; gap:9px; text-align:left; width:100%; padding:7px 11px; background:var(--cp-bg-elevated); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer; font-size:12.5px; color:var(--cp-text); }
+    .fr2-branch:hover { border-color:var(--cp-border-strong); background:var(--cp-surface); }
+    .fr2-branch.taken { border-color:color-mix(in srgb,var(--cp-accent) 45%,var(--cp-border)); background:color-mix(in srgb,var(--cp-accent) 8%,var(--cp-bg-elevated)); }
+    .fr2-branch.skipped { opacity:.62; }
+    .fr2-br-eval { font-weight:800; }
+    .fr2-branch.taken .fr2-br-eval { color:var(--cp-accent); }
+    .fr2-branch.skipped .fr2-br-eval { color:var(--cp-text-muted); }
+    .fr2-br-cond { font-weight:600; }
+    .fr2-br-cond.ai { color:var(--cp-accent); }
+    .fr2-br-arrow { color:var(--cp-text-muted); }
+    .fr2-br-to { font-weight:600; color:var(--cp-link); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .fr2-flash { animation:fr2Flash 1.4s ease-out; }
+    @keyframes fr2Flash { 0% { box-shadow:0 0 0 3px color-mix(in srgb,var(--cp-accent) 55%,transparent); } 100% { box-shadow:0 0 0 0 transparent; } }
+    @media (max-width:900px){ .fr2 { grid-template-columns:1fr; } .fr2-runs { position:static; } .fr2-runs-list { max-height:200px; flex-direction:row; overflow-x:auto; } .fr2-run { border-bottom:none; border-right:1px solid var(--cp-border); min-width:150px; } }
+    @media (prefers-reduced-motion: reduce){ .fr2-flash { animation:none; } }
+
     /* Sleek mini-flow (list/detail card) */
     .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
     .mini-flow .mf-node { display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:calc(var(--cp-radius-scale, 1) * 11px); border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 1px 2px rgba(0,0,0,.10); max-width:240px; }
@@ -19782,123 +19836,121 @@
                   </div>
                 </div>
 
-                <!-- Run monitor: run bar -->
-                <div class="flow-run-bar">
-                  <span class="field-label" style="margin:0">Run monitor</span>
-                  <span class="status-badge" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
-                  <span class="frx-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
-                  <div class="frb-runs">
-                    <button class="btn ghost" style="font-size:0.72rem" type="button" @click="loadChainRuns(detailChain().id)" title="Reload run history">↻ Refresh runs</button>
-                  </div>
-                </div>
-
-                <!-- Run monitor: runs rail + graph + inspector -->
-                <div class="flow-run">
-                  <div class="flow-runs-rail">
-                    <div class="fruns-head">
+                <!-- Run storyline: slim runs rail + linear reading column -->
+                <div class="fr2">
+                  <aside class="fr2-runs">
+                    <div class="fr2-runs-head">
                       <span>Runs</span>
-                      <span class="hint" x-text="(chainRuns[detailChain().id] || []).length || ''"></span>
+                      <button class="btn ghost" style="font-size:0.7rem;padding:2px 7px" type="button" @click="loadChainRuns(detailChain().id)" title="Reload run history">↻</button>
                     </div>
-                    <div class="fruns-list">
+                    <div class="fr2-runs-list">
                       <template x-if="chainRunState[detailChain().id] && !(chainRuns[detailChain().id] || []).some(r => String(r.id) === String(chainRunState[detailChain().id].id))">
-                        <button type="button" class="fruns-item live" @click="refreshChainRun(detailChain())">
-                          <span class="status-badge" style="font-size:0.66rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
-                          <span class="fruns-when">This session · <span x-text="formatRelative(chainRunState[detailChain().id].startedAt)"></span></span>
+                        <button type="button" class="fr2-run on" @click="refreshChainRun(detailChain())">
+                          <span class="fr2-run-top">
+                            <span class="status-badge" style="font-size:0.6rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                            <span class="fr2-run-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
+                          </span>
+                          <span class="fr2-run-when">This session · <span x-text="formatRelative(chainRunState[detailChain().id].startedAt)"></span></span>
                         </button>
                       </template>
-                      <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'drail-' + r.id">
-                        <button type="button" class="fruns-item" :class="{ on: String(chainRunState[detailChain().id]?.id) === String(r.id) }" @click="openChainRun(detailChain().id, r.id)">
-                          <span class="status-badge" style="font-size:0.66rem" :class="statusClass(r.status)" x-text="r.status"></span>
-                          <span class="fruns-when" x-text="formatRelative(r.started_at || r.startedAt)"></span>
-                          <span class="fruns-trig" x-show="r.trigger" x-text="r.trigger"></span>
+                      <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'fr2r-' + r.id">
+                        <button type="button" class="fr2-run" :class="{ on: String(chainRunState[detailChain().id]?.id) === String(r.id) }" @click="openChainRun(detailChain().id, r.id)">
+                          <span class="fr2-run-top">
+                            <span class="status-badge" style="font-size:0.6rem" :class="statusClass(r.status)" x-text="r.status"></span>
+                          </span>
+                          <span class="fr2-run-when" x-text="formatRelative(r.started_at || r.startedAt)"></span>
+                          <span class="fr2-run-trig" x-show="r.trigger" x-text="r.trigger"></span>
                         </button>
                       </template>
-                    </div>
-                    <div class="fruns-empty" x-show="!(chainRuns[detailChain().id] || []).length && !chainRunState[detailChain().id]">
-                      No runs yet. Click <strong>▶ Run</strong> to start this flow.
-                    </div>
-                  </div>
-                  <div class="flow-run-graph" id="flow-run-wrap">
-                    <div class="frx-canvas" id="flow-run-canvas"></div>
-                    <svg class="frx-wires" id="flow-run-wires"></svg>
-                    <div class="flow-run-empty" id="flow-run-empty" x-show="!(detailChain().steps || []).length">
-                      <div>🔀</div>
-                      <div>No tasks in this flow yet. <strong>✏️ Edit</strong> to add some.</div>
-                    </div>
-                    <div class="flow-canvas-ctrls" style="position:absolute;right:10px;bottom:10px;z-index:8;display:flex;gap:6px">
-                      <button class="btn ghost" type="button" style="padding:3px 9px" @click="flowRunZoom(1)" title="Zoom in">＋</button>
-                      <button class="btn ghost" type="button" style="padding:3px 9px" @click="flowRunZoom(-1)" title="Zoom out">－</button>
-                      <button class="btn ghost" type="button" style="padding:3px 9px" @click="flowRunFit()" title="Fit to view">⤢</button>
-                    </div>
-                  </div>
-                  <div class="flow-insp">
-                    <template x-if="flowRunInspect()">
-                      <div style="display:flex;flex-direction:column;min-height:0;flex:1">
-                        <div class="flow-insp-head">
-                          <div class="flow-insp-title">
-                            <span x-text="flowRunInspect().inline ? '🤖' : '📋'"></span>
-                            <span x-text="flowRunInspect().name" style="flex:1;min-width:0"></span>
-                            <span class="status-badge" style="font-size:0.68rem" :class="statusClass(flowRunInspect().status)" x-text="flowRunInspect().statusLabel"></span>
-                          </div>
-                          <template x-if="flowRunInspect().owner">
-                            <div class="hint" style="margin-top:4px" x-text="flowRunInspect().owner"></div>
-                          </template>
-                        </div>
-                        <div class="flow-insp-body">
-                          <div class="fri-row"><span class="fri-k">Status</span><span class="fri-v" x-text="flowRunInspect().statusLabel"></span></div>
-                          <template x-if="flowRunInspect().finished"><div class="fri-row"><span class="fri-k">Finished</span><span class="fri-v" x-text="formatDateTime(flowRunInspect().finished)"></span></div></template>
-                          <template x-if="flowRunInspect().code !== undefined && flowRunInspect().code !== null"><div class="fri-row"><span class="fri-k">Exit code</span><span class="fri-v" x-text="flowRunInspect().code"></span></div></template>
-                          <template x-if="flowRunInspect().reason"><div class="fri-row"><span class="fri-k">Reason</span><span class="fri-v" x-text="flowRunInspect().reason"></span></div></template>
-                          <template x-if="runSteps(flowRunInspect()).length">
-                            <details class="msg-activity" style="margin-top:12px" open>
-                              <summary>🔎 Reasoning &amp; tools (<span x-text="runSteps(flowRunInspect()).length"></span>)</summary>
-                              <div class="msg-activity-body">
-                                <template x-for="(st, ai) in runSteps(flowRunInspect())" :key="'frstep-' + flowRunInspect().id + '-' + ai">
-                                  <div class="msg-activity-step" :class="st.type">
-                                    <template x-if="st.text">
-                                      <details class="msg-activity-substep">
-                                        <summary x-text="st.label"></summary>
-                                        <pre class="live-stream-pre" x-text="st.text"></pre>
-                                      </details>
-                                    </template>
-                                    <template x-if="!st.text">
-                                      <div class="msg-activity-label" x-text="st.label"></div>
-                                    </template>
-                                  </div>
-                                </template>
-                              </div>
-                            </details>
-                          </template>
-                          <div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 6px">
-                            <span class="field-label" style="margin:0">Output</span>
-                            <button class="btn ghost" style="font-size:0.7rem" type="button" x-show="flowRunInspect().output" @click="openShareModal(flowRunInspect().output, flowRunInspect().name + ' — output', 'run-output')">📤 Share</button>
-                          </div>
-                          <div class="md-output" x-html="renderMarkdown(flowRunInspect().output || (flowRunInspect().status === 'running' ? 'Waiting for output…' : 'No output captured for this task.'))"></div>
-                        </div>
+                      <div class="fr2-runs-empty" x-show="!(chainRuns[detailChain().id] || []).length && !chainRunState[detailChain().id]">
+                        No runs yet. Click <strong>▶ Run</strong> to start this flow.
                       </div>
-                    </template>
-                    <template x-if="!flowRunInspect()">
-                      <div style="display:flex;flex-direction:column;min-height:0;flex:1">
-                        <div class="flow-insp-head"><div class="flow-insp-title">Run overview</div></div>
-                        <div class="flow-insp-body">
-                          <template x-if="chainRunState[detailChain().id]">
-                            <div>
-                              <div class="fri-row"><span class="fri-k">Status</span><span class="fri-v" x-text="chainRunState[detailChain().id].status"></span></div>
-                              <div class="fri-row"><span class="fri-k">Started</span><span class="fri-v" x-text="formatDateTime(chainRunState[detailChain().id].startedAt)"></span></div>
-                              <template x-if="chainRunState[detailChain().id].finishedAt"><div class="fri-row"><span class="fri-k">Finished</span><span class="fri-v" x-text="formatDateTime(chainRunState[detailChain().id].finishedAt)"></span></div></template>
-                              <template x-if="chainRunState[detailChain().id].trigger"><div class="fri-row"><span class="fri-k">Trigger</span><span class="fri-v" x-text="chainRunState[detailChain().id].trigger"></span></div></template>
-                              <p class="hint" style="margin-top:14px">Click any task to trace its status, timing and output. Edges light up as the run takes each path — <span style="color:var(--cp-accent)">accent</span> = taken, faint dashed = not taken, <span style="color:var(--cp-danger)">red</span> = blocked by a failure.</p>
+                    </div>
+                  </aside>
+
+                  <div class="fr2-main">
+                    <details class="fr2-overview" open>
+                      <summary>
+                        <span class="fr2-ov-t">Flow overview</span>
+                        <span class="fr2-ov-meta" x-show="chainRunState[detailChain().id]">
+                          <span class="status-badge" style="font-size:0.6rem" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                          <span class="fr2-run-live" x-show="chainRunState[detailChain().id]?.status === 'running'">● live</span>
+                          <span class="fr2-ov-when" x-show="chainRunState[detailChain().id]?.startedAt">· <span x-text="formatDateTime(chainRunState[detailChain().id].startedAt)"></span></span>
+                          <span class="fr2-ov-when" x-show="chainRunState[detailChain().id]?.finishedAt">→ <span x-text="formatDateTime(chainRunState[detailChain().id].finishedAt)"></span></span>
+                          <span class="fr2-ov-when" x-show="chainRunState[detailChain().id]?.trigger">· <span x-text="chainRunState[detailChain().id].trigger"></span></span>
+                        </span>
+                      </summary>
+                      <div class="fr2-map" :id="'chain-diagram-detail-' + detailChain().id"></div>
+                    </details>
+
+                    <div class="fr2-empty" x-show="!(detailChain().steps || []).length">🔀 No tasks in this flow yet. <strong>✏️ Edit</strong> to add some.</div>
+                    <div class="fr2-empty" x-show="(detailChain().steps || []).length && !chainRunState[detailChain().id] && (chainRuns[detailChain().id] || []).length">Select a run from the left to read its storyline.</div>
+                    <div class="fr2-empty" x-show="(detailChain().steps || []).length && !chainRunState[detailChain().id] && !(chainRuns[detailChain().id] || []).length">This flow has not run yet. Click <strong>▶ Run</strong> to start it.</div>
+                    <div class="fr2-empty" x-show="(detailChain().steps || []).length && chainRunState[detailChain().id] && !flowRunStoryline().length">No task activity recorded for this run yet.</div>
+
+                    <div class="fr2-story">
+                      <template x-for="(entry, ei) in flowRunStoryline()" :key="'fr2e-' + ei + '-' + (entry.id || entry.fromId)">
+                        <div>
+                          <template x-if="entry.kind === 'node'">
+                            <section class="fr2-node" :class="statusClass(entry.status)" :id="'fr2-node-' + entry.id">
+                              <header class="fr2-node-head">
+                                <span class="fr2-node-ic" x-text="entry.inline ? '🤖' : '📋'"></span>
+                                <div style="min-width:0;flex:1">
+                                  <div class="fr2-node-name"><span x-text="entry.name"></span><span class="fr2-start" x-show="entry.isStart">START</span></div>
+                                  <div class="fr2-node-sub">
+                                    <span x-show="entry.owner" x-text="entry.owner"></span>
+                                    <span x-show="entry.owner && (entry.finished || entry.started)"> · </span>
+                                    <span x-show="entry.finished || entry.started" x-text="formatRelative(entry.finished || entry.started)"></span>
+                                  </div>
+                                </div>
+                                <span class="status-badge" style="font-size:0.66rem" :class="statusClass(entry.status)" x-text="entry.statusLabel"></span>
+                              </header>
+                              <div class="fr2-node-body">
+                                <template x-if="entry.reason"><div class="fr2-reason" x-text="entry.reason"></div></template>
+                                <template x-if="runSteps(entry).length">
+                                  <details class="msg-activity fr2-act">
+                                    <summary>🔎 Reasoning &amp; tools (<span x-text="runSteps(entry).length"></span>)</summary>
+                                    <div class="msg-activity-body">
+                                      <template x-for="(st, si) in runSteps(entry)" :key="'fr2s-' + entry.id + '-' + si">
+                                        <div class="msg-activity-step" :class="st.type">
+                                          <template x-if="st.text">
+                                            <details class="msg-activity-substep">
+                                              <summary x-text="st.label"></summary>
+                                              <pre class="live-stream-pre" x-text="st.text"></pre>
+                                            </details>
+                                          </template>
+                                          <template x-if="!st.text">
+                                            <div class="msg-activity-label" x-text="st.label"></div>
+                                          </template>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </details>
+                                </template>
+                                <div class="fr2-out-bar">
+                                  <span class="field-label" style="margin:0">Output</span>
+                                  <button class="btn ghost" style="font-size:0.68rem;padding:2px 8px" type="button" x-show="entry.output" @click="openShareModal(entry.output, entry.name + ' — output', 'run-output')">📤 Share</button>
+                                </div>
+                                <div class="md-output" x-html="renderMarkdown(entry.output || (entry.status === 'running' ? 'Waiting for output…' : 'No output captured for this task.'))"></div>
+                              </div>
+                            </section>
+                          </template>
+                          <template x-if="entry.kind === 'decision'">
+                            <div class="fr2-decision">
+                              <span class="fr2-dec-t">Decision</span>
+                              <template x-for="(br, bi) in entry.branches" :key="'fr2b-' + entry.fromId + '-' + bi">
+                                <button type="button" class="fr2-branch" :class="{ taken: br.taken, skipped: br.notTaken }" @click="fr2JumpNode(br.to)" :title="br.reason || 'Jump to ' + br.toName">
+                                  <span class="fr2-br-eval" x-text="br.taken ? '✓' : (br.notTaken ? '✗' : '·')"></span>
+                                  <span class="fr2-br-cond" :class="{ ai: br.ai }" x-text="br.label"></span>
+                                  <span class="fr2-br-arrow">→</span>
+                                  <span class="fr2-br-to" x-text="br.toName"></span>
+                                </button>
+                              </template>
                             </div>
                           </template>
-                          <template x-if="!chainRunState[detailChain().id]">
-                            <div class="flow-insp-empty" x-show="(chainRuns[detailChain().id] || []).length">Select a run from the left, then click any task to trace its status, timing and output.</div>
-                          </template>
-                          <template x-if="!chainRunState[detailChain().id]">
-                            <div class="flow-insp-empty" x-show="!(chainRuns[detailChain().id] || []).length">This flow has not run yet.<br>Click <strong>▶ Run</strong> to start it.</div>
-                          </template>
                         </div>
-                      </div>
-                    </template>
+                      </template>
+                    </div>
                   </div>
                 </div>
 
@@ -28706,7 +28758,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.refreshChainRun(c);
           if (!this.chainRuns[id]) this.loadChainRuns(id);
           if (c.resilient) this.loadResilience('flow', id);
-          this.$nextTick(() => this.mountFlowRunCanvas());
+          this.$nextTick(() => { const cc = this.detailChain(); if (cc) this.renderChainDiagram(cc); });
         },
         async deleteOpFromDetail(t) {
           if (!t) return;
@@ -52262,6 +52314,76 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             output: node.output || '',
             steps: Array.isArray(node.steps) ? node.steps : []
           };
+        },
+        flowRunStoryline() {
+          const chain = this.detailChain && this.detailChain(); if (!chain) return [];
+          const run = this.chainRunState[chain.id]; if (!run || !run.nodes) return [];
+          const steps = chain.steps || [];
+          const labels = { pending: 'Pending', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped' };
+          const evalMap = {};
+          const collect = (arr) => (arr || []).forEach(e => {
+            if (!e || e.from == null || e.to == null) return;
+            const k = e.from + '\u0000' + e.to;
+            if (!(k in evalMap) || e.evaluated !== undefined) evalMap[k] = { evaluated: e.evaluated, reason: e.reason };
+          });
+          collect(chain.edges); collect(run.edges);
+          const idx = {}; steps.forEach((s, i) => { idx[s.id] = i; });
+          const tval = (n) => { const t = n && (n.finishedAt || n.startedAt); const ms = t ? Date.parse(t) : NaN; return isNaN(ms) ? null : ms; };
+          const executed = steps.filter(s => {
+            const n = run.nodes[s.id];
+            return n && ((n.status && n.status !== 'pending') || n.output || (Array.isArray(n.steps) ? n.steps.length : !!n.steps));
+          });
+          executed.sort((a, b) => {
+            const ta = tval(run.nodes[a.id]), tb = tval(run.nodes[b.id]);
+            if (ta != null && tb != null && ta !== tb) return ta - tb;
+            if (ta != null && tb == null) return -1;
+            if (ta == null && tb != null) return 1;
+            return idx[a.id] - idx[b.id];
+          });
+          const out = [];
+          executed.forEach((step, i) => {
+            const n = run.nodes[step.id] || {};
+            const st = n.status || 'pending';
+            out.push({
+              kind: 'node', id: step.id,
+              name: this.flowStepName(step),
+              owner: this._flowStepOwner(step),
+              inline: !step.taskId && step.agentId,
+              status: st, statusLabel: labels[st] || st,
+              started: n.startedAt || null, finished: n.finishedAt || null,
+              code: n.code, reason: n.reason || '',
+              output: n.output || '',
+              steps: n.steps,
+              isStart: i === 0
+            });
+            const branches = (chain.edges || []).filter(e => e.from === step.id).map(e => {
+              const ev = evalMap[e.from + '\u0000' + e.to] || {};
+              const target = steps.find(s => s.id === e.to);
+              const cond = e.condition || {};
+              return {
+                to: e.to,
+                toName: target ? this.flowStepName(target) : e.to,
+                label: this._flowCondLabel(cond),
+                ai: cond.type === 'ai',
+                taken: ev.evaluated === true,
+                notTaken: ev.evaluated === false,
+                reason: ev.reason || e.reason || ''
+              };
+            });
+            if (branches.length) out.push({ kind: 'decision', fromId: step.id, branches });
+          });
+          return out;
+        },
+        fr2JumpNode(id) {
+          if (!id) return;
+          this.flowRunSel = id;
+          this.$nextTick(() => {
+            const el = document.getElementById('fr2-node-' + id);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('fr2-flash');
+            setTimeout(() => { try { el.classList.remove('fr2-flash'); } catch (e) {} }, 1400);
+          });
         },
         _applyFlowRunTransform() {
           const ctl = this._flowRunCanvas; if (!ctl) return;
