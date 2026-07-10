@@ -2600,7 +2600,9 @@
     .flow-node.drop-target .fn-port.in { border-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 25%,transparent); }
     .flow-node .fn-head { display:flex; align-items:center; gap:8px; padding:9px 10px 6px; cursor:grab; }
     .flow-node .fn-head:active { cursor:grabbing; }
-    .flow-node .fn-ic { font-size:17px; }
+    .flow-node .fn-ic { width:10px; height:10px; border-radius:3px; flex:0 0 auto; background:var(--cp-text-muted); }
+    .flow-node .fn-ic.is-agent { background:var(--cp-link); }
+    .flow-node .fn-ic.is-task { background:var(--cp-accent); }
     .flow-node .fn-title { font-size:13px; font-weight:700; line-height:1.15; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .flow-node .fn-start { font-size:9px; font-weight:800; letter-spacing:.06em; color:var(--cp-accent); border:1px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale, 1) * 6px); padding:1px 5px; }
     .flow-node .fn-del { opacity:0; cursor:pointer; border:none; background:transparent; color:var(--cp-text-muted); font-size:14px; line-height:1; padding:0 2px; }
@@ -16551,6 +16553,13 @@
               .auto-filt:hover { color:var(--cp-text); }
               .auto-filt.on { color:var(--cp-accent); border-bottom-color:var(--cp-accent); font-weight:600; }
               .auto-filt .afc { font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              /* Calm flow status: leading colour dot + plain label, no pill. */
+              .flow-stat { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--cp-text-soft); font-weight:600; white-space:nowrap; }
+              .flow-stat::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--cp-text-muted); flex:0 0 auto; }
+              .flow-stat.ok::before, .flow-stat.success::before, .flow-stat.completed::before { background:var(--cp-success); }
+              .flow-stat.run::before, .flow-stat.running::before { background:var(--cp-accent); }
+              .flow-stat.fail::before, .flow-stat.failed::before, .flow-stat.error::before { background:var(--cp-danger); }
+              .flow-count { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
               .auto-filt.on .afc { color:var(--cp-accent); }
               .nlx-seg { display:inline-flex; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 9px); overflow:hidden; }
               .nlx-seg button { border:0; background:transparent; color:var(--cp-text-soft); padding:6px 13px; font-size:12.5px; cursor:pointer; border-left:1px solid var(--cp-border); }
@@ -18127,9 +18136,9 @@
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                               <span class="row-chevron">›</span>
                               <strong x-text="chain.name"></strong>
-                              <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
-                              <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
-                              <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
+                              <span class="flow-count" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
+                              <span class="flow-stat" :class="chain.enabled === false ? 'idle' : 'ok'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
+                              <span class="flow-stat" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
                             </div>
                             <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
                           </div>
@@ -18149,7 +18158,7 @@
                           </div>
                           <div class="task-meta-item" x-show="chainLastRun(chain)">
                             <span class="meta-label">Result</span>
-                            <span class="status-badge" style="font-size:0.72rem" :class="statusClass(chainLastRun(chain)?.status || 'idle')" x-text="statusLabel(chainLastRun(chain)?.status || 'idle')"></span>
+                            <span class="flow-stat" :class="statusClass(chainLastRun(chain)?.status || 'idle')" x-text="statusLabel(chainLastRun(chain)?.status || 'idle')"></span>
                           </div>
                           <div class="task-meta-item" x-show="chainLastRun(chain)">
                             <span class="meta-label">Duration</span>
@@ -51140,7 +51149,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const name = self.flowStepName(step), owner = self._flowStepOwner(step);
             el.innerHTML =
               '<div class="fn-head">' +
-                '<span class="fn-ic">' + (inline ? '🤖' : '📋') + '</span>' +
+                '<span class="fn-ic ' + (inline ? 'is-agent' : 'is-task') + '" title="' + (inline ? 'Agent' : 'Task') + '"></span>' +
                 '<span class="fn-title" title="' + self._esc(name) + '">' + self._esc(name) + '</span>' +
                 (isStart ? '<span class="fn-start">START</span>' : '') +
                 '<button class="fn-del" title="Remove node">✕</button>' +
