@@ -1282,16 +1282,6 @@
     .home-stat .hs-num { font-size: 20px; font-weight: 700; color: var(--cp-text); }
     .home-stat .hs-num.is-hot { color: var(--cp-accent); }
     .home-stat .hs-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-soft); margin-top: 3px; }
-    .home-arrange-btn {
-      background: transparent; border: 1px solid var(--cp-border); color: var(--cp-text-muted);
-      border-radius: calc(var(--cp-radius-scale, 1) * 10px); padding: 7px 13px; font-size: 12px; font-weight: 600; cursor: pointer;
-      display: inline-flex; align-items: center; gap: 6px;
-      transition: color .15s ease, border-color .15s ease, background .15s ease;
-    }
-    .home-arrange-btn:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
-    .home-arrange-btn.is-on { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
-    .home-arrange-btn .haf-reset { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--cp-border-strong); color: var(--cp-text-soft); }
-    .home-arrange-btn .haf-reset:hover { color: var(--cp-accent); }
 
     /* What's new accent banner */
     .home-whatsnew {
@@ -1434,25 +1424,21 @@
     .mgmt-home .mh-empty { color: var(--cp-text-muted); font-size: 13px; padding: 10px 4px; }
     .mgmt-home .mh-spark { flex: 0 0 auto; opacity: .85; }
 
-    /* Arrange-mode reorder strip (hidden until arranging) */
-    .home-arrange-strip {
-      display: none; align-items: center; gap: 8px;
-      margin: 0 0 8px; padding: 5px 10px;
-      border: 1px dashed var(--cp-border-strong); border-radius: calc(var(--cp-radius-scale, 1) * 10px);
-      background: var(--cp-surface-soft);
-    }
-    .home-arrange .home-arrange-strip { display: flex; }
-    .home-arrange-strip .home-drag { cursor: grab; color: var(--cp-text-muted); font-size: 14px; line-height: 1; user-select: none; }
-    .home-arrange-strip .home-drag:active { cursor: grabbing; }
-    .home-arrange-strip .has-name { font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--cp-text-soft); }
-    .home-arrange-strip .spacer { flex: 1 1 auto; }
-    .home-arrange-strip .home-move { display: inline-flex; gap: 3px; }
-    .home-arrange-strip .home-move button {
-      background: transparent; border: 1px solid var(--cp-border); color: var(--cp-text-muted);
-      width: 22px; height: 22px; border-radius: calc(var(--cp-radius-scale, 1) * 6px); cursor: pointer; font-size: 11px; line-height: 1;
-      display: inline-flex; align-items: center; justify-content: center;
-    }
-    .home-arrange-strip .home-move button:hover { color: var(--cp-accent); border-color: var(--cp-accent); }
+    /* Whole-panel title-drag reorder (grab the panel header/empty space) */
+    .home-rsec[draggable="true"] { cursor: grab; }
+    .home-rsec[draggable="true"]:active { cursor: grabbing; }
+    .home-rsec[draggable="true"] button,
+    .home-rsec[draggable="true"] a,
+    .home-rsec[draggable="true"] input,
+    .home-rsec[draggable="true"] textarea,
+    .home-rsec[draggable="true"] select,
+    .home-rsec[draggable="true"] label,
+    .home-rsec[draggable="true"] [role="button"],
+    .home-rsec[draggable="true"] .home-stat,
+    .home-rsec[draggable="true"] .home-wn-row,
+    .home-rsec[draggable="true"] .hs-item,
+    .home-rsec[draggable="true"] canvas,
+    .home-rsec[draggable="true"] svg { cursor: auto; }
 
     /* Featured newsletter card on Home */
     .home-nl-card { display: flex; align-items: center; gap: 16px; border-left: 3px solid color-mix(in srgb, var(--cp-link) 60%, var(--cp-border)); }
@@ -6969,18 +6955,13 @@
                       <span class="hs-label">Running</span>
                     </div>
                   </div>
-                  <button type="button" class="home-arrange-btn" :class="homeArrange ? 'is-on' : ''" @click="homeArrange = !homeArrange" :title="homeArrange ? 'Finish arranging' : 'Rearrange your home sections'">
-                    <span>⠿</span>
-                    <span x-text="homeArrange ? 'Done' : 'Arrange'"></span>
-                    <span class="haf-reset" x-show="homeArrange" @click.stop="homeResetSections()" title="Reset to default order">Reset</span>
-                  </button>
                   <div class="home-cust-wrap">
                     <button type="button" class="home-cust-btn" :class="homeCustomizeOpen ? 'is-on' : ''" @click="homeCustomizeOpen = !homeCustomizeOpen" title="Show, hide & reorder sections">
                       <span>⚙</span><span>Customize</span>
                     </button>
                     <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
                       <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
-                      <div class="hcp-hint">Toggle sections on or off. Use Arrange to reorder.</div>
+                      <div class="hcp-hint">Toggle sections on or off. Drag a panel by its title to reorder.</div>
                       <template x-for="s in homePickerSections()" :key="'hcp-p-'+s.key">
                         <div class="hcp-row">
                           <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
@@ -6992,21 +6973,12 @@
                 </div>
               </div>
 
-              <div class="home-cards" :class="homeArrange ? 'home-arrange' : ''">
+              <div class="home-cards">
 
                 <!-- Today's agenda (Me.AI glance — read-only; click through to plan/act) -->
                 <div class="home-rsec span-full" :style="{ order: homeSecIndex('agenda') }" x-show="homeSectionVisible('agenda')"
                      :class="homeDragOver === 'agenda' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('agenda')" @drop.prevent="homeReorderDrop('agenda')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('agenda',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name" x-text="homeAgenda.isTomorrow ? \"Tomorrow's agenda\" : \"Today's agenda\""></span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('agenda',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('agenda',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('agenda')" @drop.prevent="homeReorderDrop('agenda')" draggable="true" @dragstart="homeReorderStart('agenda',$event)" @dragend="homeReorderEnd()">
                   <section class="card home-agenda-card">
                     <div class="card-header">
                       <div>
@@ -7048,16 +7020,7 @@
                 <!-- What's new (release highlights + new marketplace items; clickable) -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('whatsnew') }" x-show="homeSectionVisible('whatsnew')"
                      :class="homeDragOver === 'whatsnew' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('whatsnew')" @drop.prevent="homeReorderDrop('whatsnew')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('whatsnew',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">What's new</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('whatsnew',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('whatsnew',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('whatsnew')" @drop.prevent="homeReorderDrop('whatsnew')" draggable="true" @dragstart="homeReorderStart('whatsnew',$event)" @dragend="homeReorderEnd()">
                   <section class="card home-wn-card">
                     <div class="card-header">
                       <div>
@@ -7083,16 +7046,7 @@
                 <!-- Insights: what needs you right now (folded into home) -->
                 <div class="home-rsec span-full" :style="{ order: homeSecIndex('insights') }" x-show="homeSectionVisible('insights')"
                      :class="homeDragOver === 'insights' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('insights')" @drop.prevent="homeReorderDrop('insights')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('insights',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Insights</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('insights',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('insights',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('insights')" @drop.prevent="homeReorderDrop('insights')" draggable="true" @dragstart="homeReorderStart('insights',$event)" @dragend="homeReorderEnd()">
                   <section class="card home-hovercard">
                     <style>
                       .needs-group { margin-top:16px; }
@@ -7181,16 +7135,7 @@
                 <!-- Active dev work -->
                 <div class="home-rsec span-full" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
                      :class="homeDragOver === 'devwork' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('devwork')" @drop.prevent="homeReorderDrop('devwork')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('devwork',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Active dev work</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('devwork',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('devwork',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('devwork')" @drop.prevent="homeReorderDrop('devwork')" draggable="true" @dragstart="homeReorderStart('devwork',$event)" @dragend="homeReorderEnd()">
                   <section class="card">
                     <div class="card-header">
                       <div>
@@ -7237,16 +7182,7 @@
                 <!-- Boards -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('boards') }" x-show="homeSectionVisible('boards')"
                      :class="homeDragOver === 'boards' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('boards')" @drop.prevent="homeReorderDrop('boards')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('boards',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Workspaces</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('boards',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('boards',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('boards')" @drop.prevent="homeReorderDrop('boards')" draggable="true" @dragstart="homeReorderStart('boards',$event)" @dragend="homeReorderEnd()">
                   <section class="card">
                     <div class="card-header">
                       <div>
@@ -7281,16 +7217,7 @@
                 <!-- My pull requests -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('prs') }" x-show="homeSectionVisible('prs')"
                      :class="homeDragOver === 'prs' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('prs')" @drop.prevent="homeReorderDrop('prs')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('prs',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">My pull requests</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('prs',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('prs',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('prs')" @drop.prevent="homeReorderDrop('prs')" draggable="true" @dragstart="homeReorderStart('prs',$event)" @dragend="homeReorderEnd()">
                   <section class="card">
                     <div class="card-header">
                       <div>
@@ -7324,16 +7251,7 @@
                 <!-- Newsletter (featured; click navigates, sent indicator) -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('newsletter') }" x-show="homeSectionVisible('newsletter')"
                      :class="homeDragOver === 'newsletter' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('newsletter')" @drop.prevent="homeReorderDrop('newsletter')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('newsletter',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Newsletter</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('newsletter',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('newsletter',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('newsletter')" @drop.prevent="homeReorderDrop('newsletter')" draggable="true" @dragstart="homeReorderStart('newsletter',$event)" @dragend="homeReorderEnd()">
                   <article class="card clickable home-nl-card" @click="goTo('#/newsletter')" role="button" tabindex="0" @keydown.enter="goTo('#/newsletter')" title="Open the newsletter">
                     <div class="home-nl-icon">📰</div>
                     <div class="home-nl-main">
@@ -7352,16 +7270,7 @@
                 <!-- Flow / Task activity (folded in from Management home) -->
                 <div class="home-rsec span-full mgmt-home" :style="{ order: homeSecIndex('flowchart') }" x-show="homeSectionVisible('flowchart')"
                      :class="homeDragOver === 'flowchart' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('flowchart')" @drop.prevent="homeReorderDrop('flowchart')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('flowchart',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Flow / Task activity</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('flowchart',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('flowchart',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
+                     @dragover.prevent="homeReorderOver('flowchart')" @drop.prevent="homeReorderDrop('flowchart')" draggable="true" @dragstart="homeReorderStart('flowchart',$event)" @dragend="homeReorderEnd()">
                   <section class="card mh-accent-link mh-full">
                   <div class="card-header">
                     <div>
@@ -7466,18 +7375,13 @@
                       <span class="hs-label">Running</span>
                     </div>
                   </div>
-                  <button type="button" class="home-arrange-btn" :class="homeArrange ? 'is-on' : ''" @click="homeArrange = !homeArrange" :title="homeArrange ? 'Finish arranging' : 'Rearrange your home sections'">
-                    <span>⠿</span>
-                    <span x-text="homeArrange ? 'Done' : 'Arrange'"></span>
-                    <span class="haf-reset" x-show="homeArrange" @click.stop="mgmtResetSections()" title="Reset to default order">Reset</span>
-                  </button>
                   <div class="home-cust-wrap">
                     <button type="button" class="home-cust-btn" :class="homeCustomizeOpen ? 'is-on' : ''" @click="homeCustomizeOpen = !homeCustomizeOpen" title="Show, hide & reorder sections">
                       <span>⚙</span><span>Customize</span>
                     </button>
                     <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
                       <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
-                      <div class="hcp-hint">Toggle sections on or off. Use Arrange to reorder.</div>
+                      <div class="hcp-hint">Toggle sections on or off. Drag a panel by its title to reorder.</div>
                       <template x-for="s in homePickerSections()" :key="'hcp-m-'+s.key">
                         <div class="hcp-row">
                           <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
@@ -7489,11 +7393,10 @@
                 </div>
               </div>
 
-              <div class="home-cards" :class="homeArrange ? 'home-arrange' : ''">
+              <div class="home-cards">
 
                 <!-- What's new (marketplace + release highlights) -->
-                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('whatsnew') }" x-show="mgmtSectionVisible('whatsnew')" :class="mgmtDragOver === 'whatsnew' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('whatsnew')" @drop.prevent="mgmtReorderDrop('whatsnew')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('whatsnew',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">What's new</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('whatsnew',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('whatsnew',1)" title="Move down">↓</button></span></div>
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('whatsnew') }" x-show="mgmtSectionVisible('whatsnew')" :class="mgmtDragOver === 'whatsnew' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('whatsnew')" @drop.prevent="mgmtReorderDrop('whatsnew')" draggable="true" @dragstart="mgmtReorderStart('whatsnew',$event)" @dragend="mgmtReorderEnd()">
                   <section class="card home-wn-card mh-full">
                   <div class="card-header">
                     <div>
@@ -7517,8 +7420,7 @@
                 </div>
 
                 <!-- Attention needed -->
-                <div class="home-rsec" :style="{ order: mgmtSecIndex('attention') }" x-show="mgmtSectionVisible('attention')" :class="mgmtDragOver === 'attention' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('attention')" @drop.prevent="mgmtReorderDrop('attention')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('attention',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Attention needed</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('attention',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('attention',1)" title="Move down">↓</button></span></div>
+                <div class="home-rsec" :style="{ order: mgmtSecIndex('attention') }" x-show="mgmtSectionVisible('attention')" :class="mgmtDragOver === 'attention' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('attention')" @drop.prevent="mgmtReorderDrop('attention')" draggable="true" @dragstart="mgmtReorderStart('attention',$event)" @dragend="mgmtReorderEnd()">
                   <section class="card mh-accent-warn">
                   <div class="card-header">
                     <div>
@@ -7544,8 +7446,7 @@
                 </div>
 
                 <!-- Team pulse -->
-                <div class="home-rsec" :style="{ order: mgmtSecIndex('pulse') }" x-show="mgmtSectionVisible('pulse')" :class="mgmtDragOver === 'pulse' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('pulse')" @drop.prevent="mgmtReorderDrop('pulse')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('pulse',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Team pulse</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('pulse',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('pulse',1)" title="Move down">↓</button></span></div>
+                <div class="home-rsec" :style="{ order: mgmtSecIndex('pulse') }" x-show="mgmtSectionVisible('pulse')" :class="mgmtDragOver === 'pulse' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('pulse')" @drop.prevent="mgmtReorderDrop('pulse')" draggable="true" @dragstart="mgmtReorderStart('pulse',$event)" @dragend="mgmtReorderEnd()">
                   <section class="card">
                   <div class="card-header">
                     <div>
@@ -7584,8 +7485,7 @@
                 </div>
 
                 <!-- Recently added -->
-                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('recent') }" x-show="mgmtSectionVisible('recent')" :class="mgmtDragOver === 'recent' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('recent')" @drop.prevent="mgmtReorderDrop('recent')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('recent',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Recently added</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('recent',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('recent',1)" title="Move down">↓</button></span></div>
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('recent') }" x-show="mgmtSectionVisible('recent')" :class="mgmtDragOver === 'recent' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('recent')" @drop.prevent="mgmtReorderDrop('recent')" draggable="true" @dragstart="mgmtReorderStart('recent',$event)" @dragend="mgmtReorderEnd()">
                   <section class="card mh-full">
                   <div class="card-header">
                     <div>
@@ -7611,8 +7511,7 @@
                 </div>
 
                 <!-- Flow activity chart -->
-                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('flowchart') }" x-show="mgmtSectionVisible('flowchart')" :class="mgmtDragOver === 'flowchart' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('flowchart')" @drop.prevent="mgmtReorderDrop('flowchart')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('flowchart',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Flow / Task activity</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('flowchart',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('flowchart',1)" title="Move down">↓</button></span></div>
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('flowchart') }" x-show="mgmtSectionVisible('flowchart')" :class="mgmtDragOver === 'flowchart' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('flowchart')" @drop.prevent="mgmtReorderDrop('flowchart')" draggable="true" @dragstart="mgmtReorderStart('flowchart',$event)" @dragend="mgmtReorderEnd()">
                   <section class="card mh-accent-link mh-full">
                   <div class="card-header">
                     <div>
@@ -7687,8 +7586,7 @@
                 </div>
 
                 <!-- At a glance -->
-                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('glance') }" x-show="mgmtSectionVisible('glance')" :class="mgmtDragOver === 'glance' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('glance')" @drop.prevent="mgmtReorderDrop('glance')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('glance',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">At a glance</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('glance',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('glance',1)" title="Move down">↓</button></span></div>
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('glance') }" x-show="mgmtSectionVisible('glance')" :class="mgmtDragOver === 'glance' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('glance')" @drop.prevent="mgmtReorderDrop('glance')" draggable="true" @dragstart="mgmtReorderStart('glance',$event)" @dragend="mgmtReorderEnd()">
                   <div class="home-section">
                     <div class="home-section-label">
                       <span class="hsl-icon">📊</span>
@@ -29704,7 +29602,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePersistSections() {
           try { localStorage.setItem('home-section-order', JSON.stringify(this.homeSectionOrder)); } catch {}
         },
+        _homeDragFromControl(ev) {
+          const t = ev && ev.target;
+          if (t && typeof t.closest === 'function' && t.closest('button,a,input,textarea,select,label,[role="button"],[contenteditable],.home-stat,.home-wn-row,.hs-item,canvas,svg')) return true;
+          return false;
+        },
         homeReorderStart(key, ev) {
+          if (this._homeDragFromControl(ev)) { if (ev && ev.preventDefault) ev.preventDefault(); return; }
           this.homeDrag = key;
           if (ev && ev.dataTransfer) {
             ev.dataTransfer.effectAllowed = 'move';
@@ -29783,6 +29687,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Management home in-page drag reorder (mirrors the Productivity handlers)
         mgmtPersistOrder() { try { localStorage.setItem('home-section-order-mgmt', JSON.stringify(this.mgmtSectionOrder)); } catch {} },
         mgmtReorderStart(key, ev) {
+          if (this._homeDragFromControl(ev)) { if (ev && ev.preventDefault) ev.preventDefault(); return; }
           this.mgmtDrag = key;
           if (ev && ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', key); } catch {} }
         },
