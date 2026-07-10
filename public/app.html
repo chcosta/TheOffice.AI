@@ -4943,29 +4943,85 @@
       border: 1px solid var(--cp-accent); border-radius: 8px;
       box-shadow: 0 4px 14px color-mix(in srgb, var(--cp-ink) 12%, transparent);
     }
-    /* nodes — fixed 220×108 brief card */
+    /* nodes — Direction B "dossier" card: tinted type header, facts grid, calm footer */
     .bmap-node {
-      position: absolute; width: 220px; height: 108px; box-sizing: border-box;
-      display: flex; flex-direction: column; gap: 4px; padding: 9px 10px;
-      background: color-mix(in srgb, var(--k, var(--cp-border)) 5%, var(--cp-surface)); border: 1px solid var(--cp-border);
-      border-left: 4px solid var(--k, var(--cp-border));
-      border-radius: calc(var(--cp-radius-scale, 1) * 12px);
-      box-shadow: 0 2px 8px color-mix(in srgb, var(--cp-ink) 10%, transparent);
+      position: absolute; width: 272px; box-sizing: border-box;
+      display: flex; flex-direction: column;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: calc(var(--cp-radius-scale, 1) * 14px);
+      box-shadow: 0 2px 10px color-mix(in srgb, var(--cp-ink) 14%, transparent);
       cursor: grab; user-select: none; overflow: visible;
       transition: box-shadow .12s ease, border-color .12s ease;
     }
-    .bmap-node:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); border-color: color-mix(in srgb, var(--k, var(--cp-accent)) 55%, var(--cp-border)); border-left-color: var(--k, var(--cp-accent)); }
-    .bmap-node.sel { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); }
-    .bmap-node.hl { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f5a623) 70%, transparent), 0 6px 18px color-mix(in srgb, var(--cp-ink) 18%, transparent); }
+    .bmap-node:hover { box-shadow: 0 8px 22px color-mix(in srgb, var(--cp-ink) 22%, transparent); border-color: color-mix(in srgb, var(--k, var(--cp-accent)) 45%, var(--cp-border)); }
+    .bmap-node.sel { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent), 0 8px 22px color-mix(in srgb, var(--cp-ink) 22%, transparent); }
+    .bmap-node.hl { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f5a623) 70%, transparent), 0 8px 22px color-mix(in srgb, var(--cp-ink) 20%, transparent); }
     .bmap-node.hl.sel { box-shadow: 0 0 0 2px var(--cp-accent), 0 0 0 5px color-mix(in srgb, var(--cp-warning, #f5a623) 60%, transparent); }
     .bmap-node.connect-from { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent); }
-    .bmap-node-head { display: flex; align-items: center; gap: 6px; }
-    .bmap-node-icon { font-size: 14px; flex: 0 0 auto; }
-    .bmap-node-title { font-size: 13px; font-weight: 600; color: var(--cp-ink); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bmap-node-sum { flex: 1 1 auto; min-height: 0; font-size: 11.5px; line-height: 1.35; color: color-mix(in srgb, var(--cp-ink) 78%, var(--cp-muted)); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-    .bmap-node-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-    .bmap-node-type { font-size: 10.5px; color: color-mix(in srgb, var(--k, var(--cp-muted)) 75%, var(--cp-muted)); text-transform: uppercase; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bmap-node-acts { display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s ease; flex: 0 0 auto; }
+    /* header */
+    .bmap-node-hd {
+      display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--k, var(--cp-accent)) 16%, transparent), transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--k, var(--cp-accent)) 24%, var(--cp-border));
+      border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    }
+    .bmap-node-ico {
+      width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center;
+      border-radius: 8px; font-size: 14px; line-height: 1;
+      background: var(--k, var(--cp-accent)); color: #0c1322;
+      box-shadow: 0 1px 4px color-mix(in srgb, var(--cp-ink) 30%, transparent);
+    }
+    .bmap-node-lbl { flex: 1 1 auto; min-width: 0; }
+    .bmap-node-kind { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--k, var(--cp-accent)); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-node-name { font-size: 13px; font-weight: 650; line-height: 1.2; color: var(--cp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bmap-node-badge { flex: 0 0 auto; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; line-height: 1.35; white-space: nowrap; }
+    .bmap-statusdot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; }
+    .bmst-open { background: color-mix(in srgb, var(--cp-success) 20%, transparent); color: var(--cp-success); }
+    .bmst-warn { background: color-mix(in srgb, var(--cp-warning) 22%, transparent); color: var(--cp-warning); }
+    .bmst-dang { background: color-mix(in srgb, var(--cp-danger) 20%, transparent); color: var(--cp-danger); }
+    .bmst-mut { background: color-mix(in srgb, var(--cp-muted) 22%, transparent); color: var(--cp-ink); }
+    .bmst-k { background: color-mix(in srgb, var(--k, var(--cp-accent)) 20%, transparent); color: var(--k, var(--cp-accent)); }
+    .bmsd-run { background: var(--cp-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-success) 25%, transparent); }
+    .bmsd-idle { background: var(--cp-muted); }
+    .bmsd-sched { background: var(--cp-accent); }
+    .bmsd-fail { background: var(--cp-danger); }
+    /* body */
+    .bmap-node-bd { padding: 10px 12px 11px; display: flex; flex-direction: column; gap: 9px; }
+    .bmap-node-ttl { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--cp-ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .bmap-node-sum { font-size: 11.5px; line-height: 1.45; color: color-mix(in srgb, var(--cp-ink) 80%, var(--cp-muted)); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .bmap-node-sum.tall { -webkit-line-clamp: 4; }
+    .bmap-node-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; }
+    .bmap-node-facts.one { grid-template-columns: 1fr; }
+    .bmap-node-f { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .bmap-node-f .k { font-size: 9.5px; letter-spacing: .03em; text-transform: uppercase; color: var(--cp-muted); line-height: 1.3; }
+    .bmap-node-f .v { font-size: 12px; font-weight: 600; color: var(--cp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bmap-node-f .v.ok { color: var(--cp-success); }
+    .bmap-node-f .v.bad { color: var(--cp-danger); }
+    .bmap-node-f .v.warn { color: var(--cp-warning); }
+    .bmap-node-prog { display: flex; flex-direction: column; gap: 5px; }
+    .bmap-node-prog .track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--cp-ink) 12%, transparent); overflow: hidden; }
+    .bmap-node-prog .track > i { display: block; height: 100%; border-radius: 999px; background: var(--k, var(--cp-accent)); }
+    .bmap-node-prog .pl { font-size: 11px; color: var(--cp-muted); }
+    .bmap-node-next { font-size: 11.5px; color: color-mix(in srgb, var(--cp-ink) 78%, var(--cp-muted)); display: flex; gap: 6px; align-items: baseline; }
+    .bmap-node-next .box { flex: 0 0 auto; color: var(--k, var(--cp-accent)); }
+    /* footer */
+    .bmap-node-ft { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; border-top: 1px solid var(--cp-border); background: color-mix(in srgb, var(--cp-bg) 40%, transparent); font-size: 10.5px; color: var(--cp-muted); border-radius: inherit; border-top-left-radius: 0; border-top-right-radius: 0; }
+    .bmap-node-signal { display: flex; align-items: center; gap: 6px; font-weight: 650; min-width: 0; }
+    .bmap-node-signal > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-node-signal.ok { color: var(--cp-success); }
+    .bmap-node-signal.warn { color: var(--cp-warning); }
+    .bmap-node-signal.crit { color: var(--cp-danger); }
+    .bmap-node-signal .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+    .bmap-node-meta { flex: 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 58%; }
+    /* hover action overlay (top-right corner) */
+    .bmap-node-acts {
+      position: absolute; top: 6px; right: 6px; z-index: 8;
+      display: flex; align-items: center; gap: 1px; padding: 2px;
+      opacity: 0; transition: opacity .12s ease;
+      background: color-mix(in srgb, var(--cp-surface) 92%, transparent);
+      border: 1px solid var(--cp-border); border-radius: 8px;
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--cp-ink) 20%, transparent);
+    }
     .bmap-node:hover .bmap-node-acts { opacity: 1; }
     .bmap-node-acts button {
       display: inline-flex; align-items: center; justify-content: center;
@@ -8770,21 +8826,57 @@
                                    @pointerup.stop="bmapNodeUp(n,$event)"
                                    @click.stop="bmapNodeClick(n,$event)"
                                    @dblclick.stop="bmapOpenReal(n.base)">
-                                <div class="bmap-node-head">
-                                  <span class="bmap-node-icon" x-text="bmapCardIcon(n.p)"></span>
-                                  <span class="bmap-node-title" x-text="bmapCardTitle(n.p)"></span>
-                                </div>
-                                <div class="bmap-node-sum" x-text="bmapCardSummary(n.p)"></div>
-                                <div class="bmap-node-foot">
-                                  <span class="bmap-node-type" x-text="bmapCardType(n.p)"></span>
-                                  <span class="bmap-node-acts" @pointerdown.stop @click.stop>
-                                    <button type="button" @click="bmapOpenReal(n.base)" title="Open full card">⤢</button>
-                                    <button type="button" @click="bmapToggleHl(n.base)" :class="{ on: bmapIsHl(n.base) }" title="Mark ‘you are here’">◎</button>
-                                    <button type="button" @click="bmapBringFront(n.base)" title="Bring to front">⬆</button>
-                                    <button type="button" @click="bmapSendBack(n.base)" title="Send to back">⬇</button>
-                                    <button type="button" @click="bmapRemoveNode(n.base)" title="Remove from map">✕</button>
+                                <div class="bmap-node-hd">
+                                  <span class="bmap-node-ico" x-text="bmapCardIcon(n.p)"></span>
+                                  <span class="bmap-node-lbl">
+                                    <span class="bmap-node-kind" x-text="bmapCardKind(n.p)"></span>
+                                    <span class="bmap-node-name" x-text="bmapCardName(n.p)"></span>
                                   </span>
+                                  <template x-if="bmapStatusDot(n.p)">
+                                    <span class="bmap-statusdot" :class="'bmsd-'+bmapStatusDot(n.p)" :title="bmapStatusDot(n.p)"></span>
+                                  </template>
+                                  <template x-if="!bmapStatusDot(n.p) && bmapBadge(n.p)">
+                                    <span class="bmap-node-badge" :class="'bmst-'+bmapBadge(n.p).tone" x-text="bmapBadge(n.p).text"></span>
+                                  </template>
                                 </div>
+                                <div class="bmap-node-bd">
+                                  <template x-if="bmapCardTitle2(n.p)">
+                                    <div class="bmap-node-ttl" x-text="bmapCardTitle2(n.p)"></div>
+                                  </template>
+                                  <template x-if="bmapShowSummary(n.p) && bmapCardSummary(n.p)">
+                                    <div class="bmap-node-sum" :class="{ tall: bmapKindKey(n.p)==='note' }" x-text="bmapCardSummary(n.p)"></div>
+                                  </template>
+                                  <template x-if="bmapProgress(n.p)">
+                                    <div class="bmap-node-prog">
+                                      <div class="track"><i :style="'width:'+bmapProgress(n.p).pct+'%'"></i></div>
+                                      <span class="pl" x-text="bmapProgress(n.p).label"></span>
+                                    </div>
+                                  </template>
+                                  <template x-if="bmapNext(n.p)">
+                                    <div class="bmap-node-next"><span class="box">☐</span><span x-text="bmapNext(n.p)"></span></div>
+                                  </template>
+                                  <template x-if="bmapFacts(n.p).length">
+                                    <div class="bmap-node-facts" :class="{ one: bmapFacts(n.p).length===1 }">
+                                      <template x-for="(f,fi) in bmapFacts(n.p)" :key="fi">
+                                        <div class="bmap-node-f"><span class="k" x-text="f.k"></span><span class="v" :class="f.tone" x-text="f.v"></span></div>
+                                      </template>
+                                    </div>
+                                  </template>
+                                </div>
+                                <div class="bmap-node-ft">
+                                  <template x-if="bmapSignal(n.p)">
+                                    <span class="bmap-node-signal" :class="bmapSignal(n.p).tone"><span class="dot"></span><span x-text="bmapSignal(n.p).text"></span></span>
+                                  </template>
+                                  <template x-if="!bmapSignal(n.p)"><span></span></template>
+                                  <span class="bmap-node-meta" x-text="bmapCardMeta(n.p)"></span>
+                                </div>
+                                <span class="bmap-node-acts" @pointerdown.stop @click.stop>
+                                  <button type="button" @click="bmapOpenReal(n.base)" title="Open full card">⤢</button>
+                                  <button type="button" @click="bmapToggleHl(n.base)" :class="{ on: bmapIsHl(n.base) }" title="Mark ‘you are here’">◎</button>
+                                  <button type="button" @click="bmapBringFront(n.base)" title="Bring to front">⬆</button>
+                                  <button type="button" @click="bmapSendBack(n.base)" title="Send to back">⬇</button>
+                                  <button type="button" @click="bmapRemoveNode(n.base)" title="Remove from map">✕</button>
+                                </span>
                                 <div class="bmap-node-preview" x-html="bmapCardFull(n.p)"></div>
                                 <span class="bmap-linkhandle" title="Drag to another card to link them" @pointerdown.stop.prevent="bmapLinkStart(n,$event,'right')" @click.stop></span>
                                 <template x-if="bmapConnectMode()">
@@ -13263,7 +13355,7 @@
                   </button>
                   <span style="flex:1"></span>
                   <span class="meai-status-detail meai-hover-item" x-show="meai.inbox.polledAt" x-text="'checked ' + (new Date(meai.inbox.polledAt)).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})"></span>
-                  <button type="button" class="meai-inbox-grouplink" x-show="meai.inboxOpen && (meai.inbox.items||[]).length>=2" @click="meAiToggleGrouping()" :disabled="meai.inboxGroupBusy"
+                  <button type="button" class="meai-inbox-grouplink meai-hover-item" x-show="meai.inboxOpen && (meai.inbox.items||[]).length>=2" @click="meAiToggleGrouping()" :disabled="meai.inboxGroupBusy"
                           :title="meai.inboxGrouping ? 'Show items individually' : 'Group related items so you can triage them together'">
                     <span x-show="!meai.inboxGrouping && !meai.inboxGroupBusy">Group similar</span>
                     <span x-show="meai.inboxGrouping && !meai.inboxGroupBusy">Ungroup</span>
@@ -42018,8 +42110,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapOnMap(base) { const m = this.bmapData(); return !!(m.nodes && m.nodes[base]); },
         bmapCount() { return this.bmapNodes().length; },
         // -- world size / styles --
-        bmapW() { let mx = 1600; for (const n of this.bmapNodes()) mx = Math.max(mx, n.x + 260); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.x || 0) + (+g.w || 0) + 40); return Math.round(mx + 400); },
-        bmapH() { let mx = 1000; for (const n of this.bmapNodes()) mx = Math.max(mx, n.y + 160); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.y || 0) + (+g.h || 0) + 40); return Math.round(mx + 400); },
+        bmapW() { let mx = 1600; for (const n of this.bmapNodes()) mx = Math.max(mx, n.x + 300); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.x || 0) + (+g.w || 0) + 40); return Math.round(mx + 400); },
+        bmapH() { let mx = 1000; for (const n of this.bmapNodes()) mx = Math.max(mx, n.y + 240); for (const g of this.bmapGroups()) mx = Math.max(mx, (+g.y || 0) + (+g.h || 0) + 40); return Math.round(mx + 400); },
         bmapWorldStyle() { const v = this.bmap.view; return `width:${this.bmapW()}px;height:${this.bmapH()}px;transform:translate(${v.panX}px,${v.panY}px) scale(${v.zoom});transform-origin:0 0`; },
         bmapNodeStyle(n) { return `left:${n.x}px;top:${n.y}px;z-index:${(n.z || 1) + 10};--k:${this.bmapKindColor(n.p)}`; },
         // Distinct, theme-friendly hue per card type/kind — used for the top accent,
@@ -42027,10 +42119,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapKindKey(p) { if (!p) return 'pin'; if (p.type === 'pin') return String(p.kind || 'pin'); return String(p.type || 'pin'); },
         bmapKindColor(p) {
           const map = {
-            pr: '#8957e5', dev: '#1f883d', agent: '#0969da', manager: '#bf3989',
-            task: '#bc4c00', assignment: '#bc4c00', flow: '#9a6700', session: '#57606a',
-            chat: '#0a7ea4', comment: '#0a7ea4', location: '#656d76',
-            note: '#d4a72c', checklist: '#6639ba', summary: '#0969da', pin: '#656d76'
+            pr: '#a371f7', dev: '#3fb950', agent: '#4493f8', manager: '#db61a2',
+            task: '#e0823d', assignment: '#e0823d', flow: '#d29922', session: '#8b949e',
+            chat: '#39c5cf', comment: '#39c5cf', location: '#8b949e',
+            note: '#e3b341', checklist: '#a371f7', summary: '#4493f8', pin: '#8b949e'
           };
           return map[this.bmapKindKey(p)] || map.pin;
         },
@@ -42090,6 +42182,201 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return this._bmapEsc(this.bmapCardSummary(p));
           } catch { return ''; }
         },
+        // ---- Direction B dossier-card content (per-type, defensive; degrade gracefully) ----
+        _bmapMeta(p) { return (p && p.item && p.item.meta) || {}; },
+        _bmapAgo(ts) {
+          try {
+            const t = new Date(ts).getTime(); if (!t || isNaN(t)) return '';
+            const d = Date.now() - t; if (d < 0) return '';
+            const m = Math.floor(d / 60000); if (m < 1) return 'just now'; if (m < 60) return m + 'm ago';
+            const h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+            const days = Math.floor(h / 24); if (days < 7) return days + 'd ago';
+            const w = Math.floor(days / 7); if (w < 5) return w + 'w ago';
+            return Math.floor(days / 30) + 'mo ago';
+          } catch { return ''; }
+        },
+        bmapCardKind(p) {
+          const k = this.bmapKindKey(p);
+          const labels = { pr: 'Pull request', dev: 'Dev card', agent: 'Agent', manager: 'Manager', task: 'Task', assignment: 'Task', flow: 'Flow', session: 'Session', chat: 'Chat', comment: 'Comment', location: 'Location', note: 'Note', checklist: 'Checklist', summary: 'Summary', pin: 'Item' };
+          return labels[k] || (this.boardKindLabel ? this.boardKindLabel(k) : k) || 'Item';
+        },
+        bmapCardName(p) {
+          try {
+            if (this.bmapKindKey(p) === 'pr') {
+              const it = p.item || {}; const m = it.meta || {};
+              const id = it.refId || m.prId || m.id || m.number;
+              const repo = m.repo || it.repo || '';
+              const ids = (id != null && id !== '') ? ('#' + String(id).replace(/^#/, '')) : '';
+              const nm = [ids, repo].filter(Boolean).join(' · ');
+              if (nm) return nm;
+            }
+            return this.bmapCardTitle(p);
+          } catch { return this.bmapCardTitle(p); }
+        },
+        bmapCardTitle2(p) {
+          try {
+            if (this.bmapKindKey(p) === 'pr') {
+              const it = p.item || {}; const m = it.meta || {};
+              const t = it.title || it.label || m.title || '';
+              return String(t).replace(/\s+/g, ' ').trim().slice(0, 120);
+            }
+            return '';
+          } catch { return ''; }
+        },
+        bmapShowSummary(p) { return ['dev', 'agent', 'note', 'chat', 'comment', 'location', 'summary'].includes(this.bmapKindKey(p)); },
+        bmapProgress(p) {
+          try {
+            if (p.type !== 'checklist') return null;
+            const pr = this.checklistProgress(p.checklist) || {};
+            const total = pr.total || 0; const done = pr.done || 0;
+            const pct = total ? Math.round((done / total) * 100) : 0;
+            return { pct, label: done + ' of ' + total + ' complete' };
+          } catch { return null; }
+        },
+        bmapNext(p) {
+          try {
+            if (p.type !== 'checklist') return '';
+            const items = (p.checklist && p.checklist.items) || [];
+            const nx = items.find(i => !i.done);
+            return nx ? String(nx.text || '').replace(/\s+/g, ' ').trim().slice(0, 70) : '';
+          } catch { return ''; }
+        },
+        bmapStatusDot(p) {
+          try {
+            const k = this.bmapKindKey(p); const m = this._bmapMeta(p);
+            const st = String(m.state || m.status || (p.item && p.item.state) || '').toLowerCase();
+            if (k === 'agent') {
+              if (/run|working|active|busy/.test(st)) return 'run';
+              if (m.schedule || /schedul/.test(st)) return 'sched';
+              if (/fail|error/.test(st)) return 'fail';
+              return 'idle';
+            }
+            if (k === 'session') {
+              if (/run|active|live|working/.test(st)) return 'run';
+              if (/fail|error/.test(st)) return 'fail';
+              return 'idle';
+            }
+            return null;
+          } catch { return null; }
+        },
+        bmapBadge(p) {
+          try {
+            const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {};
+            if (k === 'pr') {
+              if (this.boardPrFull && this.boardPrFull(it)) {
+                const pr = this.boardPrFor(it);
+                if (pr.attention) return { text: 'Needs you', tone: 'dang' };
+                if (pr.isDraft) return { text: 'Draft', tone: 'mut' };
+                if (pr.readyToMerge) return { text: 'Ready', tone: 'open' };
+                const pill = this.codeflowApprovalPill ? this.codeflowApprovalPill(pr) : null;
+                if (pill && pill.label) {
+                  const tone = pill.tone === 'ok' ? 'open' : pill.tone === 'bad' ? 'dang' : pill.tone === 'warn' ? 'warn' : 'mut';
+                  return { text: pill.label, tone };
+                }
+              }
+              const st = m.state || m.status || it.state;
+              return st ? { text: String(st), tone: 'mut' } : null;
+            }
+            if (k === 'checklist') {
+              const pr = this.checklistProgress(p.checklist) || {};
+              return { text: (pr.done || 0) + '/' + (pr.total || 0), tone: 'k' };
+            }
+            if (k === 'manager') return { text: 'Active', tone: 'open' };
+            if (k === 'flow') {
+              const st = String(m.result || m.state || '').toLowerCase();
+              if (/fail|error/.test(st)) return { text: 'Failing', tone: 'dang' };
+              return { text: 'Healthy', tone: 'open' };
+            }
+            if (k === 'task' || k === 'assignment') {
+              const due = m.due || m.dueDate;
+              if (due) { const t = new Date(due).getTime(); if (t && t < Date.now()) return { text: 'Overdue', tone: 'dang' }; }
+              const st = m.state || m.status;
+              return st ? { text: String(st), tone: 'mut' } : null;
+            }
+            const st = m.state || m.status || it.state;
+            return st ? { text: String(st), tone: 'mut' } : null;
+          } catch { return null; }
+        },
+        _bmapFact(k, v, tone) { const val = (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim(); return val ? { k, v: val, tone: tone || '' } : null; },
+        bmapFacts(p) {
+          try {
+            const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {}; const out = [];
+            const push = (kk, vv, tone) => { const f = this._bmapFact(kk, vv, tone); if (f) out.push(f); };
+            if (k === 'pr') {
+              let checks = '', review = '', diff = '', branch = m.branch || it.branch || '';
+              if (this.boardPrFull && this.boardPrFull(it)) {
+                const pr = this.boardPrFor(it);
+                const c = pr.checks || {};
+                if (c.failed) checks = c.failed + ' failing'; else if (c.pending) checks = c.pending + ' pending'; else if (c.passed || c.total) checks = 'Passing';
+                const pill = this.codeflowApprovalPill ? this.codeflowApprovalPill(pr) : null;
+                review = pill ? pill.label : '';
+                if (pr.diff) { diff = ((pr.diff.additions != null ? '+' + pr.diff.additions : '') + (pr.diff.deletions != null ? ' -' + pr.diff.deletions : '')).trim(); }
+                branch = pr.branch || branch;
+              }
+              push('Checks', checks, /fail/.test(checks) ? 'bad' : /pending/.test(checks) ? 'warn' : checks ? 'ok' : '');
+              push('Review', review);
+              push('Diff', diff);
+              push('Branch', branch);
+            } else if (k === 'dev') {
+              const d = p.dev || it || {};
+              push('Repo', d.repo); push('Branch', d.branch);
+              const files = (d.files && d.files.length) || d.fileCount; push('Files', files != null ? files : '');
+              push('Stage', d.stage || d.status || m.state);
+            } else if (k === 'agent') {
+              push('Schedule', m.schedule); push('Last run', this._bmapAgo(m.lastRun || m.lastRunAt));
+              push('Playbook', m.playbook);
+            } else if (k === 'manager') {
+              push('Team', m.team); const ag = m.agents != null ? (Array.isArray(m.agents) ? m.agents.length : m.agents) : ''; push('Agents', ag);
+              push('Last activity', this._bmapAgo(m.lastActivity || m.updatedAt)); push('Pending', m.pending);
+            } else if (k === 'task' || k === 'assignment') {
+              push('Due', m.due || m.dueDate); push('Assignee', m.assignee || m.assignedTo || m.author);
+              push('Board', m.board); push('Status', m.state || m.status);
+            } else if (k === 'flow') {
+              push('Trigger', m.trigger || m.schedule); push('Last run', this._bmapAgo(m.lastRun || m.lastRunAt));
+              push('Result', m.result); push('Next', m.next || m.nextRun);
+            } else if (k === 'session') {
+              push('Repo', m.repo || it.repo); push('Branch', m.branch || it.branch);
+              push('Diff', m.diff); push('PR', m.prId != null ? ('#' + m.prId) : '');
+            } else if (k === 'location') {
+              push('Symbol', m.symbol); push('Lines', m.lines);
+            } else if (k === 'chat' || k === 'comment') {
+              push('Last speaker', m.author || m.lastSpeaker || m.by);
+            }
+            return out.slice(0, 4);
+          } catch { return []; }
+        },
+        bmapSignal(p) {
+          try {
+            const k = this.bmapKindKey(p); const it = p.item || {};
+            if (k === 'pr' && this.boardPrFull && this.boardPrFull(it)) {
+              const pr = this.boardPrFor(it);
+              if (pr.attention) return { text: this.codeflowAttentionLabel ? this.codeflowAttentionLabel(pr.attentionReason) : 'Needs your attention', tone: 'crit' };
+              if (pr.checks && pr.checks.failed) return { text: pr.checks.failed + ' checks failing', tone: 'crit' };
+              if (pr.readyToMerge) return { text: 'Ready to merge', tone: 'ok' };
+              if (pr.comments && pr.comments.activeComments > 0) return { text: pr.comments.activeComments + ' active comments', tone: 'warn' };
+            }
+            if (k === 'task' || k === 'assignment') {
+              const m = it.meta || {}; const due = m.due || m.dueDate;
+              if (due) { const t = new Date(due).getTime(); if (t && t < Date.now()) return { text: 'Overdue', tone: 'crit' }; }
+            }
+            if (k === 'checklist') {
+              const pr = this.checklistProgress(p.checklist) || {};
+              if (pr.total && pr.done >= pr.total) return { text: 'All done', tone: 'ok' };
+            }
+            return null;
+          } catch { return null; }
+        },
+        bmapCardMeta(p) {
+          try {
+            const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {};
+            const ago = this._bmapAgo(m.updatedAt || m.lastActivity || m.lastRun || m.ts || (p.dev && (p.dev.updatedAt || p.dev.createdAt)));
+            if (ago) return ago;
+            if (k === 'pr' && this.boardPrFull && this.boardPrFull(it)) { const pr = this.boardPrFor(it); const a = this.codeflowAgeLabel ? this.codeflowAgeLabel(pr) : ''; if (a) return a; }
+            const repo = m.repo || it.repo || (p.dev && p.dev.repo);
+            if (repo) return String(repo);
+            return this.bmapCardKind(p);
+          } catch { return ''; }
+        },
         // -- pan / zoom / fit --
         bmapWheel(ev) {
           const host = ev.currentTarget.getBoundingClientRect();
@@ -42107,7 +42394,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ns = this.bmapNodes();
           const v = this.bmap.view;
           if (!host || !ns.length) { v.zoom = 1; v.panX = 40; v.panY = 40; this._bmapSaveView(); return; }
-          const NW = 220, NH = 108;
+          const NW = 272, NH = 148;
           let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
           for (const n of ns) { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + NW); maxY = Math.max(maxY, n.y + NH); }
           for (const g of this.bmapGroups()) { minX = Math.min(minX, +g.x || 0); minY = Math.min(minY, +g.y || 0); maxX = Math.max(maxX, (+g.x || 0) + (+g.w || 0)); maxY = Math.max(maxY, (+g.y || 0) + (+g.h || 0)); }
@@ -42172,7 +42459,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         _bmapFinishMarquee() {
           const mq = this.bmap.marquee; if (!mq) return;
-          const NW = 220, NH = 108;
+          const NW = 272, NH = 148;
           if (mq.w < 6 && mq.h < 6) { this.bmap.sel = []; return; }
           const sel = [];
           for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) sel.push(n.base); }
@@ -42180,7 +42467,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         _bmapFinishGroupRect() {
           const mq = this.bmap.marquee; if (!mq) return;
-          const NW = 220, NH = 108;
+          const NW = 272, NH = 148;
           if (mq.w < 24 && mq.h < 24) return;
           const members = [];
           for (const n of this.bmapNodes()) { const cx = n.x + NW / 2, cy = n.y + NH / 2; if (cx >= mq.x && cx <= mq.x + mq.w && cy >= mq.y && cy <= mq.y + mq.h) members.push(n.base); }
@@ -42194,7 +42481,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // -- drag-to-link (connector nub / side ports on each node) --
         bmapLinkStart(n, ev, side) {
           const host = document.querySelector('.board-map'); if (!host) return;
-          const r = host.getBoundingClientRect(); const NW = 220, NH = 108;
+          const r = host.getBoundingClientRect(); const NW = 272, NH = 148;
           const nd = (this.bmapData().nodes || {})[n.base] || {};
           const bx = (+nd.x || 0), by = (+nd.y || 0);
           let fx = bx + NW, fy = by + NH / 2, nx = 1, ny = 0;
@@ -42266,7 +42553,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!base) return;
           const p = this._panelByBase(base); if (!p) return;
           const host = ev.currentTarget.getBoundingClientRect(); const v = this.bmap.view;
-          const NW = 220, NH = 108;
+          const NW = 272, NH = 148;
           const wx = (ev.clientX - host.left - v.panX) / v.zoom - NW / 2;
           const wy = (ev.clientY - host.top - v.panY) / v.zoom - NH / 2;
           const m = this._bmapEnsure(); if (!m) return;
@@ -42339,7 +42626,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapEdgePath(dir) {
           const m = this.bmapData(); const nodes = m.nodes || {};
-          const NW = 220, NH = 108, hw = NW / 2, hh = NH / 2;
+          const NW = 272, NH = 148, hw = NW / 2, hh = NH / 2;
           let d = '';
           for (const e of (m.edges || [])) {
             if ((e.dir || 'bi') !== dir) continue;
@@ -42358,7 +42645,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapArrowPath() {
           const m = this.bmapData(); const nodes = m.nodes || {};
-          const NW = 220, NH = 108, hw = NW / 2, hh = NH / 2;
+          const NW = 272, NH = 148, hw = NW / 2, hh = NH / 2;
           let d = '';
           for (const e of (m.edges || [])) {
             if ((e.dir || 'bi') !== 'uni') continue;
@@ -42381,7 +42668,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // -- groups --
         bmapStartGroup() {
           if (this.bmap.sel.length < 1) { try { this.toast('Select one or more cards first, then group them.'); } catch {} return; }
-          const NW = 220, NH = 108; const m = this._bmapEnsure(); if (!m) return;
+          const NW = 272, NH = 148; const m = this._bmapEnsure(); if (!m) return;
           let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
           for (const base of this.bmap.sel) { const nd = m.nodes[base]; if (!nd) continue; minX = Math.min(minX, +nd.x); minY = Math.min(minY, +nd.y); maxX = Math.max(maxX, +nd.x + NW); maxY = Math.max(maxY, +nd.y + NH); }
           if (!isFinite(minX)) return;
