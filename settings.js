@@ -208,6 +208,14 @@ const DEFAULTS = {
   meAiAutoTriageSafe: 80,
   meAiAutoTriageAgenda: 90,
   meAiActionTiers: {},
+  // Stricter triage bar (owner opt-in). When enabled, ONLY genuinely high-urgency
+  // asks (urgency >= meAiStrictMinUrgency, 0-5 scale) or meeting action items reach
+  // the triage section; everything else is quietly set aside so it never distracts
+  // the day OR lands on the backlog. Optional allowances widen the gate.
+  meAiStrictTriage: false,
+  meAiStrictMinUrgency: 4,
+  meAiStrictAllowMentions: false,
+  meAiStrictAllowReviews: false,
   // Instance-count dedup: min containment (0-100) for a NEW arrival to be folded
   // into an already-triaged related item (bumping its instance count) instead of
   // surfacing as its own inbox row. Higher = stricter (fewer merges).

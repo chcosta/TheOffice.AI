@@ -15224,6 +15224,44 @@
                 </div>
                 <div class="meai-set-panel" x-show="meai.hoursTab==='triage'">
                 <div class="meai-at-hint" x-show="!meai.config.consent" style="padding:8px 0">Turn on personal signals to configure auto-triage and always-ignore rules.</div>
+                <!-- Stricter triage bar (opt-in). When on, only genuinely high-urgency asks or
+                     meeting action items reach triage; everything else is quietly set aside so
+                     it never distracts the day OR lands on the backlog. Optional allowances
+                     widen the gate. NO pills; --cp-* tokens. -->
+                <div class="meai-autotri" x-show="meai.config.consent" style="margin-top:0;border-top:none;padding-top:0">
+                  <label class="meai-at-toggle">
+                    <input type="checkbox" x-model="meai.config.strictTriage.enabled">
+                    <span>
+                      <span class="meai-at-title">Stricter triage bar</span>
+                      <span class="meai-at-sub">Only high-urgency asks or meeting action items reach triage — everything else is set aside quietly (never shown, never on the backlog). Keeps the day and backlog calm. Off by default; set-aside items stay undoable.</span>
+                    </span>
+                  </label>
+                  <div class="meai-at-body" x-show="meai.config.strictTriage.enabled" x-transition.opacity>
+                    <div class="meai-at-arow">
+                      <span class="meai-at-aname">Minimum urgency to get through</span>
+                      <select class="field-input" x-model.number="meai.config.strictTriage.minUrgency">
+                        <option :value="3">Fairly urgent (3+)</option>
+                        <option :value="4">Urgent (4+)</option>
+                        <option :value="5">Critical only (5)</option>
+                      </select>
+                    </div>
+                    <label class="meai-at-toggle" style="margin-top:10px">
+                      <input type="checkbox" x-model="meai.config.strictTriage.allow.mentions">
+                      <span>
+                        <span class="meai-at-title">Also let direct @mentions through</span>
+                        <span class="meai-at-sub">Surface anything that mentions you directly, even below the urgency bar.</span>
+                      </span>
+                    </label>
+                    <label class="meai-at-toggle" style="margin-top:8px">
+                      <input type="checkbox" x-model="meai.config.strictTriage.allow.reviews">
+                      <span>
+                        <span class="meai-at-title">Also let review / PR requests through</span>
+                        <span class="meai-at-sub">Surface pull-request review asks even below the urgency bar.</span>
+                      </span>
+                    </label>
+                    <div class="meai-at-hint" style="margin-top:10px">Meeting action items always come through. Set-aside items appear in “I set these aside” with one-click Undo, and turning this off brings them all back.</div>
+                  </div>
+                </div>
                 <!-- Phase 2: confidence-scored auto-triage. Opt-in, hands-off handling of
                      high-confidence attention items. NO pills; --cp-* tokens; standard controls. -->
                 <div class="meai-autotri" x-show="meai.config.consent">
@@ -24243,7 +24281,7 @@
           _rebuildTimer: null,        // safety net that clears `rebuilding` if a 'done' event is missed
           heldDismissed: '',          // heldUpdate.at the user dismissed (a NEW held update re-shows)
           savingSettings: false,
-          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {}, autoTriage: { enabled: false, thresholds: { safe: 80, agenda: 90 }, actionTiers: {} }, grouping: { min: 72 }, conflictAutoReport: true },
+          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], weeklyHours: {}, mode: 'balanced', timePrefs: {}, autoTriage: { enabled: false, thresholds: { safe: 80, agenda: 90 }, actionTiers: {} }, strictTriage: { enabled: false, minUrgency: 4, allow: { mentions: false, reviews: false } }, grouping: { min: 72 }, conflictAutoReport: true },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           today: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
@@ -33289,6 +33327,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 autoTriageSafe: (c.autoTriage && c.autoTriage.thresholds) ? Number(c.autoTriage.thresholds.safe) : 80,
                 autoTriageAgenda: (c.autoTriage && c.autoTriage.thresholds) ? Number(c.autoTriage.thresholds.agenda) : 90,
                 actionTiers: (c.autoTriage && c.autoTriage.actionTiers && typeof c.autoTriage.actionTiers === 'object') ? c.autoTriage.actionTiers : {},
+                strictTriage: !!(c.strictTriage && c.strictTriage.enabled),
+                strictMinUrgency: (c.strictTriage && [3, 4, 5].includes(Number(c.strictTriage.minUrgency))) ? Number(c.strictTriage.minUrgency) : 4,
+                strictAllowMentions: !!(c.strictTriage && c.strictTriage.allow && c.strictTriage.allow.mentions),
+                strictAllowReviews: !!(c.strictTriage && c.strictTriage.allow && c.strictTriage.allow.reviews),
                 groupingMin: (c.grouping && c.grouping.min !== undefined) ? Number(c.grouping.min) : 72,
                 conflictAutoReport: c.conflictAutoReport !== false,
               }),

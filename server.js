@@ -11769,6 +11769,13 @@ function _meAiConfig(s) {
     thresholds: { safe: _clampPct(s.meAiAutoTriageSafe, 80), agenda: _clampPct(s.meAiAutoTriageAgenda, 90) },
     actionTiers,
   };
+  // Stricter triage bar. Meeting actions always pass; otherwise an item must clear
+  // minUrgency (0-5 scale) unless an allowance (@mentions / review-requests) lets it in.
+  const strictTriage = {
+    enabled: !!s.meAiStrictTriage,
+    minUrgency: [3, 4, 5].includes(Number(s.meAiStrictMinUrgency)) ? Number(s.meAiStrictMinUrgency) : 4,
+    allow: { mentions: !!s.meAiStrictAllowMentions, reviews: !!s.meAiStrictAllowReviews },
+  };
   // Instance-count dedup threshold: how much of a NEW arrival an already-triaged
   // related item must explain (containment %) before we fold it in as an instance
   // rather than surfacing it as its own row.
@@ -11799,6 +11806,7 @@ function _meAiConfig(s) {
     mode,
     timePrefs,
     autoTriage,
+    strictTriage,
     grouping,
     workItem,
     conflictAutoReport: s.meAiConflictAutoReport !== false,
@@ -12372,6 +12380,31 @@ function _meAiIsReviewRequest(it) {
   if (!it) return false;
   if (it.prLink) return true;
   return ME_AI_REVIEW_RE.test(`${it.title || ''} ${it.detail || ''}`);
+}
+// Stricter triage bar predicate: does this item clear the bar (i.e. should it still
+// reach triage)? Meeting action items always pass — they're commitments captured from
+// a meeting. Otherwise the item must meet the urgency floor, unless an enabled
+// allowance (direct @mentions / review requests) lets it through. Returns true when
+// strict is OFF so callers can gate unconditionally.
+function _meAiStrictPasses(it, strict) {
+  if (!strict || !strict.enabled) return true;
+  if (!it) return true;
+  if (it.source === 'meeting' || it.kind === 'meeting-action') return true;
+  const urg = Number(it.urgency);
+  if (Number.isFinite(urg) && urg >= Number(strict.minUrgency || 4)) return true;
+  if (strict.allow) {
+    if (strict.allow.mentions && it.directMention) return true;
+    if (strict.allow.reviews && _meAiIsReviewRequest(it)) return true;
+  }
+  return false;
+}
+function _meAiStrictWhy(it, strict) {
+  const bits = [`below the strict triage bar (urgency ${Number(it && it.urgency) || 0} < ${Number(strict && strict.minUrgency) || 4})`];
+  if (strict && strict.allow) {
+    if (!strict.allow.mentions) bits.push('@mentions not allowed through');
+    if (!strict.allow.reviews) bits.push('review requests not allowed through');
+  }
+  return `Set aside — ${bits.join('; ')}.`;
 }
 // First ENABLED class rule that matches this comms item, else null. Pure/deterministic —
 // no learning, no confidence. A rule with no conditions matches nothing (guards against
@@ -13287,6 +13320,24 @@ async function _meAiScoreAndMaybeAuto(it, cfg, date, now, opts = {}) {
   it.suggested = conf ? conf.action : '';
   if (!conf) return false;
   if (it.triage && it.triage !== 'new' && it.triage !== 'seen') return false; // already decided
+  // Stricter triage bar: set aside anything below the bar BEFORE the confidence model
+  // even runs, so low-signal noise never reaches triage OR the backlog. Meeting actions
+  // + high-urgency asks (+ any enabled allowances) pass through untouched. Recorded as
+  // an auto dismissal with reason 'strict' so it surfaces in the "set aside" list with a
+  // one-click Undo, and so Reports can tell it apart from a manual not-mine/won't-fix.
+  const strict = cfg && cfg.strictTriage;
+  if (strict && strict.enabled && !_meAiStrictPasses(it, strict)) {
+    it.triage = 'dismissed';
+    it.auto = true;
+    it.autoReason = { action: 'dismiss', strict: true, confidence: 100, why: _meAiStrictWhy(it, strict), at: now };
+    it.triagedAt = now;
+    try {
+      const dm = loadDismissForDate(date);
+      dm[_meAiDismissKey(it)] = { title: it.title, note: '', at: now, reason: 'strict', auto: true };
+      saveDismissForDate(date, dm);
+    } catch (_) { /* best-effort */ }
+    return true;
+  }
   const at = cfg && cfg.autoTriage;
   if (!at || !at.enabled) return false;
   const tier = at.actionTiers[conf.action];
@@ -17898,6 +17949,11 @@ app.put('/api/me-ai/settings', (req, res) => {
       }
       patch.meAiActionTiers = clean;
     }
+    // Stricter triage bar.
+    if (typeof b.strictTriage === 'boolean') patch.meAiStrictTriage = b.strictTriage;
+    if (b.strictMinUrgency !== undefined && [3, 4, 5].includes(Number(b.strictMinUrgency))) patch.meAiStrictMinUrgency = Number(b.strictMinUrgency);
+    if (typeof b.strictAllowMentions === 'boolean') patch.meAiStrictAllowMentions = b.strictAllowMentions;
+    if (typeof b.strictAllowReviews === 'boolean') patch.meAiStrictAllowReviews = b.strictAllowReviews;
     // Backlog work-item defaults.
     if (b.workItem && typeof b.workItem === 'object' && !Array.isArray(b.workItem)) {
       const wi = b.workItem;
@@ -18481,6 +18537,22 @@ app.post('/api/me-ai/inbox/reeval', async (req, res) => {
     const inbox = loadInboxForDate(date);
     const now = new Date().toISOString();
     let autoHandled = 0;
+    // Reversibility: if the stricter triage bar was just turned OFF, lift the items that
+    // strict (and only strict) had set aside so they flow back into triage. We only touch
+    // items strict itself auto-dismissed (autoReason.strict) — manual not-mine / won't-fix
+    // and confidence-model auto decisions are left untouched.
+    const strict = cfg.strictTriage || { enabled: false };
+    let lifted = 0, dmMut = false, dm = null;
+    if (!strict.enabled) {
+      try { dm = loadDismissForDate(date); } catch (_) { dm = null; }
+      for (const it of inbox.items) {
+        if (it && it.auto && it.autoReason && it.autoReason.strict && it.triage === 'dismissed') {
+          it.triage = 'seen'; it.auto = false; it.autoReason = null; it.triagedAt = now; lifted++;
+          if (dm) { const k = _meAiDismissKey(it); if (dm[k] && dm[k].reason === 'strict') { delete dm[k]; dmMut = true; } }
+        }
+      }
+      if (dmMut) { try { saveDismissForDate(date, dm); } catch (_) { /* best-effort */ } }
+    }
     for (const it of inbox.items) {
       if (it && typeof it.urgencyBase !== 'number') {
         try {
@@ -18492,7 +18564,7 @@ app.post('/api/me-ai/inbox/reeval', async (req, res) => {
     }
     saveInboxForDate(date, inbox);
     const newCount = inbox.items.filter(i => i.triage === 'new').length;
-    res.json({ ok: true, date, items: inbox.items, newCount, autoHandled });
+    res.json({ ok: true, date, items: inbox.items, newCount, autoHandled, lifted });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
