@@ -5462,6 +5462,18 @@
     .bmap-node-prog .pl { font-size: 11px; color: var(--cp-muted); }
     .bmap-node-next { font-size: 11.5px; color: color-mix(in srgb, var(--cp-ink) 78%, var(--cp-muted)); display: flex; gap: 6px; align-items: baseline; }
     .bmap-node-next .box { flex: 0 0 auto; color: var(--k, var(--cp-accent)); }
+    /* interactive checklist on a map card */
+    .bmap-node-cl { display: flex; flex-direction: column; gap: 2px; }
+    .bmap-cl-row { display: flex; gap: 7px; align-items: flex-start; padding: 3px 4px; border-radius: 7px; cursor: pointer; }
+    .bmap-cl-row:hover { background: color-mix(in srgb, var(--cp-ink) 6%, transparent); }
+    .bmap-cl-row input { margin: 2px 0 0; flex: 0 0 auto; cursor: pointer; accent-color: var(--k, var(--cp-accent)); }
+    .bmap-cl-txt { font-size: 11.5px; line-height: 1.4; color: color-mix(in srgb, var(--cp-ink) 84%, var(--cp-muted)); word-break: break-word; overflow-wrap: anywhere; }
+    .bmap-cl-row.done .bmap-cl-txt { text-decoration: line-through; color: var(--cp-muted); }
+    .bmap-cl-empty { font-size: 11px; color: var(--cp-muted); padding: 2px 4px; }
+    /* live per-kind card action (open PR, chat with agent) */
+    .bmap-node-act { display: flex; }
+    .bmap-cardbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 8px; cursor: pointer; color: var(--cp-ink); background: color-mix(in srgb, var(--k, var(--cp-accent)) 12%, var(--cp-surface)); border: 1px solid color-mix(in srgb, var(--k, var(--cp-accent)) 40%, var(--cp-border)); transition: background .12s ease, border-color .12s ease; }
+    .bmap-cardbtn:hover { background: color-mix(in srgb, var(--k, var(--cp-accent)) 22%, var(--cp-surface)); border-color: var(--k, var(--cp-accent)); }
     /* footer */
     .bmap-node-ft { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; border-top: 1px solid var(--cp-border); background: color-mix(in srgb, var(--cp-bg) 40%, transparent); font-size: 10.5px; color: var(--cp-muted); border-radius: inherit; border-top-left-radius: 0; border-top-right-radius: 0; }
     .bmap-node-signal { display: flex; align-items: center; gap: 6px; font-weight: 650; min-width: 0; }
@@ -9185,7 +9197,21 @@
                                       <span class="pl" x-text="bmapProgress(n.p).label"></span>
                                     </div>
                                   </template>
-                                  <template x-if="bmapNext(n.p)">
+                                  <!-- Checklist card: full interactive item list (check items in place). -->
+                                  <template x-if="bmapKindKey(n.p)==='checklist' && n.p.checklist">
+                                    <div class="bmap-node-cl" @pointerdown.stop @click.stop>
+                                      <template x-for="item in (n.p.checklist.items||[])" :key="item.id">
+                                        <label class="bmap-cl-row" :class="{ done: item.done }">
+                                          <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(n.p.checklist, item)" />
+                                          <span class="bmap-cl-txt" x-html="inlineMarkdown(item.text)"></span>
+                                        </label>
+                                      </template>
+                                      <template x-if="!(n.p.checklist.items||[]).length">
+                                        <div class="bmap-cl-empty">No items yet</div>
+                                      </template>
+                                    </div>
+                                  </template>
+                                  <template x-if="bmapKindKey(n.p)!=='checklist' && bmapNext(n.p)">
                                     <div class="bmap-node-next"><span class="box">☐</span><span x-text="bmapNext(n.p)"></span></div>
                                   </template>
                                   <template x-if="bmapFacts(n.p).length">
@@ -9193,6 +9219,14 @@
                                       <template x-for="(f,fi) in bmapFacts(n.p)" :key="fi">
                                         <div class="bmap-node-f" :class="{ wide: f.wide }"><span class="k" x-text="f.k"></span><span class="v" :class="f.tone" x-text="f.v"></span></div>
                                       </template>
+                                    </div>
+                                  </template>
+                                  <!-- Per-kind primary action, live on the card (open the PR, chat with the agent). -->
+                                  <template x-if="bmapCardAction(n.p)">
+                                    <div class="bmap-node-act" @pointerdown.stop @click.stop>
+                                      <button type="button" class="bmap-cardbtn" :title="bmapCardAction(n.p).title" @click="bmapDoCardAction(n.p)">
+                                        <span x-text="bmapCardAction(n.p).icon"></span><span x-text="bmapCardAction(n.p).label"></span>
+                                      </button>
                                     </div>
                                   </template>
                                 </div>
@@ -42836,6 +42870,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const nx = items.find(i => !i.done);
             return nx ? String(nx.text || '').replace(/\s+/g, ' ').trim().slice(0, 70) : '';
           } catch { return ''; }
+        },
+        // A single primary action surfaced live on a map card, so common jumps don't
+        // need the open-full-card round-trip. Returns null for kinds with no obvious
+        // in-card action (the checklist rows are already interactive).
+        bmapCardAction(p) {
+          try {
+            const k = this.bmapKindKey(p);
+            if (k === 'pr') {
+              const nm = this.bmapCardName(p);
+              const id = (String(nm).match(/#\d+/) || [])[0] || '';
+              return { icon: '↗', label: id ? ('Open ' + id) : 'Open PR', title: 'Open this pull request' };
+            }
+            if (k === 'agent' || k === 'manager') {
+              return { icon: '💬', label: 'Chat', title: 'Chat with this agent' };
+            }
+            return null;
+          } catch { return null; }
+        },
+        bmapDoCardAction(p) {
+          try {
+            const k = this.bmapKindKey(p);
+            if (!p || !p.item) return;
+            // Agents/managers open their detail page, which lands on the Chat tab.
+            this.boardJump(p.item);
+          } catch {}
         },
         bmapStatusDot(p) {
           try {
