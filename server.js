@@ -14967,7 +14967,14 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
     fixed.push({ start: a, end: b, type: 'meeting', title: m.title, detail: m.detail, link: m.link, source: m.source, why: 'Scheduled meeting', meta: m.meta || null, urgency: m.urgency || 5 });
   }
   const ls = _hmToMin(cfg.lunchStart), le = _hmToMin(cfg.lunchEnd);
-  if (ls != null && le != null && le > ls) fixed.push({ start: ls, end: le, type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break', meta: null, urgency: 0 });
+  if (ls != null && le != null && le > ls) {
+    // A REAL scheduled meeting supersedes the personal lunch block: if the calendar has a
+    // meeting overlapping the lunch window, don't synthesize a generic "Lunch" on top of it
+    // (that overlap made the LLM-refine drop the meeting, so the lunch meeting vanished). The
+    // meeting owns that slot; the personal break yields to it.
+    const lunchMtg = fixed.some(f => f.type === 'meeting' && f.start < le && f.end > ls);
+    if (!lunchMtg) fixed.push({ start: ls, end: le, type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break', meta: null, urgency: 0 });
+  }
   // Explicit user reservations (one-off + recurring blocks) are fixed too, so flexible
   // work is scheduled AROUND them — an explicit "2h golf" supersedes suggested items.
   for (const r of (reserved || [])) {
