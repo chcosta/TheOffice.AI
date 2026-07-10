@@ -18198,8 +18198,8 @@
 
             <!-- Section tabs: calm underline top menu, consistent with Code Flow / Marketplace -->
             <div class="ag-tabs" role="tablist" aria-label="Automation section" style="margin:10px 0 18px">
-              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'tasks'" :class="autoTab() === 'tasks' ? 'on' : ''" @click="autoView = 'tasks'">⚡ Tasks<span class="n" x-show="execTaskMetrics().total" x-text="execTaskMetrics().total"></span></button>
-              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'flows'" :class="autoTab() === 'flows' ? 'on' : ''" @click="autoView = 'flows'; $nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))">🔗 Flows<span class="n" x-show="execFlowMetrics().total" x-text="execFlowMetrics().total"></span></button>
+              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'tasks'" :class="autoTab() === 'tasks' ? 'on' : ''" @click="setAutoView('tasks')">⚡ Tasks<span class="n" x-show="execTaskMetrics().total" x-text="execTaskMetrics().total"></span></button>
+              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'flows'" :class="autoTab() === 'flows' ? 'on' : ''" @click="setAutoView('flows'); $nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))">🔗 Flows<span class="n" x-show="execFlowMetrics().total" x-text="execFlowMetrics().total"></span></button>
             </div>
 
             <div class="nlx-studio">
@@ -19753,7 +19753,7 @@
                   </aside>
 
                   <div class="fr2-main">
-                    <details class="fr2-overview">
+                    <details class="fr2-overview" @toggle="_flowSizeStage()">
                       <summary>
                         <span class="fr2-ov-t">Flow overview</span>
                         <span class="fr2-ov-meta" x-show="chainRunState[detailChain().id]">
@@ -19772,7 +19772,7 @@
                     <div class="fr2-empty" x-show="(detailChain().steps || []).length && !chainRunState[detailChain().id] && !(chainRuns[detailChain().id] || []).length">This flow has not run yet. Click <strong>▶ Run</strong> to start it.</div>
                     <div class="fr2-empty" x-show="(detailChain().steps || []).length && chainRunState[detailChain().id] && flowRunMap().empty">No task activity recorded for this run yet.</div>
 
-                    <div class="lmap" x-show="!flowRunMap().empty">
+                    <div class="lmap" x-show="!flowRunMap().empty" x-init="_flowWireStageSizing()">
                       <div class="lmap-bar">
                         <span class="lmap-hint">Runs left → right. Each node shows its full output; the condition rides the wire to the next node.</span>
                         <span class="lmap-zoom">
@@ -19798,6 +19798,7 @@
                         </div>
                       </template>
                       <div class="lmap-stage" x-ref="lmapStage"
+                           :style="flowStageH ? ('height:' + flowStageH + 'px;min-height:' + flowStageH + 'px;max-height:' + flowStageH + 'px') : ''"
                            @wheel="flowMapWheel($event)"
                            @pointerdown="flowMapPanStart($event)"
                            @pointermove="flowMapPanMove($event)"
@@ -25001,7 +25002,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         newTaskOpen: false,
         chainModalOpen: false,
         chainSearch: '',
-        autoView: 'tasks',
+        autoView: (() => { try { return localStorage.getItem('automation-view') === 'flows' ? 'flows' : 'tasks'; } catch (_) { return 'tasks'; } })(),
         flowPaletteFilter: '',
         flowPaletteTab: 'agents',
         flowPaletteW: (() => { const v = parseInt(localStorage.getItem('flow-palette-w') || '', 10); return (v >= 190 && v <= 520) ? v : 230; })(),
@@ -25012,6 +25013,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         flowMapZoom: 1,
         flowMapNodeW: (() => { try { const v = parseInt(localStorage.getItem('flow-map-node-w'), 10); return (v >= 260 && v <= 1200) ? v : 340; } catch (_) { return 340; } })(),
         _lmapPan: null,
+        flowStageH: 0,
+        _flowStageWired: false,
         _flowRunCanvas: null,
         chatPickerOpen: false,
         chatPicker: { search: '', selected: [] },
@@ -25907,6 +25910,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         autoTab() {
           return this.autoView === 'flows' ? 'flows' : 'tasks';
         },
+        // Switch the Automation sub-view and remember it, so navigating away and back
+        // (e.g. via the sidebar, which lands on #/tasks with no param) resumes here.
+        setAutoView(v) {
+          this.autoView = (v === 'flows') ? 'flows' : 'tasks';
+          try { localStorage.setItem('automation-view', this.autoView); } catch (_) {}
+        },
 
         async handleRouteChange(opts = {}) {
           if (this.route !== 'chain-detail' && this._flowRunCanvas) this.unmountFlowRunCanvas();
@@ -25965,7 +25974,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Seed the active section tab from the route/param so deep-links and
             // detail back-links land on the right tab; after that, tab switches
             // are in-place (no hash change) to avoid the route transition anim.
-            this.autoView = (this.route === 'chains' || this.app.routeParam === 'flows') ? 'flows' : 'tasks';
+            // An explicit route/param signal wins; otherwise resume the last view
+            // (persisted) so sidebar nav to #/tasks doesn't always reset to Tasks.
+            if (this.route === 'chains' || this.app.routeParam === 'flows') this.setAutoView('flows');
+            else if (this.app.routeParam === 'tasks') this.setAutoView('tasks');
             await Promise.all([this.loadActivity(), this.loadSchedules()]);
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
@@ -52479,11 +52491,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             stage.scrollTop = cy * ratio - oy;
           });
         },
+        // Size the living-map stage to fill from its real top edge to the viewport
+        // bottom, so the flow-run detail view fills the screen and .content never
+        // overflows (no page scrollbar). The stage's top is fixed by the content
+        // above it and independent of the stage's own height, so measuring is stable.
+        _flowSizeStage() {
+          try {
+            const st = (this.$refs && this.$refs.lmapStage) || document.querySelector('.lmap-stage');
+            if (!st) return;
+            const top = st.getBoundingClientRect().top;
+            const h = Math.max(360, Math.floor(window.innerHeight - top - 16));
+            if (h !== this.flowStageH) this.flowStageH = h;
+          } catch (_) {}
+        },
+        _flowWireStageSizing() {
+          if (this._flowStageWired) { this.$nextTick(() => this._flowSizeStage()); return; }
+          this._flowStageWired = true;
+          const relayout = () => this._flowSizeStage();
+          try {
+            const c = document.querySelector('main.content') || document.querySelector('.content');
+            if (c && window.ResizeObserver) { this._flowStageRO = new ResizeObserver(relayout); this._flowStageRO.observe(c); }
+          } catch (_) {}
+          window.addEventListener('resize', relayout);
+          this.$nextTick(() => this._flowSizeStage());
+        },
         // Click-drag to pan the canvas (grab anywhere that isn't an interactive/selectable
         // control), so nodes never need their own scrollbars — you pan to reach content.
         flowMapPanStart(e) {
           if (e.button !== undefined && e.button !== 0) return;
-          if (e.target && e.target.closest && e.target.closest('button, a, summary, input, textarea, select, pre, .lmap-out, .md-output')) return;
+          if (e.target && e.target.closest && e.target.closest('button, a, summary, input, textarea, select')) return;
+          // Navigation wins over text selection: a drag anywhere else (including over
+          // node output) pans. preventDefault kills the native selection that would
+          // otherwise start when the drag begins on text.
+          e.preventDefault();
           const stage = e.currentTarget;
           this._lmapPan = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop, el: stage };
           stage.classList.add('is-panning');
