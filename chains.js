@@ -276,6 +276,7 @@ class ChainEngine extends EventEmitter {
         node.code = res.code;
         node.output = (res.output || '').slice(-20000);
         node.streaming = false;
+        try { node.steps = JSON.stringify(res.steps || []).length > 200000 ? [] : (res.steps || []); } catch { node.steps = []; }
         if (res.busy) { node.status = 'skipped'; node.reason = res.output; }
         this._persist(run);
         this.broadcast('chain-run-step', { runId: run.id, stepId: step.id, status: node.status });
@@ -452,11 +453,11 @@ class ChainEngine extends EventEmitter {
       };
       if (onStream) this.supervisor.on('agent-output', onOut);
 
-      const onDone = ({ agentId, code, output }) => {
+      const onDone = ({ agentId, code, output, steps }) => {
         if (agentId !== task.agentId) return;
         this.supervisor.off('agent-completed', onDone);
         if (onStream) this.supervisor.off('agent-output', onOut);
-        resolve({ code, output: output || '' });
+        resolve({ code, output: output || '', steps: Array.isArray(steps) ? steps : [] });
       };
       this.supervisor.on('agent-completed', onDone);
 

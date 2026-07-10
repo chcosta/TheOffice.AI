@@ -19761,6 +19761,26 @@
                           <template x-if="flowRunInspect().finished"><div class="fri-row"><span class="fri-k">Finished</span><span class="fri-v" x-text="formatDateTime(flowRunInspect().finished)"></span></div></template>
                           <template x-if="flowRunInspect().code !== undefined && flowRunInspect().code !== null"><div class="fri-row"><span class="fri-k">Exit code</span><span class="fri-v" x-text="flowRunInspect().code"></span></div></template>
                           <template x-if="flowRunInspect().reason"><div class="fri-row"><span class="fri-k">Reason</span><span class="fri-v" x-text="flowRunInspect().reason"></span></div></template>
+                          <template x-if="runSteps(flowRunInspect()).length">
+                            <details class="msg-activity" style="margin-top:12px" open>
+                              <summary>🔎 Reasoning &amp; tools (<span x-text="runSteps(flowRunInspect()).length"></span>)</summary>
+                              <div class="msg-activity-body">
+                                <template x-for="(st, ai) in runSteps(flowRunInspect())" :key="'frstep-' + flowRunInspect().id + '-' + ai">
+                                  <div class="msg-activity-step" :class="st.type">
+                                    <template x-if="st.text">
+                                      <details class="msg-activity-substep">
+                                        <summary x-text="st.label"></summary>
+                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                      </details>
+                                    </template>
+                                    <template x-if="!st.text">
+                                      <div class="msg-activity-label" x-text="st.label"></div>
+                                    </template>
+                                  </div>
+                                </template>
+                              </div>
+                            </details>
+                          </template>
                           <div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 6px">
                             <span class="field-label" style="margin:0">Output</span>
                             <button class="btn ghost" style="font-size:0.7rem" type="button" x-show="flowRunInspect().output" @click="openShareModal(flowRunInspect().output, flowRunInspect().name + ' — output', 'run-output')">📤 Share</button>
@@ -52009,7 +52029,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             finished: node.finishedAt || null,
             code: node.code,
             reason: node.reason || '',
-            output: node.output || ''
+            output: node.output || '',
+            steps: Array.isArray(node.steps) ? node.steps : []
           };
         },
         _applyFlowRunTransform() {
