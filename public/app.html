@@ -7149,6 +7149,45 @@
                   </section>
                 </div>
 
+                <!-- Active PRs — pull requests that need YOUR review / attention -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('activeprs') }" x-show="homeSectionVisible('activeprs')"
+                     :class="{ 'is-drop': homeDragOver === 'activeprs', 'span-full': homeSecSpan('activeprs') }"
+                     @dragover.prevent="homeReorderOver('activeprs')" @drop.prevent="homeReorderDrop('activeprs')" draggable="true" @dragstart="homeReorderStart('activeprs',$event)" @dragend="homeReorderEnd()">
+                  <section class="card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title home-title-link" role="link" tabindex="0" @click="goTo('#/codeflow')" @keydown.enter="goTo('#/codeflow')" title="Open Code Flow">👀 Active pull requests</h2>
+                        <div class="card-subtitle" x-text="homeActivePrs.items.length + ' PR' + (homeActivePrs.items.length === 1 ? '' : 's') + ' waiting on your review'"></div>
+                      </div>
+                    </div>
+                    <div class="stack list-flow" x-show="homeActivePrs.items.length">
+                      <template x-for="pr in homeActivePrs.items.slice(0, 6)" :key="'home-apr-' + (pr.repoId || pr.repo) + ':' + pr.id">
+                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
+                             @click="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))"
+                             @keydown.enter="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span x-show="pr.attention" title="Needs your attention" :style="{ color: homeActivePrAttentionColor(pr) }">●</span>
+                            <strong x-text="pr.title || ('PR ' + pr.id)"></strong>
+                            <span class="hint" x-show="pr.isDraft" style="color:var(--cp-text-soft)">draft</span>
+                          </div>
+                          <div class="hint" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center">
+                            <span x-text="(pr.repo || '') + ' · !' + pr.id + (pr.ageDays != null ? ' · ' + pr.ageDays + 'd old' : '')"></span>
+                            <span x-show="pr.author" x-text="'by ' + pr.author"></span>
+                            <span x-show="pr.attention" :style="{ color: homeActivePrAttentionColor(pr) }" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
+                            <span x-show="!pr.attention && pr.status" x-text="pr.status"></span>
+                          </div>
+                          <div class="hint" x-show="homeActivePrVotes(pr) || (pr.mergeStatus && !/succeeded/i.test(pr.mergeStatus))" style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center">
+                            <span x-show="homeActivePrVotes(pr)" x-text="homeActivePrVotes(pr)"></span>
+                            <span x-show="pr.mergeStatus && !/succeeded/i.test(pr.mergeStatus)" style="color:var(--cp-warning)" x-text="'merge: ' + pr.mergeStatus"></span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="empty-state" x-show="!homeActivePrs.items.length && homeActivePrs.loading">Loading active PRs…</div>
+                    <div class="empty-state" x-show="!homeActivePrs.items.length && !homeActivePrs.loading">Nothing needs your review right now.</div>
+                  </section>
+                </div>
+
                 <!-- Newsletter (featured; click navigates, sent indicator) -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('newsletter') }" x-show="homeSectionVisible('newsletter')"
                      :class="{ 'is-drop': homeDragOver === 'newsletter', 'span-full': homeSecSpan('newsletter') }"
@@ -7169,8 +7208,8 @@
                 </div>
 
                 <!-- Flow / Task activity (folded in from Management home) -->
-                <div class="home-rsec span-full mgmt-home" :style="{ order: homeSecIndex('flowchart') }" x-show="homeSectionVisible('flowchart')"
-                     :class="homeDragOver === 'flowchart' ? 'is-drop' : ''"
+                <div class="home-rsec mgmt-home" :style="{ order: homeSecIndex('flowchart') }" x-show="homeSectionVisible('flowchart')"
+                     :class="{ 'is-drop': homeDragOver === 'flowchart', 'span-full': homeSecSpan('flowchart') }"
                      @dragover.prevent="homeReorderOver('flowchart')" @drop.prevent="homeReorderDrop('flowchart')" draggable="true" @dragstart="homeReorderStart('flowchart',$event)" @dragend="homeReorderEnd()">
                   <section class="card mh-accent-link mh-full">
                   <div class="card-header">
@@ -24510,9 +24549,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Lightweight copy of the user's own active PRs for the Home page card.
         // Kept separate from codeflow.pullRequests (which may hold a different view).
         homePrs: { loading: false, items: [], fetchedAt: null },
+        // Active PRs needing YOUR attention (reviews/mentions) — the Code Flow "Active PRs"
+        // set, minus the ones you authored (server dedups own-authored out of this view).
+        homeActivePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['greeting', 'agenda', 'devwork', 'whatsnew', 'newsletter', 'flowchart', 'boards', 'prs'],
+        homeSectionsDefault: ['greeting', 'agenda', 'devwork', 'whatsnew', 'newsletter', 'flowchart', 'boards', 'prs', 'activeprs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeSectionHidden: [],
@@ -25694,6 +25736,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Global dev-card list — needed so Home can surface cards not pinned to any workspace.
             if (!this.devItemsLoaded) { try { this.loadDevItems(true); } catch {} }
             this.loadHomePrs();
+            this.loadHomeActivePrs();
             // Productivity home extras (fire-and-forget; each is non-blocking).
             this.homeInitSections();
             this.loadHomeNewsletter();
@@ -29191,7 +29234,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return i === -1 ? 99 : i;
         },
         // Sections that always want the full page width (wide timeline / chart content).
-        _homeFullKeys() { return ['agenda', 'flowchart']; },
+        _homeFullKeys() { return ['agenda']; },
         // Ordered list of the visible right-column sections (excludes the greeting hero,
         // which is its own full-width block outside the reorderable set).
         homeVisibleRsecOrder() {
@@ -29284,6 +29327,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'whatsnew': return this.homeWhatsNewFeed().length > 0;
             case 'boards': return true;
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
+            case 'activeprs': return !!(this.homeActivePrs.items.length || this.homeActivePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
             case 'flowchart': return (this.featureVisible('tasks') || this.featureVisible('flows')) && !!this.mgmtRunPoints().length;
             default: return false;
@@ -29339,7 +29383,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homeSecLabel(key) {
           const labels = {
             greeting: 'Good evening', devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
-            boards: 'Workspaces', prs: 'Pull requests', agenda: "Today's agenda",
+            boards: 'Workspaces', prs: 'Pull requests', activeprs: 'Active PRs (needs review)', agenda: "Today's agenda",
             teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
             flowchart: 'Flow / Task activity',
@@ -37921,6 +37965,48 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.homePrs.loading = false;
           }
+        },
+        async loadHomeActivePrs() {
+          this.homeActivePrs.loading = true;
+          try {
+            const r = await this.request('/api/codeflow/pullrequests?view=active');
+            let items = Array.isArray(r && r.pullRequests) ? r.pullRequests : [];
+            // The Home card is a "needs you" digest — float the ones flagged for your
+            // attention to the top, then oldest-first so nothing stale hides at the bottom.
+            items = items.slice().sort((a, b) => {
+              if (!!a.attention !== !!b.attention) return a.attention ? -1 : 1;
+              return (b.ageDays || 0) - (a.ageDays || 0);
+            });
+            this.homeActivePrs.items = items;
+            this.homeActivePrs.fetchedAt = (r && r.fetchedAt) || Date.now();
+          } catch (e) {
+            this.homeActivePrs.items = [];
+          } finally {
+            this.homeActivePrs.loading = false;
+          }
+        },
+        // Compact reviewer-vote summary for a Home Active-PR card (e.g. "2 approved · 1 waiting").
+        homeActivePrVotes(pr) {
+          const rs = Array.isArray(pr && pr.reviewers) ? pr.reviewers : [];
+          if (!rs.length) return '';
+          let approved = 0, waiting = 0, rejected = 0, suggest = 0;
+          for (const r of rs) {
+            const v = String(r.vote || '').toLowerCase();
+            if (v.includes('reject') || v.includes('wait for author')) rejected++;
+            else if (v.includes('suggest')) suggest++;
+            else if (v.includes('approve')) approved++;
+            else if (v.includes('wait') || v === 'no vote' || v === '') waiting++;
+          }
+          const parts = [];
+          if (approved) parts.push(approved + ' approved');
+          if (suggest) parts.push(suggest + ' w/ suggestions');
+          if (rejected) parts.push(rejected + ' rejected');
+          if (waiting) parts.push(waiting + ' waiting');
+          return parts.join(' · ');
+        },
+        homeActivePrAttentionColor(pr) {
+          if (!pr || !pr.attention) return '';
+          return /reject|wait for author/i.test(pr.attentionReason || '') ? 'var(--cp-warning)' : 'var(--cp-accent)';
         },
         async loadCodeFlow(silent) {
           if (!silent) this.codeflow.loading = true;
