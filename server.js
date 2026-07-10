@@ -9932,31 +9932,30 @@ function _connectMergeLocked(newMd, oldMd, lockedKeys) {
   return parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-async function runConnectGeneration({ lookbackDays = 0, lockedSections = [] } = {}) {
+// The writer is fed only the most-recent slice of diary evidence (newest-first),
+// not the entire corpus — this cap bounds the prompt. Surfaced honestly by the
+// transparency endpoint so a large diary's older entries aren't silently dropped
+// without the user knowing. Kept as one constant so generation + transparency
+// can never report a different number than what is actually sent.
+const CONNECT_DRAFT_EVIDENCE_CAP = 80;
+
+// Assemble the EXACT drafting context the writer sees for a given lookback window:
+// the guidance scaffold (role + tone/framing/focus + remembered preferences +
+// optional locked sections), the capped evidence slice, and the full corpus for
+// coverage reporting. Shared by runConnectGeneration and the read-only
+// /api/connect/transparency endpoint so the two never drift. No AI, no gather.
+function _connectDraftContext({ lookbackDays = 0, lockedHeadings = [] } = {}) {
   const st = connect.getState();
-  const prevBody = (st.draft && st.draft.markdown) || '';
-  // Locked section headings (from the current draft) the user wants preserved.
-  const lockedKeys = Array.isArray(lockedSections)
-    ? lockedSections.map(_connectSectionKey).filter(Boolean)
-    : [];
-  const lockedHeadings = lockedKeys.length
-    ? _connectSplitSections(prevBody).blocks.filter(b => lockedKeys.includes(b.key)).map(b => b.heading)
-    : [];
+  const g = st.guidance || {};
+  const p = st.profile || {};
   // Lookback window: 0 = all-time. Otherwise only draft from evidence on/after `since`.
   let since = '';
   const days = Math.max(0, parseInt(lookbackDays, 10) || 0);
   if (days) { const d = new Date(); d.setDate(d.getDate() - days); since = d.toISOString().slice(0, 10); }
-  const evidence = connect.listEvidence({ includeHidden: false, since: since || undefined }).slice(0, 80);
-  if (!evidence.length) throw new Error(since
-    ? `No diary evidence in the last ${days} days to draft from. Widen the lookback window, add entries, or run a collection.`
-    : 'No diary evidence to draft from yet. Add entries or run a collection first.');
-  const g = st.guidance || {};
-  const p = st.profile || {};
-  const evLines = evidence.map(e =>
-    `- [${e.date}] (${e.source}) ${e.title}${e.detail ? ' — ' + e.detail : ''}${e.impact ? ' | Impact: ' + e.impact : ''}`
-  ).join('\n');
+  const allEvidence = connect.listEvidence({ includeHidden: false, since: since || undefined });
+  const evidence = allEvidence.slice(0, CONNECT_DRAFT_EVIDENCE_CAP);
   const memLines = _connectMemoryLines();
-  const prompt = [
+  const scaffoldParts = [
     'Draft my Connect from the material below. Follow the connect-standards skill and output only the Connect Markdown body.',
     '',
     '## My current role',
@@ -9980,11 +9979,38 @@ async function runConnectGeneration({ lookbackDays = 0, lockedSections = [] } = 
       'The user has locked the following sections — keep each heading verbatim and preserve its content; only refine surrounding sections:',
       ...lockedHeadings.map(h => `- ${h}`),
     ] : []),
+  ];
+  const evLines = evidence.map(e =>
+    `- [${e.date}] (${e.source}) ${e.title}${e.detail ? ' — ' + e.detail : ''}${e.impact ? ' | Impact: ' + e.impact : ''}`
+  ).join('\n');
+  const prompt = [
+    ...scaffoldParts,
     '',
     '## Diary evidence' + (since ? ` (covering ${since} → today)` : ''),
     evLines,
   ].join('\n');
-  const text = await _connectRunAgent('writer', prompt);
+  return {
+    prompt, scaffold: scaffoldParts.join('\n'),
+    since, days, evidence, allEvidence,
+    profile: p, guidance: g,
+  };
+}
+
+async function runConnectGeneration({ lookbackDays = 0, lockedSections = [] } = {}) {
+  const st = connect.getState();
+  const prevBody = (st.draft && st.draft.markdown) || '';
+  // Locked section headings (from the current draft) the user wants preserved.
+  const lockedKeys = Array.isArray(lockedSections)
+    ? lockedSections.map(_connectSectionKey).filter(Boolean)
+    : [];
+  const lockedHeadings = lockedKeys.length
+    ? _connectSplitSections(prevBody).blocks.filter(b => lockedKeys.includes(b.key)).map(b => b.heading)
+    : [];
+  const ctx = _connectDraftContext({ lookbackDays, lockedHeadings });
+  if (!ctx.evidence.length) throw new Error(ctx.since
+    ? `No diary evidence in the last ${ctx.days} days to draft from. Widen the lookback window, add entries, or run a collection.`
+    : 'No diary evidence to draft from yet. Add entries or run a collection first.');
+  const text = await _connectRunAgent('writer', ctx.prompt);
   let md = String(text || '').trim();
   const fence = md.match(/```(?:markdown|md)?\s*([\s\S]*?)```/i);
   if (fence && fence[1].trim()) md = fence[1].trim();
@@ -10593,6 +10619,74 @@ app.put('/api/connect/profile', (req, res) => {
 app.put('/api/connect/guidance', (req, res) => {
   try {
     res.json({ ok: true, state: connect.saveGuidance(req.body || {}) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Read-only transparency: show EXACTLY what shapes an AI-generated Connect so the
+// user can verify it was drafted with full knowledge and see the guidance behind
+// it. Returns (a) the connect-standards skill (the format / required structure /
+// quality bar / AI-usage policy the writer follows), (b) the assembled guidance
+// scaffold (role + tone/framing/focus + remembered preferences), and (c) COVERAGE:
+// how many diary entries actually reach the writer vs. the full corpus. The writer
+// is fed the most-recent slice capped at CONNECT_DRAFT_EVIDENCE_CAP, so a large
+// diary's older entries are omitted — this surfaces that honestly. No AI, no gather.
+app.get('/api/connect/transparency', (req, res) => {
+  try {
+    const lookbackDays = Math.max(0, parseInt(req.query && req.query.lookbackDays, 10) || 0);
+    const ctx = _connectDraftContext({ lookbackDays });
+    // The standards skill the writer is instructed to follow.
+    let standards = { name: 'connect-standards', markdown: '', path: null, available: false };
+    try {
+      const sp = connectPluginDir && path.join(connectPluginDir, 'skills', 'connect-standards', 'SKILL.md');
+      if (sp && fs.existsSync(sp)) {
+        standards = { name: 'connect-standards', markdown: fs.readFileSync(sp, 'utf8'), path: sp, available: true };
+      }
+    } catch (_) { /* best-effort */ }
+    const bySource = (list) => {
+      const m = {};
+      for (const e of list) { const k = e.source || 'other'; m[k] = (m[k] || 0) + 1; }
+      return Object.keys(m).sort().map(k => ({ source: k, count: m[k] }));
+    };
+    const dateRange = (list) => {
+      const ds = list.map(e => e.date).filter(Boolean).sort();
+      return ds.length ? { earliest: ds[0], latest: ds[ds.length - 1] } : { earliest: null, latest: null };
+    };
+    const total = ctx.allEvidence.length;
+    const used = ctx.evidence.length;
+    const omitted = ctx.allEvidence.slice(CONNECT_DRAFT_EVIDENCE_CAP);
+    let memories = [];
+    try { memories = connect.listMemories().map(m => String(m.text || '').trim()).filter(Boolean); } catch { memories = []; }
+    res.json({
+      standards,
+      guidance: {
+        profile: {
+          role: ctx.profile.role || '', level: ctx.profile.level || '',
+          responsibilities: ctx.profile.responsibilities || '', priorities: ctx.profile.priorities || '',
+        },
+        controls: {
+          tone: ctx.guidance.tone || 'professional',
+          framing: ctx.guidance.positivity || 'balanced',
+          focusAreas: Array.isArray(ctx.guidance.focusAreas) ? ctx.guidance.focusAreas : [],
+          instructions: ctx.guidance.instructions || '',
+        },
+        memories,
+        scaffold: ctx.scaffold,
+      },
+      coverage: {
+        cap: CONNECT_DRAFT_EVIDENCE_CAP,
+        total, used, truncated: total > used,
+        since: ctx.since || '', days: ctx.days,
+        usedBySource: bySource(ctx.evidence),
+        totalBySource: bySource(ctx.allEvidence),
+        usedDateRange: dateRange(ctx.evidence),
+        totalDateRange: dateRange(ctx.allEvidence),
+        omittedCount: omitted.length,
+        omitted: omitted.slice(0, 300).map(e => ({ date: e.date, source: e.source, title: e.title })),
+        used_list: ctx.evidence.map(e => ({ date: e.date, source: e.source, title: e.title })),
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

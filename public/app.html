@@ -15727,6 +15727,24 @@
               .connect-card .hint { margin:0 0 14px; }
               .connect-privacy { display:flex; gap:10px; align-items:flex-start; background:var(--cp-accent-soft);
                 border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:12px 14px; margin-bottom:18px; font-size:13px; color:var(--cp-text-muted); }
+              .connect-cov-head { display:flex; align-items:flex-start; gap:9px; font-size:15px; font-weight:650;
+                color:var(--cp-text); line-height:1.4; margin:4px 0 2px; }
+              .connect-cov-head.warn { color:var(--cp-text); }
+              .connect-cov-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; margin-top:5px; }
+              .connect-cov-dot.ok { background:#22a06b; }
+              .connect-cov-dot.warn { background:#d9822b; }
+              .connect-cov-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:12px; }
+              .connect-cov-cell { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:10px 12px; background:var(--cp-surface); }
+              .connect-cov-k { font-size:11.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-soft); }
+              .connect-cov-v { font-size:20px; font-weight:700; color:var(--cp-text); margin-top:3px; }
+              .connect-cov-src { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:4px 18px; }
+              .connect-cov-srow { display:flex; align-items:baseline; justify-content:space-between; gap:10px; padding:3px 0; border-bottom:1px solid var(--cp-border); }
+              .connect-cov-slabel { font-size:13px; color:var(--cp-text-muted); text-transform:capitalize; }
+              .connect-cov-sval { font-size:13.5px; font-weight:650; color:var(--cp-text); white-space:nowrap; }
+              .connect-scaffold { white-space:pre-wrap; font-family:Consolas,'Courier New',monospace; font-size:12.5px;
+                line-height:1.55; color:var(--cp-text); background:var(--cp-surface); border:1px solid var(--cp-border);
+                border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:12px 14px; margin:6px 0 0; max-height:340px; overflow:auto; }
+              .connect-standards { margin-top:10px; padding-top:10px; border-top:1px solid var(--cp-border); font-size:13.5px; color:var(--cp-text); }
               .connect-draft-area { width:100%; min-height:340px; font-family:Consolas,'Courier New',monospace; font-size:13.5px;
                 line-height:1.55; resize:vertical; }
               .connect-diary-day { margin-bottom:18px; }
@@ -16138,6 +16156,72 @@
 
             <!-- ===== Guidance tab ===== -->
             <div x-show="!connect.loading && connect.tab === 'guidance' && connect.state" x-transition.opacity.duration.120ms>
+              <!-- Transparency: what the AI actually saw when it drafted your Connect -->
+              <div class="connect-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                  <h3 style="margin:0">What the AI actually saw</h3>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <label class="hint" style="font-weight:400" for="cx-lookback">Diary window</label>
+                    <select id="cx-lookback" class="field-input" style="width:auto;padding:4px 8px"
+                            x-model.number="connect.lookbackDays"
+                            @change="connectSetLookback(parseInt(connect.lookbackDays,10)||0); connectLoadTransparency()">
+                      <option :value="0">All time</option>
+                      <option :value="30">Last 30 days</option>
+                      <option :value="90">Last 90 days</option>
+                      <option :value="180">Last 6 months</option>
+                      <option :value="365">Last year</option>
+                    </select>
+                  </div>
+                </div>
+                <p class="hint">Your Connect is drafted from your diary. So you can trust it, here's exactly which entries reached the writer — nothing hidden.</p>
+                <div x-show="connect.transparencyBusy" class="hint" style="padding:8px 0">Checking coverage…</div>
+                <template x-if="!connect.transparencyBusy && connect.transparency && connect.transparency.coverage">
+                  <div>
+                    <div class="connect-cov-head" :class="{ warn: connect.transparency.coverage.truncated }">
+                      <span class="connect-cov-dot" :class="connect.transparency.coverage.truncated ? 'warn' : 'ok'"></span>
+                      <span x-text="connect.transparency.coverage.truncated
+                        ? ('The writer used the ' + connect.transparency.coverage.used + ' most recent of your ' + connect.transparency.coverage.total + ' diary entries.')
+                        : ('The writer used all ' + connect.transparency.coverage.used + ' matching diary ' + (connect.transparency.coverage.used===1?'entry':'entries') + '.')"></span>
+                    </div>
+                    <template x-if="connect.transparency.coverage.truncated">
+                      <p class="hint" style="margin:6px 0 12px">
+                        <strong style="color:var(--cp-text)" x-text="connect.transparency.coverage.omittedCount"></strong>
+                        older <span x-text="connect.transparency.coverage.omittedCount===1?'entry was':'entries were'"></span> not sent to the AI (a cap keeps the draft focused and the prompt within limits). If important older work is missing, narrow the window above or lock the sections that already read well before regenerating.
+                      </p>
+                    </template>
+                    <div class="connect-cov-grid">
+                      <div class="connect-cov-cell">
+                        <div class="connect-cov-k">Entries reaching the AI</div>
+                        <div class="connect-cov-v"><span x-text="connect.transparency.coverage.used"></span> <span class="hint" style="font-weight:400">of <span x-text="connect.transparency.coverage.total"></span></span></div>
+                      </div>
+                      <div class="connect-cov-cell" x-show="connect.transparency.coverage.usedDateRange && connect.transparency.coverage.usedDateRange.earliest">
+                        <div class="connect-cov-k">Dates the AI saw</div>
+                        <div class="connect-cov-v" style="font-size:14px" x-text="connect.transparency.coverage.usedDateRange.earliest + ' → ' + connect.transparency.coverage.usedDateRange.latest"></div>
+                      </div>
+                      <div class="connect-cov-cell" x-show="connect.transparency.coverage.totalDateRange && connect.transparency.coverage.totalDateRange.earliest">
+                        <div class="connect-cov-k">Your full diary spans</div>
+                        <div class="connect-cov-v" style="font-size:14px" x-text="connect.transparency.coverage.totalDateRange.earliest + ' → ' + connect.transparency.coverage.totalDateRange.latest"></div>
+                      </div>
+                    </div>
+                    <template x-if="(connect.transparency.coverage.usedBySource || []).length">
+                      <div style="margin-top:14px">
+                        <div class="connect-cov-k" style="margin-bottom:6px">By source (used / total)</div>
+                        <div class="connect-cov-src">
+                          <template x-for="s in connect.transparency.coverage.usedBySource" :key="s.source">
+                            <div class="connect-cov-srow">
+                              <span class="connect-cov-slabel" x-text="s.source"></span>
+                              <span class="connect-cov-sval"><span x-text="s.count"></span><span class="hint" style="font-weight:400"> / <span x-text="connectCovTotal(s.source)"></span></span></span>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="!connect.transparencyBusy && (!connect.transparency || !connect.transparency.coverage)">
+                  <p class="hint">Couldn't load coverage right now. <a href="#" @click.prevent="connectLoadTransparency()">Try again</a></p>
+                </template>
+              </div>
               <template x-if="connect.state">
               <div class="connect-card">
                 <h3>Steer your Connect</h3>
@@ -16169,6 +16253,30 @@
                 <button class="btn primary" type="button" @click="saveConnectGuidance()">Save guidance</button>
               </div>
               </template>
+
+              <!-- The exact guidance the AI receives (the drafting instructions it must follow) -->
+              <template x-if="connect.transparency && connect.transparency.guidance && connect.transparency.guidance.scaffold">
+              <div class="connect-card">
+                <h3>The exact guidance sent to the AI</h3>
+                <p class="hint">This is the literal instruction block the writer receives every time — your role, the framing controls above, and the drafting rules. Nothing else steers the wording.</p>
+                <pre class="connect-scaffold" x-text="connect.transparency.guidance.scaffold"></pre>
+              </div>
+              </template>
+
+              <!-- The format & standards your company expects (surfaced from connect-standards) -->
+              <template x-if="connect.transparency && connect.transparency.standards && connect.transparency.standards.available">
+              <div class="connect-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <h3 style="margin:0">The format &amp; standards it follows</h3>
+                  <a href="#" @click.prevent="connect.transparencyStandardsOpen = !connect.transparencyStandardsOpen"
+                     x-text="connect.transparencyStandardsOpen ? 'Hide' : 'Show'"></a>
+                </div>
+                <p class="hint">Your Connect is shaped to this standard — the structure, the quality bar, and the content it looks for. Read it to confirm the draft matches what your company expects.</p>
+                <div x-show="connect.transparencyStandardsOpen" x-transition.opacity.duration.120ms
+                     class="connect-standards md-output" x-html="renderMarkdown(connect.transparency.standards.markdown)"></div>
+              </div>
+              </template>
+
               <div class="connect-card">
                 <h3>Remembered preferences <span class="hint" style="font-weight:400" x-show="connect.memories.length" x-text="connect.memories.length"></span></h3>
                 <p class="hint">Durable guidance the AI distills when you save a draft from Ask AI. These steer future revisions and "Generate from diary." Edit or delete any you no longer want.</p>
@@ -24258,6 +24366,9 @@
           zoom: 1,               // preview zoom (studio stage)
           // Locked section keys — regeneration preserves these headings verbatim.
           lockedSections: (function(){ try { const v = JSON.parse(localStorage.getItem('connect-locked-sections') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })(),
+          transparency: null,   // /api/connect/transparency payload (coverage + scaffold + standards)
+          transparencyBusy: false,
+          transparencyStandardsOpen: false,
           generating: false,
           collecting: false,
           autofilling: false,
@@ -36637,7 +36748,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.connect.loading = false;
           }
         },
-        connectSetTab(t) { this.connect.tab = t; },
+        connectSetTab(t) {
+          this.connect.tab = t;
+          if (t === 'guidance' && !this.connect.transparency && !this.connect.transparencyBusy) {
+            this.connectLoadTransparency();
+          }
+        },
+        async connectLoadTransparency() {
+          if (this.connect.transparencyBusy) return;
+          this.connect.transparencyBusy = true;
+          try {
+            const d = parseInt(this.connect.lookbackDays, 10) || 0;
+            const r = await this.request('/api/connect/transparency?lookbackDays=' + d);
+            this.connect.transparency = r || null;
+          } catch (e) {
+            this.connect.transparency = null;
+          } finally {
+            this.connect.transparencyBusy = false;
+          }
+        },
+        connectCovTotal(source) {
+          const t = this.connect.transparency;
+          if (!t || !t.coverage || !Array.isArray(t.coverage.totalBySource)) return 0;
+          const row = t.coverage.totalBySource.find(s => s && s.source === source);
+          return row ? row.count : 0;
+        },
         connectSetLookback(d) {
           this.connect.lookbackDays = d;
           try { localStorage.setItem('connect-lookback-days', String(d)); } catch {}
