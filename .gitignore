@@ -51,3 +51,5 @@ _srv.err
 _srv.out
 # Me.AI design mockup (throwaway reference, not a production page)
 public/me-ai-mockup.html
+# Flow-viz design mockup (throwaway reference, not a production page)
+public/flow-viz-mock.html

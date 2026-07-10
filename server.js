@@ -3728,6 +3728,34 @@ app.post('/api/codeflow/pr/notes/delete', (req, res) => {
 
 // Create (or re-attach) a review worktree for a PR. Fire-and-forget like the
 // dev-card worktree route; the blocking clone runs in a worker thread.
+// Lightweight single-PR lifecycle state, for cards whose PR is NOT in the live
+// mine/reviews lists (e.g. a completed/merged PR pinned to a board). Returns just
+// { status, isDraft } so the client can show an accurate state badge instead of a
+// generic "Open" (which would mask the real state). Lightly cached to avoid re-hitting
+// the forge on every board repaint. On failure returns { status:null } so the client
+// shows NO badge rather than a wrong one.
+const _cfPrStateCache = new Map(); // key -> { at, status, isDraft }
+app.get('/api/codeflow/pr/state', async (req, res) => {
+  const q = req.query || {};
+  const o = { org: q.org, project: q.project, repo: q.repo, prId: q.prId, provider: q.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const key = [o.org, o.project || '', o.repo, o.prId, o.provider || ''].join('|').toLowerCase();
+  const now = Date.now();
+  const hit = _cfPrStateCache.get(key);
+  if (hit && (now - hit.at) < CF_PRSTATUS_TTL_MS) {
+    return res.json({ ok: true, status: hit.status, isDraft: hit.isDraft, cached: true });
+  }
+  try {
+    const pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId);
+    const status = pr && pr.status ? String(pr.status).toLowerCase() : null;
+    const isDraft = !!(pr && pr.isDraft);
+    _cfPrStateCache.set(key, { at: now, status, isDraft });
+    res.json({ ok: true, status, isDraft });
+  } catch (e) {
+    res.json({ ok: true, status: null, isDraft: false, error: (e && e.message) || 'lookup failed' });
+  }
+});
+
 app.post('/api/codeflow/pr/worktree', async (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
@@ -13111,7 +13139,7 @@ function _meAiApplyDecision(it, store, date, now) {
     try {
       const dm = loadDismissForDate(date);
       const dk = _meAiDismissKey(it);
-      if (dk && !dm[dk]) { dm[dk] = { title: it.title, note: it.note || '', at: now, reason: d.triage }; saveDismissForDate(date, dm); }
+      if (dk && !dm[dk]) { dm[dk] = { title: it.title, note: it.note || '', at: now, reason: d.triage, carried: true }; saveDismissForDate(date, dm); }
     } catch (_) { /* best-effort */ }
   }
   return true;
@@ -13179,7 +13207,7 @@ function _meAiApplyPriorResolution(it, idx, date, now) {
     try {
       const dm = loadDismissForDate(date);
       const dk = _meAiDismissKey(it);
-      if (dk && !dm[dk]) { dm[dk] = { title: it.title, note: it.note || '', at: now, reason: triage }; saveDismissForDate(date, dm); }
+      if (dk && !dm[dk]) { dm[dk] = { title: it.title, note: it.note || '', at: now, reason: triage, carried: true }; saveDismissForDate(date, dm); }
     } catch (_) { /* best-effort */ }
   }
   return true;
@@ -17714,7 +17742,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     blocks: finalBlocks,
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
-    dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
+    dismissed: Object.keys(dismissed).filter(k => dismissed[k] && dismissed[k].manual).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '', reason: dismissed[k] && dismissed[k].reason || 'dismissed' })),
     todos: effTodos,
     meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals), backboneFp: _meAiBackboneFingerprint(liveSignals, day) },
   };
@@ -18964,7 +18992,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
       // the Reports page can tell an ignored ask from a deliberate no-op.
       try {
         const dm = loadDismissForDate(date);
-        dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now, reason: action };
+        dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now, reason: action, manual: true };
         saveDismissForDate(date, dm);
       } catch (_) { /* best-effort */ }
       it.triage = action === 'wontfix' ? 'wontfix' : 'dismissed';
@@ -19042,7 +19070,7 @@ function _meAiTriageItemInPlace(date, it, action, now, opts = {}) {
   if (action === 'dismiss' || action === 'wontfix') {
     try {
       const dm = loadDismissForDate(date);
-      dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now, reason: action };
+      dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now, reason: action, manual: true };
       saveDismissForDate(date, dm);
     } catch (_) { /* best-effort */ }
     it.triage = action === 'wontfix' ? 'wontfix' : 'dismissed';
@@ -19779,7 +19807,7 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
     // its real owner ('dismissed' / "not mine") — Reports (REQ-12) splits the two.
     const reason = String(b.reason || '').trim().toLowerCase() === 'wontfix' ? 'wontfix' : 'dismissed';
     const map = loadDismissForDate(date);
-    map[key] = { note: String(b.note || '').trim().slice(0, 500), title: String(b.title || key).slice(0, 300), at: new Date().toISOString(), reason };
+    map[key] = { note: String(b.note || '').trim().slice(0, 500), title: String(b.title || key).slice(0, 300), at: new Date().toISOString(), reason, manual: true };
     saveDismissForDate(date, map);
     // Strip from the live snapshot so the change is instant.
     const agenda = loadAgendaForDate(date);
@@ -19788,7 +19816,7 @@ app.post('/api/me-ai/agenda/dismiss', (req, res) => {
       agenda.blocks = (agenda.blocks || []).filter(keep);
       agenda.backlog = (agenda.backlog || []).filter(keep);
       agenda.needsAttention = (agenda.needsAttention || []).filter(keep);
-      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
+      agenda.dismissed = Object.keys(map).filter(k => map[k] && map[k].manual).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
       _meAiCleanSnapshotBlocks(agenda);
       saveAgendaForDate(date, agenda);
     }
@@ -19807,7 +19835,7 @@ app.post('/api/me-ai/agenda/undismiss', (req, res) => {
     if (key && map[key]) { delete map[key]; saveDismissForDate(date, map); }
     const agenda = loadAgendaForDate(date);
     if (agenda) {
-      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
+      agenda.dismissed = Object.keys(map).filter(k => map[k] && map[k].manual).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '', reason: map[k] && map[k].reason || 'dismissed' }));
       _meAiCleanSnapshotBlocks(agenda);
       saveAgendaForDate(date, agenda);
     }
@@ -25407,6 +25435,10 @@ function _opComponentEmployees(item) {
 
 function computeBoardCompliance(boardRaw) {
   const b = _normalizeBoard(boardRaw);
+  // Team feature removed — every agent/task/flow lives in the same (no) team, so a
+  // board can never be blocked by team membership. Always fail open.
+  return { boardId: b.id, teamId: null, teamName: null, ok: true, blocked: false, issues: [] };
+  // eslint-disable-next-line no-unreachable
   const teamId = b.teamId;
   if (!teamId) return { boardId: b.id, teamId: null, teamName: null, ok: true, blocked: false, issues: [] };
   const team = _teamById(teamId);

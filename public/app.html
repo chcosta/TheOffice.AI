@@ -2329,6 +2329,17 @@
     .cf-pr-card.cf-focus { border-color:var(--cp-accent); box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); animation:cfFocusPulse 1.2s ease-out 1; }
     @keyframes cfFocusPulse { 0% { box-shadow:0 0 0 0 var(--cp-accent); } 70% { box-shadow:0 0 0 6px var(--cp-accent-soft); } 100% { box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); } }
     .cf-pr-top { display:flex; align-items:flex-start; gap:12px; }
+    /* Quiet collapse caret shared by PR + dev cards. Not a pill: bare glyph,
+       modest radius, muted until hover. */
+    .cf-collapse-btn {
+      flex:0 0 auto; width:22px; height:22px; padding:0; margin:0;
+      display:inline-flex; align-items:center; justify-content:center;
+      border:none; background:transparent; cursor:pointer; border-radius:6px;
+      color:var(--cp-text-dim, var(--cp-muted)); font-size:12px; line-height:1;
+      transition:background .12s ease, color .12s ease;
+    }
+    .cf-collapse-btn:hover { background:var(--cp-surface-2, rgba(127,127,127,.12)); color:var(--cp-text); }
+    .cf-collapse-btn:focus-visible { outline:2px solid var(--cp-accent); outline-offset:1px; }
     /* Keep the PR card calm: the Link / Pin / Add-to-today actions stay hidden
        until the card is hovered (or a button inside gets keyboard focus). */
     .cf-pr-actions { opacity:0; transition:opacity .12s ease; }
@@ -2338,7 +2349,7 @@
     .cf-pr-title:hover { color:var(--cp-accent); }
     .cf-meta-line { display:flex; flex-wrap:wrap; align-items:center; row-gap:3px; margin-top:7px; font-size:12.5px; }
     .cf-meta-line > * { white-space:nowrap; }
-    .cf-meta-line > *:not(.cf-m-repo)::before { content:"·"; margin:0 7px; color:var(--cp-text-soft); }
+    .cf-meta-line > *:not(.cf-m-repo):not(.cf-state)::before { content:"·"; margin:0 7px; color:var(--cp-text-soft); }
     .cf-m-repo { color:var(--cp-link); font-weight:600; }
     .cf-m-id { color:var(--cp-text-muted); font-weight:600; text-decoration:none; }
     .cf-m-id:hover { text-decoration:underline; }
@@ -2347,6 +2358,18 @@
     .cf-m-ok { color:var(--cp-success); font-weight:600; }
     .cf-m-bad { color:var(--cp-danger); font-weight:700; }
     .cf-m-warn { color:var(--cp-warning); font-weight:600; }
+    /* PR lifecycle state — a single, unambiguous status badge per card (open / merged /
+       closed / draft). Single-card status badges are allowed; this is not a pill row. */
+    .cf-state { display:inline-flex; align-items:center; gap:5px; padding:1px 8px; margin-right:2px;
+      border-radius:calc(var(--cp-radius-scale, 1) * 7px); font-size:11px; font-weight:700; line-height:1.55;
+      border:1px solid transparent; vertical-align:middle; }
+    .cf-state::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; flex:0 0 auto; }
+    .cf-state.st-open   { color:var(--cp-link);      background:color-mix(in srgb, var(--cp-link) 12%, transparent);      border-color:color-mix(in srgb, var(--cp-link) 32%, transparent); }
+    .cf-state.st-merged { color:var(--cp-success);   background:color-mix(in srgb, var(--cp-success) 14%, transparent);   border-color:color-mix(in srgb, var(--cp-success) 34%, transparent); }
+    .cf-state.st-closed { color:var(--cp-text-muted); background:color-mix(in srgb, var(--cp-text-muted) 10%, transparent); border-color:var(--cp-border); }
+    .cf-state.st-draft  { color:var(--cp-text-muted); background:transparent; border-color:var(--cp-border); }
+    .cf-state.st-draft::before { background:transparent; border:1.5px solid currentColor; width:6px; height:6px; }
+    .cf-state.st-other  { color:var(--cp-warning);    background:color-mix(in srgb, var(--cp-warning) 12%, transparent);   border-color:color-mix(in srgb, var(--cp-warning) 30%, transparent); }
     .cf-attn-reason {
       display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px);
       font-size:11.5px; font-weight:700; border:1px solid var(--cp-accent);
@@ -2784,6 +2807,53 @@
     @keyframes fr2Flash { 0% { box-shadow:0 0 0 3px color-mix(in srgb,var(--cp-accent) 55%,transparent); } 100% { box-shadow:0 0 0 0 transparent; } }
     @media (max-width:900px){ .fr2 { grid-template-columns:1fr; } .fr2-runs { position:static; } .fr2-runs-list { max-height:200px; flex-direction:row; overflow-x:auto; } .fr2-run { border-bottom:none; border-right:1px solid var(--cp-border); min-width:150px; } }
     @media (prefers-reduced-motion: reduce){ .fr2-flash { animation:none; } }
+
+    /* Flow run — Living map (spatial, left→right, full node output inline) */
+    .lmap { display:flex; flex-direction:column; gap:10px; }
+    .lmap-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .lmap-hint { font-size:11.5px; color:var(--cp-text-muted); }
+    .lmap-zoom { display:inline-flex; align-items:center; gap:4px; }
+    .lmap-zoom .btn { font-size:0.8rem; padding:2px 9px; line-height:1.2; }
+    .lmap-zpct { font-size:11px; color:var(--cp-text-muted); min-width:40px; text-align:center; }
+    .lmap-stage { position:relative; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-bg-elevated); background-image:radial-gradient(color-mix(in srgb,var(--cp-border) 55%,transparent) 1px, transparent 1px); background-size:22px 22px; overflow:auto; min-height:520px; height:calc(100vh - 188px); max-height:none; padding:22px; cursor:grab; overscroll-behavior:contain; touch-action:none; scrollbar-width:none; -ms-overflow-style:none; }
+    .lmap-stage::-webkit-scrollbar { width:0; height:0; }
+    .lmap-stage.is-panning { cursor:grabbing; user-select:none; }
+    .lmap-stage.is-panning * { cursor:grabbing !important; }
+    .lmap-canvas { display:flex; align-items:flex-start; gap:0; width:max-content; min-width:100%; transform-origin:top left; }
+    .lmap-seg { display:contents; }
+    .lmap-col { display:flex; flex-direction:column; gap:22px; flex:0 0 auto; }
+    .lmap-gap { display:flex; flex-direction:column; justify-content:center; gap:16px; flex:0 0 100px; align-self:stretch; padding:0 4px; }
+    .lmap-node { width:340px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); background:var(--cp-surface); overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.14); scroll-margin:18px; }
+    .lmap-node.success { border-color:color-mix(in srgb,var(--cp-success) 45%,var(--cp-border)); }
+    .lmap-node.failed, .lmap-node.error { border-color:color-mix(in srgb,var(--cp-danger) 60%,var(--cp-border)); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-danger) 15%,transparent); }
+    .lmap-node.running { border-color:color-mix(in srgb,var(--cp-warning) 55%,var(--cp-border)); }
+    .lmap-nhead { display:flex; align-items:flex-start; gap:10px; padding:11px 13px; border-bottom:1px solid var(--cp-border); }
+    .lmap-ndot { width:9px; height:9px; border-radius:50%; margin-top:4px; flex:0 0 auto; background:var(--cp-text-muted); }
+    .lmap-ndot.agent { background:var(--cp-accent); }
+    .lmap-ndot.task { background:var(--cp-link); }
+    .lmap-nname { font-size:13.5px; font-weight:700; line-height:1.25; display:flex; align-items:center; gap:7px; flex-wrap:wrap; min-width:0; }
+    .lmap-nsub { font-size:11px; color:var(--cp-text-muted); margin-top:2px; }
+    .lmap-nbody { padding:11px 13px; }
+    .lmap-fail { display:flex; flex-direction:column; gap:3px; margin-bottom:10px; padding:8px 10px; border:1px solid color-mix(in srgb,var(--cp-danger) 45%,var(--cp-border)); border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:color-mix(in srgb,var(--cp-danger) 8%,var(--cp-surface)); font-size:12px; color:var(--cp-text-soft); }
+    .lmap-fail strong { font-size:10px; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-danger); }
+    .lmap-out { font-size:12.5px; max-height:none; overflow:visible; }
+    .lmap-trace { margin-top:10px; }
+    .lmap-nfoot { margin-top:10px; font-size:11px; color:var(--cp-text-muted); }
+    /* Connectors — condition on the wire between columns */
+    .lmap-wirewrap { display:flex; flex-direction:column; align-items:center; gap:5px; }
+    .lmap-condtag { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 7px); border:1px solid var(--cp-border-strong); background:var(--cp-surface); color:var(--cp-text-muted); white-space:nowrap; max-width:92px; overflow:hidden; text-overflow:ellipsis; }
+    .lmap-condtag.taken { border-color:color-mix(in srgb,var(--cp-success) 55%,var(--cp-border)); color:var(--cp-success); }
+    .lmap-condtag.untaken { border-color:var(--cp-border); color:var(--cp-text-muted); opacity:.75; }
+    .lmap-wire { position:relative; width:80px; height:2px; background:var(--cp-border-strong); flex:0 0 auto; }
+    .lmap-wire::after { content:''; position:absolute; right:-1px; top:50%; transform:translateY(-50%); border-top:5px solid transparent; border-bottom:5px solid transparent; border-left:8px solid var(--cp-border-strong); }
+    .lmap-wirewrap.taken .lmap-wire { background:var(--cp-accent); height:2.5px; }
+    .lmap-wirewrap.taken .lmap-wire::after { border-left-color:var(--cp-accent); }
+    .lmap-wirewrap.blocked .lmap-wire { background:var(--cp-danger); }
+    .lmap-wirewrap.blocked .lmap-wire::after { border-left-color:var(--cp-danger); }
+    .lmap-wirewrap.untaken .lmap-wire { background:color-mix(in srgb,var(--cp-border-strong) 70%,transparent); opacity:.55; }
+    .lmap-wirewrap.untaken .lmap-wire::after { border-left-color:color-mix(in srgb,var(--cp-border-strong) 70%,transparent); opacity:.55; }
+    .lmap-wto { font-size:9.5px; color:var(--cp-text-muted); opacity:.75; max-width:96px; text-align:center; line-height:1.25; }
+    @media (max-width:760px){ .lmap-node { width:264px; } .lmap-stage { height:auto; min-height:auto; max-height:70vh; touch-action:auto; } }
 
     /* Sleek mini-flow (list/detail card) */
     .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
@@ -9542,7 +9612,7 @@
                                                   <div class="cf-meta-line">
                                                     <span class="cf-m-repo" x-text="(item.meta && item.meta.repo) || pr.repo || ''"></span>
                                                     <a class="cf-m-id" :href="pr.url || '#'" target="_blank" rel="noopener" x-text="pr.id != null && pr.id !== '' ? '#' + pr.id : ''"></a>
-                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && pr.isDraft">Draft</span>
+                                                    <template x-if="prState(pr)"><span class="cf-state" :class="'st-'+prState(pr).tone" :title="prState(pr).title" x-text="prState(pr).label"></span></template>
                                                     <span class="cf-m-muted" x-show="boardPrFull(item)" x-text="codeflowAgeLabel(pr)"></span>
                                                     <span class="cf-m-muted" x-show="boardPrFull(item) && (item.meta && item.meta.view) !== 'mine' && pr.createdBy && pr.createdBy.name" x-text="'by ' + (pr.createdBy && pr.createdBy.name)"></span>
                                                     <span x-show="boardPrFull(item)" :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
@@ -10964,7 +11034,10 @@
                                 <!-- Header: title + board assignment + actions -->
                                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                   <div style="min-width:0">
-                                    <div class="cf-pr-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
+                                    <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                                      <button class="cf-collapse-btn" type="button" @click.stop="cfToggleDevCollapse(d)" :aria-expanded="(!cfDevCollapsed(d)).toString()" :title="cfDevCollapsed(d) ? 'Expand card' : 'Collapse to title'" x-text="cfDevCollapsed(d) ? '▸' : '▾'"></button>
+                                      <div class="cf-pr-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
+                                    </div>
                                    <!-- Board pinning lives entirely in the "📌 Boards" tab now
                                         (open / change / unpin), so the base face stays clean. The
                                         hover 📌 in the action group is a quick "pin" shortcut for
@@ -10980,6 +11053,7 @@
                                 </div>
 
                                 <!-- Done → suggest archiving for audit -->
+                                <div class="cf-dev-body" x-show="!cfDevCollapsed(d)" style="display:flex;flex-direction:column;gap:10px">
                                 <div x-show="devSuggestArchive(d)" x-transition.opacity
                                   style="display:flex;align-items:center;gap:8px;justify-content:space-between;border:1px solid var(--cp-success);background:var(--cp-accent-soft);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:6px 10px">
                                   <span class="hint" style="font-size:12px;color:var(--cp-text)">✓ This work looks done. Archive it to preserve its summary, reports &amp; links for audit.</span>
@@ -11322,6 +11396,7 @@
                                     </div>
                                   </div>
                                 </div>
+                                </div>
                               </div>
                             </template>
                           </article>
@@ -11429,6 +11504,8 @@
             <style>
               .meai-wrap { max-width:1100px; margin:0 auto; }
               .meai-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:0 0 6px; }
+              .meai-head-right { display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+              .meai-head-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
               .meai-title { font-size:22px; font-weight:700; color:var(--cp-text); margin:0; display:flex; align-items:center; gap:10px; }
               .meai-scope { font-size:12px; color:var(--cp-text-muted); margin:2px 0 0; }
               .meai-datebar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0 12px; }
@@ -11723,6 +11800,9 @@
                  into a label flyout on hover. Shared by the manual toggle (.is-mini) and the
                  narrow-screen media query below. */
               .meai-jump.is-mini { left: calc(var(--sidebar-width, 240px) + 6px); padding:6px 4px; gap:3px; overflow:visible; max-height:none; }
+              /* When the bottom-left To-dos panel floats open, top-anchor the quick-nav so the
+                 two stack in the left gutter instead of the nav vanishing (owner ask). */
+              .meai-jump.is-raised { top:96px; bottom:auto; transform:none; max-height:min(80vh, calc(100vh - 380px)); }
               .meai-jump.is-mini .meai-jump-head { justify-content:center; padding:0 0 2px; }
               .meai-jump.is-mini .meai-jump-t { display:none; }
               .meai-jump.is-mini .meai-jump-btn { position:relative; display:flex; align-items:center; justify-content:center; width:34px; max-width:34px; height:30px; padding:0; overflow:visible; }
@@ -12942,11 +13022,30 @@
                   <h1 class="meai-title">🧭 Me.AI</h1>
                   <p class="meai-scope">Your AI-planned daily agenda. Reads Code Flow<span x-show="meai.config.hasAdo"> · Azure DevOps</span><span x-show="meai.config.hasGithub"> · GitHub</span><span x-show="meai.config.consent"> · calendar &amp; mail</span> to plan your day.</p>
                 </div>
-                <div class="meai-datenav">
-                  <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(-1)" title="Previous day">‹</button>
-                  <span class="meai-datelabel" x-text="meAiDateLabel()"></span>
-                  <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(1)" title="Next day">›</button>
-                  <input type="date" class="field-input" style="width:150px" :value="meai.date" @change="meAiSetDate($event.target.value)">
+                <div class="meai-head-right">
+                  <div class="meai-head-actions">
+                    <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating || meai.rebuilding"
+                            :title="meai.rebuilding ? 'Me.AI is updating this agenda — hold on…' : ''">
+                      <span x-show="!meai.generating && !meai.rebuilding" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
+                      <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
+                      <span x-show="meai.rebuilding && !meai.generating">Updating…</span>
+                    </button>
+                    <button class="btn ghost" type="button" @click="meAiOpenDayBoard()"
+                            x-show="meai.date===meai.today"
+                            title="Today's actionable work is mirrored to a 'My Day' board so it lives alongside your other workspaces.">
+                      📅 My Day board
+                    </button>
+                    <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
+                            title="Me.AI settings — working hours, work week, grid, focus times & triage">
+                      ⚙ Settings
+                    </button>
+                  </div>
+                  <div class="meai-datenav">
+                    <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(-1)" title="Previous day">‹</button>
+                    <span class="meai-datelabel" x-text="meAiDateLabel()"></span>
+                    <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(1)" title="Next day">›</button>
+                    <input type="date" class="field-input" style="width:150px" :value="meai.date" @change="meAiSetDate($event.target.value)">
+                  </div>
                 </div>
               </div>
 
@@ -12970,17 +13069,6 @@
               </div>
 
               <div class="meai-datebar">
-                <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating || meai.rebuilding"
-                        :title="meai.rebuilding ? 'Me.AI is updating this agenda — hold on…' : ''">
-                  <span x-show="!meai.generating && !meai.rebuilding" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
-                  <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
-                  <span x-show="meai.rebuilding && !meai.generating">Updating…</span>
-                </button>
-                <span class="meai-status-detail" x-show="meai.agenda && meai.agenda.meta">
-                  <span x-show="meai.agenda?.meta?.refined">AI-refined</span>
-                  <span x-show="!(meai.agenda?.meta?.refined)">Deterministic plan</span>
-                  <span x-show="meai.agenda?.meta?.signalCount"> · <span x-text="meai.agenda?.meta?.signalCount"></span> signals</span>
-                </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
                 <span style="flex:1"></span>
                 <!-- Per-day work window: start early / stay late today without touching prefs.
@@ -13005,10 +13093,6 @@
                     </div>
                   </div>
                 </div>
-                <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
-                        title="Me.AI settings — working hours, work week, grid, focus times & triage">
-                  ⚙ Settings
-                </button>
               </div>
 
               <!-- REQ-7 auto-regen + change tracking + end-of-day day-shape report -->
@@ -13041,12 +13125,6 @@
                     <span class="meai-caret" x-show="meai.agenda.meta.churn.total || meai.agenda.meta.churn.planned" x-text="meai.changesOpen?'▾':'▸'"></span>
                   </button>
                 </template>
-                <span style="flex:1"></span>
-                <button type="button" class="btn ghost meai-eod" @click="meAiOpenDayBoard()"
-                        x-show="meai.date===meai.today"
-                        title="Today's actionable work is mirrored to a 'My Day' board so it lives alongside your other workspaces.">
-                  📅 My Day board
-                </button>
               </div>
               <!-- What changed panel -->
               <div class="meai-changes" x-show="meai.changesOpen && meai.changes.length" x-transition>
@@ -15059,7 +15137,7 @@
             <!-- Quick-nav: fixed at the left, vertically centered. Hidden while a Me-agent
                  console / pursuit is open so it never overlaps that workspace. Collapses to a
                  slim icon rail docked beside the sidebar (owner ask, for narrow screens). -->
-            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open && !(meai.todosOpen && !meai.todosDocked)" x-cloak>
+            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed, 'is-raised': meai.todosOpen && !meai.todosDocked }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open" x-cloak>
               <div class="meai-jump-head">
                 <div class="meai-jump-t">Jump to</div>
                 <button type="button" class="meai-jump-toggle" @click="meAiJumpToggleCollapse()"
@@ -17492,13 +17570,17 @@
                     <template x-for="pr in grp.items" :key="pr.org + '/' + pr.repo + '/' + pr.id">
                 <article class="cf-pr-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr) }">
                   <div class="cf-pr-top">
+                    <button type="button" class="cf-collapse-btn" :aria-expanded="(!cfPrCollapsed(pr)).toString()"
+                            :title="cfPrCollapsed(pr) ? 'Expand card' : 'Collapse to title'"
+                            @click.stop="cfToggleCollapse(pr)"
+                            x-text="cfPrCollapsed(pr) ? '▸' : '▾'"></button>
                     <div style="flex:1;min-width:0">
                       <a class="cf-pr-title" :href="pr.url" target="_blank" rel="noopener" x-text="pr.title"></a>
                       <div class="cf-meta-line">
                         <span class="cf-m-provider" x-show="pr.provider==='github'" title="GitHub">GitHub</span>
                         <span class="cf-m-repo" x-text="pr.repo"></span>
                         <a class="cf-m-id" :href="pr.url" target="_blank" rel="noopener" x-text="'#' + pr.id"></a>
-                        <span class="cf-m-muted" x-show="pr.isDraft">Draft</span>
+                        <template x-if="prState(pr)"><span class="cf-state" :class="'st-' + prState(pr).tone" :title="prState(pr).title" x-text="prState(pr).label"></span></template>
                         <span class="cf-m-muted" x-text="codeflowAgeLabel(pr)"></span>
                         <span class="cf-m-muted" x-show="codeflow.view !== 'mine' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
                         <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
@@ -17535,6 +17617,7 @@
                   </div>
 
                   <!--CF_PR_CARD_BODY:START-->
+                  <div class="cf-pr-body" x-show="!cfPrCollapsed(pr)">
                   <div class="cf-ai cf-ai-face">
                     <template x-if="codeflowAi(pr)">
                       <span class="cf-ai-inline">
@@ -17929,6 +18012,7 @@
                     </div>
                   </div>
 
+                  </div>
                   <!--CF_PR_CARD_BODY:END-->
                 </article>
                     </template>
@@ -19590,7 +19674,7 @@
                   </aside>
 
                   <div class="fr2-main">
-                    <details class="fr2-overview" open>
+                    <details class="fr2-overview">
                       <summary>
                         <span class="fr2-ov-t">Flow overview</span>
                         <span class="fr2-ov-meta" x-show="chainRunState[detailChain().id]">
@@ -19607,70 +19691,95 @@
                     <div class="fr2-empty" x-show="!(detailChain().steps || []).length">🔀 No tasks in this flow yet. <strong>✏️ Edit</strong> to add some.</div>
                     <div class="fr2-empty" x-show="(detailChain().steps || []).length && !chainRunState[detailChain().id] && (chainRuns[detailChain().id] || []).length">Select a run from the left to read its storyline.</div>
                     <div class="fr2-empty" x-show="(detailChain().steps || []).length && !chainRunState[detailChain().id] && !(chainRuns[detailChain().id] || []).length">This flow has not run yet. Click <strong>▶ Run</strong> to start it.</div>
-                    <div class="fr2-empty" x-show="(detailChain().steps || []).length && chainRunState[detailChain().id] && !flowRunStoryline().length">No task activity recorded for this run yet.</div>
+                    <div class="fr2-empty" x-show="(detailChain().steps || []).length && chainRunState[detailChain().id] && flowRunMap().empty">No task activity recorded for this run yet.</div>
 
-                    <div class="fr2-story">
-                      <template x-for="(entry, ei) in flowRunStoryline()" :key="'fr2e-' + ei + '-' + (entry.id || entry.fromId)">
-                        <div>
-                          <template x-if="entry.kind === 'node'">
-                            <section class="fr2-node" :class="statusClass(entry.status)" :id="'fr2-node-' + entry.id">
-                              <header class="fr2-node-head">
-                                <span class="fr2-node-dot" :class="entry.inline ? 'agent' : 'task'" :title="entry.inline ? 'Agent step' : 'Task step'"></span>
-                                <div style="min-width:0;flex:1">
-                                  <div class="fr2-node-name"><span x-text="entry.name"></span><span class="fr2-start" x-show="entry.isStart">START</span></div>
-                                  <div class="fr2-node-sub">
-                                    <span x-show="entry.owner" x-text="entry.owner"></span>
-                                    <span x-show="entry.owner && (entry.finished || entry.started)"> · </span>
-                                    <span x-show="entry.finished || entry.started" x-text="formatRelative(entry.finished || entry.started)"></span>
-                                  </div>
-                                </div>
-                                <span class="flow-stat" style="font-size:0.72rem" :class="statusClass(entry.status)" x-text="entry.statusLabel"></span>
-                              </header>
-                              <div class="fr2-node-body">
-                                <template x-if="entry.reason"><div class="fr2-reason" x-text="entry.reason"></div></template>
-                                <template x-if="runSteps(entry).length">
-                                  <details class="msg-activity fr2-act">
-                                    <summary>🔎 Reasoning &amp; tools (<span x-text="runSteps(entry).length"></span>)</summary>
-                                    <div class="msg-activity-body">
-                                      <template x-for="(st, si) in runSteps(entry)" :key="'fr2s-' + entry.id + '-' + si">
-                                        <div class="msg-activity-step" :class="st.type">
-                                          <template x-if="st.text">
-                                            <details class="msg-activity-substep">
-                                              <summary x-text="st.label"></summary>
-                                              <pre class="live-stream-pre" x-text="st.text"></pre>
-                                            </details>
-                                          </template>
-                                          <template x-if="!st.text">
-                                            <div class="msg-activity-label" x-text="st.label"></div>
-                                          </template>
+                    <div class="lmap" x-show="!flowRunMap().empty">
+                      <div class="lmap-bar">
+                        <span class="lmap-hint">Runs left → right. Each node shows its full output; the condition rides the wire to the next node.</span>
+                        <span class="lmap-zoom">
+                          <button class="btn ghost" type="button" @click="flowMapZoomBy(-1)" title="Zoom out">−</button>
+                          <span class="lmap-zpct" x-text="Math.round(flowMapZoom * 100) + '%'"></span>
+                          <button class="btn ghost" type="button" @click="flowMapZoomBy(1)" title="Zoom in">+</button>
+                          <button class="btn ghost" type="button" @click="flowMapZoom = 1" title="Reset zoom">Reset</button>
+                        </span>
+                      </div>
+                      <div class="lmap-stage" x-ref="lmapStage"
+                           @wheel="flowMapWheel($event)"
+                           @pointerdown="flowMapPanStart($event)"
+                           @pointermove="flowMapPanMove($event)"
+                           @pointerup="flowMapPanEnd($event)"
+                           @pointercancel="flowMapPanEnd($event)"
+                           @pointerleave="flowMapPanEnd($event)">
+                        <div class="lmap-canvas" :style="'zoom:' + flowMapZoom">
+                          <template x-for="(seg, si) in flowRunMap().segments" :key="'lseg-' + si">
+                            <div class="lmap-seg">
+                              <template x-if="seg.type === 'col'">
+                                <div class="lmap-col">
+                                  <template x-for="n in seg.nodes" :key="'lnode-' + n.id">
+                                    <section class="lmap-node" :class="statusClass(n.status)" :id="'fr2-node-' + n.id">
+                                      <header class="lmap-nhead">
+                                        <span class="lmap-ndot" :class="n.inline ? 'agent' : 'task'" :title="n.inline ? 'Agent step' : 'Task step'"></span>
+                                        <div style="min-width:0;flex:1">
+                                          <div class="lmap-nname"><span x-text="n.name"></span><span class="fr2-start" x-show="n.isStart">START</span></div>
+                                          <div class="lmap-nsub">
+                                            <span x-show="n.owner" x-text="n.owner"></span>
+                                            <span x-show="n.owner && (n.finished || n.started)"> · </span>
+                                            <span x-show="n.finished || n.started" x-text="formatRelative(n.finished || n.started)"></span>
+                                          </div>
                                         </div>
-                                      </template>
-                                    </div>
-                                  </details>
-                                </template>
-                                <div class="fr2-out-bar">
-                                  <span class="field-label" style="margin:0">Output</span>
-                                  <button class="btn ghost" style="font-size:0.68rem;padding:2px 8px" type="button" x-show="entry.output" @click="openShareModal(entry.output, entry.name + ' — output', 'run-output')">📤 Share</button>
+                                        <span class="flow-stat" style="font-size:0.7rem" :class="statusClass(n.status)" x-text="n.statusLabel"></span>
+                                      </header>
+                                      <div class="lmap-nbody">
+                                        <template x-if="n.status === 'failed' && n.reason">
+                                          <div class="lmap-fail"><strong>Why it stopped</strong><span x-text="n.reason"></span></div>
+                                        </template>
+                                        <div class="lmap-out md-output" x-html="renderMarkdown(n.output || (n.status === 'running' ? 'Working…' : 'No output captured for this task.'))"></div>
+                                        <template x-if="runSteps(n).length">
+                                          <details class="msg-activity lmap-trace">
+                                            <summary>🔎 Reasoning &amp; tools (<span x-text="runSteps(n).length"></span>)</summary>
+                                            <div class="msg-activity-body">
+                                              <template x-for="(st, sj) in runSteps(n)" :key="'lstep-' + n.id + '-' + sj">
+                                                <div class="msg-activity-step" :class="st.type">
+                                                  <template x-if="st.text">
+                                                    <details class="msg-activity-substep">
+                                                      <summary x-text="st.label"></summary>
+                                                      <pre class="live-stream-pre" x-text="st.text"></pre>
+                                                    </details>
+                                                  </template>
+                                                  <template x-if="!st.text">
+                                                    <div class="msg-activity-label" x-text="st.label"></div>
+                                                  </template>
+                                                </div>
+                                              </template>
+                                            </div>
+                                          </details>
+                                        </template>
+                                        <div class="lmap-nfoot" x-show="n.output">
+                                          <button class="btn ghost" style="font-size:0.66rem;padding:2px 8px" type="button" @click="openShareModal(n.output, n.name + ' — output', 'run-output')">📤 Share</button>
+                                        </div>
+                                      </div>
+                                    </section>
+                                  </template>
                                 </div>
-                                <div class="md-output" x-html="renderMarkdown(entry.output || (entry.status === 'running' ? 'Waiting for output…' : 'No output captured for this task.'))"></div>
-                              </div>
-                            </section>
-                          </template>
-                          <template x-if="entry.kind === 'decision'">
-                            <div class="fr2-decision">
-                              <span class="fr2-dec-t">Decision</span>
-                              <template x-for="(br, bi) in entry.branches" :key="'fr2b-' + entry.fromId + '-' + bi">
-                                <button type="button" class="fr2-branch" :class="{ taken: br.taken, skipped: br.notTaken }" @click="fr2JumpNode(br.to)" :title="br.reason || 'Jump to ' + br.toName">
-                                  <span class="fr2-br-eval" x-text="br.taken ? '✓' : (br.notTaken ? '✗' : '·')"></span>
-                                  <span class="fr2-br-cond" :class="{ ai: br.ai }" x-text="br.label"></span>
-                                  <span class="fr2-br-arrow">→</span>
-                                  <span class="fr2-br-to" x-text="br.toName"></span>
-                                </button>
+                              </template>
+                              <template x-if="seg.type === 'gap'">
+                                <div class="lmap-gap" x-show="seg.edges.length">
+                                  <template x-for="(e, ej) in seg.edges" :key="'lgap-' + si + '-' + ej">
+                                    <div class="lmap-wirewrap" :class="{ taken: e.taken, untaken: e.notTaken && !e.blocked, blocked: e.blocked }">
+                                      <span class="lmap-condtag" :class="{ taken: e.taken, untaken: e.notTaken }" :title="e.reason || e.label" x-show="e.label">
+                                        <span x-text="e.taken ? '✓' : (e.notTaken ? '✗' : '·')"></span>
+                                        <span x-text="e.label"></span>
+                                      </span>
+                                      <span class="lmap-wire"></span>
+                                      <span class="lmap-wto" x-show="e.notTaken" x-text="'✗ ' + e.toName"></span>
+                                    </div>
+                                  </template>
+                                </div>
                               </template>
                             </div>
                           </template>
                         </div>
-                      </template>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -24664,6 +24773,7 @@
           worktrees: {},         // prKey -> review-worktree record
           wtBusy: {},            // prKey -> action string while busy
           boardPrs: {},          // cfPrKey -> full PR object for board-pinned PRs (parity with the Code Flow card)
+          boardPrState: {},      // key -> { status, isDraft } for pins NOT in the live lists (e.g. merged/closed) so their state badge is still accurate
           boardPrsLoading: false,
           boardPrsLoadedFor: '',  // boardId the boardPrs map was last loaded for (one fetch per board view)
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
@@ -24803,6 +24913,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _flowCanvas: null,
         flowRunSel: '',
         flowRunZoomLevel: 1,
+        flowMapZoom: 1,
+        _lmapPan: null,
         _flowRunCanvas: null,
         chatPickerOpen: false,
         chatPicker: { search: '', selected: [] },
@@ -29366,10 +29478,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Sections that always want the full page width (wide timeline / chart content).
         _homeFullKeys() { return ['agenda']; },
-        // Ordered list of the visible right-column sections (excludes the greeting hero,
-        // which is its own full-width block outside the reorderable set).
+        // The keys that actually render as grid cells inside .home-cards (workspace home).
+        // NOTE: some ordered keys are NOT cells here — 'greeting' is the hero block above the
+        // grid, and 'devwork' is surfaced as a hero stat (L7001), not a reorderable panel.
+        // Including a non-cell key in the parity walk below would shift every following
+        // panel's column, making a genuinely-alone panel render half-width. Keep this in sync
+        // with the `order: homeSecIndex(...)` cells in the .home-cards markup.
+        _homeGridKeys() { return ['agenda', 'whatsnew', 'boards', 'prs', 'activeprs', 'newsletter', 'flowchart']; },
+        // Ordered list of the visible grid-cell sections used for span/parity math only.
         homeVisibleRsecOrder() {
-          return this.homeSectionOrder.filter(k => k !== 'greeting' && this.homeSectionVisible(k));
+          const cells = this._homeGridKeys();
+          return this.homeSectionOrder.filter(k => cells.includes(k) && this.homeSectionVisible(k));
         },
         // A panel takes one column by default and expands to the full row ONLY when it
         // would otherwise sit alone (odd item at the end of a row, or a row-starter whose
@@ -38699,6 +38818,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const base = [pr.org, pr.project || '', pr.repo, pr.id].join('|').toLowerCase();
           return String(pr.provider || 'azdo').toLowerCase() === 'github' ? ('github|' + base) : base;
         },
+        // ── Collapse-to-title for PR & dev cards (Code Flow) ─────────────────
+        // A single localStorage-backed map keyed by a stable card id lets the
+        // user fold a card down to just its title row to ease navigation.
+        _cfCollapseLoad() {
+          if (this._cfCollapseReady) return;
+          try { this.codeflow.cardCollapsed = JSON.parse(localStorage.getItem('cf-card-collapsed') || '{}') || {}; }
+          catch (_) { this.codeflow.cardCollapsed = {}; }
+          this._cfCollapseReady = true;
+        },
+        _cfCollapseSave() {
+          try { localStorage.setItem('cf-card-collapsed', JSON.stringify(this.codeflow.cardCollapsed || {})); } catch (_) {}
+        },
+        cfPrCollapsed(pr) {
+          this._cfCollapseLoad();
+          return !!(this.codeflow.cardCollapsed || {})['pr:' + this.cfPrKey(pr)];
+        },
+        cfToggleCollapse(pr) {
+          this._cfCollapseLoad();
+          const k = 'pr:' + this.cfPrKey(pr);
+          if (this.codeflow.cardCollapsed[k]) delete this.codeflow.cardCollapsed[k];
+          else this.codeflow.cardCollapsed[k] = true;
+          this._cfCollapseSave();
+        },
+        cfDevCollapsed(d) {
+          this._cfCollapseLoad();
+          return !!(this.codeflow.cardCollapsed || {})['dev:' + d.id];
+        },
+        cfToggleDevCollapse(d) {
+          this._cfCollapseLoad();
+          const k = 'dev:' + d.id;
+          if (this.codeflow.cardCollapsed[k]) delete this.codeflow.cardCollapsed[k];
+          else this.codeflow.cardCollapsed[k] = true;
+          this._cfCollapseSave();
+        },
         // Scroll to and briefly highlight a PR on the Code Flows page after a
         // deep-link (e.g. from a dev card's PR link). The target is usually one of
         // "my" PRs, but if it isn't in the current list we try the reviews view once.
@@ -38788,11 +38941,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const key = [m.org, m.project, m.repo, (m.prId != null ? m.prId : '')].join('|').toLowerCase();
           const full = (this.codeflow.boardPrs || {})[key];
           if (full) { full._view = view; full._full = true; return full; }
+          // Not in the live list — fold in any fetched lifecycle state (merged/closed)
+          // plus whatever the pin's own meta carries, so the state badge is accurate.
+          const st = (this.codeflow.boardPrState || {})[key] || {};
           return {
             org: m.org, project: m.project, repo: m.repo,
             id: m.prId != null ? m.prId : '',
             url: m.url || '', title: m.title || item.label || '',
             provider: m.provider || '',
+            status: st.status || m.status || m.prStatus || '',
+            isDraft: st.isDraft != null ? st.isDraft : !!m.isDraft,
             _view: view, _full: false,
           };
         },
@@ -38829,6 +38987,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
             this.codeflow.boardPrs = map;
             this.codeflow.boardPrsLoadedFor = board.id;
+            // Any pin NOT present in the live mine/reviews lists is likely completed/
+            // merged/closed (those drop out of the live views). Fetch its lifecycle state
+            // so the card shows an accurate badge instead of a generic fallback. Cheap +
+            // cached server-side; failures leave the pin badge-less (no wrong badge).
+            const missing = prPins.filter(p => {
+              const k = [p.meta.org, p.meta.project, p.meta.repo, p.meta.prId].join('|').toLowerCase();
+              return !map[k];
+            });
+            await Promise.all(missing.map(async p => {
+              const k = [p.meta.org, p.meta.project, p.meta.repo, p.meta.prId].join('|').toLowerCase();
+              const qs = new URLSearchParams({
+                org: p.meta.org || '', project: p.meta.project || '', repo: p.meta.repo || '',
+                prId: String(p.meta.prId != null ? p.meta.prId : ''), provider: p.meta.provider || ''
+              }).toString();
+              try {
+                const r = await this.request('/api/codeflow/pr/state?' + qs);
+                if (r && r.status) this.codeflow.boardPrState[k] = { status: r.status, isDraft: !!r.isDraft };
+              } catch { /* best-effort; no badge on failure */ }
+            }));
             // Pull AI insights for the referenced views and merge into codeflow.ai (keyed
             // by pr.id, the same key codeflowAi() reads) so the pinned cards show urgency.
             for (const view of views) {
@@ -39695,6 +39872,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             'no-reviews': { cls: '', tone: 'muted', label: 'No reviewers' }
           };
           return map[pr.approvalState] || map['no-reviews'];
+        },
+        // Unambiguous PR lifecycle state for the status badge. Forge-neutral:
+        // active/open → Open, completed/merged → Merged, abandoned/closed → Closed.
+        // Returns null when we genuinely don't know the state yet — so we never
+        // mask a real state with a generic "Open", and never emit a noisy guess.
+        prState(pr) {
+          if (!pr) return null;
+          const raw = String(pr.status || pr.prStatus || pr.state || '').toLowerCase();
+          const draft = !!pr.isDraft;
+          if (!raw && !draft) return null; // unknown → render nothing
+          if (draft && (!raw || raw === 'active' || raw === 'open')) return { key: 'draft', label: 'Draft', tone: 'draft', title: 'Draft — not yet ready for review' };
+          if (raw === 'active' || raw === 'open') return { key: 'open', label: 'Open', tone: 'open', title: 'Open — not yet merged' };
+          if (raw === 'completed' || raw === 'merged') return { key: 'merged', label: 'Merged', tone: 'merged', title: 'Merged / completed — this PR has landed' };
+          if (raw === 'abandoned' || raw === 'closed') return { key: 'closed', label: 'Closed', tone: 'closed', title: 'Closed without merging' };
+          return { key: 'other', label: raw.charAt(0).toUpperCase() + raw.slice(1), tone: 'other', title: 'PR state: ' + raw };
         },
         codeflowAttentionLabel(reason) {
           const map = {
@@ -42554,7 +42746,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 }
               }
               const st = m.state || m.status || it.state;
-              return st ? { text: String(st), tone: 'mut' } : null;
+              if (st) return { text: String(st), tone: 'mut' };
+              // Not in the live list (likely merged/closed) — use the enriched lifecycle
+              // state so the map card still shows an accurate badge, never a blank.
+              const ps = this.prState ? this.prState(this.boardPrFor(it)) : null;
+              if (ps) {
+                const tone = ps.tone === 'merged' ? 'open' : ps.tone === 'open' ? 'open' : ps.tone === 'other' ? 'warn' : 'mut';
+                return { text: ps.label, tone };
+              }
+              return null;
             }
             if (k === 'checklist') {
               const pr = this.checklistProgress(p.checklist) || {};
@@ -51915,6 +52115,121 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (branches.length) out.push({ kind: 'decision', fromId: step.id, branches });
           });
           return out;
+        },
+        // Living map: left→right columns of executed nodes; condition rides the wire between columns.
+        flowRunMap() {
+          const chain = this.detailChain && this.detailChain(); if (!chain) return { segments: [], empty: true };
+          const run = this.chainRunState[chain.id]; if (!run || !run.nodes) return { segments: [], empty: true };
+          const steps = chain.steps || [];
+          const labels = { pending: 'Pending', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped' };
+          const evalMap = {};
+          const collect = (arr) => (arr || []).forEach(e => {
+            if (!e || e.from == null || e.to == null) return;
+            const k = e.from + '\u0000' + e.to;
+            if (!(k in evalMap) || e.evaluated !== undefined) evalMap[k] = { evaluated: e.evaluated, reason: e.reason };
+          });
+          collect(chain.edges); collect(run.edges);
+          const idx = {}; steps.forEach((s, i) => { idx[s.id] = i; });
+          const byId = {}; steps.forEach(s => { byId[s.id] = s; });
+          const tval = (n) => { const t = n && (n.finishedAt || n.startedAt); const ms = t ? Date.parse(t) : NaN; return isNaN(ms) ? null : ms; };
+          const executed = steps.filter(s => {
+            const n = run.nodes[s.id];
+            return n && ((n.status && n.status !== 'pending') || n.output || (Array.isArray(n.steps) ? n.steps.length : !!n.steps));
+          });
+          if (!executed.length) return { segments: [], empty: true };
+          const exSet = new Set(executed.map(s => s.id));
+          // Column = longest-path depth over executed↔executed edges.
+          const gEdges = (chain.edges || []).filter(e => exSet.has(e.from) && exSet.has(e.to));
+          const incoming = {}; gEdges.forEach(e => { incoming[e.to] = (incoming[e.to] || 0) + 1; });
+          const adj = {}; executed.forEach(s => { adj[s.id] = []; }); gEdges.forEach(e => { if (adj[e.from]) adj[e.from].push(e.to); });
+          const depth = {}; const q = [];
+          executed.forEach(s => { if (!incoming[s.id]) { depth[s.id] = 0; q.push(s.id); } });
+          if (!q.length) { depth[executed[0].id] = 0; q.push(executed[0].id); }
+          let guard = 0;
+          while (q.length && guard++ < 5000) { const id = q.shift(); (adj[id] || []).forEach(to => { const nd = (depth[id] || 0) + 1; if (depth[to] === undefined || nd > depth[to]) { depth[to] = nd; q.push(to); } }); }
+          let maxCol = 0; executed.forEach(s => { if (depth[s.id] === undefined) depth[s.id] = 0; if (depth[s.id] > maxCol) maxCol = depth[s.id]; });
+          const nodeOf = (s, isStart) => {
+            const n = run.nodes[s.id] || {}; const st = n.status || 'pending';
+            return { id: s.id, name: this.flowStepName(s), owner: this._flowStepOwner(s),
+              inline: !s.taskId && s.agentId, status: st, statusLabel: labels[st] || st,
+              started: n.startedAt || null, finished: n.finishedAt || null,
+              code: n.code, reason: n.reason || '', output: n.output || '', steps: n.steps, isStart };
+          };
+          const segments = [];
+          for (let c = 0; c <= maxCol; c++) {
+            const inCol = executed.filter(s => depth[s.id] === c);
+            inCol.sort((a, b) => {
+              const ta = tval(run.nodes[a.id]), tb = tval(run.nodes[b.id]);
+              if (ta != null && tb != null && ta !== tb) return ta - tb;
+              if (ta != null && tb == null) return -1;
+              if (ta == null && tb != null) return 1;
+              return idx[a.id] - idx[b.id];
+            });
+            segments.push({ type: 'col', nodes: inCol.map((s, i) => nodeOf(s, c === 0 && i === 0)) });
+            if (c < maxCol) {
+              const edges = (chain.edges || []).filter(e => exSet.has(e.from) && depth[e.from] === c).map(e => {
+                const ev = evalMap[e.from + '\u0000' + e.to] || {};
+                const src = run.nodes[e.from];
+                const notTaken = ev.evaluated === false;
+                const cond = e.condition || {};
+                return { from: e.from, to: e.to,
+                  toName: byId[e.to] ? this.flowStepName(byId[e.to]) : e.to,
+                  label: this._flowCondLabel(cond), ai: cond.type === 'ai',
+                  taken: ev.evaluated === true, notTaken,
+                  blocked: notTaken && !!src && src.status === 'failed',
+                  reason: ev.reason || e.reason || '' };
+              });
+              segments.push({ type: 'gap', edges });
+            }
+          }
+          return { segments, empty: false };
+        },
+        flowMapZoomBy(dir) {
+          const z = Math.min(1.6, Math.max(0.5, (Number(this.flowMapZoom) || 1) + (dir > 0 ? 0.1 : -0.1)));
+          this.flowMapZoom = Math.round(z * 100) / 100;
+        },
+        // Living-map wheel zoom, anchored to the cursor so the point under the pointer
+        // stays put. CSS `zoom` scales layout, so scroll coords scale with it.
+        flowMapWheel(e) {
+          const stage = e.currentTarget;
+          if (!stage) return;
+          e.preventDefault();
+          const prev = Number(this.flowMapZoom) || 1;
+          const dir = e.deltaY < 0 ? 1 : -1;
+          const next = Math.round(Math.min(1.6, Math.max(0.5, prev + dir * 0.08)) * 100) / 100;
+          if (next === prev) return;
+          const rect = stage.getBoundingClientRect();
+          const ox = e.clientX - rect.left, oy = e.clientY - rect.top;
+          const cx = stage.scrollLeft + ox, cy = stage.scrollTop + oy;
+          const ratio = next / prev;
+          this.flowMapZoom = next;
+          this.$nextTick(() => {
+            stage.scrollLeft = cx * ratio - ox;
+            stage.scrollTop = cy * ratio - oy;
+          });
+        },
+        // Click-drag to pan the canvas (grab anywhere that isn't an interactive/selectable
+        // control), so nodes never need their own scrollbars — you pan to reach content.
+        flowMapPanStart(e) {
+          if (e.button !== undefined && e.button !== 0) return;
+          if (e.target && e.target.closest && e.target.closest('button, a, summary, input, textarea, select, pre, .lmap-out, .md-output')) return;
+          const stage = e.currentTarget;
+          this._lmapPan = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop, el: stage };
+          stage.classList.add('is-panning');
+          try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+        },
+        flowMapPanMove(e) {
+          const p = this._lmapPan;
+          if (!p) return;
+          p.el.scrollLeft = p.sl - (e.clientX - p.x);
+          p.el.scrollTop = p.st - (e.clientY - p.y);
+        },
+        flowMapPanEnd(e) {
+          const p = this._lmapPan;
+          if (!p) return;
+          try { p.el.classList.remove('is-panning'); } catch (_) {}
+          try { p.el.releasePointerCapture(e.pointerId); } catch (_) {}
+          this._lmapPan = null;
         },
         fr2JumpNode(id) {
           if (!id) return;
