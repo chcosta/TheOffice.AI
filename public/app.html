@@ -2491,13 +2491,13 @@
     .flow-zoom .fz-pct { min-width:46px; text-align:center; font-size:12px; font-weight:700; color:var(--cp-text); font-variant-numeric:tabular-nums; cursor:pointer; }
     .flow-zoom .fz-sep { width:1px; height:18px; background:var(--cp-border); margin:0 2px; }
     .flow-node { position:absolute; width:210px; border-radius:calc(var(--cp-radius-scale, 1) * 14px); border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 6px 18px rgba(0,0,0,.10); user-select:none; }
-    .flow-node.start { border-color:var(--cp-success); }
-    .flow-node.drop-target .fn-port.in { border-color:var(--cp-success); background:color-mix(in srgb,var(--cp-success) 25%,transparent); }
+    .flow-node.start { border-color:var(--cp-accent); }
+    .flow-node.drop-target .fn-port.in { border-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 25%,transparent); }
     .flow-node .fn-head { display:flex; align-items:center; gap:8px; padding:9px 10px 6px; cursor:grab; }
     .flow-node .fn-head:active { cursor:grabbing; }
     .flow-node .fn-ic { font-size:17px; }
     .flow-node .fn-title { font-size:13px; font-weight:700; line-height:1.15; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .flow-node .fn-start { font-size:9px; font-weight:800; letter-spacing:.06em; color:var(--cp-success); border:1px solid var(--cp-success); border-radius:calc(var(--cp-radius-scale, 1) * 6px); padding:1px 5px; }
+    .flow-node .fn-start { font-size:9px; font-weight:800; letter-spacing:.06em; color:var(--cp-accent); border:1px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale, 1) * 6px); padding:1px 5px; }
     .flow-node .fn-del { opacity:0; cursor:pointer; border:none; background:transparent; color:var(--cp-text-muted); font-size:14px; line-height:1; padding:0 2px; }
     .flow-node:hover .fn-del { opacity:1; }
     .flow-node .fn-own { font-size:11px; color:var(--cp-text-muted); padding:0 10px 6px; }
@@ -2613,16 +2613,16 @@
     /* Sleek mini-flow (list/detail card) */
     .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
     .mini-flow .mf-node { display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:calc(var(--cp-radius-scale, 1) * 11px); border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 1px 2px rgba(0,0,0,.10); max-width:240px; }
-    .mini-flow .mf-node.start { border-color:var(--cp-success); }
+    .mini-flow .mf-node.start { border-color:var(--cp-accent); }
     .mini-flow .mf-node.ok { border-color:var(--cp-success); background:color-mix(in srgb,var(--cp-success) 12%,var(--cp-surface)); }
     .mini-flow .mf-node.fail { border-color:var(--cp-danger); background:color-mix(in srgb,var(--cp-danger) 12%,var(--cp-surface)); }
     .mini-flow .mf-node.run { border-color:var(--cp-warning); background:color-mix(in srgb,var(--cp-warning) 14%,var(--cp-surface)); }
     .mini-flow .mf-ic { font-size:15px; line-height:1; }
     .mini-flow .mf-name { font-size:13px; font-weight:600; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .mini-flow .mf-start { font-size:9px; font-weight:800; letter-spacing:.05em; color:var(--cp-success); border:1px solid var(--cp-success); border-radius:calc(var(--cp-radius-scale, 1) * 5px); padding:0 4px; }
+    .mini-flow .mf-start { font-size:9px; font-weight:800; letter-spacing:.05em; color:var(--cp-accent); border:1px solid var(--cp-accent); border-radius:calc(var(--cp-radius-scale, 1) * 5px); padding:0 4px; }
     .mini-flow .mf-conn { display:inline-flex; align-items:center; gap:5px; color:var(--cp-text-muted); }
     .mini-flow .mf-conn svg { display:block; }
-    .mini-flow .mf-lbl { font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); white-space:nowrap; }
+    .mini-flow .mf-lbl { font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); white-space:nowrap; }
     .mini-flow .mf-lbl.ai { color:var(--cp-accent); border-color:color-mix(in srgb,var(--cp-accent) 40%,transparent); }
     .mini-flow.mf-tree { align-items:center; }
     .mini-flow .mf-seg { display:inline-flex; align-items:center; gap:4px; }
