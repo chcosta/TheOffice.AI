@@ -5031,9 +5031,9 @@
       background: var(--k, var(--cp-accent)); color: #0c1322;
       box-shadow: 0 1px 4px color-mix(in srgb, var(--cp-ink) 30%, transparent);
     }
-    .bmap-node-lbl { flex: 1 1 auto; min-width: 0; }
-    .bmap-node-kind { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--k, var(--cp-accent)); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bmap-node-name { font-size: 13px; font-weight: 650; line-height: 1.2; color: var(--cp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bmap-node-lbl { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .bmap-node-kind { display: block; max-width: 100%; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--k, var(--cp-accent)); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bmap-node-name { display: block; max-width: 100%; font-size: 13px; font-weight: 650; line-height: 1.2; color: var(--cp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .bmap-node-badge { flex: 0 0 auto; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; line-height: 1.35; white-space: nowrap; }
     .bmap-statusdot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; }
     .bmst-open { background: color-mix(in srgb, var(--cp-success) 20%, transparent); color: var(--cp-success); }
@@ -42279,7 +42279,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const k = this.bmapKindKey(p);
             if (k === 'pr') {
               const it = p.item || {}; const m = it.meta || {};
-              const id = it.refId || m.prId || m.id || m.number;
+              // refId can be a composite cfPrKey ("org|project|repo|prId"); take the
+              // trailing numeric segment so the header shows a clean "#61871", not the key.
+              let id = it.refId || m.prId || m.id || m.number;
+              if (id != null && String(id).includes('|')) id = String(id).split('|').pop();
               const repo = m.repo || it.repo || '';
               const ids = (id != null && id !== '') ? ('#' + String(id).replace(/^#/, '')) : '';
               const nm = [ids, repo].filter(Boolean).join(' · ');
@@ -42399,20 +42402,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {}; const out = [];
             const push = (kk, vv, tone) => { const f = this._bmapFact(kk, vv, tone); if (f) out.push(f); };
             if (k === 'pr') {
-              let checks = '', review = '', diff = '', branch = m.branch || it.branch || '';
+              let checks = '', review = '', repo = m.repo || it.repo || '', branch = '';
+              const stripRef = (b) => String(b || '').replace(/^refs\/heads\//, '');
+              branch = stripRef(m.sourceBranch || m.branch || it.branch || '');
               if (this.boardPrFull && this.boardPrFull(it)) {
                 const pr = this.boardPrFor(it);
-                const c = pr.checks || {};
-                if (c.failed) checks = c.failed + ' failing'; else if (c.pending) checks = c.pending + ' pending'; else if (c.passed || c.total) checks = 'Passing';
+                const fail = pr.failedChecks || 0, pend = pr.pendingChecks || 0;
+                const total = (pr.validation && pr.validation.length) || 0;
+                if (fail) checks = fail + ' failing'; else if (pend) checks = pend + ' pending'; else if (total) checks = 'Passing'; else checks = '';
                 const pill = this.codeflowApprovalPill ? this.codeflowApprovalPill(pr) : null;
                 review = pill ? pill.label : '';
-                if (pr.diff) { diff = ((pr.diff.additions != null ? '+' + pr.diff.additions : '') + (pr.diff.deletions != null ? ' -' + pr.diff.deletions : '')).trim(); }
-                branch = pr.branch || branch;
+                branch = stripRef(pr.sourceBranch || branch);
+                repo = pr.repo || repo;
               }
               push('Checks', checks, /fail/.test(checks) ? 'bad' : /pending/.test(checks) ? 'warn' : checks ? 'ok' : '');
               push('Review', review);
-              push('Diff', diff);
               push('Branch', branch);
+              push('Repo', repo);
             } else if (k === 'dev') {
               // Repo/branch now live in the header + title in the body; the facts
               // grid carries the actionable state (stage / work item / PR / git).
