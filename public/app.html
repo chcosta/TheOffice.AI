@@ -7019,7 +7019,7 @@
 
                 <!-- What's new (release highlights + new marketplace items; clickable) -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('whatsnew') }" x-show="homeSectionVisible('whatsnew')"
-                     :class="homeDragOver === 'whatsnew' ? 'is-drop' : ''"
+                     :class="{ 'is-drop': homeDragOver === 'whatsnew', 'span-full': homeSecSpan('whatsnew') }"
                      @dragover.prevent="homeReorderOver('whatsnew')" @drop.prevent="homeReorderDrop('whatsnew')" draggable="true" @dragstart="homeReorderStart('whatsnew',$event)" @dragend="homeReorderEnd()">
                   <section class="card home-wn-card">
                     <div class="card-header">
@@ -7044,8 +7044,8 @@
                 </div>
 
                 <!-- Insights: what needs you right now (folded into home) -->
-                <div class="home-rsec span-full" :style="{ order: homeSecIndex('insights') }" x-show="homeSectionVisible('insights')"
-                     :class="homeDragOver === 'insights' ? 'is-drop' : ''"
+                <div class="home-rsec" :style="{ order: homeSecIndex('insights') }" x-show="homeSectionVisible('insights')"
+                     :class="{ 'is-drop': homeDragOver === 'insights', 'span-full': homeSecSpan('insights') }"
                      @dragover.prevent="homeReorderOver('insights')" @drop.prevent="homeReorderDrop('insights')" draggable="true" @dragstart="homeReorderStart('insights',$event)" @dragend="homeReorderEnd()">
                   <section class="card home-hovercard">
                     <style>
@@ -7133,8 +7133,8 @@
                 </div>
 
                 <!-- Active dev work -->
-                <div class="home-rsec span-full" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
-                     :class="homeDragOver === 'devwork' ? 'is-drop' : ''"
+                <div class="home-rsec" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
+                     :class="{ 'is-drop': homeDragOver === 'devwork', 'span-full': homeSecSpan('devwork') }"
                      @dragover.prevent="homeReorderOver('devwork')" @drop.prevent="homeReorderDrop('devwork')" draggable="true" @dragstart="homeReorderStart('devwork',$event)" @dragend="homeReorderEnd()">
                   <section class="card">
                     <div class="card-header">
@@ -7154,9 +7154,8 @@
                       <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
                         <div class="item-row home-devrow" style="cursor:pointer" role="button" tabindex="0" @click="openHomeDevCard(dc)"
                              @keydown.enter="openHomeDevCard(dc)" :title="dc._board ? ('Open on board: ' + dc._board.name) : 'Open dev card'"
-                             :style="dc._done ? 'opacity:.6' : ''">
+                             :style="homeWsRowStyle(dc._board) + (dc._done ? ';opacity:.6' : '')">
                           <div style="display:flex;align-items:center;gap:10px;min-width:0">
-                            <span class="home-ws-dot" :style="boardSwatchStyle(dc._board)" :title="dc._board ? dc._board.name : 'Unassigned'"></span>
                             <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="dc.title || dc.repo || 'Dev card'"></strong>
                             <span class="hint" x-text="dc._board ? dc._board.name : 'Unassigned'"></span>
                             <span class="hint" x-show="dc._done" style="color:var(--cp-success)">✓ done</span>
@@ -7181,7 +7180,7 @@
 
                 <!-- Boards -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('boards') }" x-show="homeSectionVisible('boards')"
-                     :class="homeDragOver === 'boards' ? 'is-drop' : ''"
+                     :class="{ 'is-drop': homeDragOver === 'boards', 'span-full': homeSecSpan('boards') }"
                      @dragover.prevent="homeReorderOver('boards')" @drop.prevent="homeReorderDrop('boards')" draggable="true" @dragstart="homeReorderStart('boards',$event)" @dragend="homeReorderEnd()">
                   <section class="card">
                     <div class="card-header">
@@ -7192,9 +7191,8 @@
                     </div>
                     <div class="stack list-flow" x-show="homeBoards().length">
                       <template x-for="b in homeBoards()" :key="'home-board-' + b.id">
-                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
+                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)" :style="homeWsRowStyle(b)">
                           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span class="home-ws-dot" :style="boardSwatchStyle(b)"></span>
                             <strong x-text="b.name"></strong>
                             <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
                           </div>
@@ -7216,7 +7214,7 @@
 
                 <!-- My pull requests -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('prs') }" x-show="homeSectionVisible('prs')"
-                     :class="homeDragOver === 'prs' ? 'is-drop' : ''"
+                     :class="{ 'is-drop': homeDragOver === 'prs', 'span-full': homeSecSpan('prs') }"
                      @dragover.prevent="homeReorderOver('prs')" @drop.prevent="homeReorderDrop('prs')" draggable="true" @dragstart="homeReorderStart('prs',$event)" @dragend="homeReorderEnd()">
                   <section class="card">
                     <div class="card-header">
@@ -7250,7 +7248,7 @@
 
                 <!-- Newsletter (featured; click navigates, sent indicator) -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('newsletter') }" x-show="homeSectionVisible('newsletter')"
-                     :class="homeDragOver === 'newsletter' ? 'is-drop' : ''"
+                     :class="{ 'is-drop': homeDragOver === 'newsletter', 'span-full': homeSecSpan('newsletter') }"
                      @dragover.prevent="homeReorderOver('newsletter')" @drop.prevent="homeReorderDrop('newsletter')" draggable="true" @dragstart="homeReorderStart('newsletter',$event)" @dragend="homeReorderEnd()">
                   <article class="card clickable home-nl-card" @click="goTo('#/newsletter')" role="button" tabindex="0" @keydown.enter="goTo('#/newsletter')" title="Open the newsletter">
                     <div class="home-nl-icon">📰</div>
@@ -29599,6 +29597,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const i = this.homeSectionOrder.indexOf(key);
           return i === -1 ? 99 : i;
         },
+        // Sections that always want the full page width (wide timeline / chart content).
+        _homeFullKeys() { return ['agenda', 'flowchart']; },
+        // Ordered list of the visible right-column sections (excludes the greeting hero,
+        // which is its own full-width block outside the reorderable set).
+        homeVisibleRsecOrder() {
+          return this.homeSectionOrder.filter(k => k !== 'greeting' && this.homeSectionVisible(k));
+        },
+        // A panel takes one column by default and expands to the full row ONLY when it
+        // would otherwise sit alone (odd item at the end of a row, or a row-starter whose
+        // next neighbour begins a new full-width row). Always-full sections short-circuit.
+        homeSecSpan(key) {
+          const full = this._homeFullKeys();
+          if (full.includes(key)) return true;
+          const list = this.homeVisibleRsecOrder();
+          const idx = list.indexOf(key);
+          if (idx === -1) return false;
+          // Column position of this key within its 2-up row (rows reset after a full section).
+          let col = 0;
+          for (let i = 0; i <= idx; i++) {
+            if (full.includes(list[i])) { col = 0; continue; }
+            if (i === 0 || full.includes(list[i - 1])) col = 0;
+            else col = (col === 0) ? 1 : 0;
+          }
+          if (col !== 0) return false; // right-hand item: it has a left neighbour, never alone
+          const next = list[idx + 1];
+          if (!next) return true;            // last item overall -> alone
+          if (full.includes(next)) return true; // next starts a new full row -> alone
+          return false;                      // next is a half -> they pair up
+        },
         homePersistSections() {
           try { localStorage.setItem('home-section-order', JSON.stringify(this.homeSectionOrder)); } catch {}
         },
@@ -40494,6 +40521,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const c = board && this.boardColor(board);
           if (!c) return 'background:var(--cp-muted);';
           return `background:linear-gradient(135deg, ${c} 0%, color-mix(in srgb, ${c} 60%, #000) 100%);`;
+        },
+        // Subtle workspace-color wash for a home list row — a full-width gradient tinted by
+        // the board's colour that fades to transparent across the row (identity without an
+        // icon or a side stripe). Falls back to no wash when the board has no colour.
+        homeWsRowStyle(board) {
+          const c = board && this.boardColor(board);
+          if (!c) return '';
+          return `background:linear-gradient(90deg, color-mix(in srgb, ${c} 16%, transparent) 0%, color-mix(in srgb, ${c} 5%, transparent) 42%, transparent 78%);`;
         },
         async saveBoard() {
           const name = (this.boardForm.name || '').trim();
