@@ -170,6 +170,80 @@ try {
   if (r && r.imported) console.log(`[dev-store] imported ${r.imported} dev card(s) from boards`);
 } catch (e) { console.warn('[dev-store] boards migration failed:', e && e.message); }
 
+// One-time, idempotent split of legacy multi-repo dev cards into one-repo-per-card.
+// Dev cards are now strictly single-repo. Any card that still carries extra repos in
+// d.repos[] is split: each extra repo becomes its OWN new single-repo dev card (same
+// work item / title / team / home board, that slot's PR + worktree + tagged reports
+// moved over) and the original keeps only its primary repo (its id is preserved so its
+// board pins + worktree/PR/work-item links stay intact). Board-map dev pins (b.items,
+// kind:'dev') that referenced the original are duplicated for each new card so nothing
+// that was on a board disappears. Once no card has d.repos this is a no-op.
+function splitMultiRepoDevCards() {
+  let cards = [];
+  try { cards = devStore.all() || []; } catch { return { split: 0, created: 0 }; }
+  const multi = cards.filter(d => d && Array.isArray(d.repos) && d.repos.length);
+  if (!multi.length) return { split: 0, created: 0 };
+  let created = 0;
+  const newByOrig = {}; // origId -> { newIds:[], title, org, repo }
+  const _reportsFor = (d, slot) => (Array.isArray(d.reports) ? d.reports : []).filter(r => {
+    if (!r) return false;
+    if (slot.id && r.repoId) return r.repoId === slot.id;
+    return r.repo && slot.repo && String(r.repo).toLowerCase() === String(slot.repo).toLowerCase();
+  });
+  for (const d of multi) {
+    const extras = (Array.isArray(d.repos) ? d.repos : []).filter(s => s && s.repo);
+    const newIds = [];
+    for (const slot of extras) {
+      const nc = devStore.create({
+        title: d.title || slot.repo,
+        provider: slot.provider || d.provider || 'azdo',
+        org: slot.org || '', project: slot.project || '', repo: slot.repo || '',
+        branch: slot.branch || '', baseBranch: slot.baseBranch || '',
+        prId: slot.prId || '', pr: slot.pr || null,
+        worktreePath: slot.worktreePath || '', worktreeStatus: slot.worktreeStatus || null,
+        worktreeError: slot.worktreeError || null, git: slot.git || null,
+        devAgentName: slot.agentName || slot.devAgentName || '',
+        workItemId: d.workItemId || '', workItem: d.workItem || null,
+        teamId: d.teamId !== undefined ? d.teamId : null,
+        homeBoardId: d.homeBoardId || null,
+        notes: '', links: [], summary: null,
+        reports: _reportsFor(d, slot).map(r => ({ ...r, repoId: 'primary' })),
+      });
+      if (nc && nc.id) { newIds.push(nc.id); created++; }
+    }
+    // Original keeps only its primary repo + primary-tagged reports.
+    const keepReports = (Array.isArray(d.reports) ? d.reports : []).filter(r => !r || !r.repoId || r.repoId === 'primary');
+    devStore.patch(d.id, { repos: [], reports: keepReports });
+    if (newIds.length) newByOrig[d.id] = { newIds, title: d.title || d.repo || 'Dev card' };
+  }
+  // Duplicate board-map dev pins for each new card.
+  const origIds = Object.keys(newByOrig);
+  if (origIds.length) {
+    let boards = [];
+    try { boards = loadBoards(); } catch { boards = []; }
+    let touched = false;
+    for (const b of boards) {
+      if (!b || !Array.isArray(b.items)) continue;
+      const additions = [];
+      for (const it of b.items) {
+        if (!it || it.kind !== 'dev' || !newByOrig[it.refId]) continue;
+        for (const nid of newByOrig[it.refId].newIds) {
+          if (b.items.some(x => x && x.kind === 'dev' && x.refId === nid)) continue;
+          if (additions.some(x => x.refId === nid)) continue;
+          additions.push({ id: _genId('pin'), kind: 'dev', refId: nid, label: newByOrig[it.refId].title, sublabel: '', addedAt: new Date().toISOString() });
+        }
+      }
+      if (additions.length) { b.items = additions.concat(b.items); b.updatedAt = new Date().toISOString(); touched = true; }
+    }
+    if (touched) { try { saveBoards(boards); } catch {} }
+  }
+  return { split: multi.length, created };
+}
+try {
+  const s = splitMultiRepoDevCards();
+  if (s && s.split) console.log(`[dev-store] split ${s.split} multi-repo dev card(s) into ${s.created} single-repo card(s)`);
+} catch (e) { console.warn('[dev-store] multi-repo split failed:', e && e.message); }
+
 function loadInsights() {
   try {
     if (!fs.existsSync(INSIGHTS_PATH)) return [];
@@ -16894,7 +16968,7 @@ function _meAiClassifyDay(agenda) {
           meta: {
             org: m.org || '', project: m.project || '', repo: m.repo || '',
             prId: String(m.prId), url: lf.link || '', view, title: m.title || label,
-            provider: m.provider || 'azdo',
+            provider: m.provider || 'azdo', branch: m.branch || '',
           },
         });
       }
@@ -24314,7 +24388,7 @@ app.post('/api/boards/:id/items', (req, res) => {
   // without a live AzDo lookup. Stored as-is and preserved by _normalizeBoard.
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
     const m = {};
-    for (const k of ['org', 'project', 'repo', 'prId', 'url', 'view', 'title', 'role', 'ts']) {
+    for (const k of ['org', 'project', 'repo', 'prId', 'url', 'view', 'title', 'role', 'ts', 'branch', 'provider']) {
       if (meta[k] != null) m[k] = String(meta[k]);
     }
     // Comment pins snapshot the full message body so each pin renders ITS OWN
@@ -25339,7 +25413,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   // item / PR / worktree state and its AI status summary if present.
   const devItems = devStore.forBoard(b.id);
   if (devItems.length) {
-    contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree; notes + artifacts shown per card; reference by devId)\n' + _devCardContextLines(devItems).join('\n'));
+    contextBlocks.push('### DEV CARDS (active development — one repo per card: work item + PR + git worktree; the card shows its title, repo/branch, and stage; notes + artifacts shown per card; reference by devId)\n' + _devCardContextLines(devItems).join('\n'));
   }
 
   // Deterministic fallback used when the board is empty, has no usable context, or
@@ -26173,9 +26247,10 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   res.json({ ok: true, dev: updated });
 });
 
-// Add an EXTRA repo to a dev card (the primary repo lives on the card's top-level
-// fields; additional repos accumulate in d.repos[]). Each extra repo gets its own
-// worktree via the worktree endpoint with { repoId }.
+// Track ANOTHER repo for this work. Dev cards are strictly ONE repo per card, so
+// this no longer appends to d.repos[] — it creates a NEW sibling single-repo dev
+// card carrying the same work item / title / team / home board, and mirrors the
+// source card's board-map pins so the new card lands on the same board(s).
 app.post('/api/boards/:id/dev-items/:devId/repos', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
@@ -26190,18 +26265,42 @@ app.post('/api/boards/:id/dev-items/:devId/repos', async (req, res) => {
     return res.status(400).json({ error: provider === 'github' ? 'org and repo are required' : 'org, project and repo are required' });
   }
   const baseBranch = String(b.baseBranch || 'main').trim() || 'main';
-  const branch = String(b.branch || `dev/${d.id}`).trim() || `dev/${d.id}`;
-  // Dedupe against the primary repo and any existing extra repo.
+  const branch = String(b.branch || '').trim();
+  // Dedupe: don't create a sibling for a repo this card (or a card sharing its work
+  // item) already tracks.
   const key = (x) => [x.org, x.project, x.repo].map(v => String(v || '').toLowerCase()).join('/');
   const wanted = key({ org, project, repo });
-  if (_devRepoSlots(d).some(s => key(s) === wanted)) {
-    return res.status(409).json({ error: 'That repo is already on this dev card' });
+  if (key(d) === wanted) {
+    return res.status(409).json({ error: 'This card already tracks that repo' });
   }
-  const id = 'repo-' + Math.random().toString(36).slice(2, 9);
-  const repos = _devExtraRepos(d).slice();
-  repos.push({ id, provider, org, project, repo, branch, baseBranch, worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
-  const updated = ctx.save({ repos });
-  res.json({ ok: true, dev: updated, repoId: id });
+  const created = devStore.create({
+    title: d.title || repo,
+    provider, org, project, repo,
+    baseBranch, branch,
+    workItemId: d.workItemId || '', workItem: d.workItem || null,
+    teamId: d.teamId !== undefined ? d.teamId : null,
+    homeBoardId: d.homeBoardId || req.params.id || null,
+    notes: '', links: [], reports: [], summary: null,
+  });
+  if (created && !created.branch) { try { devStore.patch(created.id, { branch: `dev/${created.id}` }); } catch {} }
+  // Mirror the source card's board-map pins so the new card shows where the old one does.
+  try {
+    const boards = loadBoards();
+    let touched = false;
+    for (const bd of boards) {
+      if (!bd || !Array.isArray(bd.items)) continue;
+      const pinned = bd.items.some(x => x && x.kind === 'dev' && x.refId === d.id);
+      const already = bd.items.some(x => x && x.kind === 'dev' && x.refId === created.id);
+      if (pinned && !already) {
+        bd.items.unshift({ id: _genId('pin'), kind: 'dev', refId: created.id, label: created.title, sublabel: '', addedAt: new Date().toISOString() });
+        bd.updatedAt = new Date().toISOString();
+        touched = true;
+      }
+    }
+    if (touched) { saveBoards(boards); try { broadcastSSE('boards-changed', {}); } catch {} }
+  } catch {}
+  const out = devStore.find(created.id) || created;
+  res.json({ ok: true, dev: out, created: true, repoId: out.id });
 });
 
 // Remove an EXTRA repo from a dev card (and clean up its worktree). The primary
@@ -27184,7 +27283,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // its (devId) so the assistant can drive it (refresh/sync/summary/worktree/PR/
   // dev-agent/cleanup) or propose new/updated ones.
   if (devItems.length) {
-    ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId; NOTES, ARTIFACT LINKS/REPORTS, and extra REPOS shown per card)\n' + _devCardContextLines(devItems).join('\n'));
+    ctx.push('## DEV CARDS (one repo per card — work item + PR + git worktree trackers; each card shows its title, repo/branch, and stage; reference by devId; NOTES and ARTIFACT LINKS/REPORTS shown per card)\n' + _devCardContextLines(devItems).join('\n'));
   }
   // Pinned PULL REQUESTS: each carries an identity snapshot (org/project/repo/prId)
   // in item.meta and may have a local worktree. List them with live worktree/drift
@@ -27232,7 +27331,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
           refId,
           label: clip(pr.title || (pr.repo + ' #' + pr.id), 120),
           sublabel: clip(pr.repo + ' #' + pr.id, 80),
-          meta: { org: pr.org, project: pr.project || '', repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '', provider: pr.provider || 'azdo' },
+          meta: { org: pr.org, project: pr.project || '', repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '', provider: pr.provider || 'azdo', branch: pr.branch || '' },
         });
       }
     }
