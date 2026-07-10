@@ -1395,6 +1395,14 @@
        already clickable, so the title just needs to look and behave like a link. */
     .home-title-link { cursor: pointer; }
     .home-title-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+    /* Workspace-color dot — replaces the old workspace emoji badge; a small gradient
+       swatch tinted by the board's assigned color (boardSwatchStyle). */
+    .home-ws-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 999px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--cp-ink) 12%, transparent); }
+    .home-devrow-meta a:hover { text-decoration: underline; text-underline-offset: 2px; }
+    /* hsl-actions/hsl-toggle reused inside a .card-header (not only .home-section-label). */
+    .card-header .hsl-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .card-header .hsl-toggle { font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 8px); padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+    .card-header .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     /* Hover-revealed tools (e.g. a card's ↻ Refresh) — hidden until the card is hovered
        so the panel stays calm; still keyboard-focusable for accessibility. */
     .home-hovercard .home-hoveract { opacity: 0; transition: opacity .15s ease; pointer-events: none; }
@@ -7044,56 +7052,47 @@
                       <button type="button" @click="homeMoveSection('devwork',1)" title="Move down">↓</button>
                     </span>
                   </div>
-                  <div class="home-section board-calm">
-                    <div class="home-section-label">
-                      <span class="hsl-icon">🧰</span>
-                      <span class="hsl-text">Active dev work</span>
-                      <span class="hsl-sub" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></span>
-                      <span class="hsl-actions">
-                      <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
-                              x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
-                      <button type="button" class="hsl-toggle" x-show="archivedDevCount()" @click="goTo('#/dev-archive')"
-                              x-text="'🗄 Archive (' + archivedDevCount() + ')'"></button>
-                      </span>
+                  <section class="card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title home-title-link" role="link" tabindex="0" @click="goTo('#/codeflow')" @keydown.enter="goTo('#/codeflow')" title="Open Code Flow">🧰 Active dev work</h2>
+                        <div class="card-subtitle" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></div>
+                      </div>
+                      <div class="hsl-actions">
+                        <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
+                                x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
+                        <button type="button" class="hsl-toggle" x-show="archivedDevCount()" @click="goTo('#/dev-archive')"
+                                x-text="'🗄 Archive (' + archivedDevCount() + ')'"></button>
+                      </div>
                     </div>
-                    <div class="hint" style="font-size:12px;padding:4px 2px 0" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
-                    <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
+                    <div class="hint" style="font-size:12px;padding:0 2px 6px" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
+                    <div class="stack list-flow" x-show="homeDevCards().length">
                       <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
-                        <article class="card clickable home-devcard" @click="openHomeDevCard(dc)" :title="dc._board ? ('Open on board: ' + dc._board.name) : 'Open dev card'" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
-                          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-                            <div style="min-width:0">
-                              <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
-                              <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
-                            </div>
-                            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto">
-                              <span class="type-badge" style="font-size:0.68rem;white-space:nowrap" x-text="dc._board ? ((dc._board.emoji || '📌') + ' ' + dc._board.name) : '📌 Unassigned'"></span>
-                              <span class="type-badge" x-show="dc._done" style="font-size:0.62rem;white-space:nowrap;background:var(--cp-success);color:#fff">✓ Done</span>
-                            </div>
+                        <div class="item-row home-devrow" style="cursor:pointer" role="button" tabindex="0" @click="openHomeDevCard(dc)"
+                             @keydown.enter="openHomeDevCard(dc)" :title="dc._board ? ('Open on board: ' + dc._board.name) : 'Open dev card'"
+                             :style="dc._done ? 'opacity:.6' : ''">
+                          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                            <span class="home-ws-dot" :style="boardSwatchStyle(dc._board)" :title="dc._board ? dc._board.name : 'Unassigned'"></span>
+                            <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="dc.title || dc.repo || 'Dev card'"></strong>
+                            <span class="hint" x-text="dc._board ? dc._board.name : 'Unassigned'"></span>
+                            <span class="hint" x-show="dc._done" style="color:var(--cp-success)">✓ done</span>
                           </div>
-                          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-                            <template x-if="dc.workItemId">
-                              <a class="pill" :href="devWorkItemUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.workItem ? (dc.workItem.type + ': ' + dc.workItem.title) : 'Open work item'">
-                                <span x-text="'📋 #' + dc.workItemId"></span>
-                                <span x-show="dc.workItem && dc.workItem.state" x-text="' · ' + (dc.workItem ? dc.workItem.state : '')"></span>
-                              </a>
-                            </template>
-                            <template x-if="dc.prId">
-                              <a class="pill" :href="devPrUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.pr ? dc.pr.title : 'Open pull request'">
-                                <span x-text="'🔀 !' + dc.prId"></span>
-                                <span x-show="dc.pr && dc.pr.status" x-text="' · ' + (dc.pr ? (dc.pr.isDraft ? 'draft' : dc.pr.status) : '')"></span>
-                              </a>
-                            </template>
-                            <template x-if="dc.worktreePath">
-                              <span class="status-badge" :class="devGitBadge(dc).attention ? 'dev-git-dirty' : (devGitBadge(dc).text.indexOf('up to date') >= 0 ? 'dev-git-clean' : '')" style="font-size:0.7rem" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
-                            </template>
-                            <span class="hint" x-show="!dc.workItemId && !dc.prId && !dc.worktreePath" style="font-size:11px">Just created — no work item / PR / worktree yet.</span>
+                          <div class="hint home-devrow-meta" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center">
+                            <span x-show="dc.repo" x-text="dc.repo + (dc.branch ? ' @ ' + dc.branch : '')"></span>
+                            <a x-show="dc.workItemId" :href="devWorkItemUrl(dc)" target="_blank" rel="noopener" @click.stop style="color:var(--cp-accent);text-decoration:none"
+                               :title="dc.workItem ? (dc.workItem.type + ': ' + dc.workItem.title) : 'Open work item'"
+                               x-text="'#' + dc.workItemId + (dc.workItem && dc.workItem.state ? ' · ' + dc.workItem.state : '')"></a>
+                            <a x-show="dc.prId" :href="devPrUrl(dc)" target="_blank" rel="noopener" @click.stop style="color:var(--cp-accent);text-decoration:none"
+                               :title="dc.pr ? dc.pr.title : 'Open pull request'"
+                               x-text="'!' + dc.prId + (dc.pr && dc.pr.status ? ' · ' + (dc.pr.isDraft ? 'draft' : dc.pr.status) : '')"></a>
+                            <span x-show="dc.worktreePath" :style="devGitBadge(dc).attention ? 'color:var(--cp-warning)' : ''" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
+                            <span x-show="!dc.workItemId && !dc.prId && !dc.worktreePath">Just created — no work item / PR / worktree yet.</span>
                           </div>
-                          <div class="hint" style="font-size:12px;line-height:1.5" x-show="homeDevSummary(dc)" x-text="homeDevSummary(dc)"></div>
-                          <div class="hint" style="font-size:11px;opacity:.7" x-show="!homeDevSummary(dc)">No AI summary yet — open the card to generate one.</div>
-                        </article>
+                          <div class="hint" style="margin-top:4px;line-height:1.5" x-show="homeDevSummary(dc)" x-text="homeDevSummary(dc)"></div>
+                        </div>
                       </template>
                     </div>
-                  </div>
+                  </section>
                 </div>
 
                 <!-- Boards -->
@@ -7120,7 +7119,7 @@
                       <template x-for="b in homeBoards()" :key="'home-board-' + b.id">
                         <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
                           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span x-text="b.emoji || '📌'"></span>
+                            <span class="home-ws-dot" :style="boardSwatchStyle(b)"></span>
                             <strong x-text="b.name"></strong>
                             <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
                           </div>
@@ -7162,7 +7161,12 @@
                             <strong x-text="pr.title || ('PR ' + pr.id)"></strong>
                             <span class="hint" x-show="pr.isDraft" style="color:var(--cp-text-soft)">draft</span>
                           </div>
-                          <div class="hint" style="margin-top:6px" x-text="(pr.repo || '') + ' · !' + pr.id + (pr.ageDays != null ? ' · ' + pr.ageDays + 'd old' : '')"></div>
+                          <div class="hint" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center">
+                            <span x-text="(pr.repo || '') + ' · !' + pr.id + (pr.ageDays != null ? ' · ' + pr.ageDays + 'd old' : '')"></span>
+                            <span x-show="pr.status && !pr.attention" x-text="pr.status"></span>
+                            <span x-show="pr.attention" style="color:var(--cp-accent)" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
+                            <span x-show="pr.mergeStatus && !/succeeded/i.test(pr.mergeStatus)" style="color:var(--cp-warning)" x-text="'merge: ' + pr.mergeStatus"></span>
+                          </div>
                         </div>
                       </template>
                     </div>
