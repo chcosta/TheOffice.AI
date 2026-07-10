@@ -1108,6 +1108,7 @@
     .ql-chip:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
     .ql-chip.active { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
     .ql-chip .ql-emoji { font-size: 13px; line-height: 1; flex: 0 0 auto; }
+    .ql-chip .ql-swatch { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
     .ql-chip .ql-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ql-chip .ql-attn {
       flex: 0 0 auto; min-width: 16px; height: 16px; padding: 0 4px;
@@ -5193,6 +5194,11 @@
       border: 1.5px dashed color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
       border-radius: 12px; background: color-mix(in srgb, var(--cp-accent) 6%, transparent);
     }
+    .bmap-group-body {
+      position: absolute; inset: 0; z-index: 0; pointer-events: auto;
+      cursor: grab; border-radius: 12px;
+    }
+    .bmap-group-body:active { cursor: grabbing; }
     .bmap-group-head {
       position: absolute; top: -13px; left: 12px; z-index: 2; pointer-events: auto;
       display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
@@ -6301,7 +6307,8 @@
         <button type="button" class="ql-chip"
           :class="{ active: item.kind === 'board' && route === 'boards' && activeBoardId === item.id }"
           @click="quickLaunchOpen(item)" :title="item.kindLabel + ' · ' + item.name">
-          <span class="ql-emoji" x-text="item.emoji || '📌'"></span>
+          <span class="ql-swatch" x-show="item.kind === 'board'" :style="quickLaunchSwatch(item)"></span>
+          <span class="ql-emoji" x-show="item.kind !== 'board'" x-text="item.emoji || '📌'"></span>
           <span class="ql-name" x-text="item.name"></span>
         </button>
       </template>
@@ -8914,6 +8921,9 @@
                             <!-- group frames -->
                             <template x-for="g in bmapGroups()" :key="g.id">
                               <div class="bmap-group" :style="bmapGroupStyle(g)">
+                                <div class="bmap-group-body" x-show="!bmap.groupMode && !bmapConnectMode()"
+                                     @pointerdown.stop="bmapGroupDragStart(g,$event)"
+                                     title="Drag to move this group"></div>
                                 <div class="bmap-group-head" @pointerdown.stop="bmapGroupDragStart(g,$event)">
                                   <template x-if="bmap.editGroup===g.id">
                                     <input type="text" class="bmap-group-input" :value="g.name || ''"
@@ -8951,6 +8961,7 @@
                             <!-- nodes -->
                             <template x-for="n in bmapNodes()" :key="n.base">
                               <div class="bmap-node"
+                                   :data-base="n.base"
                                    :class="{ sel: bmapIsSel(n.base), hl: bmapIsHl(n.base), 'group-preview': bmapInGroupPreview(n.base), 'connect-from': bmap.connectFrom===n.base }"
                                    :style="bmapNodeStyle(n)"
                                    @pointerdown.stop="bmapNodeDown(n,$event)"
@@ -39861,7 +39872,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         quickLaunchItems() {
           const items = [];
           for (const b of this.starredBoards()) {
-            items.push({ kind: 'board', kindLabel: 'Board', id: b.id, name: b.name, emoji: b.emoji || '📌', teamId: b.teamId || null });
+            items.push({ kind: 'board', kindLabel: 'Board', id: b.id, name: b.name, color: this.boardColor(b), teamId: b.teamId || null });
           }
           for (const p of (this.quickPins || [])) {
             // Skip employee pins whose underlying agent/manager was removed (ghost entries).
@@ -40064,14 +40075,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         openBoardModal(board) {
           if (board) {
-            this.boardForm = { id: board.id, name: board.name, color: board.color || this.randomBoardColor() };
+            this.boardForm = { id: board.id, name: board.name, color: board.color || this.randomBoardColor(), owner: board.owner || '' };
           } else {
-            this.boardForm = { id: '', name: '', color: this.randomBoardColor() };
+            this.boardForm = { id: '', name: '', color: this.randomBoardColor(), owner: '' };
           }
           this.boardModalOpen = true;
         },
         boardColorPalette() {
           return ['#5b8def', '#2bb6a3', '#57ad5a', '#e0952b', '#e8703a', '#e05563', '#8b6fe0', '#d867a8', '#6b7a90'];
+        },
+        // Resolve a board's display color: its explicit accent when set, else a STABLE
+        // palette color hashed from its id/name so legacy boards (which only had an emoji)
+        // still read as color-coded everywhere instead of falling back to an icon.
+        boardColor(b) {
+          if (!b) return this.boardColorPalette()[0];
+          if (b.color) return b.color;
+          const key = String(b.id || b.name || '');
+          let h = 0;
+          for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+          const p = this.boardColorPalette();
+          return p[h % p.length];
+        },
+        // Gradient dot for a quick-launch board item — mirrors boardSwatchStyle so the
+        // quick-launch rail reads with the SAME workspace color as the picker + banner.
+        quickLaunchSwatch(item) {
+          const c = (item && item.color) || this.boardColorPalette()[0];
+          return `background:linear-gradient(135deg, ${c} 0%, color-mix(in srgb, ${c} 60%, #000) 100%);`;
         },
         randomBoardColor() {
           const p = this.boardColorPalette();
@@ -40079,14 +40108,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         boardBannerStyle() {
           const b = this.activeBoard && this.activeBoard();
-          const c = b && b.color;
+          if (!b) return '';
+          const c = this.boardColor(b);
           if (!c) return '';
           return `background:linear-gradient(135deg, color-mix(in srgb, ${c} 22%, transparent) 0%, transparent 58%);`;
         },
         // Small gradient chip for the workspace picker — same accent color the board's
         // banner uses, so the dropdown reads as color-coded without team grouping.
         boardSwatchStyle(board) {
-          const c = board && board.color;
+          const c = board && this.boardColor(board);
           if (!c) return 'background:var(--cp-muted);';
           return `background:linear-gradient(135deg, ${c} 0%, color-mix(in srgb, ${c} 60%, #000) 100%);`;
         },
@@ -42345,6 +42375,43 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return map[this.bmapKindKey(p)] || map.pin;
         },
         bmapGroupStyle(g) { return `left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`; },
+        // Measure a node's on-canvas size (local px, pre-transform → world units).
+        // Falls back to the default estimate when the DOM node isn't mounted yet.
+        _bmapNodeDims(base) {
+          try {
+            const el = this.$root && this.$root.querySelector
+              ? this.$root.querySelector('.bmap-node[data-base="' + (window.CSS && CSS.escape ? CSS.escape(base) : base) + '"]')
+              : document.querySelector('.bmap-node[data-base="' + (window.CSS && CSS.escape ? CSS.escape(base) : base) + '"]');
+            if (el) { const w = el.offsetWidth, h = el.offsetHeight; if (w && h) return { w, h }; }
+          } catch {}
+          return { w: 272, h: 148 };
+        },
+        _bmapGroupsOf(base) {
+          const m = this.bmapData(); if (!m || !m.groups) return [];
+          return m.groups.filter(g => (g.members || []).includes(base));
+        },
+        // Recompute a group's frame so it tightly encloses ALL its member nodes,
+        // measuring real (variable-height) card sizes. Leaves head room above for the label.
+        _bmapFitGroup(g, pad) {
+          const m = this.bmapData(); if (!m || !g) return;
+          const gg = (m.groups || []).find(x => x.id === g.id) || g;
+          const nodes = m.nodes || {};
+          const p = (pad == null ? 20 : pad), head = 16;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, seen = 0;
+          for (const b of (gg.members || [])) {
+            const nd = nodes[b]; if (!nd) continue;
+            const d = this._bmapNodeDims(b);
+            const x = +nd.x || 0, y = +nd.y || 0;
+            minX = Math.min(minX, x); minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + d.w); maxY = Math.max(maxY, y + d.h);
+            seen++;
+          }
+          if (!seen || !isFinite(minX)) return;
+          gg.x = Math.round(minX - p);
+          gg.y = Math.round(minY - p - head);
+          gg.w = Math.round(maxX - minX + p * 2);
+          gg.h = Math.round(maxY - minY + p * 2 + head);
+        },
         bmapMarqueeStyle() { const mq = this.bmap.marquee; if (!mq) return 'display:none'; return `left:${mq.x}px;top:${mq.y}px;width:${mq.w}px;height:${mq.h}px`; },
         // -- card content --
         bmapCardTitle(p) { try { return this.panelTitleText(p); } catch { return 'Item'; } },
@@ -42832,7 +42899,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const d = this.bmap.drag;
             const dx = (ev.clientX - d.sx) / v.zoom, dy = (ev.clientY - d.sy) / v.zoom;
             if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 3) d.moved = true;
-            if (d.moved) { const m = this._bmapEnsure(); if (!m) return; for (const it of d.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } } }
+            if (d.moved) { const m = this._bmapEnsure(); if (!m) return; for (const it of d.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } } if (d.groups && d.groups.length) { for (const gid of d.groups) { const g = (m.groups || []).find(x => x.id === gid); if (g) this._bmapFitGroup(g); } } }
             return;
           }
           if (this.bmap.groupDrag) {
@@ -42907,6 +42974,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members };
           m.groups.push(g); this._bmapPersistSoon();
           this.bmap.editGroup = g.id;
+          this.$nextTick(() => { this._bmapFitGroup(g); this._bmapPersistSoon(); });
         },
         // -- drag-to-link (connector nub / side ports on each node) --
         bmapLinkStart(n, ev, side) {
@@ -42954,7 +43022,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let bases = [n.base];
           if (this.bmap.sel.length > 1 && this.bmap.sel.includes(n.base)) bases = this.bmap.sel.slice();
           const items = bases.map(b => { const nd = nodes[b] || {}; return { base: b, ox: +nd.x || 0, oy: +nd.y || 0 }; });
-          this.bmap.drag = { base: n.base, sx: ev.clientX, sy: ev.clientY, items, moved: false };
+          const gids = new Set(); bases.forEach(b => this._bmapGroupsOf(b).forEach(g => gids.add(g.id)));
+          this.bmap.drag = { base: n.base, sx: ev.clientX, sy: ev.clientY, items, groups: [...gids], moved: false };
         },
         bmapNodeClick(n, ev) {
           if (this.bmap._suppressClick) { this.bmap._suppressClick = false; return; }
@@ -43162,6 +43231,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members: this.bmap.sel.slice() };
           m.groups.push(g); this._bmapPersistSoon();
           this.bmap.editGroup = g.id;
+          this.$nextTick(() => { this._bmapFitGroup(g); this._bmapPersistSoon(); });
         },
         bmapGroupDragStart(g, ev) {
           const m = this.bmapData(); const nodes = m.nodes || {};
