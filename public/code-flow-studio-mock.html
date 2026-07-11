@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Flow studio — top tabs · index · unified dev|pr card</title>
+<style>
+  :root[data-theme="light"]{
+    --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+    --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+    --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+    --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,.10); --cp-accent-fg:#fff;
+    --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+    --cp-dev:#7c3aed; --cp-dev-soft:rgba(124,58,237,.10);
+    --cp-pr:#0891b2; --cp-pr-soft:rgba(8,145,178,.10);
+    --cp-here:#c026d3; --cp-here-soft:rgba(192,38,211,.12);
+  }
+  :root[data-theme="dark"]{
+    --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+    --cp-border:#343b47; --cp-border-strong:#4b5563;
+    --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+    --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,.16); --cp-accent-fg:#0c1322;
+    --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+    --cp-dev:#a78bfa; --cp-dev-soft:rgba(167,139,250,.16);
+    --cp-pr:#22d3ee; --cp-pr-soft:rgba(34,211,238,.16);
+    --cp-here:#e879f9; --cp-here-soft:rgba(232,121,249,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--cp-bg); color:var(--cp-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px; margin:0 auto; padding:20px 22px 60px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace}
+  .muted{color:var(--cp-text-muted)} .soft{color:var(--cp-text-soft)}
+  .top{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:4px}
+  h1{font-size:19px; font-weight:650; letter-spacing:-.02em; margin:0}
+  .sub{color:var(--cp-text-muted); margin:4px 0 14px; font-size:12.5px; max-width:92ch}
+  .toggle{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer}
+  .toggle:hover{border-color:var(--cp-border-strong)}
+
+  /* ===== restored top tabs ===== */
+  .cf-tabs{display:flex; gap:22px; border-bottom:1px solid var(--cp-border); margin-bottom:16px}
+  .cf-tab{background:transparent; border:0; border-bottom:2px solid transparent; color:var(--cp-text-soft); padding:9px 2px; margin-bottom:-1px; font-size:14px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:7px}
+  .cf-tab:hover{color:var(--cp-text)}
+  .cf-tab.on{color:var(--cp-text); border-bottom-color:var(--cp-accent)}
+  .cf-tab .cf-tab-n{font-size:11.5px; font-weight:600; color:var(--cp-text-soft); font-variant-numeric:tabular-nums}
+  .cf-tab .cf-tab-n.attn{color:var(--cp-warning); font-weight:700}
+  .cf-tab.on .cf-tab-n{color:var(--cp-text-muted)}
+
+  /* ===== master-detail ===== */
+  .studio{display:grid; grid-template-columns:320px 1fr; gap:18px; align-items:start}
+  @media (max-width:940px){ .studio{grid-template-columns:1fr} .detail-col{order:-1} }
+
+  .index{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:13px; overflow:hidden; position:sticky; top:14px}
+  .idx-search{padding:11px 12px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg-elevated)}
+  .idx-search input{width:100%; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:7px 10px; font-size:12.5px}
+  .idx-search input:focus{outline:none; border-color:var(--cp-accent)}
+  .idx-controls{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:11px; color:var(--cp-text-soft)}
+  .idx-controls select{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:6px; padding:3px 6px; font-size:11px}
+  .idx-scroll{max-height:70vh; overflow:auto}
+
+  .idx-group-h{display:flex; align-items:center; gap:7px; padding:9px 12px 4px; font-size:10.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-soft)}
+  .idx-group-h .gc{margin-left:auto; font-weight:600; color:var(--cp-text-soft)}
+  .idx-group-h .gd{width:8px;height:8px;border-radius:2px}
+
+  .idx-row{display:flex; align-items:center; gap:9px; padding:9px 12px; cursor:pointer; border-left:3px solid transparent; position:relative}
+  .idx-row:hover{background:var(--cp-bg-elevated)}
+  .idx-row.sel{background:var(--cp-accent-soft); border-left-color:var(--cp-accent)}
+  .idx-here-mark{position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--cp-here)}
+  .idx-row.sel .idx-here-mark{left:0}
+  .idx-main{min-width:0; flex:1}
+  .idx-title{font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:6px}
+  .idx-here-pin{font-size:9px; font-weight:700; color:var(--cp-here); background:var(--cp-here-soft); border-radius:5px; padding:0 5px; letter-spacing:.02em; flex:0 0 auto}
+  .idx-repo{font-size:10.5px; color:var(--cp-text-soft); font-family:ui-monospace,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .idx-status{display:flex; align-items:center; gap:5px; flex:0 0 auto}
+  .sdot{width:8px;height:8px;border-radius:50%}
+  .sdot.dev{background:var(--cp-dev)} .sdot.pr{background:var(--cp-pr)} .sdot.none{background:var(--cp-border-strong)}
+  .idx-ahead{font-size:9.5px; font-weight:700; font-family:ui-monospace,monospace; color:var(--cp-dev)}
+  .idx-attn{width:16px;height:16px;border-radius:50%; background:var(--cp-warning); color:#fff; font-size:9.5px; font-weight:800; display:flex; align-items:center; justify-content:center; flex:0 0 auto}
+
+  /* ===== detail card ===== */
+  .card{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 1px 3px color-mix(in srgb,var(--cp-bg) 65%,transparent); overflow:hidden}
+  .card.is-here{box-shadow:0 0 0 2px var(--cp-here-soft), 0 1px 3px color-mix(in srgb,var(--cp-bg) 65%,transparent)}
+  .pad{padding:15px 17px}
+  .c-here-tag{background:var(--cp-here-soft); color:var(--cp-here); font-size:10.5px; font-weight:700; letter-spacing:.02em; padding:4px 12px; text-align:center}
+  .c-h{display:flex; align-items:flex-start; justify-content:space-between; gap:10px}
+  .c-title{font-weight:650; font-size:17px; letter-spacing:-.01em}
+  .c-loc{font-size:11.5px; color:var(--cp-text-soft); margin-top:3px}
+  .wi{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--cp-accent); text-decoration:none; margin-top:6px; font-weight:550}
+  .c-acts{display:flex; gap:5px; flex:0 0 auto}
+  .c-act{border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); width:28px; height:28px; border-radius:8px; cursor:pointer; font-size:13px}
+  .c-act:hover{border-color:var(--cp-border-strong)}
+  .c-act.is-here{border-color:var(--cp-here); color:var(--cp-here); background:var(--cp-here-soft)}
+
+  .boards-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; font-size:12px}
+  .boards-row .lbl{color:var(--cp-text-soft)}
+  .boards-row a{color:var(--cp-text-muted); text-decoration:none; font-weight:550; border-bottom:1px solid transparent}
+  .boards-row a:hover{color:var(--cp-text); border-bottom-color:var(--cp-border-strong)}
+  .boards-row .dotsep{color:var(--cp-border-strong)}
+  .boards-row .addb{color:var(--cp-accent); font-weight:550; cursor:pointer}
+
+  /* flow strip + segmented toggle combined */
+  .flow{margin-top:13px; border:1px solid var(--cp-border); border-radius:11px; padding:11px 12px; background:linear-gradient(180deg,var(--cp-bg-elevated),var(--cp-surface))}
+  .flow-line{display:flex; align-items:center; gap:0}
+  .node{display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:9px; white-space:nowrap; font-weight:600; font-size:12.5px; border:1px solid transparent; cursor:pointer; transition:transform .12s}
+  .node .dot{width:8px; height:8px; border-radius:50%}
+  .node.dev{background:var(--cp-dev-soft); color:var(--cp-dev)} .node.dev .dot{background:var(--cp-dev)}
+  .node.pr{background:var(--cp-pr-soft); color:var(--cp-pr)} .node.pr .dot{background:var(--cp-pr)}
+  .node:hover{transform:translateY(-1px)}
+  .node.active{outline:2px solid currentColor; outline-offset:1px}
+  .node .bn{font-family:ui-monospace,monospace; font-size:11.5px} .node .num{opacity:.7; font-family:ui-monospace,monospace; font-size:11px}
+  .connector{flex:1; position:relative; height:22px; display:flex; align-items:center; min-width:36px}
+  .connector .rl{position:absolute; left:0; right:0; top:50%; height:2px; transform:translateY(-50%); background:linear-gradient(90deg,var(--cp-dev),color-mix(in srgb,var(--cp-pr) 60%,var(--cp-dev)))}
+  .connector .badge{position:relative; margin:0 auto; z-index:2; background:var(--cp-surface); border:1px solid color-mix(in srgb,var(--cp-dev) 40%,var(--cp-border)); color:var(--cp-dev); font-size:10px; font-weight:650; padding:1px 7px; border-radius:999px}
+  .flow-switch-hint{font-size:10.5px; color:var(--cp-text-soft); margin-top:8px; text-align:center}
+  .flow-switch-hint b{color:var(--cp-text-muted)}
+  .flow-act{display:flex; align-items:center; gap:9px; margin-top:9px; flex-wrap:wrap}
+  .flow-btn{border:1px solid var(--cp-dev); background:var(--cp-dev); color:#fff; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; transition:transform .14s cubic-bezier(.2,.7,.2,1)}
+  .flow-btn.pr{border-color:var(--cp-pr); background:var(--cp-pr)}
+  .flow-btn:hover{transform:translateY(-1px)}
+  .flow-hint{font-size:11px; color:var(--cp-text-soft); flex:1; min-width:150px}
+  .flow-btn.ghost{background:transparent; color:var(--cp-text-muted); border-color:var(--cp-border)}
+  .flow-btn.ghost:hover{border-color:var(--cp-border-strong)}
+  .flow-btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
+
+  /* connector badges: modest radius, directional */
+  .cbadges{position:relative; z-index:2; margin:0 auto; display:flex; flex-direction:column; gap:3px; align-items:center}
+  .cbadge{background:var(--cp-surface); border:1px solid var(--cp-border); font-size:10px; font-weight:650; padding:1px 7px; border-radius:6px; white-space:nowrap; font-variant-numeric:tabular-nums}
+  .cbadge.to-pr{border-color:color-mix(in srgb,var(--cp-dev) 45%,var(--cp-border)); color:var(--cp-dev)}
+  .cbadge.to-dev{border-color:color-mix(in srgb,var(--cp-pr) 45%,var(--cp-border)); color:var(--cp-pr)}
+
+  /* per-node state atoms row */
+  .node-states{display:flex; justify-content:space-between; gap:12px; margin-top:7px; font-size:10.5px; color:var(--cp-text-soft)}
+  .node-states .ns{display:flex; align-items:center; gap:5px; flex-wrap:wrap}
+  .node-states .ns.pr{justify-content:flex-end; text-align:right}
+  .node-states b{color:var(--cp-text-muted); font-weight:650}
+  .node-states .ok{color:var(--cp-success); font-weight:700}
+  .node-states .warn{color:var(--cp-warning); font-weight:700}
+
+  /* computed state -> recommended action */
+  .state-act{display:flex; align-items:center; gap:9px; margin-top:10px; padding-top:10px; border-top:1px dashed var(--cp-border); flex-wrap:wrap}
+  .state-chip{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:3px 9px; border-radius:7px}
+  .state-chip::before{content:""; width:7px; height:7px; border-radius:50%; background:currentColor}
+  .state-chip.dev{background:var(--cp-dev-soft); color:var(--cp-dev)}
+  .state-chip.pr{background:var(--cp-pr-soft); color:var(--cp-pr)}
+  .state-chip.warn{background:color-mix(in srgb,var(--cp-warning) 14%,transparent); color:var(--cp-warning)}
+  .state-chip.ready{background:color-mix(in srgb,var(--cp-success) 14%,transparent); color:var(--cp-success)}
+
+  /* ghost PR node (no PR yet) */
+  .node.ghost{background:transparent; border:1px dashed var(--cp-border-strong); color:var(--cp-text-soft)}
+  .node.ghost .dot{background:var(--cp-border-strong)}
+  .node.ghost:hover{border-color:var(--cp-pr); color:var(--cp-pr)}
+
+  /* ===== flow graph: dev + all PR branches (nodes ARE the toggle) ===== */
+  .flowgraph{position:relative; padding:6px 4px 4px}
+  .flowgraph .edges{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible}
+  .gnodes{position:relative; z-index:1; display:flex; align-items:center; gap:52px}
+  .gdev{flex:none}
+  .gtree{display:flex; flex-direction:column; gap:11px; flex:1; min-width:0}
+  .chain{display:flex; align-items:center; gap:52px}
+  .gnode{display:inline-flex; flex-direction:column; gap:3px; padding:7px 11px; border-radius:10px; cursor:pointer; border:1px solid transparent; background:var(--cp-surface); transition:transform .12s, box-shadow .12s; align-self:flex-start}
+  .gnode:hover{transform:translateY(-1px)}
+  .gnode .gtop{display:flex; align-items:center; gap:6px; font-weight:650; font-size:12.5px; white-space:nowrap}
+  .gnode .gtop .dot{width:8px; height:8px; border-radius:50%; flex:none}
+  .gnode .gtop .bn{font-family:ui-monospace,monospace; font-size:11.5px}
+  .gnode .gtop .num{opacity:.7; font-family:ui-monospace,monospace; font-size:11px}
+  .gnode .gsub{font-size:10.5px; color:var(--cp-text-soft); display:flex; gap:5px; align-items:center; flex-wrap:wrap; white-space:nowrap}
+  .gnode.dev{background:var(--cp-dev-soft); color:var(--cp-dev)} .gnode.dev .gtop .dot{background:var(--cp-dev)}
+  .gnode.pr{background:var(--cp-pr-soft); color:var(--cp-pr)} .gnode.pr .gtop .dot{background:var(--cp-pr)}
+  .gnode.sel{box-shadow:0 0 0 2px currentColor}
+  .gnode.ghost{background:transparent; border:1px dashed var(--cp-border-strong); color:var(--cp-text-soft); font-weight:600}
+  .gnode.ghost:hover{border-color:var(--cp-pr); color:var(--cp-pr)}
+  .gsub .ok{color:var(--cp-success); font-weight:700}
+  .gsub .warn{color:var(--cp-warning); font-weight:700}
+  .gsub .sd{width:7px; height:7px; border-radius:50%; flex:none}
+  .gsub .sd.green{background:var(--cp-success)} .gsub .sd.amber{background:var(--cp-warning)} .gsub .sd.run{background:var(--cp-warning)}
+  .edgebadge{position:absolute; z-index:2; display:flex; flex-direction:column; gap:3px; align-items:center; transform:translate(-50%,-50%); pointer-events:none}
+  .edgelabel{position:absolute; z-index:2; transform:translate(-50%,-50%); pointer-events:none; white-space:nowrap}
+  .edgelabel span{font-size:10px; font-weight:650; color:var(--cp-dev); background:var(--cp-bg); padding:1px 6px; border-radius:6px; letter-spacing:.01em}
+
+  /* PR rail — plain-text switchers (no pills) */
+  .prrail{display:flex; align-items:center; gap:2px; flex-wrap:wrap; margin-top:9px; font-size:12px}
+  .prrail .rk{color:var(--cp-text-soft); font-weight:700; margin-right:8px; font-size:10px; letter-spacing:.05em; text-transform:uppercase}
+  .prsw{display:inline-flex; align-items:center; gap:6px; padding:3px 3px; cursor:pointer; color:var(--cp-text-muted); border-bottom:2px solid transparent; white-space:nowrap}
+  .prsw .sd{width:7px; height:7px; border-radius:50%; flex:none}
+  .prsw .sd.green{background:var(--cp-success)} .prsw .sd.amber{background:var(--cp-warning)} .prsw .sd.merged{background:var(--cp-pr)} .prsw .sd.run{background:var(--cp-warning)}
+  .prsw .mono{font-size:11px; color:var(--cp-text-soft)}
+  .prsw:hover{color:var(--cp-text)}
+  .prsw.on{color:var(--cp-pr); border-bottom-color:var(--cp-pr); font-weight:650}
+  .prsw.stacked{margin-left:15px; position:relative}
+  .prsw.stacked::before{content:"↳"; position:absolute; left:-13px; color:var(--cp-text-soft); font-size:12px}
+  .prnew{display:inline-flex; align-items:center; gap:5px; padding:3px 9px; margin-left:8px; cursor:pointer; color:var(--cp-pr); font-weight:600; border:1px dashed color-mix(in srgb,var(--cp-pr) 45%,var(--cp-border)); border-radius:7px; background:transparent; font-size:11.5px}
+  .prnew:hover{background:var(--cp-pr-soft)}
+
+  /* empty PR state (no PR yet) inside PR view */
+  .pr-empty{padding:26px 18px 28px; text-align:center; color:var(--cp-text-muted)}
+  .pr-empty .eh{font-size:13.5px; font-weight:600; color:var(--cp-text); margin-bottom:5px}
+  .pr-empty .es{font-size:12px; max-width:54ch; margin:0 auto 15px; line-height:1.6}
+
+  /* New PR sheet (modal) */
+  .sheet-scrim{position:fixed; inset:0; background:rgba(10,12,18,.5); display:none; align-items:center; justify-content:center; z-index:200; padding:24px}
+  .sheet-scrim.open{display:flex}
+  .sheet{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.35); width:560px; max-width:100%; max-height:90vh; overflow:auto}
+  .sheet .sh{display:flex; align-items:center; gap:9px; padding:14px 16px; border-bottom:1px solid var(--cp-border); position:sticky; top:0; background:var(--cp-surface)}
+  .sheet .sh .sdot{width:9px;height:9px;border-radius:50%;background:var(--cp-pr)}
+  .sheet .sh b{font-size:14px; font-weight:650}
+  .sheet .sh .x{margin-left:auto; color:var(--cp-text-soft); cursor:pointer; font-size:16px; background:none; border:none}
+  .sbody{padding:15px 16px}
+  .fld{margin-bottom:15px}
+  .fld > label{display:block; font-size:11.5px; font-weight:650; color:var(--cp-text-muted); margin-bottom:6px}
+  .fld input, .fld select{width:100%; border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text); border-radius:9px; padding:8px 10px; font-size:13px; font-family:inherit}
+  .fld input:focus, .fld select:focus{outline:none; border-color:var(--cp-pr); box-shadow:0 0 0 3px var(--cp-pr-soft)}
+  .fld .fhint{font-size:11px; color:var(--cp-text-soft); margin-top:5px}
+  .fld .fhint .mono{color:var(--cp-pr)}
+  .stackprev{background:var(--cp-pr-soft); border:1px solid color-mix(in srgb,var(--cp-pr) 30%,var(--cp-border)); border-radius:10px; padding:10px 12px; font-size:12px; color:var(--cp-text-muted); margin-bottom:15px}
+  .stackprev .chain{font-family:ui-monospace,monospace; color:var(--cp-text); margin-top:5px; font-size:12px}
+  .stackprev .chain .b{color:var(--cp-pr); font-weight:600}
+  .radios{display:flex; flex-direction:column; gap:8px}
+  .radio{display:flex; align-items:flex-start; gap:9px; padding:9px 11px; border:1px solid var(--cp-border); border-radius:10px; cursor:pointer; font-size:12.5px}
+  .radio.on{border-color:var(--cp-pr); background:var(--cp-pr-soft)}
+  .radio .rr{width:15px;height:15px;border-radius:50%;border:2px solid var(--cp-border-strong); flex:none; margin-top:1px; position:relative}
+  .radio.on .rr{border-color:var(--cp-pr)}
+  .radio.on .rr::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--cp-pr)}
+  .radio .rt b{display:block; color:var(--cp-text); font-weight:600; margin-bottom:1px}
+  .radio .rt span{color:var(--cp-text-soft)}
+  .sfoot{display:flex; align-items:center; gap:10px; padding:13px 16px; border-top:1px solid var(--cp-border); background:var(--cp-bg-elevated); position:sticky; bottom:0}
+  .sfoot .np{font-size:11px; color:var(--cp-text-soft); flex:1}
+  .sfoot .np .mono{color:var(--cp-pr)}
+  .sbtn{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); font-size:12.5px; font-weight:600; padding:8px 14px; border-radius:9px; cursor:pointer}
+  .sbtn.prim{border-color:var(--cp-pr); background:var(--cp-pr); color:#fff}
+
+  /* per-side contextual panel: one side at a time, swaps with the toggle */
+  .sidesum{margin-top:11px; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; background:var(--cp-bg-elevated)}
+  .sidesum.dev{border-color:color-mix(in srgb,var(--cp-dev) 30%,var(--cp-border))}
+  .sidesum.pr{border-color:color-mix(in srgb,var(--cp-pr) 30%,var(--cp-border))}
+  .ss-head{display:flex; align-items:baseline; gap:10px; padding:9px 12px; border-bottom:1px solid var(--cp-border); flex-wrap:wrap}
+  .ss-title{font-size:11px; font-weight:700; letter-spacing:.01em; display:inline-flex; align-items:center; gap:6px}
+  .sidesum.dev .ss-title{color:var(--cp-dev)} .sidesum.pr .ss-title{color:var(--cp-pr)}
+  .ss-title .tagdot{width:8px;height:8px;border-radius:50%; background:currentColor}
+  .ss-state{font-size:11.5px; color:var(--cp-text-muted); font-weight:600}
+  .ss-when{margin-left:auto; font-size:10px; color:var(--cp-text-soft)}
+  .ss-feed{list-style:none; margin:0; padding:2px 0}
+  .ss-feed li{display:flex; align-items:center; gap:10px; padding:7px 12px; font-size:12px; border-top:1px solid color-mix(in srgb,var(--cp-border) 55%,transparent)}
+  .ss-feed li:first-child{border-top:0}
+  .ss-feed .ic{width:18px; text-align:center; font-size:13px; flex:none}
+  .ss-feed .tx{flex:1; min-width:0; color:var(--cp-text)}
+  .ss-feed .tx b{font-weight:650}
+  .ss-feed .tx b.ok{color:var(--cp-success)} .ss-feed .tx b.warn{color:var(--cp-warning)} .ss-feed .tx b.bad{color:var(--cp-danger)}
+  .ss-feed .sub{color:var(--cp-text-soft); font-size:11px}
+  .ss-feed .mt{color:var(--cp-text-soft); font-size:10.5px; white-space:nowrap; text-decoration:none}
+  .ss-feed a.mt{color:var(--cp-accent); font-weight:600} a.mt:hover{text-decoration:underline}
+  .ss-feed .run{display:inline-flex; align-items:center; gap:6px; color:var(--cp-accent); font-weight:600}
+  .ss-feed .run::before{content:""; width:6px;height:6px;border-radius:50%; background:currentColor; animation:vpulse 1.1s ease-in-out infinite}
+  @keyframes vpulse{0%,100%{opacity:.3}50%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){ .ss-feed .run::before{animation:none; opacity:.8} }
+  .ss-more{display:flex; gap:14px; padding:8px 12px; border-top:1px solid var(--cp-border); background:var(--cp-surface)}
+  .ss-more a{font-size:11px; color:var(--cp-text-muted); text-decoration:none; font-weight:600}
+  .ss-more a:hover{color:var(--cp-text)}
+  /* when the feed lives inside a pane it's not a card — strip the box */
+  .pane .sidesum{border:0; border-radius:0; background:transparent; margin-top:0}
+  .pane .sidesum .ss-head{padding-left:0; padding-right:0}
+  .pane .ss-more{display:none}
+  #viewDev .ss-feed li:first-child{border-top:0}
+
+  /* view banner shows which perspective is active */
+  .viewband{display:flex; align-items:center; gap:9px; padding:8px 17px; font-size:11.5px; font-weight:600; border-top:1px solid var(--cp-border); border-bottom:1px solid var(--cp-border)}
+  .viewband.dev{background:var(--cp-dev-soft); color:var(--cp-dev)}
+  .viewband.pr{background:var(--cp-pr-soft); color:var(--cp-pr)}
+  .viewband .vb-dot{width:9px;height:9px;border-radius:50%; background:currentColor}
+  .viewband .vb-r{margin-left:auto; font-weight:500; font-family:ui-monospace,monospace; font-size:10.5px}
+
+  .ptabs{display:flex; gap:18px; padding:0 17px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg-elevated)}
+  .ptab{background:none; border:0; padding:10px 0; margin:0; cursor:pointer; position:relative; color:var(--cp-text-muted); font-size:12.5px; font-weight:550; display:inline-flex; align-items:center; gap:6px}
+  .ptab .n{color:var(--cp-text-soft); font-size:11.5px}
+  .ptab.on{color:var(--cp-text)}
+  .ptab.on::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--cp-accent); border-radius:2px}
+  .pane{display:none} .pane.on{display:block}
+  .view{display:none} .view.on{display:block}
+
+  .wtbox{border:1px solid var(--cp-border); border-radius:11px; overflow:hidden}
+  .wt{padding:11px 12px}
+  .wt-h{display:flex; align-items:center; justify-content:space-between; gap:10px}
+  .wt-role{display:inline-flex; align-items:center; gap:7px; font-weight:650; font-size:12.5px}
+  .wt-role .tagdot{width:9px;height:9px;border-radius:50%}
+  .wt.build .wt-role{color:var(--cp-dev)} .wt.build .tagdot{background:var(--cp-dev)}
+  .wt.review .wt-role{color:var(--cp-pr)} .wt.review .tagdot{background:var(--cp-pr)}
+  .wt-status{font-size:11px}
+  .path{font-family:ui-monospace,monospace; font-size:10.5px; color:var(--cp-text-soft); margin:7px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .tools{display:flex; flex-wrap:wrap; gap:5px}
+  .tbtn{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:7px; padding:4px 8px; font-size:11px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:4px}
+  .tbtn:hover{border-color:var(--cp-border-strong)}
+  .tbtn.primary{border-color:var(--cp-dev); background:var(--cp-dev); color:#fff}
+  .tbtn.prbtn{border-color:var(--cp-pr); background:var(--cp-pr); color:#fff}
+
+  .ag-row{display:flex; align-items:center; gap:9px; padding:7px 9px; border:1px solid var(--cp-border); border-radius:9px; background:var(--cp-surface)}
+  .ag-row + .ag-row{margin-top:5px}
+  .ag-emoji{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--cp-surface-soft)}
+  .ag-nm{font-weight:600; font-size:12.5px} .ag-nm .ro{font-weight:500;color:var(--cp-text-soft);font-size:10.5px}
+  .ag-d{font-size:10.5px;color:var(--cp-text-soft)}
+  .ag-st{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--cp-success);font-weight:600}
+  .ag-st .ssdot{width:7px;height:7px;border-radius:50%;background:var(--cp-success)}
+  .minibtn{border:1px solid var(--cp-border);background:var(--cp-surface);border-radius:7px;padding:3px 8px;font-size:10.5px;cursor:pointer;color:var(--cp-text-muted); margin-top:8px}
+  .minibtn:hover{border-color:var(--cp-border-strong)}
+
+  .cap{font-size:12px;font-weight:650;display:flex;align-items:center;gap:7px;margin:0 0 6px}
+  .rep{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface)}
+  .rep + .rep{margin-top:5px}
+  .rep .origin{font-size:9.5px;font-weight:650;padding:1px 6px;border-radius:6px;font-family:ui-monospace,monospace}
+  .rep .origin.dev{background:var(--cp-dev-soft);color:var(--cp-dev)}
+  .rep .origin.pr{background:var(--cp-pr-soft);color:var(--cp-pr)}
+  .rep .rn{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rep .rt{font-size:10.5px;color:var(--cp-text-soft)}
+
+  .callout{border:1px dashed var(--cp-border-strong);border-radius:10px;padding:12px 15px;margin-top:18px;background:var(--cp-bg-elevated);font-size:12px;color:var(--cp-text-muted); grid-column:1/-1}
+  .callout b{color:var(--cp-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🔀 Code Flow</h1>
+    <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+  </div>
+  <p class="sub">Top tabs restored. One <b>unified card per change</b> with a <b>Dev | PR</b> toggle — click a branch node in the flow strip to switch perspective. A scannable <b>index</b> on the left means you never scroll hunting for a card, and <b>“You are here”</b> is marked in both the index and the card.</p>
+
+  <!-- restored top tabs -->
+  <div class="cf-tabs" role="tablist">
+    <button class="cf-tab on" role="tab">🧰 Dev cards <span class="cf-tab-n">6</span></button>
+    <button class="cf-tab" role="tab">📤 My PRs <span class="cf-tab-n">3</span></button>
+    <button class="cf-tab" role="tab">👀 Active PRs <span class="cf-tab-n attn">2</span></button>
+    <button class="cf-tab" role="tab">🗄 Other PRs <span class="cf-tab-n">14</span></button>
+  </div>
+
+  <div class="studio">
+    <!-- ===== INDEX ===== -->
+    <aside class="index">
+      <div class="idx-search">
+        <input type="text" placeholder="🔍 Search title, repo, work item…" oninput="filterIdx(this.value)">
+        <div class="idx-controls">
+          <span>Group by</span>
+          <select><option>Board</option><option>Status</option><option>Provider</option><option>None</option></select>
+          <span style="margin-left:auto">6 cards</span>
+        </div>
+      </div>
+      <div class="idx-scroll" id="idxScroll">
+        <div class="idx-group-h"><span class="gd" style="background:var(--cp-here)"></span>You are here</div>
+        <div class="idx-row sel" data-card="c1" onclick="selectCard('c1')">
+          <span class="idx-here-mark"></span>
+          <div class="idx-main">
+            <div class="idx-title"><span class="idx-here-pin">HERE</span>Remove old autoscaler</div>
+            <div class="idx-repo">dotnet-helix-service</div>
+          </div>
+          <div class="idx-status"><span class="sdot dev"></span><span class="idx-ahead">↑2</span><span class="sdot pr"></span><span class="idx-ahead" style="color:var(--cp-pr)">2</span></div>
+        </div>
+
+        <div class="idx-group-h"><span class="gd" style="background:#2563eb"></span>Scaler board <span class="gc">3</span></div>
+        <div class="idx-row" data-card="c2" onclick="selectCard('c2')">
+          <div class="idx-main">
+            <div class="idx-title">Fix queue partition drift</div>
+            <div class="idx-repo">dotnet-helix-service</div>
+          </div>
+          <div class="idx-status"><span class="idx-attn">!</span><span class="sdot dev"></span><span class="sdot pr"></span></div>
+        </div>
+        <div class="idx-row" data-card="c3" onclick="selectCard('c3')">
+          <div class="idx-main">
+            <div class="idx-title">Retry storm dampener</div>
+            <div class="idx-repo">arcade-services</div>
+          </div>
+          <div class="idx-status"><span class="sdot dev"></span><span class="idx-ahead">↑5</span><span class="sdot none"></span></div>
+        </div>
+
+        <div class="idx-group-h"><span class="gd" style="background:#16a34a"></span>Helix ops <span class="gc">2</span></div>
+        <div class="idx-row" data-card="c4" onclick="selectCard('c4')">
+          <div class="idx-main">
+            <div class="idx-title">Upgrade agent image to 22.04</div>
+            <div class="idx-repo">dotnet-helix-machines</div>
+          </div>
+          <div class="idx-status"><span class="sdot dev"></span><span class="sdot pr"></span></div>
+        </div>
+        <div class="idx-row" data-card="c5" onclick="selectCard('c5')">
+          <div class="idx-main">
+            <div class="idx-title">Telemetry gap in spindown</div>
+            <div class="idx-repo">dotnet-helix-service</div>
+          </div>
+          <div class="idx-status"><span class="sdot dev"></span><span class="idx-ahead">↑1</span><span class="sdot none"></span></div>
+        </div>
+
+        <div class="idx-group-h"><span class="gd" style="background:var(--cp-border-strong)"></span>Unassigned <span class="gc">1</span></div>
+        <div class="idx-row" data-card="c6" onclick="selectCard('c6')">
+          <div class="idx-main">
+            <div class="idx-title">Scratch: perf spike repro</div>
+            <div class="idx-repo">runtime</div>
+          </div>
+          <div class="idx-status"><span class="sdot dev"></span><span class="sdot none"></span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== DETAIL (unified card) ===== -->
+    <div class="detail-col">
+      <div class="card is-here" id="detailCard">
+        <div class="c-here-tag" id="hereTag">📍 You are here</div>
+        <div class="pad">
+          <div class="c-h">
+            <div style="min-width:0">
+              <div class="c-title" id="dTitle">Remove old autoscaler</div>
+              <div class="c-loc mono">dnceng / internal / dotnet-helix-service</div>
+              <a class="wi" href="#">📋 #2148731 · Active</a>
+            </div>
+            <div class="c-acts">
+              <button class="c-act is-here" id="yahBtn" title="Clear “You are here” (also clears on every board map)" onclick="toggleHere()">◎</button>
+              <button class="c-act" title="Refresh state (git · work item · PR)">↻</button>
+              <button class="c-act" title="Edit">✎</button>
+            </div>
+          </div>
+
+          <div class="boards-row">
+            <span class="lbl">📋 On:</span>
+            <a href="#">Scaler board</a><span class="dotsep">·</span>
+            <a href="#">Helix ops</a>
+            <span class="addb">＋ pin</span>
+          </div>
+
+          <!-- flow strip = shared spine + rail + state + view switch -->
+          <div class="flow">
+            <!-- flow graph: dev + all PR branches (nodes ARE the toggle) -->
+            <div class="flowgraph" id="flowgraph">
+              <svg class="edges" id="edges" aria-hidden="true"></svg>
+              <div class="gnodes">
+                <div class="gdev">
+                  <div class="gnode dev sel" data-node="dev" onclick="focusNode('dev')">
+                    <div class="gtop"><span class="dot"></span><span class="bn" id="devBn">dev/fix-scaler</span></div>
+                    <div class="gsub" id="devSub"><span class="ok">● clean</span> · <b>↑2 to promote</b></div>
+                  </div>
+                </div>
+                <div class="gtree" id="gtree"></div>
+              </div>
+            </div>
+
+            <div class="flow-switch-hint">Selected: <b id="whichView">Dev (workbench)</b> — click any branch to switch</div>
+
+            <!-- computed state → the one action to take -->
+            <div class="state-act" id="stateActDev"></div>
+            <div class="state-act" id="stateActPr" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- ===== DEV VIEW ===== -->
+        <div class="view on" data-view="dev" id="viewDev">
+          <div class="viewband dev"><span class="vb-dot"></span>Dev · you build here <span class="vb-r">dev/fix-scaler</span></div>
+          <div class="ptabs">
+            <button class="ptab on" data-p="overview" onclick="setPane('dev','overview',this)">📋 Overview</button>
+            <button class="ptab" data-p="code" onclick="setPane('dev','code',this)">🗃 Code</button>
+            <button class="ptab" data-p="agents" onclick="setPane('dev','agents',this)">🤖 Agents <span class="n">2</span></button>
+            <button class="ptab" data-p="artifacts" onclick="setPane('dev','artifacts',this)">📊 Artifacts <span class="n">2</span></button>
+          </div>
+          <div class="pane on" data-dpane="overview">
+            <div class="sidesum dev">
+              <div class="ss-head">
+                <span class="ss-title"><span class="tagdot"></span>Dev workbench</span>
+                <span class="ss-state">clean · 2 commits ahead</span>
+                <span class="ss-when">active 6m ago</span>
+              </div>
+              <ul class="ss-feed">
+                <li><span class="ic">↑</span><span class="tx">2 commits ready to promote — <span class="sub">“drop legacy poller”, “wire scaler v2”</span></span><a class="mt" href="#" onclick="event.stopPropagation()">diff</a></li>
+                <li><span class="ic">🔨</span><span class="tx">Build <b class="ok">passed</b></span><span class="mt">6m</span></li>
+                <li><span class="ic">🧪</span><span class="tx">128 tests <b class="ok">passed</b> <span class="sub">· 0 failing</span></span><span class="mt">6m</span></li>
+                <li><span class="ic">🤖</span><span class="tx">Perf-scan agent — <b class="ok">no regressions</b></span><a class="mt" href="#" onclick="event.stopPropagation()">report ↗</a></li>
+                <li><span class="ic">📝</span><span class="tx"><span class="run">Test-writer agent working</span> <span class="sub">· adding edge cases</span></span><a class="mt" href="#" onclick="event.stopPropagation()">watch</a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="pane pad" data-dpane="code">
+            <div class="wtbox"><div class="wt build">
+              <div class="wt-h"><span class="wt-role"><span class="tagdot"></span>Workbench <span class="path" style="margin:0">dev/fix-scaler</span></span><span class="wt-status ok" style="color:var(--cp-success);font-weight:600">● clean · ↑2</span></div>
+              <div class="path">C:\w\dotnet-helix-service__dev-fix-scaler</div>
+              <div class="tools">
+                <button class="tbtn primary">🔵 VS Code</button><button class="tbtn">🤖 CLI</button><button class="tbtn">📁 Explorer</button>
+                <button class="tbtn">⌨ Cmd</button><button class="tbtn">🔍 Diff</button><button class="tbtn">↕ Commits</button><button class="tbtn">⟳ Sync</button><button class="tbtn">🧹 Clean</button>
+              </div>
+            </div></div>
+          </div>
+          <div class="pane pad" data-dpane="agents">
+            <div class="ag-row"><span class="ag-emoji">🛠</span><span style="flex:1"><div class="ag-nm">Dev agent</div><div class="ag-d">Builds, tests &amp; validates in the workbench.</div></span><span class="ag-st"><span class="ssdot"></span>ready</span></div>
+            <div class="ag-row"><span class="ag-emoji">✅</span><span style="flex:1"><div class="ag-nm">Validation</div><div class="ag-d">Runs the suite; writes a report artifact.</div></span><span class="ag-st"><span class="ssdot"></span>ready</span></div>
+            <button class="minibtn">＋ Add an agent from a playbook</button>
+          </div>
+          <div class="pane pad" data-dpane="artifacts">
+            <p class="cap">📊 Reports</p>
+            <div class="rep"><span class="origin dev">dev</span><span class="rn">📄 validation-report.html</span><span class="rt">2m</span><button class="minibtn" style="margin:0">👁</button></div>
+            <div class="rep"><span class="origin dev">dev</span><span class="rn">📝 build-summary.md</span><span class="rt">12m</span><button class="minibtn" style="margin:0">👁</button></div>
+          </div>
+        </div>
+
+        <!-- ===== PR VIEW ===== -->
+        <div class="view pad" data-view="pr" id="viewPr" style="padding:0">
+          <div class="viewband pr"><span class="vb-dot"></span>PR · review &amp; merge <span class="vb-r" id="prBand">pr/fix-scaler · !62389</span></div>
+          <div class="pr-empty" id="prEmpty" style="display:none">
+            <div class="eh">No pull request on this work item yet</div>
+            <div class="es">Open a PR to propose your dev work for review. It branches from <span class="mono" id="prEmptyDev">dev/fix-scaler</span> onto a base you choose (usually <span class="mono">main</span>), and gets its own <span class="mono">pr/…</span> branch in its own worktree.</div>
+            <button class="flow-btn ghost" onclick="openSheet('first')">＋ Open PR from dev</button>
+          </div>
+          <div id="prBody">
+          <div class="ptabs">
+            <button class="ptab on" data-p="overview" onclick="setPane('pr','overview',this)">📋 Overview</button>
+            <button class="ptab" data-p="code" onclick="setPane('pr','code',this)">🗃 Code</button>
+            <button class="ptab" data-p="agents" onclick="setPane('pr','agents',this)">🤖 Agents <span class="n">1</span></button>
+            <button class="ptab" data-p="artifacts" onclick="setPane('pr','artifacts',this)">📊 Artifacts <span class="n">2</span></button>
+            <button class="ptab" data-p="review" onclick="setPane('pr','review',this)">👥 Review <span class="n">2</span></button>
+          </div>
+          <div class="pane on" data-ppane="overview">
+            <div class="sidesum pr">
+              <div class="ss-head">
+                <span class="ss-title"><span class="tagdot"></span><span id="prOvTitle">Pull request !62389</span></span>
+                <span class="ss-state" id="prOvState">open · 1 / 2 approvals</span>
+                <span class="ss-when">updated 4m ago</span>
+              </div>
+              <ul class="ss-feed" id="prFeed">
+                <li><span class="ic">↓</span><span class="tx"><b class="warn">1 review commit waiting</b> to pull back — <span class="sub">“address lint”</span></span><a class="mt" href="#" onclick="event.stopPropagation()">pull ↓</a></li>
+                <li><span class="ic">✔</span><span class="tx">CI checks <b class="ok">green</b> <span class="sub">· 5 / 5</span></span><span class="mt">4m</span></li>
+                <li><span class="ic">👀</span><span class="tx">Review-agent flagged <b class="warn">1 concern</b> <span class="sub">· error handling</span></span><a class="mt" href="#" onclick="event.stopPropagation()">report ↗</a></li>
+                <li><span class="ic">💬</span><span class="tx">2 review comments <span class="sub">· 1 unresolved</span></span><a class="mt" href="#" onclick="event.stopPropagation()">open</a></li>
+                <li><span class="ic">🛡</span><span class="tx"><span class="run">Security-scan running</span></span><span class="mt">now</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="pane pad" data-ppane="code">
+            <div class="wtbox"><div class="wt review">
+              <div class="wt-h"><span class="wt-role"><span class="tagdot"></span>Review copy <span class="path" id="prCodeBn" style="margin:0">pr/fix-scaler</span></span><span class="wt-status" style="color:var(--cp-success);font-weight:600">● clean · checks green</span></div>
+              <div class="path" id="prCodePath">C:\w\dotnet-helix-service__pr-fix-scaler</div>
+              <div class="tools">
+                <button class="tbtn prbtn">🔵 VS Code</button><button class="tbtn">🤖 CLI</button><button class="tbtn">📁 Explorer</button>
+                <button class="tbtn">⌨ Cmd</button><button class="tbtn">🔍 Diff vs main</button><button class="tbtn">↕ Commits</button><button class="tbtn">⟳ Sync</button>
+              </div>
+            </div></div>
+          </div>
+          <div class="pane pad" data-ppane="agents">
+            <div class="ag-row"><span class="ag-emoji">🦆</span><span style="flex:1"><div class="ag-nm">Rubber-duck reviewer <span class="ro">· read-only</span></div><div class="ag-d">Reviews the published PR; writes a report, never code.</div></span><span class="ag-st"><span class="ssdot"></span>ready</span></div>
+            <button class="minibtn">＋ Add a review agent</button>
+          </div>
+          <div class="pane pad" data-ppane="artifacts">
+            <p class="cap">📊 Reports</p>
+            <div class="rep"><span class="origin pr">pr</span><span class="rn">📄 pr-rubber-duck-report.html</span><span class="rt">4m</span><button class="minibtn" style="margin:0">👁</button></div>
+            <div class="rep"><span class="origin pr">pr</span><span class="rn">📄 pr-review-report.html</span><span class="rt">1h</span><button class="minibtn" style="margin:0">👁</button></div>
+          </div>
+          <div class="pane pad" data-ppane="review">
+            <p class="cap">👥 Reviewers</p>
+            <div class="rep"><span class="rn">✅ alice — approved</span><span class="rt">20m</span></div>
+            <div class="rep"><span class="rn">✅ bob — approved</span><span class="rt">1h</span></div>
+          </div>
+          </div><!-- /prBody -->
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New PR sheet -->
+<div class="sheet-scrim" id="sheetScrim" onclick="if(event.target===this)closeSheet()">
+  <div class="sheet">
+    <div class="sheet-h"><b id="sheetTitle">Open a pull request</b><button class="sheet-x" onclick="closeSheet()">✕</button></div>
+    <div class="fld">
+      <label>Title</label>
+      <input type="text" id="sheetPrTitle" value="Remove old autoscaler">
+    </div>
+    <div class="fld">
+      <label>Base — what this PR merges into</label>
+      <div class="radio on" data-base="main" onclick="pickBase(this)"><span class="rr"></span><span class="rt"><b>main</b><span>the default branch — a standalone PR</span></span></div>
+      <div class="radio" id="stackOpt" data-base="stack" onclick="pickBase(this)"><span class="rr"></span><span class="rt"><b>Stack on an existing PR</b><span>this PR merges into another PR of this card</span></span></div>
+      <div class="stackprev" id="stackPrev" style="display:none"></div>
+    </div>
+    <div class="fld">
+      <label>Scope</label>
+      <div class="radio on" data-scope="since" onclick="pickScope(this)"><span class="rr"></span><span class="rt"><b>Commits since base</b><span>only what's new vs the base branch</span></span></div>
+      <div class="radio" data-scope="all" onclick="pickScope(this)"><span class="rr"></span><span class="rt"><b>All dev commits</b><span>everything on the dev branch</span></span></div>
+    </div>
+    <div class="sfoot">
+      <span class="sfoot-h">Creates <span class="mono" id="sheetBranch">pr/fix-scaler-2</span> in its own worktree</span>
+      <div style="display:flex;gap:8px">
+        <button class="flow-btn ghost" onclick="closeSheet()">Cancel</button>
+        <button class="flow-btn pr" onclick="createPr()">Open PR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const CARDS = {
+    c1:{ t:'Remove old autoscaler', loc:'dnceng / internal / dotnet-helix-service', wi:'📋 #2148731 · Active', repo:'dotnet-helix-service', here:true,
+         boards:['Scaler board','Helix ops'],
+         dev:{ branch:'dev/fix-scaler', ahead:2, syncedAgo:'6m ago' },
+         prs:[
+           {key:'core',  bn:'pr/fix-scaler-core',      num:'!62389', base:'main',                approvals:'1 / 2', checks:'green',   promote:2, pull:1, stacked:false, wt:'dotnet-helix-service__pr-fix-scaler-core',      title:'Core: swap poller for scaler v2',      state:'open · 1 / 2 approvals'},
+           {key:'docs',  bn:'pr/fix-scaler-docs',      num:'!62402', base:'main',                approvals:'2 / 2', checks:'green',   promote:0, pull:0, stacked:false, wt:'dotnet-helix-service__pr-fix-scaler-docs',      title:'Docs: scaler v2 runbook',              state:'open · 2 / 2 approvals'},
+           {key:'tele',  bn:'pr/fix-scaler-telemetry', num:'!62410', base:'pr/fix-scaler-core',  approvals:'0 / 2', checks:'pending', promote:0, pull:0, stacked:true,  wt:'dotnet-helix-service__pr-fix-scaler-telemetry', title:'Follow-up: telemetry for scaler v2',    state:'open · 0 / 2 · stacked'},
+         ], activePr:'core' },
+    c2:{ t:'Fix queue partition drift', loc:'dnceng / internal / dotnet-helix-service', wi:'📋 #2150044 · Active', repo:'dotnet-helix-service', boards:['Scaler board'],
+         dev:{ branch:'dev/partition-drift', ahead:0, syncedAgo:'1h ago' },
+         prs:[ {key:'pr', bn:'pr/partition-drift', num:'!62501', base:'main', approvals:'0 / 2', checks:'failing', promote:0, pull:2, stacked:false, wt:'dotnet-helix-service__pr-partition-drift', title:'Fix queue partition drift', state:'open · checks failing'} ], activePr:'pr' },
+    c3:{ t:'Retry storm dampener', loc:'dnceng / internal / arcade-services', wi:'📋 #2149910 · Active', repo:'arcade-services', boards:['Scaler board'],
+         dev:{ branch:'dev/retry-dampener', ahead:5, syncedAgo:'20m ago' }, prs:[], activePr:null },
+    c4:{ t:'Upgrade agent image to 22.04', loc:'dnceng / internal / dotnet-helix-machines', wi:'📋 #2151200 · Active', repo:'dotnet-helix-machines', boards:['Helix ops'],
+         dev:{ branch:'dev/agent-2204', ahead:1, syncedAgo:'3m ago' },
+         prs:[ {key:'pr', bn:'pr/agent-2204', num:'!62560', base:'main', approvals:'2 / 2', checks:'green', promote:0, pull:0, stacked:false, wt:'dotnet-helix-machines__pr-agent-2204', title:'Upgrade agent image to 22.04', state:'open · 2 / 2 · ready to merge'} ], activePr:'pr' },
+    c5:{ t:'Telemetry gap in spindown', loc:'dnceng / internal / dotnet-helix-service', wi:'📋 #2151884 · Active', repo:'dotnet-helix-service', boards:['Helix ops'],
+         dev:{ branch:'dev/spindown-telemetry', ahead:0, syncedAgo:'2h ago' }, prs:[], activePr:null },
+    c6:{ t:'Scratch: perf spike repro', loc:'dnceng / internal / dotnet-helix-service', wi:null, repo:'dotnet-helix-service', boards:[],
+         dev:{ branch:'dev/perf-repro', ahead:3, syncedAgo:'5m ago' }, prs:[], activePr:null },
+  };
+
+  let curId = 'c1', curView = 'dev', curFocus = 'dev', hereOn = true;
+  const cur = () => CARDS[curId];
+  const curPr = () => { const c=cur(); return (c.prs||[]).find(p=>p.key===c.activePr) || null; };
+  const esc = s => (s||'').replace(/</g,'&lt;');
+
+  function selectCard(id){
+    curId = id;
+    document.querySelectorAll('.idx-row').forEach(r=>r.classList.toggle('sel', r.dataset.card===id));
+    hereOn = !!cur().here;
+    curFocus = 'dev';
+    renderCard();
+    setView('dev');
+  }
+
+  function renderCard(){
+    const c = cur();
+    document.getElementById('dTitle').textContent = c.t;
+    document.querySelector('.c-loc').textContent = c.loc;
+    const wi = document.querySelector('.wi');
+    if (c.wi){ wi.style.display=''; wi.textContent = c.wi; } else { wi.style.display='none'; }
+    // boards
+    const br = document.querySelector('.boards-row');
+    const links = c.boards.length ? c.boards.map(b=>`<a href="#">${esc(b)}</a>`).join('<span class="dotsep">·</span>') : '<span style="color:var(--cp-text-soft)">not pinned</span>';
+    br.innerHTML = `<span class="lbl">📋 On:</span>${links}<span class="addb">＋ pin</span>`;
+    // dev node + view band
+    document.getElementById('devBn').textContent = c.dev.branch;
+    document.querySelector('#viewDev .viewband .vb-r').textContent = c.dev.branch;
+    renderGraph();
+    renderPr();
+    applyHere();
+  }
+
+  // ---- flow graph (dev + PR branches) ----
+  function renderGraph(){
+    const c = cur();
+    document.getElementById('devSub').innerHTML = c.dev.ahead>0
+      ? `<span class="ok">● clean</span> · <b>↑${c.dev.ahead} to promote</b> · synced ${esc(c.dev.syncedAgo)}`
+      : `<span class="ok">● clean</span> · in sync · synced ${esc(c.dev.syncedAgo)}`;
+    const childrenOf = bn => c.prs.filter(p=>p.stacked && p.base===bn);
+    const nodeHTML = (p,parent)=>{
+      const dot = p.checks==='green' ? 'green' : (p.checks==='failing' ? 'amber' : 'run');
+      const ck  = p.checks==='green' ? '<span class="ok">✓</span>' : (p.checks==='failing' ? '<span class="warn">✗</span>' : '…');
+      return `<div class="gnode pr" data-node="${p.key}" data-parent="${parent}" onclick="focusNode('${p.key}')">
+        <div class="gtop"><span class="dot"></span><span class="bn">${esc(p.bn)}</span> <span class="num">${esc(p.num)}</span></div>
+        <div class="gsub"><span class="sd ${dot}"></span>${ck} ${esc(p.approvals)}${p.pull>0?` · <span class="warn">↓${p.pull}</span>`:''}${p.stacked?' · ↳ stacked':''}</div>
+      </div>`;
+    };
+    let rows = '';
+    c.prs.filter(p=>!p.stacked).forEach(tp=>{
+      let chain = nodeHTML(tp,'dev'), cursor = tp, kids = childrenOf(cursor.bn);
+      while(kids.length){ const k=kids[0]; chain += nodeHTML(k,cursor.key); cursor=k; kids=childrenOf(cursor.bn); }
+      rows += `<div class="chain">${chain}</div>`;
+    });
+    const gLabel = c.prs.length ? '＋ New PR' : '＋ Open first PR';
+    rows += `<div class="chain"><div class="gnode ghost" data-node="ghost" data-parent="dev" onclick="focusNode('ghost')"><div class="gtop">${gLabel}</div></div></div>`;
+    document.getElementById('gtree').innerHTML = rows;
+    applySel();
+  }
+
+  function applySel(){
+    const fg = document.getElementById('flowgraph');
+    fg.querySelectorAll('.gnode').forEach(n=>n.classList.toggle('sel', n.dataset.node===curFocus));
+    requestAnimationFrame(drawEdges);
+  }
+
+  function drawEdges(){
+    const fg = document.getElementById('flowgraph'), svg = document.getElementById('edges');
+    fg.querySelectorAll('.edgebadge,.edgelabel').forEach(e=>e.remove());
+    const R = fg.getBoundingClientRect();
+    svg.setAttribute('width', R.width); svg.setAttribute('height', R.height);
+    const nodes = [...fg.querySelectorAll('.gnode[data-node]')];
+    const byKey = {}; nodes.forEach(n=>byKey[n.dataset.node]=n);
+    let paths = '';
+    nodes.forEach(n=>{
+      const par = n.dataset.parent; if(!par || !byKey[par]) return;
+      const s = byKey[par].getBoundingClientRect(), t = n.getBoundingClientRect();
+      const x1 = s.right-R.left, y1 = s.top+s.height/2-R.top;
+      const x2 = t.left-R.left,  y2 = t.top+t.height/2-R.top;
+      const mx = (x1+x2)/2;
+      const sel = n.classList.contains('sel'), ghost = n.classList.contains('ghost');
+      const stack = !ghost && par!=='dev';               // pr→pr = gating/stacked, the exception
+      const col = ghost ? 'var(--cp-border-strong)' : (stack ? 'var(--cp-dev)' : 'var(--cp-pr)');
+      const dash = ghost ? ';stroke-dasharray:4 4' : (stack ? ';stroke-dasharray:1 5;stroke-linecap:round' : '');
+      paths += `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" style="fill:none;stroke:${col};stroke-width:${sel?2.4:1.5}${dash}" opacity="${sel?1:.5}"/>`;
+    });
+    svg.innerHTML = paths;
+    // always-on label on each gating (stacked) edge so the dependency reads as deliberate
+    nodes.forEach(n=>{
+      const par = n.dataset.parent; if(!par || !byKey[par] || par==='dev' || n.classList.contains('ghost')) return;
+      const s = byKey[par].getBoundingClientRect(), t = n.getBoundingClientRect();
+      const mx = ((s.right-R.left)+(t.left-R.left))/2, my = ((s.top+s.height/2-R.top)+(t.top+t.height/2-R.top))/2;
+      const b=document.createElement('div'); b.className='edgelabel'; b.style.left=mx+'px'; b.style.top=my+'px';
+      b.innerHTML = `<span>↳ gated by ${esc(byKey[par].querySelector('.bn')?.textContent||'parent')}</span>`;
+      fg.appendChild(b);
+    });
+    // promote/pull badge on the selected PR's incoming edge
+    const selNode = fg.querySelector('.gnode.sel.pr'), p = curPr(), c = cur();
+    if(selNode && p){
+      const par = selNode.dataset.parent, s = byKey[par].getBoundingClientRect(), t = selNode.getBoundingClientRect();
+      const mx = ((s.right-R.left)+(t.left-R.left))/2, my = ((s.top+s.height/2-R.top)+(t.top+t.height/2-R.top))/2;
+      const promote = par==='dev' ? c.dev.ahead : 0;
+      let bh = '';
+      if(promote>0) bh += `<span class="cbadge to-pr">${promote} to promote →</span>`;
+      if(p.pull>0)  bh += `<span class="cbadge to-dev">← ${p.pull} review to pull</span>`;
+      if(bh){ const b=document.createElement('div'); b.className='edgebadge'; b.style.left=mx+'px'; b.style.top=my+'px'; b.innerHTML=bh; fg.appendChild(b); }
+    }
+  }
+
+  function focusNode(key){
+    if(key==='ghost'){ openSheet(cur().prs.length ? 'new' : 'first'); return; }
+    curFocus = key;
+    if(key==='dev'){ setView('dev'); }
+    else { cur().activePr = key; renderPr(); setView('pr'); }
+    applySel();
+  }
+
+  function renderPr(){
+    const c = cur(), p = curPr();
+    const empty = document.getElementById('prEmpty'), body = document.getElementById('prBody');
+    if (!p){
+      empty.style.display=''; body.style.display='none';
+      document.getElementById('prEmptyDev').textContent = c.dev.branch;
+      renderStateActs();
+      return;
+    }
+    empty.style.display='none'; body.style.display='';
+    // band + overview + code
+    document.getElementById('prBand').textContent = `${p.bn} · ${p.num}`;
+    document.getElementById('prOvTitle').textContent = `${p.num} · ${p.title}`;
+    document.getElementById('prOvState').textContent = p.state;
+    document.getElementById('prCodeBn').textContent = p.bn;
+    document.getElementById('prCodePath').textContent = 'C:\\w\\' + p.wt;
+    renderStateActs();
+  }
+
+  function renderStateActs(){
+    const c = cur(), p = curPr();
+    const da = document.getElementById('stateActDev'), pa = document.getElementById('stateActPr');
+    // dev action
+    if (!p){
+      da.innerHTML = `<span class="state-chip dev">Dev has ${c.dev.ahead} commit${c.dev.ahead===1?'':'s'} — no PR yet</span>
+        <button class="flow-btn" onclick="event.stopPropagation();openSheet('first')">Open PR from dev →</button>
+        <span class="flow-hint">creates a <span class="mono">pr/…</span> branch in its own worktree.</span>`;
+    } else if (c.dev.ahead>0){
+      da.innerHTML = `<span class="state-chip dev">Dev is ${c.dev.ahead} ahead of <span class="mono">${esc(p.bn)}</span> — ready to promote</span>
+        <button class="flow-btn" onclick="event.stopPropagation()">Promote to PR (${c.dev.ahead}) →</button>
+        <span class="flow-hint">fast-forwards <span class="mono">${esc(p.bn)}</span>. Review commits auto-pull back to dev when checks are clean.</span>`;
+    } else {
+      da.innerHTML = `<span class="state-chip">Dev is in sync with <span class="mono">${esc(p.bn)}</span></span>
+        <span class="flow-hint">nothing to promote right now.</span>`;
+    }
+    // pr action
+    if (!p){ pa.innerHTML = `<span class="flow-hint">No PR selected — open one from the Dev side.</span>`; return; }
+    const ready = p.approvals.trim().startsWith('2') && p.checks==='green';
+    pa.innerHTML = `<span class="state-chip ${p.pull>0||p.checks==='failing'?'warn':''}">${p.checks==='failing'?'Checks failing · ':''}${p.pull>0?`${p.pull} review commit${p.pull===1?'':'s'} not pulled · `:''}${esc(p.approvals)} approvals</span>
+      ${p.pull>0?`<button class="flow-btn pr" onclick="event.stopPropagation()">Pull review (${p.pull}) ↓</button>`:''}
+      <button class="flow-btn ${ready?'':'ghost'}" ${ready?'':'disabled title="Enabled at 2 approvals + green checks"'} onclick="event.stopPropagation()">Merge ✓</button>
+      <span class="flow-hint">${ready?'ready to merge.':'merge unlocks at 2 approvals with green checks.'}</span>`;
+  }
+
+  function setView(v){
+    curView = v;
+    document.querySelectorAll('.view').forEach(el=>el.classList.toggle('on', el.dataset.view===v));
+    document.getElementById('stateActDev').style.display = v==='dev'?'flex':'none';
+    document.getElementById('stateActPr').style.display  = v==='pr'?'flex':'none';
+    document.getElementById('whichView').textContent = v==='dev' ? 'Dev (workbench)' : 'PR (review)';
+  }
+
+  function setPane(view, p, btn){
+    const scope = document.getElementById(view==='dev'?'viewDev':'viewPr');
+    scope.querySelectorAll('.ptab').forEach(x=>x.classList.remove('on'));
+    btn.classList.add('on');
+    const attr = view==='dev' ? 'dpane' : 'ppane';
+    scope.querySelectorAll('.pane').forEach(pane=>pane.classList.toggle('on', pane.dataset[attr]===p));
+  }
+
+  // ---- New PR sheet ----
+  let sheetBase = 'main';
+  function openSheet(mode){
+    const c = cur();
+    sheetBase = 'main';
+    document.getElementById('sheetTitle').textContent = mode==='first' ? 'Open the first pull request' : 'Open a new pull request';
+    document.getElementById('sheetPrTitle').value = c.t;
+    // stack option only when at least one PR exists
+    const stackOpt = document.getElementById('stackOpt');
+    stackOpt.style.display = c.prs.length ? '' : 'none';
+    document.getElementById('stackPrev').style.display='none';
+    document.querySelectorAll('#sheetScrim .radio[data-base]').forEach(r=>r.classList.toggle('on', r.dataset.base==='main'));
+    updateSheetBranch();
+    document.getElementById('sheetScrim').classList.add('on');
+  }
+  function closeSheet(){ document.getElementById('sheetScrim').classList.remove('on'); }
+  function pickBase(el){
+    document.querySelectorAll('#sheetScrim .radio[data-base]').forEach(r=>r.classList.remove('on'));
+    el.classList.add('on'); sheetBase = el.dataset.base;
+    const prev = document.getElementById('stackPrev');
+    if (sheetBase==='stack'){
+      const c = cur();
+      const chain = ['main', ...c.prs.map(p=>p.bn)].join(' ← ');
+      prev.style.display=''; prev.innerHTML = `Stacks on <span class="mono">${esc(c.prs[c.prs.length-1].bn)}</span><br><span class="mono">${esc(chain)} ← new</span>`;
+    } else prev.style.display='none';
+    updateSheetBranch();
+  }
+  function pickScope(el){ document.querySelectorAll('#sheetScrim .radio[data-scope]').forEach(r=>r.classList.remove('on')); el.classList.add('on'); }
+  function updateSheetBranch(){
+    const c = cur();
+    const n = c.prs.length + 1;
+    const slug = c.dev.branch.replace(/^dev\//,'');
+    document.getElementById('sheetBranch').textContent = `pr/${slug}-${n}`;
+  }
+  function createPr(){
+    const c = cur(), n = c.prs.length+1, slug = c.dev.branch.replace(/^dev\//,'');
+    const base = sheetBase==='stack' ? c.prs[c.prs.length-1].bn : 'main';
+    const key = 'p'+n;
+    c.prs.push({ key, bn:`pr/${slug}-${n}`, num:'!'+(62600+n), base, approvals:'0 / 2', checks:'pending', promote:0, pull:0, stacked: sheetBase==='stack', wt:`${c.repo}__pr-${slug}-${n}`, title: document.getElementById('sheetPrTitle').value || c.t, state:'open · new · 0 / 2' });
+    c.activePr = key; curFocus = key;
+    closeSheet();
+    renderGraph(); renderPr(); setView('pr');
+  }
+
+  function toggleHere(){ hereOn = !hereOn; applyHere(); }
+  function applyHere(){
+    document.getElementById('detailCard').classList.toggle('is-here', hereOn);
+    document.getElementById('hereTag').style.display = hereOn ? 'block' : 'none';
+    document.getElementById('yahBtn').classList.toggle('is-here', hereOn);
+  }
+
+  function filterIdx(q){
+    q = (q||'').toLowerCase();
+    document.querySelectorAll('.idx-row').forEach(r=>{
+      const txt = r.textContent.toLowerCase();
+      r.style.display = txt.includes(q) ? '' : 'none';
+    });
+  }
+
+  renderCard();
+  setView('dev');
+  window.addEventListener('resize', ()=>requestAnimationFrame(drawEdges));
+</script>
+</body>
+</html>

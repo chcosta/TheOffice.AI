@@ -26843,25 +26843,11 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   if (!slot || !slot.org || !slot.project || !slot.repo) {
     return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
   }
-  // Optionally open the worktree against the linked PR's source branch instead of
-  // the default dev branch. Resolve the PR branch server-side (don't trust an
-  // arbitrary client branch) and require the PR to be OPEN (active). PRs are now
-  // tracked per repo slot (primary at the top level, extras inside d.repos[]), so
-  // any slot with its own open PR can be opened against that PR branch.
-  let branch = slot.branch;
-  if (req.body && req.body.source === 'pr') {
-    let pr = slot.primary ? d.pr : slot.pr;
-    const prId = slot.primary ? d.prId : slot.prId;
-    if ((!pr || !pr.sourceBranch) && prId) {
-      try { pr = await _devPullRequest(_devDesc(slot), prId); } catch (e) { pr = null; }
-    }
-    if (pr && pr.sourceBranch && String(pr.status || '').toLowerCase() === 'active') {
-      branch = pr.sourceBranch;
-    } else {
-      return res.status(400).json({ error: 'No open PR branch to open against.' });
-    }
-  }
-  _saveRepoSlot(ctx, slot.id, { worktreeStatus: 'creating', worktreeError: null });
+  // The dev card ALWAYS works on its OWN `dev/<slug>` branch and must never borrow a
+  // PR's branch — that borrowing was the original dev↔PR worktree collision. PR review
+  // has its own separate worktree (see the PR-worktree routes), so a PR is opened there,
+  // not here. Any legacy `source:'pr'` request is intentionally ignored.
+  const branch = slot.branch;
   res.json({ ok: true, status: 'creating', repoId: slot.id });
   // Fire-and-forget; persist the outcome. createWorktreeAsync runs the blocking
   // clone in a worker thread so this server stays responsive during a big clone.
@@ -28533,14 +28519,32 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     if (!c.ok) return res.status(500).json({ error: 'Failed to commit local changes: ' + c.message });
     if (c.committed) committedCount = c.files;
   } catch (e) { return res.status(500).json({ error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
-  let push;
-  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch, desc: _devDesc(slot) }); }
-  catch (e) { return res.status(500).json({ error: 'Failed to push branch: ' + ((e && e.message) || e) }); }
-  if (!push.ok) return res.status(500).json({ error: 'Failed to push branch: ' + push.message });
-  const sourceBranch = push.branch || slot.branch;
-  if (!sourceBranch || sourceBranch === base) {
+  const devBranch = slot.branch;
+  if (!devBranch || devBranch === base) {
     return res.status(400).json({ error: 'The work branch is the same as the base branch — commit changes on a separate branch first.' });
   }
+
+  // The PR gets its OWN branch (`pr/<slug>-<N>`) in its OWN worktree, seeded at the
+  // current dev-branch tip. Dev and PR therefore never share a branch OR a worktree,
+  // which makes the dev↔PR git collision structurally impossible. The dev branch stays
+  // the user's private working branch (it is NOT pushed); only the PR branch is
+  // published and reviewed. All local work still lands on the PR because the PR branch
+  // is seeded at the dev tip.
+  const prSeq = Number(slot.prSeq || 0) + 1;
+  const prSlug = devBranch.replace(/^refs\/heads\//, '').replace(/^dev\//, '');
+  const prBranch = 'pr/' + prSlug + '-' + prSeq;
+  let prWt;
+  try {
+    prWt = devitems.createPrWorktree({
+      org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+      prBranch, fromRef: devBranch, wtDevId: String(d.id) + '--pr' + prSeq
+    });
+  } catch (e) { return res.status(500).json({ error: 'Failed to create PR branch worktree: ' + ((e && e.message) || e) }); }
+  let push;
+  try { push = devitems.pushBranch(prWt.worktreePath, { branch: prBranch, desc: _devDesc(slot) }); }
+  catch (e) { return res.status(500).json({ error: 'Failed to push PR branch: ' + ((e && e.message) || e) }); }
+  if (!push.ok) return res.status(500).json({ error: 'Failed to push PR branch: ' + push.message });
+  const sourceBranch = push.branch || prBranch;
 
   // 2) Gather context for the AI. The work item is shared across the whole card.
   let wi = d.workItem;
@@ -28611,10 +28615,10 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   //    transition is a card-level (top-level) change either way.
   let updated;
   if (slot.primary) {
-    updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem });
+    updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem, prBranch, prWorktreePath: prWt.worktreePath, prSeq });
   } else {
     const repos = _devExtraRepos(ctx.dev).map(r => (r && r.id === slot.id)
-      ? { ...r, prId: String(pr.pullRequestId), pr: prFull } : r);
+      ? { ...r, prId: String(pr.pullRequestId), pr: prFull, prBranch, prWorktreePath: prWt.worktreePath, prSeq } : r);
     const topSave = { repos };
     if (wi && !hadPrAlready) topSave.workItem = wi;
     updated = ctx.save(topSave);

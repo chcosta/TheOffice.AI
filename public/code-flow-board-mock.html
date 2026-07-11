@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Flow board — dev ↔ pr in context</title>
+<style>
+  :root[data-theme="light"]{
+    --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+    --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+    --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+    --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,.10); --cp-accent-fg:#fff;
+    --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+    --cp-dev:#7c3aed; --cp-dev-soft:rgba(124,58,237,.10);
+    --cp-pr:#0891b2; --cp-pr-soft:rgba(8,145,178,.10);
+  }
+  :root[data-theme="dark"]{
+    --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+    --cp-border:#343b47; --cp-border-strong:#4b5563;
+    --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+    --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,.16); --cp-accent-fg:#0c1322;
+    --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+    --cp-dev:#a78bfa; --cp-dev-soft:rgba(167,139,250,.16);
+    --cp-pr:#22d3ee; --cp-pr-soft:rgba(34,211,238,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--cp-bg); color:var(--cp-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px; margin:0 auto; padding:24px 24px 110px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace}
+  .muted{color:var(--cp-text-muted)} .soft{color:var(--cp-text-soft)}
+
+  .top{display:flex; align-items:center; justify-content:space-between; gap:16px}
+  h1{font-size:21px; font-weight:650; letter-spacing:-.02em; margin:0; display:flex; align-items:center; gap:9px}
+  .toggle{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted);
+    border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer}
+  .toggle:hover{border-color:var(--cp-border-strong)}
+  .sub{color:var(--cp-text-muted); margin:6px 0 0; max-width:78ch; font-size:13px}
+
+  /* tab bar — matches app's underline-on-active */
+  .tabs{display:flex; gap:24px; margin:20px 0 20px; border-bottom:1px solid var(--cp-border)}
+  .tab{background:none; border:0; padding:0 0 12px; margin:0; cursor:pointer; position:relative;
+    color:var(--cp-text-muted); font-size:14px; font-weight:550; letter-spacing:-.01em; display:inline-flex; align-items:center; gap:7px}
+  .tab .n{color:var(--cp-text-soft); font-weight:500; font-size:12.5px}
+  .tab.on{color:var(--cp-text)}
+  .tab.on::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--cp-accent); border-radius:2px}
+  .tab .n.attn{color:var(--cp-accent); font-weight:650}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px}
+
+  .card{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px;
+    box-shadow:0 1px 2px color-mix(in srgb,var(--cp-bg) 70%,transparent); padding:14px 15px; display:flex; flex-direction:column; gap:11px}
+  .card.attn{border-color:color-mix(in srgb,var(--cp-accent) 55%,var(--cp-border))}
+  .c-h{display:flex; align-items:flex-start; justify-content:space-between; gap:8px}
+  .c-title{font-weight:600; font-size:14.5px; letter-spacing:-.01em}
+  .c-loc{font-size:11px; color:var(--cp-text-soft); margin-top:2px}
+  .c-acts{display:flex; gap:4px; flex:0 0 auto}
+  .c-act{border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted);
+    width:26px; height:26px; border-radius:7px; cursor:pointer; font-size:13px; line-height:1}
+  .c-act:hover{border-color:var(--cp-border-strong)}
+
+  .sumline{font-size:12.5px; color:var(--cp-text-muted); line-height:1.5}
+  .stats{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--cp-text-soft)}
+  .stats .k{display:inline-flex; align-items:center; gap:5px}
+  .stats .kk{color:var(--cp-text-soft)} .stats .vv{color:var(--cp-text); font-weight:550}
+
+  /* the flow strip — the star, lives at the foot of every dev card */
+  .flow{margin-top:2px; border-top:1px solid var(--cp-border); padding-top:11px; display:flex; flex-direction:column; gap:9px}
+  .flow-line{display:flex; align-items:center; gap:0; font-size:12px}
+  .node{display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:8px; white-space:nowrap; font-weight:550}
+  .node .dot{width:8px; height:8px; border-radius:50%}
+  .node.dev{background:var(--cp-dev-soft); color:var(--cp-dev)} .node.dev .dot{background:var(--cp-dev)}
+  .node.pr{background:var(--cp-pr-soft); color:var(--cp-pr)} .node.pr .dot{background:var(--cp-pr)}
+  .node.pr.none{background:var(--cp-surface-soft); color:var(--cp-text-soft); border:1px dashed var(--cp-border-strong)}
+  .node .bn{font-family:ui-monospace,monospace; font-size:11.5px}
+  .node .num{opacity:.75; font-family:ui-monospace,monospace; font-size:11px}
+  .connector{flex:1; position:relative; height:22px; display:flex; align-items:center; min-width:34px}
+  .connector .rl{position:absolute; left:0; right:0; top:50%; height:2px; transform:translateY(-50%); background:var(--cp-border)}
+  .connector .badge{position:relative; margin:0 auto; z-index:2; background:var(--cp-surface); border:1px solid var(--cp-border);
+    color:var(--cp-text-muted); font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:999px; line-height:1.6}
+  .connector.ahead .rl{background:linear-gradient(90deg,var(--cp-dev),color-mix(in srgb,var(--cp-dev) 30%,var(--cp-border)))}
+  .connector.ahead .badge{color:var(--cp-dev); border-color:color-mix(in srgb,var(--cp-dev) 40%,var(--cp-border))}
+  .connector.behind .rl{background:linear-gradient(90deg,color-mix(in srgb,var(--cp-pr) 30%,var(--cp-border)),var(--cp-pr))}
+  .connector.behind .badge{color:var(--cp-pr); border-color:color-mix(in srgb,var(--cp-pr) 40%,var(--cp-border))}
+  .connector.sync .rl{background:color-mix(in srgb,var(--cp-success) 40%,var(--cp-border))}
+
+  .flow-act{display:flex; align-items:center; gap:8px}
+  .flow-btn{border:1px solid var(--cp-accent); background:var(--cp-accent); color:var(--cp-accent-fg);
+    border-radius:8px; padding:7px 12px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:7px;
+    box-shadow:0 1px 3px color-mix(in srgb,var(--cp-accent) 35%,transparent); transition:transform .14s cubic-bezier(.2,.7,.2,1)}
+  .flow-btn:hover{transform:translateY(-1px)}
+  .flow-btn.dev{border-color:var(--cp-dev); background:var(--cp-dev); box-shadow:0 1px 3px var(--cp-dev-soft)}
+  .flow-btn.pr{border-color:var(--cp-pr); background:var(--cp-pr); box-shadow:0 1px 3px var(--cp-pr-soft)}
+  .flow-btn.quiet{background:var(--cp-surface); color:var(--cp-success); border-color:color-mix(in srgb,var(--cp-success) 45%,var(--cp-border)); box-shadow:none; cursor:default}
+  .flow-hint{font-size:11px; color:var(--cp-text-soft)}
+  .working{color:var(--cp-dev); font-weight:600}
+  .warn{color:var(--cp-warning); font-weight:600}
+  .ok{color:var(--cp-success); font-weight:600}
+  .agentline{font-size:11.5px; color:var(--cp-accent); display:flex; align-items:center; gap:6px}
+
+  .callout{border:1px dashed var(--cp-border-strong); border-radius:10px; padding:13px 15px; margin:22px 0 4px; background:var(--cp-bg-elevated); font-size:12.5px; color:var(--cp-text-muted)}
+  .callout b{color:var(--cp-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🔀 Code Flow</h1>
+    <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+  </div>
+  <p class="sub">Same tabs you have today. The change: every <b>Dev card</b> now shows its live link to its PR — you see <b>where you're working</b> and the one right move without switching tabs.</p>
+
+  <div class="tabs">
+    <button class="tab on">🧰 Dev cards <span class="n">4</span></button>
+    <button class="tab">📤 My PRs <span class="n attn">2</span></button>
+    <button class="tab">👀 Active PRs <span class="n">3</span></button>
+    <button class="tab">🗄 Other PRs <span class="n">7</span></button>
+  </div>
+
+  <div class="grid">
+
+    <!-- CARD 1 · no PR yet -->
+    <div class="card">
+      <div class="c-h">
+        <div style="min-width:0">
+          <div class="c-title">Add retry to work-item poll</div>
+          <div class="c-loc mono">dnceng / internal / dotnet-helix-service</div>
+        </div>
+        <div class="c-acts"><button class="c-act" title="Refresh">↻</button><button class="c-act" title="Edit">✎</button></div>
+      </div>
+      <div class="sumline">🧠 Small, focused change. 3 files touched in the poller; tests not yet added.</div>
+      <div class="stats">
+        <span class="k"><span class="kk">worktree</span> <span class="vv working">● working</span></span>
+        <span class="k"><span class="kk">changes</span> <span class="vv">3 uncommitted</span></span>
+      </div>
+      <div class="flow">
+        <div class="flow-line">
+          <span class="node dev"><span class="dot"></span><span class="bn">dev/retry-poll</span></span>
+          <span class="connector"><span class="rl"></span></span>
+          <span class="node pr none">no PR yet</span>
+        </div>
+        <div class="flow-act">
+          <button class="flow-btn dev">Open PR →</button>
+          <span class="flow-hint">publishes your work as <span class="mono">pr/retry-poll</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARD 2 · dev ahead -->
+    <div class="card">
+      <div class="c-h">
+        <div style="min-width:0">
+          <div class="c-title">Remove old autoscaler</div>
+          <div class="c-loc mono">dnceng / internal / dotnet-helix-service</div>
+        </div>
+        <div class="c-acts"><button class="c-act" title="Refresh">↻</button><button class="c-act" title="Edit">✎</button></div>
+      </div>
+      <div class="sumline">🧠 Autoscaler removal complete and green locally. Two commits haven't reached the PR yet.</div>
+      <div class="stats">
+        <span class="k"><span class="kk">worktree</span> <span class="vv ok">● clean</span></span>
+        <span class="k"><span class="kk">PR checks</span> <span class="vv ok">passing</span></span>
+      </div>
+      <div class="flow">
+        <div class="flow-line">
+          <span class="node dev"><span class="dot"></span><span class="bn">dev/fix-scaler</span></span>
+          <span class="connector ahead"><span class="rl"></span><span class="badge">2 ahead →</span></span>
+          <span class="node pr"><span class="dot"></span><span class="bn">pr/fix-scaler</span> <span class="num">!62389</span></span>
+        </div>
+        <div class="flow-act">
+          <button class="flow-btn">Update PR (2) →</button>
+          <span class="flow-hint">pushes 2 commits onto <span class="mono">pr/…</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARD 3 · pr ahead (review feedback) -->
+    <div class="card attn">
+      <div class="c-h">
+        <div style="min-width:0">
+          <div class="c-title">Cache queue config reads</div>
+          <div class="c-loc mono">dnceng / internal / arcade-services</div>
+        </div>
+        <div class="c-acts"><button class="c-act" title="Refresh">↻</button><button class="c-act" title="Edit">✎</button></div>
+      </div>
+      <div class="sumline">🧠 A steward agent fixed a lint failure on the PR. That commit isn't in your workbench yet.</div>
+      <div class="stats">
+        <span class="k"><span class="kk">worktree</span> <span class="vv ok">● clean</span></span>
+        <span class="k"><span class="kk">state</span> <span class="vv warn">↓ 1 behind PR</span></span>
+      </div>
+      <div class="flow">
+        <div class="flow-line">
+          <span class="node dev"><span class="dot"></span><span class="bn">dev/cache-cfg</span></span>
+          <span class="connector behind"><span class="rl"></span><span class="badge">← 1 behind</span></span>
+          <span class="node pr"><span class="dot"></span><span class="bn">pr/cache-cfg</span> <span class="num">!62702</span></span>
+        </div>
+        <div class="agentline">◆ steward agent committed “fix lint” · 4m ago</div>
+        <div class="flow-act">
+          <button class="flow-btn pr">← Pull review (1)</button>
+          <span class="flow-hint">brings the review commit back to <span class="mono">dev/…</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARD 4 · in sync -->
+    <div class="card">
+      <div class="c-h">
+        <div style="min-width:0">
+          <div class="c-title">Bump SDK to 8.0.4</div>
+          <div class="c-loc mono">dnceng / internal / dotnet-helix-machines</div>
+        </div>
+        <div class="c-acts"><button class="c-act" title="Refresh">↻</button><button class="c-act" title="Edit">✎</button></div>
+      </div>
+      <div class="sumline">🧠 Everything landed and matches the PR. Waiting on a reviewer — nothing for you to do.</div>
+      <div class="stats">
+        <span class="k"><span class="kk">worktree</span> <span class="vv ok">● clean</span></span>
+        <span class="k"><span class="kk">PR checks</span> <span class="vv ok">passing</span></span>
+      </div>
+      <div class="flow">
+        <div class="flow-line">
+          <span class="node dev"><span class="dot"></span><span class="bn">dev/bump-sdk</span></span>
+          <span class="connector sync"><span class="rl"></span><span class="badge" style="color:var(--cp-success);border-color:color-mix(in srgb,var(--cp-success) 40%,var(--cp-border))">in sync</span></span>
+          <span class="node pr"><span class="dot"></span><span class="bn">pr/bump-sdk</span> <span class="num">!62711</span></span>
+        </div>
+        <div class="flow-act">
+          <button class="flow-btn quiet">✓ In sync</button>
+          <span class="flow-hint">reviewer assigned · awaiting approval</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="callout">
+    <b>How this removes the confusion.</b> The flow strip is the only place commits move between branches, so there's no stray “PR branch” button and no way to end up on the wrong branch.
+    <span class="mono">dev/…</span> lives only in the dev worktree, <span class="mono">pr/…</span> only in the PR worktree — <b>collisions and detached HEAD are impossible</b>.
+    Clicking the <span class="node pr" style="padding:1px 6px;font-size:11px"><span class="dot"></span>pr/…</span> chip jumps to that PR on the <b>My/Active PRs</b> tab; the PR tabs stay exactly as they are.
+  </div>
+</div>
+</body>
+</html>

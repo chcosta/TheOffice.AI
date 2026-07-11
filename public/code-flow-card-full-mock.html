@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Flow — full dev card with dev ↔ pr model</title>
+<style>
+  :root[data-theme="light"]{
+    --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+    --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+    --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+    --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,.10); --cp-accent-fg:#fff;
+    --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+    --cp-dev:#7c3aed; --cp-dev-soft:rgba(124,58,237,.10);
+    --cp-pr:#0891b2; --cp-pr-soft:rgba(8,145,178,.10);
+  }
+  :root[data-theme="dark"]{
+    --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+    --cp-border:#343b47; --cp-border-strong:#4b5563;
+    --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+    --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,.16); --cp-accent-fg:#0c1322;
+    --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+    --cp-dev:#a78bfa; --cp-dev-soft:rgba(167,139,250,.16);
+    --cp-pr:#22d3ee; --cp-pr-soft:rgba(34,211,238,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--cp-bg); color:var(--cp-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:860px; margin:0 auto; padding:24px 24px 110px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace}
+  .muted{color:var(--cp-text-muted)} .soft{color:var(--cp-text-soft)}
+  .top{display:flex; align-items:center; justify-content:space-between; gap:16px}
+  h1{font-size:20px; font-weight:650; letter-spacing:-.02em; margin:0}
+  .sub{color:var(--cp-text-muted); margin:6px 0 18px; font-size:13px; max-width:76ch}
+  .toggle{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer}
+  .toggle:hover{border-color:var(--cp-border-strong)}
+
+  .card{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 1px 3px color-mix(in srgb,var(--cp-bg) 65%,transparent); overflow:hidden}
+  .pad{padding:16px 18px}
+  .c-h{display:flex; align-items:flex-start; justify-content:space-between; gap:10px}
+  .c-title{font-weight:650; font-size:16px; letter-spacing:-.01em}
+  .c-loc{font-size:11.5px; color:var(--cp-text-soft); margin-top:3px}
+  .wi{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--cp-accent); text-decoration:none; margin-top:6px; font-weight:550}
+  .c-acts{display:flex; gap:5px; flex:0 0 auto}
+  .c-act{border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); width:28px; height:28px; border-radius:8px; cursor:pointer; font-size:13px}
+  .c-act:hover{border-color:var(--cp-border-strong)}
+
+  .summary{margin-top:12px; background:var(--cp-bg-elevated); border:1px solid var(--cp-border); border-radius:10px; padding:11px 12px}
+  .summary .sh{display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; margin-bottom:4px}
+  .summary .st{font-size:12.5px; color:var(--cp-text-muted); line-height:1.5}
+  .stats{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--cp-text-soft); margin-top:9px}
+  .stats .vv{color:var(--cp-text); font-weight:550}
+  .ok{color:var(--cp-success); font-weight:600} .warn{color:var(--cp-warning); font-weight:600} .working{color:var(--cp-dev); font-weight:600}
+
+  /* flow strip */
+  .flow{margin-top:14px; border:1px solid var(--cp-border); border-radius:11px; padding:12px; background:linear-gradient(180deg,var(--cp-bg-elevated),var(--cp-surface))}
+  .flow-line{display:flex; align-items:center; gap:0}
+  .node{display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:9px; white-space:nowrap; font-weight:600; font-size:12.5px}
+  .node .dot{width:8px; height:8px; border-radius:50%}
+  .node.dev{background:var(--cp-dev-soft); color:var(--cp-dev)} .node.dev .dot{background:var(--cp-dev)}
+  .node.pr{background:var(--cp-pr-soft); color:var(--cp-pr)} .node.pr .dot{background:var(--cp-pr)}
+  .node .bn{font-family:ui-monospace,monospace; font-size:11.5px} .node .num{opacity:.7; font-family:ui-monospace,monospace; font-size:11px}
+  .connector{flex:1; position:relative; height:24px; display:flex; align-items:center; min-width:40px}
+  .connector .rl{position:absolute; left:0; right:0; top:50%; height:2px; transform:translateY(-50%); background:linear-gradient(90deg,var(--cp-dev),color-mix(in srgb,var(--cp-dev) 30%,var(--cp-border)))}
+  .connector .badge{position:relative; margin:0 auto; z-index:2; background:var(--cp-surface); border:1px solid color-mix(in srgb,var(--cp-dev) 40%,var(--cp-border)); color:var(--cp-dev); font-size:10.5px; font-weight:650; padding:1px 8px; border-radius:999px}
+  .flow-act{display:flex; align-items:center; gap:9px; margin-top:11px}
+  .flow-btn{border:1px solid var(--cp-dev); background:var(--cp-dev); color:#fff; border-radius:8px; padding:7px 13px; font-size:12.5px; font-weight:600; cursor:pointer; box-shadow:0 1px 3px var(--cp-dev-soft); transition:transform .14s cubic-bezier(.2,.7,.2,1)}
+  .flow-btn:hover{transform:translateY(-1px)}
+  .flow-hint{font-size:11px; color:var(--cp-text-soft)}
+
+  /* pane tabs */
+  .ptabs{display:flex; gap:20px; margin:16px 0 0; padding:0 18px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg-elevated)}
+  .ptab{background:none; border:0; padding:11px 0; margin:0; cursor:pointer; position:relative; color:var(--cp-text-muted); font-size:13px; font-weight:550; display:inline-flex; align-items:center; gap:6px}
+  .ptab .n{color:var(--cp-text-soft); font-size:12px; font-weight:500}
+  .ptab.on{color:var(--cp-text)}
+  .ptab.on::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--cp-accent); border-radius:2px}
+  .pane{display:none} .pane.on{display:block}
+
+  /* code pane — two worktrees */
+  .wtbox{border:1px solid var(--cp-border); border-radius:11px; overflow:hidden}
+  .wt{padding:12px 13px}
+  .wt + .wt{border-top:1px solid var(--cp-border)}
+  .wt.review{background:var(--cp-bg-elevated)}
+  .wt-h{display:flex; align-items:center; justify-content:space-between; gap:10px}
+  .wt-role{display:inline-flex; align-items:center; gap:7px; font-weight:650; font-size:12.5px}
+  .wt-role .tagdot{width:9px;height:9px;border-radius:50%}
+  .wt.build .wt-role{color:var(--cp-dev)} .wt.build .tagdot{background:var(--cp-dev)}
+  .wt.review .wt-role{color:var(--cp-pr)} .wt.review .tagdot{background:var(--cp-pr)}
+  .wt-sub{font-size:11px; color:var(--cp-text-soft); font-family:ui-monospace,monospace}
+  .wt-status{font-size:11.5px}
+  .path{font-family:ui-monospace,monospace; font-size:11px; color:var(--cp-text-soft); margin:8px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .tools{display:flex; flex-wrap:wrap; gap:6px}
+  .tbtn{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:7px; padding:5px 9px; font-size:11.5px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:5px}
+  .tbtn:hover{border-color:var(--cp-border-strong)}
+  .tbtn.primary{border-color:var(--cp-dev); background:var(--cp-dev); color:#fff}
+  .tbtn.pr{border-color:var(--cp-pr); background:var(--cp-pr); color:#fff}
+  .disc{margin-top:2px}
+  .disc summary{cursor:pointer; font-size:11.5px; color:var(--cp-pr); font-weight:600; list-style:none; display:inline-flex; align-items:center; gap:6px; padding:2px 0}
+  .disc summary::-webkit-details-marker{display:none}
+
+  /* agents pane */
+  .ag-group{margin-bottom:16px}
+  .ag-gh{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:650; margin-bottom:8px}
+  .ag-gh .tagdot{width:9px;height:9px;border-radius:50%}
+  .ag-gh.build{color:var(--cp-dev)} .ag-gh.build .tagdot{background:var(--cp-dev)}
+  .ag-gh.review{color:var(--cp-pr)} .ag-gh.review .tagdot{background:var(--cp-pr)}
+  .ag-gh .where{margin-left:auto; font-weight:500; color:var(--cp-text-soft); font-size:11px; font-family:ui-monospace,monospace}
+  .ag-row{display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--cp-border); border-radius:9px; background:var(--cp-surface)}
+  .ag-row + .ag-row{margin-top:6px}
+  .ag-emoji{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--cp-surface-soft)}
+  .ag-nm{font-weight:600; font-size:13px} .ag-nm .ro{font-weight:500;color:var(--cp-text-soft);font-size:11px}
+  .ag-d{font-size:11px;color:var(--cp-text-soft)}
+  .ag-st{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--cp-success);font-weight:600}
+  .ag-st .sdot{width:7px;height:7px;border-radius:50%;background:var(--cp-success)}
+  .ag-acts{display:flex;gap:5px}
+  .minibtn{border:1px solid var(--cp-border);background:var(--cp-surface);border-radius:7px;padding:3px 9px;font-size:11px;cursor:pointer;color:var(--cp-text-muted)}
+  .minibtn:hover{border-color:var(--cp-border-strong)}
+  .reco{border:1px solid color-mix(in srgb,var(--cp-accent) 30%,var(--cp-border)); background:var(--cp-accent-soft); border-radius:10px; padding:10px 12px; margin-bottom:14px}
+  .reco-h{display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:8px}
+  .reco-row{display:flex;align-items:center;gap:9px;padding:5px 0}
+  .reco-why{font-size:11.5px;color:var(--cp-text-muted)}
+  .addall{background:none;border:0;color:var(--cp-accent);font-size:11.5px;font-weight:600;cursor:pointer;padding:0}
+
+  /* artifacts pane */
+  .cap{font-size:12px;font-weight:650;display:flex;align-items:center;gap:7px;margin:0 0 6px}
+  .rep{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface)}
+  .rep + .rep{margin-top:5px}
+  .rep .origin{font-size:10px;font-weight:650;padding:1px 6px;border-radius:6px;font-family:ui-monospace,monospace}
+  .rep .origin.dev{background:var(--cp-dev-soft);color:var(--cp-dev)}
+  .rep .origin.pr{background:var(--cp-pr-soft);color:var(--cp-pr)}
+  .rep .rn{flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rep .rt{font-size:11px;color:var(--cp-text-soft)}
+
+  .callout{border:1px dashed var(--cp-border-strong);border-radius:10px;padding:13px 15px;margin-top:20px;background:var(--cp-bg-elevated);font-size:12.5px;color:var(--cp-text-muted)}
+  .callout b{color:var(--cp-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🔀 Code Flow — Dev card, expanded</h1>
+    <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+  </div>
+  <p class="sub">The full workspace hub — work item, AI summary, the two worktrees with their open actions, playbook agents split by where they run, and surfaced reports — all under the dev&nbsp;↔&nbsp;pr model.</p>
+
+  <div class="card">
+    <div class="pad">
+      <div class="c-h">
+        <div style="min-width:0">
+          <div class="c-title">Remove old autoscaler</div>
+          <div class="c-loc mono">dnceng / internal / dotnet-helix-service</div>
+          <a class="wi" href="#">📋 #2148731 · Active</a>
+        </div>
+        <div class="c-acts"><button class="c-act" title="Refresh state (git · work item · PR)">↻</button><button class="c-act" title="Edit dev card">✎</button></div>
+      </div>
+
+      <div class="summary">
+        <div class="sh">🧠 Summary <span class="soft" style="font-weight:400;font-size:10px;margin-left:auto">⚡ Auto · 2m ago</span></div>
+        <div class="st">Autoscaler removal is complete and green locally. Two commits haven't reached the PR yet, and a steward agent just fixed a lint issue on the PR side.</div>
+        <div class="stats">
+          <span>workbench <span class="vv ok">● clean</span></span>
+          <span>PR checks <span class="vv ok">passing</span></span>
+          <span>flow <span class="vv working">↑2 ahead</span></span>
+        </div>
+      </div>
+
+      <!-- flow strip -->
+      <div class="flow">
+        <div class="flow-line">
+          <span class="node dev"><span class="dot"></span><span class="bn">dev/fix-scaler</span></span>
+          <span class="connector"><span class="rl"></span><span class="badge">2 ahead →</span></span>
+          <span class="node pr"><span class="dot"></span><span class="bn">pr/fix-scaler</span> <span class="num">!62389</span></span>
+        </div>
+        <div class="flow-act">
+          <button class="flow-btn">Update PR (2) →</button>
+          <span class="flow-hint">pushes your 2 commits onto <span class="mono">pr/fix-scaler</span>. Review commits auto-pull back when your workbench is clean.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- pane tabs -->
+    <div class="ptabs">
+      <button class="ptab on" data-p="code">🗃 Code</button>
+      <button class="ptab" data-p="agents">🤖 Agents <span class="n">3</span></button>
+      <button class="ptab" data-p="artifacts">📊 Artifacts <span class="n">4</span></button>
+      <button class="ptab" data-p="boards">📋 Boards</button>
+    </div>
+
+    <!-- CODE PANE -->
+    <div class="pane on pad" data-pane="code">
+      <div class="wtbox">
+        <!-- workbench -->
+        <div class="wt build">
+          <div class="wt-h">
+            <span class="wt-role"><span class="tagdot"></span>Workbench <span class="wt-sub">dev/fix-scaler</span></span>
+            <span class="wt-status ok">● clean · ↑2 unpushed</span>
+          </div>
+          <div class="path">C:\w\dotnet-helix-service__dev-fix-scaler</div>
+          <div class="tools">
+            <button class="tbtn primary">🔵 VS Code</button>
+            <button class="tbtn">🤖 CLI</button>
+            <button class="tbtn">📁 Explorer</button>
+            <button class="tbtn">⌨ Cmd</button>
+            <button class="tbtn">🔍 Diff</button>
+            <button class="tbtn">↕ Commits</button>
+            <button class="tbtn">⟳ Sync</button>
+            <button class="tbtn">🧹 Clean</button>
+          </div>
+        </div>
+        <!-- review copy -->
+        <div class="wt review">
+          <div class="wt-h">
+            <span class="wt-role"><span class="tagdot"></span>Review copy <span class="wt-sub">pr/fix-scaler · !62389</span></span>
+            <span class="wt-status ok">● clean · checks passing</span>
+          </div>
+          <details class="disc">
+            <summary>Open review copy ▾</summary>
+            <div class="path">C:\w\dotnet-helix-service__pr-fix-scaler</div>
+            <div class="tools">
+              <button class="tbtn pr">🔵 VS Code</button>
+              <button class="tbtn">🤖 CLI</button>
+              <button class="tbtn">📁 Explorer</button>
+              <button class="tbtn">⌨ Cmd</button>
+              <button class="tbtn">🔍 Diff vs main</button>
+            </div>
+            <div class="flow-hint" style="margin-top:8px">You rarely edit here — this is the reviewed copy. Review-agent fixes land on <span class="mono">pr/…</span> and flow back to your workbench.</div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <!-- AGENTS PANE -->
+    <div class="pane pad" data-pane="agents">
+      <div class="reco">
+        <div class="reco-h"><span><b>✦ Me.AI</b> recommends adding</span><button class="minibtn">↻ Recommend</button></div>
+        <div class="reco-row">
+          <span class="ag-emoji">🔒</span>
+          <span style="flex:1"><span class="ag-nm">Security review</span> <span class="reco-why">— touches queue auth; run on the PR copy before merge.</span></span>
+          <span class="wt-sub" style="color:var(--cp-pr)">→ review</span>
+          <button class="minibtn" style="color:var(--cp-accent);border-color:var(--cp-accent)">＋ Add</button>
+        </div>
+        <button class="addall">Add all recommended</button>
+      </div>
+
+      <div class="ag-group">
+        <div class="ag-gh build"><span class="tagdot"></span>Workbench agents <span class="where">run in dev/fix-scaler</span></div>
+        <div class="ag-row">
+          <span class="ag-emoji">🛠</span>
+          <span style="flex:1"><div class="ag-nm">Dev agent <span class="ro">· auto-selected</span></div><div class="ag-d">Builds, tests &amp; validates your change in the workbench.</div></span>
+          <span class="ag-st"><span class="sdot"></span>ready</span>
+          <span class="ag-acts"><button class="minibtn">🤖 Launch</button><button class="minibtn">Remove</button></span>
+        </div>
+        <div class="ag-row">
+          <span class="ag-emoji">✅</span>
+          <span style="flex:1"><div class="ag-nm">Validation</div><div class="ag-d">Runs the test suite &amp; reports pass/fail as an artifact.</div></span>
+          <span class="ag-st"><span class="sdot"></span>ready</span>
+          <span class="ag-acts"><button class="minibtn">🤖 Launch</button><button class="minibtn">Remove</button></span>
+        </div>
+      </div>
+
+      <div class="ag-group">
+        <div class="ag-gh review"><span class="tagdot"></span>Review agents <span class="where">run in pr/fix-scaler</span></div>
+        <div class="ag-row">
+          <span class="ag-emoji">🦆</span>
+          <span style="flex:1"><div class="ag-nm">Rubber-duck reviewer <span class="ro">· read-only</span></div><div class="ag-d">Reviews the published PR; writes a report, never code.</div></span>
+          <span class="ag-st"><span class="sdot"></span>ready</span>
+          <span class="ag-acts"><button class="minibtn">🤖 Launch</button><button class="minibtn">Remove</button></span>
+        </div>
+        <div class="flow-hint" style="margin-top:8px">Review agents that <i>do</i> commit fixes (e.g. steward) push to <span class="mono">pr/…</span>; those commits auto-pull into your workbench.</div>
+      </div>
+
+      <button class="minibtn" style="margin-top:4px">＋ Add an agent from a playbook</button>
+    </div>
+
+    <!-- ARTIFACTS PANE -->
+    <div class="pane pad" data-pane="artifacts">
+      <p class="cap">📊 Reports <span class="soft" style="font-weight:400;font-size:10px">auto-surfaced from both worktrees</span></p>
+      <div class="rep"><span class="origin dev">dev</span><span class="rn">📄 validation-report.html</span><span class="rt">2m ago</span><button class="minibtn">👁</button></div>
+      <div class="rep"><span class="origin dev">dev</span><span class="rn">📝 build-summary.md</span><span class="rt">12m ago</span><button class="minibtn">👁</button></div>
+      <div class="rep"><span class="origin pr">pr</span><span class="rn">📄 pr-rubber-duck-report.html</span><span class="rt">4m ago</span><button class="minibtn">👁</button></div>
+      <div class="rep"><span class="origin pr">pr</span><span class="rn">📄 pr-review-report.html</span><span class="rt">1h ago</span><button class="minibtn">👁</button></div>
+      <p class="cap" style="margin-top:16px">🔗 Links <button class="minibtn" style="margin-left:auto">＋ Add link</button></p>
+      <div class="rep"><span class="rn">🔗 Design doc — autoscaler removal</span><button class="minibtn">✕</button></div>
+    </div>
+
+    <!-- BOARDS PANE -->
+    <div class="pane pad" data-pane="boards">
+      <p class="muted" style="font-size:12.5px">Linked board items appear here (unchanged from today).</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>Every feature you have today is preserved</b> — work item link, AI summary, open actions, playbook agents, surfaced reports, per-repo notes, boards. What changes: there are now <b>two clearly-labelled worktrees</b> (Workbench <span class="mono">dev/…</span> + Review copy <span class="mono">pr/…</span>), agents are grouped by <b>where they run</b>, reports are <b>tagged by origin</b>, and branch movement happens only in the flow strip. No collisions, no detached HEAD, no “which branch am I on?”.
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.ptab').forEach(function(t){
+    t.addEventListener('click', function(){
+      document.querySelectorAll('.ptab').forEach(x=>x.classList.remove('on'));
+      t.classList.add('on');
+      var p = t.dataset.p;
+      document.querySelectorAll('.pane').forEach(function(pane){
+        pane.classList.toggle('on', pane.dataset.pane === p);
+      });
+    });
+  });
+</script>
+</body>
+</html>

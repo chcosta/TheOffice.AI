@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Flow — multiple PRs per dev card · add-PR experience</title>
+<style>
+  :root[data-theme="light"]{
+    --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+    --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+    --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+    --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,.10); --cp-accent-fg:#fff;
+    --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+    --cp-dev:#7c3aed; --cp-dev-soft:rgba(124,58,237,.10);
+    --cp-pr:#0891b2; --cp-pr-soft:rgba(8,145,178,.10);
+    --cp-here:#c026d3; --cp-here-soft:rgba(192,38,211,.12);
+  }
+  :root[data-theme="dark"]{
+    --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+    --cp-border:#343b47; --cp-border-strong:#4b5563;
+    --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+    --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,.16); --cp-accent-fg:#0c1322;
+    --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+    --cp-dev:#a78bfa; --cp-dev-soft:rgba(167,139,250,.16);
+    --cp-pr:#22d3ee; --cp-pr-soft:rgba(34,211,238,.16);
+    --cp-here:#e879f9; --cp-here-soft:rgba(232,121,249,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--cp-bg); color:var(--cp-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px; margin:0 auto; padding:20px 22px 80px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace}
+  .muted{color:var(--cp-text-muted)} .soft{color:var(--cp-text-soft)}
+  .top{display:flex; align-items:center; justify-content:space-between; gap:16px}
+  h1{font-size:19px; font-weight:650; letter-spacing:-.02em; margin:0}
+  .sub{color:var(--cp-text-muted); margin:4px 0 20px; font-size:12.5px; max-width:94ch}
+  .toggle{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer}
+  .toggle:hover{border-color:var(--cp-border-strong)}
+
+  .lbl{font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); margin:26px 0 9px}
+  .lbl:first-of-type{margin-top:6px}
+  .lbl .q{font-weight:500; text-transform:none; letter-spacing:0; color:var(--cp-text-muted); margin-left:8px; font-size:11.5px}
+
+  /* unified card shell */
+  .card{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .chead{display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid var(--cp-border)}
+  .chead .ttl{font-weight:650; font-size:14.5px; letter-spacing:-.01em}
+  .chead .wi{font-size:11.5px; color:var(--cp-text-soft)}
+  .chead .wi a{color:var(--cp-accent); text-decoration:none}
+  .chead .wi a:hover{text-decoration:underline}
+  .chead .sp{flex:1}
+  .yah{width:26px; height:26px; border-radius:8px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-soft); display:grid; place-items:center; cursor:pointer; font-size:14px}
+  .yah.on{border-color:color-mix(in srgb,var(--cp-here) 55%,var(--cp-border)); background:var(--cp-here-soft); color:var(--cp-here)}
+
+  /* flow strip */
+  .flow{padding:16px 18px 15px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg-elevated)}
+  .flow-line{display:flex; align-items:stretch; gap:0; position:relative}
+  .node{display:flex; align-items:center; gap:7px; padding:9px 13px; border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); cursor:pointer; font-size:12.5px; min-width:0; transition:border-color .15s, box-shadow .15s}
+  .node .dot{width:8px; height:8px; border-radius:50%; flex:none}
+  .node .bn{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .node .num{color:var(--cp-text-soft); font-size:11px}
+  .node.dev .dot{background:var(--cp-dev)}
+  .node.pr  .dot{background:var(--cp-pr)}
+  .node.dev.active{border-color:color-mix(in srgb,var(--cp-dev) 55%,var(--cp-border)); box-shadow:0 0 0 3px var(--cp-dev-soft)}
+  .node.pr.active{border-color:color-mix(in srgb,var(--cp-pr) 55%,var(--cp-border)); box-shadow:0 0 0 3px var(--cp-pr-soft)}
+  .node.ghost{border-style:dashed; background:transparent; color:var(--cp-text-soft); cursor:pointer}
+  .node.ghost .dot{background:var(--cp-border-strong)}
+  .node.ghost:hover{border-color:var(--cp-pr); color:var(--cp-pr)}
+  .connector{flex:1; position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 6px; min-width:96px}
+  .connector .rl{position:absolute; top:50%; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--cp-dev),var(--cp-pr)); opacity:.5}
+  .connector.ghostc .rl{background:var(--cp-border); opacity:1}
+  .cbadges{position:relative; z-index:2; display:flex; flex-direction:column; gap:3px; align-items:center}
+  .cbadge{background:var(--cp-surface); border:1px solid var(--cp-border); font-size:10px; font-weight:650; padding:1px 7px; border-radius:6px; white-space:nowrap; font-variant-numeric:tabular-nums}
+  .cbadge.to-pr{border-color:color-mix(in srgb,var(--cp-dev) 45%,var(--cp-border)); color:var(--cp-dev)}
+  .cbadge.to-dev{border-color:color-mix(in srgb,var(--cp-pr) 45%,var(--cp-border)); color:var(--cp-pr)}
+
+  /* PR rail — plain-text switchers (no pills) */
+  .prrail{display:flex; align-items:center; gap:2px; flex-wrap:wrap; margin-top:13px; padding-top:12px; border-top:1px dashed var(--cp-border); font-size:12px}
+  .prrail .rk{color:var(--cp-text-soft); font-weight:600; margin-right:8px; font-size:11px; letter-spacing:.02em; text-transform:uppercase}
+  .prsw{display:inline-flex; align-items:center; gap:6px; padding:4px 3px; cursor:pointer; color:var(--cp-text-muted); border-bottom:2px solid transparent; white-space:nowrap}
+  .prsw:not(:last-child){margin-right:2px}
+  .prsw .sd{width:7px; height:7px; border-radius:50%; flex:none}
+  .prsw .sd.green{background:var(--cp-success)} .prsw .sd.amber{background:var(--cp-warning)} .prsw .sd.merged{background:var(--cp-pr)}
+  .prsw .mono{font-size:11px; color:var(--cp-text-soft)}
+  .prsw:hover{color:var(--cp-text)}
+  .prsw.on{color:var(--cp-pr); border-bottom-color:var(--cp-pr); font-weight:650}
+  .prsw.stacked{margin-left:16px; position:relative}
+  .prsw.stacked::before{content:"↳"; position:absolute; left:-13px; color:var(--cp-text-soft); font-size:12px}
+  .sep{color:var(--cp-border-strong); margin:0 4px; user-select:none}
+  .prnew{display:inline-flex; align-items:center; gap:5px; padding:4px 9px; margin-left:6px; cursor:pointer; color:var(--cp-pr); font-weight:600; border:1px dashed color-mix(in srgb,var(--cp-pr) 45%,var(--cp-border)); border-radius:8px; background:transparent}
+  .prnew:hover{background:var(--cp-pr-soft)}
+
+  .node-states{display:flex; justify-content:space-between; gap:12px; margin-top:12px; font-size:10.5px; color:var(--cp-text-soft)}
+  .node-states .ns{display:flex; align-items:center; gap:5px; flex-wrap:wrap}
+  .node-states .ns.pr{justify-content:flex-end; text-align:right}
+  .node-states b{color:var(--cp-text-muted); font-weight:650}
+  .node-states .ok{color:var(--cp-success); font-weight:700}
+  .node-states .warn{color:var(--cp-warning); font-weight:700}
+  .node-states .base{color:var(--cp-text-soft)}
+  .node-states .base b{color:var(--cp-pr)}
+
+  /* state -> action */
+  .state-act{display:flex; align-items:center; gap:12px; margin-top:13px; padding:11px 13px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; flex-wrap:wrap}
+  .state-chip{font-size:12px; font-weight:600; padding:3px 0; color:var(--cp-text)}
+  .state-chip .k{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle}
+  .state-chip.dev .k{background:var(--cp-dev)} .state-chip.pr .k{background:var(--cp-pr)}
+  .flow-btn{border:1px solid var(--cp-accent); background:var(--cp-accent); color:var(--cp-accent-fg); font-size:12.5px; font-weight:600; padding:7px 14px; border-radius:9px; cursor:pointer}
+  .flow-btn:hover{background:var(--cp-accent-hover)}
+  .flow-btn.pr{border-color:var(--cp-pr); background:var(--cp-pr); color:#fff}
+  .flow-btn.ghost{background:transparent; color:var(--cp-pr); border-color:color-mix(in srgb,var(--cp-pr) 45%,var(--cp-border))}
+  .flow-btn.ghost:hover{background:var(--cp-pr-soft)}
+  .flow-btn:disabled{opacity:.45; cursor:not-allowed}
+  .flow-hint{font-size:11px; color:var(--cp-text-soft); flex:1; min-width:180px}
+  .sp{flex:1}
+
+  /* lower surface stub */
+  .surface{padding:15px 18px 18px}
+  .stubtabs{display:flex; gap:2px; margin-bottom:12px}
+  .stubtab{font-size:12px; padding:5px 10px; border-radius:7px 7px 0 0; color:var(--cp-text-muted); cursor:default}
+  .stubtab.on{color:var(--cp-pr); box-shadow:inset 0 -2px 0 var(--cp-pr); font-weight:650}
+  .stubtab .n{color:var(--cp-text-soft); font-size:11px}
+  .feed{list-style:none; margin:0; padding:0}
+  .feed li{display:flex; align-items:baseline; gap:10px; padding:9px 2px; border-top:1px solid var(--cp-border); font-size:12.5px}
+  .feed li:first-child{border-top:0}
+  .feed .ic{width:16px; text-align:center; color:var(--cp-text-soft); flex:none}
+  .feed .tx{flex:1; color:var(--cp-text-muted)}
+  .feed .tx b.ok{color:var(--cp-success)} .feed .tx b.warn{color:var(--cp-warning)} .feed .tx b.bad{color:var(--cp-danger)}
+  .feed .sub{color:var(--cp-text-soft)}
+  .feed .mt{color:var(--cp-text-soft); font-size:11px; white-space:nowrap}
+  a.mt{color:var(--cp-accent); text-decoration:none; font-weight:600} a.mt:hover{text-decoration:underline}
+
+  .empty{padding:26px 18px 28px; text-align:center; color:var(--cp-text-muted)}
+  .empty .eh{font-size:13.5px; font-weight:600; color:var(--cp-text); margin-bottom:5px}
+  .empty .es{font-size:12px; max-width:52ch; margin:0 auto 15px}
+
+  /* New PR sheet */
+  .sheetwrap{position:relative; margin-top:8px}
+  .sheet{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,.14); max-width:560px; overflow:hidden}
+  .sheet .sh{display:flex; align-items:center; gap:9px; padding:14px 16px; border-bottom:1px solid var(--cp-border)}
+  .sheet .sh .dot{width:9px;height:9px;border-radius:50%;background:var(--cp-pr)}
+  .sheet .sh b{font-size:14px; font-weight:650}
+  .sheet .sh .x{margin-left:auto; color:var(--cp-text-soft); cursor:pointer; font-size:16px}
+  .sbody{padding:15px 16px}
+  .fld{margin-bottom:15px}
+  .fld label{display:block; font-size:11.5px; font-weight:650; color:var(--cp-text-muted); margin-bottom:6px}
+  .fld input, .fld select{width:100%; border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text); border-radius:9px; padding:8px 10px; font-size:13px; font-family:inherit}
+  .fld input:focus, .fld select:focus{outline:none; border-color:var(--cp-pr); box-shadow:0 0 0 3px var(--cp-pr-soft)}
+  .fld .hint{font-size:11px; color:var(--cp-text-soft); margin-top:5px}
+  .fld .hint .mono{color:var(--cp-pr)}
+  .stackprev{background:var(--cp-pr-soft); border:1px solid color-mix(in srgb,var(--cp-pr) 30%,var(--cp-border)); border-radius:10px; padding:10px 12px; font-size:12px; color:var(--cp-text-muted); margin-bottom:15px}
+  .stackprev .chain{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--cp-text); margin-top:5px; font-size:12px}
+  .stackprev .chain .b{color:var(--cp-pr); font-weight:600}
+  .radios{display:flex; flex-direction:column; gap:8px}
+  .radio{display:flex; align-items:flex-start; gap:9px; padding:9px 11px; border:1px solid var(--cp-border); border-radius:10px; cursor:pointer; font-size:12.5px}
+  .radio.on{border-color:var(--cp-pr); background:var(--cp-pr-soft)}
+  .radio .rr{width:15px;height:15px;border-radius:50%;border:2px solid var(--cp-border-strong); flex:none; margin-top:1px; position:relative}
+  .radio.on .rr{border-color:var(--cp-pr)}
+  .radio.on .rr::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--cp-pr)}
+  .radio .rt b{display:block; color:var(--cp-text); font-weight:600; margin-bottom:1px}
+  .radio .rt span{color:var(--cp-text-soft)}
+  .sfoot{display:flex; align-items:center; gap:10px; padding:13px 16px; border-top:1px solid var(--cp-border); background:var(--cp-bg-elevated)}
+  .sfoot .np{font-size:11px; color:var(--cp-text-soft); flex:1}
+  .sfoot .np .mono{color:var(--cp-pr)}
+  .btn{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); font-size:12.5px; font-weight:600; padding:8px 14px; border-radius:9px; cursor:pointer}
+  .btn.prim{border-color:var(--cp-pr); background:var(--cp-pr); color:#fff}
+  .note{font-size:12px; color:var(--cp-text-muted); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:10px; padding:11px 13px; margin:10px 0 4px; max-width:94ch}
+  .note b{color:var(--cp-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Multiple PRs per dev card · the add-PR experience</h1>
+      <div class="sub">Dev is singular (one <span class="mono">dev/&lt;slug&gt;</span> workbench per work item). PRs are plural — each is a proposal derived from the dev branch, on its own <span class="mono">pr/&lt;slug&gt;-&lt;label&gt;</span> branch in exactly one worktree. The lower surface always focuses one PR at a time; a plain-text <b>PR rail</b> switches focus and adds PRs.</div>
+    </div>
+    <button class="toggle" onclick="toggleTheme()">◐ theme</button>
+  </div>
+
+  <!-- ============ STATE A: no PR yet (first-PR / empty) ============ -->
+  <div class="lbl">A · No PR yet <span class="q">how the first PR is born</span></div>
+  <div class="card">
+    <div class="chead">
+      <span class="dot" style="width:9px;height:9px;border-radius:50%;background:var(--cp-dev)"></span>
+      <span class="ttl">Fix autoscaler thrash</span>
+      <span class="wi">· <a href="#" onclick="return false">#4821</a></span>
+      <span class="sp"></span>
+      <button class="yah on" title="You are here">◎</button>
+    </div>
+    <div class="flow">
+      <div class="flow-line">
+        <span class="node dev active">
+          <span class="dot"></span><span class="bn">dev/fix-scaler</span>
+        </span>
+        <span class="connector ghostc"><span class="rl"></span>
+          <span class="cbadges"><span class="cbadge to-pr">3 commits ready →</span></span>
+        </span>
+        <span class="node ghost" onclick="openSheet('first')">
+          <span class="dot"></span><span class="bn">No PR yet</span>
+        </span>
+      </div>
+      <div class="node-states">
+        <div class="ns dev"><span class="ok">● clean</span> · <b>3 commits</b> · synced 6m ago</div>
+        <div class="ns pr">nothing proposed yet</div>
+      </div>
+      <div class="state-act">
+        <span class="state-chip dev"><span class="k"></span>Dev has 3 commits — nothing proposed for review yet</span>
+        <span class="sp"></span>
+        <button class="flow-btn ghost" onclick="openSheet('first')">＋ Open PR from dev →</button>
+      </div>
+    </div>
+    <div class="surface">
+      <div class="empty">
+        <div class="eh">No pull request on this work item</div>
+        <div class="es">Open a PR to propose your dev work for review. It branches from <span class="mono">dev/fix-scaler</span> onto a base you choose (usually <span class="mono">main</span>), and gets its own <span class="mono">pr/fix-scaler-…</span> branch.</div>
+        <button class="flow-btn ghost" onclick="openSheet('first')">＋ Open PR from dev</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STATE B: exactly one PR ============ -->
+  <div class="lbl">B · One PR <span class="q">the common case — rail collapses to a single switcher + “New PR”</span></div>
+  <div class="card">
+    <div class="chead">
+      <span class="dot" style="width:9px;height:9px;border-radius:50%;background:var(--cp-dev)"></span>
+      <span class="ttl">Fix autoscaler thrash</span>
+      <span class="wi">· <a href="#" onclick="return false">#4821</a></span>
+      <span class="sp"></span>
+      <button class="yah on" title="You are here">◎</button>
+    </div>
+    <div class="flow">
+      <div class="flow-line">
+        <span class="node dev active"><span class="dot"></span><span class="bn">dev/fix-scaler</span></span>
+        <span class="connector"><span class="rl"></span>
+          <span class="cbadges">
+            <span class="cbadge to-pr">2 to promote →</span>
+            <span class="cbadge to-dev">← 1 review to pull</span>
+          </span>
+        </span>
+        <span class="node pr"><span class="dot"></span><span class="bn">pr/fix-scaler</span> <span class="num">!62389</span></span>
+      </div>
+      <div class="prrail">
+        <span class="rk">PRs</span>
+        <span class="prsw on"><span class="sd green"></span>core <span class="mono">!62389</span></span>
+        <span class="prnew" onclick="openSheet('new')">＋ New PR</span>
+      </div>
+      <div class="node-states">
+        <div class="ns dev"><span class="ok">● clean</span> · <b>↑2 to promote</b></div>
+        <div class="ns pr">checks <span class="ok">✓ green</span> · 1 / 2 approvals · <b class="warn">↓1 review commit</b></div>
+      </div>
+      <div class="state-act">
+        <span class="state-chip dev"><span class="k"></span>Dev is 2 commits ahead — ready to promote</span>
+        <button class="flow-btn" onclick="return false">Promote to PR (2) →</button>
+        <span class="flow-hint">fast-forwards <span class="mono">pr/fix-scaler</span>; the review commit auto-pulls back to dev.</span>
+      </div>
+    </div>
+    <div class="surface">
+      <div class="stubtabs">
+        <span class="stubtab on">📋 Overview</span>
+        <span class="stubtab">🗃 Code</span>
+        <span class="stubtab">🤖 Agents <span class="n">1</span></span>
+        <span class="stubtab">👥 Review <span class="n">2</span></span>
+      </div>
+      <ul class="feed">
+        <li><span class="ic">↑</span><span class="tx"><b class="warn">2 commits ready</b> to promote to <span class="sub">pr/fix-scaler</span></span><a class="mt" href="#" onclick="return false">diff</a></li>
+        <li><span class="ic">✔</span><span class="tx">CI checks <b class="ok">green</b> <span class="sub">· 5 / 5</span></span><span class="mt">4m</span></li>
+        <li><span class="ic">💬</span><span class="tx">2 review comments <span class="sub">· 1 unresolved</span></span><a class="mt" href="#" onclick="return false">open</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ STATE C: multiple PRs, one stacked ============ -->
+  <div class="lbl">C · Multiple PRs <span class="q">a stack: follow-up is based on core · rail focuses one at a time</span></div>
+  <div class="card">
+    <div class="chead">
+      <span class="dot" style="width:9px;height:9px;border-radius:50%;background:var(--cp-dev)"></span>
+      <span class="ttl">Fix autoscaler thrash</span>
+      <span class="wi">· <a href="#" onclick="return false">#4821</a></span>
+      <span class="sp"></span>
+      <button class="yah on" title="You are here">◎</button>
+    </div>
+    <div class="flow">
+      <div class="flow-line">
+        <span class="node dev" onclick="return false"><span class="dot"></span><span class="bn">dev/fix-scaler</span></span>
+        <span class="connector"><span class="rl"></span>
+          <span class="cbadges">
+            <span class="cbadge to-pr" id="cbTo">0 to promote →</span>
+            <span class="cbadge to-dev" id="cbFrom">← 2 review to pull</span>
+          </span>
+        </span>
+        <span class="node pr active" id="prNode"><span class="dot"></span><span class="bn" id="prNodeBn">pr/fix-scaler-followup</span> <span class="num" id="prNodeNum">!62410</span></span>
+      </div>
+      <div class="prrail">
+        <span class="rk">PRs</span>
+        <span class="prsw" data-pr="core" onclick="pickPr('core',this)"><span class="sd merged"></span>core <span class="mono">!62389</span></span>
+        <span class="prsw on stacked" data-pr="followup" onclick="pickPr('followup',this)"><span class="sd amber"></span>follow-up <span class="mono">!62410</span></span>
+        <span class="prnew" onclick="openSheet('new')">＋ New PR</span>
+      </div>
+      <div class="node-states">
+        <div class="ns dev"><span class="ok">● clean</span> · <b id="devAtom">↓2 to pull</b></div>
+        <div class="ns pr" id="prAtom"><span class="base">base <b>core !62389</b></span> · checks <span class="warn">◷ running</span> · 0 / 1 approvals · <b class="warn">↓2 review commits</b></div>
+      </div>
+      <div class="state-act" id="cState">
+        <span class="state-chip pr"><span class="k"></span><span id="cChip">follow-up has 2 review commits — pull them back to dev</span></span>
+        <button class="flow-btn pr" id="cBtn" onclick="return false">Pull review to dev (2) ↓</button>
+        <span class="flow-hint" id="cHint">stacked on <span class="mono">core</span>. Merging core first rebases follow-up automatically.</span>
+      </div>
+    </div>
+    <div class="surface">
+      <div class="stubtabs">
+        <span class="stubtab on">📋 Overview <span class="n" id="cWhich">follow-up</span></span>
+        <span class="stubtab">🗃 Code</span>
+        <span class="stubtab">🤖 Agents <span class="n">1</span></span>
+        <span class="stubtab">👥 Review <span class="n">1</span></span>
+      </div>
+      <ul class="feed" id="cFeed">
+        <li><span class="ic">↓</span><span class="tx"><b class="warn">2 review commits waiting</b> to pull back to dev</span><a class="mt" href="#" onclick="return false">pull ↓</a></li>
+        <li><span class="ic">🔗</span><span class="tx">Stacked on <b class="ok">core !62389</b> <span class="sub">· up to date</span></span><a class="mt" href="#" onclick="return false">view stack</a></li>
+        <li><span class="ic">◷</span><span class="tx">CI checks <b class="warn">running</b> <span class="sub">· 3 / 5</span></span><span class="mt">now</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Switching the rail</b> (State C) re-points the spine's PR node, the state atoms, the state→action bar, and the lower surface to the selected PR — one PR in focus at a time, consistent with the Dev|PR rule. Try clicking <b>core</b> / <b>follow-up</b> above. The dev node stays the single shared workbench for all of them.
+  </div>
+
+  <!-- ============ New PR sheet ============ -->
+  <div class="lbl">D · The “New PR” sheet <span class="q">same sheet for the first PR and for stacking a later one</span></div>
+  <div class="sheetwrap">
+    <div class="sheet">
+      <div class="sh"><span class="dot"></span><b id="sheetTitle">New pull request</b><span class="x">✕</span></div>
+      <div class="sbody">
+        <div class="fld">
+          <label>Title</label>
+          <input type="text" value="Fix autoscaler thrash — debounce follow-up" />
+          <div class="hint">Prefilled from the work item; edit freely.</div>
+        </div>
+        <div class="fld">
+          <label>Base — what this PR merges into</label>
+          <div class="radios">
+            <label class="radio" id="baseMain" onclick="pickBase('main')">
+              <span class="rr"></span>
+              <span class="rt"><b>main</b><span>Standalone PR straight off the dev work.</span></span>
+            </label>
+            <label class="radio on" id="baseStack" onclick="pickBase('core')">
+              <span class="rr"></span>
+              <span class="rt"><b>Stack on: core !62389</b><span>This PR merges into core, not main — builds a reviewable stack.</span></span>
+            </label>
+          </div>
+        </div>
+        <div class="stackprev" id="stackPrev">
+          <span>Stack preview</span>
+          <div class="chain">main ← <span class="b">core !62389</span> ← <span class="b">follow-up (new)</span></div>
+        </div>
+        <div class="fld">
+          <label>Scope — which dev commits this PR carries</label>
+          <select>
+            <option>Commits since core (2) — recommended for a stack</option>
+            <option>All dev commits (5)</option>
+            <option>Choose a range…</option>
+          </select>
+          <div class="hint">A stacked PR should only carry what’s new on top of its base.</div>
+        </div>
+      </div>
+      <div class="sfoot">
+        <span class="np">Creates <span class="mono" id="npBranch">pr/fix-scaler-followup</span> in its own worktree.</span>
+        <button class="btn">Cancel</button>
+        <button class="btn prim">Create PR</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:22px">
+    <b>Branch &amp; worktree invariant.</b> Every PR gets a distinct branch — <span class="mono">pr/fix-scaler</span>, <span class="mono">pr/fix-scaler-followup</span>, … — each attached in exactly one worktree. Because no branch is ever wanted in two places, dev↔pr and pr↔pr collisions are structurally impossible regardless of how many PRs a card has.
+  </div>
+</div>
+
+<script>
+  function toggleTheme(){
+    const r=document.documentElement;
+    r.setAttribute('data-theme', r.getAttribute('data-theme')==='dark'?'light':'dark');
+  }
+
+  // State C rail switching
+  const PRS = {
+    core: {
+      bn:'pr/fix-scaler-core', num:'!62389',
+      cbTo:'0 to promote →', cbFrom:'← 0 review to pull',
+      devAtom:'in sync', prAtom:'<span class="base">base <b>main</b></span> · checks <span class="ok">✓ green</span> · 2 / 2 approvals · ready',
+      chip:'core is green with 2 approvals — mergeable', btn:'Merge core →', btnCls:'flow-btn pr',
+      hint:'follow-up (stacked on core) rebases automatically after merge.',
+      which:'core',
+      feed:[
+        ['✔','CI checks <b class="ok">green</b> <span class="sub">· 5 / 5</span>','','4m'],
+        ['👍','<b class="ok">2 / 2 approvals</b> <span class="sub">· ready to merge</span>','','1h'],
+        ['🔗','<b class="ok">follow-up</b> is stacked on this <span class="sub">· will rebase on merge</span>','a','']
+      ]
+    },
+    followup: {
+      bn:'pr/fix-scaler-followup', num:'!62410',
+      cbTo:'0 to promote →', cbFrom:'← 2 review to pull',
+      devAtom:'↓2 to pull', prAtom:'<span class="base">base <b>core !62389</b></span> · checks <span class="warn">◷ running</span> · 0 / 1 approvals · <b class="warn">↓2 review commits</b>',
+      chip:'follow-up has 2 review commits — pull them back to dev', btn:'Pull review to dev (2) ↓', btnCls:'flow-btn pr',
+      hint:'stacked on <span class="mono">core</span>. Merging core first rebases follow-up automatically.',
+      which:'follow-up',
+      feed:[
+        ['↓','<b class="warn">2 review commits waiting</b> to pull back to dev','a','pull ↓'],
+        ['🔗','Stacked on <b class="ok">core !62389</b> <span class="sub">· up to date</span>','a','view stack'],
+        ['◷','CI checks <b class="warn">running</b> <span class="sub">· 3 / 5</span>','','now']
+      ]
+    }
+  };
+  function pickPr(id, el){
+    document.querySelectorAll('#prNode').forEach(()=>{});
+    document.querySelectorAll('.prrail .prsw').forEach(s=>s.classList.remove('on'));
+    el.classList.add('on');
+    const p=PRS[id];
+    document.getElementById('prNodeBn').textContent=p.bn;
+    document.getElementById('prNodeNum').textContent=p.num;
+    document.getElementById('cbTo').textContent=p.cbTo;
+    document.getElementById('cbFrom').textContent=p.cbFrom;
+    document.getElementById('devAtom').textContent=p.devAtom;
+    document.getElementById('prAtom').innerHTML=p.prAtom;
+    document.getElementById('cChip').textContent=p.chip;
+    const btn=document.getElementById('cBtn'); btn.textContent=p.btn; btn.className=p.btnCls;
+    document.getElementById('cHint').innerHTML=p.hint;
+    document.getElementById('cWhich').textContent=p.which;
+    document.getElementById('cFeed').innerHTML=p.feed.map(f=>{
+      const mt = f[2]==='a' ? '<a class="mt" href="#" onclick="return false">'+f[3]+'</a>' : (f[3]?'<span class="mt">'+f[3]+'</span>':'');
+      return '<li><span class="ic">'+f[0]+'</span><span class="tx">'+f[1]+'</span>'+mt+'</li>';
+    }).join('');
+  }
+
+  // Sheet base picker
+  function pickBase(b){
+    document.getElementById('baseMain').classList.toggle('on', b==='main');
+    document.getElementById('baseStack').classList.toggle('on', b!=='main');
+    document.getElementById('stackPrev').style.display = b==='main' ? 'none' : 'block';
+    document.getElementById('npBranch').textContent = b==='main' ? 'pr/fix-scaler-2' : 'pr/fix-scaler-followup';
+  }
+  function openSheet(kind){
+    document.getElementById('sheetTitle').textContent = kind==='first' ? 'Open PR from dev' : 'New pull request';
+    document.querySelector('.sheetwrap').scrollIntoView({behavior:'smooth', block:'center'});
+    if(kind==='first'){ pickBase('main'); }
+  }
+</script>
+</body>
+</html>

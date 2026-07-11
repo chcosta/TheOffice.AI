@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Flow — dev ↔ pr pair, boards surfaced, jump navigation</title>
+<style>
+  :root[data-theme="light"]{
+    --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+    --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+    --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+    --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,.10); --cp-accent-fg:#fff;
+    --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+    --cp-dev:#7c3aed; --cp-dev-soft:rgba(124,58,237,.10);
+    --cp-pr:#0891b2; --cp-pr-soft:rgba(8,145,178,.10);
+  }
+  :root[data-theme="dark"]{
+    --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+    --cp-border:#343b47; --cp-border-strong:#4b5563;
+    --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+    --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,.16); --cp-accent-fg:#0c1322;
+    --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+    --cp-dev:#a78bfa; --cp-dev-soft:rgba(167,139,250,.16);
+    --cp-pr:#22d3ee; --cp-pr-soft:rgba(34,211,238,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--cp-bg); color:var(--cp-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px; margin:0 auto; padding:24px 24px 90px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace}
+  .muted{color:var(--cp-text-muted)} .soft{color:var(--cp-text-soft)}
+  .top{display:flex; align-items:center; justify-content:space-between; gap:16px}
+  h1{font-size:20px; font-weight:650; letter-spacing:-.02em; margin:0}
+  .sub{color:var(--cp-text-muted); margin:6px 0 20px; font-size:13px; max-width:88ch}
+  .toggle{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer}
+  .toggle:hover{border-color:var(--cp-border-strong)}
+
+  .pair{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start}
+  @media (max-width:960px){ .pair{grid-template-columns:1fr} }
+
+  .card{background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:0 1px 3px color-mix(in srgb,var(--cp-bg) 65%,transparent); overflow:hidden; scroll-margin-top:16px; transition:box-shadow .3s ease, border-color .3s ease}
+  .card.focus{border-color:color-mix(in srgb,var(--cp-accent) 55%,var(--cp-border)); box-shadow:0 0 0 3px var(--cp-accent-soft), 0 6px 20px color-mix(in srgb,var(--cp-bg) 40%,transparent)}
+  .card.dev-card{border-top:3px solid var(--cp-dev)}
+  .card.pr-card{border-top:3px solid var(--cp-pr)}
+  .pad{padding:15px 16px}
+
+  .kind{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; letter-spacing:.01em; text-transform:uppercase}
+  .kind.dev{color:var(--cp-dev)} .kind.pr{color:var(--cp-pr)}
+  .kind .kd{width:8px;height:8px;border-radius:50%}
+  .kind.dev .kd{background:var(--cp-dev)} .kind.pr .kd{background:var(--cp-pr)}
+
+  .c-h{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-top:8px}
+  .c-title{font-weight:650; font-size:16px; letter-spacing:-.01em}
+  .c-loc{font-size:11.5px; color:var(--cp-text-soft); margin-top:3px}
+  .wi{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--cp-accent); text-decoration:none; margin-top:6px; font-weight:550}
+  .c-acts{display:flex; gap:5px; flex:0 0 auto}
+  .c-act{border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); width:28px; height:28px; border-radius:8px; cursor:pointer; font-size:13px}
+  .c-act:hover{border-color:var(--cp-border-strong)}
+
+  /* boards surfaced in header */
+  .boards-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; font-size:12px}
+  .boards-row .lbl{color:var(--cp-text-soft)}
+  .boards-row a{color:var(--cp-text-muted); text-decoration:none; font-weight:550; border-bottom:1px solid transparent}
+  .boards-row a:hover{color:var(--cp-text); border-bottom-color:var(--cp-border-strong)}
+  .boards-row .dotsep{color:var(--cp-border-strong)}
+  .boards-row .addb{color:var(--cp-accent); font-weight:550; cursor:pointer}
+
+  .summary{margin-top:12px; background:var(--cp-bg-elevated); border:1px solid var(--cp-border); border-radius:10px; padding:10px 12px}
+  .summary .sh{display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; margin-bottom:4px}
+  .summary .st{font-size:12.5px; color:var(--cp-text-muted); line-height:1.5}
+  .stats{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:var(--cp-text-soft); margin-top:8px}
+  .stats .vv{color:var(--cp-text); font-weight:550}
+  .ok{color:var(--cp-success); font-weight:600} .warn{color:var(--cp-warning); font-weight:600} .working{color:var(--cp-dev); font-weight:600}
+
+  /* shared flow strip — identical on both cards, nodes are jump links */
+  .flow{margin-top:13px; border:1px solid var(--cp-border); border-radius:11px; padding:11px; background:linear-gradient(180deg,var(--cp-bg-elevated),var(--cp-surface))}
+  .flow-line{display:flex; align-items:center; gap:0}
+  .node{display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:9px; white-space:nowrap; font-weight:600; font-size:12.5px; border:1px solid transparent; cursor:default}
+  .node .dot{width:8px; height:8px; border-radius:50%}
+  .node.dev{background:var(--cp-dev-soft); color:var(--cp-dev)} .node.dev .dot{background:var(--cp-dev)}
+  .node.pr{background:var(--cp-pr-soft); color:var(--cp-pr)} .node.pr .dot{background:var(--cp-pr)}
+  .node.jump{cursor:pointer}
+  .node.jump:hover{border-color:currentColor; text-decoration:none}
+  .node.jump::after{content:"↗"; font-size:10px; opacity:.65; margin-left:1px}
+  .node.here{outline:2px dashed color-mix(in srgb,currentColor 45%,transparent); outline-offset:1px}
+  .node .bn{font-family:ui-monospace,monospace; font-size:11.5px} .node .num{opacity:.7; font-family:ui-monospace,monospace; font-size:11px}
+  .connector{flex:1; position:relative; height:22px; display:flex; align-items:center; min-width:32px}
+  .connector .rl{position:absolute; left:0; right:0; top:50%; height:2px; transform:translateY(-50%)}
+  .connector.fwd .rl{background:linear-gradient(90deg,var(--cp-dev),color-mix(in srgb,var(--cp-pr) 60%,var(--cp-dev)))}
+  .connector.back .rl{background:linear-gradient(90deg,color-mix(in srgb,var(--cp-pr) 60%,var(--cp-dev)),var(--cp-dev))}
+  .connector .badge{position:relative; margin:0 auto; z-index:2; background:var(--cp-surface); border:1px solid color-mix(in srgb,var(--cp-dev) 40%,var(--cp-border)); color:var(--cp-dev); font-size:10px; font-weight:650; padding:1px 7px; border-radius:999px}
+  .flow-act{display:flex; align-items:center; gap:9px; margin-top:10px; flex-wrap:wrap}
+  .flow-btn{border:1px solid var(--cp-dev); background:var(--cp-dev); color:#fff; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; transition:transform .14s cubic-bezier(.2,.7,.2,1)}
+  .flow-btn.pr{border-color:var(--cp-pr); background:var(--cp-pr)}
+  .flow-btn:hover{transform:translateY(-1px)}
+  .flow-hint{font-size:11px; color:var(--cp-text-soft); flex:1; min-width:140px}
+
+  /* pane tabs — boards no longer a tab */
+  .ptabs{display:flex; gap:18px; margin:14px 0 0; padding:0 16px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg-elevated)}
+  .ptab{background:none; border:0; padding:10px 0; margin:0; cursor:pointer; position:relative; color:var(--cp-text-muted); font-size:12.5px; font-weight:550; display:inline-flex; align-items:center; gap:6px}
+  .ptab .n{color:var(--cp-text-soft); font-size:11.5px; font-weight:500}
+  .ptab.on{color:var(--cp-text)}
+  .ptab.on::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--cp-accent); border-radius:2px}
+  .pane{display:none} .pane.on{display:block}
+
+  .wtbox{border:1px solid var(--cp-border); border-radius:11px; overflow:hidden}
+  .wt{padding:11px 12px}
+  .wt + .wt{border-top:1px solid var(--cp-border)}
+  .wt.secondary{background:var(--cp-bg-elevated)}
+  .wt-h{display:flex; align-items:center; justify-content:space-between; gap:10px}
+  .wt-role{display:inline-flex; align-items:center; gap:7px; font-weight:650; font-size:12.5px}
+  .wt-role .tagdot{width:9px;height:9px;border-radius:50%}
+  .wt.build .wt-role{color:var(--cp-dev)} .wt.build .tagdot{background:var(--cp-dev)}
+  .wt.review .wt-role{color:var(--cp-pr)} .wt.review .tagdot{background:var(--cp-pr)}
+  .wt-sub{font-size:11px; color:var(--cp-text-soft); font-family:ui-monospace,monospace}
+  .wt-status{font-size:11px}
+  .path{font-family:ui-monospace,monospace; font-size:10.5px; color:var(--cp-text-soft); margin:7px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .tools{display:flex; flex-wrap:wrap; gap:5px}
+  .tbtn{border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:7px; padding:4px 8px; font-size:11px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:4px}
+  .tbtn:hover{border-color:var(--cp-border-strong)}
+  .tbtn.primary{border-color:var(--cp-dev); background:var(--cp-dev); color:#fff}
+  .tbtn.prbtn{border-color:var(--cp-pr); background:var(--cp-pr); color:#fff}
+  .disc{margin-top:2px}
+  .disc summary{cursor:pointer; font-size:11px; font-weight:600; list-style:none; display:inline-flex; align-items:center; gap:6px; padding:2px 0}
+  .disc.dev summary{color:var(--cp-dev)} .disc.pr summary{color:var(--cp-pr)}
+  .disc summary::-webkit-details-marker{display:none}
+
+  .ag-group{margin-bottom:13px}
+  .ag-gh{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:650; margin-bottom:7px}
+  .ag-gh .tagdot{width:9px;height:9px;border-radius:50%}
+  .ag-gh.build{color:var(--cp-dev)} .ag-gh.build .tagdot{background:var(--cp-dev)}
+  .ag-gh.review{color:var(--cp-pr)} .ag-gh.review .tagdot{background:var(--cp-pr)}
+  .ag-gh .where{margin-left:auto; font-weight:500; color:var(--cp-text-soft); font-size:10.5px; font-family:ui-monospace,monospace}
+  .ag-row{display:flex; align-items:center; gap:9px; padding:7px 9px; border:1px solid var(--cp-border); border-radius:9px; background:var(--cp-surface)}
+  .ag-row + .ag-row{margin-top:5px}
+  .ag-emoji{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--cp-surface-soft)}
+  .ag-nm{font-weight:600; font-size:12.5px} .ag-nm .ro{font-weight:500;color:var(--cp-text-soft);font-size:10.5px}
+  .ag-d{font-size:10.5px;color:var(--cp-text-soft)}
+  .ag-st{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--cp-success);font-weight:600}
+  .ag-st .sdot{width:7px;height:7px;border-radius:50%;background:var(--cp-success)}
+  .minibtn{border:1px solid var(--cp-border);background:var(--cp-surface);border-radius:7px;padding:3px 8px;font-size:10.5px;cursor:pointer;color:var(--cp-text-muted)}
+  .minibtn:hover{border-color:var(--cp-border-strong)}
+
+  .cap{font-size:12px;font-weight:650;display:flex;align-items:center;gap:7px;margin:0 0 6px}
+  .rep{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface)}
+  .rep + .rep{margin-top:5px}
+  .rep .origin{font-size:9.5px;font-weight:650;padding:1px 6px;border-radius:6px;font-family:ui-monospace,monospace}
+  .rep .origin.dev{background:var(--cp-dev-soft);color:var(--cp-dev)}
+  .rep .origin.pr{background:var(--cp-pr-soft);color:var(--cp-pr)}
+  .rep .rn{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rep .rt{font-size:10.5px;color:var(--cp-text-soft)}
+
+  .callout{border:1px dashed var(--cp-border-strong);border-radius:10px;padding:13px 15px;margin-top:22px;background:var(--cp-bg-elevated);font-size:12.5px;color:var(--cp-text-muted)}
+  .callout b{color:var(--cp-text)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--cp-text-soft);margin:0 0 16px}
+  .legend b{color:var(--cp-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🔀 Code Flow — the dev &amp; pr pair</h1>
+    <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+  </div>
+  <p class="sub">One change = two cards that mirror each other. Boards live in the header (not a tab). The <b>flow strip is identical on both cards</b> and its branch nodes are jump links — click <span class="mono">pr/…</span> on the dev card to hop to the PR card, click <span class="mono">dev/…</span> on the PR card to hop back.</p>
+  <p class="legend"><span>🖱 <b>Try it:</b> click the <span class="mono">↗</span> branch nodes in either flow strip to jump.</span></p>
+
+  <div class="pair">
+    <!-- ============ DEV CARD ============ -->
+    <div class="card dev-card" id="dev-card">
+      <div class="pad">
+        <span class="kind dev"><span class="kd"></span>Dev card · you build here</span>
+        <div class="c-h">
+          <div style="min-width:0">
+            <div class="c-title">Remove old autoscaler</div>
+            <div class="c-loc mono">dnceng / internal / dotnet-helix-service</div>
+            <a class="wi" href="#">📋 #2148731 · Active</a>
+          </div>
+          <div class="c-acts"><button class="c-act" title="Refresh">↻</button><button class="c-act" title="Edit">✎</button></div>
+        </div>
+
+        <!-- boards surfaced -->
+        <div class="boards-row">
+          <span class="lbl">📋 On:</span>
+          <a href="#">Scaler board</a><span class="dotsep">·</span>
+          <a href="#">Helix ops</a>
+          <span class="addb">＋ pin</span>
+        </div>
+
+        <div class="summary">
+          <div class="sh">🧠 Summary <span class="soft" style="font-weight:400;font-size:10px;margin-left:auto">⚡ 2m ago</span></div>
+          <div class="st">Removal is complete and green locally. Two commits haven't reached the PR yet; a steward fixed a lint issue on the PR side that's already pulled back.</div>
+          <div class="stats">
+            <span>workbench <span class="vv ok">● clean</span></span>
+            <span>flow <span class="vv working">↑2 ahead</span></span>
+          </div>
+        </div>
+
+        <!-- SHARED flow strip -->
+        <div class="flow">
+          <div class="flow-line">
+            <span class="node dev here" title="This card">
+              <span class="dot"></span><span class="bn">dev/fix-scaler</span>
+            </span>
+            <span class="connector fwd"><span class="rl"></span><span class="badge">2 ahead →</span></span>
+            <span class="node pr jump" data-jump="pr-card" title="Open the PR card">
+              <span class="dot"></span><span class="bn">pr/fix-scaler</span> <span class="num">!62389</span>
+            </span>
+          </div>
+          <div class="flow-act">
+            <button class="flow-btn">Update PR (2) →</button>
+            <span class="flow-hint">pushes your 2 commits onto <span class="mono">pr/fix-scaler</span>. Review commits auto-pull back when clean.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ptabs">
+        <button class="ptab on" data-p="code">🗃 Code</button>
+        <button class="ptab" data-p="agents">🤖 Agents <span class="n">2</span></button>
+        <button class="ptab" data-p="artifacts">📊 Artifacts <span class="n">2</span></button>
+      </div>
+
+      <div class="pane on pad" data-pane="code">
+        <div class="wtbox">
+          <div class="wt build">
+            <div class="wt-h">
+              <span class="wt-role"><span class="tagdot"></span>Workbench <span class="wt-sub">dev/fix-scaler</span></span>
+              <span class="wt-status ok">● clean · ↑2</span>
+            </div>
+            <div class="path">C:\w\dotnet-helix-service__dev-fix-scaler</div>
+            <div class="tools">
+              <button class="tbtn primary">🔵 VS Code</button>
+              <button class="tbtn">🤖 CLI</button>
+              <button class="tbtn">📁 Explorer</button>
+              <button class="tbtn">⌨ Cmd</button>
+              <button class="tbtn">🔍 Diff</button>
+              <button class="tbtn">↕ Commits</button>
+              <button class="tbtn">⟳ Sync</button>
+              <button class="tbtn">🧹 Clean</button>
+            </div>
+          </div>
+          <div class="wt review secondary">
+            <div class="wt-h">
+              <span class="wt-role"><span class="tagdot"></span>Review copy <span class="wt-sub">pr/fix-scaler · !62389</span></span>
+              <span class="wt-status ok">● clean</span>
+            </div>
+            <details class="disc pr">
+              <summary>Open review copy ▾ &nbsp;·&nbsp; or <span class="node pr jump" data-jump="pr-card" style="padding:1px 7px;font-size:11px">go to PR card ↗</span></summary>
+              <div class="path">C:\w\dotnet-helix-service__pr-fix-scaler</div>
+              <div class="tools">
+                <button class="tbtn prbtn">🔵 VS Code</button>
+                <button class="tbtn">🤖 CLI</button>
+                <button class="tbtn">📁 Explorer</button>
+                <button class="tbtn">⌨ Cmd</button>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane pad" data-pane="agents">
+        <div class="ag-group">
+          <div class="ag-gh build"><span class="tagdot"></span>Workbench agents <span class="where">dev/fix-scaler</span></div>
+          <div class="ag-row">
+            <span class="ag-emoji">🛠</span>
+            <span style="flex:1"><div class="ag-nm">Dev agent</div><div class="ag-d">Builds, tests &amp; validates in the workbench.</div></span>
+            <span class="ag-st"><span class="sdot"></span>ready</span>
+          </div>
+          <div class="ag-row">
+            <span class="ag-emoji">✅</span>
+            <span style="flex:1"><div class="ag-nm">Validation</div><div class="ag-d">Runs the suite; writes a report artifact.</div></span>
+            <span class="ag-st"><span class="sdot"></span>ready</span>
+          </div>
+        </div>
+        <div class="flow-hint">Review-side agents live on the PR card → <span class="node pr jump" data-jump="pr-card" style="padding:1px 7px;font-size:11px">pr/fix-scaler ↗</span></div>
+      </div>
+
+      <div class="pane pad" data-pane="artifacts">
+        <p class="cap">📊 Reports</p>
+        <div class="rep"><span class="origin dev">dev</span><span class="rn">📄 validation-report.html</span><span class="rt">2m</span><button class="minibtn">👁</button></div>
+        <div class="rep"><span class="origin dev">dev</span><span class="rn">📝 build-summary.md</span><span class="rt">12m</span><button class="minibtn">👁</button></div>
+      </div>
+    </div>
+
+    <!-- ============ PR CARD (mirror) ============ -->
+    <div class="card pr-card" id="pr-card">
+      <div class="pad">
+        <span class="kind pr"><span class="kd"></span>PR card · review &amp; merge</span>
+        <div class="c-h">
+          <div style="min-width:0">
+            <div class="c-title">Remove old autoscaler <span class="soft" style="font-weight:500">!62389</span></div>
+            <div class="c-loc mono">dnceng / internal / dotnet-helix-service</div>
+            <a class="wi" href="#">📋 #2148731 · Active</a>
+          </div>
+          <div class="c-acts"><button class="c-act" title="Refresh">↻</button><button class="c-act" title="Open on web">🌐</button></div>
+        </div>
+
+        <div class="boards-row">
+          <span class="lbl">📋 On:</span>
+          <a href="#">Scaler board</a><span class="dotsep">·</span>
+          <a href="#">Helix ops</a>
+          <span class="addb">＋ pin</span>
+        </div>
+
+        <div class="summary">
+          <div class="sh">🧠 Summary <span class="soft" style="font-weight:400;font-size:10px;margin-left:auto">⚡ 2m ago</span></div>
+          <div class="st">PR is open with all checks green. 2 reviewers approved. A steward fix landed on <span class="mono">pr/…</span> and has already flowed back into the dev workbench.</div>
+          <div class="stats">
+            <span>checks <span class="vv ok">passing</span></span>
+            <span>reviews <span class="vv ok">2 approved</span></span>
+            <span>merge <span class="vv ok">ready</span></span>
+          </div>
+        </div>
+
+        <!-- SAME flow strip, arrow points back -->
+        <div class="flow">
+          <div class="flow-line">
+            <span class="node dev jump" data-jump="dev-card" title="Open the dev card">
+              <span class="dot"></span><span class="bn">dev/fix-scaler</span>
+            </span>
+            <span class="connector back"><span class="rl"></span><span class="badge" style="border-color:color-mix(in srgb,var(--cp-pr) 40%,var(--cp-border));color:var(--cp-pr)">← in sync</span></span>
+            <span class="node pr here" title="This card">
+              <span class="dot"></span><span class="bn">pr/fix-scaler</span> <span class="num">!62389</span>
+            </span>
+          </div>
+          <div class="flow-act">
+            <button class="flow-btn pr">Merge PR ✓</button>
+            <span class="flow-hint">Review changes flow back to <span class="mono">dev/fix-scaler</span> automatically. Nothing pending to pull.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ptabs">
+        <button class="ptab on" data-p="prcode">🗃 Code</button>
+        <button class="ptab" data-p="pragents">🤖 Agents <span class="n">1</span></button>
+        <button class="ptab" data-p="prartifacts">📊 Artifacts <span class="n">2</span></button>
+        <button class="ptab" data-p="prreview">👥 Review <span class="n">2</span></button>
+      </div>
+
+      <div class="pane on pad" data-pane="prcode">
+        <div class="wtbox">
+          <div class="wt review">
+            <div class="wt-h">
+              <span class="wt-role"><span class="tagdot"></span>Review copy <span class="wt-sub">pr/fix-scaler</span></span>
+              <span class="wt-status ok">● clean · checks green</span>
+            </div>
+            <div class="path">C:\w\dotnet-helix-service__pr-fix-scaler</div>
+            <div class="tools">
+              <button class="tbtn prbtn">🔵 VS Code</button>
+              <button class="tbtn">🤖 CLI</button>
+              <button class="tbtn">📁 Explorer</button>
+              <button class="tbtn">⌨ Cmd</button>
+              <button class="tbtn">🔍 Diff vs main</button>
+              <button class="tbtn">↕ Commits</button>
+              <button class="tbtn">⟳ Sync</button>
+            </div>
+          </div>
+          <div class="wt build secondary">
+            <div class="wt-h">
+              <span class="wt-role"><span class="tagdot"></span>Source (workbench) <span class="wt-sub">dev/fix-scaler</span></span>
+              <span class="wt-status ok">● clean</span>
+            </div>
+            <details class="disc dev">
+              <summary>Peek at source ▾ &nbsp;·&nbsp; or <span class="node dev jump" data-jump="dev-card" style="padding:1px 7px;font-size:11px">go to dev card ↗</span></summary>
+              <div class="path">C:\w\dotnet-helix-service__dev-fix-scaler</div>
+              <div class="tools">
+                <button class="tbtn primary">🔵 VS Code</button>
+                <button class="tbtn">📁 Explorer</button>
+                <button class="tbtn">🔍 Diff</button>
+              </div>
+              <div class="flow-hint" style="margin-top:8px">You build on the dev card, not here. This is the source of what's under review.</div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane pad" data-pane="pragents">
+        <div class="ag-group">
+          <div class="ag-gh review"><span class="tagdot"></span>Review agents <span class="where">pr/fix-scaler</span></div>
+          <div class="ag-row">
+            <span class="ag-emoji">🦆</span>
+            <span style="flex:1"><div class="ag-nm">Rubber-duck reviewer <span class="ro">· read-only</span></div><div class="ag-d">Reviews the published PR; writes a report, never code.</div></span>
+            <span class="ag-st"><span class="sdot"></span>ready</span>
+          </div>
+        </div>
+        <div class="flow-hint">Build agents live on the dev card → <span class="node dev jump" data-jump="dev-card" style="padding:1px 7px;font-size:11px">dev/fix-scaler ↗</span></div>
+      </div>
+
+      <div class="pane pad" data-pane="prartifacts">
+        <p class="cap">📊 Reports</p>
+        <div class="rep"><span class="origin pr">pr</span><span class="rn">📄 pr-rubber-duck-report.html</span><span class="rt">4m</span><button class="minibtn">👁</button></div>
+        <div class="rep"><span class="origin pr">pr</span><span class="rn">📄 pr-review-report.html</span><span class="rt">1h</span><button class="minibtn">👁</button></div>
+      </div>
+
+      <div class="pane pad" data-pane="prreview">
+        <p class="cap">👥 Reviewers</p>
+        <div class="rep"><span class="rn">✅ alice — approved</span><span class="rt">20m</span></div>
+        <div class="rep"><span class="rn">✅ bob — approved</span><span class="rt">1h</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>Boards are always visible</b> in the header "On:" row (plain links, no tab, no pills). <b>The PR card mirrors the dev card</b> — same skeleton, but it foregrounds the <span class="mono">pr/…</span> worktree and the arrow points back. <b>The flow strip is the shared spine</b>: identical on both cards, its branch nodes (the <span class="mono">↗</span> ones) jump you to the counterpart. Learn one card, you know both.
+  </div>
+</div>
+
+<script>
+  // pane switching, scoped per card
+  document.querySelectorAll('.card').forEach(function(card){
+    card.querySelectorAll('.ptab').forEach(function(t){
+      t.addEventListener('click', function(){
+        card.querySelectorAll('.ptab').forEach(x=>x.classList.remove('on'));
+        t.classList.add('on');
+        var p = t.dataset.p;
+        card.querySelectorAll('.pane').forEach(function(pane){
+          pane.classList.toggle('on', pane.dataset.pane === p);
+        });
+      });
+    });
+  });
+
+  // jump between cards via flow-strip nodes
+  function jumpTo(id){
+    var el = document.getElementById(id);
+    if(!el) return;
+    document.querySelectorAll('.card').forEach(c=>c.classList.remove('focus'));
+    el.classList.add('focus');
+    el.scrollIntoView({behavior:'smooth', block:'center'});
+    setTimeout(()=>el.classList.remove('focus'), 1600);
+  }
+  document.querySelectorAll('.node.jump').forEach(function(n){
+    n.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); jumpTo(n.dataset.jump); });
+  });
+</script>
+</body>
+</html>

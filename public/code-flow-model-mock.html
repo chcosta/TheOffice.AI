@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Flow — dev ↔ pr model</title>
+<style>
+  :root[data-theme="light"]{
+    --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+    --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+    --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+    --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,.10); --cp-accent-fg:#fff;
+    --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+    --cp-dev:#7c3aed; --cp-dev-soft:rgba(124,58,237,.10);
+    --cp-pr:#0891b2; --cp-pr-soft:rgba(8,145,178,.10);
+  }
+  :root[data-theme="dark"]{
+    --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+    --cp-border:#343b47; --cp-border-strong:#4b5563;
+    --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+    --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,.16); --cp-accent-fg:#0c1322;
+    --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+    --cp-dev:#a78bfa; --cp-dev-soft:rgba(167,139,250,.16);
+    --cp-pr:#22d3ee; --cp-pr-soft:rgba(34,211,238,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--cp-bg); color:var(--cp-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1060px; margin:0 auto; padding:28px 24px 110px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Menlo,Consolas,monospace}
+  h1{font-size:22px; font-weight:650; letter-spacing:-.02em; margin:0}
+  h2{font-size:14px; font-weight:650; letter-spacing:-.01em; margin:34px 0 4px; text-wrap:balance}
+  .sub{color:var(--cp-text-muted); margin:6px 0 0; max-width:74ch}
+  .muted{color:var(--cp-text-muted)}
+  .soft{color:var(--cp-text-soft)}
+
+  .top{display:flex; align-items:flex-start; justify-content:space-between; gap:16px}
+  .toggle{
+    border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted);
+    border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;
+  }
+  .toggle:hover{border-color:var(--cp-border-strong)}
+
+  /* mental model strip */
+  .model{
+    display:flex; align-items:stretch; gap:0; margin-top:18px;
+    border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; background:var(--cp-surface);
+  }
+  .model .col{flex:1; padding:16px 18px}
+  .model .col + .col{border-left:1px solid var(--cp-border)}
+  .model .tag{display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px}
+  .dot{width:9px; height:9px; border-radius:50%}
+  .dot.dev{background:var(--cp-dev)} .dot.pr{background:var(--cp-pr)} .dot.main{background:var(--cp-text-soft)}
+  .model .desc{color:var(--cp-text-muted); font-size:12.5px; margin-top:6px; line-height:1.45}
+  .br{font-size:12px; margin-top:8px}
+
+  /* linked change unit */
+  .unit{
+    display:grid; grid-template-columns:1fr 132px 1fr; align-items:stretch; gap:0;
+    margin-top:16px;
+  }
+  @media (max-width:760px){ .unit{grid-template-columns:1fr; } }
+
+  .lane{
+    background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px;
+    box-shadow:0 1px 2px color-mix(in srgb,var(--cp-bg) 70%,transparent);
+    padding:14px 16px; display:flex; flex-direction:column; gap:10px; min-height:132px;
+  }
+  .lane-h{display:flex; align-items:center; gap:9px}
+  .lane-role{font-size:11px; font-weight:650; letter-spacing:.02em; text-transform:uppercase}
+  .lane.dev .lane-role{color:var(--cp-dev)}
+  .lane.pr  .lane-role{color:var(--cp-pr)}
+  .lane-title{font-weight:600; font-size:14px; letter-spacing:-.01em}
+  .lane .branch{font-size:12px; color:var(--cp-text-muted)}
+  .lane .meta{display:flex; align-items:center; gap:14px; font-size:12px; color:var(--cp-text-soft); margin-top:auto}
+  .lane .meta .k{display:inline-flex; align-items:center; gap:5px}
+  .glyph{width:14px; height:14px; display:inline-block; opacity:.85}
+  .agent{color:var(--cp-accent); font-weight:550}
+  .dirty{color:var(--cp-warning)}
+  .clean{color:var(--cp-success)}
+
+  /* the flow rail (the star) */
+  .rail{position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 6px}
+  .rail .line{position:absolute; top:50%; left:0; right:0; height:2px; background:var(--cp-border); transform:translateY(-50%)}
+  .rail .flowbtn{
+    position:relative; z-index:2; border:1px solid var(--cp-accent); background:var(--cp-accent); color:var(--cp-accent-fg);
+    border-radius:9px; padding:8px 12px; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap;
+    box-shadow:0 1px 3px color-mix(in srgb,var(--cp-accent) 40%,transparent); transition:transform .14s cubic-bezier(.2,.7,.2,1);
+    display:inline-flex; align-items:center; gap:7px;
+  }
+  .rail .flowbtn:hover{transform:translateY(-1px)}
+  .rail .flowbtn.ghost{background:var(--cp-surface); color:var(--cp-text-muted); border-color:var(--cp-border)}
+  .rail .flowbtn.ghost:hover{border-color:var(--cp-border-strong)}
+  .rail .dir{position:relative; z-index:2; font-size:11px; color:var(--cp-text-soft); margin-top:8px; text-align:center; white-space:nowrap}
+  .rail .arrow{position:absolute; z-index:1; top:50%; transform:translateY(-50%); font-size:15px}
+  .arrow.right{right:8px; color:var(--cp-dev)}
+  .arrow.left{left:8px; color:var(--cp-pr)}
+  .rail.sync .flowbtn{cursor:default; box-shadow:none}
+
+  @media (max-width:760px){
+    .rail{padding:10px 0}
+    .rail .line{top:0; bottom:0; left:50%; right:auto; width:2px; height:auto; transform:translateX(-50%)}
+  }
+
+  .caption{font-size:12px; color:var(--cp-text-soft); margin:9px 2px 0}
+  .note{border:1px dashed var(--cp-border-strong); border-radius:10px; padding:14px 16px; margin-top:18px; background:var(--cp-bg-elevated); font-size:13px; color:var(--cp-text-muted)}
+  .note b{color:var(--cp-text)}
+  ul.tight{margin:8px 0 0; padding-left:18px} ul.tight li{margin:3px 0}
+  .kbd{font-family:ui-monospace,monospace; font-size:11.5px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:5px; padding:1px 5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Code Flow — the dev&nbsp;↔&nbsp;pr model</h1>
+      <p class="sub">One change lives on two branches that flow into each other. You always know <b>where you're working</b> and there's only ever <b>one right next move</b>.</p>
+    </div>
+    <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+  </div>
+
+  <!-- mental model -->
+  <div class="model">
+    <div class="col">
+      <div class="tag"><span class="dot dev"></span> Dev card — your workbench</div>
+      <div class="desc">Where you and dev agents build. All hand edits happen here. Never blocked by review.</div>
+      <div class="br mono muted">dev/<span style="color:var(--cp-dev)">fix-scaler</span></div>
+    </div>
+    <div class="col">
+      <div class="tag"><span class="dot pr"></span> PR card — the review copy</div>
+      <div class="desc">Where reviewer &amp; steward agents run and where feedback commits land. You rarely hand-edit here.</div>
+      <div class="br mono muted">pr/<span style="color:var(--cp-pr)">fix-scaler</span></div>
+    </div>
+    <div class="col">
+      <div class="tag"><span class="dot main"></span> main — the target</div>
+      <div class="desc">The PR merges <span class="mono">pr/…</span> into main. Dev never touches main directly.</div>
+      <div class="br mono muted">main</div>
+    </div>
+  </div>
+
+  <!-- STATE: no PR yet -->
+  <h2>1 · Building — no PR yet</h2>
+  <div class="unit">
+    <div class="lane dev">
+      <div class="lane-h"><span class="lane-role">Dev</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">dev/fix-scaler</div>
+      <div class="meta">
+        <span class="k dirty">● 3 uncommitted</span>
+        <span class="k agent">◆ dev agent active</span>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="line"></div>
+      <button class="flowbtn">Open PR →</button>
+      <div class="dir">promotes to <span class="mono">pr/fix-scaler</span></div>
+    </div>
+    <div class="lane pr" style="opacity:.55; border-style:dashed">
+      <div class="lane-h"><span class="lane-role">PR</span></div>
+      <div class="lane-title muted">No pull request yet</div>
+      <div class="branch muted">Opening a PR creates <span class="mono">pr/fix-scaler</span> + its own worktree.</div>
+    </div>
+  </div>
+  <div class="caption">The dev card leads with the one action that matters: publish your work as a PR.</div>
+
+  <!-- STATE: dev ahead -->
+  <h2>2 · You have unpromoted work — dev is ahead</h2>
+  <div class="unit">
+    <div class="lane dev">
+      <div class="lane-h"><span class="lane-role">Dev</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">dev/fix-scaler</div>
+      <div class="meta">
+        <span class="k clean">● clean</span>
+        <span class="k">↑ 2 ahead of pr</span>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="line"></div>
+      <span class="arrow right">→</span>
+      <button class="flowbtn">Update PR (2)</button>
+      <div class="dir">push 2 commits to <span class="mono">pr/…</span></div>
+    </div>
+    <div class="lane pr">
+      <div class="lane-h"><span class="lane-role">PR</span> <span class="muted mono" style="font-size:12px">!62389</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">pr/fix-scaler</div>
+      <div class="meta">
+        <span class="k clean">● clean</span>
+        <span class="k">checks passing</span>
+      </div>
+    </div>
+  </div>
+  <div class="caption">Direction is obvious (→). One button moves your work across; the PR card stays read-only for you.</div>
+
+  <!-- STATE: pr ahead -->
+  <h2>3 · Review pushed changes — dev is behind</h2>
+  <div class="unit">
+    <div class="lane dev">
+      <div class="lane-h"><span class="lane-role">Dev</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">dev/fix-scaler</div>
+      <div class="meta">
+        <span class="k clean">● clean</span>
+        <span class="k" style="color:var(--cp-warning)">↓ 1 behind pr</span>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="line"></div>
+      <span class="arrow left">←</span>
+      <button class="flowbtn">Pull review (1)</button>
+      <div class="dir">bring 1 commit back to <span class="mono">dev/…</span></div>
+    </div>
+    <div class="lane pr">
+      <div class="lane-h"><span class="lane-role">PR</span> <span class="muted mono" style="font-size:12px">!62389</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">pr/fix-scaler</div>
+      <div class="meta">
+        <span class="k agent">◆ steward agent fixed lint</span>
+      </div>
+    </div>
+  </div>
+  <div class="caption">When a reviewer or steward agent commits on <span class="mono">pr/…</span>, the arrow flips (←) and the action becomes "Pull review". You never lose their work.</div>
+
+  <!-- STATE: in sync -->
+  <h2>4 · In sync — nothing shouting at you</h2>
+  <div class="unit">
+    <div class="lane dev">
+      <div class="lane-h"><span class="lane-role">Dev</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">dev/fix-scaler</div>
+      <div class="meta"><span class="k clean">● clean · in sync</span></div>
+    </div>
+    <div class="rail sync">
+      <div class="line" style="background:color-mix(in srgb,var(--cp-success) 40%,var(--cp-border))"></div>
+      <button class="flowbtn ghost" style="color:var(--cp-success); border-color:color-mix(in srgb,var(--cp-success) 45%,var(--cp-border))">✓ In sync</button>
+    </div>
+    <div class="lane pr">
+      <div class="lane-h"><span class="lane-role">PR</span> <span class="muted mono" style="font-size:12px">!62389</span></div>
+      <div class="lane-title">Remove old autoscaler</div>
+      <div class="branch mono">pr/fix-scaler</div>
+      <div class="meta"><span class="k clean">● clean · checks passing</span></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Why this can't collide or go detached.</b>
+    <ul class="tight">
+      <li><b>One branch, one worktree.</b> <span class="mono">dev/…</span> only ever lives in the dev worktree; <span class="mono">pr/…</span> only in the pr worktree. Git's "already used by" fatal becomes impossible.</li>
+      <li><b>No borrowing.</b> The dev card never checks out the PR's branch — so the old <span class="kbd">🔀 PR branch</span> button is removed.</li>
+      <li><b>Movement is explicit &amp; directional.</b> Promote (→) and Pull&nbsp;review (←) are the only ways commits cross, and the rail shows ahead/behind so you always see state.</li>
+      <li><b>Agents have a home.</b> Dev agents → dev worktree. Reviewer/steward agents → pr worktree. Their reports surface on the matching card.</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

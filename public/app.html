@@ -773,6 +773,12 @@
       --cp-success: #16a34a;
       --cp-danger: #dc2626;
       --cp-warning: #f59e0b;
+      /* Code Flow role colors (theme-independent semantics): dev=violet, pr=cyan, here=magenta */
+      --cp-dev: #7c3aed;
+      --cp-dev-soft: color-mix(in srgb, #7c3aed 12%, var(--cp-surface));
+      --cp-pr: #0e7490;
+      --cp-pr-soft: color-mix(in srgb, #0e7490 12%, var(--cp-surface));
+      --cp-here: #c026d3;
       --cp-link: #1f2937;
       --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
       --cp-overlay: color-mix(in srgb, var(--cp-surface) 80%, transparent);
@@ -813,6 +819,11 @@
       --cp-success: #4ade80;
       --cp-danger: #f87171;
       --cp-warning: #fbbf24;
+      --cp-dev: #a78bfa;
+      --cp-dev-soft: color-mix(in srgb, #a78bfa 16%, var(--cp-surface));
+      --cp-pr: #22d3ee;
+      --cp-pr-soft: color-mix(in srgb, #22d3ee 15%, var(--cp-surface));
+      --cp-here: #e879f9;
       --cp-link: #e5e7eb;
       --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
       --cp-overlay: color-mix(in srgb, var(--cp-surface) 88%, transparent);
@@ -11208,6 +11219,47 @@
               .dvx-card { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); padding:12px 14px; }
               .dvx-card.sel { border-color:color-mix(in srgb, var(--cp-accent) 45%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--cp-accent) 25%, transparent); }
               .dvx-boardsel { font-size:11px; padding:2px 6px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); border:1px solid var(--cp-border); background:var(--cp-surface-soft); color:var(--cp-text-soft); max-width:180px; }
+              /* ===== branch-graph: dev node + fanned PR branches (nodes ARE the toggle) ===== */
+              .cf-flowgraph { position:relative; padding:8px 6px 6px; min-height:64px; }
+              .cf-edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible; }
+              /* edge labels/badges are HTML chips (not SVG text) so they stay readable over the curve */
+              .cf-edgelabel { position:absolute; z-index:2; transform:translate(-50%,-50%); pointer-events:none; white-space:nowrap; }
+              .cf-edgelabel span { font-size:10px; font-weight:650; color:var(--cp-dev); background:var(--cp-bg); padding:1px 6px; border-radius:6px; letter-spacing:.01em; }
+              .cf-edgebadge { position:absolute; z-index:2; display:flex; flex-direction:column; gap:3px; align-items:center; transform:translate(-50%,-50%); pointer-events:none; }
+              .cf-cbadge { background:var(--cp-surface); border:1px solid var(--cp-border); font-size:10px; font-weight:650; padding:1px 7px; border-radius:6px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+              .cf-cbadge.to-pr { border-color:color-mix(in srgb,var(--cp-dev) 45%,var(--cp-border)); color:var(--cp-dev); }
+              .cf-cbadge.to-dev { border-color:color-mix(in srgb,var(--cp-pr) 45%,var(--cp-border)); color:var(--cp-pr); }
+              .cf-gnodes { position:relative; z-index:1; display:flex; align-items:center; gap:clamp(64px, 16%, 190px); }
+              .cf-gdev { flex:none; }
+              .cf-gtree { display:flex; flex-direction:column; gap:14px; flex:1; min-width:0; }
+              .cf-chain { display:flex; align-items:center; gap:clamp(64px, 16%, 190px); }
+              .cf-gnode { display:inline-flex; flex-direction:column; gap:3px; padding:7px 11px; border-radius:calc(var(--cp-radius-scale, 1) * 10px); cursor:pointer; border:1px solid transparent; background:var(--cp-surface); transition:transform .12s, box-shadow .12s; align-self:flex-start; text-align:left; }
+              .cf-gnode:hover { transform:translateY(-1px); }
+              .cf-gnode .cf-gtop { display:flex; align-items:center; gap:6px; font-weight:650; font-size:12.5px; white-space:nowrap; }
+              .cf-gnode .cf-gtop .cf-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+              .cf-gnode .cf-gtop .cf-bn { font-family:ui-monospace,monospace; font-size:11.5px; }
+              .cf-gnode .cf-gtop .cf-num { opacity:.7; font-family:ui-monospace,monospace; font-size:11px; }
+              .cf-gnode .cf-gsub { font-size:10.5px; color:var(--cp-text-soft); display:flex; gap:5px; align-items:center; flex-wrap:wrap; white-space:nowrap; }
+              .cf-gnode.dev { background:var(--cp-dev-soft); color:var(--cp-dev); } .cf-gnode.dev .cf-gtop .cf-dot { background:var(--cp-dev); }
+              .cf-gnode.pr { background:var(--cp-pr-soft); color:var(--cp-pr); } .cf-gnode.pr .cf-gtop .cf-dot { background:var(--cp-pr); }
+              .cf-gnode.sel { box-shadow:0 0 0 2px currentColor; }
+              .cf-gnode.ghost { background:transparent; border:1px dashed var(--cp-border-strong); color:var(--cp-text-soft); font-weight:600; }
+              .cf-gnode.ghost:hover { border-color:var(--cp-pr); color:var(--cp-pr); }
+              .cf-gsub .cf-sd { width:7px; height:7px; border-radius:50%; flex:none; }
+              .cf-gsub .cf-sd.ok { background:var(--cp-success); } .cf-gsub .cf-sd.warn { background:var(--cp-warning); } .cf-gsub .cf-sd.run { background:var(--cp-warning); }
+              /* per-side contextual panel: one side at a time, swaps with the node toggle */
+              .cf-sidesum { margin-top:12px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); overflow:hidden; background:var(--cp-bg-elevated); }
+              .cf-sidesum.dev { border-color:color-mix(in srgb,var(--cp-dev) 30%,var(--cp-border)); }
+              .cf-sidesum.pr { border-color:color-mix(in srgb,var(--cp-pr) 30%,var(--cp-border)); }
+              .cf-sidehead { display:flex; align-items:center; gap:9px; padding:9px 12px; font-size:12.5px; font-weight:650; border-bottom:1px solid var(--cp-border); }
+              .cf-sidehead .cf-dot { width:9px; height:9px; border-radius:50%; flex:none; }
+              .cf-sidesum.dev .cf-sidehead { color:var(--cp-dev); } .cf-sidesum.dev .cf-sidehead .cf-dot { background:var(--cp-dev); }
+              .cf-sidesum.pr .cf-sidehead { color:var(--cp-pr); } .cf-sidesum.pr .cf-sidehead .cf-dot { background:var(--cp-pr); }
+              .cf-sidebody { padding:11px 12px; }
+              .cf-primeact { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--cp-dev); background:var(--cp-dev); color:#fff; border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; transition:transform .14s cubic-bezier(.2,.7,.2,1); }
+              .cf-primeact.pr { border-color:var(--cp-pr); background:var(--cp-pr); }
+              .cf-primeact:hover { transform:translateY(-1px); }
+              .cf-primeact:disabled { opacity:.45; cursor:not-allowed; transform:none; }
             </style>
             <!-- Icon-button tooltips are delegated (body-teleported) and normally live on
                  the Boards canvas; the dev studio is outside it, so mirror the flyout here
@@ -11450,7 +11502,51 @@
                                   <button class="cf-ws-pin" type="button" @click.stop="openQuickPin('dev', d.id, d.title || d.repo || 'Dev card', (d.org ? d.org + ' / ' : '') + (d.repo || ''), d)" x-text="devPinnedBoards(d).length ? '&#128204; Change' : '&#128204; Pin to a workspace'"></button>
                                 </div>
 
-                                <!-- Details &amp; actions drawer (rail + panes) -->
+                                <!-- Branch graph: dev node on the left, PRs fan right. Click a node to toggle
+                                     what the panes below focus on (dev workbench vs a PR's review). Independent
+                                     PRs = solid cyan off dev; a stacked PR = dashed violet + gated-by label; a
+                                     dashed ghost node opens the New-PR flow. -->
+                                <div class="cf-flowgraph" :id="'cfFlow-' + d.id" x-init="requestAnimationFrame(() => cfDrawEdges(d))" @resize.window.debounce.150ms="cfDrawEdges(d)">
+                                  <svg class="cf-edges" :id="'cfEdges-' + d.id" aria-hidden="true"></svg>
+                                  <div class="cf-gnodes">
+                                    <div class="cf-gdev">
+                                      <div class="cf-gnode dev" :class="{ sel: cfNodeSel(d,'dev'), 'cf-here': yahIsOn('dev:'+d.id) }" data-node="dev" role="button" tabindex="0" @click="cfFocusNode(d,'dev')" @keydown.enter.prevent="cfFocusNode(d,'dev')" :title="'Dev branch — ' + cfGraphModel(d).dev.branch">
+                                        <div class="cf-gtop"><span class="cf-dot"></span><span class="cf-bn" x-text="cfGraphModel(d).dev.branch"></span></div>
+                                        <div class="cf-gsub"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' ahead'"></span><span x-show="cfGraphModel(d).dev.syncedAgo" x-text="cfGraphModel(d).dev.syncedAgo"></span><span x-show="!cfGraphModel(d).dev.ahead && !cfGraphModel(d).dev.syncedAgo">dev workbench</span></div>
+                                      </div>
+                                    </div>
+                                    <div class="cf-gtree">
+                                      <template x-for="chain in cfGraphChains(d)" :key="'cfch-'+d.id+'-'+(chain.nodes[0] ? chain.nodes[0].key : 'x')">
+                                        <div class="cf-chain">
+                                          <template x-for="n in chain.nodes" :key="'cfn-'+d.id+'-'+n.key">
+                                            <div class="cf-gnode" :class="{ pr: n.kind==='pr', ghost: n.kind==='ghost', sel: cfNodeSel(d,n.key), 'cf-here': n.kind==='pr' && yahIsOn('pr:'+d.id+':'+n.key) }" :data-node="n.key" role="button" tabindex="0" @click="cfFocusNode(d,n.key)" @keydown.enter.prevent="cfFocusNode(d,n.key)">
+                                              <template x-if="n.kind==='pr'"><div><div class="cf-gtop"><span class="cf-dot"></span><span class="cf-num" x-text="n.num"></span><span class="cf-bn" x-text="n.bn"></span></div><div class="cf-gsub"><span class="cf-sd" :class="cfNodeDot(n)"></span><span x-text="n.checks"></span></div></div></template>
+                                              <template x-if="n.kind==='ghost'"><div class="cf-gtop"><span x-text="n.label"></span></div></template>
+                                            </div>
+                                          </template>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <!-- Contextual side summary — swaps with the selected node -->
+                                <template x-if="cfView(d)==='dev'">
+                                  <div class="cf-sidesum dev">
+                                    <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfGraphModel(d).dev.branch"></strong><span class="hint" style="font-size:11px">Dev workbench</span></div>
+                                    <div class="cf-sidebody"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' commit(s) ahead — ready to promote to a PR.'"></span><span x-show="!cfGraphModel(d).dev.ahead">This dev branch owns its own worktree. Build, test &amp; validate here — nothing is pushed without you.</span></div>
+                                    <button class="cf-primeact" type="button" :disabled="cfDevAction(d).disabled" @click="(cfDevAction(d).kind==='openpr' || cfDevAction(d).kind==='promote') ? cfNewPr(d) : null" x-text="cfDevAction(d).label"></button>
+                                  </div>
+                                </template>
+                                <template x-if="cfView(d)==='pr' && cfCurPr(d)">
+                                  <div class="cf-sidesum pr">
+                                    <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfCurPr(d).num + ' · ' + cfCurPr(d).bn"></strong><span class="hint" style="font-size:11px">PR review</span></div>
+                                    <div class="cf-sidebody" style="display:flex;flex-direction:column;gap:3px"><span x-show="cfCurPr(d).approvals" x-text="'Approvals: ' + cfCurPr(d).approvals"></span><span x-text="'Checks: ' + cfCurPr(d).checks"></span><span x-show="cfCurPr(d).promote > 0" x-text="cfCurPr(d).promote + ' to promote from dev →'"></span><span x-show="cfCurPr(d).pull > 0" x-text="'← ' + cfCurPr(d).pull + ' review to pull'"></span><span x-show="cfPrCanMerge(cfCurPr(d))" style="color:var(--cp-success)">✓ Ready to merge</span></div>
+                                    <a class="cf-primeact pr" :href="cfCurPr(d).href || '#'" target="_blank" rel="noopener" x-show="cfCurPr(d).href" @click.stop>Open PR ↗</a>
+                                  </div>
+                                </template>
+
+                                                                <!-- Details &amp; actions drawer (rail + panes) -->
                                 <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
                                     <div class="cf-pane" x-show="devActivePane(d)==='repos'">
@@ -25698,6 +25794,8 @@
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
                     drawerOpen: (() => { try { return JSON.parse(localStorage.getItem('cfDrawerOpen') || '{}') || {}; } catch { return {}; } })(),
           pane: {},              // prKey -> active drawer pane id
+          gnode: {},             // devId -> selected branch-graph node key ('dev' | slotId)
+          gview: {},             // devId -> 'dev' | 'pr' (node-click state toggle)
 grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })(),
           changes: {},           // prKey -> { open, loading, dirty, changed[], ignored[] } uncommitted-change breakdown
           histOpen: {},          // prKey -> bool: report-history list expanded
@@ -48648,6 +48746,205 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         openDevStat(st, ev) {
           if (st && st.href && st.href !== '#') { try { ev.stopPropagation(); } catch {} window.open(st.href, '_blank', 'noopener'); }
+        },
+        // ================= Code Flow branch-graph (dev/PR studio) =================
+        // Adapter: real dev-item -> {dev,prs} the branch graph renders. Production is
+        // one-PR-per-repo (primary d.pr + repos[] slots), so every PR is independent
+        // (base=main, stacked=false) => a solid-cyan fan off the dev node. A genuine
+        // same-repo stacked PR (pr/<slug>-<N> based on another PR) is a later phase.
+        cfGraphModel(d) {
+          if (!d) return { dev: { branch: '', ahead: 0, syncedAgo: '' }, prs: [] };
+          const ahead = (d.git && Number(d.git.ahead)) || 0;
+          const syncedAgo = (d.git && d.git.syncedAgo) || (d.worktreeStatus === 'ready' ? 'synced' : '');
+          const dev = { branch: d.branch || ('dev/' + this._cfSlug(d)), ahead, syncedAgo };
+          const prs = [];
+          const slots = this.devSlots(d);
+          for (const s of slots) {
+            if (!s.prId && !s.pr) continue;
+            const pr = s.pr || {};
+            prs.push({
+              key: (s.id || 'primary'),
+              slotId: s.id || 'primary',
+              bn: (pr.sourceBranch || pr.sourceRefName || ('pr/' + this._cfSlug(d))).replace(/^refs\/heads\//, ''),
+              num: s.prId ? ('!' + s.prId) : 'PR',
+              base: (pr.targetBranch || pr.targetRefName || 'main').replace(/^refs\/heads\//, ''),
+              approvals: this._cfApprovals(pr),
+              checks: this._cfChecks(pr),
+              promote: ahead,          // to-promote count lives on the dev->pr edge
+              pull: 0,                 // review-to-pull; real count is a P1 addition
+              stacked: false,          // all independent until same-repo fan lands
+              wt: s.worktreePath || '',
+              title: (pr.title || ('!' + (s.prId || ''))),
+              state: (pr.status || 'open'),
+              repo: s.repo || '',
+              href: this.slotPrHref(s),
+              _slot: s
+            });
+          }
+          return { dev, prs };
+        },
+        _cfSlug(d) {
+          const raw = (d && (d.branch || d.workItemId || d.title || d.id) || '').toString();
+          return raw.replace(/^refs\/heads\//, '').replace(/^(dev|pr)\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 40) || 'work';
+        },
+        _cfApprovals(pr) {
+          const rs = Array.isArray(pr && pr.reviewers) ? pr.reviewers : [];
+          const req = rs.filter(r => r && r.isRequired);
+          const denom = req.length || rs.length;
+          if (!denom) return '';
+          const pool = req.length ? req : rs;
+          const ok = pool.filter(r => Number(r.vote) >= 5).length;
+          return ok + ' / ' + denom;
+        },
+        _cfChecks(pr) {
+          if (!pr) return 'pending';
+          if (Number(pr.failedChecks) > 0) return 'failing';
+          if (Number(pr.pendingChecks) > 0) return 'pending';
+          if (pr.readyToMerge || pr.checks === 'green' || (pr.mergeStatus && /succeeded/i.test(pr.mergeStatus))) return 'green';
+          return 'pending';
+        },
+        // Chains for x-for: independent PRs (base=main) each seed a chain off dev; a
+        // stacked PR nests under its parent PR. Returns [{nodes:[...]}], plus a ghost.
+        cfGraphChains(d) {
+          const m = this.cfGraphModel(d);
+          const prs = m.prs;
+          const childrenOf = bn => prs.filter(p => p.stacked && p.base === bn);
+          const chains = [];
+          const walk = (p, arr) => {
+            arr.push({
+              key: p.key, kind: 'pr', bn: p.bn, num: p.num, parent: p.stacked ? p.base : 'dev',
+              stacked: p.stacked, checks: p.checks, title: p.title
+            });
+            for (const c of childrenOf(p.bn)) walk(c, arr);
+          };
+          for (const p of prs) {
+            if (p.stacked) continue;
+            const arr = [];
+            walk(p, arr);
+            chains.push({ nodes: arr });
+          }
+          // ghost "new PR" node always hangs off dev
+          chains.push({ nodes: [{ key: 'ghost', kind: 'ghost', parent: 'dev', label: prs.length ? '＋ New PR' : '＋ Open first PR' }] });
+          return chains;
+        },
+        cfNodeDot(n) {
+          if (!n || n.kind !== 'pr') return '';
+          if (n.checks === 'failing') return 'warn';
+          if (n.checks === 'pending') return 'run';
+          return 'ok';
+        },
+        // The currently-selected graph node key (per dev card). Default = dev node.
+        cfNodeKey(d) { return (d && this.codeflow.gnode && this.codeflow.gnode[d.id]) || 'dev'; },
+        cfNodeSel(d, key) { return this.cfNodeKey(d) === key; },
+        cfView(d) { return (d && this.codeflow.gview && this.codeflow.gview[d.id]) || 'dev'; },
+        cfCurPr(d) {
+          const key = this.cfNodeKey(d);
+          if (key === 'dev' || key === 'ghost') return null;
+          return this.cfGraphModel(d).prs.find(p => p.key === key) || null;
+        },
+        // Node click IS the state toggle: dev -> Dev workbench; PR -> that PR's review;
+        // ghost -> open the New PR flow for this card.
+        cfFocusNode(d, key) {
+          if (!d) return;
+          if (key === 'ghost') { this.cfNewPr(d); return; }
+          if (!this.codeflow.gnode) this.codeflow.gnode = {};
+          if (!this.codeflow.gview) this.codeflow.gview = {};
+          this.codeflow.gnode[d.id] = key;
+          this.codeflow.gview[d.id] = (key === 'dev') ? 'dev' : 'pr';
+          this.$nextTick(() => this.cfDrawEdges(d));
+        },
+        // Open the New PR affordance for a dev card. If the card's primary repo has no
+        // PR yet, that's the common "open first PR" path; else add another.
+        cfNewPr(d) {
+          const slots = this.devSlots(d);
+          const primary = slots.find(s => s.primary) || slots[0];
+          if (primary && !primary.prId) { this.slotCreatePr(d, primary); return; }
+          // additional PR: for now route to the primary create (same-repo fan = later phase)
+          this.slotCreatePr(d, primary);
+        },
+        // Imperative edge drawer (ported from the mock). Reads live DOM rects so edges
+        // track exactly. Independent (parent=dev) = solid cyan; stacked = dashed violet
+        // + "gated by" label; ghost = dashed neutral. Selected edge thickens + badges.
+        cfDrawEdges(d, _try) {
+          if (!d) return;
+          const svg = document.getElementById('cfEdges-' + d.id);
+          const wrap = document.getElementById('cfFlow-' + d.id);
+          if (!svg || !wrap) return;
+          const box = wrap.getBoundingClientRect();
+          const m = this.cfGraphModel(d);
+          // Self-heal for first render: the PR/ghost nodes come from nested x-for/x-if
+          // templates that may not be laid out yet when x-init fires. If the graph box
+          // has no width or the expected node count isn't in the DOM, retry next frame.
+          const expected = 1 + m.prs.length + 1; // dev + prs + ghost
+          const present = wrap.querySelectorAll('.cf-gnode[data-node]').length;
+          if ((box.width < 2 || present < expected) && (_try || 0) < 30) {
+            requestAnimationFrame(() => this.cfDrawEdges(d, (_try || 0) + 1));
+            return;
+          }
+          svg.setAttribute('width', box.width);
+          svg.setAttribute('height', box.height);
+          svg.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
+          const nodeEl = k => wrap.querySelector('.cf-gnode[data-node="' + (window.CSS && CSS.escape ? CSS.escape(k) : k) + '"]');
+          const center = el => {
+            const r = el.getBoundingClientRect();
+            return { l: r.left - box.left, r: r.right - box.left, y: r.top - box.top + r.height / 2 };
+          };
+          const sel = this.cfNodeKey(d);
+          // clear prior HTML label/badge chips (SVG paths are replaced wholesale below)
+          wrap.querySelectorAll('.cf-edgelabel, .cf-edgebadge').forEach(e => e.remove());
+          const parts = [];
+          const labels = [];
+          const edge = (fromKey, toKey, opts) => {
+            const a = nodeEl(fromKey), b = nodeEl(toKey);
+            if (!a || !b) return;
+            const ca = center(a), cb = center(b);
+            const x1 = ca.r, y1 = ca.y, x2 = cb.l, y2 = cb.y;
+            const mx = x1 + (x2 - x1) / 2, my = (y1 + y2) / 2;
+            const isSel = (toKey === sel);
+            const w = isSel ? 2.4 : 1.5, op = isSel ? 1 : (opts.ghost ? 0.5 : 0.6);
+            let dash = '';
+            if (opts.ghost) dash = 'stroke-dasharray:4 4;';
+            else if (opts.stacked) dash = 'stroke-dasharray:1 5;stroke-linecap:round;';
+            parts.push('<path d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 +
+              '" fill="none" style="stroke:' + opts.col + ';stroke-width:' + w + ';opacity:' + op + ';' + dash + '"/>');
+            // always-on "gated by" HTML chip on stacked edges (sits above the curve midpoint)
+            if (opts.stacked && opts.parentBn) {
+              labels.push({ cls: 'cf-edgelabel', x: mx, y: my - 13, html: '<span>↳ gated by ' + this._cfEsc(opts.parentBn) + '</span>' });
+            }
+            // promote/pull chips on the SELECTED pr's incoming edge (readable bg chips, stacked on the curve)
+            if (isSel && opts.pr) {
+              let bh = '';
+              if (fromKey === 'dev' && m.dev.ahead > 0) bh += '<span class="cf-cbadge to-pr">' + m.dev.ahead + ' to promote →</span>';
+              if (opts.pr.pull > 0) bh += '<span class="cf-cbadge to-dev">← ' + opts.pr.pull + ' review to pull</span>';
+              if (bh) labels.push({ cls: 'cf-edgebadge', x: mx, y: (opts.stacked ? my + 12 : my), html: bh });
+            }
+          };
+          const cyan = 'var(--cp-pr)', violet = 'var(--cp-dev)', ghost = 'var(--cp-border-strong)';
+          for (const p of m.prs) {
+            if (p.stacked) edge(p.base, p.key, { col: violet, stacked: true, parentBn: p.base, pr: p });
+            else edge('dev', p.key, { col: cyan, pr: p });
+          }
+          edge('dev', 'ghost', { col: ghost, ghost: true });
+          svg.innerHTML = parts.join('');
+          for (const l of labels) {
+            const el = document.createElement('div');
+            el.className = l.cls;
+            el.style.left = l.x + 'px';
+            el.style.top = l.y + 'px';
+            el.innerHTML = l.html;
+            wrap.appendChild(el);
+          }
+        },
+        _cfEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
+        // Dev-side / PR-side primary action label (mirrors the mock's renderStateActs).
+        cfDevAction(d) {
+          const m = this.cfGraphModel(d);
+          if (!m.prs.length) return { label: 'Open PR from dev →', kind: 'openpr' };
+          if (m.dev.ahead > 0) return { label: 'Promote to PR (' + m.dev.ahead + ') →', kind: 'promote' };
+          return { label: 'In sync', kind: 'insync', disabled: true };
+        },
+        cfPrCanMerge(pr) {
+          return !!(pr && /^2/.test(String(pr.approvals || '')) && pr.checks === 'green');
         },
         // ----- Create / edit modal -----
         // ---- Create Standup Agent ----------------------------------------

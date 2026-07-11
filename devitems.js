@@ -224,15 +224,11 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId, detach,
   // Does the branch already exist on origin?
   const remoteHas = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + br], clone).ok;
 
-  // Collision guard: if this branch is ALREADY checked out (non-detached) in another
-  // worktree of this clone — e.g. a Dev card worktree when a PR steward asks for the
-  // same source branch, or vice-versa — git would fatal with "already checked out".
-  // Both roles need the real branch (to commit), so SHARE the existing checkout rather
-  // than fail or fragment onto a suffixed branch (which could never push to the PR).
-  const existingBranchWt = _branchWorktree(clone, br);
-  if (existingBranchWt && _isRepo(existingBranchWt)) {
-    return { worktreePath: existingBranchWt, branch: br, reused: true, shared: true };
-  }
+  // NOTE: dev cards own `dev/<slug>` and PRs own `pr/<slug>-<N>` — distinct branch
+  // namespaces, each in its OWN worktree dir. A local branch is therefore only ever
+  // checked out in ONE worktree, so the old dev↔PR "already checked out → SHARE it"
+  // collision guard is no longer needed (and was itself the source of the dev card
+  // borrowing the PR's worktree). It has been removed intentionally.
 
   if (localHas) {
     // Check out the pre-existing local branch into the new worktree (no -b/-B so we
@@ -246,6 +242,36 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId, detach,
     const baseRef = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + base], clone).ok
       ? 'origin/' + base : base;
     _git(['worktree', 'add', '-b', br, wt, baseRef], clone);
+  }
+  return { worktreePath: wt, branch: br, reused: false };
+}
+
+// Create a PR's OWN attached, committable worktree on branch `prBranch`, seeded from
+// `fromRef` (typically the dev card's `dev/<slug>` branch tip). The worktree dir is
+// keyed by a synthetic devId (e.g. `<devId>--pr<N>`) so it can NEVER be the same dir
+// as the dev card's own worktree, and the `pr/…` namespace means it can never be the
+// same branch either. Different branch AND different dir ⇒ the old dev↔PR worktree
+// collision is structurally impossible. Idempotent: reuses the dir if it already
+// exists. Returns { worktreePath, branch, reused }.
+function createPrWorktree({ org, project, repo, provider, prBranch, fromRef, wtDevId }) {
+  const desc = provider ? { provider, org, project, repo } : null;
+  const clone = ensureClone(org, project, repo, desc);
+  const br = String(prBranch || '').trim();
+  if (!br) throw new Error('createPrWorktree: prBranch is required');
+  const wt = worktreePath(repo, wtDevId);
+  if (_isRepo(wt)) return { worktreePath: wt, branch: br, reused: true };
+  fs.mkdirSync(path.dirname(wt), { recursive: true });
+  _gitTry(['worktree', 'prune'], clone);
+  const localHas = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok;
+  if (localHas) {
+    // Branch already exists (e.g. a re-open after the worktree dir was removed) — attach it.
+    _git(['worktree', 'add', wt, br], clone);
+  } else {
+    // Seed the new PR branch at the dev tip. `fromRef` is a local ref (the dev branch)
+    // whose commit is a real object in this shared clone, so branching from it works
+    // even though that branch is checked out in the dev worktree (we branch, not check out).
+    const seed = String(fromRef || '').trim() || 'HEAD';
+    _git(['worktree', 'add', '-b', br, wt, seed], clone);
   }
   return { worktreePath: wt, branch: br, reused: false };
 }
@@ -1306,6 +1332,7 @@ module.exports = {
   worktreePath,
   ensureClone,
   createWorktree,
+  createPrWorktree,
   createWorktreeAsync,
   worktreeStatus,
   branchCommits,
