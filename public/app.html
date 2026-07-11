@@ -16901,6 +16901,175 @@
 
           </section>
 
+          <!-- ===== What's happening (ambient team-conversation & meeting digest — Me.AI companion) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'whatsup'">
+            <style>
+              .whp-wrap { max-width:820px; }
+              .whp-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:6px; }
+              .whp-head h1 { margin:0; font-size:22px; display:flex; align-items:center; gap:10px; }
+              .whp-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; max-width:600px; line-height:1.5; }
+              .whp-card { background:var(--cp-surface); border:1px solid var(--cp-border);
+                border-radius:calc(var(--cp-radius-scale, 1) * 12px); overflow:hidden; margin-top:18px; }
+              .whp-cardhd { display:flex; align-items:center; gap:10px; padding:14px 16px; }
+              .whp-cardhd .t { font-weight:600; font-size:15px; }
+              .whp-cardhd .n { margin-left:auto; color:var(--cp-text-muted); font-size:12.5px; display:flex; align-items:center; gap:6px; }
+              .whp-newdot { width:7px; height:7px; border-radius:50%; background:var(--cp-warning); flex:none; }
+              .whp-body { padding:2px 12px 14px; }
+              .whp-filters { display:flex; gap:14px; padding:6px 4px 12px; font-size:12.5px; color:var(--cp-text-muted);
+                border-bottom:1px solid var(--cp-border); margin-bottom:6px; flex-wrap:wrap; }
+              .whp-filters a { color:inherit; text-decoration:none; cursor:pointer; padding-bottom:6px; margin-bottom:-13px; }
+              .whp-filters a.on { color:var(--cp-text); border-bottom:2px solid var(--cp-accent); font-weight:600; }
+              .whp-filters a:hover { color:var(--cp-text); }
+              .whp-filters .sp { margin-left:auto; }
+              .whp-item { display:flex; gap:12px; padding:12px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 10px); position:relative; }
+              .whp-item:hover { background:var(--cp-surface-soft); }
+              .whp-item + .whp-item { border-top:1px solid var(--cp-border); }
+              .whp-src { flex:none; width:30px; height:30px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); display:grid; place-items:center;
+                font-size:15px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); }
+              .whp-main { min-width:0; flex:1; }
+              .whp-topic { font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:8px; }
+              .whp-new { width:6px; height:6px; border-radius:50%; background:var(--cp-warning); flex:none; }
+              .whp-meta { color:var(--cp-text-muted); font-size:12px; margin-top:1px; }
+              .whp-snip { color:var(--cp-text-soft); font-size:12.5px; margin-top:5px; overflow-wrap:anywhere; }
+              .whp-you { color:var(--cp-warning); font-weight:600; }
+              .whp-updated { font-size:11.5px; color:var(--cp-warning); font-weight:600; display:flex; align-items:center; gap:5px; margin-top:6px; }
+              .whp-acts { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap; opacity:0; transition:opacity .12s ease; }
+              .whp-item:hover .whp-acts { opacity:1; }
+              .whp-acts a { font-size:12px; color:var(--cp-text-muted); text-decoration:none; cursor:pointer; padding:2px 0; }
+              .whp-acts a:hover { color:var(--cp-accent); text-decoration:underline; text-underline-offset:2px; }
+              .whp-acts .sep { color:var(--cp-border-strong); }
+              .whp-foot { padding:10px 8px 2px; font-size:12px; color:var(--cp-text-muted); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+              .whp-foot a { color:inherit; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+              .whp-foot a:hover { color:var(--cp-accent); }
+              .whp-empty { padding:26px 12px; text-align:center; color:var(--cp-text-muted); font-size:13px; line-height:1.6; }
+              .whp-mtg-hi { color:var(--cp-text-soft); font-size:12.5px; margin-top:5px; }
+              .whp-mtg-hi li { margin:2px 0; }
+              .whp-mtg-act { display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--cp-text); margin-top:4px; }
+              .whp-mtg-act .due { color:var(--cp-text-soft); font-size:11.5px; }
+              @media (prefers-reduced-motion: reduce) { .whp-acts, .whp-caret { transition:none; } }
+            </style>
+
+            <div class="whp-wrap">
+              <div class="whp-head">
+                <div>
+                  <h1><span>📡</span> What's happening</h1>
+                  <p class="whp-sub">Team conversations worth staying close to — not on your agenda, not asking anything of you. A calm place to poke your head up between deep-focus work.</p>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="btn ghost" type="button" :disabled="whatsHappening.busy" @click="whRefresh()" x-text="whatsHappening.busy ? 'Refreshing…' : '⟳ Refresh'"></button>
+                </div>
+              </div>
+
+              <!-- Consent-off state -->
+              <div class="whp-card" x-show="whatsHappening.loaded && !whatsHappening.consent">
+                <div class="whp-empty">
+                  <div style="font-size:26px;margin-bottom:8px">🔒</div>
+                  <div>What's happening reads your Teams &amp; email to surface interesting conversations.</div>
+                  <div style="margin-top:6px">Turn on Me.AI data collection in <a class="clickable" style="text-decoration:underline;text-underline-offset:2px" @click="goTo('#/me-ai')">Me.AI settings</a> to enable it.</div>
+                </div>
+              </div>
+
+              <!-- Conversations -->
+              <div class="whp-card" x-show="whatsHappening.loaded &amp;&amp; whatsHappening.consent">
+                <div class="whp-cardhd">
+                  <span class="t">Conversations</span>
+                  <span class="n" x-show="whNewCount() > 0"><span class="whp-newdot"></span><span x-text="whNewCount() + ' with new activity'"></span></span>
+                </div>
+                <div class="whp-body">
+                  <div class="whp-filters">
+                    <a :class="whatsHappening.filter==='all' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='all'; whatsHappening.showMuted=false">All</a>
+                    <a :class="whatsHappening.filter==='teams' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='teams'; whatsHappening.showMuted=false">Teams</a>
+                    <a :class="whatsHappening.filter==='email' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='email'; whatsHappening.showMuted=false">Email</a>
+                    <a :class="whatsHappening.filter==='mentions' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='mentions'; whatsHappening.showMuted=false">Mentions</a>
+                    <a class="sp" x-show="whatsHappening.mutedCount > 0" :class="whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.showMuted = !whatsHappening.showMuted" x-text="'Muted (' + whatsHappening.mutedCount + ')'"></a>
+                  </div>
+
+                  <template x-for="t in whThreadList()" :key="t.key">
+                    <div class="whp-item">
+                      <div class="whp-src" :title="t.source==='email' ? 'Email thread' : 'Teams conversation'" x-text="t.source==='email' ? '✉️' : '💬'"></div>
+                      <div class="whp-main">
+                        <div class="whp-topic">
+                          <span class="whp-new" x-show="t.hasNew"></span>
+                          <span x-text="t.topic || '(untitled conversation)'"></span>
+                        </div>
+                        <div class="whp-meta">
+                          <span x-text="t.channel || (t.source==='email' ? 'Email' : 'Teams')"></span>
+                          <span x-show="t.count > 1"> · <span x-text="t.count + ' messages'"></span></span>
+                          <span x-show="t.activityTs"> · last <span x-text="whAgo(t.activityTs)"></span></span>
+                        </div>
+                        <div class="whp-snip" x-show="t.snippet"><span x-text="t.snippet"></span> <span class="whp-you" x-show="t.mentioned">· You were mentioned</span></div>
+                        <div class="whp-updated" x-show="t.hasNew">● New activity since you last looked</div>
+                        <div class="whp-acts">
+                          <a x-show="t.link" @click="whOpen(t)" x-text="t.source==='email' ? 'Open in Outlook ↗' : 'Open in Teams ↗'"></a>
+                          <span class="sep" x-show="t.link">·</span>
+                          <a x-show="!whatsHappening.showMuted" @click="whMute(t.key)">Mute this thread</a>
+                          <a x-show="whatsHappening.showMuted" @click="whUnmute(t.key)">Unmute</a>
+                          <span class="sep" x-show="!whatsHappening.showMuted">·</span>
+                          <a x-show="!whatsHappening.showMuted" @click="whHide(t.key)">Not interesting</a>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+
+                  <div class="whp-empty" x-show="whThreadList().length === 0">
+                    <template x-if="whatsHappening.showMuted"><div>No muted conversations.</div></template>
+                    <template x-if="!whatsHappening.showMuted"><div>Nothing lively right now. Check back when you surface from focus work.</div></template>
+                  </div>
+
+                  <div class="whp-foot">
+                    <span x-show="whatsHappening.gatheredAt" x-text="'Updated ' + whAgo(whatsHappening.gatheredAt)"></span>
+                    <a @click="whRefresh()">Refresh</a>
+                    <a x-show="whNewCount() > 0" @click="whSeen()">Mark all seen</a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Meetings -->
+              <div class="whp-card" x-show="whatsHappening.loaded &amp;&amp; whatsHappening.consent &amp;&amp; whatsHappening.meetings.length > 0">
+                <div class="whp-cardhd">
+                  <span class="t">Recent meetings</span>
+                  <span class="n" x-text="whatsHappening.meetings.length + ' with recaps'"></span>
+                </div>
+                <div class="whp-body">
+                  <template x-for="m in whatsHappening.meetings" :key="m.id">
+                    <div class="whp-item">
+                      <div class="whp-src" title="Meeting recap">🗓️</div>
+                      <div class="whp-main">
+                        <div class="whp-topic"><span x-text="m.meeting || 'Meeting'"></span></div>
+                        <div class="whp-meta" x-show="m.end">ended <span x-text="whAgo(m.end)"></span></div>
+                        <div class="whp-snip" x-show="m.summary" x-text="m.summary"></div>
+                        <ul class="whp-mtg-hi" x-show="m.highlights &amp;&amp; m.highlights.length" style="margin:6px 0 0;padding-left:18px">
+                          <template x-for="(h, hi) in (m.highlights || [])" :key="hi"><li x-text="h"></li></template>
+                        </ul>
+                        <div x-show="m.actions &amp;&amp; m.actions.length" style="margin-top:8px">
+                          <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--cp-text-soft);margin-bottom:3px">Your action items</div>
+                          <template x-for="(a, ai) in (m.actions || [])" :key="ai">
+                            <div class="whp-mtg-act">
+                              <span>☐</span>
+                              <span><span x-text="a.text"></span> <span class="due" x-show="a.due" x-text="'· due ' + a.due"></span></span>
+                            </div>
+                          </template>
+                        </div>
+                        <div class="whp-acts">
+                          <a x-show="m.recordingUrl" @click="whExtOpen(m.recordingUrl)">Open recording ↗</a>
+                          <span class="sep" x-show="m.recordingUrl &amp;&amp; m.webLink">·</span>
+                          <a x-show="m.webLink" @click="whExtOpen(m.webLink)">Open in calendar ↗</a>
+                          <span class="sep" x-show="(m.recordingUrl || m.webLink)">·</span>
+                          <a @click="whMeetingHide(m.id)">Not interesting</a>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- initial loading -->
+              <div class="whp-card" x-show="!whatsHappening.loaded">
+                <div class="whp-empty">Loading…</div>
+              </div>
+            </div>
+          </section>
+
           <!-- ===== Diary (standalone page — the shared activity journal Connect / Newsletter / Me.AI build on) ===== -->
           <section x-show="!loading && !errorMessage && route === 'diary'">
             <style>
@@ -24697,14 +24866,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, whatsup: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true };
+          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, whatsup: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -25253,6 +25422,7 @@
           historyBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
+        whatsHappening: { loaded: false, busy: false, consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', showMuted: false },
         meai: {
           loaded: false,
           loading: false,
@@ -26494,7 +26664,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'whatsup', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -26610,6 +26780,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
             await this.loadMeAi();
+          } else if (this.route === 'whatsup') {
+            await this.loadWhatsHappening();
           } else if (this.route === 'backlog') {
             if (!this.meai.loaded) await this.loadMeAi();
             await this.loadMeaiBacklog();
@@ -27553,6 +27725,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
             case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai');
+            case 'whatsup': return mk("What's happening", '📡', '#/whatsup', 'whatsup');
             case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
             case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards');
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
@@ -27578,6 +27751,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (scope === 'basic') {
             const out = ['home', 'boards', 'codeflow'];
             if (en('me-ai')) out.push('me-ai', 'backlog');
+            if (en('whatsup')) out.push('whatsup');
             out.push('agents');
             if (en('diary')) out.push('diary');
             if (en('autonomous')) out.push('autonomous');
@@ -27594,6 +27768,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // (e.g. diary off -> connect/newsletter/me-ai drop out). Core stays unconditional.
           const out = ['home'];
           if (en('me-ai')) out.push('me-ai', 'backlog');
+          if (en('whatsup')) out.push('whatsup');
           if (en('playbooks')) out.push('playbooks');
           out.push('boards');
           out.push('codeflow', 'agents');
@@ -28082,7 +28257,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'backlog', 'diary', 'playbooks',
+          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'whatsup', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -28115,6 +28290,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
+            { key: 'whatsup', label: "What's happening", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
@@ -28130,6 +28306,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
+            { key: 'whatsup', label: "What's happening", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📘', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
@@ -28213,6 +28390,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
+            whatsup: ['whatsup'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
             sessions: ['sessions'],
@@ -28235,6 +28413,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
+            whatsup: ['whatsup'],
             playbooks: ['playbooks'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
@@ -28263,7 +28442,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // it (transitively) requires is also enabled. Editing the catalogs' `requires`
         // fields is the source of truth; this mirrors them for the runtime gate.
         featureRequires(key) {
-          const R = { 'me-ai': ['diary'], connect: ['diary'], newsletter: ['connect'] };
+          const R = { 'me-ai': ['diary'], whatsup: ['diary', 'me-ai'], connect: ['diary'], newsletter: ['connect'] };
           return R[key] || [];
         },
         // Human label for a feature key (from whichever catalog defines it), for toasts.
@@ -33344,6 +33523,99 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.meai.loading = false;
           }
+        },
+        // ── What's happening (ambient team-conversation + meeting digest) ──────────
+        async loadWhatsHappening() {
+          try {
+            const r = await this.request('/api/me-ai/whats-happening');
+            this._whApply(r);
+          } catch (e) {
+            this.whatsHappening.loaded = true;
+            this.toast("Failed to load What's happening: " + (e.message || e), 'error');
+          }
+        },
+        _whApply(r) {
+          const w = this.whatsHappening;
+          w.consent = !!(r && r.consent);
+          w.threads = (r && Array.isArray(r.threads)) ? r.threads : [];
+          w.muted = (r && Array.isArray(r.muted)) ? r.muted : [];
+          w.meetings = (r && Array.isArray(r.meetings)) ? r.meetings : [];
+          w.mutedCount = (r && r.mutedCount) || 0;
+          w.gatheredAt = (r && r.gatheredAt) || '';
+          w.loaded = true;
+        },
+        async whRefresh() {
+          if (this.whatsHappening.busy) return;
+          this.whatsHappening.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/whats-happening/refresh', { method: 'POST', body: JSON.stringify({}) });
+            this._whApply(r);
+          } catch (e) {
+            this.toast('Refresh failed: ' + (e.message || e), 'error');
+          } finally {
+            this.whatsHappening.busy = false;
+          }
+        },
+        whThreadList() {
+          const w = this.whatsHappening;
+          if (w.showMuted) return (w.muted || []);
+          let list = (w.threads || []);
+          if (w.filter === 'teams') list = list.filter(t => t.source !== 'email');
+          else if (w.filter === 'email') list = list.filter(t => t.source === 'email');
+          else if (w.filter === 'mentions') list = list.filter(t => !!t.mentioned);
+          return list;
+        },
+        whNewCount() {
+          return (this.whatsHappening.threads || []).filter(t => t.hasNew).length;
+        },
+        whAgo(ts) {
+          if (!ts) return '';
+          const t = (typeof ts === 'number') ? ts : Date.parse(ts);
+          if (!isFinite(t) || !t) return '';
+          const diff = Date.now() - t;
+          if (diff < 0) return 'just now';
+          const m = Math.floor(diff / 60000);
+          if (m < 1) return 'just now';
+          if (m < 60) return m + 'm ago';
+          const h = Math.floor(m / 60);
+          if (h < 24) return h + 'h ago';
+          const d = Math.floor(h / 24);
+          if (d < 7) return d + 'd ago';
+          return new Date(t).toLocaleDateString();
+        },
+        whOpen(t) {
+          if (!t || !t.link) return;
+          if (t.source === 'email' && this.isEmailUrl && this.isEmailUrl(t.link)) {
+            this.openEmailDesktop(t.link);
+          } else {
+            window.open(t.link, '_blank');
+          }
+        },
+        whExtOpen(url) {
+          if (!url) return;
+          if (this.isEmailUrl && this.isEmailUrl(url)) this.openEmailDesktop(url);
+          else window.open(url, '_blank');
+        },
+        async _whThreadAction(key, action, optimistic) {
+          const w = this.whatsHappening;
+          if (optimistic) { w.threads = w.threads.filter(t => t.key !== key); if (action === 'mute') w.mutedCount++; }
+          try {
+            await this.request('/api/me-ai/whats-happening/thread', { method: 'POST', body: JSON.stringify({ key, action }) });
+          } catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
+          await this.loadWhatsHappening();
+        },
+        whMute(key) { return this._whThreadAction(key, 'mute', true); },
+        whUnmute(key) { const w = this.whatsHappening; w.muted = (w.muted || []).filter(t => t.key !== key); if (w.mutedCount > 0) w.mutedCount--; if (w.mutedCount <= 0) w.showMuted = false; return this._whThreadAction(key, 'unmute', false); },
+        whHide(key) { return this._whThreadAction(key, 'hide', true); },
+        async whMeetingHide(id) {
+          this.whatsHappening.meetings = this.whatsHappening.meetings.filter(m => m.id !== id);
+          try { await this.request('/api/me-ai/whats-happening/meeting', { method: 'POST', body: JSON.stringify({ id, action: 'hide' }) }); }
+          catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
+        },
+        async whSeen() {
+          try { await this.request('/api/me-ai/whats-happening/seen', { method: 'POST', body: JSON.stringify({}) }); }
+          catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
+          await this.loadWhatsHappening();
         },
         async meAiLoadAgenda() {
           try {

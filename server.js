@@ -23669,6 +23669,292 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== What's happening ========================================================
+// An ambient, non-triage digest of team conversations worth staying close to —
+// Teams channels/chats + email threads that are NOT on your agenda/todos/goals and
+// NOT actionable-for-you (those flow through the attention inbox), plus recent
+// meeting summaries + action items. Explicitly excludes PR review requests (already
+// tracked by Code Flow). Muting a thread hides it but it RESURFACES with a "new
+// activity" flag if the conversation continues; "not interesting" is a stronger,
+// persistent hide.
+const WH_DIR = path.join(dataPath('me-ai'), 'whats-happening');
+const WH_STATE_PATH = path.join(WH_DIR, 'state.json');
+const WH_MTG_DIR = path.join(WH_DIR, 'meetings');
+const WH_MTG_THROTTLE_MS = 25 * 60 * 1000;
+function _whLoadState() {
+  try {
+    if (!fs.existsSync(WH_STATE_PATH)) return { threads: {}, meetings: {}, gatheredAt: '' };
+    const v = JSON.parse(fs.readFileSync(WH_STATE_PATH, 'utf-8'));
+    return { threads: (v && v.threads) || {}, meetings: (v && v.meetings) || {}, gatheredAt: (v && v.gatheredAt) || '' };
+  } catch { return { threads: {}, meetings: {}, gatheredAt: '' }; }
+}
+function _whSaveState(st) {
+  try { fs.mkdirSync(WH_DIR, { recursive: true }); fs.writeFileSync(WH_STATE_PATH, JSON.stringify(st || { threads: {}, meetings: {} }, null, 2)); } catch (_) {}
+  return st;
+}
+function _whMtgPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(WH_MTG_DIR, `${safe}.json`);
+}
+function _whLoadMtg(date) {
+  try {
+    const p = _whMtgPath(date);
+    if (!fs.existsSync(p)) return { date, meetings: [], gatheredAt: '' };
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (v && Array.isArray(v.meetings)) return v;
+    return { date, meetings: [], gatheredAt: '' };
+  } catch { return { date, meetings: [], gatheredAt: '' }; }
+}
+function _whSaveMtg(date, store) {
+  try { fs.mkdirSync(WH_MTG_DIR, { recursive: true }); fs.writeFileSync(_whMtgPath(date), JSON.stringify(store || { date, meetings: [] }, null, 2)); } catch (_) {}
+  return store;
+}
+// Recent local days (today back N-1 days), newest first.
+function _whRecentDays(n) {
+  const out = [];
+  const base = new Date();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - i);
+    out.push(_meAiLocalDay(d));
+  }
+  return out;
+}
+// Source bucket for an inbox comms item: 'teams' | 'email' | null (uninteresting here).
+function _whSourceBucket(it) {
+  const s = String((it && it.source) || '').toLowerCase();
+  const link = String((it && it.link) || '').toLowerCase();
+  if (s.includes('teams') || s === 'chat' || link.includes('teams.microsoft.com')) return 'teams';
+  if (s.includes('mail') || s.includes('email') || s.includes('outlook') || link.includes('outlook.office')) return 'email';
+  // Generic m365 comms: infer from link, else treat as email (most common).
+  if (s === 'm365' || s === 'm365-comms' || s === 'graph') {
+    if (link.includes('teams.microsoft.com')) return 'teams';
+    return 'email';
+  }
+  return null;
+}
+// A comms item that belongs in "What's happening": a team conversation worth
+// knowing about but NOT an actionable ask (those live in the inbox/agenda) and NOT
+// a PR review (tracked by Code Flow).
+function _whIsInteresting(it) {
+  if (!it || it.type !== 'comms') return false;
+  if (it.kind === 'meeting' || it.kind === 'meeting-action' || it.source === 'meeting') return false;
+  const bucket = _whSourceBucket(it);
+  if (!bucket) return false;
+  const hay = ((it.title || '') + ' ' + (it.detail || '') + ' ' + (it.link || '')).toLowerCase();
+  // Exclude PR review requests / GitHub PR pings — Code Flow owns those.
+  if (/pull request|code review|review request|reviewers?\b|_git\/pullrequest|\/pull\//.test(hay)) return false;
+  if (/\bpr[\s#]/.test(hay) && /review/.test(hay)) return false;
+  // Actively handled / scheduled items are on the agenda — not ambient.
+  if (it.triage === 'today' || it.triage === 'now') return false;
+  // Interesting = would otherwise be filtered/parked/dismissed, or simply not a
+  // direct ask of you: no direct @mention, low urgency, or a park/dismiss decision.
+  if (it.directMention === false) return true;
+  if (typeof it.urgency === 'number' && it.urgency <= 2) return true;
+  if (['dismissed', 'seen', 'later', 'wontfix'].includes(it.triage)) return true;
+  return false;
+}
+function _whTopicTokens(s) {
+  const STOP = new Set(['the', 'a', 'an', 'to', 'of', 'and', 'or', 'for', 'in', 'on', 'is', 'are', 're', 'fwd', 'fw', 'about', 'regarding', 'update', 'updated', 'new', 'from', 'with']);
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]+/g, ' ').split(/\s+/).filter(w => w.length > 2 && !STOP.has(w)).slice(0, 6);
+}
+function _whThreadKey(it) {
+  const crypto = require('crypto');
+  const explicit = String((it && (it.threadId || it.conversationId)) || '').trim();
+  if (explicit) return 'wh:' + crypto.createHash('sha1').update(explicit.toLowerCase()).digest('hex').slice(0, 12);
+  const chan = String((it && (it.channel || it.from)) || '').toLowerCase().trim();
+  const toks = _whTopicTokens((it && it.title) || '').join(' ');
+  const seed = (chan + '|' + toks) || String((it && it.title) || '');
+  return 'wh:' + crypto.createHash('sha1').update(seed).digest('hex').slice(0, 12);
+}
+// Aggregate recent inbox comms into interesting conversation threads.
+function _whGatherThreads(days) {
+  const map = new Map();
+  for (const date of _whRecentDays(days || 10)) {
+    let inbox; try { inbox = loadInboxForDate(date); } catch { inbox = null; }
+    if (!inbox || !Array.isArray(inbox.items)) continue;
+    for (const it of inbox.items) {
+      if (!_whIsInteresting(it)) continue;
+      const key = _whThreadKey(it);
+      const ts = Date.parse(it.ts || '') || Date.parse(date) || 0;
+      const bucket = _whSourceBucket(it);
+      let th = map.get(key);
+      if (!th) {
+        th = { key, source: bucket, topic: (it.title || '(conversation)').slice(0, 160), channel: it.channel || it.from || '', snippet: (it.detail || it.title || '').slice(0, 200), link: it.link || '', mentioned: !!it.directMention, count: 0, activityTs: 0, firstTs: ts || Date.now() };
+        map.set(key, th);
+      }
+      th.count += 1;
+      if (it.directMention) th.mentioned = true;
+      if (ts >= th.activityTs) {
+        th.activityTs = ts;
+        if (it.detail || it.title) th.snippet = String(it.detail || it.title).slice(0, 200);
+        if (it.link) th.link = it.link;
+        if (it.title) th.topic = String(it.title).slice(0, 160);
+      }
+      if (ts && ts < th.firstTs) th.firstTs = ts;
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => (b.activityTs || 0) - (a.activityTs || 0));
+}
+// Collector-driven meeting summaries + my action items for recent ended meetings.
+async function _whGatherMeetings(date, { force = false } = {}) {
+  const store = _whLoadMtg(date);
+  const now = Date.now();
+  if (!force && store.gatheredAt) {
+    const last = Date.parse(store.gatheredAt);
+    if (isFinite(last) && (now - last) < WH_MTG_THROTTLE_MS) return { store, changed: false };
+  }
+  const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each, produce a SHORT plain-language summary (2-3 sentences) of what happened, up to 4 key highlights/decisions, and the action items assigned to ME. Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"summary":string,"highlights":[string],"actions":[{"text":string,"due":string|null}],"recordingUrl":string|null,"webLink":string|null}. "meetingId" is a STABLE unique id (calendar event id or iCalUId). "webLink" opens the event in Outlook/OWA (NOT the join URL). ONLY meetings that have ENDED and have a recording/transcript. If none, return [].`;
+  let arr = null;
+  try { arr = _connectExtractJson(await _connectRunAgent('collector', prompt)); } catch (_) { arr = null; }
+  store.gatheredAt = new Date(now).toISOString();
+  if (Array.isArray(arr)) {
+    const seen = new Set();
+    store.meetings = arr.map((m) => {
+      if (!m || typeof m !== 'object') return null;
+      const id = String(m.meetingId || m.meeting || '').trim();
+      if (!id || seen.has(id.toLowerCase())) return null;
+      seen.add(id.toLowerCase());
+      return {
+        id, meeting: String(m.meeting || 'Meeting').slice(0, 160),
+        end: (m.end && typeof m.end === 'string') ? m.end : null,
+        summary: String(m.summary || '').slice(0, 800),
+        highlights: (Array.isArray(m.highlights) ? m.highlights : []).map(h => String(h || '').slice(0, 200)).filter(Boolean).slice(0, 4),
+        actions: (Array.isArray(m.actions) ? m.actions : []).map(a => ({ text: String((a && a.text) || '').slice(0, 200), due: (a && typeof a.due === 'string' && a.due.trim()) ? a.due.trim() : null })).filter(a => a.text).slice(0, 8),
+        recordingUrl: (m.recordingUrl && typeof m.recordingUrl === 'string') ? m.recordingUrl : '',
+        webLink: (m.webLink && typeof m.webLink === 'string') ? m.webLink : '',
+      };
+    }).filter(Boolean);
+  }
+  _whSaveMtg(date, store);
+  return { store, changed: true };
+}
+// Assemble the view: apply mute/hide state + resurface + "new since seen" flags.
+function _whAssemble(days, date) {
+  const st = _whLoadState();
+  const rawThreads = _whGatherThreads(days);
+  const visible = [];
+  const muted = [];
+  let mutedCount = 0;
+  for (const th of rawThreads) {
+    const rec = st.threads[th.key] || null;
+    const seenTs = (rec && rec.seenTs) || 0;
+    const hasNew = th.activityTs > seenTs;
+    if (rec && rec.state === 'hidden') continue; // "not interesting" — persistent
+    if (rec && rec.state === 'muted') {
+      // Resurface only if the conversation moved on since it was muted.
+      if (th.activityTs > (rec.activityTs || 0)) {
+        visible.push(Object.assign({}, th, { resurfaced: true, hasNew: true }));
+      } else {
+        mutedCount++;
+        muted.push(Object.assign({}, th, { muted: true }));
+      }
+      continue;
+    }
+    visible.push(Object.assign({}, th, { hasNew }));
+  }
+  // Merge cached meeting summaries across the recent window (dedupe by id), newest first.
+  const mByKey = new Map();
+  for (const d of _whRecentDays(days || 10)) {
+    const mstore = _whLoadMtg(d);
+    for (const m of (mstore.meetings || [])) {
+      if (!m || !m.id) continue;
+      const rec = st.meetings[m.id] || null;
+      if (rec && rec.state === 'hidden') continue;
+      if (!mByKey.has(m.id)) mByKey.set(m.id, Object.assign({ day: d }, m));
+    }
+  }
+  const meetings = Array.from(mByKey.values());
+  return { threads: visible, muted, meetings, mutedCount, gatheredAt: st.gatheredAt || '' };
+}
+
+// GET /api/me-ai/whats-happening?days=&date= → assembled ambient digest.
+app.get('/api/me-ai/whats-happening', (req, res) => {
+  try {
+    const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 10));
+    const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
+    const view = _whAssemble(days, date);
+    const cfg = _meAiConfig();
+    res.json({ ok: true, consent: !!cfg.consent, ...view });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/whats-happening/refresh { date? } → poll M365 for meeting
+// summaries now (throttled) and return the freshly-assembled digest.
+app.post('/api/me-ai/whats-happening/refresh', async (req, res) => {
+  try {
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
+    const days = Math.max(1, Math.min(30, parseInt((req.body && req.body.days), 10) || 10));
+    const cfg = _meAiConfig();
+    _meAiLastActive = Date.now();
+    if (cfg.consent) { try { await _whGatherMeetings(date, { force: !!(req.body && req.body.force) }); } catch (_) {} }
+    const st = _whLoadState(); st.gatheredAt = new Date().toISOString(); _whSaveState(st);
+    const view = _whAssemble(days, date);
+    res.json({ ok: true, consent: !!cfg.consent, ...view });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/whats-happening/thread { key, action } → mute | unmute | hide.
+// mute: hide but resurface on new activity. hide: "not interesting" (persistent).
+app.post('/api/me-ai/whats-happening/thread', (req, res) => {
+  try {
+    const b = req.body || {};
+    const key = String(b.key || '').trim();
+    const action = String(b.action || '').trim();
+    if (!key) return res.status(400).json({ error: 'key required' });
+    const st = _whLoadState();
+    // Snapshot the thread's current activity so a later reply can trigger a resurface.
+    const cur = _whGatherThreads(10).find(t => t.key === key) || null;
+    const now = new Date().toISOString();
+    if (action === 'unmute') {
+      delete st.threads[key];
+    } else if (action === 'mute') {
+      st.threads[key] = { state: 'muted', at: now, activityTs: (cur && cur.activityTs) || Date.now(), seenTs: (cur && cur.activityTs) || Date.now() };
+    } else if (action === 'hide') {
+      st.threads[key] = { state: 'hidden', at: now, activityTs: (cur && cur.activityTs) || Date.now() };
+    } else {
+      return res.status(400).json({ error: 'action must be mute | unmute | hide' });
+    }
+    _whSaveState(st);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/whats-happening/meeting { id, action } → hide | unhide a meeting card.
+app.post('/api/me-ai/whats-happening/meeting', (req, res) => {
+  try {
+    const b = req.body || {};
+    const id = String(b.id || '').trim();
+    const action = String(b.action || '').trim();
+    if (!id) return res.status(400).json({ error: 'id required' });
+    const st = _whLoadState();
+    if (action === 'unhide') delete st.meetings[id];
+    else if (action === 'hide') st.meetings[id] = { state: 'hidden', at: new Date().toISOString() };
+    else return res.status(400).json({ error: 'action must be hide | unhide' });
+    _whSaveState(st);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/whats-happening/seen { keys?[] } → clear "new since you looked"
+// markers by recording the current activity timestamp as seen (all when keys omitted).
+app.post('/api/me-ai/whats-happening/seen', (req, res) => {
+  try {
+    const keys = Array.isArray(req.body && req.body.keys) ? req.body.keys.map(String) : null;
+    const st = _whLoadState();
+    const threads = _whGatherThreads(10);
+    for (const th of threads) {
+      if (keys && !keys.includes(th.key)) continue;
+      const rec = st.threads[th.key] || {};
+      rec.seenTs = th.activityTs || Date.now();
+      // A bare seen marker shouldn't hide the thread; only mute/hide states do.
+      if (!rec.state) rec.state = 'seen';
+      st.threads[th.key] = rec;
+    }
+    _whSaveState(st);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- Managed dependencies -----------------------------------------------------
 // Copilot CLI/SDK + machine prerequisites (git, az, ripgrep). The bundled copy
 // what we update. All per-user, no admin, staged + validated + atomic promote.
