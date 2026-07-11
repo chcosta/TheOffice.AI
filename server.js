@@ -26474,6 +26474,7 @@ function _devRepoSlots(d) {
       id: 'primary', primary: true, provider: d.provider || 'azdo',
       org: d.org, project: d.project, repo: d.repo,
       branch: d.branch, baseBranch: d.baseBranch,
+      prId: d.prId || '', prBranch: d.prBranch || '', prWorktreePath: d.prWorktreePath || '', prSeq: d.prSeq || 0,
       worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
       worktreeError: d.worktreeError || null, git: d.git || null
     });
@@ -26898,6 +26899,10 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   if (d.worktreePath) {
     try { partial.git = devitems.worktreeStatus(d.worktreePath, { baseBranch: d.baseBranch, desc: _devDesc(d) }); } catch (e) { partial.gitError = (e && e.message) || 'git failed'; }
   }
+  // Dev<->PR divergence (promote/pull) — local rev-list of dev/<slug> vs pr/<slug>-<N>.
+  if (d.branch && d.prBranch) {
+    try { partial.prDivergence = devitems.devPrDivergence({ org: d.org, project: d.project, repo: d.repo, provider: d.provider, devBranch: d.branch, prBranch: d.prBranch }); } catch {}
+  }
   // Reports: aggregate across every repo slot (live worktrees + cached-from-removed).
   try { partial.reports = _rescanDevReports(req.params.id, req.params.devId, d); } catch {}
   // Work item.
@@ -26914,6 +26919,7 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
     partial.repos = await Promise.all(extras.map(async (r) => {
       const out = { ...r };
       if (r.worktreePath) { try { out.git = devitems.worktreeStatus(r.worktreePath, { baseBranch: r.baseBranch, desc: _devDesc(r) }); } catch {} }
+      if (r.branch && r.prBranch) { try { out.prDivergence = devitems.devPrDivergence({ org: r.org, project: r.project, repo: r.repo, provider: r.provider, devBranch: r.branch, prBranch: r.prBranch }); } catch {} }
       if (r.prId && r.org && r.project && r.repo) { try { out.pr = await _devPullRequest(_devDesc(r), r.prId); } catch {} }
       return out;
     }));
@@ -28624,6 +28630,98 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     updated = ctx.save(topSave);
   }
   res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, repoId: slot.id, committed: committedCount, stateWarning });
+});
+
+// Promote a dev card's private work onto its EXISTING PR branch (dev -> pr) and push
+// it, so the open PR picks up the new dev commits. This is distinct from …/pr (which
+// OPENS a new PR): here a PR already exists and we advance its branch. Commits any
+// uncommitted dev-worktree edits first (they belong on the PR too), then merges
+// dev/<slug> into pr/<slug>-<N> in the PR's OWN worktree and pushes. Re-attaches the
+// fresh divergence so the graph badge updates.
+app.post('/api/boards/:id/dev-items/:devId/promote', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const slot = _findRepoSlot(d, (req.body && req.body.repoId) || 'primary');
+  if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
+  if (!slot.prId || !slot.prBranch) return res.status(400).json({ error: 'No pull request on this repo to promote to — open a PR first.' });
+  if (!slot.branch) return res.status(400).json({ error: 'Dev card has no working branch.' });
+
+  // 1) Capture any uncommitted local edits on the dev branch so they promote too.
+  let committedCount = 0;
+  if (slot.worktreePath && fs.existsSync(slot.worktreePath)) {
+    try {
+      const c = devitems.commitAll(slot.worktreePath, { message: 'Changes for ' + (slot.branch || 'PR') });
+      if (!c.ok) return res.status(500).json({ error: 'Failed to commit local changes: ' + c.message });
+      if (c.committed) committedCount = c.files;
+    } catch (e) { return res.status(500).json({ error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
+  }
+
+  // 2) Self-heal the PR worktree if its dir is gone (the branch still exists in the
+  //    shared clone, so createPrWorktree re-attaches it rather than re-seeding).
+  let prWtPath = slot.prWorktreePath;
+  if (!prWtPath || !fs.existsSync(prWtPath)) {
+    try {
+      const wt = devitems.createPrWorktree({
+        org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+        prBranch: slot.prBranch, fromRef: slot.branch, wtDevId: String(d.id) + '--pr' + (slot.prSeq || 1)
+      });
+      prWtPath = wt.worktreePath;
+    } catch (e) { return res.status(500).json({ error: 'Failed to restore PR worktree: ' + ((e && e.message) || e) }); }
+  }
+
+  // 3) Promote dev -> pr and push.
+  let r;
+  try { r = devitems.promoteToPr(prWtPath, { devBranch: slot.branch, prBranch: slot.prBranch, desc: _devDesc(slot) }); }
+  catch (e) { return res.status(500).json({ error: 'Promote failed: ' + ((e && e.message) || e) }); }
+  if (!r.ok) return res.status(500).json({ error: r.message, dev: d });
+
+  // 4) Re-attach fresh divergence + persist the (possibly restored) PR worktree path.
+  const prDivergence = devitems.devPrDivergence({
+    org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+    devBranch: slot.branch, prBranch: slot.prBranch
+  });
+  const partial = { prWorktreePath: prWtPath, prDivergence };
+  const updated = _saveRepoSlot(ctx, slot.id, partial);
+  res.json({ ok: true, dev: updated, repoId: slot.id, promoted: r.promoted, committed: committedCount, prDivergence, message: r.message });
+});
+
+// Pull review-time commits from an EXISTING PR branch back into the dev card's
+// private working branch (pr -> dev). Local merge only (the dev branch is never
+// pushed). Re-attaches the fresh divergence so the graph badge updates.
+app.post('/api/boards/:id/dev-items/:devId/pull-review', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const slot = _findRepoSlot(d, (req.body && req.body.repoId) || 'primary');
+  if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
+  if (!slot.prId || !slot.prBranch) return res.status(400).json({ error: 'No pull request on this repo to pull from.' });
+  if (!slot.branch) return res.status(400).json({ error: 'Dev card has no working branch.' });
+
+  // Self-heal the dev worktree if its dir is gone.
+  let devWtPath = slot.worktreePath;
+  if (!devWtPath || !fs.existsSync(devWtPath)) {
+    try {
+      const wt = devitems.createWorktree({
+        org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+        baseBranch: slot.baseBranch, branch: slot.branch, devId: String(d.id)
+      });
+      devWtPath = wt.worktreePath;
+    } catch (e) { return res.status(500).json({ error: 'Failed to restore dev worktree: ' + ((e && e.message) || e) }); }
+  }
+
+  let r;
+  try { r = devitems.pullFromPr(devWtPath, { devBranch: slot.branch, prBranch: slot.prBranch }); }
+  catch (e) { return res.status(500).json({ error: 'Pull failed: ' + ((e && e.message) || e) }); }
+  if (!r.ok) return res.status(500).json({ error: r.message, dev: d });
+
+  const prDivergence = devitems.devPrDivergence({
+    org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+    devBranch: slot.branch, prBranch: slot.prBranch
+  });
+  const partial = { worktreePath: devWtPath, prDivergence };
+  const updated = _saveRepoSlot(ctx, slot.id, partial);
+  res.json({ ok: true, dev: updated, repoId: slot.id, pulled: r.pulled, prDivergence, message: r.message });
 });
 
 // Link an EXISTING pull request to a dev card's repo slot (no push/commit). This

@@ -11535,14 +11535,18 @@
                                   <div class="cf-sidesum dev">
                                     <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfGraphModel(d).dev.branch"></strong><span class="hint" style="font-size:11px">Dev workbench</span></div>
                                     <div class="cf-sidebody"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' commit(s) ahead — ready to promote to a PR.'"></span><span x-show="!cfGraphModel(d).dev.ahead">This dev branch owns its own worktree. Build, test &amp; validate here — nothing is pushed without you.</span></div>
-                                    <button class="cf-primeact" type="button" :disabled="cfDevAction(d).disabled" @click="(cfDevAction(d).kind==='openpr' || cfDevAction(d).kind==='promote') ? cfNewPr(d) : null" x-text="cfDevAction(d).label"></button>
+                                    <button class="cf-primeact" type="button" :disabled="cfDevAction(d).disabled || (cfDevAction(d).kind==='promote' && cfActBusy(d, cfDevAction(d).slot, 'promote'))" @click="cfDevAction(d).kind==='openpr' ? cfNewPr(d) : (cfDevAction(d).kind==='promote' ? cfPromote(d, cfDevAction(d).slot) : null)" x-text="cfDevAction(d).label"></button>
                                   </div>
                                 </template>
                                 <template x-if="cfView(d)==='pr' && cfCurPr(d)">
                                   <div class="cf-sidesum pr">
                                     <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfCurPr(d).num + ' · ' + cfCurPr(d).bn"></strong><span class="hint" style="font-size:11px">PR review</span></div>
                                     <div class="cf-sidebody" style="display:flex;flex-direction:column;gap:3px"><span x-show="cfCurPr(d).approvals" x-text="'Approvals: ' + cfCurPr(d).approvals"></span><span x-text="'Checks: ' + cfCurPr(d).checks"></span><span x-show="cfCurPr(d).promote > 0" x-text="cfCurPr(d).promote + ' to promote from dev →'"></span><span x-show="cfCurPr(d).pull > 0" x-text="'← ' + cfCurPr(d).pull + ' review to pull'"></span><span x-show="cfPrCanMerge(cfCurPr(d))" style="color:var(--cp-success)">✓ Ready to merge</span></div>
-                                    <a class="cf-primeact pr" :href="cfCurPr(d).href || '#'" target="_blank" rel="noopener" x-show="cfCurPr(d).href" @click.stop>Open PR ↗</a>
+                                    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                                      <button class="cf-primeact" type="button" x-show="cfCurPr(d).promote > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'promote')" @click.stop="cfPromote(d, cfCurPr(d)._slot)" x-text="'↑ Promote from dev (' + cfCurPr(d).promote + ')'"></button>
+                                      <button class="cf-primeact" type="button" x-show="cfCurPr(d).pull > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'pull')" @click.stop="cfPullReview(d, cfCurPr(d)._slot)" x-text="'↓ Pull review (' + cfCurPr(d).pull + ')'"></button>
+                                      <a class="cf-primeact pr" :href="cfCurPr(d).href || '#'" target="_blank" rel="noopener" x-show="cfCurPr(d).href" @click.stop>Open PR ↗</a>
+                                    </div>
                                   </div>
                                 </template>
 
@@ -48762,16 +48766,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const s of slots) {
             if (!s.prId && !s.pr) continue;
             const pr = s.pr || {};
+            const dv = s.prDivergence || {};
+            const promote = dv.comparable ? (Number(dv.promote) || 0) : ahead;
+            const pull = dv.comparable ? (Number(dv.pull) || 0) : 0;
             prs.push({
               key: (s.id || 'primary'),
               slotId: s.id || 'primary',
-              bn: (pr.sourceBranch || pr.sourceRefName || ('pr/' + this._cfSlug(d))).replace(/^refs\/heads\//, ''),
+              bn: (pr.sourceBranch || pr.sourceRefName || s.prBranch || ('pr/' + this._cfSlug(d))).replace(/^refs\/heads\//, ''),
               num: s.prId ? ('!' + s.prId) : 'PR',
               base: (pr.targetBranch || pr.targetRefName || 'main').replace(/^refs\/heads\//, ''),
               approvals: this._cfApprovals(pr),
               checks: this._cfChecks(pr),
-              promote: ahead,          // to-promote count lives on the dev->pr edge
-              pull: 0,                 // review-to-pull; real count is a P1 addition
+              promote,                 // dev->pr: commits on dev not yet on the PR branch
+              pull,                    // pr->dev: commits on the PR branch not yet on dev
               stacked: false,          // all independent until same-repo fan lands
               wt: s.worktreePath || '',
               title: (pr.title || ('!' + (s.prId || ''))),
@@ -48914,7 +48921,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // promote/pull chips on the SELECTED pr's incoming edge (readable bg chips, stacked on the curve)
             if (isSel && opts.pr) {
               let bh = '';
-              if (fromKey === 'dev' && m.dev.ahead > 0) bh += '<span class="cf-cbadge to-pr">' + m.dev.ahead + ' to promote →</span>';
+              if (fromKey === 'dev' && opts.pr.promote > 0) bh += '<span class="cf-cbadge to-pr">' + opts.pr.promote + ' to promote →</span>';
               if (opts.pr.pull > 0) bh += '<span class="cf-cbadge to-dev">← ' + opts.pr.pull + ' review to pull</span>';
               if (bh) labels.push({ cls: 'cf-edgebadge', x: mx, y: (opts.stacked ? my + 12 : my), html: bh });
             }
@@ -48937,11 +48944,60 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         _cfEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
         // Dev-side / PR-side primary action label (mirrors the mock's renderStateActs).
+        // When a PR exists, "promote" advances that PR's branch (dev -> pr) using the
+        // real per-PR divergence count, NOT the dev-vs-base ahead count. With multiple
+        // PRs behind dev we target the first one behind; the per-PR panel exposes each.
         cfDevAction(d) {
           const m = this.cfGraphModel(d);
           if (!m.prs.length) return { label: 'Open PR from dev →', kind: 'openpr' };
-          if (m.dev.ahead > 0) return { label: 'Promote to PR (' + m.dev.ahead + ') →', kind: 'promote' };
+          const behind = m.prs.filter(p => p.promote > 0);
+          if (behind.length) {
+            const p = behind[0];
+            return { label: 'Promote to ' + p.num + ' (' + p.promote + ') →', kind: 'promote', slot: p._slot, count: p.promote };
+          }
           return { label: 'In sync', kind: 'insync', disabled: true };
+        },
+        // Promote dev commits onto an existing PR branch (dev -> pr) and push, so the
+        // open PR picks up the new work. Server commits any uncommitted dev edits first.
+        async cfPromote(d, slot) {
+          const cur = this.cfCurPr(d);
+          const s = slot || (cur && cur._slot);
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s) + ':promote';
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'promote';
+          this.showToast('Code Flow', '↑ Promoting dev commits onto the PR branch…', 'info');
+          try {
+            const body = s.primary ? {} : { repoId: s.id };
+            const r = await this.request(this._devUrl(d, 'promote'), { method: 'POST', body: JSON.stringify(body) });
+            if (r && r.dev) { this._applyDevUpdate(d.id, r.dev); this.$nextTick(() => this.cfDrawEdges(d)); }
+            this.showToast('Code Flow', (r && r.message) || 'Promoted to the PR branch.', (r && r.ok) ? 'success' : 'error');
+          } catch (e) {
+            this.showToast('Code Flow', (e && e.message) || 'Promote failed', 'error');
+          } finally { delete this.devBusy[key]; }
+        },
+        // Pull review-time commits from a PR branch back into the dev branch (pr -> dev).
+        // Local merge only — the dev branch is never pushed.
+        async cfPullReview(d, slot) {
+          const cur = this.cfCurPr(d);
+          const s = slot || (cur && cur._slot);
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s) + ':pull';
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'pull';
+          this.showToast('Code Flow', '↓ Pulling review commits into the dev branch…', 'info');
+          try {
+            const body = s.primary ? {} : { repoId: s.id };
+            const r = await this.request(this._devUrl(d, 'pull-review'), { method: 'POST', body: JSON.stringify(body) });
+            if (r && r.dev) { this._applyDevUpdate(d.id, r.dev); this.$nextTick(() => this.cfDrawEdges(d)); }
+            this.showToast('Code Flow', (r && r.message) || 'Pulled review commits into dev.', (r && r.ok) ? 'success' : 'error');
+          } catch (e) {
+            this.showToast('Code Flow', (e && e.message) || 'Pull failed', 'error');
+          } finally { delete this.devBusy[key]; }
+        },
+        cfActBusy(d, slot, kind) {
+          if (!d || !slot) return false;
+          return this.devBusy[this.slotBusyKey(d, slot) + ':' + kind] === kind;
         },
         cfPrCanMerge(pr) {
           return !!(pr && /^2/.test(String(pr.approvals || '')) && pr.checks === 'green');
@@ -50224,7 +50280,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               branch: d.branch, baseBranch: d.baseBranch,
               worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
               worktreeError: d.worktreeError || null, git: d.git || null,
-              agentName: d.devAgentName || '', prId: d.prId || '', pr: d.pr || null
+                prBranch: d.prBranch || '', prWorktreePath: d.prWorktreePath || '', prDivergence: d.prDivergence || null,
+                agentName: d.devAgentName || '', prId: d.prId || '', pr: d.pr || null
             });
           }
           for (const r of ((d && d.repos) || [])) if (r && r.id) slots.push({ ...r, primary: false, agentName: r.agentName || '', prId: r.prId || '', pr: r.pr || null });

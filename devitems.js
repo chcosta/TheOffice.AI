@@ -276,6 +276,96 @@ function createPrWorktree({ org, project, repo, provider, prBranch, fromRef, wtD
   return { worktreePath: wt, branch: br, reused: false };
 }
 
+// Divergence between a dev card's private working branch (dev/<slug>) and its
+// published PR branch (pr/<slug>-<N>). Both are LOCAL refs in the same shared
+// clone, so this is a pure local rev-list — no network, no worktree, no fetch.
+//   promote = commits on dev not yet on the PR branch  (dev  -> pr, "to promote")
+//   pull    = commits on the PR branch not yet on dev  (pr   -> dev, "to pull back")
+// A non-zero `pull` means the PR branch moved on its own (review-time commits,
+// a promote from a sibling, a squash) and the dev branch is behind it. Returns
+// { promote, pull, comparable } — comparable=false when either ref is missing
+// (e.g. no PR yet, or the clone hasn't been created). Never throws.
+function devPrDivergence({ org, project, repo, provider = 'azdo', devBranch, prBranch } = {}) {
+  const zero = { promote: 0, pull: 0, comparable: false };
+  const dev = String(devBranch || '').replace(/^refs\/heads\//, '').trim();
+  const pr = String(prBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!dev || !pr) return zero;
+  const clone = clonePath(org, project, repo, String(provider || 'azdo').toLowerCase());
+  if (!_isRepo(clone)) return zero;
+  const devRef = 'refs/heads/' + dev;
+  const prRef = 'refs/heads/' + pr;
+  if (!_gitTry(['rev-parse', '--verify', '--quiet', devRef], clone).ok) return zero;
+  if (!_gitTry(['rev-parse', '--verify', '--quiet', prRef], clone).ok) return zero;
+  // `--left-right --count A...B`: left = reachable from A not B, right = from B not A.
+  // A=prRef, B=devRef  =>  left = on pr not dev (pull), right = on dev not pr (promote).
+  const counts = _gitTry(['rev-list', '--left-right', '--count', prRef + '...' + devRef], clone);
+  if (!counts.ok) return zero;
+  const m = counts.out.split(/\s+/);
+  const pull = parseInt(m[0], 10) || 0;
+  const promote = parseInt(m[1], 10) || 0;
+  return { promote, pull, comparable: true };
+}
+
+// Promote a dev card's private work onto its PUBLISHED PR branch (dev -> pr) and
+// push it so the open PR picks up the new commits. Runs inside the PR's OWN
+// worktree (never the dev worktree — dev/<slug> and pr/<slug>-<N> are on distinct
+// branches in distinct dirs, so this never fights the dev checkout). Fast-forwards
+// when the PR branch is a strict ancestor of dev (the common case: PR seeded at the
+// dev tip, dev advanced, PR untouched); otherwise creates a merge commit so
+// review-time commits on the PR branch are preserved. `desc` carries provider auth
+// for the push. Returns { ok, promoted, pushed, message }. Never throws.
+function promoteToPr(prWt, { devBranch, prBranch, desc = null } = {}) {
+  if (!prWt || !_isRepo(prWt)) return { ok: false, promoted: 0, pushed: false, message: 'PR worktree is missing — create the PR first.' };
+  const dev = String(devBranch || '').replace(/^refs\/heads\//, '').trim();
+  const pr = String(prBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!dev || !pr) return { ok: false, promoted: 0, pushed: false, message: 'devBranch and prBranch are required.' };
+  const devRef = 'refs/heads/' + dev;
+  if (!_gitTry(['rev-parse', '--verify', '--quiet', devRef], prWt).ok) return { ok: false, promoted: 0, pushed: false, message: 'Dev branch ' + dev + ' not found.' };
+  // Make sure the PR worktree is actually on the PR branch before we merge into it.
+  const cur = (_gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], prWt).out || '').trim();
+  if (cur !== pr) {
+    const co = _gitTry(['checkout', pr], prWt);
+    if (!co.ok) return { ok: false, promoted: 0, pushed: false, message: 'Could not switch the PR worktree to ' + pr + ': ' + co.err.split('\n').slice(-2).join(' ').slice(0, 200) };
+  }
+  const cnt = _gitTry(['rev-list', '--count', pr + '..' + dev], prWt);
+  const n = cnt.ok ? (parseInt(cnt.out, 10) || 0) : 0;
+  if (n === 0) return { ok: true, promoted: 0, pushed: false, message: 'The PR is already up to date with dev.' };
+  _ensureGitIdentity(prWt);
+  let merged = _gitTry(['merge', '--ff-only', devRef], prWt);
+  if (!merged.ok) merged = _gitTry(['merge', '--no-edit', devRef], prWt);
+  if (!merged.ok) return { ok: false, promoted: n, pushed: false, message: 'Could not promote (merge failed — resolve conflicts in the PR worktree): ' + merged.err.split('\n').slice(-2).join(' ').slice(0, 260) };
+  const push = _gitTry(['push', 'origin', pr], prWt, { auth: desc || true });
+  if (!push.ok) return { ok: false, promoted: n, pushed: false, message: 'Promoted locally but the push failed: ' + push.err.split('\n').slice(-2).join(' ').slice(0, 260) };
+  return { ok: true, promoted: n, pushed: true, message: 'Promoted ' + n + ' commit' + (n === 1 ? '' : 's') + ' to the PR.' };
+}
+
+// Pull review-time commits from the PUBLISHED PR branch back into the dev card's
+// private working branch (pr -> dev). Runs inside the DEV worktree. The dev branch
+// is never pushed, so this is a local merge only. Fast-forwards when dev is a strict
+// ancestor of the PR branch; otherwise a merge commit. Returns
+// { ok, pulled, message }. Never throws.
+function pullFromPr(devWt, { devBranch, prBranch } = {}) {
+  if (!devWt || !_isRepo(devWt)) return { ok: false, pulled: 0, message: 'Dev worktree is missing.' };
+  const dev = String(devBranch || '').replace(/^refs\/heads\//, '').trim();
+  const pr = String(prBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!dev || !pr) return { ok: false, pulled: 0, message: 'devBranch and prBranch are required.' };
+  const prRef = 'refs/heads/' + pr;
+  if (!_gitTry(['rev-parse', '--verify', '--quiet', prRef], devWt).ok) return { ok: false, pulled: 0, message: 'PR branch ' + pr + ' not found.' };
+  const cur = (_gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], devWt).out || '').trim();
+  if (cur !== dev) {
+    const co = _gitTry(['checkout', dev], devWt);
+    if (!co.ok) return { ok: false, pulled: 0, message: 'Could not switch the dev worktree to ' + dev + ': ' + co.err.split('\n').slice(-2).join(' ').slice(0, 200) };
+  }
+  const cnt = _gitTry(['rev-list', '--count', dev + '..' + pr], devWt);
+  const n = cnt.ok ? (parseInt(cnt.out, 10) || 0) : 0;
+  if (n === 0) return { ok: true, pulled: 0, message: 'Dev is already up to date with the PR.' };
+  _ensureGitIdentity(devWt);
+  let merged = _gitTry(['merge', '--ff-only', prRef], devWt);
+  if (!merged.ok) merged = _gitTry(['merge', '--no-edit', prRef], devWt);
+  if (!merged.ok) return { ok: false, pulled: n, message: 'Could not pull (merge failed — resolve conflicts in the dev worktree): ' + merged.err.split('\n').slice(-2).join(' ').slice(0, 260) };
+  return { ok: true, pulled: n, message: 'Pulled ' + n + ' review commit' + (n === 1 ? '' : 's') + ' into dev.' };
+}
+
 // Compute ahead/behind/dirty for a worktree. Optionally fetch first.
 // `desc` (optional) is a provider descriptor ({provider, org/owner, project, repo});
 // when present its host-scoped auth is used for the remote fetch (GitHub HTTP-basic
@@ -1333,6 +1423,9 @@ module.exports = {
   ensureClone,
   createWorktree,
   createPrWorktree,
+  devPrDivergence,
+  promoteToPr,
+  pullFromPr,
   createWorktreeAsync,
   worktreeStatus,
   branchCommits,
