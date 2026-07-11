@@ -33681,11 +33681,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async _whThreadAction(key, action, optimistic) {
           const w = this.whatsHappening;
-          if (optimistic) { w.threads = w.threads.filter(t => t.key !== key); if (action === 'mute') w.mutedCount++; }
+          if (optimistic) {
+            const thread = (w._byKey || {})[key] || (w.threads || []).find(t => t && t.key === key) || null;
+            // Drop ONLY this item — keep the summary text and the other curated items intact.
+            w.threads = (w.threads || []).filter(t => t.key !== key);
+            if (w._byKey) delete w._byKey[key];
+            if (w.summary && Array.isArray(w.summary.worthALook)) {
+              w.summary.worthALook = w.summary.worthALook.filter(it => it.key !== key);
+            }
+            if (w.counts && typeof w.counts.all === 'number') w.counts.all = Math.max(0, w.counts.all - 1);
+            if (action === 'mute') {
+              w.mutedCount = (w.mutedCount || 0) + 1;
+              if (thread) w.muted = [thread, ...(w.muted || []).filter(t => t.key !== key)];
+            }
+          }
           try {
             await this.request('/api/me-ai/whats-happening/thread', { method: 'POST', body: JSON.stringify({ key, action }) });
           } catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
-          await this.loadWhatsHappening();
         },
         whMute(key) { return this._whThreadAction(key, 'mute', true); },
         whUnmute(key) { const w = this.whatsHappening; w.muted = (w.muted || []).filter(t => t.key !== key); if (w.mutedCount > 0) w.mutedCount--; if (w.mutedCount <= 0) w.showMuted = false; return this._whThreadAction(key, 'unmute', false); },
