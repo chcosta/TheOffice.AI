@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse.AI — lens redesign mockups</title>
+<style>
+:root{
+  --cp-bg:#0d1117; --cp-surface:#161b22; --cp-surface-2:#1c2230; --cp-border:#2a3140;
+  --cp-ink:#e6edf3; --cp-muted:#9aa7b4; --cp-faint:#6b7684;
+  --cp-accent:#58a6ff; --cp-dev:#3fb950; --cp-pr:#a371f7; --cp-here:#db61a2;
+  --cp-warn:#d29922; --cp-danger:#f85149;
+  --heat:linear-gradient(90deg,var(--cp-dev) 0%,#7bbf3a 32%,var(--cp-warn) 62%,var(--cp-danger) 100%);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--cp-bg); color:var(--cp-ink);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+a{color:inherit}
+.wrap{max-width:1320px; margin:0 auto; padding:26px 32px 90px}
+
+/* ---- mock chrome ---- */
+.mockbar{
+  position:sticky; top:0; z-index:20; background:rgba(13,17,23,.9);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--cp-border);
+  padding:10px 32px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+}
+.mockbar b{font-weight:650; letter-spacing:-0.01em}
+.mockbar .seg{margin-left:auto; display:flex; gap:2px; background:var(--cp-surface-2); border:1px solid var(--cp-border); border-radius:8px; padding:3px; flex-wrap:wrap}
+.mockbar .seg button{
+  font:inherit; font-size:12.5px; color:var(--cp-muted); background:transparent;
+  border:0; border-radius:6px; padding:5px 12px; cursor:pointer;
+}
+.mockbar .seg button.on{background:var(--cp-surface); color:var(--cp-ink)}
+.note{color:var(--cp-faint); font-size:12.5px; margin:4px 0 22px; max-width:900px; line-height:1.6}
+
+/* ---- pulse header ---- */
+.pulse-head{display:flex; align-items:flex-start; gap:14px; margin-bottom:8px}
+.pulse-head h2{margin:0; font-size:20px; font-weight:650; letter-spacing:-0.02em}
+.pulse-head .stamp{color:var(--cp-faint); font-size:12px; margin-top:3px}
+.pulse-head .acts{margin-left:auto; display:flex; align-items:center; gap:10px}
+.pbtn{font:inherit; font-size:12.5px; color:var(--cp-ink); background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:6px 12px; cursor:pointer}
+.pbtn:hover{border-color:var(--cp-faint)}
+
+/* hero */
+.hero{
+  border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface);
+  padding:18px 20px; margin:14px 0 18px; max-width:900px;
+}
+.hero .kick{color:var(--cp-accent); font-size:12px; font-weight:600; letter-spacing:.02em; margin-bottom:6px}
+.hero p{margin:0; color:var(--cp-ink); font-size:15px; line-height:1.65}
+
+/* ---- shared urgency gradient legend ---- */
+.legend{display:flex; align-items:center; gap:12px; margin:0 0 20px; color:var(--cp-faint); font-size:11.5px; flex-wrap:wrap}
+.legend .scale{position:relative; width:220px; height:8px; border-radius:999px; background:var(--heat); flex:none}
+.legend .ends{display:flex; justify-content:space-between; width:220px; margin-top:2px; color:var(--cp-muted); font-size:11px}
+.legend .cap{color:var(--cp-faint)}
+.legend .mid{position:absolute; left:62%; top:-3px; width:2px; height:14px; background:var(--cp-bg); opacity:.6}
+
+/* ---- heat meter (replaces urgency dots): gradient track + position marker ---- */
+.heat{position:relative; width:56px; height:7px; border-radius:999px; background:var(--heat); flex:none; opacity:.9}
+.heat .mk{position:absolute; top:50%; width:3px; height:13px; border-radius:2px; background:var(--cp-ink); transform:translate(-50%,-50%); box-shadow:0 0 0 2px var(--cp-bg)}
+.heat.sm{width:40px; height:6px}
+.heat-wide{position:relative; height:8px; border-radius:999px; background:var(--heat); opacity:.9}
+.heat-wide .mk{position:absolute; top:50%; width:3px; height:15px; border-radius:2px; background:var(--cp-ink); transform:translate(-50%,-50%); box-shadow:0 0 0 2px var(--cp-bg)}
+.uword{font-size:11px; color:var(--cp-faint); flex:none}
+
+/* lens switcher = quiet text links (no pills) */
+.lensbar{display:flex; gap:22px; border-bottom:1px solid var(--cp-border); margin-bottom:22px; flex-wrap:wrap}
+.lensbar a{
+  padding:0 0 10px; color:var(--cp-muted); text-decoration:none; font-size:13.5px;
+  border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer;
+}
+.lensbar a .n{color:var(--cp-faint); font-size:12px; margin-left:5px}
+.lensbar a.on{color:var(--cp-ink); border-bottom-color:var(--cp-accent); font-weight:600}
+.lensbar a:hover{color:var(--cp-ink)}
+.lensfmt{color:var(--cp-faint); font-size:11.5px; margin:-8px 0 16px}
+.lensfmt b{color:var(--cp-muted); font-weight:600}
+
+.hide{display:none !important}
+.lead{margin:0 0 20px; max-width:760px}
+.lead h3{margin:0 0 6px; font-size:16px; font-weight:650; letter-spacing:-0.01em}
+.lead p{margin:0; color:var(--cp-muted); font-size:14px; line-height:1.65}
+
+/* ============ DESIGN A — analysis stream ============ */
+.strm{max-width:820px}
+.strm .grp{padding:16px 0; border-top:1px solid var(--cp-border)}
+.strm .grp:first-of-type{border-top:0}
+.strm .grp-h{display:flex; align-items:center; gap:11px}
+.strm .grp-h .t{font-size:14.5px; font-weight:600}
+.strm .grp-h .meta{margin-left:auto; color:var(--cp-faint); font-size:12px}
+.strm .grp .blurb{margin:7px 0 0; color:var(--cp-muted); font-size:13.5px; line-height:1.6}
+.strm .grp .items{margin:11px 0 0}
+.strm .grp .row{
+  display:flex; gap:10px; align-items:baseline; padding:7px 0;
+  border-top:1px dashed var(--cp-border); color:var(--cp-ink); font-size:13px;
+}
+.strm .grp .row:first-child{border-top:0}
+.strm .grp .row .who{color:var(--cp-faint); font-size:12px; flex:none; min-width:96px}
+
+/* ============ DESIGN B — master / detail ============ */
+.md{display:grid; grid-template-columns:300px 1fr; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:440px}
+.md .idx{border-right:1px solid var(--cp-border); background:var(--cp-surface); padding:6px}
+.md .idx .row{display:flex; gap:9px; align-items:flex-start; padding:11px 12px; border-radius:8px; cursor:pointer; border:1px solid transparent}
+.md .idx .row:hover{background:var(--cp-surface-2)}
+.md .idx .row.on{background:var(--cp-surface-2); border-color:var(--cp-border)}
+.md .idx .row .heat{margin-top:5px}
+.md .idx .row .t{font-size:13px; font-weight:600; line-height:1.35}
+.md .idx .row .s{color:var(--cp-faint); font-size:11.5px; line-height:1.4; margin-top:2px}
+.md .idx .row .c{margin-left:auto; color:var(--cp-faint); font-size:11px; flex:none}
+.md .pane{padding:22px 26px; background:var(--cp-bg)}
+.md .pane h3{margin:0 0 4px; font-size:17px; font-weight:650; letter-spacing:-0.01em; display:flex; align-items:center; gap:11px}
+.md .pane .an{margin:10px 0 20px; color:var(--cp-ink); font-size:14px; line-height:1.7; max-width:640px}
+.md .pane .sub{color:var(--cp-faint); font-size:12px; margin:0 0 8px; font-weight:600}
+.md .pane .item{display:flex; gap:12px; align-items:baseline; padding:9px 0; border-top:1px solid var(--cp-border); font-size:13px}
+.md .pane .item:first-of-type{border-top:0}
+.md .pane .item .who{color:var(--cp-faint); font-size:12px; min-width:120px; flex:none}
+.md .pane .item .open{margin-left:auto; color:var(--cp-accent); font-size:12px; text-decoration:none; flex:none}
+@media(max-width:860px){ .md{grid-template-columns:1fr} .md .idx{border-right:0; border-bottom:1px solid var(--cp-border)} }
+
+/* ============ FORMAT: priority ladder (Focus) ============ */
+.ladder{max-width:800px}
+.ladder .rung{display:flex; gap:16px; padding:18px 0; border-top:1px solid var(--cp-border)}
+.ladder .rung:first-child{border-top:0}
+.ladder .rk{font-size:22px; font-weight:700; color:var(--cp-faint); letter-spacing:-0.02em; line-height:1; min-width:26px; font-variant-numeric:tabular-nums}
+.ladder .rung.top .rk{color:var(--cp-ink)}
+.ladder .body{flex:1; min-width:0}
+.ladder .body .t{font-size:15px; font-weight:650; letter-spacing:-0.01em}
+.ladder .rung.top .body .t{font-size:17px}
+.ladder .body .meterrow{display:flex; align-items:center; gap:10px; margin:8px 0 0}
+.ladder .body .blurb{margin:9px 0 0; color:var(--cp-muted); font-size:13.5px; line-height:1.6}
+.ladder .body .thread{margin:9px 0 0; color:var(--cp-faint); font-size:12.5px}
+.ladder .body .thread b{color:var(--cp-ink); font-weight:600}
+
+/* ============ FORMAT: editorial digest (Themes) ============ */
+.digest{max-width:680px}
+.digest .th{padding:22px 0; border-top:1px solid var(--cp-border)}
+.digest .th:first-child{border-top:0}
+.digest .th h4{margin:0; font-size:17px; font-weight:650; letter-spacing:-0.015em; display:inline-block; padding-bottom:5px}
+.digest .th .rule{height:3px; border-radius:999px; background:var(--heat); margin:0 0 12px; opacity:.85}
+.digest .th p{margin:0; color:var(--cp-ink); font-size:14.5px; line-height:1.72}
+.digest .th .refs{margin:11px 0 0; color:var(--cp-faint); font-size:12.5px; line-height:1.7}
+.digest .th .refs .r{display:block}
+.digest .th .refs .r b{color:var(--cp-muted); font-weight:600}
+
+/* ============ FORMAT: aging ledger (Waiting) ============ */
+.ledger{max-width:860px; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden}
+.ledger .lh,.ledger .lr{display:grid; grid-template-columns:1fr 120px 90px; gap:14px; align-items:center; padding:12px 18px}
+.ledger .lh{background:var(--cp-surface); color:var(--cp-faint); font-size:11.5px; font-weight:600; letter-spacing:.02em}
+.ledger .lr{border-top:1px solid var(--cp-border)}
+.ledger .lr .t{font-size:14px; font-weight:600}
+.ledger .lr .s{color:var(--cp-muted); font-size:12.5px; margin-top:2px}
+.ledger .lr .age{color:var(--cp-ink); font-size:13px; font-variant-numeric:tabular-nums}
+.ledger .lr .age .lbl{color:var(--cp-faint); font-size:11px; display:block}
+.ledger .cell-heat{display:flex; align-items:center}
+@media(max-width:720px){ .ledger .lh{display:none} .ledger .lr{grid-template-columns:1fr; gap:6px} }
+
+/* ============ FORMAT: people roster (People) ============ */
+.roster{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; max-width:1100px}
+.person{border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); padding:16px 18px}
+.person .ph{display:flex; align-items:center; gap:12px}
+.person .av{width:38px; height:38px; border-radius:999px; background:var(--cp-surface-2); border:1px solid var(--cp-border); display:flex; align-items:center; justify-content:center; font-weight:650; font-size:14px; color:var(--cp-ink); flex:none}
+.person .nm{font-size:15px; font-weight:650; letter-spacing:-0.01em}
+.person .sub{color:var(--cp-faint); font-size:12px; margin-top:1px}
+.person .meterrow{display:flex; align-items:center; gap:9px; margin-left:auto; flex:none}
+.person .blurb{margin:12px 0 0; color:var(--cp-muted); font-size:13.5px; line-height:1.6}
+.person .asks{margin:11px 0 0}
+.person .asks .a{display:flex; gap:9px; align-items:baseline; padding:6px 0; border-top:1px dashed var(--cp-border); font-size:13px}
+.person .asks .a:first-child{border-top:0}
+.person .asks .a .k{color:var(--cp-faint); font-size:11.5px; flex:none; min-width:74px}
+
+/* ============ FORMAT: activity river (Today) ============ */
+.river{max-width:680px; position:relative; padding-left:26px}
+.river:before{content:""; position:absolute; left:6px; top:6px; bottom:6px; width:3px; border-radius:999px; background:linear-gradient(180deg,var(--cp-dev),var(--cp-border))}
+.river .ev{position:relative; padding:0 0 24px}
+.river .ev:last-child{padding-bottom:0}
+.river .ev .node{position:absolute; left:-26px; top:3px; width:13px; height:13px; border-radius:999px; background:var(--cp-surface); border:2px solid var(--cp-dev)}
+.river .ev .time{color:var(--cp-faint); font-size:11.5px; font-variant-numeric:tabular-nums}
+.river .ev .t{font-size:14px; font-weight:600; margin-top:2px}
+.river .ev .blurb{margin:5px 0 0; color:var(--cp-muted); font-size:13px; line-height:1.6}
+.river .ev .src{margin:6px 0 0; color:var(--cp-faint); font-size:12px}
+
+/* ============ FORMAT: quiet ledger (FYI) ============ */
+.quiet{max-width:720px}
+.quiet .q{display:flex; gap:12px; align-items:baseline; padding:11px 0; border-top:1px solid var(--cp-border)}
+.quiet .q:first-child{border-top:0}
+.quiet .q .t{font-size:13.5px; color:var(--cp-muted)}
+.quiet .q.up .t{color:var(--cp-ink); font-weight:600}
+.quiet .q .s{color:var(--cp-faint); font-size:12px; margin-top:2px}
+.quiet .q .cnt{margin-left:auto; color:var(--cp-faint); font-size:12px; flex:none}
+.quiet .q .heat{align-self:center}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>Pulse.AI · lens redesign</b>
+  <span style="color:var(--cp-faint);font-size:12.5px">gradient heat scale · a format tailored to each lens</span>
+  <div class="seg">
+    <button id="tT" class="on" onclick="pick('T')">★ Tailored per-lens</button>
+    <button id="tA" onclick="pick('A')">A · Analysis stream</button>
+    <button id="tB" onclick="pick('B')">B · Master / detail</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="pulse-head">
+    <div>
+      <h2>Pulse</h2>
+      <div class="stamp">A calm read on your team · updated 4m ago</div>
+    </div>
+    <div class="acts">
+      <span style="color:var(--cp-faint);font-size:12px">Auto-refresh · Hourly</span>
+      <button class="pbtn">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="kick">The one-line read</div>
+    <p id="heroP"></p>
+  </div>
+
+  <!-- gradient urgency legend (replaces the color dots) -->
+  <div class="legend">
+    <span class="cap">Urgency</span>
+    <div>
+      <div class="scale"><span class="mid"></span></div>
+      <div class="ends"><span>Calm — ambient</span><span>Urgent — act today</span></div>
+    </div>
+    <span class="cap" style="max-width:280px">The marker on each item shows where it sits on this scale — further right = more urgent.</span>
+  </div>
+
+  <div class="lensbar" id="lensbar"></div>
+  <div class="lensfmt" id="lensfmt"></div>
+
+  <!-- TAILORED: each lens renders in its own format -->
+  <div id="designT"></div>
+
+  <!-- DESIGN A -->
+  <div id="designA" class="hide">
+    <div class="strm">
+      <div class="lead"><h3 id="aHead"></h3><p id="aAn"></p></div>
+      <div id="aGroups"></div>
+    </div>
+  </div>
+
+  <!-- DESIGN B -->
+  <div id="designB" class="hide">
+    <div class="md"><div class="idx" id="bIdx"></div><div class="pane" id="bPane"></div></div>
+  </div>
+
+  <p class="note" style="margin-top:30px">
+    <b>Tailored</b> gives every lens the shape that fits it: <b>Focus</b> → a ranked priority ladder,
+    <b>Themes</b> → an editorial digest (headline + prose, no cards), <b>Waiting</b> → an aging ledger
+    (how long each has waited), <b>People</b> → a roster, <b>Today</b> → an activity river, <b>FYI</b> →
+    a quiet count-first ledger. Urgency is now a <b>gradient heat scale</b> with a legend, not colored dots.
+    <b>A</b> and <b>B</b> are kept as the two uniform alternatives. All use <b>--cp-*</b> tokens, no pills,
+    no side-stripes, no gradient text; hairline dividers; ≤8px radius.
+  </p>
+</div>
+
+<script>
+// ---- real data (from pulse/state.json summary) ----
+const HERO = "You've got a couple of real action items that have been lingering: the PR you told Alex you'd complete, the autoscaler rollout issues Missy flagged, and a couple of access renewals with deadlines. Epsitha also wants you to weigh in on the FR rotation discussion. Everything else is ambient team hum.";
+
+const LENSES = {
+  focus:  { label:"Focus",   fmt:"Priority ladder",  headline:"Two overdue commitments need closing", analysis:"The PR you told Alex you'd complete and the autoscaler issues you promised Missy are both days old and have generated repeated signals. Knocking those out clears your loudest ambient noise. The access renewals are quieter but have real deadlines." },
+  themes: { label:"Themes",  fmt:"Editorial digest",  headline:"Promises made, marketplace building", analysis:"The dominant energy is around commitments you've already made (PR completion, autoscaler review) that people are gently waiting on. Underneath that, the agent marketplace/catalog work is gaining momentum with Meghna driving it forward — exciting but not urgent for you today." },
+  waiting:{ label:"Waiting", fmt:"Aging ledger",      headline:"Five things waiting on you", analysis:"Alex's PR and Missy's autoscaler issues are the most visible — both are team-facing promises. Epsitha's FR rotation ask and the identity approvals are lower-effort but will nag until done. None are emergencies." },
+  people: { label:"People",  fmt:"Roster",            headline:"Alex, Missy, and Epsitha need you", analysis:"Alex has been the most persistent — multiple pings about that PR, all friendly. Missy flagged the autoscaler work once but clearly and publicly. Epsitha's ask is fresh and direct. Meghna is active but moving independently." },
+  today:  { label:"Today",   fmt:"Activity river",    headline:"Steady hum, nothing on fire", analysis:"The last few days show routine PR flow, a couple of build hiccups, and the team shipping helix infra work at a normal clip. The energy is in process/tooling discussions rather than incidents. No pages or outages." },
+  fyi:    { label:"FYI",     fmt:"Quiet ledger",      headline:"Build noise and bot mail, safely ignored", analysis:"I filtered out about a dozen automated items: pipeline approvals to the DL, build failures on helix-machines, IcM on-call reminders, and NPM access notices. The helix-machines build failure was sent to you directly — worth a peek if you touched that branch, but 2 days old." }
+};
+
+// urgency word -> heat position (0..1) on the calm->urgent gradient
+const HEAT = { urgent:0.9, soon:0.56, calm:0.2 };
+const UWORD = { urgent:"Urgent", soon:"Needs a look", calm:"Calm" };
+
+// groups per lens (each carries its OWN blurb + items)
+const GROUPS = {
+  focus:[
+    {t:"PR you promised to complete", u:"urgent", blurb:"You confirmed to Alex you'd finish and deploy this. Still open — the loudest repeated signal in your inbox.", items:[["Alex S.","4 pings across chat — \"any update on that PR?\""]]},
+    {t:"Autoscaler rollout backlog", u:"soon", blurb:"Missy flagged rollout issues you committed to reviewing days ago. Publicly visible, one clear ask.", items:[["Missy","\"can you look at the autoscaler rollout issues?\""]]},
+    {t:"Access & identity renewals", u:"soon", blurb:"Two renewals with real deadlines — quiet but time-boxed.", items:[["Entra ID","App hygiene approval, you're a named approver"],["NPM","Access policy renewal notice"]]}
+  ],
+  themes:[
+    {t:"PR you promised to complete", u:"urgent", blurb:"Alex asked multiple times whether you're completing that PR, and you confirmed you would. Still pending completion and deployment.", items:[["Alex S.","4 threads"]]},
+    {t:"Autoscaler rollout review", u:"soon", blurb:"Missy's rollout concerns are the second-loudest thread. One clear public ask, a few days stale.", items:[["Missy","2 threads"]]},
+    {t:"FR rotation & process alignment", u:"soon", blurb:"Epsitha wants your take on the First Responder rotation. Fresh, direct, low-effort.", items:[["Epsitha","1 thread"]]},
+    {t:"Agent catalog & marketplace momentum", u:"calm", blurb:"Meghna is driving marketplace/catalog work forward. Exciting but not on your plate today.", items:[["Meghna","3 threads — moving independently"]]},
+    {t:"Access & identity housekeeping", u:"calm", blurb:"Renewal notices with deadlines; no discussion needed, just action.", items:[["Entra ID / NPM","2 threads"]]},
+    {t:"Helix infra PRs in flight", u:"calm", blurb:"Normal PR flow on helix infra. Ambient, nothing waiting on you.", items:[["#helix","6 threads"]]}
+  ],
+  waiting:[
+    {t:"Alex's PR", u:"urgent", age:"4 days", blurb:"Team-facing promise, most visible, getting stale.", items:[["Alex S.","\"still open?\""]]},
+    {t:"Missy's autoscaler issues", u:"soon", age:"3 days", blurb:"Committed days ago, publicly flagged.", items:[["Missy","rollout review"]]},
+    {t:"Epsitha's FR rotation ask", u:"soon", age:"1 day", blurb:"Fresh, direct, low-effort.", items:[["Epsitha","chime in on rotation"]]},
+    {t:"Entra ID approval", u:"calm", age:"2 days", blurb:"You're a named approver — nags until done.", items:[["Entra ID","app hygiene"]]},
+    {t:"NPM access renewal", u:"calm", age:"5 days", blurb:"Deadline-boxed, quiet.", items:[["NPM","policy notice"]]}
+  ],
+  people:[
+    {t:"Alex Svyatenkiy", u:"urgent", blurb:"Most persistent — multiple friendly pings about the PR.", items:[["4 threads","all about the PR"]]},
+    {t:"Missy", u:"soon", blurb:"Flagged autoscaler once, clearly and publicly.", items:[["1 thread","autoscaler rollout"]]},
+    {t:"Epsitha", u:"soon", blurb:"Fresh, direct ask on FR rotation.", items:[["1 thread","rotation discussion"]]},
+    {t:"Meghna", u:"calm", blurb:"Active but independent — just answered your questions.", items:[["3 threads","marketplace"]]}
+  ],
+  today:[
+    {t:"Routine PR flow", u:"calm", time:"all day", blurb:"Normal clip on helix infra, no anomalies.", items:[["#helix","steady"]]},
+    {t:"Build hiccups", u:"calm", time:"midday", blurb:"A couple of failures, no follow-up escalation.", items:[["helix-machines","2 builds"]]},
+    {t:"Process/tooling discussion", u:"calm", time:"afternoon", blurb:"FR rotation, epic classification, marketplace — where the energy is.", items:[["team","several threads"]]}
+  ],
+  fyi:[
+    {t:"helix-machines build failure", u:"soon", blurb:"Sent to you directly — worth a peek if you touched that branch. 2 days old, no follow-up.", items:[["build","direct to you"]]},
+    {t:"Automated / filtered", u:"calm", blurb:"~12 items filtered: pipeline approvals to DL, IcM reminders, NPM notices.", items:[["bots","12 items"]]}
+  ]
+};
+
+let active = 'focus';
+let design = 'T';
+let bSel = 0;
+
+const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const heatMeter = (u,cls) => {
+  const h = HEAT[u] ?? 0.4;
+  return `<span class="heat ${cls||''}" title="${UWORD[u]}"><span class="mk" style="left:${Math.round(h*100)}%"></span></span>`;
+};
+const initials = n => n.split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+
+/* ---------- lens switcher ---------- */
+function buildLensbar(){
+  const bar = document.getElementById('lensbar');
+  bar.innerHTML = Object.keys(LENSES).map(k=>{
+    const g = GROUPS[k]||[];
+    return `<a data-k="${k}" class="${k===active?'on':''}" onclick="setLens('${k}')">${LENSES[k].label}<span class="n">${g.length}</span></a>`;
+  }).join('');
+}
+function setLens(k){ active=k; buildLensbar(); render(); }
+function pick(d){
+  design=d;
+  ['T','A','B'].forEach(x=>document.getElementById('t'+x).classList.toggle('on', x===d));
+  document.getElementById('designT').classList.toggle('hide', d!=='T');
+  document.getElementById('designA').classList.toggle('hide', d!=='A');
+  document.getElementById('designB').classList.toggle('hide', d!=='B');
+  render();
+}
+
+/* ---------- render dispatch ---------- */
+function render(){
+  document.getElementById('heroP').textContent = HERO;
+  const L = LENSES[active];
+  document.getElementById('lensfmt').innerHTML =
+    design==='T' ? `Format for this lens: <b>${L.fmt}</b>` : '';
+  if(design==='T') renderTailored();
+  if(design==='A') renderA();
+  if(design==='B') renderB();
+}
+
+/* ---------- TAILORED per-lens ---------- */
+function renderTailored(){
+  const el = document.getElementById('designT');
+  const g = GROUPS[active], L = LENSES[active];
+  const lead = `<div class="lead"><h3>${esc(L.headline)}</h3><p>${esc(L.analysis)}</p></div>`;
+  const fn = {focus:fmtLadder, themes:fmtDigest, waiting:fmtLedger, people:fmtRoster, today:fmtRiver, fyi:fmtQuiet}[active];
+  el.innerHTML = lead + fn(g);
+}
+
+function fmtLadder(g){
+  const rows = g.map((x,i)=>`
+    <div class="rung ${i===0?'top':''}">
+      <div class="rk">${i+1}</div>
+      <div class="body">
+        <div class="t">${esc(x.t)}</div>
+        <div class="meterrow">${heatMeter(x.u)}<span class="uword">${UWORD[x.u]}</span></div>
+        <div class="blurb">${esc(x.blurb)}</div>
+        ${x.items.map(it=>`<div class="thread"><b>${esc(it[0])}</b> · ${esc(it[1])}</div>`).join('')}
+      </div>
+    </div>`).join('');
+  return `<div class="ladder">${rows}</div>`;
+}
+
+function fmtDigest(g){
+  const th = g.map(x=>{
+    const h = Math.round((HEAT[x.u]??.4)*100);
+    return `<div class="th">
+      <h4>${esc(x.t)}</h4>
+      <div class="rule" style="width:${Math.max(64, h*1.4)}px"></div>
+      <p>${esc(x.blurb)}</p>
+      <div class="refs">${x.items.map(it=>`<span class="r"><b>${esc(it[0])}</b> — ${esc(it[1])}</span>`).join('')}</div>
+    </div>`;
+  }).join('');
+  return `<div class="digest">${th}</div>`;
+}
+
+function fmtLedger(g){
+  const rows = g.slice().sort((a,b)=>(HEAT[b.u]??0)-(HEAT[a.u]??0)).map(x=>`
+    <div class="lr">
+      <div><div class="t">${esc(x.t)}</div><div class="s">${esc(x.blurb)}</div></div>
+      <div class="cell-heat"><div style="flex:1">${heatMeter(x.u)}</div></div>
+      <div class="age"><span class="lbl">waiting</span>${esc(x.age||'—')}</div>
+    </div>`).join('');
+  return `<div class="ledger">
+    <div class="lh"><span>What's waiting</span><span>Urgency</span><span>Age</span></div>
+    ${rows}</div>`;
+}
+
+function fmtRoster(g){
+  const cards = g.map(x=>`
+    <div class="person">
+      <div class="ph">
+        <div class="av">${initials(x.t)}</div>
+        <div><div class="nm">${esc(x.t)}</div><div class="sub">${esc(x.items[0][1])}</div></div>
+        <div class="meterrow">${heatMeter(x.u,'sm')}<span class="uword">${UWORD[x.u]}</span></div>
+      </div>
+      <div class="blurb">${esc(x.blurb)}</div>
+      <div class="asks">${x.items.map(it=>`<div class="a"><span class="k">${esc(it[0])}</span><span>${esc(it[1])}</span></div>`).join('')}</div>
+    </div>`).join('');
+  return `<div class="roster">${cards}</div>`;
+}
+
+function fmtRiver(g){
+  const ev = g.map(x=>`
+    <div class="ev">
+      <div class="node"></div>
+      <div class="time">${esc(x.time||'')}</div>
+      <div class="t">${esc(x.t)}</div>
+      <div class="blurb">${esc(x.blurb)}</div>
+      <div class="src">${x.items.map(it=>`${esc(it[0])} · ${esc(it[1])}`).join('  ·  ')}</div>
+    </div>`).join('');
+  return `<div class="river">${ev}</div>`;
+}
+
+function fmtQuiet(g){
+  const rows = g.map(x=>{
+    const up = x.u!=='calm';
+    return `<div class="q ${up?'up':''}">
+      ${up?heatMeter(x.u,'sm'):''}
+      <div><div class="t">${esc(x.t)}</div><div class="s">${esc(x.blurb)}</div></div>
+      <div class="cnt">${esc(x.items[0][1])}</div>
+    </div>`;
+  }).join('');
+  return `<div class="quiet">${rows}</div>`;
+}
+
+/* ---------- DESIGN A ---------- */
+function renderA(){
+  const L = LENSES[active], g = GROUPS[active];
+  document.getElementById('aHead').textContent = L.headline;
+  document.getElementById('aAn').textContent = L.analysis;
+  document.getElementById('aGroups').innerHTML = g.map(x=>`
+    <div class="grp">
+      <div class="grp-h">${heatMeter(x.u)}<span class="uword">${UWORD[x.u]}</span><span class="t">${esc(x.t)}</span><span class="meta">${x.items.length} thread${x.items.length>1?'s':''}</span></div>
+      <div class="blurb">${esc(x.blurb)}</div>
+      <div class="items">${x.items.map(it=>`<div class="row"><span class="who">${esc(it[0])}</span><span>${esc(it[1])}</span></div>`).join('')}</div>
+    </div>`).join('');
+}
+
+/* ---------- DESIGN B ---------- */
+function renderB(){
+  const L = LENSES[active], g = GROUPS[active];
+  if(bSel>=g.length) bSel=0;
+  document.getElementById('bIdx').innerHTML = g.map((x,i)=>`
+    <div class="row ${i===bSel?'on':''}" onclick="bPick(${i})">
+      ${heatMeter(x.u,'sm')}
+      <div><div class="t">${esc(x.t)}</div><div class="s">${esc(x.blurb).slice(0,64)}${x.blurb.length>64?'…':''}</div></div>
+      <span class="c">${x.items.length}</span>
+    </div>`).join('');
+  const sel = g[bSel];
+  document.getElementById('bPane').innerHTML = `
+    <h3>${heatMeter(sel.u)}<span class="uword">${UWORD[sel.u]}</span> ${esc(L.headline)}</h3>
+    <div class="an">${esc(L.analysis)}</div>
+    <div class="sub">${esc(sel.t)}</div>
+    <p style="color:var(--cp-muted);font-size:13.5px;margin:0 0 14px;line-height:1.65">${esc(sel.blurb)}</p>
+    ${sel.items.map(it=>`<div class="item"><span class="who">${esc(it[0])}</span><span>${esc(it[1])}</span><a class="open" href="#">Open →</a></div>`).join('')}`;
+}
+function bPick(i){ bSel=i; renderB(); }
+
+buildLensbar();
+pick('T');
+</script>
+</body>
+</html>

@@ -17326,6 +17326,125 @@
               .pulse-empty { padding:24px 4px; color:var(--cp-text-muted); font-size:14px; line-height:1.6; }
               .pulse-consent { margin:26px 0; padding:26px; border:1px solid var(--cp-border); border-radius:14px; background:var(--cp-surface); text-align:center; }
 
+              /* ===== Tailored per-lens formats ===== */
+              /* Gradient heat scale (replaces urgency dots) */
+              .pulse-wrap { --pulse-heat:linear-gradient(90deg, var(--cp-success) 0%, #7bbf3a 34%, var(--cp-warning) 64%, var(--cp-danger) 100%); }
+              .ph-heat { position:relative; display:inline-block; width:54px; height:7px; border-radius:999px; background:var(--pulse-heat); flex:0 0 auto; opacity:.92; vertical-align:middle; }
+              .ph-heat.sm { width:40px; height:6px; }
+              .ph-heat .mk { position:absolute; top:50%; width:3px; height:13px; border-radius:2px; background:var(--cp-text); transform:translate(-50%,-50%); box-shadow:0 0 0 2px var(--cp-bg); }
+              .ph-heat.sm .mk { height:12px; }
+              .ph-word { font-size:11px; color:var(--cp-text-muted); flex:0 0 auto; }
+
+              /* Shared urgency legend */
+              .pulse-legend { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:0 0 20px; color:var(--cp-text-muted); font-size:11.5px; }
+              .pulse-legend .scale { position:relative; width:210px; height:8px; border-radius:999px; background:var(--pulse-heat); flex:0 0 auto; }
+              .pulse-legend .scale .mid { position:absolute; left:64%; top:-3px; width:2px; height:14px; background:var(--cp-bg); opacity:.55; }
+              .pulse-legend .ends { display:flex; justify-content:space-between; width:210px; margin-top:3px; color:var(--cp-text-soft); font-size:11px; }
+              .pulse-legend .cap.hint { max-width:320px; }
+
+              /* FOCUS — priority ladder */
+              .pulse-ladder { list-style:none; margin:6px 0 0; padding:0; max-width:820px; }
+              .pulse-ladder .pl-rung { display:flex; gap:16px; padding:18px 0; border-top:1px solid var(--cp-border); }
+              .pulse-ladder .pl-rung:first-child { border-top:none; }
+              .pulse-ladder .pl-rk { font-size:22px; font-weight:700; color:var(--cp-text-muted); letter-spacing:-.02em; line-height:1; min-width:26px; font-variant-numeric:tabular-nums; }
+              .pulse-ladder .pl-rung.top .pl-rk { color:var(--cp-text); }
+              .pulse-ladder .pl-body { flex:1 1 auto; min-width:0; }
+              .pulse-ladder .pl-t { font-size:15px; font-weight:640; color:var(--cp-text); letter-spacing:-.01em; text-wrap:pretty; }
+              .pulse-ladder .pl-rung.top .pl-t { font-size:16.5px; }
+              .pulse-ladder .pl-t.clickable { cursor:pointer; }
+              .pulse-ladder .pl-t.clickable:hover { color:var(--cp-link); }
+              .pulse-ladder .pl-meter { display:flex; align-items:center; gap:10px; margin:9px 0 0; }
+              .pulse-ladder .pl-thread { margin:9px 0 0; color:var(--cp-text-muted); font-size:12.5px; }
+              .pulse-ladder .pl-thread .who { color:var(--cp-text-soft); }
+              .pulse-ladder .pl-thread .you { color:var(--cp-warning); }
+              .pulse-ladder .pl-acts { display:flex; gap:16px; margin:10px 0 0; }
+              .pulse-ladder .pl-acts button, .pulse-ladder .pl-acts a { background:none; border:none; padding:0; font:inherit; font-size:12.5px; cursor:pointer; color:var(--cp-text-muted); }
+              .pulse-ladder .pl-acts .todo { color:var(--cp-link); }
+              .pulse-ladder .pl-acts .todo:hover, .pulse-ladder .pl-acts .mute:hover, .pulse-ladder .pl-acts .onlist:hover { color:var(--cp-text); }
+
+              /* THEMES — editorial digest */
+              .pulse-digest { max-width:680px; margin-top:4px; }
+              .pulse-digest .pd-th { padding:22px 0; border-top:1px solid var(--cp-border); }
+              .pulse-digest .pd-th:first-child { border-top:none; }
+              .pulse-digest .pd-h { margin:0; font-size:17px; font-weight:650; letter-spacing:-.015em; color:var(--cp-text); text-wrap:balance; }
+              .pulse-digest .pd-rule { height:3px; border-radius:999px; background:var(--pulse-heat); margin:6px 0 12px; opacity:.85; }
+              .pulse-digest .pd-body { margin:0; font-size:14.5px; line-height:1.72; color:var(--cp-text); text-wrap:pretty; }
+              .pulse-digest .pd-refs { margin:11px 0 0; display:flex; flex-direction:column; gap:2px; }
+              .pulse-digest .pd-ref { color:var(--cp-text-muted); font-size:12.5px; line-height:1.6; }
+              .pulse-digest .pd-ref b { color:var(--cp-text-soft); font-weight:600; }
+              .pulse-digest .pd-ref.clickable { cursor:pointer; }
+              .pulse-digest .pd-ref.clickable:hover { color:var(--cp-text); }
+              .pulse-digest .pd-ref .you { color:var(--cp-warning); }
+
+              /* WAITING — aging ledger */
+              .pulse-ledger { max-width:860px; margin-top:4px; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; }
+              .pulse-ledger .pl-h, .pulse-ledger .pl-r { display:grid; grid-template-columns:1fr 130px 96px; gap:14px; align-items:center; padding:12px 18px; }
+              .pulse-ledger .pl-h { background:var(--cp-surface); color:var(--cp-text-muted); font-size:11.5px; font-weight:600; letter-spacing:.02em; }
+              .pulse-ledger .pl-r { border-top:1px solid var(--cp-border); }
+              .pulse-ledger .pl-r.clickable { cursor:pointer; }
+              .pulse-ledger .pl-r.clickable:hover { background:var(--cp-surface-soft); }
+              .pulse-ledger .pl-what .pl-t { font-size:14px; font-weight:600; color:var(--cp-text); text-wrap:pretty; }
+              .pulse-ledger .pl-what .pl-s { color:var(--cp-text-muted); font-size:12.5px; margin-top:3px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+              .pulse-ledger .pl-what .pl-s .you { color:var(--cp-warning); }
+              .pulse-ledger .pl-what .pl-todo { background:none; border:none; padding:0; font:inherit; font-size:12px; cursor:pointer; color:var(--cp-link); }
+              .pulse-ledger .pl-what .pl-todo.on { color:var(--cp-text-muted); }
+              .pulse-ledger .pl-what .pl-todo:hover { color:var(--cp-text); }
+              .pulse-ledger .pl-age { color:var(--cp-text); font-size:13px; font-variant-numeric:tabular-nums; }
+              .pulse-ledger .pl-age .lbl { color:var(--cp-text-muted); font-size:11px; display:block; }
+              @media (max-width:720px) { .pulse-ledger .pl-h { display:none; } .pulse-ledger .pl-r { grid-template-columns:1fr; gap:8px; } }
+
+              /* PEOPLE — roster */
+              .pulse-roster { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:4px; }
+              .pulse-person { border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); padding:16px 18px; }
+              .pulse-person .pp-head { display:flex; align-items:center; gap:12px; }
+              .pulse-person .pp-av { width:38px; height:38px; border-radius:999px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); display:flex; align-items:center; justify-content:center; font-weight:650; font-size:14px; color:var(--cp-text); flex:0 0 auto; }
+              .pulse-person .pp-id { min-width:0; }
+              .pulse-person .pp-nm { font-size:15px; font-weight:650; color:var(--cp-text); letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-person .pp-sub { color:var(--cp-text-muted); font-size:12px; margin-top:1px; }
+              .pulse-person .pp-meter { display:flex; align-items:center; gap:8px; margin-left:auto; flex:0 0 auto; }
+              .pulse-person .pp-asks { margin:12px 0 0; }
+              .pulse-person .pp-a { display:flex; gap:10px; align-items:baseline; padding:7px 0; border-top:1px dashed var(--cp-border); font-size:13px; }
+              .pulse-person .pp-a:first-child { border-top:none; }
+              .pulse-person .pp-a.clickable { cursor:pointer; }
+              .pulse-person .pp-a.clickable:hover .v { color:var(--cp-text); }
+              .pulse-person .pp-a .k { color:var(--cp-text-muted); font-size:11.5px; flex:0 0 auto; min-width:44px; }
+              .pulse-person .pp-a .v { color:var(--cp-text-soft); min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-person .pp-a .v .you { color:var(--cp-warning); }
+              .pulse-person .pp-a .tw { color:var(--cp-text-muted); font-size:11.5px; flex:0 0 auto; }
+              .pulse-person .pp-more { color:var(--cp-text-muted); font-size:12px; padding:7px 0 0; }
+
+              /* TODAY — activity river */
+              .pulse-river { max-width:700px; margin:6px 0 0; position:relative; padding-left:26px; }
+              .pulse-river:before { content:""; position:absolute; left:6px; top:6px; bottom:6px; width:3px; border-radius:999px; background:linear-gradient(180deg, var(--cp-success), var(--cp-border)); }
+              .pulse-river .pr-ev { position:relative; padding:0 0 24px; }
+              .pulse-river .pr-ev:last-child { padding-bottom:0; }
+              .pulse-river .pr-node { position:absolute; left:-26px; top:3px; width:13px; height:13px; border-radius:999px; background:var(--cp-surface); border:2px solid var(--cp-success); }
+              .pulse-river .pr-time { color:var(--cp-text-muted); font-size:11.5px; font-variant-numeric:tabular-nums; }
+              .pulse-river .pr-t { font-size:14px; font-weight:600; color:var(--cp-text); margin-top:2px; }
+              .pulse-river .pr-list { margin:8px 0 0; }
+              .pulse-river .pr-row { display:flex; gap:10px; align-items:baseline; padding:6px 0; border-top:1px dashed var(--cp-border); font-size:13px; }
+              .pulse-river .pr-row:first-child { border-top:none; }
+              .pulse-river .pr-row.clickable { cursor:pointer; }
+              .pulse-river .pr-row.clickable:hover .v { color:var(--cp-text); }
+              .pulse-river .pr-row .who { color:var(--cp-text-muted); font-size:12px; flex:0 0 auto; min-width:96px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-river .pr-row .v { color:var(--cp-text-soft); min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-river .pr-row .v .you { color:var(--cp-warning); }
+              .pulse-river .pr-row .tw { color:var(--cp-text-muted); font-size:11.5px; flex:0 0 auto; }
+              .pulse-river .pr-more { color:var(--cp-text-muted); font-size:12px; padding:7px 0 0; }
+
+              /* FYI — quiet count-first ledger */
+              .pulse-quiet { max-width:720px; margin-top:4px; }
+              .pulse-quiet .pq-row { display:flex; gap:12px; align-items:center; padding:11px 0; border-top:1px solid var(--cp-border); }
+              .pulse-quiet .pq-row:first-child { border-top:none; }
+              .pulse-quiet .pq-row.clickable { cursor:pointer; }
+              .pulse-quiet .pq-heat { flex:0 0 auto; display:inline-flex; }
+              .pulse-quiet .pq-main { min-width:0; flex:1 1 auto; }
+              .pulse-quiet .pq-t { font-size:13.5px; color:var(--cp-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-quiet .pq-row.up .pq-t { color:var(--cp-text); font-weight:600; }
+              .pulse-quiet .pq-s { color:var(--cp-text-muted); font-size:12px; margin-top:2px; }
+              .pulse-quiet .pq-s .you { color:var(--cp-warning); }
+              .pulse-quiet .pq-w { margin-left:auto; color:var(--cp-text-muted); font-size:12px; flex:0 0 auto; }
+
               @media (prefers-reduced-motion: reduce) {
                 .pulse-summary { animation:none; }
                 .pulse-refresh, .pulse-tab, .pulse-tail-toggle .car, .pulse-drill .car, .pulse-item .acts a, .pulse-item .acts button { transition:none; }
@@ -17346,6 +17465,11 @@
                   <button class="pulse-mon-btn" type="button" x-show="pulse.consent" @click="pulseMonitorOpen()" :title="'Choose which Teams and channels Pulse.AI watches'">
                     <span>Monitoring</span><span class="pmc" x-show="pulse.monitorCount" x-text="pulse.monitorCount"></span>
                   </button>
+                  <label class="pulse-auto" x-show="pulse.consent" :title="pulse.includeDms ? 'Direct messages are included. Hide them for a demo.' : 'Direct messages are hidden from the lenses and the AI summary.'">
+                    <input type="checkbox" :checked="pulse.includeDms" @change="setPulseIncludeDms($event.target.checked)">
+                    <span x-text="pulse.includeDms ? 'Including DMs' : 'DMs hidden'"></span>
+                    <span class="pmc" x-show="!pulse.includeDms &amp;&amp; pulseDmCount()" x-text="pulseDmCount()"></span>
+                  </label>
                   <label class="pulse-auto" :title="'How often Pulse.AI refreshes on its own'">
                     <span>Auto-refresh</span>
                     <select :value="String(pulseAutoMin())" @change="setPulseAutoMin($event.target.value)">
@@ -17455,31 +17579,51 @@
                     </template>
                   </nav>
 
+                  <!-- Shared urgency legend (gradient heat scale) -->
+                  <div class="pulse-legend" x-show="(pulse.counts.all > 0 || pulseSummaryText()) &amp;&amp; pulse.lens !== 'today'">
+                    <div>
+                      <div class="scale"><span class="mid"></span></div>
+                      <div class="ends"><span>Calm</span><span>Urgent</span></div>
+                    </div>
+                    <span class="cap hint">The bar shows how much something wants your attention — the marker sits nearer the right the more urgent it is.</span>
+                  </div>
+
                   <!-- FOCUS lens: Worth a look + Meetings -->
                   <template x-if="pulse.lens === 'focus'">
                    <div>
-                  <!-- Worth a look -->
+                  <!-- Worth a look — priority ladder -->
                   <section class="pulse-focus" x-show="pulseWorthList().length > 0">
-                    <h2 class="pulse-focus-h">Worth a look</h2>
-                    <template x-for="w in pulseWorthList()" :key="w.key">
-                      <div class="pulse-item" :class="[w.warn ? 'warn' : '', 'src-' + (w.thread.source==='email' ? 'email' : 'teams'), w.thread.link ? 'clickable' : '']" @click="w.thread.link && pulseOpen(w.thread)" :title="w.thread.link ? (w.thread.source==='email' ? 'Open in Outlook' : 'Open in Teams') : ''">
-                        <span class="mark"></span>
-                        <div class="body">
-                          <p class="reason" x-text="w.reason || w.thread.topic || 'A conversation worth a look.'"></p>
-                          <div class="meta">
-                            <span class="who" x-text="pulseWho(w.thread)"></span>
-                            <span x-show="w.thread.count > 1"> · <span x-text="w.thread.count + ' replies'"></span></span>
-                            <span class="you" x-show="w.thread.mentioned"> · @you</span>
-                          </div>
-                          <div class="acts">
-                            <button class="todo" x-show="!pulseHasTodo(w.thread)" @click.stop="pulseMakeTodo(w)">＋ To-do</button>
-                            <a class="onlist" x-show="pulseHasTodo(w.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Me.AI to-do list — open it">✓ On your to-do list</a>
-                            <button class="mute" @click.stop="pulseMute(w.key)">Dismiss</button>
-                          </div>
-                        </div>
-                        <div class="when" x-show="w.thread.activityTs" x-text="pulseAgo(w.thread.activityTs)"></div>
+                    <template x-if="pulseLensAnalysis('focus')">
+                      <div class="pulse-analysis">
+                        <h2 class="pa-h" x-text="pulseLensAnalysis('focus').headline || 'What deserves your attention first'"></h2>
+                        <p class="pa-body" x-show="pulseLensAnalysis('focus').analysis" x-text="pulseLensAnalysis('focus').analysis"></p>
                       </div>
                     </template>
+                    <ol class="pulse-ladder">
+                      <template x-for="(w, wi) in pulseWorthList()" :key="w.key">
+                        <li class="pl-rung" :class="wi === 0 ? 'top' : ''">
+                          <span class="pl-rk" x-text="wi + 1"></span>
+                          <div class="pl-body">
+                            <div class="pl-t" :class="w.thread.link ? 'clickable' : ''" @click="w.thread.link &amp;&amp; pulseOpen(w.thread)" :title="w.thread.link ? (w.thread.source==='email' ? 'Open in Outlook' : 'Open in Teams') : ''" x-text="w.reason || w.thread.topic || 'A conversation worth a look.'"></div>
+                            <div class="pl-meter">
+                              <span class="ph-heat" :title="pulseUrgWord(w.warn ? 'urgent' : 'watch')"><span class="mk" :style="'left:' + Math.round(pulseHeatPos(w.warn ? 'urgent' : 'watch')*100) + '%'"></span></span>
+                              <span class="ph-word" x-text="pulseUrgWord(w.warn ? 'urgent' : 'watch')"></span>
+                            </div>
+                            <div class="pl-thread">
+                              <span class="who" x-text="pulseWho(w.thread)"></span>
+                              <span x-show="w.thread.count > 1"> · <span x-text="w.thread.count + ' replies'"></span></span>
+                              <span class="you" x-show="w.thread.mentioned"> · @you</span>
+                              <span x-show="w.thread.activityTs"> · <span x-text="pulseAgo(w.thread.activityTs)"></span></span>
+                            </div>
+                            <div class="pl-acts">
+                              <button class="todo" x-show="!pulseHasTodo(w.thread)" @click.stop="pulseMakeTodo(w)">＋ To-do</button>
+                              <a class="onlist" x-show="pulseHasTodo(w.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Me.AI to-do list — open it">✓ On your to-do list</a>
+                              <button class="mute" @click.stop="pulseMute(w.key)">Dismiss</button>
+                            </div>
+                          </div>
+                        </li>
+                      </template>
+                    </ol>
                   </section>
 
                   <!-- Meetings recap strip -->
@@ -17517,33 +17661,28 @@
                       <template x-if="pulseThemes().length === 0">
                         <p class="pulse-lens-empty" x-text="pulse.busy ? 'Reading the last few days and grouping them…' : 'No themes yet — refresh to have me read the last few days and group them.'"></p>
                       </template>
-                      <div class="pulse-grid" x-show="pulseThemes().length > 0">
+                      <div class="pulse-digest" x-show="pulseThemes().length > 0">
                        <template x-for="(th, ti) in pulseThemes()" :key="th.key">
-                        <div class="pulse-card" :class="pulseVibeMeta(th.vibe).cls">
-                          <div class="pc-head">
-                            <span class="pc-icon" x-text="pulseVibeMeta(th.vibe).icon"></span>
-                            <h3 class="pc-title" x-text="th.title"></h3>
-                            <span class="pc-urg" :class="pulseUrgMeta(th.urgency).cls" x-show="pulseUrgMeta(th.urgency).label" x-text="pulseUrgMeta(th.urgency).label"></span>
-                          </div>
-                          <p class="pc-analysis" x-show="th.blurb" x-text="th.blurb"></p>
-                          <div class="pc-drill">
-                            <button class="pulse-drill" :class="pulseGrpOpen('th:'+th.key) ? 'open' : ''" @click="pulseGrpToggle('th:'+th.key)">
-                              <span class="car">›</span>
-                              <span x-text="(pulseGrpOpen('th:'+th.key) ? 'Hide' : 'Show') + ' ' + th.threads.length + ' ' + (th.threads.length === 1 ? 'conversation' : 'conversations')"></span>
-                            </button>
-                            <div class="pc-threads" x-show="pulseGrpOpen('th:'+th.key)" x-cloak>
-                              <template x-for="t in th.threads" :key="t.key">
-                                <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
-                                  <span class="who" x-text="pulseWho(t)"></span>
-                                  <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
-                                  <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
-                                </div>
-                              </template>
+                        <article class="pd-th">
+                          <h3 class="pd-h" x-text="th.title"></h3>
+                          <div class="pd-rule"></div>
+                          <p class="pd-body" x-show="th.blurb" x-text="th.blurb"></p>
+                          <div class="pd-refs">
+                            <div class="pd-meter" style="display:flex;align-items:center;gap:10px;margin:0 0 4px;">
+                              <span class="ph-heat sm" :title="pulseUrgWord(th.urgency)"><span class="mk" :style="'left:' + Math.round(pulseHeatPos(th.urgency)*100) + '%'"></span></span>
+                              <span class="ph-word" x-text="pulseUrgWord(th.urgency)"></span>
                             </div>
+                            <template x-for="t in th.threads.slice(0, 5)" :key="t.key">
+                              <div class="pd-ref" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                <b x-text="pulseWho(t)"></b><span> — </span><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span>
+                              </div>
+                            </template>
+                            <div class="pd-ref" x-show="th.threads.length > 5" x-text="'+ ' + (th.threads.length - 5) + ' more in this theme'"></div>
                           </div>
-                        </div>
+                        </article>
                        </template>
                       </div>
+
                     </section>
                    </template>
 
@@ -17559,24 +17698,26 @@
                       <template x-if="pulseWaiting().length === 0">
                         <p class="pulse-lens-empty" x-text="pulse.busy ? 'Reading your conversations to see what needs a reply…' : 'Nothing looks like it\'s waiting on you right now. 🎉'"></p>
                       </template>
-                      <template x-for="wt in pulseWaiting()" :key="wt.key">
-                        <div class="pulse-item warn clickable" :class="'src-' + (wt.thread.source==='email' ? 'email' : 'teams')" @click="wt.thread.link &amp;&amp; pulseOpen(wt.thread)" :title="wt.thread.link ? (wt.thread.source==='email' ? 'Open in Outlook' : 'Open in Teams') : ''">
-                          <span class="mark"></span>
-                          <div class="body">
-                            <p class="reason" x-text="wt.reason || wt.thread.topic || 'Waiting on you.'"></p>
-                            <div class="meta">
-                              <span class="who" x-text="pulseWho(wt.thread)"></span>
-                              <span x-show="wt.thread.count > 1"> · <span x-text="wt.thread.count + ' replies'"></span></span>
-                              <span class="you" x-show="wt.thread.mentioned"> · @you</span>
+                      <div class="pulse-ledger" x-show="pulseWaiting().length > 0">
+                        <div class="pl-h"><span>Waiting on your reply</span><span>How urgent</span><span>Sitting for</span></div>
+                        <template x-for="wt in pulseWaitingSorted()" :key="wt.key">
+                          <div class="pl-r" :class="wt.thread.link ? 'clickable' : ''" @click="wt.thread.link &amp;&amp; pulseOpen(wt.thread)" :title="wt.thread.link ? (wt.thread.source==='email' ? 'Open in Outlook' : 'Open in Teams') : ''">
+                            <div class="pl-what">
+                              <div class="pl-t" x-text="wt.reason || wt.thread.topic || 'Waiting on you.'"></div>
+                              <div class="pl-s">
+                                <span x-text="pulseWho(wt.thread)"></span>
+                                <span class="you" x-show="wt.thread.mentioned">@you</span>
+                                <button class="pl-todo" :class="pulseHasTodo(wt.thread) ? 'on' : ''" @click.stop="pulseHasTodo(wt.thread) ? (meAiTodosToggle(true), goTo('#/me-ai')) : pulseMakeTodo({ key: wt.key, reason: wt.reason, thread: wt.thread })" x-text="pulseHasTodo(wt.thread) ? '✓ On your to-do list' : '＋ To-do'"></button>
+                              </div>
                             </div>
-                            <div class="acts">
-                              <button class="todo" x-show="!pulseHasTodo(wt.thread)" @click.stop="pulseMakeTodo({ key: wt.key, reason: wt.reason, thread: wt.thread })">＋ To-do</button>
-                              <a class="onlist" x-show="pulseHasTodo(wt.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Me.AI to-do list — open it">✓ On your to-do list</a>
+                            <div>
+                              <span class="ph-heat sm" :title="pulseUrgWord(pulseAgeUrg(wt.thread.activityTs))"><span class="mk" :style="'left:' + Math.round(pulseHeatPos(pulseAgeUrg(wt.thread.activityTs))*100) + '%'"></span></span>
                             </div>
+                            <div class="pl-age"><span x-text="pulseAgeLabel(wt.thread.activityTs)"></span><span class="lbl">since last reply</span></div>
                           </div>
-                          <div class="when" x-show="wt.thread.activityTs" x-text="pulseAgo(wt.thread.activityTs)"></div>
-                        </div>
-                      </template>
+                        </template>
+                      </div>
+
                     </section>
                    </template>
 
@@ -17592,32 +17733,33 @@
                       <template x-if="pulsePeople().length === 0">
                         <p class="pulse-lens-empty">No one's conversations to show right now.</p>
                       </template>
-                      <div class="pulse-grid" x-show="pulsePeople().length > 0">
+                      <div class="pulse-roster" x-show="pulsePeople().length > 0">
                        <template x-for="(g, gi) in pulsePeople()" :key="g.who">
-                        <div class="pulse-card">
-                          <div class="pc-head">
-                            <h3 class="pc-title" x-text="g.who"></h3>
-                            <span class="pc-urg u-watch" x-show="g.latest" x-text="pulseAgo(g.latest)"></span>
-                          </div>
-                          <p class="pc-meta" x-text="g.threads.length + (g.threads.length === 1 ? ' thread' : ' threads')"></p>
-                          <div class="pc-drill">
-                            <button class="pulse-drill" :class="pulseGrpOpen('pp:'+g.who) ? 'open' : ''" @click="pulseGrpToggle('pp:'+g.who)">
-                              <span class="car">›</span>
-                              <span x-text="(pulseGrpOpen('pp:'+g.who) ? 'Hide' : 'Show') + ' ' + g.threads.length + ' ' + (g.threads.length === 1 ? 'conversation' : 'conversations')"></span>
-                            </button>
-                            <div class="pc-threads" x-show="pulseGrpOpen('pp:'+g.who)" x-cloak>
-                              <template x-for="t in g.threads" :key="t.key">
-                                <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
-                                  <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
-                                  <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
-                                  <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
-                                </div>
-                              </template>
+                        <div class="pulse-person">
+                          <div class="pp-top">
+                            <span class="pp-av" x-text="pulseInitials(g.who)"></span>
+                            <div class="pp-id">
+                              <div class="pp-name" x-text="g.who"></div>
+                              <div class="pp-sub"><span x-text="g.threads.length + (g.threads.length === 1 ? ' thread' : ' threads')"></span><span x-show="g.latest"> · <span x-text="pulseAgo(g.latest)"></span></span></div>
                             </div>
+                          </div>
+                          <div class="pp-meter">
+                            <span class="ph-heat sm" :title="pulseUrgWord(pulsePersonUrg(g))"><span class="mk" :style="'left:' + Math.round(pulseHeatPos(pulsePersonUrg(g))*100) + '%'"></span></span>
+                            <span class="ph-word" x-text="pulseUrgWord(pulsePersonUrg(g))"></span>
+                          </div>
+                          <div class="pp-asks">
+                            <template x-for="t in g.threads.slice(0, 4)" :key="t.key">
+                              <div class="pp-a" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                <span class="dot" :class="t.mentioned ? 'you' : ''"></span>
+                                <span class="t" x-text="t.topic || '(untitled)'"></span>
+                              </div>
+                            </template>
+                            <div class="pp-a more" x-show="g.threads.length > 4" x-text="'+ ' + (g.threads.length - 4) + ' more'"></div>
                           </div>
                         </div>
                        </template>
                       </div>
+
                     </section>
                    </template>
 
@@ -17633,31 +17775,24 @@
                       <template x-if="pulseToday().length === 0">
                         <p class="pulse-lens-empty">Nothing to place on a timeline yet.</p>
                       </template>
-                      <div class="pulse-grid" x-show="pulseToday().length > 0">
+                      <div class="pulse-river" x-show="pulseToday().length > 0">
                        <template x-for="(b, bi) in pulseToday()" :key="b.key || bi">
-                        <div class="pulse-card">
-                          <div class="pc-head">
-                            <h3 class="pc-title" x-text="b.label"></h3>
-                            <span class="pc-urg u-watch" x-text="b.threads.length"></span>
-                          </div>
-                          <div class="pc-drill">
-                            <button class="pulse-drill" :class="pulseGrpOpen('td:'+(b.key||bi)) ? 'open' : ''" @click="pulseGrpToggle('td:'+(b.key||bi))">
-                              <span class="car">›</span>
-                              <span x-text="(pulseGrpOpen('td:'+(b.key||bi)) ? 'Hide' : 'Show') + ' ' + b.threads.length + ' ' + (b.threads.length === 1 ? 'conversation' : 'conversations')"></span>
-                            </button>
-                            <div class="pc-threads" x-show="pulseGrpOpen('td:'+(b.key||bi))" x-cloak>
-                              <template x-for="t in b.threads" :key="t.key">
-                                <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
-                                  <span class="who" x-text="pulseWho(t)"></span>
-                                  <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
-                                  <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
-                                </div>
-                              </template>
-                            </div>
+                        <div class="pr-ev">
+                          <span class="pr-node"></span>
+                          <div class="pr-time" x-text="b.label"></div>
+                          <div class="pr-t" x-text="b.threads.length + ' ' + (b.threads.length === 1 ? 'conversation' : 'conversations')"></div>
+                          <div class="pr-list">
+                            <template x-for="t in b.threads.slice(0, 6)" :key="t.key">
+                              <div class="pr-row" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                <b x-text="pulseWho(t)"></b><span> — </span><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span>
+                              </div>
+                            </template>
+                            <div class="pr-row more" x-show="b.threads.length > 6" x-text="'+ ' + (b.threads.length - 6) + ' more'"></div>
                           </div>
                         </div>
                        </template>
                       </div>
+
                     </section>
                    </template>
 
@@ -17674,24 +17809,20 @@
                       <template x-if="pulseQuietItems().length === 0">
                         <p class="pulse-lens-empty">Nothing quiet to show — it's all up front.</p>
                       </template>
-                      <div class="pulse-card" x-show="pulseQuietItems().length > 0" style="margin-top:8px;">
-                        <div class="pc-drill">
-                          <button class="pulse-drill" :class="pulseGrpOpen('fyi') ? 'open' : ''" @click="pulseGrpToggle('fyi')">
-                            <span class="car">›</span>
-                            <span x-text="(pulseGrpOpen('fyi') ? 'Hide' : 'Show') + ' ' + pulseQuietItems().length + ' quiet ' + (pulseQuietItems().length === 1 ? 'item' : 'items')"></span>
-                          </button>
-                          <div class="pc-threads" x-show="pulseGrpOpen('fyi')" x-cloak>
-                            <template x-for="t in pulseQuietItems().slice(0, 80)" :key="t.key">
-                              <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
-                                <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
-                                <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
-                                <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
-                              </div>
-                            </template>
-                            <div class="pulse-more" x-show="pulseQuietItems().length > 80" x-text="'…' + (pulseQuietItems().length - 80) + ' more'"></div>
+                      <div class="pulse-quiet" x-show="pulseQuietItems().length > 0">
+                        <template x-for="t in pulseQuietItems().slice(0, 80)" :key="t.key">
+                          <div class="pq-row" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                            <span class="pq-heat"><span class="ph-heat sm" x-show="t.mentioned" :title="pulseUrgWord('watch')"><span class="mk" :style="'left:' + Math.round(pulseHeatPos('watch')*100) + '%'"></span></span></span>
+                            <div class="pq-main">
+                              <div class="pq-t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></div>
+                              <div class="pq-w"><span x-text="t.source==='email' ? 'Email' : 'Teams'"></span> · <span x-text="pulseWho(t)"></span></div>
+                            </div>
+                            <span class="pq-when" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
                           </div>
-                        </div>
+                        </template>
+                        <div class="pulse-more" x-show="pulseQuietItems().length > 80" x-text="'…' + (pulseQuietItems().length - 80) + ' more'"></div>
                       </div>
+
                     </section>
                    </template>
 
@@ -26117,7 +26248,7 @@
           historyBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: 'focus', showMuted: false, summary: null, summaryStale: false, counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: 'focus', showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -28425,7 +28556,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
             case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai', { badge: this.meAiGoalsLeftCount(), badgeTitle: 'Goals left today' });
-            case 'pulse': return mk("Pulse.AI", '📡', '#/pulse', 'pulse', { attnBadge: (this.pulse.summary && Array.isArray(this.pulse.summary.worthALook)) ? this.pulseWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
+            case 'pulse': return mk("Pulse.AI", '📡', '#/pulse', 'pulse', { attnBadge: (this.pulseActiveSummary() && Array.isArray(this.pulseActiveSummary().worthALook)) ? this.pulseWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
             case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
             case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards', { badge: (this.homeBoards() || []).length, badgeTitle: 'Your workspaces' });
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
@@ -34317,6 +34448,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           w.gatheredAt = (r && r.gatheredAt) || '';
           w.summary = (r && r.summary && typeof r.summary === 'object') ? r.summary : null;
           w.summaryStale = !!(r && r.summaryStale);
+          w.summaryNoDm = (r && r.summaryNoDm && typeof r.summaryNoDm === 'object') ? r.summaryNoDm : null;
+          w.summaryNoDmStale = !!(r && r.summaryNoDmStale);
           w.counts = (r && r.counts && typeof r.counts === 'object') ? r.counts : { all: w.threads.length, teams: 0, email: 0, mentions: 0 };
           w.fingerprint = (r && r.fingerprint) || '';
           if (typeof r.busy === 'boolean') w.busy = r.busy;
@@ -34495,16 +34628,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         // AI-curated "Worth a look" — resolve each summary key to its live thread; drop any that are gone.
+        // Active summary honours the DM toggle: when DMs are excluded, prefer the
+        // precomputed no-DM summary (falls back to full if it's stale/absent — the
+        // per-list DM filtering below still hides DM threads either way).
+        pulseActiveSummary() {
+          const w = this.pulse;
+          if (w.includeDms) return w.summary;
+          return w.summaryNoDm || w.summary;
+        },
+        _pulseKeepThread(t) { return this.pulse.includeDms || !(t && t.dm); },
+        setPulseIncludeDms(v) {
+          this.pulse.includeDms = !!v;
+          try { localStorage.setItem('pulse-include-dms', v ? '1' : '0'); } catch (e) {}
+        },
+        pulseToggleDms() { this.setPulseIncludeDms(!this.pulse.includeDms); },
+        pulseDmCount() { return (this.pulse.threads || []).filter(t => t && t.dm).length; },
         pulseWorthList() {
           const w = this.pulse;
-          const s = w.summary;
+          const s = this.pulseActiveSummary();
           if (!s || !Array.isArray(s.worthALook)) return [];
           return s.worthALook.map(it => ({ key: it.key, reason: it.reason || '', warn: !!it.warn, thread: (w._byKey || {})[it.key] || null }))
-            .filter(x => x.thread);
+            .filter(x => x.thread && this._pulseKeepThread(x.thread));
         },
         // --- Lens views ---------------------------------------------------
         pulseLenses() {
-          const s = this.pulse.summary;
+          const s = this.pulseActiveSummary();
           const hasThemes = !!(s && Array.isArray(s.themes) && s.themes.length);
           const hasWaiting = !!(s && Array.isArray(s.waiting) && s.waiting.length);
           return [
@@ -34529,17 +34677,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         pulseThemes() {
           const w = this.pulse;
-          const s = w.summary;
+          const s = this.pulseActiveSummary();
           if (!s || !Array.isArray(s.themes)) return [];
           return s.themes.map(t => {
             const threads = (Array.isArray(t.keys) ? t.keys : [])
-              .map(k => (w._byKey || {})[k] || null).filter(Boolean);
+              .map(k => (w._byKey || {})[k] || null).filter(Boolean).filter(x => this._pulseKeepThread(x));
             return { key: t.title || 'Theme', title: t.title || 'Theme', blurb: t.blurb || '', vibe: t.vibe || 'fyi', urgency: t.urgency || 'calm', threads };
           }).filter(t => t.threads.length);
         },
         // Per-lens AI analysis (headline + narrative) from the summary. Null when absent (old cache).
         pulseLensAnalysis(key) {
-          const s = this.pulse.summary;
+          const s = this.pulseActiveSummary();
           const L = s && s.lenses && s.lenses[key];
           if (!L) return null;
           const headline = (L.headline || '').trim();
@@ -34561,12 +34709,60 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
           return map[urg] || map.calm;
         },
+        // --- Tailored per-lens helpers -----------------------------------
+        // Position (0..1) on the calm→urgent gradient heat scale.
+        pulseHeatPos(u) {
+          const map = { urgent: 0.9, watch: 0.56, soon: 0.56, calm: 0.2 };
+          return (u in map) ? map[u] : 0.42;
+        },
+        pulseUrgWord(u) {
+          const map = { urgent: 'Urgent', watch: 'Needs a look', soon: 'Needs a look', calm: 'Calm' };
+          return map[u] || 'Needs a look';
+        },
+        // Urgency derived from how long something has been sitting.
+        pulseAgeUrg(ts) {
+          const t = (typeof ts === 'number') ? ts : Date.parse(ts || '');
+          if (!isFinite(t) || !t) return 'watch';
+          const days = (Date.now() - t) / 86400000;
+          if (days >= 3) return 'urgent';
+          if (days >= 1) return 'watch';
+          return 'calm';
+        },
+        // Compact "how long it's waited" label for the ledger age column.
+        pulseAgeLabel(ts) {
+          const t = (typeof ts === 'number') ? ts : Date.parse(ts || '');
+          if (!isFinite(t) || !t) return '—';
+          const mins = Math.max(0, (Date.now() - t) / 60000);
+          const d = Math.floor(mins / 1440);
+          if (d >= 1) return d + (d === 1 ? ' day' : ' days');
+          const h = Math.floor(mins / 60);
+          if (h >= 1) return h + (h === 1 ? ' hour' : ' hours');
+          return 'today';
+        },
+        pulseInitials(name) {
+          return String(name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
+        },
+        // Waiting items, sorted by age-derived urgency (loudest first).
+        pulseWaitingSorted() {
+          return this.pulseWaiting().slice().sort((a, b) => {
+            const ua = this.pulseHeatPos(this.pulseAgeUrg(a.thread && a.thread.activityTs));
+            const ub = this.pulseHeatPos(this.pulseAgeUrg(b.thread && b.thread.activityTs));
+            return ub - ua;
+          });
+        },
+        // How much a person needs you: @mention → urgent, several threads → watch.
+        pulsePersonUrg(g) {
+          if (!g || !Array.isArray(g.threads)) return 'calm';
+          if (g.threads.some(t => t && t.mentioned)) return 'urgent';
+          if (g.threads.length >= 3) return 'watch';
+          return 'calm';
+        },
         pulseWaiting() {
           const w = this.pulse;
-          const s = w.summary;
+          const s = this.pulseActiveSummary();
           if (!s || !Array.isArray(s.waiting)) return [];
           return s.waiting.map(it => ({ key: it.key, reason: it.reason || '', thread: (w._byKey || {})[it.key] || null }))
-            .filter(x => x.thread);
+            .filter(x => x.thread && this._pulseKeepThread(x.thread));
         },
         pulsePeople() {
           const list = this.pulseThreadList();
@@ -34612,11 +34808,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.pulseThreadList().filter(t => !worth.has(t.key));
         },
         pulseSummaryText() {
-          const s = this.pulse.summary;
+          const s = this.pulseActiveSummary();
           return (s && s.summary) ? s.summary : '';
         },
         pulseQuietNote() {
-          const s = this.pulse.summary;
+          const s = this.pulseActiveSummary();
           return (s && s.quietNote) ? s.quietNote : '';
         },
         pulseTailCount() {
@@ -34636,6 +34832,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (w.filter === 'teams') list = list.filter(t => t.source !== 'email');
           else if (w.filter === 'email') list = list.filter(t => t.source === 'email');
           else if (w.filter === 'mentions') list = list.filter(t => !!t.mentioned);
+          if (!w.includeDms) list = list.filter(t => !t.dm);
           return list;
         },
         pulseNewCount() {

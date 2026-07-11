@@ -23838,6 +23838,24 @@ function _pulseGatherThreads(days) {
   }
   return Array.from(map.values()).sort((a, b) => (b.activityTs || 0) - (a.activityTs || 0));
 }
+// Classify a thread's conversation type from its Teams deep-link. Only VERIFIED
+// 1:1 / private-group chats count as a DM; channels, broadcasts, email, monitored
+// selections, and any thread with no link are treated as NOT a DM (shown by
+// default). Lets the user hide private conversations when demoing the system.
+function _pulseIsDm(th) {
+  if (!th) return false;
+  if (th.monitored) return false;             // monitored selections are channels
+  if (th.source === 'email') return false;    // DMs are a Teams concept
+  const l = String(th.link || '').toLowerCase();
+  if (!l) return false;                        // no link → treat as channel/broadcast (shown)
+  // Channel markers win over chat markers.
+  if (l.includes('@thread.tacv2') || l.includes('@thread.skype') || l.includes('groupid=')) return false;
+  // Private-conversation markers.
+  if (l.includes('@unq.gbl') || l.includes('48:notes')) return true;
+  if (l.includes('@thread.v2')) return true;   // group / meeting chats
+  if (l.includes('contexttype') && l.includes('chat')) return true; // url-encoded contextType":"chat
+  return false;
+}
 // Collector-driven meeting summaries + my action items for recent ended meetings.
 async function _pulseGatherMeetings(date, { force = false } = {}) {
   // Deduped: Pulse.AI no longer runs its OWN collector query for meeting
@@ -24088,11 +24106,13 @@ function _pulseAssemble(days, date) {
     }
   }
   const meetings = Array.from(mByKey.values());
+  for (const t of visible) t.dm = _pulseIsDm(t);
   const counts = {
     all: visible.length,
     teams: visible.filter(t => t.source !== 'email').length,
     email: visible.filter(t => t.source === 'email').length,
     mentions: visible.filter(t => t.mentioned).length,
+    dm: visible.filter(t => t.dm).length,
   };
   const fingerprint = _pulseSummaryFingerprint(visible, meetings);
   return { threads: visible, muted, meetings, mutedCount, counts, fingerprint, gatheredAt: st.gatheredAt || '' };
@@ -24231,11 +24251,26 @@ function _pulseIsBusy() {
 // resulting fingerprint (or '' if nothing to analyze / no consent).
 async function _pulseAnalyzeAndSave(days, date, cfg) {
   const view = _pulseAssemble(days, date);
-  let summary = null;
-  if (cfg.consent) { try { summary = await _pulseGenerateSummary(view); } catch (_) { summary = null; } }
+  let summary = null, summaryNoDm = null;
+  if (cfg.consent) {
+    try { summary = await _pulseGenerateSummary(view); } catch (_) { summary = null; }
+    // Precompute a SECOND summary with DMs excluded so the client's "include DMs"
+    // toggle is instant (no extra LLM call on toggle). If there are no DMs, reuse
+    // the full summary rather than paying for an identical second pass.
+    try {
+      const nonDm = (view.threads || []).filter(t => !t.dm);
+      if (nonDm.length === (view.threads || []).length) {
+        summaryNoDm = summary;
+      } else {
+        const fpNoDm = _pulseSummaryFingerprint(nonDm, view.meetings);
+        summaryNoDm = await _pulseGenerateSummary({ threads: nonDm, meetings: view.meetings, fingerprint: fpNoDm });
+      }
+    } catch (_) { summaryNoDm = null; }
+  }
   const st = _pulseLoadState();
   st.gatheredAt = new Date().toISOString();
   if (summary && summary.fingerprint) st.summary = summary;
+  if (summaryNoDm && summaryNoDm.fingerprint) st.summaryNoDm = summaryNoDm;
   _pulseSaveState(st);
   return view.fingerprint || '';
 }
@@ -24284,7 +24319,11 @@ app.get('/api/me-ai/pulse', (req, res) => {
     const stg = _pulseLoadState();
     const summary = (stg.summary && stg.summary.fingerprint) ? stg.summary : null;
     const summaryStale = !summary || summary.fingerprint !== view.fingerprint;
-    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, busy: _pulseIsBusy(), stage: _pulseStage });
+    const nonDm = (view.threads || []).filter(t => !t.dm);
+    const fpNoDm = _pulseSummaryFingerprint(nonDm, view.meetings);
+    const summaryNoDm = (stg.summaryNoDm && stg.summaryNoDm.fingerprint) ? stg.summaryNoDm : null;
+    const summaryNoDmStale = !summaryNoDm || summaryNoDm.fingerprint !== fpNoDm;
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, summaryNoDm, summaryNoDmStale, busy: _pulseIsBusy(), stage: _pulseStage });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -24306,7 +24345,11 @@ app.post('/api/me-ai/pulse/refresh', async (req, res) => {
     const stg = _pulseLoadState();
     const summary = (stg.summary && stg.summary.fingerprint) ? stg.summary : null;
     const summaryStale = !summary || summary.fingerprint !== view.fingerprint;
-    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, busy: true, stage: _pulseStage || 'analyzing' });
+    const nonDm = (view.threads || []).filter(t => !t.dm);
+    const fpNoDm = _pulseSummaryFingerprint(nonDm, view.meetings);
+    const summaryNoDm = (stg.summaryNoDm && stg.summaryNoDm.fingerprint) ? stg.summaryNoDm : null;
+    const summaryNoDmStale = !summaryNoDm || summaryNoDm.fingerprint !== fpNoDm;
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, summaryNoDm, summaryNoDmStale, busy: true, stage: _pulseStage || 'analyzing' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
