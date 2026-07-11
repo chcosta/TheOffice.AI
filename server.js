@@ -23721,6 +23721,9 @@ function _whRecentDays(n) {
 }
 // Source bucket for an inbox comms item: 'teams' | 'email' | null (uninteresting here).
 function _whSourceBucket(it) {
+  const kind = String((it && it.kind) || '').toLowerCase();
+  if (kind === 'teams' || kind === 'chat') return 'teams';
+  if (kind === 'email' || kind === 'mail') return 'email';
   const s = String((it && it.source) || '').toLowerCase();
   const link = String((it && it.link) || '').toLowerCase();
   if (s.includes('teams') || s === 'chat' || link.includes('teams.microsoft.com')) return 'teams';
@@ -23736,21 +23739,25 @@ function _whSourceBucket(it) {
 // knowing about but NOT an actionable ask (those live in the inbox/agenda) and NOT
 // a PR review (tracked by Code Flow).
 function _whIsInteresting(it) {
-  if (!it || it.type !== 'comms') return false;
-  if (it.kind === 'meeting' || it.kind === 'meeting-action' || it.source === 'meeting') return false;
+  if (!it) return false;
+  // Meeting-derived items live in the Meetings card, not the conversation list.
+  const kind = String(it.kind || '').toLowerCase();
+  if (kind === 'meeting' || kind === 'meeting-action' || String(it.source || '').toLowerCase() === 'meeting') return false;
+  // Must resolve to a chat/email conversation bucket.
   const bucket = _whSourceBucket(it);
   if (!bucket) return false;
-  const hay = ((it.title || '') + ' ' + (it.detail || '') + ' ' + (it.link || '')).toLowerCase();
+  const hay = ((it.title || '') + ' ' + (it.detail || '') + ' ' + (it.link || '') + ' ' + (it.prLink || '')).toLowerCase();
   // Exclude PR review requests / GitHub PR pings — Code Flow owns those.
+  if (it.prLink) return false;
   if (/pull request|code review|review request|reviewers?\b|_git\/pullrequest|\/pull\//.test(hay)) return false;
   if (/\bpr[\s#]/.test(hay) && /review/.test(hay)) return false;
-  // Actively handled / scheduled items are on the agenda — not ambient.
-  if (it.triage === 'today' || it.triage === 'now') return false;
-  // Interesting = would otherwise be filtered/parked/dismissed, or simply not a
-  // direct ask of you: no direct @mention, low urgency, or a park/dismiss decision.
+  // On your agenda or already handled — not ambient chatter.
+  if (['done', 'todo', 'today', 'now'].includes(it.triage)) return false;
+  // Ambient = things you parked, dismissed, or that never asked anything of you.
+  if (['dismissed', 'seen', 'later', 'wontfix'].includes(it.triage)) return true;
   if (it.directMention === false) return true;
   if (typeof it.urgency === 'number' && it.urgency <= 2) return true;
-  if (['dismissed', 'seen', 'later', 'wontfix'].includes(it.triage)) return true;
+  // Untriaged ("new") items may still become agenda items — wait until parked.
   return false;
 }
 function _whTopicTokens(s) {
@@ -23769,7 +23776,7 @@ function _whThreadKey(it) {
 // Aggregate recent inbox comms into interesting conversation threads.
 function _whGatherThreads(days) {
   const map = new Map();
-  for (const date of _whRecentDays(days || 10)) {
+  for (const date of _whRecentDays(days || 4)) {
     let inbox; try { inbox = loadInboxForDate(date); } catch { inbox = null; }
     if (!inbox || !Array.isArray(inbox.items)) continue;
     for (const it of inbox.items) {
@@ -23854,7 +23861,7 @@ function _whAssemble(days, date) {
   }
   // Merge cached meeting summaries across the recent window (dedupe by id), newest first.
   const mByKey = new Map();
-  for (const d of _whRecentDays(days || 10)) {
+  for (const d of _whRecentDays(days || 4)) {
     const mstore = _whLoadMtg(d);
     for (const m of (mstore.meetings || [])) {
       if (!m || !m.id) continue;
@@ -23870,7 +23877,7 @@ function _whAssemble(days, date) {
 // GET /api/me-ai/whats-happening?days=&date= → assembled ambient digest.
 app.get('/api/me-ai/whats-happening', (req, res) => {
   try {
-    const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 10));
+    const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 4));
     const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
     const view = _whAssemble(days, date);
     const cfg = _meAiConfig();
@@ -23883,7 +23890,7 @@ app.get('/api/me-ai/whats-happening', (req, res) => {
 app.post('/api/me-ai/whats-happening/refresh', async (req, res) => {
   try {
     const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
-    const days = Math.max(1, Math.min(30, parseInt((req.body && req.body.days), 10) || 10));
+    const days = Math.max(1, Math.min(30, parseInt((req.body && req.body.days), 10) || 4));
     const cfg = _meAiConfig();
     _meAiLastActive = Date.now();
     if (cfg.consent) { try { await _whGatherMeetings(date, { force: !!(req.body && req.body.force) }); } catch (_) {} }
