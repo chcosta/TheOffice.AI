@@ -5731,6 +5731,7 @@
       border-radius: 8px; cursor: grab; box-shadow: 0 2px 6px color-mix(in srgb, var(--cp-ink) 10%, transparent);
     }
     .bmap-group-name { font-size: 12px; font-weight: 600; color: var(--cp-ink); }
+    .bmap-group-lock { font-size: 11px; font-weight: 600; color: var(--cp-muted); display: inline-flex; align-items: center; gap: 2px; }
     .bmap-group-acts { display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s ease; }
     .bmap-group-head:hover .bmap-group-acts { opacity: 1; }
     .bmap-group-acts button { width: 18px; height: 18px; padding: 0; font-size: 10px; color: var(--cp-muted); background: transparent; border: none; border-radius: 4px; cursor: pointer; }
@@ -9321,8 +9322,9 @@
                                   <span class="bmap-group-acts">
                                     <button type="button" class="bmap-group-sum-btn" @click.stop="bmapGroupSummary(g)" title="Summarize these items">∑</button>
                                     <button type="button" @click.stop="bmapRenameGroup(g)" title="Rename group">✎</button>
-                                    <button type="button" @click.stop="bmapRemoveGroup(g)" title="Ungroup">✕</button>
+                                    <button type="button" x-show="!bmapGroupLocked(g)" @click.stop="bmapRemoveGroup(g)" title="Ungroup">✕</button>
                                   </span>
+                                  <span class="bmap-group-lock" x-show="bmapGroupLocked(g)" :title="'Auto-group · ' + ((g.members||[]).length) + ' cards · follows this dev card\'s PRs'">🔒 <span x-text="(g.members||[]).length"></span></span>
                                 </div>
                               </div>
                             </template>
@@ -11273,6 +11275,11 @@
               .dvx-idx-status .sdot.st-other  { background:var(--cp-warning); }
               .dvx-idx-ahead { font-size:10px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
               .dvx-idx-attn { color:var(--cp-warning); font-weight:700; font-size:12px; line-height:1; }
+              .dvx-idx-row.attn { background:color-mix(in srgb, var(--cp-warning) 10%, transparent); }
+              .dvx-idx-row.attn:hover { background:color-mix(in srgb, var(--cp-warning) 17%, transparent); }
+              .dvx-idx-row.attn.sel { background:color-mix(in srgb, var(--cp-accent) 15%, transparent); }
+              .dvx-idx-attnrow { display:flex; align-items:center; gap:5px; margin-top:2px; font-size:11px; font-weight:650; line-height:1.2; color:var(--cp-warning); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .dvx-idx-attnrow .adot { width:6px; height:6px; border-radius:999px; background:var(--cp-warning); flex:0 0 auto; }
               .cf-detail-card { max-width:none; }
               /* ===== branch-graph: dev node + fanned PR branches (nodes ARE the toggle) ===== */
               .cf-flowgraph { position:relative; padding:8px 6px 6px; min-height:64px; }
@@ -18402,16 +18409,18 @@
                         </div>
                         <template x-for="pr in grp.items" :key="'cfir-' + cfPrKey(pr)" x-if="!grp.label || cfGrpIsOpen(grp)">
                           <button type="button" class="dvx-idx-row"
-                                  :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)) }"
+                                  :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)), attn: cfIdxMeta(pr).attn }"
                                   @click="cfPageSelect(pr)">
                             <span class="dvx-idx-here" x-show="yahIsOn('pr:' + cfPrKey(pr))" title="You are here"></span>
                             <span class="dvx-idx-main">
                               <span class="dvx-idx-title" x-text="pr.title || ('PR ' + (pr.id || ''))"></span>
                               <span class="dvx-idx-repo" x-show="pr.repo" x-text="(pr.org ? pr.org + ' / ' : '') + pr.repo"></span>
+                              <span class="dvx-idx-attnrow" x-show="cfIdxMeta(pr).attn" :title="cfIdxMeta(pr).attnLabel">
+                                <span class="adot"></span><span x-text="cfIdxMeta(pr).attnLabel"></span>
+                              </span>
                             </span>
                             <span class="dvx-idx-status">
                               <span class="sdot" :class="'st-' + cfIdxMeta(pr).tone" :title="cfIdxMeta(pr).label"></span>
-                              <span class="dvx-idx-attn" x-show="cfIdxMeta(pr).attn" title="Needs your attention">!</span>
                             </span>
                           </button>
                         </template>
@@ -40261,7 +40270,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Compact per-row status for the PR index (state dot tone + attention flag).
         cfIdxMeta(pr) {
           const st = this.prState(pr);
-          return { tone: st ? st.tone : 'open', label: st ? st.label : '', attn: !!(pr && pr.attention) };
+          const attn = !!(pr && pr.attention);
+          return { tone: st ? st.tone : 'open', label: st ? st.label : '', attn, attnLabel: attn ? this.cfIdxAttnLabel(pr) : '' };
+        },
+        // Compact, calm attention reason for the left index (no emoji — the tinted
+        // row + dot carry the visual weight; this just names why).
+        cfIdxAttnLabel(pr) {
+          const map = {
+            'awaiting-your-review': 'Awaiting your review',
+            'group-review-requested': 'Awaiting group review',
+            'updated-since-your-review': 'Updated since your review',
+            'changes-requested': 'Changes requested',
+            'failing-checks': 'Failing checks',
+            'ready-to-merge': 'Ready to merge',
+            'reviewer-waiting': 'Reviewer waiting'
+          };
+          return map[pr && pr.attentionReason] || 'Needs your attention';
         },
         // was closed/completed). We keep these viewable until the user explicitly
         // removes the worktree. Returns synthetic pr-shaped objects for the cards.
@@ -44130,6 +44154,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (hasPr && typeof this.loadBoardPrs === 'function') this.loadBoardPrs();
             if ((hasPr || hasDev) && typeof this.loadCfWorktrees === 'function') this.loadCfWorktrees();
           } catch {}
+          // Keep locked auto-groups fresh: pull in newly-opened PR children on open.
+          try { this._bmapReconcileAutoGroups(); } catch {}
         },
         // -- catalog / resolution --
         bmapNodes() {
@@ -44763,7 +44789,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapPanEnd() {
           if (this.bmap.link) { this.bmap.link = null; return; }
-          if (this.bmap.drag) { const moved = this.bmap.drag.moved; this.bmap.drag = null; this.bmap._suppressClick = moved; if (moved) this._bmapPersistSoon(); return; }
+          if (this.bmap.drag) { const moved = this.bmap.drag.moved; const bases = (this.bmap.drag.items || []).map(it => it.base); this.bmap.drag = null; this.bmap._suppressClick = moved; if (moved) { this._bmapMaybeJoinGroup(bases); this._bmapPersistSoon(); } return; }
           if (this.bmap.groupDrag) { const moved = this.bmap.groupDrag.moved; this.bmap.groupDrag = null; if (moved) this._bmapPersistSoon(); return; }
           if (this.bmap.marquee) { const grp = this.bmap.marquee.group; if (grp) this._bmapFinishGroupRect(); else this._bmapFinishMarquee(); this.bmap.marquee = null; return; }
           if (this.bmap.pan) { this.bmap.pan = null; this._bmapSaveView(); }
@@ -44905,9 +44931,135 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const wy = (ev.clientY - host.top - v.panY) / v.zoom - NH / 2;
           const m = this._bmapEnsure(); if (!m) return;
           const maxZ = Object.values(m.nodes).reduce((a, nd) => Math.max(a, +nd.z || 1), 0);
+          const existed = !!m.nodes[base];
           m.nodes[base] = { x: Math.round(wx), y: Math.round(wy), z: maxZ + 1 };
           this._bmapPersistSoon();
+          // Dropping a DEV card auto-pulls its live PR children onto the map and wraps
+          // dev + PRs in a membership-locked auto-group (async: may mint missing PR pins).
+          if (!existed && p.type === 'dev') { this._bmapAutoPlaceDev(base, p.dev, { mintMissing: true }); }
         },
+        // ---- Board auto-group primitive (dev card + its PR children) ----
+        // Drop / reconcile a dev card: place its live PR children beside it and wrap
+        // everything in a locked auto-group. mintMissing pins PRs not yet on the board.
+        async _bmapAutoPlaceDev(devBase, dev, opts) {
+          opts = opts || {};
+          const m = this._bmapEnsure(); if (!m) return;
+          let d = dev;
+          if (!d) { const p = this._panelByBase(devBase); d = p && p.dev; }
+          if (!d) return;
+          let slots = [];
+          try { slots = (this.devSlots(d) || []).filter(s => s && s.prId); } catch { slots = []; }
+          // Resolve each PR slot to a board PR-pin base, minting the pin when absent.
+          const childBases = [];
+          for (const s of slots) {
+            let cb = this._bmapPrPinBase(s, d);
+            if (!cb && opts.mintMissing) { try { cb = await this._bmapEnsurePrPin(s, d); } catch { cb = null; } }
+            if (cb) childBases.push(cb);
+          }
+          const mm = this._bmapEnsure(); if (!mm) return;
+          const devNd = mm.nodes[devBase]; if (!devNd) return;
+          // Place only NEW child nodes in a column to the dev's right (existing nodes
+          // keep their position so the user's manual arrangement survives).
+          const NW = 272, colX = Math.round((+devNd.x || 0) + NW + 72), pitch = 172;
+          let row = 0;
+          const maxZ = Object.values(mm.nodes).reduce((a, nd) => Math.max(a, +nd.z || 1), 0);
+          let zi = maxZ;
+          for (const cb of childBases) {
+            if (!mm.nodes[cb]) {
+              mm.nodes[cb] = { x: colX, y: Math.round((+devNd.y || 0) + row * pitch), z: ++zi };
+            }
+            row++;
+          }
+          this._bmapEnsureAutoGroup(devBase, childBases);
+          this._bmapPersistSoon();
+          this.$nextTick(() => { const g = (this._bmapEnsure().groups || []).find(x => x.devBase === devBase); if (g) { this._bmapFitGroup(g); this._bmapPersistSoon(); } });
+        },
+        // Compute the board PR-pin refId for a dev-card repo slot (matches
+        // loadBoardPrCandidates: github| prefix for GitHub PRs), then find that pin on
+        // the active board. Returns its node base ('pin:<itemId>') or null.
+        _bmapPrRefId(s, d) {
+          const gh = String((s && s.provider) || (d && d.provider) || 'azdo').toLowerCase() === 'github';
+          const base = [s && s.org, (s && s.project) || '', s && s.repo, s && s.prId].map(x => (x == null ? '' : x)).join('|').toLowerCase();
+          return gh ? 'github|' + base : base;
+        },
+        _bmapPrPinBase(s, d) {
+          const b = this.activeBoard(); if (!b) return null;
+          const refId = this._bmapPrRefId(s, d);
+          const it = (b.items || []).find(x => x && x.kind === 'pr' && String(x.refId || '').toLowerCase() === refId);
+          return it ? 'pin:' + it.id : null;
+        },
+        // Mint a board PR pin for a slot (server assigns the item id), refresh the board,
+        // and return the new node base. Mirrors the pinCandidate POST plumbing.
+        async _bmapEnsurePrPin(s, d) {
+          const board = this.activeBoard(); if (!board) return null;
+          const refId = this._bmapPrRefId(s, d);
+          const pr = (s && s.pr) || {};
+          const label = pr.title || (s.repo + ' #' + s.prId);
+          const body = {
+            kind: 'pr', refId, label, sublabel: (s.repo || '') + ' #' + s.prId,
+            meta: { org: s.org, project: s.project || '', repo: s.repo, prId: String(s.prId), url: pr.url || '', title: pr.title || '', provider: (s.provider || d.provider || 'azdo'), branch: pr.branch || s.prBranch || '' }
+          };
+          const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', { method: 'POST', body: JSON.stringify(body) });
+          const updated = (resp && resp.board) || resp;
+          const idx = this.boards.findIndex(b => b.id === board.id);
+          if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+          const nb = this.activeBoard();
+          const it = (nb && nb.items || []).find(x => x && x.kind === 'pr' && String(x.refId || '').toLowerCase() === refId);
+          return it ? 'pin:' + it.id : null;
+        },
+        // Ensure a locked auto-group exists for a dev card. Members = dev node + its live
+        // PR children UNION any manual drag-joins already recorded (stale bases whose
+        // nodes no longer exist are pruned). Preserves the group's own frame position.
+        _bmapEnsureAutoGroup(devBase, childBases) {
+          const m = this._bmapEnsure(); if (!m) return;
+          const live = new Set([devBase, ...(childBases || [])]);
+          let g = (m.groups || []).find(x => x && x.devBase === devBase);
+          if (g) {
+            const keep = (g.members || []).filter(b => m.nodes[b]);
+            const merged = new Set(keep); live.forEach(b => merged.add(b));
+            g.members = [...merged].filter(b => m.nodes[b]);
+            g.locked = true;
+          } else {
+            let name = '';
+            try { const p = this._panelByBase(devBase); if (p) name = this.panelTitleText(p) || ''; } catch {}
+            g = { id: 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: name, locked: true, devBase: devBase, members: [...live].filter(b => m.nodes[b]), x: 0, y: 0, w: 320, h: 200 };
+            m.groups.push(g);
+          }
+          this._bmapFitGroup(g);
+        },
+        // Re-run auto-placement for every locked group (mint newly-opened PRs, place new
+        // child nodes, refit). Called from bmapEnter — a safe async moment on map open.
+        async _bmapReconcileAutoGroups() {
+          const m = this.bmapData(); if (!m || !m.groups) return;
+          const locked = m.groups.filter(g => g && g.locked && g.devBase);
+          for (const g of locked) {
+            const p = this._panelByBase(g.devBase);
+            if (!p || !p.dev) continue;
+            try { await this._bmapAutoPlaceDev(g.devBase, p.dev, { mintMissing: true }); } catch {}
+          }
+        },
+        // After a free drag ends, absorb any dragged node whose box lands fully inside a
+        // group's frame (and isn't already a member). Group-over-card does NOT absorb.
+        _bmapMaybeJoinGroup(bases) {
+          const m = this._bmapEnsure(); if (!m || !bases || !bases.length) return;
+          let changed = false;
+          for (const base of bases) {
+            const nd = m.nodes[base]; if (!nd) continue;
+            const d = this._bmapNodeDims(base);
+            const l = +nd.x || 0, t = +nd.y || 0, r = l + d.w, b = t + d.h;
+            for (const g of (m.groups || [])) {
+              if (!g || (g.members || []).includes(base)) continue;
+              if (l >= g.x && t >= g.y && r <= g.x + g.w && b <= g.y + g.h) {
+                g.members = [...(g.members || []), base];
+                this._bmapFitGroup(g);
+                changed = true;
+                break;
+              }
+            }
+          }
+          if (changed) this._bmapPersistSoon();
+        },
+        bmapGroupLocked(g) { return !!(g && g.locked); },
         bmapAddNode(base) {
           const m = this._bmapEnsure(); if (!m) return;
           if (m.nodes[base]) return;
@@ -44923,6 +45075,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = this._bmapEnsure(); if (!m) return;
           delete m.nodes[base];
           m.edges = (m.edges || []).filter(e => e.from !== base && e.to !== base);
+          // Removing a locked auto-group's dev node dissolves that group; otherwise just
+          // strip the base from any group's membership.
+          m.groups = (m.groups || []).filter(g => !(g && g.locked && g.devBase === base));
           for (const g of (m.groups || [])) g.members = (g.members || []).filter(x => x !== base);
           if (m.highlights) delete m.highlights[base];
           this.bmap.sel = this.bmap.sel.filter(x => x !== base);
