@@ -17041,7 +17041,7 @@
                           </div>
                           <div class="acts">
                             <a x-show="w.thread.link" @click="whOpen(w.thread)" x-text="w.thread.source==='email' ? 'Open in Outlook →' : 'Open in Teams →'"></a>
-                            <button class="mute" @click="whMute(w.key)">Not now</button>
+                            <button class="mute" @click="whMute(w.key)">Dismiss</button>
                           </div>
                         </div>
                         <div class="when" x-show="w.thread.activityTs" x-text="whAgo(w.thread.activityTs)"></div>
@@ -17062,7 +17062,7 @@
                             <span x-show="m.actions &amp;&amp; m.actions.length" x-text="m.actions.length + (m.actions.length === 1 ? ' action item for you' : ' action items for you')"></span>
                             <a x-show="m.webLink" @click="whExtOpen(m.webLink)">Recap →</a>
                             <a x-show="m.recordingUrl" @click="whExtOpen(m.recordingUrl)">Recording →</a>
-                            <button class="mute" @click="whMeetingHide(m.id)">Not now</button>
+                            <button class="mute" @click="whMeetingHide(m.id)">Dismiss</button>
                           </div>
                         </div>
                         <div class="mtime" x-show="m.end" x-text="'ended ' + whAgo(m.end)"></div>
