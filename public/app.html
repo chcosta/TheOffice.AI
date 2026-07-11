@@ -14382,10 +14382,11 @@
                             <input class="meai-chk-cb" type="checkbox" :checked="(typeof t!=='string' && t.done)" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + ((typeof t==='string'?t:t.title)||'item') + ' done'">
                             <div class="meai-chk-main">
                               <div class="meai-chk-title" x-text="(typeof t==='string') ? t : t.title"></div>
-                              <div class="meai-chk-meta" x-show="typeof t!=='string' && (t.carried || t.scope==='personal' || t.link)">
+                              <div class="meai-chk-meta" x-show="typeof t!=='string' && (t.carried || t.scope==='personal' || t.link || (t.origin && t.origin.indexOf('pulse:')===0))">
                                 <span class="meai-chk-carried" x-show="typeof t!=='string' && t.carried">↷ carried over</span>
                                 <span x-show="typeof t!=='string' && t.scope==='personal'">personal</span>
                                 <a class="meai-chk-open" x-show="typeof t!=='string' && t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
+                                <a class="meai-chk-open" x-show="typeof t!=='string' && t.origin && t.origin.indexOf('pulse:')===0" @click.prevent="goTo('#/pulse')" style="cursor:pointer" title="From Pulse.AI">Pulse.AI ↗</a>
                               </div>
                             </div>
                             <button class="meai-chk-rm" type="button" @click="meAiRemoveTodo(t)" title="Remove to-do" aria-label="Remove">✕</button>
@@ -16954,6 +16955,12 @@
               .pulse-item .acts .mute { color:var(--cp-text-muted); }
               .pulse-item .acts .mute:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
               .pulse-item .when { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; margin-top:2px; white-space:nowrap; }
+              /* Whole "worth a look" item is click-to-open (Teams/Outlook); inner buttons stopPropagation. */
+              .pulse-item.clickable { cursor:pointer; }
+              .pulse-item.clickable:hover { background-color:var(--cp-surface-soft); }
+              .pulse-item .acts .todo { color:var(--cp-link); }
+              .pulse-item .acts .onlist { color:var(--cp-text-muted); cursor:pointer; }
+              .pulse-item .acts .onlist:hover { color:var(--cp-text); }
 
               .pulse-mtg { margin:34px 0 8px; }
               .pulse-mtg-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); margin:0 0 10px; }
@@ -17042,7 +17049,7 @@
                   <section class="pulse-focus" x-show="pulseWorthList().length > 0">
                     <h2 class="pulse-focus-h">Worth a look</h2>
                     <template x-for="w in pulseWorthList()" :key="w.key">
-                      <div class="pulse-item" :class="[w.warn ? 'warn' : '', 'src-' + (w.thread.source==='email' ? 'email' : 'teams')]">
+                      <div class="pulse-item" :class="[w.warn ? 'warn' : '', 'src-' + (w.thread.source==='email' ? 'email' : 'teams'), w.thread.link ? 'clickable' : '']" @click="w.thread.link && pulseOpen(w.thread)" :title="w.thread.link ? (w.thread.source==='email' ? 'Open in Outlook' : 'Open in Teams') : ''">
                         <span class="mark"></span>
                         <div class="body">
                           <p class="reason" x-text="w.reason || w.thread.topic || 'A conversation worth a look.'"></p>
@@ -17052,8 +17059,9 @@
                             <span class="you" x-show="w.thread.mentioned"> · @you</span>
                           </div>
                           <div class="acts">
-                            <a x-show="w.thread.link" @click="pulseOpen(w.thread)" x-text="w.thread.source==='email' ? 'Open in Outlook →' : 'Open in Teams →'"></a>
-                            <button class="mute" @click="pulseMute(w.key)">Dismiss</button>
+                            <button class="todo" x-show="!pulseHasTodo(w.thread)" @click.stop="pulseMakeTodo(w)">＋ To-do</button>
+                            <a class="onlist" x-show="pulseHasTodo(w.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Me.AI to-do list — open it">✓ On your to-do list</a>
+                            <button class="mute" @click.stop="pulseMute(w.key)">Dismiss</button>
                           </div>
                         </div>
                         <div class="when" x-show="w.thread.activityTs" x-text="pulseAgo(w.thread.activityTs)"></div>
@@ -33685,6 +33693,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else {
             window.open(t.link, '_blank');
           }
+        },
+        // Stable marker linking a Me.AI to-do back to its Pulse thread. Stored on the todo's
+        // `origin` field (which the server preserves + round-trips), so the correlation
+        // survives a reload and drives both the Pulse "on your list" indicator and the
+        // Me.AI "Pulse.AI ↗" backlink.
+        pulseTodoKey(t) { return 'pulse:' + ((t && t.key) || ''); },
+        pulseHasTodo(t) {
+          if (!t) return false;
+          const ok = this.pulseTodoKey(t);
+          const link = (t.link || '').toLowerCase();
+          return (this.meai.todos || []).some(td =>
+            td && typeof td === 'object' && !td.done &&
+            ((td.origin && td.origin === ok) || (link && (td.link || '').toLowerCase() === link)));
+        },
+        // Turn a "worth a look" item into a Me.AI to-do. `w` is the curated entry (reason +
+        // thread). De-dupes on the pulse key / conversation link.
+        pulseMakeTodo(w) {
+          const t = (w && w.thread) ? w.thread : w;
+          if (!t) return;
+          if (this.pulseHasTodo(t)) { this.meAiTodosToggle(true); this.goTo('#/me-ai'); return; }
+          const title = String((w && w.reason) || t.topic || t.subject || 'Follow up on a Team conversation').trim();
+          if (!title) return;
+          const todo = { title, scope: 'work', done: false, classifying: false, origin: this.pulseTodoKey(t) };
+          if (t.link) todo.link = t.link;
+          this.meai.todos = this.meai.todos || [];
+          this.meai.todos.push(todo);
+          this.meAiPersistTodos();
+          this.showToast('Added to your to-dos', title, 'info');
         },
         pulseExtOpen(url) {
           if (!url) return;
