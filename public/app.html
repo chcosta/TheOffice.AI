@@ -11223,11 +11223,32 @@
               .dvx-card { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); padding:12px 14px; }
               .dvx-card.sel { border-color:color-mix(in srgb, var(--cp-accent) 45%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--cp-accent) 25%, transparent); }
               .dvx-boardsel { font-size:11px; padding:2px 6px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); border:1px solid var(--cp-border); background:var(--cp-surface-soft); color:var(--cp-text-soft); max-width:180px; }
+              /* ===== compact rail controls: status segmented + search + selects (calm, low-height) ===== */
+              .dvx-controls { display:flex; flex-direction:column; gap:9px; }
+              .dvx-ctrl-head { display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; font-size:11.5px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-soft); padding:1px 0; }
+              .dvx-ctrl-head:hover { color:var(--cp-text); }
+              .dvx-ctrl-caret { display:inline-block; transition:transform .14s ease; font-size:10px; color:var(--cp-text-muted); }
+              .dvx-ctrl-caret.open { transform:rotate(90deg); }
+              .dvx-ctrl-sum { margin-left:auto; font-weight:500; color:var(--cp-text-muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:62%; }
+              .dvx-ctrl-body { display:flex; flex-direction:column; gap:9px; }
+              @media (prefers-reduced-motion: reduce) { .dvx-ctrl-caret { transition:none; } }
+              .dvx-seg { display:flex; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); overflow:hidden; background:var(--cp-surface); }
+              .dvx-seg-b { flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:center; gap:5px; padding:6px 4px; background:transparent; border:0; border-left:1px solid var(--cp-border); color:var(--cp-text-soft); font-size:12px; cursor:pointer; transition:background .12s ease, color .12s ease; }
+              .dvx-seg-b:first-child { border-left:0; }
+              .dvx-seg-b:hover { background:color-mix(in srgb, var(--cp-accent) 8%, transparent); color:var(--cp-text); }
+              .dvx-seg-b.on { background:color-mix(in srgb, var(--cp-accent) 15%, transparent); color:var(--cp-text); font-weight:650; box-shadow:inset 0 -2px 0 var(--cp-accent); }
+              .dvx-seg-ic { font-size:13px; line-height:1; }
+              .dvx-seg-n { font-variant-numeric:tabular-nums; font-size:11.5px; }
+              .dvx-selrow { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+              .dvx-controls .field-input { padding:7px 9px; font-size:12.5px; width:100%; box-sizing:border-box; }
               /* ===== master-detail index rail: scannable per-card list (click => detail) ===== */
-              .dvx-index-card { margin-top:10px; display:flex; flex-direction:column; min-height:0; }
+              .dvx-index-card { margin-top:2px; display:flex; flex-direction:column; min-height:0; }
               .dvx-rail-title { font-size:12px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-soft); margin-bottom:4px; display:flex; align-items:center; }
               .dvx-idx-total { color:var(--cp-text-muted); font-weight:600; margin-left:5px; }
-              .dvx-index { display:flex; flex-direction:column; gap:1px; max-height:min(58vh, 620px); overflow:auto; margin:0 -4px; padding:2px 4px; }
+              .dvx-idx-sort { margin-left:auto; font:inherit; font-size:11.5px; font-weight:600; color:var(--cp-text-muted); background:transparent; border:0; border-radius:6px; padding:2px 4px; cursor:pointer; max-width:52%; text-align:right; }
+              .dvx-idx-sort:hover { color:var(--cp-text); }
+              .dvx-idx-sort:focus-visible { outline:1px solid color-mix(in srgb, var(--cp-accent) 45%, transparent); }
+              .dvx-index { display:flex; flex-direction:column; gap:1px; max-height:min(74vh, 800px); overflow:auto; margin:0 -4px; padding:2px 4px; }
               .dvx-idx-group { margin-bottom:5px; }
               .dvx-idx-group-h { display:flex; align-items:center; gap:6px; padding:8px 4px 3px; font-size:10.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-muted); }
               .dvx-idx-group-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
@@ -11245,6 +11266,11 @@
               .dvx-idx-status .sdot { width:7px; height:7px; border-radius:999px; flex:0 0 auto; }
               .dvx-idx-status .sdot.dev { background:var(--cp-dev); }
               .dvx-idx-status .sdot.pr { background:var(--cp-pr); }
+              .dvx-idx-status .sdot.st-open   { background:var(--cp-link); }
+              .dvx-idx-status .sdot.st-merged { background:var(--cp-success); }
+              .dvx-idx-status .sdot.st-closed { background:var(--cp-text-muted); }
+              .dvx-idx-status .sdot.st-draft  { background:transparent; box-shadow:inset 0 0 0 1.5px var(--cp-text-muted); }
+              .dvx-idx-status .sdot.st-other  { background:var(--cp-warning); }
               .dvx-idx-ahead { font-size:10px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
               .dvx-idx-attn { color:var(--cp-warning); font-weight:700; font-size:12px; line-height:1; }
               .cf-detail-card { max-width:none; }
@@ -11331,60 +11357,55 @@
             <!-- Studio: sticky rail (view + filters) beside a bordered stage -->
             <div class="nlx-studio dvx-studio" x-show="devItemsLoaded && devItems.length">
               <aside class="nlx-rail">
-                <div class="nlx-card">
-                  <div class="dvx-rail-title">View</div>
-                  <div class="dvx-views" role="tablist">
-                    <button type="button" class="dvx-v" :class="{ on: devPage.status === 'active' }" role="tab" @click="devPage.status='active'">
-                      <span class="dvx-v-name">🌱 In progress</span>
-                      <span class="dvx-v-count" x-text="devPageStats().active"></span>
+                <div class="nlx-card dvx-controls">
+                  <!-- Status view: compact segmented toggle (icon + count; full name on hover) -->
+                  <div class="dvx-seg" role="tablist" aria-label="Card status view">
+                    <button type="button" class="dvx-seg-b" :class="{ on: devPage.status === 'active' }" role="tab" :aria-selected="devPage.status==='active'" title="In progress" @click="devPage.status='active'">
+                      <span class="dvx-seg-ic">🌱</span><span class="dvx-seg-n" x-text="devPageStats().active"></span>
                     </button>
-                    <button type="button" class="dvx-v" :class="{ on: devPage.status === 'done' }" role="tab" @click="devPage.status='done'">
-                      <span class="dvx-v-name">✓ Done</span>
-                      <span class="dvx-v-count" x-text="devPageStats().done"></span>
+                    <button type="button" class="dvx-seg-b" :class="{ on: devPage.status === 'done' }" role="tab" :aria-selected="devPage.status==='done'" title="Done" @click="devPage.status='done'">
+                      <span class="dvx-seg-ic">✓</span><span class="dvx-seg-n" x-text="devPageStats().done"></span>
                     </button>
-                    <button type="button" class="dvx-v" :class="{ on: devPage.status === 'all' }" role="tab" @click="devPage.status='all'">
-                      <span class="dvx-v-name">▦ All active</span>
-                      <span class="dvx-v-count" x-text="devPageStats().active + devPageStats().done"></span>
+                    <button type="button" class="dvx-seg-b" :class="{ on: devPage.status === 'all' }" role="tab" :aria-selected="devPage.status==='all'" title="All active (in progress + done)" @click="devPage.status='all'">
+                      <span class="dvx-seg-ic">▦</span><span class="dvx-seg-n" x-text="devPageStats().active + devPageStats().done"></span>
                     </button>
-                    <button type="button" class="dvx-v" :class="{ on: devPage.status === 'archived' }" role="tab" @click="devPage.status='archived'">
-                      <span class="dvx-v-name">🗄 Archived</span>
-                      <span class="dvx-v-count" x-text="devPageStats().archived"></span>
+                    <button type="button" class="dvx-seg-b" :class="{ on: devPage.status === 'archived' }" role="tab" :aria-selected="devPage.status==='archived'" title="Archived" @click="devPage.status='archived'">
+                      <span class="dvx-seg-ic">🗄</span><span class="dvx-seg-n" x-text="devPageStats().archived"></span>
                     </button>
                   </div>
-                </div>
-                <div class="nlx-card">
-                  <div class="dvx-rail-title">Filters</div>
-                  <div class="nlx-fld">
-                    <label>Search</label>
-                    <input class="field-input" type="text" placeholder="Title, repo, work item…" x-model="devPage.q">
+                  <!-- Filters & grouping (collapsible) -->
+                  <div class="dvx-ctrl-head" @click="cfToggleCtrls('dev')" role="button" tabindex="0"
+                       :aria-expanded="cfCtrlsIsOpen('dev')"
+                       @keydown.enter.prevent="cfToggleCtrls('dev')" @keydown.space.prevent="cfToggleCtrls('dev')">
+                    <span class="dvx-ctrl-caret" :class="{ open: cfCtrlsIsOpen('dev') }">▶</span>
+                    <span>Filters &amp; grouping</span>
+                    <span class="dvx-ctrl-sum" x-show="!cfCtrlsIsOpen('dev')" x-text="devCtrlsSummary()"></span>
                   </div>
-                  <div class="nlx-fld" x-show="devProviderOptions().length > 1">
-                    <label>Provider</label>
-                    <select class="field-input" x-model="devPage.provider">
-                      <option value="all">All providers</option>
-                      <option value="azdo">Azure DevOps</option>
-                      <option value="github">GitHub</option>
-                    </select>
-                  </div>
-                  <div class="nlx-fld">
-                    <label>Board</label>
-                    <select class="field-input" x-model="devPage.board">
-                      <option value="all">All boards</option>
-                      <option value="_none">Unassigned</option>
-                      <template x-for="b in devBoardOptions()" :key="'dvf-' + b.id">
-                        <option :value="b.id" x-text="b.name"></option>
-                      </template>
-                    </select>
-                  </div>
-                  <div class="nlx-fld">
-                    <label>Group by</label>
-                    <select class="field-input" x-model="devPage.groupBy">
-                      <option value="board">Board</option>
-                      <option value="provider">Provider</option>
-                      <option value="status">Status</option>
-                      <option value="workItem">Work item</option>
-                      <option value="none">None</option>
-                    </select>
+                  <div class="dvx-ctrl-body" x-show="cfCtrlsIsOpen('dev')">
+                    <!-- Search -->
+                    <input class="field-input" type="text" placeholder="🔍  Title, repo, work item…" x-model="devPage.q" aria-label="Search dev cards">
+                    <!-- Provider (only when more than one), Board + Group-by -->
+                    <div class="dvx-selrow">
+                      <select class="field-input" x-model="devPage.provider" x-show="devProviderOptions().length > 1" style="grid-column:1 / -1" aria-label="Provider filter">
+                        <option value="all">All providers</option>
+                        <option value="azdo">Azure DevOps</option>
+                        <option value="github">GitHub</option>
+                      </select>
+                      <select class="field-input" x-model="devPage.board" aria-label="Board filter">
+                        <option value="all">All boards</option>
+                        <option value="_none">Unassigned</option>
+                        <template x-for="b in devBoardOptions()" :key="'dvf-' + b.id">
+                          <option :value="b.id" x-text="b.name"></option>
+                        </template>
+                      </select>
+                      <select class="field-input" x-model="devPage.groupBy" aria-label="Group cards by">
+                        <option value="board">Group: Board</option>
+                        <option value="provider">Group: Provider</option>
+                        <option value="status">Group: Status</option>
+                        <option value="workItem">Group: Work item</option>
+                        <option value="none">Group: None</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -18318,33 +18339,50 @@
                  The My / Active / Other view switcher now lives in the top tab bar. -->
             <div class="nlx-studio cf-studio" x-show="codeflow.repos.length" :style="'--cf-rail-w:' + cfRailW + 'px'">
               <aside class="nlx-rail">
-                <div class="nlx-card">
-                  <div class="cf-rail-title">Filters</div>
-                  <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine' && codeflow.view !== 'other'" style="margin-bottom:12px"
+                <div class="nlx-card dvx-controls">
+                  <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine' && codeflow.view !== 'other'"
                          title="Show only pull requests that list you as a reviewer">
                     <input type="checkbox" :checked="codeflow.reviewsOnly" @change="toggleReviewsOnly()">
                     <span>Reviews needed from me</span>
                   </label>
-                  <div class="nlx-fld">
-                    <label>Type</label>
-                    <select class="field-input cf-select" x-model="codeflow.filterProvider">
-                      <option value="">All types</option>
-                      <option value="azdo">Azure DevOps</option>
-                      <option value="github">GitHub</option>
-                    </select>
+                  <!-- Filters & grouping (collapsible) -->
+                  <div class="dvx-ctrl-head" @click="cfToggleCtrls('pr:'+codeflow.view)" role="button" tabindex="0"
+                       :aria-expanded="cfCtrlsIsOpen('pr:'+codeflow.view)"
+                       @keydown.enter.prevent="cfToggleCtrls('pr:'+codeflow.view)" @keydown.space.prevent="cfToggleCtrls('pr:'+codeflow.view)">
+                    <span class="dvx-ctrl-caret" :class="{ open: cfCtrlsIsOpen('pr:'+codeflow.view) }">▶</span>
+                    <span>Filters &amp; grouping</span>
+                    <span class="dvx-ctrl-sum" x-show="!cfCtrlsIsOpen('pr:'+codeflow.view)" x-text="cfCtrlsSummary()"></span>
                   </div>
-                  <div class="nlx-fld">
-                    <label>Repository</label>
-                    <select class="field-input cf-select" x-model="codeflow.filterRepo">
-                      <option value="">All repos</option>
-                      <template x-for="r in codeflow.repos" :key="r.id">
-                        <option :value="r.id" x-text="r.repo"></option>
-                      </template>
-                    </select>
+                  <div class="dvx-ctrl-body" x-show="cfCtrlsIsOpen('pr:'+codeflow.view)">
+                    <!-- Search -->
+                    <input class="field-input" type="text" placeholder="🔍  Title, repo, author…" x-model="codeflow.q" aria-label="Search pull requests">
+                    <div class="dvx-selrow">
+                      <select class="field-input cf-select" x-model="codeflow.filterProvider" aria-label="Type filter">
+                        <option value="">All types</option>
+                        <option value="azdo">Azure DevOps</option>
+                        <option value="github">GitHub</option>
+                      </select>
+                      <select class="field-input cf-select" x-model="codeflow.filterRepo" aria-label="Repository filter">
+                        <option value="">All repos</option>
+                        <template x-for="r in codeflow.repos" :key="r.id">
+                          <option :value="r.id" x-text="r.repo"></option>
+                        </template>
+                      </select>
+                      <select class="field-input cf-select" x-model="codeflow.groupBy" @change="cfPersistGroupBy()" style="grid-column:1 / -1" aria-label="Group pull requests by">
+                        <option value="none">Group: None</option>
+                        <option value="repo">Group: Repo</option>
+                        <option value="state">Group: State</option>
+                        <option value="urgency">Group: AI urgency</option>
+                        <option value="approval">Group: Approval</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="nlx-fld">
-                    <label>Sort</label>
-                    <select class="field-input cf-select" x-model="codeflow.sort">
+                </div>
+
+                <!-- PR index (master-detail): click a PR to focus its review on the right. -->
+                <div class="nlx-card dvx-index-card">
+                  <div class="dvx-rail-title">Pull requests <span class="dvx-idx-total" x-text="filteredCodeflowPrs().length"></span>
+                    <select class="dvx-idx-sort" x-model="codeflow.sort" aria-label="Sort pull requests">
                       <option value="attention">Attention first</option>
                       <option value="urgency">AI urgency</option>
                       <option value="newest">Newest</option>
@@ -18352,15 +18390,33 @@
                       <option value="age">Longest open</option>
                     </select>
                   </div>
-                  <div class="nlx-fld">
-                    <label>Group by</label>
-                    <select class="field-input cf-select" x-model="codeflow.groupBy" @change="cfPersistGroupBy()">
-                      <option value="none">None</option>
-                      <option value="repo">Repo</option>
-                      <option value="state">State</option>
-                      <option value="urgency">AI urgency</option>
-                      <option value="approval">Approval</option>
-                    </select>
+                  <div class="dvx-index">
+                    <div x-show="!filteredCodeflowPrs().length" class="hint" style="padding:8px 4px" x-text="codeflow.q ? 'No pull requests match.' : 'No pull requests in this view.'"></div>
+                    <template x-for="grp in groupedCodeflowPrs()" :key="'cfi-' + grp.key">
+                      <div class="dvx-idx-group">
+                        <div class="dvx-idx-group-h" x-show="grp.label" @click="cfGrpToggle(grp)"
+                             role="button" tabindex="0" :aria-expanded="cfGrpIsOpen(grp)"
+                             @keydown.enter.prevent="cfGrpToggle(grp)" @keydown.space.prevent="cfGrpToggle(grp)">
+                          <span class="dvx-idx-group-name" x-text="grp.label"></span>
+                          <span class="dvx-idx-group-c" x-text="grp.items.length"></span>
+                        </div>
+                        <template x-for="pr in grp.items" :key="'cfir-' + cfPrKey(pr)" x-if="!grp.label || cfGrpIsOpen(grp)">
+                          <button type="button" class="dvx-idx-row"
+                                  :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)) }"
+                                  @click="cfPageSelect(pr)">
+                            <span class="dvx-idx-here" x-show="yahIsOn('pr:' + cfPrKey(pr))" title="You are here"></span>
+                            <span class="dvx-idx-main">
+                              <span class="dvx-idx-title" x-text="pr.title || ('PR ' + (pr.id || ''))"></span>
+                              <span class="dvx-idx-repo" x-show="pr.repo" x-text="(pr.org ? pr.org + ' / ' : '') + pr.repo"></span>
+                            </span>
+                            <span class="dvx-idx-status">
+                              <span class="sdot" :class="'st-' + cfIdxMeta(pr).tone" :title="cfIdxMeta(pr).label"></span>
+                              <span class="dvx-idx-attn" x-show="cfIdxMeta(pr).attn" title="Needs your attention">!</span>
+                            </span>
+                          </button>
+                        </template>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </aside>
@@ -18394,20 +18450,11 @@
               <span x-text="codeflow.view === 'mine' ? 'You have no open pull requests in the watched repos.' : (codeflow.view === 'active' ? 'No active pull requests in the watched repos.' : (codeflow.view === 'other' ? 'No dismissed pull requests. Use “Not reviewing” on a PR to stash it here.' : 'No pull requests are waiting on your review. 🎉'))"></span>
             </div>
 
-            <!-- PR list -->
-            <div class="cf-pr-list" :class="{ grouped: codeflow.groupBy !== 'none' }">
-              <template x-for="grp in groupedCodeflowPrs()" :key="grp.key">
-                <div class="cf-group">
-                  <div class="cf-group-head" x-show="grp.label" @click="cfGrpToggle(grp)"
-                       role="button" tabindex="0" :aria-expanded="cfGrpIsOpen(grp)"
-                       @keydown.enter.prevent="cfGrpToggle(grp)" @keydown.space.prevent="cfGrpToggle(grp)">
-                    <span class="cf-group-caret" x-text="cfGrpIsOpen(grp) ? '▾' : '▸'"></span>
-                    <span class="cf-group-title" x-text="grp.label"></span>
-                    <span class="cf-group-count" x-text="grp.items.length"></span>
-                  </div>
-                  <div class="cf-group-items" x-show="!grp.label || cfGrpIsOpen(grp)">
-                    <template x-for="pr in grp.items" :key="pr.org + '/' + pr.repo + '/' + pr.id">
-                <article class="cf-pr-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr), 'cf-here': yahIsOn('pr:' + cfPrKey(pr)) }">
+            <!-- PR detail (master-detail): one selected PR fills the stage; pick from the index. -->
+            <div class="cf-pr-list cf-detail-list" x-show="filteredCodeflowPrs().length">
+              <div x-show="!cfPageSelected()" class="hint" style="padding:24px">Select a pull request from the index.</div>
+              <template x-for="pr in (cfPageSelected() ? [cfPageSelected()] : [])" :key="cfPrKey(pr)">
+                <article class="cf-pr-card cf-detail-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr), 'cf-here': yahIsOn('pr:' + cfPrKey(pr)) }">
                   <div class="cf-here-tag" x-show="yahIsOn('pr:' + cfPrKey(pr))">You are here</div>
                   <div class="cf-pr-top">
                     <button type="button" class="cf-collapse-btn" :aria-expanded="(!cfPrCollapsed(pr)).toString()"
@@ -18931,9 +18978,6 @@
                   </div>
                   <!--CF_PR_CARD_BODY:END-->
                 </article>
-                    </template>
-                  </div>
-                </div>
               </template>
             </div>
 
@@ -25828,6 +25872,7 @@
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
+        cfCtrlsOpen: (() => { try { const raw = localStorage.getItem('cfCtrlsOpen'); if (raw && raw.charAt(0) === '{') return JSON.parse(raw); } catch { /* ignore */ } return {}; })(),
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
           // The non-"mine" tab ("Active PRs") shows every open PR in the watched
@@ -25835,6 +25880,8 @@
           // reviewer. On → view 'reviews'; off → view 'active'.
           reviewsOnly: (() => { try { const v = localStorage.getItem('cfReviewsOnly'); return v === null ? true : !!JSON.parse(v); } catch { return true; } })(),
           focusKey: '',          // cfPrKey to scroll-to/highlight after a deep-link
+          selectedKey: '',       // cfPrKey of the PR shown in the master-detail stage
+          q: '',                 // free-text search over the PR index (title/repo/author)
           focusFallbackUrl: '',  // AzDO URL to open if the deep-linked PR isn't on the page (e.g. closed)
           loading: false,
           repos: [],             // watched repo entries {id,org,project,repo}
@@ -40125,6 +40172,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.codeflow.filterRepo) {
             list = list.filter(p => p.repoId === this.codeflow.filterRepo);
           }
+          const q = (this.codeflow.q || '').trim().toLowerCase();
+          if (q) {
+            list = list.filter(p => {
+              const hay = [p.title, p.repo, p.org, p.project, p.id, p.author, p.authorName, p.createdBy]
+                .map(x => String(x == null ? '' : x).toLowerCase()).join(' ');
+              return hay.includes(q);
+            });
+          }
           const s = this.codeflow.sort;
           if (s === 'newest') {
             list.sort((a, b) => new Date(b.creationDate || 0) - new Date(a.creationDate || 0));
@@ -40185,6 +40240,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const arr = Array.from(groups.values());
           arr.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label));
           return arr;
+        },
+        // Master-detail: which PR fills the stage. Explicit click wins, then a
+        // deep-link focus, then the "you are here" checkout, else the first PR.
+        cfPageSelected() {
+          const list = this.filteredCodeflowPrs();
+          if (!list.length) return null;
+          const byKey = (k) => list.find(p => this.cfPrKey(p) === k);
+          if (this.codeflow.selectedKey) { const hit = byKey(this.codeflow.selectedKey); if (hit) return hit; }
+          if (this.codeflow.focusKey) { const hit = byKey(this.codeflow.focusKey); if (hit) return hit; }
+          const here = list.find(p => this.yahIsOn('pr:' + this.cfPrKey(p)));
+          if (here) return here;
+          return list[0];
+        },
+        cfPageSelect(pr) {
+          if (!pr) return;
+          this.codeflow.selectedKey = this.cfPrKey(pr);
+          this.codeflow.focusKey = ''; // a manual click supersedes a stale deep-link
+        },
+        // Compact per-row status for the PR index (state dot tone + attention flag).
+        cfIdxMeta(pr) {
+          const st = this.prState(pr);
+          return { tone: st ? st.tone : 'open', label: st ? st.label : '', attn: !!(pr && pr.attention) };
         },
         // was closed/completed). We keep these viewable until the user explicitly
         // removes the worktree. Returns synthetic pr-shaped objects for the cards.
@@ -40642,6 +40719,42 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         cfPersistGroupBy() {
           try { localStorage.setItem('cfGroupBy', this.codeflow.groupBy); } catch { /* ignore */ }
+        },
+        cfCtrlsIsOpen(key) {
+          // Per-tab collapse state; default open (only collapsed when explicitly toggled off).
+          return (this.cfCtrlsOpen || {})[key || 'dev'] !== false;
+        },
+        cfToggleCtrls(key) {
+          key = key || 'dev';
+          if (!this.cfCtrlsOpen || typeof this.cfCtrlsOpen !== 'object') this.cfCtrlsOpen = {};
+          this.cfCtrlsOpen[key] = !this.cfCtrlsIsOpen(key);
+          try { localStorage.setItem('cfCtrlsOpen', JSON.stringify(this.cfCtrlsOpen)); } catch { /* ignore */ }
+        },
+        cfCtrlsSummary() {
+          // One-line summary of the active filters/group, shown when the panel is collapsed.
+          const c = this.codeflow, parts = [];
+          if (c.q && c.q.trim()) parts.push('“' + c.q.trim() + '”');
+          if (c.filterProvider) parts.push(c.filterProvider === 'azdo' ? 'Azure DevOps' : 'GitHub');
+          if (c.filterRepo) { const r = (c.repos || []).find(x => x.id === c.filterRepo); if (r) parts.push(r.repo); }
+          if (c.groupBy && c.groupBy !== 'none') {
+            const g = { repo:'Repo', state:'State', urgency:'AI urgency', approval:'Approval' }[c.groupBy];
+            if (g) parts.push('by ' + g);
+          }
+          return parts.length ? parts.join(' · ') : 'No filters';
+        },
+        devCtrlsSummary() {
+          const d = this.devPage, parts = [];
+          if (d.q && d.q.trim()) parts.push('“' + d.q.trim() + '”');
+          if (d.provider && d.provider !== 'all') parts.push(d.provider === 'azdo' ? 'Azure DevOps' : 'GitHub');
+          if (d.board && d.board !== 'all') {
+            if (d.board === '_none') parts.push('Unassigned');
+            else { const b = (this.devBoardOptions() || []).find(x => x.id === d.board); if (b) parts.push(b.name); }
+          }
+          if (d.groupBy) {
+            const g = { board:'Board', provider:'Provider', status:'Status', workItem:'Work item' }[d.groupBy];
+            if (g) parts.push('by ' + g);
+          }
+          return parts.length ? parts.join(' · ') : 'No filters';
         },
         cfGrpIsOpen(grp) {
           // Default expanded; only collapsed when explicitly toggled off.
