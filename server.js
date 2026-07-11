@@ -13795,13 +13795,15 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
       if (isFinite(last) && (now - last) < ME_AI_MTGACT_THROTTLE_MS) return { signals: [], store, changed: false };
     }
     const nowIso = new Date(now).toISOString();
-    const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each such meeting, extract the action items / follow-ups assigned to ME (owner = me, or clearly-mine unassigned items). Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"recordingUrl":string|null,"webLink":string|null,"hasRecording":boolean,"actions":[{"text":string,"due":string|null}]}. "meetingId" is a STABLE unique id for the meeting (the calendar event id or iCalUId). "webLink" is the calendar event's link that opens the meeting in Outlook/OWA (the event's own webLink, NOT the join URL). ONLY include meetings that have ENDED. If a meeting has ended but has no recording/transcript YET, still list it with "hasRecording":false and empty "actions" so I know to check later. If there is nothing, return [].`;
+    const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each such meeting, extract the action items / follow-ups assigned to ME (owner = me, or clearly-mine unassigned items). Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"summary":string,"highlights":[string],"recordingUrl":string|null,"webLink":string|null,"hasRecording":boolean,"actions":[{"text":string,"due":string|null}]}. When the meeting HAS a recording/transcript, ALSO fill "summary" (a SHORT 2-3 sentence plain-language recap of what happened) and up to 4 "highlights" (key decisions/updates); when it does not, leave them empty. "meetingId" is a STABLE unique id for the meeting (the calendar event id or iCalUId). "webLink" is the calendar event's link that opens the meeting in Outlook/OWA (the event's own webLink, NOT the join URL). ONLY include meetings that have ENDED. If a meeting has ended but has no recording/transcript YET, still list it with "hasRecording":false and empty "actions" so I know to check later. If there is nothing, return [].`;
     const text = await _connectRunAgent('collector', prompt);
     const arr = _connectExtractJson(text);
     store.lastGatherAt = nowIso;
     let changed = true; // lastGatherAt moved
     if (!Array.isArray(arr)) { saveMtgActStore(date, store); return { signals: [], store, changed }; }
     const signals = [];
+    // Shared recap store (What's happening reads these instead of its own collector query).
+    store.meetings = store.meetings || {};
     for (const m of arr) {
       if (!m || typeof m !== 'object') continue;
       const mid = String(m.meetingId || m.meeting || '').trim().toLowerCase();
@@ -13838,6 +13840,15 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
             directMention: true, urgency: 4, source: 'meeting',
           });
         });
+        store.meetings[mid] = {
+          id: String(m.meetingId || m.meeting || '').trim(),
+          meeting: String(m.meeting || 'Meeting').slice(0, 160),
+          end: (m.end && typeof m.end === 'string') ? m.end : null,
+          summary: String(m.summary || '').slice(0, 800),
+          highlights: (Array.isArray(m.highlights) ? m.highlights : []).map(h => String(h || '').slice(0, 200)).filter(Boolean).slice(0, 4),
+          actions: actions.map(a => ({ text: String((a && a.text) || '').slice(0, 200), due: (a && typeof a.due === 'string' && a.due.trim()) ? a.due.trim() : null })).filter(a => a.text).slice(0, 8),
+          recordingUrl: recUrl, webLink: mtgUrl, day: date,
+        };
         rec.done = true; rec.count = actions.length;
       } else {
         // No recording/transcript yet. Recordings can take a while to appear, so keep
@@ -23804,6 +23815,15 @@ function _whGatherThreads(days) {
 }
 // Collector-driven meeting summaries + my action items for recent ended meetings.
 async function _whGatherMeetings(date, { force = false } = {}) {
+  // Deduped: What's happening no longer runs its OWN collector query for meeting
+  // recaps. It reuses the me.ai meeting-actions gather (_meAiGatherMeetingActions) —
+  // the same ended/recorded-meeting WorkIQ query the inbox already runs — which now
+  // also persists per-meeting summary + highlights into its shared store. Zero extra
+  // WorkIQ calls of its own.
+  try { await _meAiGatherMeetingActions(date, { force }); } catch (_) {}
+  return { store: loadMtgActStore(date), changed: true };
+}
+async function _whGatherMeetingsLegacy(date, { force = false } = {}) {
   const store = _whLoadMtg(date);
   const now = Date.now();
   if (!force && store.gatheredAt) {
@@ -23859,11 +23879,16 @@ function _whAssemble(days, date) {
     }
     visible.push(Object.assign({}, th, { hasNew }));
   }
-  // Merge cached meeting summaries across the recent window (dedupe by id), newest first.
+  // Merge cached meeting recaps across the recent window (dedupe by id), newest first.
+  // These come from the SHARED me.ai meeting-actions store (loadMtgActStore) — the same
+  // ended/recorded-meeting gather the inbox uses — so What's happening spends ZERO extra
+  // WorkIQ calls of its own.
   const mByKey = new Map();
   for (const d of _whRecentDays(days || 4)) {
-    const mstore = _whLoadMtg(d);
-    for (const m of (mstore.meetings || [])) {
+    let mstore; try { mstore = loadMtgActStore(d); } catch (_) { mstore = null; }
+    const mm = (mstore && mstore.meetings && typeof mstore.meetings === 'object') ? mstore.meetings : {};
+    for (const id of Object.keys(mm)) {
+      const m = mm[id];
       if (!m || !m.id) continue;
       const rec = st.meetings[m.id] || null;
       if (rec && rec.state === 'hidden') continue;
@@ -23871,7 +23896,81 @@ function _whAssemble(days, date) {
     }
   }
   const meetings = Array.from(mByKey.values());
-  return { threads: visible, muted, meetings, mutedCount, gatheredAt: st.gatheredAt || '' };
+  const counts = {
+    all: visible.length,
+    teams: visible.filter(t => t.source !== 'email').length,
+    email: visible.filter(t => t.source === 'email').length,
+    mentions: visible.filter(t => t.mentioned).length,
+  };
+  const fingerprint = _whSummaryFingerprint(visible, meetings);
+  return { threads: visible, muted, meetings, mutedCount, counts, fingerprint, gatheredAt: st.gatheredAt || '' };
+}
+
+// ---- Calm AI summary over the ALREADY-CACHED ambient activity ---------------------
+// A single LLM reasoning pass (NO WorkIQ) over the assembled threads + meetings that
+// returns a short warm read + up to 5 "worth a look" items. Cached in WH state keyed
+// by a content fingerprint so it doesn't re-run on every page load — only when the
+// ambient activity actually changes (or the user forces a refresh).
+const WH_SUMMARY_MAX_ITEMS = 5;
+function _whSummaryFingerprint(threads, meetings) {
+  const t = (threads || []).map(x => x.key + ':' + (x.activityTs || 0) + ':' + (x.count || 0) + ':' + (x.hasNew ? 1 : 0)).sort().join('|');
+  const m = (meetings || []).map(x => String(x.id) + ':' + ((x.actions || []).length)).sort().join('|');
+  return require('crypto').createHash('sha1').update(t + '#' + m).digest('hex').slice(0, 16);
+}
+async function _whGenerateSummary(view) {
+  const threads = (view && view.threads) || [];
+  const meetings = (view && view.meetings) || [];
+  const fingerprint = (view && view.fingerprint) || _whSummaryFingerprint(threads, meetings);
+  if (!threads.length && !meetings.length) {
+    return { fingerprint, summary: '', worthALook: [], quietNote: '', generatedAt: new Date().toISOString(), empty: true };
+  }
+  const now = Date.now();
+  const ago = (ts) => { const t = (typeof ts === 'number') ? ts : Date.parse(ts || ''); if (!isFinite(t) || !t) return ''; const mm = Math.max(0, Math.floor((now - t) / 60000)); if (mm < 60) return mm + 'm ago'; const h = Math.floor(mm / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
+  const tlines = threads.slice(0, 50).map((t) => {
+    const who = t.channel || (t.source === 'email' ? 'Email' : 'Teams');
+    return '[' + t.key + '] ' + t.source + ' · "' + String(t.topic || '').slice(0, 120) + '" · ' + who + (t.mentioned ? ' · @you' : '') + ' · ' + (t.count || 1) + ' msg' + (t.hasNew ? ' · NEW' : '') + ' · ' + ago(t.activityTs) + (t.snippet ? ' · ' + String(t.snippet).slice(0, 160) : '');
+  }).join('\n');
+  const mlines = meetings.slice(0, 8).map((m) => '"' + String(m.meeting || '').slice(0, 100) + '" · ' + ((m.actions || []).length) + ' action item(s) for me').join('\n');
+  const prompt = [
+    "You are the user's calm, trusted assistant. Below is ambient team activity (Teams + email conversations that are NOT on their to-do list and are NOT asking anything of them) plus recaps of meetings that just ended.",
+    'Your job is to REDUCE noise, not add to it. Give a short, warm read of what — if anything — is genuinely worth their attention when they surface from deep-focus work.',
+    '',
+    'Conversations:',
+    tlines || '(none)',
+    '',
+    'Recent meetings:',
+    mlines || '(none)',
+    '',
+    'Return ONLY minified JSON (no prose, no code fence) shaped exactly like:',
+    '{"summary":"2-4 warm sentences in your own voice about what is worth attention and why; end by noting you kept the routine noise (build/CI results, automated broadcasts, service alerts) out of their way","worthALook":[{"key":"<one of the [keys] above>","reason":"one plain sentence on why this is worth a glance","warn":false}],"quietNote":"short phrase naming what you filtered out, e.g. mostly build results and broadcasts"}',
+    '',
+    'Rules: worthALook has AT MOST 5 items and ONLY genuinely human/interesting conversations or things quietly waiting on the user. NEVER include build results, CI/pipeline notifications, automated broadcasts, newsletters, or service/incident bot noise. Set warn:true ONLY when something is time-sensitive or clearly waiting on the user. Use ONLY key values that appear in brackets above. If nothing is truly worth attention, return an empty worthALook array and say so calmly in the summary.',
+  ].join('\n');
+  let acc = '';
+  try {
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'me_ai' } });
+    if (!acc && result && result.output) acc = result.output;
+  } catch (_) { acc = ''; }
+  const parsed = _connectExtractJson(acc) || {};
+  const byKey = new Map(threads.map(t => [t.key, t]));
+  const seen = new Set();
+  const worthALook = [];
+  for (const w of (Array.isArray(parsed.worthALook) ? parsed.worthALook : [])) {
+    if (!w || typeof w !== 'object') continue;
+    const key = String(w.key || '').trim();
+    if (!byKey.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    worthALook.push({ key, reason: String(w.reason || '').slice(0, 240), warn: !!w.warn });
+    if (worthALook.length >= WH_SUMMARY_MAX_ITEMS) break;
+  }
+  return {
+    fingerprint,
+    summary: String(parsed.summary || '').slice(0, 900),
+    worthALook,
+    quietNote: String(parsed.quietNote || '').slice(0, 160),
+    generatedAt: new Date().toISOString(),
+    empty: false,
+  };
 }
 
 // GET /api/me-ai/whats-happening?days=&date= → assembled ambient digest.
@@ -23881,7 +23980,10 @@ app.get('/api/me-ai/whats-happening', (req, res) => {
     const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
     const view = _whAssemble(days, date);
     const cfg = _meAiConfig();
-    res.json({ ok: true, consent: !!cfg.consent, ...view });
+    const stg = _whLoadState();
+    const summary = (stg.summary && stg.summary.fingerprint) ? stg.summary : null;
+    const summaryStale = !summary || summary.fingerprint !== view.fingerprint;
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -23894,9 +23996,14 @@ app.post('/api/me-ai/whats-happening/refresh', async (req, res) => {
     const cfg = _meAiConfig();
     _meAiLastActive = Date.now();
     if (cfg.consent) { try { await _whGatherMeetings(date, { force: !!(req.body && req.body.force) }); } catch (_) {} }
-    const st = _whLoadState(); st.gatheredAt = new Date().toISOString(); _whSaveState(st);
     const view = _whAssemble(days, date);
-    res.json({ ok: true, consent: !!cfg.consent, ...view });
+    let summary = null;
+    if (cfg.consent) { try { summary = await _whGenerateSummary(view); } catch (_) { summary = null; } }
+    const st = _whLoadState();
+    st.gatheredAt = new Date().toISOString();
+    if (summary && summary.fingerprint) st.summary = summary;
+    _whSaveState(st);
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary: (st.summary && st.summary.fingerprint) ? st.summary : null, summaryStale: false });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

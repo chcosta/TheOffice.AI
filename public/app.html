@@ -16904,169 +16904,214 @@
           <!-- ===== What's happening (ambient team-conversation & meeting digest — Me.AI companion) ===== -->
           <section x-show="!loading && !errorMessage && route === 'whatsup'">
             <style>
-              .whp-wrap { max-width:820px; }
-              .whp-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:6px; }
-              .whp-head h1 { margin:0; font-size:22px; display:flex; align-items:center; gap:10px; }
-              .whp-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; max-width:600px; line-height:1.5; }
-              .whp-card { background:var(--cp-surface); border:1px solid var(--cp-border);
-                border-radius:calc(var(--cp-radius-scale, 1) * 12px); overflow:hidden; margin-top:18px; }
-              .whp-cardhd { display:flex; align-items:center; gap:10px; padding:14px 16px; }
-              .whp-cardhd .t { font-weight:600; font-size:15px; }
-              .whp-cardhd .n { margin-left:auto; color:var(--cp-text-muted); font-size:12.5px; display:flex; align-items:center; gap:6px; }
-              .whp-newdot { width:7px; height:7px; border-radius:50%; background:var(--cp-warning); flex:none; }
-              .whp-body { padding:2px 12px 14px; }
-              .whp-filters { display:flex; gap:14px; padding:6px 4px 12px; font-size:12.5px; color:var(--cp-text-muted);
-                border-bottom:1px solid var(--cp-border); margin-bottom:6px; flex-wrap:wrap; }
-              .whp-filters a { color:inherit; text-decoration:none; cursor:pointer; padding-bottom:6px; margin-bottom:-13px; }
-              .whp-filters a.on { color:var(--cp-text); border-bottom:2px solid var(--cp-accent); font-weight:600; }
-              .whp-filters a:hover { color:var(--cp-text); }
-              .whp-filters .sp { margin-left:auto; }
-              .whp-item { display:flex; gap:12px; padding:12px 8px; border-radius:calc(var(--cp-radius-scale, 1) * 10px); position:relative; }
-              .whp-item:hover { background:var(--cp-surface-soft); }
-              .whp-item + .whp-item { border-top:1px solid var(--cp-border); }
-              .whp-src { flex:none; width:30px; height:30px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); display:grid; place-items:center;
-                font-size:15px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); }
-              .whp-main { min-width:0; flex:1; }
-              .whp-topic { font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:8px; }
-              .whp-new { width:6px; height:6px; border-radius:50%; background:var(--cp-warning); flex:none; }
-              .whp-meta { color:var(--cp-text-muted); font-size:12px; margin-top:1px; }
-              .whp-snip { color:var(--cp-text-soft); font-size:12.5px; margin-top:5px; overflow-wrap:anywhere; }
-              .whp-you { color:var(--cp-warning); font-weight:600; }
-              .whp-updated { font-size:11.5px; color:var(--cp-warning); font-weight:600; display:flex; align-items:center; gap:5px; margin-top:6px; }
-              .whp-acts { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap; opacity:0; transition:opacity .12s ease; }
-              .whp-item:hover .whp-acts { opacity:1; }
-              .whp-acts a { font-size:12px; color:var(--cp-text-muted); text-decoration:none; cursor:pointer; padding:2px 0; }
-              .whp-acts a:hover { color:var(--cp-accent); text-decoration:underline; text-underline-offset:2px; }
-              .whp-acts .sep { color:var(--cp-border-strong); }
-              .whp-foot { padding:10px 8px 2px; font-size:12px; color:var(--cp-text-muted); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-              .whp-foot a { color:inherit; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
-              .whp-foot a:hover { color:var(--cp-accent); }
-              .whp-empty { padding:26px 12px; text-align:center; color:var(--cp-text-muted); font-size:13px; line-height:1.6; }
-              .whp-mtg-hi { color:var(--cp-text-soft); font-size:12.5px; margin-top:5px; }
-              .whp-mtg-hi li { margin:2px 0; }
-              .whp-mtg-act { display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--cp-text); margin-top:4px; }
-              .whp-mtg-act .due { color:var(--cp-text-soft); font-size:11.5px; }
-              @media (prefers-reduced-motion: reduce) { .whp-acts, .whp-caret { transition:none; } }
+              .wh2-wrap { max-width:760px; margin:0 auto; }
+              .wh2-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:6px; }
+              .wh2-title { font-size:24px; font-weight:650; letter-spacing:-0.01em; margin:0; }
+              .wh2-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; }
+              .wh2-refresh { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13px;
+                cursor:pointer; padding:4px 2px; display:inline-flex; align-items:center; gap:6px;
+                border-bottom:1px solid transparent; transition:color .15s ease, border-color .15s ease; }
+              .wh2-refresh:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
+              .wh2-refresh:disabled { cursor:default; opacity:.7; }
+              .wh2-refresh .dot { width:6px; height:6px; border-radius:50%; background:var(--cp-success); display:inline-block; }
+              .wh2-refresh.busy .dot { background:var(--cp-warning); }
+
+              .wh2-summary { margin:26px 0 6px; padding:24px 26px; border-radius:14px;
+                background:linear-gradient(180deg, color-mix(in srgb,var(--cp-surface) 96%, var(--cp-accent) 4%), var(--cp-surface));
+                border:1px solid var(--cp-border); animation:wh2rise .5s cubic-bezier(.22,1,.36,1) both; }
+              @keyframes wh2rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+              .wh2-kicker { display:flex; align-items:center; gap:9px; color:var(--cp-text-muted); font-size:12.5px; margin-bottom:12px; }
+              .wh2-kicker .glyph { font-size:14px; }
+              .wh2-summary p { margin:0; font-size:16px; line-height:1.62; color:var(--cp-text); text-wrap:pretty; }
+
+              .wh2-focus { margin:30px 0 8px; }
+              .wh2-focus-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.01em; margin:0 0 4px; }
+              .wh2-item { display:flex; gap:14px; align-items:flex-start; padding:16px 4px; border-top:1px solid var(--cp-border); }
+              .wh2-item:last-child { border-bottom:1px solid var(--cp-border); }
+              .wh2-item .mark { flex:0 0 auto; width:8px; height:8px; border-radius:50%; margin-top:7px; background:var(--cp-accent); }
+              .wh2-item.warn .mark { background:var(--cp-warning); }
+              .wh2-item .body { flex:1 1 auto; min-width:0; }
+              .wh2-item .reason { font-size:15px; color:var(--cp-text); margin:0 0 3px; text-wrap:pretty; }
+              .wh2-item .meta { font-size:12.5px; color:var(--cp-text-muted); }
+              .wh2-item .meta .who { color:var(--cp-text-soft); }
+              .wh2-item .you { color:var(--cp-warning); font-weight:600; }
+              .wh2-item .acts { display:flex; gap:16px; margin-top:9px; }
+              .wh2-item .acts a, .wh2-item .acts button { background:none; border:none; padding:0; font:inherit; font-size:12.5px; cursor:pointer;
+                color:var(--cp-link); text-decoration:none; border-bottom:1px solid transparent; transition:border-color .15s ease; }
+              .wh2-item .acts a:hover { border-bottom-color:currentColor; }
+              .wh2-item .acts .mute { color:var(--cp-text-muted); }
+              .wh2-item .acts .mute:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
+              .wh2-item .when { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; margin-top:2px; white-space:nowrap; }
+
+              .wh2-mtg { margin:34px 0 8px; }
+              .wh2-mtg-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); margin:0 0 10px; }
+              .wh2-mrow { display:flex; gap:14px; align-items:flex-start; padding:12px 4px; border-top:1px solid var(--cp-border); }
+              .wh2-mrow:last-child { border-bottom:1px solid var(--cp-border); }
+              .wh2-mrow .mtitle { font-size:14px; font-weight:600; margin:0 0 2px; }
+              .wh2-mrow .mrecap { font-size:13px; color:var(--cp-text-muted); margin:0; text-wrap:pretty; }
+              .wh2-mrow .mfoot { font-size:12px; color:var(--cp-text-muted); margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+              .wh2-mrow .mfoot a, .wh2-mrow .mfoot button { color:var(--cp-link); text-decoration:none; background:none; border:none; padding:0; font:inherit; font-size:12px; cursor:pointer; border-bottom:1px solid transparent; }
+              .wh2-mrow .mfoot a:hover, .wh2-mrow .mfoot button:hover { border-bottom-color:currentColor; }
+              .wh2-mrow .mfoot .mute { color:var(--cp-text-muted); }
+              .wh2-mrow .mtime { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; white-space:nowrap; }
+
+              .wh2-tail { margin-top:38px; }
+              .wh2-tail-toggle { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13.5px; cursor:pointer;
+                padding:0; display:inline-flex; align-items:center; gap:8px; }
+              .wh2-tail-toggle:hover { color:var(--cp-text); }
+              .wh2-tail-toggle .car { transition:transform .18s ease; display:inline-block; }
+              .wh2-tail.open .wh2-tail-toggle .car { transform:rotate(90deg); }
+              .wh2-tabs { display:flex; gap:18px; flex-wrap:wrap; margin:16px 0 8px; font-size:13px; }
+              .wh2-tab { background:none; border:none; padding:4px 0; font:inherit; cursor:pointer; color:var(--cp-text-muted);
+                border-bottom:2px solid transparent; transition:color .15s ease, border-color .15s ease; }
+              .wh2-tab .n { color:var(--cp-text-soft); margin-left:5px; }
+              .wh2-tab:hover { color:var(--cp-text); }
+              .wh2-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .wh2-tab.on .n { color:var(--cp-text-muted); }
+              .wh2-trow { display:flex; gap:12px; align-items:baseline; padding:10px 4px; border-top:1px solid var(--cp-border); font-size:13.5px; cursor:pointer; }
+              .wh2-trow:hover { background:var(--cp-surface-soft); }
+              .wh2-trow .src { flex:0 0 52px; color:var(--cp-text-muted); font-size:12px; }
+              .wh2-trow .t { flex:1 1 auto; min-width:0; color:var(--cp-text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .wh2-trow .you { color:var(--cp-warning); }
+              .wh2-trow .tw { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; }
+              .wh2-more { display:flex; gap:12px; padding:10px 4px; border-top:1px solid var(--cp-border); border-bottom:1px solid var(--cp-border); color:var(--cp-text-muted); font-size:12.5px; }
+
+              .wh2-muted { margin-top:32px; }
+              .wh2-muted a { color:var(--cp-text-muted); font-size:13px; text-decoration:none; cursor:pointer; border-bottom:1px solid transparent; }
+              .wh2-muted a:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
+              .wh2-mutelist { margin-top:12px; }
+
+              .wh2-empty { padding:24px 4px; color:var(--cp-text-muted); font-size:14px; line-height:1.6; }
+              .wh2-consent { margin:26px 0; padding:26px; border:1px solid var(--cp-border); border-radius:14px; background:var(--cp-surface); text-align:center; }
+
+              @media (prefers-reduced-motion: reduce) {
+                .wh2-summary { animation:none; }
+                .wh2-refresh, .wh2-tab, .wh2-tail-toggle .car, .wh2-item .acts a, .wh2-item .acts button { transition:none; }
+              }
             </style>
 
-            <div class="whp-wrap">
-              <div class="whp-head">
+            <div class="wh2-wrap">
+              <div class="wh2-head">
                 <div>
-                  <h1><span>📡</span> What's happening</h1>
-                  <p class="whp-sub">Team conversations worth staying close to — not on your agenda, not asking anything of you. A calm place to poke your head up between deep-focus work.</p>
+                  <h1 class="wh2-title">What's happening</h1>
+                  <p class="wh2-sub"><span>A calm read on your team</span><span x-show="whatsHappening.gatheredAt"> · last looked <span x-text="whAgo(whatsHappening.gatheredAt)"></span></span></p>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <button class="btn ghost" type="button" :disabled="whatsHappening.busy" @click="whRefresh()" x-text="whatsHappening.busy ? 'Refreshing…' : '⟳ Refresh'"></button>
-                </div>
+                <button class="wh2-refresh" :class="whatsHappening.busy ? 'busy' : ''" type="button" :disabled="whatsHappening.busy" @click="whatsHappening._autoRefreshed = true; whRefresh()">
+                  <span class="dot"></span><span x-text="whatsHappening.busy ? 'Refreshing…' : 'Refresh'"></span>
+                </button>
               </div>
 
               <!-- Consent-off state -->
-              <div class="whp-card" x-show="whatsHappening.loaded && !whatsHappening.consent">
-                <div class="whp-empty">
-                  <div style="font-size:26px;margin-bottom:8px">🔒</div>
-                  <div>What's happening reads your Teams &amp; email to surface interesting conversations.</div>
-                  <div style="margin-top:6px">Turn on Me.AI data collection in <a class="clickable" style="text-decoration:underline;text-underline-offset:2px" @click="goTo('#/me-ai')">Me.AI settings</a> to enable it.</div>
-                </div>
-              </div>
-
-              <!-- Conversations -->
-              <div class="whp-card" x-show="whatsHappening.loaded &amp;&amp; whatsHappening.consent">
-                <div class="whp-cardhd">
-                  <span class="t">Conversations</span>
-                  <span class="n" x-show="whNewCount() > 0"><span class="whp-newdot"></span><span x-text="whNewCount() + ' with new activity'"></span></span>
-                </div>
-                <div class="whp-body">
-                  <div class="whp-filters">
-                    <a :class="whatsHappening.filter==='all' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='all'; whatsHappening.showMuted=false">All</a>
-                    <a :class="whatsHappening.filter==='teams' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='teams'; whatsHappening.showMuted=false">Teams</a>
-                    <a :class="whatsHappening.filter==='email' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='email'; whatsHappening.showMuted=false">Email</a>
-                    <a :class="whatsHappening.filter==='mentions' && !whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.filter='mentions'; whatsHappening.showMuted=false">Mentions</a>
-                    <a class="sp" x-show="whatsHappening.mutedCount > 0" :class="whatsHappening.showMuted ? 'on' : ''" @click="whatsHappening.showMuted = !whatsHappening.showMuted" x-text="'Muted (' + whatsHappening.mutedCount + ')'"></a>
-                  </div>
-
-                  <template x-for="t in whThreadList()" :key="t.key">
-                    <div class="whp-item">
-                      <div class="whp-src" :title="t.source==='email' ? 'Email thread' : 'Teams conversation'" x-text="t.source==='email' ? '✉️' : '💬'"></div>
-                      <div class="whp-main">
-                        <div class="whp-topic">
-                          <span class="whp-new" x-show="t.hasNew"></span>
-                          <span x-text="t.topic || '(untitled conversation)'"></span>
-                        </div>
-                        <div class="whp-meta">
-                          <span x-text="t.channel || (t.source==='email' ? 'Email' : 'Teams')"></span>
-                          <span x-show="t.count > 1"> · <span x-text="t.count + ' messages'"></span></span>
-                          <span x-show="t.activityTs"> · last <span x-text="whAgo(t.activityTs)"></span></span>
-                        </div>
-                        <div class="whp-snip" x-show="t.snippet"><span x-text="t.snippet"></span> <span class="whp-you" x-show="t.mentioned">· You were mentioned</span></div>
-                        <div class="whp-updated" x-show="t.hasNew">● New activity since you last looked</div>
-                        <div class="whp-acts">
-                          <a x-show="t.link" @click="whOpen(t)" x-text="t.source==='email' ? 'Open in Outlook ↗' : 'Open in Teams ↗'"></a>
-                          <span class="sep" x-show="t.link">·</span>
-                          <a x-show="!whatsHappening.showMuted" @click="whMute(t.key)">Mute this thread</a>
-                          <a x-show="whatsHappening.showMuted" @click="whUnmute(t.key)">Unmute</a>
-                          <span class="sep" x-show="!whatsHappening.showMuted">·</span>
-                          <a x-show="!whatsHappening.showMuted" @click="whHide(t.key)">Not interesting</a>
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-
-                  <div class="whp-empty" x-show="whThreadList().length === 0">
-                    <template x-if="whatsHappening.showMuted"><div>No muted conversations.</div></template>
-                    <template x-if="!whatsHappening.showMuted"><div>Nothing lively right now. Check back when you surface from focus work.</div></template>
-                  </div>
-
-                  <div class="whp-foot">
-                    <span x-show="whatsHappening.gatheredAt" x-text="'Updated ' + whAgo(whatsHappening.gatheredAt)"></span>
-                    <a @click="whRefresh()">Refresh</a>
-                    <a x-show="whNewCount() > 0" @click="whSeen()">Mark all seen</a>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Meetings -->
-              <div class="whp-card" x-show="whatsHappening.loaded &amp;&amp; whatsHappening.consent &amp;&amp; whatsHappening.meetings.length > 0">
-                <div class="whp-cardhd">
-                  <span class="t">Recent meetings</span>
-                  <span class="n" x-text="whatsHappening.meetings.length + ' with recaps'"></span>
-                </div>
-                <div class="whp-body">
-                  <template x-for="m in whatsHappening.meetings" :key="m.id">
-                    <div class="whp-item">
-                      <div class="whp-src" title="Meeting recap">🗓️</div>
-                      <div class="whp-main">
-                        <div class="whp-topic"><span x-text="m.meeting || 'Meeting'"></span></div>
-                        <div class="whp-meta" x-show="m.end">ended <span x-text="whAgo(m.end)"></span></div>
-                        <div class="whp-snip" x-show="m.summary" x-text="m.summary"></div>
-                        <ul class="whp-mtg-hi" x-show="m.highlights &amp;&amp; m.highlights.length" style="margin:6px 0 0;padding-left:18px">
-                          <template x-for="(h, hi) in (m.highlights || [])" :key="hi"><li x-text="h"></li></template>
-                        </ul>
-                        <div x-show="m.actions &amp;&amp; m.actions.length" style="margin-top:8px">
-                          <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--cp-text-soft);margin-bottom:3px">Your action items</div>
-                          <template x-for="(a, ai) in (m.actions || [])" :key="ai">
-                            <div class="whp-mtg-act">
-                              <span>☐</span>
-                              <span><span x-text="a.text"></span> <span class="due" x-show="a.due" x-text="'· due ' + a.due"></span></span>
-                            </div>
-                          </template>
-                        </div>
-                        <div class="whp-acts">
-                          <a x-show="m.recordingUrl" @click="whExtOpen(m.recordingUrl)">Open recording ↗</a>
-                          <span class="sep" x-show="m.recordingUrl &amp;&amp; m.webLink">·</span>
-                          <a x-show="m.webLink" @click="whExtOpen(m.webLink)">Open in calendar ↗</a>
-                          <span class="sep" x-show="(m.recordingUrl || m.webLink)">·</span>
-                          <a @click="whMeetingHide(m.id)">Not interesting</a>
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
+              <div class="wh2-consent" x-show="whatsHappening.loaded &amp;&amp; !whatsHappening.consent">
+                <div style="font-size:26px;margin-bottom:8px">🔒</div>
+                <div>What's happening reads your Teams &amp; email to surface interesting conversations.</div>
+                <div style="margin-top:6px;color:var(--cp-text-muted)">Turn on Me.AI data collection in <a class="clickable" style="color:var(--cp-link);text-decoration:underline;text-underline-offset:2px" @click="goTo('#/me-ai')">Me.AI settings</a> to enable it.</div>
               </div>
 
               <!-- initial loading -->
-              <div class="whp-card" x-show="!whatsHappening.loaded">
-                <div class="whp-empty">Loading…</div>
-              </div>
+              <div class="wh2-empty" x-show="!whatsHappening.loaded">Reading your team…</div>
+
+              <template x-if="whatsHappening.loaded &amp;&amp; whatsHappening.consent">
+                <div>
+                  <!-- AI summary hero -->
+                  <section class="wh2-summary" x-show="whSummaryText() || whatsHappening.busy">
+                    <div class="wh2-kicker"><span class="glyph">✨</span> <span x-text="whatsHappening.busy ? 'Taking a fresh look…' : (whWorthList().length ? 'Here\'s what\'s worth your attention' : 'Here\'s the read on your team')"></span></div>
+                    <p x-show="whSummaryText()" x-text="whSummaryText()"></p>
+                    <p x-show="!whSummaryText() &amp;&amp; whatsHappening.busy" style="color:var(--cp-text-muted)">Reading the last few days of conversations and pulling out what actually matters.</p>
+                  </section>
+
+                  <!-- prompt to generate the first summary -->
+                  <section class="wh2-summary" x-show="!whSummaryText() &amp;&amp; !whatsHappening.busy">
+                    <div class="wh2-kicker"><span class="glyph">✨</span> A calm summary is one tap away</div>
+                    <p>I can read the last few days of your team's conversations and tell you what's actually worth your attention. <a style="color:var(--cp-link);cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="whatsHappening._autoRefreshed = true; whRefresh()">Take a look →</a></p>
+                  </section>
+
+                  <!-- Worth a look -->
+                  <section class="wh2-focus" x-show="whWorthList().length > 0">
+                    <h2 class="wh2-focus-h">Worth a look</h2>
+                    <template x-for="w in whWorthList()" :key="w.key">
+                      <div class="wh2-item" :class="w.warn ? 'warn' : ''">
+                        <span class="mark"></span>
+                        <div class="body">
+                          <p class="reason" x-text="w.reason || w.thread.topic || 'A conversation worth a look.'"></p>
+                          <div class="meta">
+                            <span class="who" x-text="whWho(w.thread)"></span>
+                            <span x-show="w.thread.count > 1"> · <span x-text="w.thread.count + ' replies'"></span></span>
+                            <span class="you" x-show="w.thread.mentioned"> · @you</span>
+                          </div>
+                          <div class="acts">
+                            <a x-show="w.thread.link" @click="whOpen(w.thread)" x-text="w.thread.source==='email' ? 'Open in Outlook →' : 'Open in Teams →'"></a>
+                            <button class="mute" @click="whMute(w.key)">Not now</button>
+                          </div>
+                        </div>
+                        <div class="when" x-show="w.thread.activityTs" x-text="whAgo(w.thread.activityTs)"></div>
+                      </div>
+                    </template>
+                  </section>
+
+                  <!-- Meetings recap strip -->
+                  <section class="wh2-mtg" x-show="whatsHappening.meetings.length > 0">
+                    <h2 class="wh2-mtg-h">Since your last meetings</h2>
+                    <template x-for="m in whatsHappening.meetings" :key="m.id">
+                      <div class="wh2-mrow">
+                        <div class="body" style="flex:1 1 auto; min-width:0;">
+                          <p class="mtitle" x-text="m.meeting || 'Meeting'"></p>
+                          <p class="mrecap" x-show="m.summary" x-text="m.summary"></p>
+                          <p class="mrecap" x-show="!m.summary &amp;&amp; m.highlights &amp;&amp; m.highlights.length" x-text="(m.highlights || [])[0]"></p>
+                          <div class="mfoot">
+                            <span x-show="m.actions &amp;&amp; m.actions.length" x-text="m.actions.length + (m.actions.length === 1 ? ' action item for you' : ' action items for you')"></span>
+                            <a x-show="m.webLink" @click="whExtOpen(m.webLink)">Recap →</a>
+                            <a x-show="m.recordingUrl" @click="whExtOpen(m.recordingUrl)">Recording →</a>
+                            <button class="mute" @click="whMeetingHide(m.id)">Not now</button>
+                          </div>
+                        </div>
+                        <div class="mtime" x-show="m.end" x-text="'ended ' + whAgo(m.end)"></div>
+                      </div>
+                    </template>
+                  </section>
+
+                  <!-- Quieter tail (the firehose, opt-in) -->
+                  <section class="wh2-tail" :class="whatsHappening.tailOpen ? 'open' : ''" x-show="whatsHappening.counts.all > 0">
+                    <button class="wh2-tail-toggle" @click="whatsHappening.tailOpen = !whatsHappening.tailOpen">
+                      <span class="car">›</span>
+                      <span x-show="whTailCount() > 0" x-text="whTailCount() + ' quieter ' + (whTailCount() === 1 ? 'item' : 'items') + ' — mostly build results and broadcasts'"></span>
+                      <span x-show="whTailCount() <= 0" x-text="'Everything else (' + whatsHappening.counts.all + ')'"></span>
+                    </button>
+                    <div class="wh2-tail-body" x-show="whatsHappening.tailOpen" x-cloak>
+                      <div class="wh2-tabs">
+                        <button class="wh2-tab" :class="whatsHappening.filter==='all' ? 'on' : ''" @click="whatsHappening.filter='all'; whatsHappening.showMuted=false">Everything <span class="n" x-text="whatsHappening.counts.all"></span></button>
+                        <button class="wh2-tab" :class="whatsHappening.filter==='teams' ? 'on' : ''" @click="whatsHappening.filter='teams'; whatsHappening.showMuted=false">Teams <span class="n" x-text="whatsHappening.counts.teams"></span></button>
+                        <button class="wh2-tab" :class="whatsHappening.filter==='email' ? 'on' : ''" @click="whatsHappening.filter='email'; whatsHappening.showMuted=false">Email <span class="n" x-text="whatsHappening.counts.email"></span></button>
+                        <button class="wh2-tab" :class="whatsHappening.filter==='mentions' ? 'on' : ''" @click="whatsHappening.filter='mentions'; whatsHappening.showMuted=false">Mentions <span class="n" x-text="whatsHappening.counts.mentions"></span></button>
+                      </div>
+                      <template x-for="t in whThreadList().slice(0, 50)" :key="t.key">
+                        <div class="wh2-trow" @click="whOpen(t)" :title="t.snippet || t.topic || ''">
+                          <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
+                          <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
+                          <span class="tw" x-show="t.activityTs" x-text="whAgo(t.activityTs)"></span>
+                        </div>
+                      </template>
+                      <div class="wh2-more" x-show="whThreadList().length > 50" x-text="'…' + (whThreadList().length - 50) + ' more'"></div>
+                      <div class="wh2-empty" x-show="whThreadList().length === 0">Nothing in this view right now.</div>
+                    </div>
+                  </section>
+
+                  <!-- Muted footer -->
+                  <div class="wh2-muted" x-show="whatsHappening.mutedCount > 0">
+                    <a @click="whatsHappening.showMuted = !whatsHappening.showMuted" x-text="(whatsHappening.showMuted ? 'Hide' : 'Show') + ' muted conversations (' + whatsHappening.mutedCount + ')'"></a>
+                    <div class="wh2-mutelist" x-show="whatsHappening.showMuted" x-cloak>
+                      <template x-for="t in (whatsHappening.muted || [])" :key="t.key">
+                        <div class="wh2-trow">
+                          <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
+                          <span class="t" x-text="t.topic || '(untitled)'"></span>
+                          <span class="tw" style="cursor:pointer;color:var(--cp-link)" @click="whUnmute(t.key)">Unmute</span>
+                        </div>
+                      </template>
+                      <div class="wh2-empty" x-show="(whatsHappening.muted || []).length === 0">No muted conversations.</div>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </div>
           </section>
 
@@ -25422,7 +25467,7 @@
           historyBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        whatsHappening: { loaded: false, busy: false, consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', showMuted: false },
+        whatsHappening: { loaded: false, busy: false, consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', showMuted: false, summary: null, summaryStale: false, counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _autoRefreshed: false },
         meai: {
           loaded: false,
           loading: false,
@@ -27724,10 +27769,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const mk = (label, icon, href, routeGroup, extra) => Object.assign({ key, label, title: label, icon, href, routeGroup, items: [], collapsible: false }, extra || {});
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
-            case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai');
-            case 'whatsup': return mk("What's happening", '📡', '#/whatsup', 'whatsup');
+            case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai', { badge: this.meAiGoalsLeftCount(), badgeTitle: 'Goals left today' });
+            case 'whatsup': return mk("What's happening", '📡', '#/whatsup', 'whatsup', { attnBadge: (this.whatsHappening.summary && Array.isArray(this.whatsHappening.summary.worthALook)) ? this.whWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
             case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
-            case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards');
+            case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards', { badge: (this.homeBoards() || []).length, badgeTitle: 'Your workspaces' });
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
             case 'connect': return mk('Connect', '🌟', '#/connect', 'connect');
             case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
@@ -33529,6 +33574,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/whats-happening');
             this._whApply(r);
+            const w = this.whatsHappening;
+            if (w.consent && w.summaryStale && !w._autoRefreshed && !w.busy) {
+              w._autoRefreshed = true;
+              this.whRefresh();
+            }
           } catch (e) {
             this.whatsHappening.loaded = true;
             this.toast("Failed to load What's happening: " + (e.message || e), 'error');
@@ -33542,6 +33592,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           w.meetings = (r && Array.isArray(r.meetings)) ? r.meetings : [];
           w.mutedCount = (r && r.mutedCount) || 0;
           w.gatheredAt = (r && r.gatheredAt) || '';
+          w.summary = (r && r.summary && typeof r.summary === 'object') ? r.summary : null;
+          w.summaryStale = !!(r && r.summaryStale);
+          w.counts = (r && r.counts && typeof r.counts === 'object') ? r.counts : { all: w.threads.length, teams: 0, email: 0, mentions: 0 };
+          w.fingerprint = (r && r.fingerprint) || '';
+          const byKey = {};
+          (w.threads || []).forEach(t => { if (t && t.key) byKey[t.key] = t; });
+          w._byKey = byKey;
           w.loaded = true;
         },
         async whRefresh() {
@@ -33555,6 +33612,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.whatsHappening.busy = false;
           }
+        },
+        // AI-curated "Worth a look" — resolve each summary key to its live thread; drop any that are gone.
+        whWorthList() {
+          const w = this.whatsHappening;
+          const s = w.summary;
+          if (!s || !Array.isArray(s.worthALook)) return [];
+          return s.worthALook.map(it => ({ key: it.key, reason: it.reason || '', warn: !!it.warn, thread: (w._byKey || {})[it.key] || null }))
+            .filter(x => x.thread);
+        },
+        whSummaryText() {
+          const s = this.whatsHappening.summary;
+          return (s && s.summary) ? s.summary : '';
+        },
+        whQuietNote() {
+          const s = this.whatsHappening.summary;
+          return (s && s.quietNote) ? s.quietNote : '';
+        },
+        whTailCount() {
+          const w = this.whatsHappening;
+          const all = (w.counts && w.counts.all) || (w.threads || []).length;
+          return Math.max(0, all - this.whWorthList().length);
+        },
+        whWho(t) {
+          if (!t) return '';
+          const who = t.channel || (t.source === 'email' ? 'Email' : 'Teams');
+          return who;
         },
         whThreadList() {
           const w = this.whatsHappening;
@@ -35331,6 +35414,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.meAiChecklistItems().filter(t => !bk || this._meAiGoalKey(t) !== bk);
         },
         meAiRegularOpenCount() { return this.meAiRegularGoals().filter(t => !t.done).length; },
+        // Nav badge: goals left today = open regular goals + the one big goal if it's not yet done.
+        meAiGoalsLeftCount() {
+          try {
+            let n = this.meAiRegularOpenCount();
+            const b = this.meAiBigGoal();
+            if (b && !b.done) n += 1;
+            return n;
+          } catch (_) { return 0; }
+        },
         // Goals panel tabs (owner ask): as goals are marked done / need-more-time /
         // didn't-get-to, move them off the Open tab so the working list shrinks — but keep
         // every bucket one click away for review or to pull something back.
