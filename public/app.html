@@ -16928,8 +16928,20 @@
               .pulse-focus-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.01em; margin:0 0 4px; }
               .pulse-item { display:flex; gap:14px; align-items:flex-start; padding:16px 4px; border-top:1px solid var(--cp-border); }
               .pulse-item:last-child { border-bottom:1px solid var(--cp-border); }
-              .pulse-item .mark { flex:0 0 auto; width:8px; height:8px; border-radius:50%; margin-top:7px; background:var(--cp-accent); }
+              .pulse-item .mark { flex:0 0 auto; width:8px; height:8px; border-radius:50%; margin-top:7px; background:rgb(var(--ps, 120,120,120)); }
               .pulse-item.warn .mark { background:var(--cp-warning); }
+              /* Source colour-coding (Teams / Email / Meeting): a soft left-edge wash that
+                 fades into the page background — reinforces the existing text label + mark
+                 dot. Never a side-stripe border; the tint carries no interaction meaning. */
+              .pulse-item.src-teams, .pulse-trow.src-teams { --ps:139,127,232; }   /* violet — Teams */
+              .pulse-item.src-email, .pulse-trow.src-email { --ps:62,138,214; }    /* blue — Email */
+              .pulse-mrow { --ps:201,143,58; }                                     /* amber — Meetings */
+              .pulse-item, .pulse-trow, .pulse-mrow {
+                background-image:linear-gradient(90deg, rgba(var(--ps, 120,120,120), .22), rgba(var(--ps, 120,120,120), 0) 42%);
+                background-repeat:no-repeat;
+              }
+              /* Tail-row source tag picks up the source hue as a small colour cue. */
+              .pulse-trow.src-teams .src, .pulse-trow.src-email .src { color:rgb(var(--ps)); font-weight:600; }
               .pulse-item .body { flex:1 1 auto; min-width:0; }
               .pulse-item .reason { font-size:15px; color:var(--cp-text); margin:0 0 3px; text-wrap:pretty; }
               .pulse-item .meta { font-size:12.5px; color:var(--cp-text-muted); }
@@ -16969,7 +16981,7 @@
               .pulse-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
               .pulse-tab.on .n { color:var(--cp-text-muted); }
               .pulse-trow { display:flex; gap:12px; align-items:baseline; padding:10px 4px; border-top:1px solid var(--cp-border); font-size:13.5px; cursor:pointer; }
-              .pulse-trow:hover { background:var(--cp-surface-soft); }
+              .pulse-trow:hover { background-color:var(--cp-surface-soft); }
               .pulse-trow .src { flex:0 0 52px; color:var(--cp-text-muted); font-size:12px; }
               .pulse-trow .t { flex:1 1 auto; min-width:0; color:var(--cp-text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .pulse-trow .you { color:var(--cp-warning); }
@@ -17030,7 +17042,7 @@
                   <section class="pulse-focus" x-show="pulseWorthList().length > 0">
                     <h2 class="pulse-focus-h">Worth a look</h2>
                     <template x-for="w in pulseWorthList()" :key="w.key">
-                      <div class="pulse-item" :class="w.warn ? 'warn' : ''">
+                      <div class="pulse-item" :class="[w.warn ? 'warn' : '', 'src-' + (w.thread.source==='email' ? 'email' : 'teams')]">
                         <span class="mark"></span>
                         <div class="body">
                           <p class="reason" x-text="w.reason || w.thread.topic || 'A conversation worth a look.'"></p>
@@ -17085,7 +17097,7 @@
                         <button class="pulse-tab" :class="pulse.filter==='mentions' ? 'on' : ''" @click="pulse.filter='mentions'; pulse.showMuted=false">Mentions <span class="n" x-text="pulse.counts.mentions"></span></button>
                       </div>
                       <template x-for="t in pulseThreadList().slice(0, 50)" :key="t.key">
-                        <div class="pulse-trow" @click="pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                        <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams')" @click="pulseOpen(t)" :title="t.snippet || t.topic || ''">
                           <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
                           <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
                           <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
@@ -17101,7 +17113,7 @@
                     <a @click="pulse.showMuted = !pulse.showMuted" x-text="(pulse.showMuted ? 'Hide' : 'Show') + ' muted conversations (' + pulse.mutedCount + ')'"></a>
                     <div class="pulse-mutelist" x-show="pulse.showMuted" x-cloak>
                       <template x-for="t in (pulse.muted || [])" :key="t.key">
-                        <div class="pulse-trow">
+                        <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams')">
                           <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
                           <span class="t" x-text="t.topic || '(untitled)'"></span>
                           <span class="tw" style="cursor:pointer;color:var(--cp-link)" @click="pulseUnmute(t.key)">Unmute</span>
@@ -35425,13 +35437,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const b = this.meAiBigGoal(); const bk = b ? this._meAiGoalKey(b) : '';
           return this.meAiChecklistItems().filter(t => !bk || this._meAiGoalKey(t) !== bk);
         },
-        meAiRegularOpenCount() { return this.meAiRegularGoals().filter(t => !t.done).length; },
-        // Nav badge: goals left today = open regular goals + the one big goal if it's not yet done.
+        // "Open" means still on the working list (status 'open') — NOT merely un-checked.
+        // Goals the owner triaged to "Need more time" / "Didn't get to it" have their own
+        // tabs and are no longer part of what's open to do today, so they must not inflate
+        // this count (it would otherwise read like a running total, not what's left open).
+        meAiRegularOpenCount() { return this.meAiRegularGoals().filter(t => this.meAiTodoStatus(t) === 'open').length; },
+        // Nav badge: goals left today = truly-open regular goals + the one big goal if it's
+        // still open (matches the Open tab, not "everything not yet checked off").
         meAiGoalsLeftCount() {
           try {
             let n = this.meAiRegularOpenCount();
             const b = this.meAiBigGoal();
-            if (b && !b.done) n += 1;
+            if (b && this.meAiTodoStatus(b) === 'open') n += 1;
             return n;
           } catch (_) { return 0; }
         },
