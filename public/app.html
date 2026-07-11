@@ -11223,6 +11223,31 @@
               .dvx-card { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); padding:12px 14px; }
               .dvx-card.sel { border-color:color-mix(in srgb, var(--cp-accent) 45%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--cp-accent) 25%, transparent); }
               .dvx-boardsel { font-size:11px; padding:2px 6px; border-radius:calc(var(--cp-radius-scale, 1) * 6px); border:1px solid var(--cp-border); background:var(--cp-surface-soft); color:var(--cp-text-soft); max-width:180px; }
+              /* ===== master-detail index rail: scannable per-card list (click => detail) ===== */
+              .dvx-index-card { margin-top:10px; display:flex; flex-direction:column; min-height:0; }
+              .dvx-rail-title { font-size:12px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-soft); margin-bottom:4px; display:flex; align-items:center; }
+              .dvx-idx-total { color:var(--cp-text-muted); font-weight:600; margin-left:5px; }
+              .dvx-index { display:flex; flex-direction:column; gap:1px; max-height:min(58vh, 620px); overflow:auto; margin:0 -4px; padding:2px 4px; }
+              .dvx-idx-group { margin-bottom:5px; }
+              .dvx-idx-group-h { display:flex; align-items:center; gap:6px; padding:8px 4px 3px; font-size:10.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-muted); }
+              .dvx-idx-group-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+              .dvx-idx-group-c { color:var(--cp-text-soft); font-weight:600; }
+              .dvx-idx-group-h .dvx-sibling-add { margin-left:auto; font-size:10px; padding:1px 6px; }
+              .dvx-idx-row { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:transparent; border:0; border-radius:8px; padding:7px 8px; cursor:pointer; color:var(--cp-text); transition:background .12s ease; }
+              .dvx-idx-row:hover { background:color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+              .dvx-idx-row.sel { background:color-mix(in srgb, var(--cp-accent) 15%, transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 32%, transparent); }
+              .dvx-idx-row.sel .dvx-idx-title { font-weight:650; }
+              .dvx-idx-here { width:6px; height:6px; border-radius:999px; background:var(--cp-here); flex:0 0 auto; }
+              .dvx-idx-main { display:flex; flex-direction:column; gap:1px; min-width:0; flex:1 1 auto; }
+              .dvx-idx-title { font-size:13px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .dvx-idx-repo { font-size:11px; color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .dvx-idx-status { display:flex; align-items:center; gap:4px; flex:0 0 auto; }
+              .dvx-idx-status .sdot { width:7px; height:7px; border-radius:999px; flex:0 0 auto; }
+              .dvx-idx-status .sdot.dev { background:var(--cp-dev); }
+              .dvx-idx-status .sdot.pr { background:var(--cp-pr); }
+              .dvx-idx-ahead { font-size:10px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
+              .dvx-idx-attn { color:var(--cp-warning); font-weight:700; font-size:12px; line-height:1; }
+              .cf-detail-card { max-width:none; }
               /* ===== branch-graph: dev node + fanned PR branches (nodes ARE the toggle) ===== */
               .cf-flowgraph { position:relative; padding:8px 6px 6px; min-height:64px; }
               .cf-edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible; }
@@ -11362,6 +11387,43 @@
                     </select>
                   </div>
                 </div>
+
+                <!-- Card index (master-detail): click a card to focus its detail on the right. -->
+                <div class="nlx-card dvx-index-card">
+                  <div class="dvx-rail-title">Cards <span class="dvx-idx-total" x-text="devPageCards().length"></span></div>
+                  <div class="dvx-index">
+                    <div x-show="!devPageCards().length" class="hint" style="padding:8px 4px" x-text="devPage.q ? 'No cards match.' : 'No dev cards in this view.'"></div>
+                    <template x-for="grp in devPageGroups()" :key="'dvi-' + grp.key">
+                      <div class="dvx-idx-group">
+                        <div class="dvx-idx-group-h" x-show="grp.label">
+                          <span class="dvx-group-dot" x-show="grp.color" :style="'background:' + grp.color"></span>
+                          <span class="dvx-idx-group-name" x-text="grp.label"></span>
+                          <span class="dvx-idx-group-c" x-text="grp.cards.length"></span>
+                          <button x-show="grp.byWorkItem && grp.wi" class="dvx-sibling-add" type="button"
+                                  @click.stop="openSiblingDevCard(grp.wi)"
+                                  title="This work item can span repos — add a dev card in another repo">＋ repo</button>
+                        </div>
+                        <template x-for="card in grp.cards" :key="'dvir-' + card.id">
+                          <button type="button" class="dvx-idx-row"
+                                  :class="{ sel: (devPageSelected() && devPageSelected().id === card.id) }"
+                                  @click="devPageSelect(card)">
+                            <span class="dvx-idx-here" x-show="yahIsOn('dev:' + card.id)" title="You are here"></span>
+                            <span class="dvx-idx-main">
+                              <span class="dvx-idx-title" x-text="card.title || card.repo || 'Dev card'"></span>
+                              <span class="dvx-idx-repo" x-show="card.repo" x-text="(card.org ? card.org + ' / ' : '') + card.repo"></span>
+                            </span>
+                            <span class="dvx-idx-status">
+                              <span class="sdot dev"></span>
+                              <span class="dvx-idx-ahead" x-show="devIdxMeta(card).ahead" x-text="'↑' + devIdxMeta(card).ahead"></span>
+                              <span class="sdot pr" x-show="devIdxMeta(card).prs"></span>
+                              <span class="dvx-idx-attn" x-show="devIdxMeta(card).attn" title="A PR check is failing">!</span>
+                            </span>
+                          </button>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </div>
               </aside>
 
               <main class="nlx-stage">
@@ -11376,25 +11438,14 @@
                   <div x-show="!devPageCards().length" class="empty-state">
                     <span x-text="devPage.q ? 'No dev cards match your search.' : (devPage.status === 'archived' ? 'No archived dev cards.' : 'No dev cards in this view.')"></span>
                   </div>
+                  <div x-show="devPageCards().length && !devPageSelected()" class="empty-state">
+                    <span>Select a card from the index to see its details.</span>
+                  </div>
 
-                  <template x-for="grp in devPageGroups()" :key="'dvg-' + grp.key">
-                    <div class="dvx-group">
-                      <div class="dvx-group-head" x-show="grp.label" @click="devGroupToggle(grp.key)"
-                           role="button" tabindex="0" :aria-expanded="devGroupIsOpen(grp.key)"
-                           @keydown.enter.prevent="devGroupToggle(grp.key)">
-                        <span class="dvx-group-caret" x-text="devGroupIsOpen(grp.key) ? '▾' : '▸'"></span>
-                        <span class="dvx-group-dot" x-show="grp.color" :style="'background:'+grp.color"></span>
-                        <span class="dvx-group-title" x-text="grp.label"></span>
-                        <span class="dvx-group-count" x-text="grp.cards.length"></span>
-                        <button x-show="grp.byWorkItem && grp.wi" class="dvx-sibling-add" type="button"
-                                @click.stop="openSiblingDevCard(grp.wi)"
-                                title="This work item can span repos — add a dev card in another repo">＋ Add sibling in another repo</button>
-                      </div>
-                      <div class="dvx-group-cards" x-show="!grp.label || devGroupIsOpen(grp.key)">
-                        <template x-for="card in grp.cards" :key="'dvc-' + card.id">
-                          <article class="dvx-card" :class="{ sel: devPage.selectedId === card.id, 'cf-here': yahIsOn('dev:' + card.id) }" :id="'devcard-' + card.id">
-                            <div class="cf-here-tag" x-show="yahIsOn('dev:' + card.id)">You are here</div>
-                            <template x-for="d in [card]" :key="d.id">
+                  <template x-for="card in (devPageSelected() ? [devPageSelected()] : [])" :key="'dvc-' + card.id">
+                    <article class="dvx-card cf-detail-card" :class="{ 'cf-here': yahIsOn('dev:' + card.id) }" :id="'devcard-' + card.id">
+                      <div class="cf-here-tag" x-show="yahIsOn('dev:' + card.id)">You are here</div>
+                      <template x-for="d in [card]" :key="d.id">
                               <div style="display:flex;flex-direction:column;gap:10px">
                                 <!-- Header: title + board assignment + actions -->
                                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
@@ -11403,7 +11454,7 @@
                                       <button class="cf-collapse-btn" type="button" @click.stop="cfToggleDevCollapse(d)" :aria-expanded="(!cfDevCollapsed(d)).toString()" :title="cfDevCollapsed(d) ? 'Expand card' : 'Collapse to title'" x-text="cfDevCollapsed(d) ? '▸' : '▾'"></button>
                                       <div class="cf-pr-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
                                     </div>
-                                    <div class="dvx-card-repo" x-show="grp.byWorkItem && d.repo" x-text="(d.org ? d.org + ' / ' : '') + (d.repo || '')" :title="(d.org ? d.org + ' / ' : '') + (d.repo || '')"></div>
+                                    <div class="dvx-card-repo" x-show="d.repo" x-text="(d.org ? d.org + ' / ' : '') + (d.repo || '')" :title="(d.org ? d.org + ' / ' : '') + (d.repo || '')"></div>
                                    <!-- Board pinning lives entirely in the "📌 Boards" tab now
                                         (open / change / unpin), so the base face stays clean. The
                                         hover 📌 in the action group is a quick "pin" shortcut for
@@ -11894,9 +11945,6 @@
                               </div>
                             </template>
                           </article>
-                        </template>
-                      </div>
-                    </div>
                   </template>
                 </div>
               </main>
@@ -48592,12 +48640,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return groups;
         },
         devPageSelected() {
+          const cards = this.devPageCards();
+          if (!cards.length) return null;
           const id = this.devPage.selectedId;
-          if (!id) return null;
-          const d = (this.devItems || []).find(x => x.id === id);
-          return d ? this._devWithBoard(d) : null;
+          return (id && cards.find(x => x.id === id))
+            || cards.find(x => this.yahIsOn('dev:' + x.id))
+            || cards[0];
         },
         devPageSelect(d) { this.devPage.selectedId = (d && d.id) || null; },
+        // Compact status for an index row (dev ahead-count, PR count, failing-check flag).
+        devIdxMeta(d) {
+          try {
+            const m = this.cfGraphModel(d);
+            return {
+              ahead: (m && m.dev && m.dev.ahead) || 0,
+              prs: (m && m.prs && m.prs.length) || 0,
+              attn: !!(m && m.prs && m.prs.some(p => p && p.checks === 'failing'))
+            };
+          } catch (e) { return { ahead: 0, prs: 0, attn: false }; }
+        },
         devSetPageFilter(key, val) { this.devPage[key] = val; },
         devPageStats() {
           const teamScoped = (this.currentTeamId && this.currentTeamId !== 'all');
