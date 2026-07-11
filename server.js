@@ -23588,19 +23588,37 @@ app.post('/api/me-ai/task/:id/dismiss', (req, res) => {
 // open the task for the full report/map. Kept in sync with the ~2-week hydrate window.
 app.get('/api/me-ai/tasks/archived', (req, res) => {
   try {
+    // Inactivity falloff: a dismissed agent with no activity for a while drops off the
+    // primary list so it doesn't accumulate forever. "Activity" for an archived agent is
+    // its most recent touch (archivedAt / finishedAt / updatedAt). Stale rows are hidden
+    // by default but still retrievable via ?all=1 (audit) and always restorable by id.
+    const STALE_DAYS = 30;
+    const staleMs = STALE_DAYS * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const includeStale = req.query.all === '1' || req.query.all === 'true';
+    const lastTouch = (t) => {
+      const ts = [t.archivedAt, t.finishedAt, t.updatedAt]
+        .map(v => (v ? new Date(v).getTime() : 0)).filter(v => v > 0);
+      return ts.length ? Math.max(...ts) : 0;
+    };
     const items = [];
+    let hiddenCount = 0;
     for (const t of meAiTasks.values()) {
       if (!t || !t.archived) continue;
+      const touch = lastTouch(t);
+      const stale = touch > 0 && (now - touch) > staleMs;
+      if (stale && !includeStale) { hiddenCount++; continue; }
       items.push({
         id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status,
         mode: t.mode || 'single', background: !!t.background,
         date: t.date, updatedAt: t.updatedAt,
         archivedAt: t.archivedAt || null, finishedAt: t.finishedAt || null,
         completedToDiary: !!t.completedToDiary,
+        stale: !!stale,
       });
     }
     items.sort((a, b) => String(b.archivedAt || b.updatedAt || '').localeCompare(String(a.archivedAt || a.updatedAt || '')));
-    res.json({ ok: true, tasks: items });
+    res.json({ ok: true, tasks: items, hiddenCount, staleDays: STALE_DAYS });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -27364,6 +27382,11 @@ function _recommendDevAgents(d, wi) {
       readOnly: !!p.readOnly, confidence, autoAdd: !!autoAdd, why,
     });
   };
+  // The implementer IS the classic "dev agent" — every dev card is fundamentally
+  // about building the work item, so it's the baseline auto-added agent. Kept first
+  // and always auto-added when a worktree is ready (restores the pre-roster default
+  // where every dev card got its dev agent written into the worktree).
+  push('implementer', 'high', true, 'The <b>dev agent</b> for this card — builds a focused, validated change that fully solves the work item.');
   const sec = has(/\b(auth|authn|authz|token|oauth|login|logout|credential|secret|password|session|permission|privilege|vuln|cve|exploit|inject|xss|csrf|ssrf|crypto|encrypt|decrypt|sanitiz|escap)/);
   if (sec) push('security-review', 'high', true, 'Touches <b>auth / security-sensitive</b> code — a common place for exploitable bugs. Read-only; won\'t change your code.');
   const perf = has(/\b(perf|performance|latency|throughput|slow|slower|regress|optimi[sz]e|memory|allocation|cpu|hot ?path|benchmark|scale|scaling|bottleneck)/);

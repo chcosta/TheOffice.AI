@@ -2301,6 +2301,34 @@
       background:transparent; color:var(--cp-text-muted); font-size:13px; line-height:1;
     }
     .cf-change-banner .cf-change-x:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+    /* Merged/closed PR cleanup banner — full border, calm, no side-stripe */
+    .cf-merged-banner {
+      margin-bottom:18px; padding:12px 14px; color:var(--cp-text);
+      border-radius:calc(var(--cp-radius-scale, 1) * 12px); border:1px solid var(--cp-border-strong);
+      background:var(--cp-surface);
+    }
+    .cf-merged-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .cf-merged-head .cf-attn-icon { font-size:18px; }
+    .cf-merged-list { display:flex; flex-direction:column; gap:6px; }
+    .cf-merged-row {
+      display:flex; align-items:center; gap:10px; padding:7px 10px;
+      border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-surface-soft);
+      font-size:13px; min-width:0;
+    }
+    .cf-merged-state {
+      flex:0 0 auto; font-size:11px; font-weight:700; letter-spacing:.02em;
+      color:var(--cp-text-muted);
+    }
+    .cf-merged-state.is-merged { color:var(--cp-success, #3fb950); }
+    .cf-merged-state.is-closed { color:var(--cp-danger); }
+    .cf-merged-num { font-weight:700; color:var(--cp-text-muted); margin-right:4px; }
+    .cf-merged-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-merged-board { flex:0 0 auto; font-size:12px; color:var(--cp-text-muted); }
+    .cf-merged-row .cf-change-x {
+      flex:0 0 auto; width:24px; height:24px; border:none; border-radius:calc(var(--cp-radius-scale, 1) * 8px); cursor:pointer;
+      background:transparent; color:var(--cp-text-muted); font-size:12px; line-height:1;
+    }
+    .cf-merged-row .cf-change-x:hover { background:var(--cp-surface); color:var(--cp-text); }
     .cf-views { display:flex; gap:6px; margin-bottom:16px; }
     .cf-view-tab {
       display:inline-flex; align-items:center; gap:8px; font:inherit; font-size:13px; font-weight:600;
@@ -5397,6 +5425,9 @@
     .board-tbx-item .tbx-kind-dot { flex: 0 0 auto; width: 3px; align-self: stretch; min-height: 18px; border-radius: 2px; background: var(--cp-border); }
     .board-tbx-item .tbx-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .board-tbx-item .tbx-dot { flex: 0 0 auto; font-size: 10px; color: var(--cp-accent); }
+    .board-tbx-item .tbx-done { flex: 0 0 auto; font-size: 10px; font-weight: 700; letter-spacing: .02em; color: var(--cp-text-muted); }
+    .board-tbx-item .tbx-done.is-merged { color: var(--cp-success, #3fb950); }
+    .board-tbx-item .tbx-done.is-closed { color: var(--cp-danger); }
     .board-tbx-item .tbx-grip-r { margin: -2px -2px -2px 0; }
     .board-tbx-item.tbx-over { border-color: var(--cp-accent); box-shadow: inset 0 2px 0 0 var(--cp-accent); }
     /* Swipe-left-to-remove: the row slides left over an "Unpin"/"Delete" action that
@@ -9092,6 +9123,7 @@
                                     <span class="tbx-kind-dot" :style="'background:'+bmapKindColor(p)" :title="chipType(p)"></span>
                                     <span class="tbx-emoji" x-text="chipIcon(p)"></span>
                                     <span class="tbx-name" x-text="chipName(p)"></span>
+                                    <template x-if="tbxPrDone(p)"><span class="tbx-done" :class="'is-' + tbxPrDone(p).key" x-text="tbxPrDone(p).label" title="This PR has landed — you can remove the card"></span></template>
                                     <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
                                   </div>
                                 </div>
@@ -10471,7 +10503,7 @@
                                              </template>
                                              <template x-for="b in devPinnedBoards(d)" :key="b.id">
                                                <div class="cal-row" style="display:flex;align-items:center;gap:10px">
-                                                 <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name" style="flex:1 1 auto;min-width:0"></a>
+                                                 <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" style="flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px"><span :style="'flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:'+boardColor(b)"></span><span x-text="b.name"></span></a>
                                                  <a href="#" class="dvx-hover-acts" @click.prevent.stop="boardJumpToBoard(b)" style="color:var(--cp-accent);text-decoration:none;font-size:11px">Open ↗</a>
                                                  <a href="#" class="dvx-hover-acts" @click.prevent.stop="devUnpinFromBoard(d, b)" style="color:var(--cp-text-soft);text-decoration:none;font-size:11px">Unpin</a>
                                                </div>
@@ -10997,7 +11029,7 @@
                     <select class="field-input" x-model="devModal.homeBoardId">
                       <option value="">No workspace (unassigned)</option>
                       <template x-for="b in devBoardOptions()" :key="'dvm-' + b.id">
-                        <option :value="b.id" x-text="(b.emoji || '📌') + ' ' + b.name"></option>
+                        <option :value="b.id" x-text="b.name"></option>
                       </template>
                     </select>
                   </div>
@@ -11169,6 +11201,7 @@
               .dvx-group:last-child { margin-bottom:0; }
               .dvx-group-head { display:flex; align-items:center; gap:8px; cursor:pointer; padding:4px 2px; user-select:none; }
               .dvx-group-caret { color:var(--cp-text-soft); font-size:11px; width:12px; }
+              .dvx-group-dot { flex:0 0 auto; width:9px; height:9px; border-radius:999px; box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-surface) 70%, transparent); }
               .dvx-group-title { font-weight:600; font-size:13px; color:var(--cp-text); }
               .dvx-group-count { font-size:11.5px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
               .dvx-group-cards { display:flex; flex-direction:column; gap:12px; margin-top:8px; }
@@ -11257,7 +11290,7 @@
                       <option value="all">All boards</option>
                       <option value="_none">Unassigned</option>
                       <template x-for="b in devBoardOptions()" :key="'dvf-' + b.id">
-                        <option :value="b.id" x-text="(b.emoji || '📌') + ' ' + b.name"></option>
+                        <option :value="b.id" x-text="b.name"></option>
                       </template>
                     </select>
                   </div>
@@ -11292,6 +11325,7 @@
                            role="button" tabindex="0" :aria-expanded="devGroupIsOpen(grp.key)"
                            @keydown.enter.prevent="devGroupToggle(grp.key)">
                         <span class="dvx-group-caret" x-text="devGroupIsOpen(grp.key) ? '▾' : '▸'"></span>
+                        <span class="dvx-group-dot" x-show="grp.color" :style="'background:'+grp.color"></span>
                         <span class="dvx-group-title" x-text="grp.label"></span>
                         <span class="dvx-group-count" x-text="grp.cards.length"></span>
                       </div>
@@ -11732,7 +11766,7 @@
                                         </template>
                                         <template x-for="b in devPinnedBoards(d)" :key="b.id">
                                           <div class="cal-row" style="display:flex;align-items:center;gap:10px">
-                                            <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" x-text="(b.emoji || '📌') + ' ' + b.name" style="flex:1 1 auto;min-width:0"></a>
+                                            <a class="cal-row-link" href="#" @click.prevent.stop="boardJumpToBoard(b)" style="flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px"><span :style="'flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:'+boardColor(b)"></span><span x-text="b.name"></span></a>
                                             <a href="#" class="dvx-hover-acts" @click.prevent.stop="boardJumpToBoard(b)" style="color:var(--cp-accent);text-decoration:none;font-size:11px">Open ↗</a>
                                             <a href="#" class="dvx-hover-acts" @click.prevent.stop="devUnpinFromBoard(d, b)" style="color:var(--cp-text-soft);text-decoration:none;font-size:11px">Unpin</a>
                                           </div>
@@ -11781,7 +11815,7 @@
                       <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto">
-                      <span class="type-badge" style="font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
+                      <span class="type-badge" style="font-size:0.68rem;white-space:nowrap;display:inline-flex;align-items:center;gap:5px"><span x-show="dc._board" :style="'flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:'+boardColor(dc._board)"></span><span x-text="dc._board.name"></span></span>
                       <span class="hint" style="font-size:10px;white-space:nowrap" x-show="dc.archivedAt" x-text="'Archived ' + formatRelative(dc.archivedAt)"></span>
                     </div>
                   </div>
@@ -12195,6 +12229,15 @@
                 .meai-chk-fab { right:16px; }
               }
               @media (prefers-reduced-motion: reduce) { .meai-lrail { transition:none; } }
+              /* App sidebar manually COLLAPSED: it goes off-canvas but --sidebar-width stays
+                 set, so the left-gutter widgets (quick-nav "Jump to" rail + Today's goals/todos)
+                 would float ~sidebar-width from the left with an awkward empty gap. Re-anchor
+                 them to the page's left edge. (Higher specificity than the base/mini/media
+                 rules, so no !important needed.) */
+              body.nav-collapsed .meai-jump,
+              body.nav-collapsed .meai-jump.is-mini { left: 12px; }
+              body.nav-collapsed .meai-lrail { left: 12px; }
+              body.nav-collapsed .meai-todo-panel:not(.is-docked) { left: 20px; }
               /* Wide screens: the agenda column is centered on the page (within the content
                  area, right of the app sidebar). The quick-nav floats in the left gutter,
                  anchored to the agenda's left edge; the goals panel floats bottom-right and
@@ -12579,6 +12622,9 @@
               .meai-arch-acts { display:flex; gap:6px; flex-shrink:0; }
               .meai-arch-btn { font-size:11.5px; font-weight:600; color:var(--cp-text-muted); background:transparent; border:1px solid var(--cp-border); border-radius:8px; padding:3px 9px; cursor:pointer; }
               .meai-arch-btn:hover { color:var(--cp-text); border-color:var(--cp-accent); background:color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+              .meai-arch-stale { color:var(--cp-text-muted); font-style:italic; opacity:.85; }
+              .meai-arch-more { font-size:12px; font-weight:600; color:var(--cp-text-muted); background:transparent; border:0; padding:2px 0; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+              .meai-arch-more:hover { color:var(--cp-accent); }
               @keyframes meaiSpin { to { transform:rotate(360deg); } }
               .meai-drawer-scrim { position:fixed; inset:0; background:rgba(0,0,0,.32); z-index:60; }
               .meai-drawer-scrim.locked { background:transparent; pointer-events:none; }
@@ -14151,6 +14197,7 @@
                                 <div class="meai-lane-m">
                                   <span x-text="tk.playbook + ' · ' + meAiTaskStageLabel(tk.stage)"></span>
                                   <span x-show="tk.date" x-text="'· ' + tk.date"></span>
+                                  <span x-show="tk.stale" class="meai-arch-stale" title="No activity in over 30 days — normally hidden from the list">· inactive</span>
                                   <a x-show="tk.mode==='tree'" href="#" class="meai-lane-map" @click.stop.prevent="meAiPursuitOpen(tk.id)" title="Open the live pursuit map">🗺 map</a>
                                 </div>
                               </div>
@@ -14162,8 +14209,18 @@
                           </template>
                         </div>
                       </template>
-                      <div x-show="meai.archivedLoaded && !(meai.archived||[]).length" style="font-size:12.5px;color:var(--cp-text-muted)">
+                      <div x-show="meai.archivedLoaded && !(meai.archived||[]).length && !meai.archivedHidden" style="font-size:12.5px;color:var(--cp-text-muted)">
                         Nothing archived. Dismissed agents show up here so you can revisit or restore them.
+                      </div>
+                      <div x-show="meai.archivedLoaded && (meai.archivedHidden || meai.archivedShowStale)" style="margin-top:8px">
+                        <button type="button" class="meai-arch-more"
+                          x-show="!meai.archivedShowStale"
+                          @click.stop="meAiLoadArchived(true)"
+                          x-text="'Show ' + meai.archivedHidden + ' inactive ' + (meai.archivedHidden === 1 ? 'agent' : 'agents')"
+                          title="These fell off the list after 30 days without activity"></button>
+                        <button type="button" class="meai-arch-more"
+                          x-show="meai.archivedShowStale"
+                          @click.stop="meAiLoadArchived(false)">Hide inactive agents</button>
                       </div>
                     </div>
                   </div>
@@ -17761,6 +17818,29 @@
               </div>
             </div>
 
+            <!-- Merged/closed PR cleanup — stale board cards whose PR has landed -->
+            <div x-show="(codeflow.mergedPins || []).length > 0" class="cf-merged-banner" x-transition.opacity.duration.150ms>
+              <div class="cf-merged-head">
+                <span class="cf-attn-icon">✅</span>
+                <strong x-text="(codeflow.mergedPins.length === 1 ? 'A pinned PR has landed' : codeflow.mergedPins.length + ' pinned PRs have landed') + ' — remove the stale board cards?'"></strong>
+              </div>
+              <div class="cf-merged-list">
+                <template x-for="e in codeflow.mergedPins" :key="e.dismissKey">
+                  <div class="cf-merged-row">
+                    <span class="cf-merged-state" :class="'is-' + e.state.key" x-text="e.state.label" :title="e.state.title"></span>
+                    <span class="cf-merged-name">
+                      <template x-if="e.prNum !== ''"><span class="cf-merged-num" x-text="'#' + e.prNum"></span></template>
+                      <span x-text="(e.item.meta && e.item.meta.title) || e.item.title || ('PR #' + e.prNum)"></span>
+                    </span>
+                    <span class="cf-merged-board" x-text="'on ' + e.boardName"></span>
+                    <span style="flex:1"></span>
+                    <button class="btn ghost small" type="button" @click="cfRemoveMergedPin(e)">Remove card</button>
+                    <button class="cf-change-x" type="button" title="Keep the card, dismiss this alert" @click="cfDismissMergedPin(e)">✕</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
             <!-- Repo manager -->
             <div x-show="codeflowManageOpen" class="cf-repo-manager" x-transition.opacity.duration.150ms>
               <div class="cf-validation-title" style="margin-bottom:10px">Watched repositories</div>
@@ -18220,7 +18300,7 @@
                         </template>
                         <template x-for="b in cfPrPinnedBoards(pr)" :key="b.id">
                           <div class="cf-wt-row" style="align-items:center;gap:10px">
-                            <span x-text="(b.emoji || '📌') + ' ' + b.name"></span>
+                            <span style="display:inline-flex;align-items:center;gap:6px"><span :style="'flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:'+boardColor(b)"></span><span x-text="b.name"></span></span>
                             <a href="#" class="cf-wt-link" @click.prevent.stop="boardJumpToBoard(b)" style="margin-left:auto">Open ↗</a>
                             <a href="#" class="cf-wt-link" @click.prevent.stop="cfPrUnpinFromBoard(pr, b)" style="color:var(--cp-text-soft)">Unpin</a>
                           </div>
@@ -25197,6 +25277,8 @@
           archived: [],          // dismissed/archived pursuits (Archived agents card)
           archivedLoaded: false, // lazy-load guard for the archived list
           archivedBusy: false,   // an archived load / restore is in flight
+          archivedHidden: 0,     // count of stale archived agents fallen off the primary list
+          archivedShowStale: false, // whether the stale (fallen-off) rows are being shown
           adhocGoal: '',         // free-form "ask a Me agent to…" composer
           // Launch-time depth: 'auto' lets the block type decide (investigative work
           // fans out, simple work runs flat), 'deep' always fans out into a live
@@ -25385,6 +25467,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           changes: {},           // prKey -> { open, loading, dirty, changed[], ignored[] } uncommitted-change breakdown
           histOpen: {},          // prKey -> bool: report-history list expanded
           changeBanner: null,    // {added,removed,changed,at,view,examples} when the auto-poller sees significant changes; dismissable
+          mergedPins: [],        // [{boardId,boardName,item,state,prNum}] PR pins across ALL boards whose PR has merged/closed — stale board cards the user can clear
+          mergedPinsScanning: false,
+          mergedPinsDismissed: (() => { try { return JSON.parse(localStorage.getItem('cf-merged-dismissed') || '[]') || []; } catch { return []; } })(),
           cfTab: (function(){ try { return localStorage.getItem('cf-tab') === 'dev' ? 'dev' : 'prs'; } catch(e){ return 'prs'; } })(),           // 'prs' | 'dev' — Code Flow now hosts the Dev cards studio as a second tab (the standalone Dev page was merged in); persisted so refresh keeps your place
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0, otherActive: 0 },
@@ -36097,13 +36182,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (m.archivedLoaded) this.meAiLoadArchived(); // keep the Archived view fresh
         },
         // Load the Archived agents list (dismissed pursuits). Lazy + best-effort.
-        async meAiLoadArchived() {
+        // `all=true` also pulls the stale rows that have fallen off the primary list.
+        async meAiLoadArchived(all) {
           if (this.meai.archivedBusy) return;
           this.meai.archivedBusy = true;
           try {
-            const r = await this.request('/api/me-ai/tasks/archived');
+            const r = await this.request('/api/me-ai/tasks/archived' + (all ? '?all=1' : ''));
             this.meai.archived = (r && Array.isArray(r.tasks)) ? r.tasks : [];
             this.meai.archivedLoaded = true;
+            this.meai.archivedHidden = (r && Number.isFinite(r.hiddenCount)) ? r.hiddenCount : 0;
+            this.meai.archivedShowStale = !!all;
           } catch (_) { /* archived view is best-effort */ }
           finally { this.meai.archivedBusy = false; }
         },
@@ -39057,6 +39145,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!this.boards || !this.boards.length) { this.loadBoards(null, true).catch(() => {}); }
             // Baseline the change detector to what the user is now looking at.
             this._codeflowSeedSnap();
+            // Detect stale board PR cards whose PR has merged/closed (dropped out of the
+            // live lists) so we can offer a one-click "remove the dead card" cleanup.
+            Promise.resolve((!this.boards || !this.boards.length) ? this.loadBoards(null, true).catch(() => {}) : null)
+              .then(() => this.cfScanMergedPins().catch(() => {}));
           } catch (e) {
             this.codeflow.errors = [{ repo: '', error: e.message }];
           } finally {
@@ -39621,7 +39713,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (!has() && this.codeflow.reviewsOnly && this.codeflow.view === 'reviews') {
             // Still not found and we were narrowing to my reviews — widen to all
-            // active PRs once before giving up and falling back to AzDO.
+            // active PRs once before giving up and falling back to AzDO. Clear the
+            // reviews-only preference so the checkbox matches the widened list
+            // (otherwise the toggle reads "on" while every active PR is shown).
+            this.codeflow.reviewsOnly = false;
+            try { localStorage.setItem('cfReviewsOnly', JSON.stringify(false)); } catch {}
             this.codeflow.view = 'active';
             this._cfAiLoadCache(this.codeflow.view);
             try { await this.loadCodeFlow(); } catch {}
@@ -39764,8 +39860,81 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.codeflow.boardPrsLoading = false;
           }
         },
-        cfBusy(pr) {
-          return (this.codeflow.wtBusy || {})[this.cfPrKey(pr)] || '';
+        // Scan EVERY board (not just the active one) for PR pins whose PR has merged
+        // or closed — those PRs drop out of the live Code Flow lists, leaving stale
+        // board cards. Fetch each pin's lifecycle state (server-cached) once, then
+        // surface the merged/closed pins so the user can one-click clear the dead card.
+        async cfScanMergedPins(force) {
+          if (this.codeflow.mergedPinsScanning) return;
+          const pins = [];
+          for (const b of (this.boards || [])) {
+            if (b.archived) continue;
+            for (const it of (b.items || [])) {
+              if (it.kind === 'pr' && it.meta && it.meta.prId != null) pins.push({ board: b, item: it });
+            }
+          }
+          if (!pins.length) { this.codeflow.mergedPins = []; return; }
+          this.codeflow.mergedPinsScanning = true;
+          try {
+            // Fetch state for any pin we don't already know (cheap + cached server-side).
+            await Promise.all(pins.map(async ({ item }) => {
+              const m = item.meta;
+              const k = [m.org, m.project, m.repo, m.prId].join('|').toLowerCase();
+              if (!force && this.codeflow.boardPrState[k]) return;
+              const qs = new URLSearchParams({
+                org: m.org || '', project: m.project || '', repo: m.repo || '',
+                prId: String(m.prId != null ? m.prId : ''), provider: m.provider || ''
+              }).toString();
+              try {
+                const r = await this.request('/api/codeflow/pr/state?' + qs);
+                if (r && r.status) this.codeflow.boardPrState[k] = { status: r.status, isDraft: !!r.isDraft };
+              } catch { /* best-effort; unknown state → treated as still-open, no false alert */ }
+            }));
+            const dismissed = new Set(this.codeflow.mergedPinsDismissed || []);
+            const out = [];
+            for (const { board, item } of pins) {
+              const st = this.prState(this.boardPrFor(item));
+              if (!st || (st.key !== 'merged' && st.key !== 'closed')) continue;
+              const dk = board.id + '::' + item.id;
+              if (dismissed.has(dk)) continue;
+              out.push({
+                boardId: board.id,
+                boardName: board.name || 'board',
+                item,
+                state: st,
+                prNum: (item.meta.prId != null ? item.meta.prId : ''),
+                dismissKey: dk,
+              });
+            }
+            this.codeflow.mergedPins = out;
+          } finally {
+            this.codeflow.mergedPinsScanning = false;
+          }
+        },
+        // Remove a stale merged/closed PR card from its board (works for any board,
+        // not just the active one). Optimistically drops it from the alert list.
+        async cfRemoveMergedPin(entry) {
+          if (!entry) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(entry.boardId) + '/items/' + encodeURIComponent(entry.item.id), { method: 'DELETE' });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === entry.boardId);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.codeflow.mergedPins = (this.codeflow.mergedPins || []).filter(e => e.dismissKey !== entry.dismissKey);
+            this.showToast('Code Flow', 'Removed the ' + (entry.state.key === 'merged' ? 'merged' : 'closed') + ' PR card from ' + entry.boardName, 'success');
+          } catch (e) {
+            this.showToast('Code Flow', e.message, 'error');
+          }
+        },
+        // Dismiss the alert for one pin without removing the card (kept per-PR in
+        // localStorage so it won't re-nag; clears if the pin is later removed).
+        cfDismissMergedPin(entry) {
+          if (!entry) return;
+          const set = new Set(this.codeflow.mergedPinsDismissed || []);
+          set.add(entry.dismissKey);
+          this.codeflow.mergedPinsDismissed = [...set];
+          try { localStorage.setItem('cf-merged-dismissed', JSON.stringify(this.codeflow.mergedPinsDismissed)); } catch { /* ignore */ }
+          this.codeflow.mergedPins = (this.codeflow.mergedPins || []).filter(e => e.dismissKey !== entry.dismissKey);
         },
         // Validation <details> open-state persists per PR across refreshes so a
         // user's collapse/expand choice sticks (default collapsed).
@@ -42275,7 +42444,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Short name shown on a collapsed chip, per panel type.
         chipName(p) {
-          if (p.type === 'pin') return (p.item && (p.item.label || p.item.refId)) || '';
+          if (p.type === 'pin') {
+            const label = (p.item && (p.item.label || p.item.refId)) || '';
+            // Prefix PR pins with their number (# for GitHub, ! for Azure DevOps) so the
+            // toolbox / chip labels correlate at a glance with the canvas PR cards.
+            if (p.kind === 'pr') {
+              const m = (p.item && p.item.meta) || {};
+              const num = (m.prId != null && m.prId !== '') ? m.prId : '';
+              if (num !== '') {
+                const pfx = (m.provider === 'github') ? '#' : '!';
+                return pfx + num + (label ? ' · ' + label : '');
+              }
+            }
+            return label;
+          }
           if (p.type === 'note') {
             const first = String((p.note && p.note.text) || '').split('\n').map(s => s.trim()).find(Boolean) || 'Note';
             return first.replace(/^#+\s*/, '').replace(/[*_`>-]/g, '').trim() || 'Note';
@@ -43516,6 +43698,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (/run|active|live|working/.test(sub)) return 'run';
               return 'idle';
             }
+            return null;
+          } catch { return null; }
+        },
+        // For a toolbox/board panel that represents a PR, return its merged/closed
+        // lifecycle state (or null) so the chip can show a subtle "landed" marker.
+        tbxPrDone(p) {
+          try {
+            if (!p || this.bmapKindKey(p) !== 'pr') return null;
+            const st = this.prState(this.boardPrFor(p.item || {}));
+            if (st && (st.key === 'merged' || st.key === 'closed')) return st;
             return null;
           } catch { return null; }
         },
@@ -47750,7 +47942,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devBoardName(d) {
           const b = d && d.homeBoardId ? (this.boards || []).find(x => x.id === d.homeBoardId) : null;
           if (!b) return 'Unassigned';
-          return (b.emoji || '📌') + ' ' + (b.name || 'Board');
+          return (b.name || 'Board');
         },
         // Boards the current team scope can home a card on (for the modal picker + pin menu).
         devBoardOptions() {
@@ -47822,6 +48014,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             map.get(k).cards.push(d);
           }
           const groups = Array.from(map.values());
+          // Attach the workspace color for board grouping so the group header can show a
+          // color dot instead of an emoji icon (icons eliminated in favor of color).
+          if (by === 'board') {
+            for (const g of groups) {
+              const b = (g.key && g.key !== '_none') ? (this.boards || []).find(x => x.id === g.key) : null;
+              g.color = b ? this.boardColor(b) : null;
+            }
+          }
           // Unassigned board group sinks to the bottom; otherwise alpha by label.
           groups.sort((a, b) => (a.key === '_none' ? 1 : 0) - (b.key === '_none' ? 1 : 0) || (a.label || '').localeCompare(b.label || ''));
           return groups;
@@ -47869,7 +48069,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devHomeBoardLabel(d) {
           if (!d || !d.homeBoardId) return '';
           const b = (this.boards || []).find(x => x.id === d.homeBoardId);
-          return b ? ((b.emoji || '📌') + ' ' + b.name) : 'a board';
+          return b ? (b.name) : 'a board';
         },
         // ALL boards a dev card is on: its home board plus any board it's been pinned
         // onto as an item. Mirrors cfPrPinnedBoards so both cards get a "📌 Boards" tab.
@@ -47914,7 +48114,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         cfPrPinnedLabel(pr) {
           const b = this.cfPrPinnedBoard(pr);
-          return b ? ((b.emoji || '📌') + ' ' + b.name) : '';
+          return b ? (b.name) : '';
         },
         // ALL boards a PR is pinned to (a PR can live on several boards). Drives the
         // "📌 Boards" tab so the user can see + jump to every workspace it's on.
@@ -48969,7 +49169,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 try { await this.createDevAgentQuiet(d, x.persona); added++; }
                 catch (e) { /* leave as a suggestion if the write fails */ }
               }
-              if (added) this.showToast('Dev card', '🤖 Added ' + added + ' recommended ' + (added === 1 ? 'agent' : 'agents') + ' automatically — read-only, won\u2019t change code.', 'success');
+              if (added) {
+                const allRO = autoAdd.every(x => x && x.readOnly);
+                this.showToast('Dev card', '🤖 Added ' + added + ' recommended ' + (added === 1 ? 'agent' : 'agents') + ' automatically' + (allRO ? ' — read-only, won\u2019t change code.' : '.'), 'success');
+              }
             }
             const dismissed = this.devRecoDismissed[d.id] || {};
             const addedAuto = ready && !opts.noAuto;
@@ -50488,7 +50691,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const updated = (resp && resp.board) || resp;
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
-            this.showToast('Pinned', `Added to ${board.emoji || '📌'} ${board.name}`, 'success');
+            this.showToast('Pinned', `Added to ${board.name}`, 'success');
           } catch (e) {
             this.showToast('Pin', e.message, 'error');
           }
