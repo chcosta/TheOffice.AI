@@ -11045,6 +11045,7 @@
                     </select>
                   </div>
                   <div class="hint" x-show="devModal.error" style="color:var(--cp-danger)" x-text="devModal.error"></div>
+                  <div class="hint" x-show="devModalSiblingHint()" :style="'font-size:11px;color:' + (devModalSiblingBlocked() ? 'var(--cp-danger)' : 'var(--cp-warning, var(--cp-text-muted))')" x-text="devModalSiblingHint()"></div>
                   <div class="hint" style="font-size:11px">The worktree isn't created yet — save the item, then click <strong>🌱 Create worktree</strong> on its panel.</div>
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
                     <div style="display:flex;gap:8px" x-show="devModal.id">
@@ -11053,7 +11054,7 @@
                     </div>
                     <div style="display:flex;gap:8px;margin-left:auto">
                       <button class="btn" type="button" @click="devModal.open=false">Cancel</button>
-                      <button class="btn primary" type="button" :disabled="devModal.busy || !devModal.repo" @click="saveDevItem()" x-text="devModal.id ? 'Save' : 'Create dev card'"></button>
+                      <button class="btn primary" type="button" :disabled="devModal.busy || !devModal.repo || devModalSiblingBlocked()" @click="saveDevItem()" x-text="devModal.id ? 'Save' : 'Create dev card'"></button>
                     </div>
                   </div>
                 </div>
@@ -11215,6 +11216,9 @@
               .dvx-group-dot { flex:0 0 auto; width:9px; height:9px; border-radius:999px; box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-surface) 70%, transparent); }
               .dvx-group-title { font-weight:600; font-size:13px; color:var(--cp-text); }
               .dvx-group-count { font-size:11.5px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
+              .dvx-sibling-add { margin-left:auto; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:3px 9px; font-size:11.5px; font-weight:550; cursor:pointer; white-space:nowrap; transition:color .14s, border-color .14s, background .14s; }
+              .dvx-sibling-add:hover { color:var(--cp-dev); border-color:color-mix(in srgb, var(--cp-dev) 50%, var(--cp-border)); background:color-mix(in srgb, var(--cp-dev) 8%, transparent); }
+              .dvx-card-repo { margin:2px 0 0 18px; font-size:11px; color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .dvx-group-cards { display:flex; flex-direction:column; gap:12px; margin-top:8px; }
               .dvx-card { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); background:var(--cp-surface); padding:12px 14px; }
               .dvx-card.sel { border-color:color-mix(in srgb, var(--cp-accent) 45%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--cp-accent) 25%, transparent); }
@@ -11256,6 +11260,7 @@
               .cf-sidesum.dev .cf-sidehead { color:var(--cp-dev); } .cf-sidesum.dev .cf-sidehead .cf-dot { background:var(--cp-dev); }
               .cf-sidesum.pr .cf-sidehead { color:var(--cp-pr); } .cf-sidesum.pr .cf-sidehead .cf-dot { background:var(--cp-pr); }
               .cf-sidebody { padding:11px 12px; }
+              .cf-sidewt { margin:0 12px 11px; padding:5px 8px; font-family:var(--cp-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size:11px; color:var(--cp-text-muted); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 6px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .cf-primeact { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--cp-dev); background:var(--cp-dev); color:#fff; border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; transition:transform .14s cubic-bezier(.2,.7,.2,1); }
               .cf-primeact.pr { border-color:var(--cp-pr); background:var(--cp-pr); }
               .cf-primeact:hover { transform:translateY(-1px); }
@@ -11352,6 +11357,7 @@
                       <option value="board">Board</option>
                       <option value="provider">Provider</option>
                       <option value="status">Status</option>
+                      <option value="workItem">Work item</option>
                       <option value="none">None</option>
                     </select>
                   </div>
@@ -11380,6 +11386,9 @@
                         <span class="dvx-group-dot" x-show="grp.color" :style="'background:'+grp.color"></span>
                         <span class="dvx-group-title" x-text="grp.label"></span>
                         <span class="dvx-group-count" x-text="grp.cards.length"></span>
+                        <button x-show="grp.byWorkItem && grp.wi" class="dvx-sibling-add" type="button"
+                                @click.stop="openSiblingDevCard(grp.wi)"
+                                title="This work item can span repos — add a dev card in another repo">＋ Add sibling in another repo</button>
                       </div>
                       <div class="dvx-group-cards" x-show="!grp.label || devGroupIsOpen(grp.key)">
                         <template x-for="card in grp.cards" :key="'dvc-' + card.id">
@@ -11394,6 +11403,7 @@
                                       <button class="cf-collapse-btn" type="button" @click.stop="cfToggleDevCollapse(d)" :aria-expanded="(!cfDevCollapsed(d)).toString()" :title="cfDevCollapsed(d) ? 'Expand card' : 'Collapse to title'" x-text="cfDevCollapsed(d) ? '▸' : '▾'"></button>
                                       <div class="cf-pr-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
                                     </div>
+                                    <div class="dvx-card-repo" x-show="grp.byWorkItem && d.repo" x-text="(d.org ? d.org + ' / ' : '') + (d.repo || '')" :title="(d.org ? d.org + ' / ' : '') + (d.repo || '')"></div>
                                    <!-- Board pinning lives entirely in the "📌 Boards" tab now
                                         (open / change / unpin), so the base face stays clean. The
                                         hover 📌 in the action group is a quick "pin" shortcut for
@@ -11535,6 +11545,7 @@
                                   <div class="cf-sidesum dev">
                                     <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfGraphModel(d).dev.branch"></strong><span class="hint" style="font-size:11px">Dev workbench</span></div>
                                     <div class="cf-sidebody"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' commit(s) ahead — ready to promote to a PR.'"></span><span x-show="!cfGraphModel(d).dev.ahead">This dev branch owns its own worktree. Build, test &amp; validate here — nothing is pushed without you.</span></div>
+                                    <div class="cf-sidewt" x-show="d.worktreePath" x-text="d.worktreePath" :title="d.worktreePath"></div>
                                     <button class="cf-primeact" type="button" :disabled="cfDevAction(d).disabled || (cfDevAction(d).kind==='promote' && cfActBusy(d, cfDevAction(d).slot, 'promote'))" @click="cfDevAction(d).kind==='openpr' ? cfNewPr(d) : (cfDevAction(d).kind==='promote' ? cfPromote(d, cfDevAction(d).slot) : null)" x-text="cfDevAction(d).label"></button>
                                   </div>
                                 </template>
@@ -11542,6 +11553,7 @@
                                   <div class="cf-sidesum pr">
                                     <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfCurPr(d).num + ' · ' + cfCurPr(d).bn"></strong><span class="hint" style="font-size:11px">PR review</span></div>
                                     <div class="cf-sidebody" style="display:flex;flex-direction:column;gap:3px"><span x-show="cfCurPr(d).approvals" x-text="'Approvals: ' + cfCurPr(d).approvals"></span><span x-text="'Checks: ' + cfCurPr(d).checks"></span><span x-show="cfCurPr(d).promote > 0" x-text="cfCurPr(d).promote + ' to promote from dev →'"></span><span x-show="cfCurPr(d).pull > 0" x-text="'← ' + cfCurPr(d).pull + ' review to pull'"></span><span x-show="cfPrCanMerge(cfCurPr(d))" style="color:var(--cp-success)">✓ Ready to merge</span></div>
+                                    <div class="cf-sidewt" x-show="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" x-text="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" :title="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath"></div>
                                     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
                                       <button class="cf-primeact" type="button" x-show="cfCurPr(d).promote > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'promote')" @click.stop="cfPromote(d, cfCurPr(d)._slot)" x-text="'↑ Promote from dev (' + cfCurPr(d).promote + ')'"></button>
                                       <button class="cf-primeact" type="button" x-show="cfCurPr(d).pull > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'pull')" @click.stop="cfPullReview(d, cfCurPr(d)._slot)" x-text="'↓ Pull review (' + cfCurPr(d).pull + ')'"></button>
@@ -25434,7 +25446,7 @@
         prNoteBusy: {},
         devRepoDraft: {},
         reportPreview: { open: false, title: '', url: '', mode: 'html', html: '', loading: false, error: '' },
-        devModal: { open: false, id: null, homeBoardId: '', provider: 'azdo', title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '', archived: false },
+        devModal: { open: false, id: null, homeBoardId: '', provider: 'azdo', title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '', archived: false, _siblingRepos: [] },
         // Link an EXISTING pull request to a dev-card repo slot (dev-card side picker).
         prLink: { open: false, devId: '', slotId: '', title: '', repo: '', org: '', project: '', provider: 'azdo', manual: '', busy: false },
         // Link a Code Flow PR to (or spin up) a dev card (PR-card side picker).
@@ -48532,11 +48544,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const keyOf = (d) => {
             if (by === 'provider') return (d.provider || 'azdo');
             if (by === 'status') return d.archived ? 'archived' : (this.devIsActive(d) ? 'active' : 'done');
+            if (by === 'workItem') return d.workItemId ? ((d.provider || 'azdo') + ':' + d.workItemId) : '_none';
             return d.homeBoardId || '_none'; // board
           };
           const labelOf = (d, k) => {
             if (by === 'provider') return k === 'github' ? 'GitHub' : 'Azure DevOps';
             if (by === 'status') return k === 'active' ? 'In progress' : k === 'done' ? 'Done' : 'Archived';
+            if (by === 'workItem') {
+              if (k === '_none') return 'No work item';
+              const wt = (d.workItem && d.workItem.title) ? d.workItem.title : ('#' + d.workItemId);
+              return wt;
+            }
             return this.devBoardName(d);
           };
           for (const d of cards) {
@@ -48551,6 +48569,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             for (const g of groups) {
               const b = (g.key && g.key !== '_none') ? (this.boards || []).find(x => x.id === g.key) : null;
               g.color = b ? this.boardColor(b) : null;
+            }
+          }
+          // Work-item grouping: mark the group so the card render shows a repo label per
+          // sibling, and carry the work item's coords so the header can offer "add a sibling
+          // card in another repo" (a dev card owns ONE repo; siblings share the work item).
+          if (by === 'workItem') {
+            for (const g of groups) {
+              g.byWorkItem = true;
+              if (g.key !== '_none' && g.cards.length) {
+                const first = g.cards[0];
+                g.wi = {
+                  provider: first.provider || 'azdo', org: first.org || '', project: first.project || '',
+                  workItemId: first.workItemId, title: (first.workItem && first.workItem.title) || g.label,
+                  repos: g.cards.map(c => (c.repo || '').toLowerCase()).filter(Boolean),
+                };
+              }
             }
           }
           // Unassigned board group sinks to the bottom; otherwise alpha by label.
@@ -49125,6 +49159,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             m.homeBoardId = d.homeBoardId || (d._board && d._board.id) || '';
             m.repos = d.repo ? [{ name: d.repo }] : []; m.branches = d.baseBranch ? [d.baseBranch] : [];
             m.archived = !!d.archived;
+            m._siblingRepos = [];
           } else {
             await this.ensureDevSettings();
             // Prefill priority: a prior dev card on the active board (most specific) →
@@ -49144,6 +49179,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             m.homeBoardId = (this.route === 'boards' && this.activeBoard()) ? this.activeBoard().id : '';
             m.repos = []; m.branches = [];
             m.archived = false;
+            m._siblingRepos = [];
           }
           // Ensure boards are loaded so the "home board" picker has options.
           if (!this.boards || !this.boards.length) { try { await this.loadBoards(null, true); } catch {} }
@@ -49152,7 +49188,43 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           m.open = true;
           if (m.org && (m.provider === 'github' || m.project)) this.devLoadRepos();
         },
-        // Archive/restore from within the Edit dev card modal (per-card, contextual).
+        // Cross-repo sibling: a work item can span repos. Open the New dev card modal
+        // prefilled with the work item's coords (provider/org/project/id/title) and a
+        // BLANK repo, so the user just picks a different repo for the sibling card.
+        async openSiblingDevCard(wi) {
+          if (!wi) return;
+          await this.openDevModal(null);
+          const m = this.devModal;
+          m.provider = wi.provider || 'azdo';
+          m.org = wi.org || m.org;
+          m.project = wi.project || m.project;
+          m.workItemId = wi.workItemId ? String(wi.workItemId) : '';
+          m.title = wi.title || '';
+          m.repo = ''; m.repos = []; m.repoQuery = '';
+          m._siblingRepos = (wi.repos || []).map(r => String(r || '').toLowerCase()).filter(Boolean);
+          if (m.org && (m.provider === 'github' || m.project)) this.devLoadRepos();
+        },
+        // Same-repo guard for the sibling flow: if the picked repo already has a card
+        // for this work item, warn + block so we don't create a duplicate.
+        devModalSiblingHint() {
+          const m = this.devModal;
+          if (!m || m.id) return '';
+          const repos = m._siblingRepos || [];
+          if (!repos.length) return '';
+          const repo = String(m.repo || '').toLowerCase();
+          if (repo && repos.includes(repo)) {
+            return 'This work item already has a dev card in ' + m.repo + '. Pick a different repository for the sibling card.';
+          }
+          const list = repos.slice(0, 4).join(', ') + (repos.length > 4 ? '…' : '');
+          return 'This work item already has a card in: ' + list + '. Pick a different repository.';
+        },
+        devModalSiblingBlocked() {
+          const m = this.devModal;
+          if (!m || m.id) return false;
+          const repos = m._siblingRepos || [];
+          const repo = String(m.repo || '').toLowerCase();
+          return !!(repo && repos.includes(repo));
+        },
         _devItemById(id) {
           for (const b of (this.boards || [])) {
             const hit = ((b && b.devItems) || []).find(d => d && d.id === id);
