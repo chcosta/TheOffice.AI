@@ -17093,10 +17093,20 @@
           <!-- ===== Pulse.AI (ambient team-conversation & meeting digest — Me.AI companion) ===== -->
           <section x-show="!loading && !errorMessage && route === 'pulse'">
             <style>
-              .pulse-wrap { max-width:760px; margin:0 auto; }
-              .pulse-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:6px; }
+              .pulse-wrap { max-width:1180px; margin:0 auto; }
+              .pulse-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:6px; }
               .pulse-title { font-size:24px; font-weight:650; letter-spacing:-0.01em; margin:0; }
               .pulse-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; }
+              .pulse-new { display:flex; align-items:center; gap:6px; margin:4px 0 0; font-size:12.5px; font-weight:600;
+                color:color-mix(in srgb, var(--cp-warning) 68%, var(--cp-text)); }
+              .pulse-new .ndot { width:6px; height:6px; border-radius:999px; background:var(--cp-warning); flex-shrink:0; }
+              .pulse-new a { color:var(--cp-link); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+              .pulse-head-acts { display:flex; align-items:center; gap:14px; flex-shrink:0; padding-top:4px; }
+              .pulse-auto { display:inline-flex; align-items:center; gap:7px; color:var(--cp-text-muted); font-size:12.5px; }
+              .pulse-auto select { font:inherit; font-size:12.5px; color:var(--cp-text); background:var(--cp-surface);
+                border:1px solid var(--cp-border); border-radius:8px; padding:3px 22px 3px 8px; cursor:pointer;
+                transition:border-color .15s ease; }
+              .pulse-auto select:hover { border-color:var(--cp-border-strong); }
               .pulse-refresh { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13px;
                 cursor:pointer; padding:4px 2px; display:inline-flex; align-items:center; gap:6px;
                 border-bottom:1px solid transparent; transition:color .15s ease, border-color .15s ease; }
@@ -17104,6 +17114,64 @@
               .pulse-refresh:disabled { cursor:default; opacity:.7; }
               .pulse-refresh .dot { width:6px; height:6px; border-radius:50%; background:var(--cp-success); display:inline-block; }
               .pulse-refresh.busy .dot { background:var(--cp-warning); }
+              /* Monitoring control + picker dialog (issue #4) */
+              .pulse-mon-btn { background:none; border:1px solid var(--cp-border); color:var(--cp-text-muted); font:inherit;
+                font-size:12.5px; cursor:pointer; padding:4px 10px; border-radius:8px; display:inline-flex; align-items:center;
+                gap:7px; transition:border-color .15s ease, color .15s ease; }
+              .pulse-mon-btn:hover { border-color:var(--cp-border-strong); color:var(--cp-text); }
+              .pulse-mon-btn .pmc { display:inline-flex; align-items:center; justify-content:center; min-width:17px; height:17px;
+                padding:0 4px; border-radius:9px; background:color-mix(in srgb, var(--cp-accent) 18%, var(--cp-surface));
+                color:var(--cp-text); font-size:11px; font-weight:600; }
+              .pulse-mon-dlg { border:none; padding:0; border-radius:14px; width:min(560px, 94vw); max-height:86vh;
+                background:var(--cp-surface); color:var(--cp-text); box-shadow:0 24px 64px rgba(0,0,0,.28); overflow:hidden; }
+              .pulse-mon-dlg::backdrop { background:rgba(0,0,0,.42); }
+              .pmd-inner { display:flex; flex-direction:column; max-height:86vh; }
+              .pmd-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:20px 22px 14px; }
+              .pmd-title { margin:0; font-size:17px; font-weight:650; color:var(--cp-text); }
+              .pmd-sub { margin:5px 0 0; font-size:12.5px; line-height:1.5; color:var(--cp-text-muted); max-width:44ch; }
+              .pmd-x { background:none; border:none; color:var(--cp-text-muted); font-size:15px; cursor:pointer; padding:2px 6px;
+                border-radius:8px; flex-shrink:0; transition:color .15s ease, background .15s ease; }
+              .pmd-x:hover { color:var(--cp-text); background:var(--cp-hover); }
+              .pmd-search { display:flex; align-items:center; gap:12px; padding:0 22px 14px; border-bottom:1px solid var(--cp-border); }
+              .pmd-search .field-input { flex:1; }
+              .pmd-count { font-size:12px; color:var(--cp-text-muted); flex-shrink:0; }
+              .pmd-body { overflow-y:auto; padding:8px 14px 6px; flex:1; }
+              .pmd-loading, .pmd-empty, .pmd-chan-loading, .pmd-chan-empty { color:var(--cp-text-muted); font-size:12.5px; padding:14px 8px; }
+              .pmd-chan-loading, .pmd-chan-empty { padding:8px 4px; }
+              .pmd-team { border-radius:10px; padding:2px 8px; transition:background .15s ease; }
+              .pmd-team.on { background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); }
+              .pmd-team-row { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:38px; }
+              .pmd-team-main { display:flex; align-items:center; gap:10px; cursor:pointer; flex:1; min-width:0; }
+              .pmd-team-main input { flex-shrink:0; }
+              .pmd-team-name { font-size:14px; color:var(--cp-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pmd-team-sum { background:var(--cp-surface); border:1px solid var(--cp-border); color:var(--cp-text-soft); font:inherit; font-size:12px; cursor:pointer;
+                display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:8px; flex-shrink:0;
+                transition:border-color .15s ease, color .15s ease, background .15s ease; }
+              .pmd-team-sum:hover { color:var(--cp-text); border-color:var(--cp-border-strong); background:var(--cp-hover); }
+              .pmd-caret { display:inline-block; font-size:10px; transition:transform .18s ease; }
+              .pmd-caret.open { transform:rotate(180deg); }
+              @media (prefers-reduced-motion: reduce) { .pmd-caret { transition:none; } }
+              .pmd-chan { padding:4px 4px 12px 30px; }
+              .pmd-mode { display:flex; gap:18px; margin-bottom:8px; }
+              .pmd-mode label { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--cp-text-soft); cursor:pointer; }
+              .pmd-chan-list { display:flex; flex-direction:column; gap:2px; max-height:180px; overflow-y:auto; }
+              .pmd-chan-item { display:inline-flex; align-items:center; gap:9px; font-size:13px; color:var(--cp-text);
+                padding:4px 6px; border-radius:7px; cursor:pointer; }
+              .pmd-chan-item:hover { background:var(--cp-hover); }
+              .pmd-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 22px 18px;
+                border-top:1px solid var(--cp-border); }
+              .pmd-refresh { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:12.5px; cursor:pointer;
+                padding:4px 2px; transition:color .15s ease; }
+              .pmd-refresh:hover { color:var(--cp-text); }
+              .pmd-refresh:disabled { opacity:.6; cursor:default; }
+              .pmd-foot-acts { display:flex; align-items:center; gap:10px; }
+              .pmd-cancel { background:none; border:1px solid var(--cp-border); color:var(--cp-text); font:inherit; font-size:13px;
+                cursor:pointer; padding:7px 16px; border-radius:8px; transition:border-color .15s ease; }
+              .pmd-cancel:hover { border-color:var(--cp-border-strong); }
+              .pmd-save { background:var(--cp-accent); border:1px solid var(--cp-accent); color:var(--cp-on-accent, #fff); font:inherit;
+                font-size:13px; font-weight:600; cursor:pointer; padding:7px 18px; border-radius:8px; transition:opacity .15s ease; }
+              .pmd-save:hover { opacity:.92; }
+              .pmd-save:disabled { opacity:.6; cursor:default; }
 
               .pulse-summary { margin:26px 0 6px; padding:24px 26px; border-radius:14px;
                 background:linear-gradient(180deg, color-mix(in srgb,var(--cp-surface) 96%, var(--cp-accent) 4%), var(--cp-surface));
@@ -17111,7 +17179,7 @@
               @keyframes wh2rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
               .pulse-kicker { display:flex; align-items:center; gap:9px; color:var(--cp-text-muted); font-size:12.5px; margin-bottom:12px; }
               .pulse-kicker .glyph { font-size:14px; }
-              .pulse-summary p { margin:0; font-size:16px; line-height:1.62; color:var(--cp-text); text-wrap:pretty; }
+              .pulse-summary p { margin:0; font-size:16px; line-height:1.62; color:var(--cp-text); text-wrap:pretty; max-width:74ch; }
 
               .pulse-focus { margin:30px 0 8px; }
               .pulse-focus-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.01em; margin:0 0 4px; }
@@ -17162,6 +17230,73 @@
               .pulse-mrow .mfoot .mute { color:var(--cp-text-muted); }
               .pulse-mrow .mtime { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; white-space:nowrap; }
 
+              /* Lens switcher (quiet text links — no pills) */
+              .pulse-lenses { display:flex; gap:20px; flex-wrap:wrap; margin:22px 0 20px; padding-bottom:2px; }
+              .pulse-lens { background:none; border:none; padding:2px 0; font:inherit; font-size:13.5px; cursor:pointer;
+                color:var(--cp-text-muted); border-bottom:2px solid transparent; transition:color .15s ease, border-color .15s ease; }
+              .pulse-lens:hover { color:var(--cp-text); }
+              .pulse-lens.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); font-weight:600; }
+              .pulse-lens.dim { color:var(--cp-text-faint); }
+              .pulse-lens.dim:hover { color:var(--cp-text-muted); }
+              .pulse-lensview { margin-top:4px; }
+              .pulse-lens-empty { padding:24px 4px; color:var(--cp-text-muted); font-size:14px; line-height:1.6; }
+              .pulse-lens-note { color:var(--cp-text-muted); font-size:13px; margin:0 0 12px; text-wrap:pretty; }
+
+              /* Per-lens AI analysis header */
+              .pulse-analysis { margin:8px 0 20px; }
+              .pulse-analysis .pa-h { font-size:18px; font-weight:650; letter-spacing:-0.01em; color:var(--cp-text); margin:0 0 8px; text-wrap:balance; }
+              .pulse-analysis .pa-body { font-size:15px; line-height:1.6; color:var(--cp-text); text-wrap:pretty; margin:0; max-width:74ch; }
+
+              /* Analysis-first card grid */
+              .pulse-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px; margin-top:4px; }
+              .pulse-card { display:flex; flex-direction:column; padding:16px 18px; border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-surface); }
+              .pulse-card .pc-head { display:flex; align-items:baseline; gap:9px; margin-bottom:8px; }
+              .pulse-card .pc-icon { flex:0 0 auto; font-size:15px; }
+              .pulse-card .pc-title { font-size:15px; font-weight:640; color:var(--cp-text); margin:0; flex:1 1 auto; min-width:0; }
+              .pulse-card .pc-urg { flex:0 0 auto; font-size:11.5px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; }
+              .pulse-card .pc-urg.u-urgent { color:var(--cp-warning); }
+              .pulse-card .pc-urg.u-watch { color:var(--cp-text-soft); }
+              .pulse-card .pc-analysis { font-size:13.5px; line-height:1.56; color:var(--cp-text-soft); text-wrap:pretty; margin:0 0 12px; }
+              .pulse-card.v-decision .pc-icon { color:var(--cp-accent); }
+              .pulse-card.v-attention .pc-icon { color:var(--cp-warning); }
+              .pulse-card.v-heads .pc-icon { color:var(--cp-link); }
+              .pulse-card.v-social .pc-icon { color:var(--cp-text-soft); }
+              .pulse-card .pc-meta { font-size:12px; color:var(--cp-text-muted); margin:0 0 10px; }
+              .pulse-card .pc-drill { margin-top:auto; }
+              .pulse-drill { background:none; border:none; padding:6px 0 0; font:inherit; font-size:12.5px; cursor:pointer;
+                color:var(--cp-text-muted); display:inline-flex; align-items:center; gap:7px; border-top:1px solid var(--cp-border); width:100%; }
+              .pulse-drill:hover { color:var(--cp-text); }
+              .pulse-drill .car { transition:transform .18s ease; display:inline-block; }
+              .pulse-drill.open .car { transform:rotate(90deg); }
+              .pulse-card .pc-threads { margin-top:2px; }
+              .pulse-card .pc-threads .pulse-trow:first-child { border-top:none; }
+
+              /* Theme cards */
+              .pulse-theme { padding:16px 0; border-top:1px solid var(--cp-border); }
+              .pulse-theme:first-child { border-top:none; }
+              .pulse-theme .th-head { display:flex; align-items:baseline; gap:10px; }
+              .pulse-theme .th-vibe { flex:0 0 auto; font-size:15px; }
+              .pulse-theme .th-title { font-size:15px; font-weight:600; color:var(--cp-text); margin:0; flex:1 1 auto; min-width:0; }
+              .pulse-theme .th-tag { flex:0 0 auto; font-size:12px; color:var(--cp-text-muted); }
+              .pulse-theme.v-decision .th-vibe { color:var(--cp-accent); }
+              .pulse-theme.v-attention .th-vibe { color:var(--cp-warning); }
+              .pulse-theme.v-heads .th-vibe { color:var(--cp-link); }
+              .pulse-theme.v-social .th-vibe { color:var(--cp-text-soft); }
+              .pulse-theme .th-blurb { font-size:13.5px; color:var(--cp-text-soft); margin:6px 0 10px; text-wrap:pretty; line-height:1.55; }
+              .pulse-theme .th-threads { margin-left:2px; }
+
+              /* People / Today groups */
+              .pulse-people-grp, .pulse-today-grp { padding:12px 0 4px; border-top:1px solid var(--cp-border); }
+              .pulse-people-grp:first-child, .pulse-today-grp:first-child { border-top:none; }
+              .pulse-people-grp .pg-head { display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
+              .pulse-people-grp .pg-who { font-size:14px; font-weight:600; color:var(--cp-text); }
+              .pulse-people-grp .pg-n { font-size:12px; color:var(--cp-text-muted); }
+              .pulse-people-grp .pg-when { margin-left:auto; font-size:12px; color:var(--cp-text-muted); }
+              .pulse-today-grp .td-head { font-size:13px; font-weight:600; color:var(--cp-text-soft); margin:0 0 4px; }
+              .pulse-today-grp .td-head .td-n { color:var(--cp-text-muted); font-weight:400; margin-left:4px; }
+              .pulse-trow .who { flex:0 0 auto; color:var(--cp-text-soft); font-size:12.5px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-trow.clickable { cursor:pointer; }
+
               .pulse-tail { margin-top:38px; }
               .pulse-tail-toggle { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13.5px; cursor:pointer;
                 padding:0; display:inline-flex; align-items:center; gap:8px; }
@@ -17193,7 +17328,7 @@
 
               @media (prefers-reduced-motion: reduce) {
                 .pulse-summary { animation:none; }
-                .pulse-refresh, .pulse-tab, .pulse-tail-toggle .car, .pulse-item .acts a, .pulse-item .acts button { transition:none; }
+                .pulse-refresh, .pulse-tab, .pulse-tail-toggle .car, .pulse-drill .car, .pulse-item .acts a, .pulse-item .acts button { transition:none; }
               }
             </style>
 
@@ -17201,12 +17336,92 @@
               <div class="pulse-head">
                 <div>
                   <h1 class="pulse-title">Pulse.AI</h1>
-                  <p class="pulse-sub"><span>A calm read on your team</span><span x-show="pulse.gatheredAt"> · last looked <span x-text="pulseAgo(pulse.gatheredAt)"></span></span></p>
+                  <p class="pulse-sub"><span>A calm read on your team</span><span x-show="pulse.gatheredAt"> · updated <span x-text="pulseAgo(pulse.gatheredAt)"></span></span></p>
+                  <p class="pulse-new" x-show="pulseHasNewSinceRead()">
+                    <span class="ndot"></span>New activity since this read ·
+                    <a class="clickable" @click="pulse._autoRefreshed = true; pulseRefresh()">Refresh to catch up</a>
+                  </p>
                 </div>
-                <button class="pulse-refresh" :class="pulse.busy ? 'busy' : ''" type="button" :disabled="pulse.busy" @click="pulse._autoRefreshed = true; pulseRefresh()">
-                  <span class="dot"></span><span x-text="pulse.busy ? 'Refreshing…' : 'Refresh'"></span>
-                </button>
+                <div class="pulse-head-acts">
+                  <button class="pulse-mon-btn" type="button" x-show="pulse.consent" @click="pulseMonitorOpen()" :title="'Choose which Teams and channels Pulse.AI watches'">
+                    <span>Monitoring</span><span class="pmc" x-show="pulse.monitorCount" x-text="pulse.monitorCount"></span>
+                  </button>
+                  <label class="pulse-auto" :title="'How often Pulse.AI refreshes on its own'">
+                    <span>Auto-refresh</span>
+                    <select :value="String(pulseAutoMin())" @change="setPulseAutoMin($event.target.value)">
+                      <option value="0">Off</option>
+                      <option value="30">Every 30m</option>
+                      <option value="60">Hourly</option>
+                      <option value="240">Every 4h</option>
+                      <option value="1440">Daily</option>
+                    </select>
+                  </label>
+                  <button class="pulse-refresh" :class="pulse.busy ? 'busy' : ''" type="button" :disabled="pulse.busy" @click="pulse._autoRefreshed = true; pulseRefresh()">
+                    <span class="dot"></span><span x-text="pulse.busy ? pulseStageLabel() : 'Refresh'"></span>
+                  </button>
+                </div>
               </div>
+
+              <!-- Issue #4: Teams/channel monitoring picker -->
+              <dialog class="pulse-mon-dlg" x-ref="pulseMonDlg" @close="pulse.monitor.open = false" @click="$event.target === $refs.pulseMonDlg &amp;&amp; pulseMonitorClose()">
+                <div class="pmd-inner" @click.stop>
+                  <div class="pmd-head">
+                    <div>
+                      <h2 class="pmd-title">Monitor Teams</h2>
+                      <p class="pmd-sub">Pick teams to watch. Their recent channel activity is folded into Pulse.AI, on top of your @mentions.</p>
+                    </div>
+                    <button class="pmd-x" type="button" @click="pulseMonitorClose()" title="Close">✕</button>
+                  </div>
+                  <div class="pmd-search">
+                    <input type="text" class="field-input" placeholder="Search teams…" x-model="pulse.monitor.q" @keydown.escape.stop="pulse.monitor.q ? (pulse.monitor.q = '') : pulseMonitorClose()">
+                    <span class="pmd-count" x-show="pulse.monitorCount" x-text="pulse.monitorCount + ' selected'"></span>
+                  </div>
+                  <div class="pmd-body">
+                    <div class="pmd-loading" x-show="pulse.monitor.loading">Loading your Teams…</div>
+                    <div class="pmd-empty" x-show="!pulse.monitor.loading &amp;&amp; !pulseTeamsFiltered().length">
+                      <span x-show="pulse.monitor.q">No teams match “<span x-text="pulse.monitor.q"></span>”.</span>
+                      <span x-show="!pulse.monitor.q">No Teams found.</span>
+                    </div>
+                    <template x-for="t in pulseTeamsFiltered()" :key="t.id">
+                      <div class="pmd-team" :class="pulseTeamOn(t.id) ? 'on' : ''">
+                        <div class="pmd-team-row">
+                          <label class="pmd-team-main">
+                            <input type="checkbox" :checked="pulseTeamOn(t.id)" @change="pulseToggleTeam(t)">
+                            <span class="pmd-team-name" x-text="t.displayName"></span>
+                          </label>
+                          <button class="pmd-team-sum" type="button" x-show="pulseTeamOn(t.id)" @click="pulseToggleExpand(t)" :title="pulse.monitor.expanded[t.id] ? 'Hide channel scope' : 'Scope to specific channels'">
+                            <span x-text="pulseTeamSummary(t.id)"></span>
+                            <span class="pmd-caret" :class="pulse.monitor.expanded[t.id] ? 'open' : ''">▾</span>
+                          </button>
+                        </div>
+                        <div class="pmd-chan" x-show="pulseTeamOn(t.id) &amp;&amp; pulse.monitor.expanded[t.id]" x-collapse>
+                          <div class="pmd-mode">
+                            <label><input type="radio" :name="'pm-'+t.id" :checked="pulseTeamMode(t.id)==='all'" @change="pulseSetTeamMode(t,'all')"> All channels</label>
+                            <label><input type="radio" :name="'pm-'+t.id" :checked="pulseTeamMode(t.id)==='specific'" @change="pulseSetTeamMode(t,'specific')"> Choose channels</label>
+                          </div>
+                          <div class="pmd-chan-list" x-show="pulseTeamMode(t.id)==='specific'">
+                            <div class="pmd-chan-loading" x-show="pulse.monitor.chanLoading[t.id]">Loading channels…</div>
+                            <template x-for="ch in (pulse.monitor.channels[t.id] || [])" :key="ch.id">
+                              <label class="pmd-chan-item">
+                                <input type="checkbox" :checked="pulseChannelChecked(t.id, ch)" @change="pulseToggleChannel(t.id, ch)">
+                                <span x-text="ch.displayName || ch.name"></span>
+                              </label>
+                            </template>
+                            <div class="pmd-chan-empty" x-show="!pulse.monitor.chanLoading[t.id] &amp;&amp; !(pulse.monitor.channels[t.id] || []).length">No channels found.</div>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="pmd-foot">
+                    <button class="pmd-refresh" type="button" @click="pulseLoadTeams(true)" :disabled="pulse.monitor.loading" title="Reload the Teams list">↻ Reload list</button>
+                    <div class="pmd-foot-acts">
+                      <button class="pmd-cancel" type="button" @click="pulseMonitorClose()">Cancel</button>
+                      <button class="pmd-save" type="button" @click="pulseSaveMonitoring()" :disabled="pulse.monitor.saving" x-text="pulse.monitor.saving ? 'Saving…' : 'Save'"></button>
+                    </div>
+                  </div>
+                </div>
+              </dialog>
 
               <!-- Consent-off state -->
               <div class="pulse-consent" x-show="pulse.loaded &amp;&amp; !pulse.consent">
@@ -17222,9 +17437,9 @@
                 <div>
                   <!-- AI summary hero -->
                   <section class="pulse-summary" x-show="pulseSummaryText() || pulse.busy">
-                    <div class="pulse-kicker"><span class="glyph">✨</span> <span x-text="pulse.busy ? 'Taking a fresh look…' : (pulseWorthList().length ? 'Here\'s what\'s worth your attention' : 'Here\'s the read on your team')"></span></div>
+                    <div class="pulse-kicker"><span class="glyph">✨</span> <span x-text="pulse.busy ? pulseStageLabel() : (pulseWorthList().length ? 'Here\'s what\'s worth your attention' : 'Here\'s the read on your team')"></span></div>
                     <p x-show="pulseSummaryText()" x-text="pulseSummaryText()"></p>
-                    <p x-show="!pulseSummaryText() &amp;&amp; pulse.busy" style="color:var(--cp-text-muted)">Reading the last few days of conversations and pulling out what actually matters.</p>
+                    <p x-show="!pulseSummaryText() &amp;&amp; pulse.busy" style="color:var(--cp-text-muted)" x-text="pulseStageHint()"></p>
                   </section>
 
                   <!-- prompt to generate the first summary -->
@@ -17233,6 +17448,16 @@
                     <p>I can read the last few days of your team's conversations and tell you what's actually worth your attention. <a style="color:var(--cp-link);cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="pulse._autoRefreshed = true; pulseRefresh()">Take a look →</a></p>
                   </section>
 
+                  <!-- Lens switcher (quiet text links, no pills) -->
+                  <nav class="pulse-lenses" x-show="pulse.counts.all > 0 || pulseSummaryText() || pulse.busy" aria-label="View">
+                    <template x-for="l in pulseLenses()" :key="l.key">
+                      <button class="pulse-lens" :class="[pulse.lens === l.key ? 'on' : '', l.dim ? 'dim' : '']" @click="pulseSetLens(l.key)" x-text="l.label"></button>
+                    </template>
+                  </nav>
+
+                  <!-- FOCUS lens: Worth a look + Meetings -->
+                  <template x-if="pulse.lens === 'focus'">
+                   <div>
                   <!-- Worth a look -->
                   <section class="pulse-focus" x-show="pulseWorthList().length > 0">
                     <h2 class="pulse-focus-h">Worth a look</h2>
@@ -17277,6 +17502,198 @@
                       </div>
                     </template>
                   </section>
+                    </div>
+                   </template>
+
+                   <!-- THEMES lens -->
+                   <template x-if="pulse.lens === 'themes'">
+                    <section class="pulse-lensview">
+                      <template x-if="pulseLensAnalysis('themes')">
+                        <div class="pulse-analysis">
+                          <h2 class="pa-h" x-text="pulseLensAnalysis('themes').headline || 'The themes running through your team'"></h2>
+                          <p class="pa-body" x-show="pulseLensAnalysis('themes').analysis" x-text="pulseLensAnalysis('themes').analysis"></p>
+                        </div>
+                      </template>
+                      <template x-if="pulseThemes().length === 0">
+                        <p class="pulse-lens-empty" x-text="pulse.busy ? 'Reading the last few days and grouping them…' : 'No themes yet — refresh to have me read the last few days and group them.'"></p>
+                      </template>
+                      <div class="pulse-grid" x-show="pulseThemes().length > 0">
+                       <template x-for="(th, ti) in pulseThemes()" :key="th.key">
+                        <div class="pulse-card" :class="pulseVibeMeta(th.vibe).cls">
+                          <div class="pc-head">
+                            <span class="pc-icon" x-text="pulseVibeMeta(th.vibe).icon"></span>
+                            <h3 class="pc-title" x-text="th.title"></h3>
+                            <span class="pc-urg" :class="pulseUrgMeta(th.urgency).cls" x-show="pulseUrgMeta(th.urgency).label" x-text="pulseUrgMeta(th.urgency).label"></span>
+                          </div>
+                          <p class="pc-analysis" x-show="th.blurb" x-text="th.blurb"></p>
+                          <div class="pc-drill">
+                            <button class="pulse-drill" :class="pulseGrpOpen('th:'+th.key) ? 'open' : ''" @click="pulseGrpToggle('th:'+th.key)">
+                              <span class="car">›</span>
+                              <span x-text="(pulseGrpOpen('th:'+th.key) ? 'Hide' : 'Show') + ' ' + th.threads.length + ' ' + (th.threads.length === 1 ? 'conversation' : 'conversations')"></span>
+                            </button>
+                            <div class="pc-threads" x-show="pulseGrpOpen('th:'+th.key)" x-cloak>
+                              <template x-for="t in th.threads" :key="t.key">
+                                <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                  <span class="who" x-text="pulseWho(t)"></span>
+                                  <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
+                                  <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </div>
+                       </template>
+                      </div>
+                    </section>
+                   </template>
+
+                   <!-- WAITING ON YOU lens -->
+                   <template x-if="pulse.lens === 'waiting'">
+                    <section class="pulse-lensview">
+                      <template x-if="pulseLensAnalysis('waiting')">
+                        <div class="pulse-analysis">
+                          <h2 class="pa-h" x-text="pulseLensAnalysis('waiting').headline || 'What\'s waiting on you'"></h2>
+                          <p class="pa-body" x-show="pulseLensAnalysis('waiting').analysis" x-text="pulseLensAnalysis('waiting').analysis"></p>
+                        </div>
+                      </template>
+                      <template x-if="pulseWaiting().length === 0">
+                        <p class="pulse-lens-empty" x-text="pulse.busy ? 'Reading your conversations to see what needs a reply…' : 'Nothing looks like it\'s waiting on you right now. 🎉'"></p>
+                      </template>
+                      <template x-for="wt in pulseWaiting()" :key="wt.key">
+                        <div class="pulse-item warn clickable" :class="'src-' + (wt.thread.source==='email' ? 'email' : 'teams')" @click="wt.thread.link &amp;&amp; pulseOpen(wt.thread)" :title="wt.thread.link ? (wt.thread.source==='email' ? 'Open in Outlook' : 'Open in Teams') : ''">
+                          <span class="mark"></span>
+                          <div class="body">
+                            <p class="reason" x-text="wt.reason || wt.thread.topic || 'Waiting on you.'"></p>
+                            <div class="meta">
+                              <span class="who" x-text="pulseWho(wt.thread)"></span>
+                              <span x-show="wt.thread.count > 1"> · <span x-text="wt.thread.count + ' replies'"></span></span>
+                              <span class="you" x-show="wt.thread.mentioned"> · @you</span>
+                            </div>
+                            <div class="acts">
+                              <button class="todo" x-show="!pulseHasTodo(wt.thread)" @click.stop="pulseMakeTodo({ key: wt.key, reason: wt.reason, thread: wt.thread })">＋ To-do</button>
+                              <a class="onlist" x-show="pulseHasTodo(wt.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Me.AI to-do list — open it">✓ On your to-do list</a>
+                            </div>
+                          </div>
+                          <div class="when" x-show="wt.thread.activityTs" x-text="pulseAgo(wt.thread.activityTs)"></div>
+                        </div>
+                      </template>
+                    </section>
+                   </template>
+
+                   <!-- PEOPLE lens -->
+                   <template x-if="pulse.lens === 'people'">
+                    <section class="pulse-lensview">
+                      <template x-if="pulseLensAnalysis('people')">
+                        <div class="pulse-analysis">
+                          <h2 class="pa-h" x-text="pulseLensAnalysis('people').headline || 'Who\'s been active'"></h2>
+                          <p class="pa-body" x-show="pulseLensAnalysis('people').analysis" x-text="pulseLensAnalysis('people').analysis"></p>
+                        </div>
+                      </template>
+                      <template x-if="pulsePeople().length === 0">
+                        <p class="pulse-lens-empty">No one's conversations to show right now.</p>
+                      </template>
+                      <div class="pulse-grid" x-show="pulsePeople().length > 0">
+                       <template x-for="(g, gi) in pulsePeople()" :key="g.who">
+                        <div class="pulse-card">
+                          <div class="pc-head">
+                            <h3 class="pc-title" x-text="g.who"></h3>
+                            <span class="pc-urg u-watch" x-show="g.latest" x-text="pulseAgo(g.latest)"></span>
+                          </div>
+                          <p class="pc-meta" x-text="g.threads.length + (g.threads.length === 1 ? ' thread' : ' threads')"></p>
+                          <div class="pc-drill">
+                            <button class="pulse-drill" :class="pulseGrpOpen('pp:'+g.who) ? 'open' : ''" @click="pulseGrpToggle('pp:'+g.who)">
+                              <span class="car">›</span>
+                              <span x-text="(pulseGrpOpen('pp:'+g.who) ? 'Hide' : 'Show') + ' ' + g.threads.length + ' ' + (g.threads.length === 1 ? 'conversation' : 'conversations')"></span>
+                            </button>
+                            <div class="pc-threads" x-show="pulseGrpOpen('pp:'+g.who)" x-cloak>
+                              <template x-for="t in g.threads" :key="t.key">
+                                <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                  <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
+                                  <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
+                                  <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </div>
+                       </template>
+                      </div>
+                    </section>
+                   </template>
+
+                   <!-- TODAY lens -->
+                   <template x-if="pulse.lens === 'today'">
+                    <section class="pulse-lensview">
+                      <template x-if="pulseLensAnalysis('today')">
+                        <div class="pulse-analysis">
+                          <h2 class="pa-h" x-text="pulseLensAnalysis('today').headline || 'How today has unfolded'"></h2>
+                          <p class="pa-body" x-show="pulseLensAnalysis('today').analysis" x-text="pulseLensAnalysis('today').analysis"></p>
+                        </div>
+                      </template>
+                      <template x-if="pulseToday().length === 0">
+                        <p class="pulse-lens-empty">Nothing to place on a timeline yet.</p>
+                      </template>
+                      <div class="pulse-grid" x-show="pulseToday().length > 0">
+                       <template x-for="(b, bi) in pulseToday()" :key="b.key || bi">
+                        <div class="pulse-card">
+                          <div class="pc-head">
+                            <h3 class="pc-title" x-text="b.label"></h3>
+                            <span class="pc-urg u-watch" x-text="b.threads.length"></span>
+                          </div>
+                          <div class="pc-drill">
+                            <button class="pulse-drill" :class="pulseGrpOpen('td:'+(b.key||bi)) ? 'open' : ''" @click="pulseGrpToggle('td:'+(b.key||bi))">
+                              <span class="car">›</span>
+                              <span x-text="(pulseGrpOpen('td:'+(b.key||bi)) ? 'Hide' : 'Show') + ' ' + b.threads.length + ' ' + (b.threads.length === 1 ? 'conversation' : 'conversations')"></span>
+                            </button>
+                            <div class="pc-threads" x-show="pulseGrpOpen('td:'+(b.key||bi))" x-cloak>
+                              <template x-for="t in b.threads" :key="t.key">
+                                <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                  <span class="who" x-text="pulseWho(t)"></span>
+                                  <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
+                                  <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </div>
+                       </template>
+                      </div>
+                    </section>
+                   </template>
+
+                   <!-- FYI / QUIET lens -->
+                   <template x-if="pulse.lens === 'quiet'">
+                    <section class="pulse-lensview">
+                      <template x-if="pulseLensAnalysis('fyi')">
+                        <div class="pulse-analysis">
+                          <h2 class="pa-h" x-text="pulseLensAnalysis('fyi').headline || 'Quietly noted'"></h2>
+                          <p class="pa-body" x-show="pulseLensAnalysis('fyi').analysis" x-text="pulseLensAnalysis('fyi').analysis"></p>
+                        </div>
+                      </template>
+                      <p class="pulse-lens-note" x-show="pulseQuietNote()" x-text="'Kept out of your way: ' + pulseQuietNote()"></p>
+                      <template x-if="pulseQuietItems().length === 0">
+                        <p class="pulse-lens-empty">Nothing quiet to show — it's all up front.</p>
+                      </template>
+                      <div class="pulse-card" x-show="pulseQuietItems().length > 0" style="margin-top:8px;">
+                        <div class="pc-drill">
+                          <button class="pulse-drill" :class="pulseGrpOpen('fyi') ? 'open' : ''" @click="pulseGrpToggle('fyi')">
+                            <span class="car">›</span>
+                            <span x-text="(pulseGrpOpen('fyi') ? 'Hide' : 'Show') + ' ' + pulseQuietItems().length + ' quiet ' + (pulseQuietItems().length === 1 ? 'item' : 'items')"></span>
+                          </button>
+                          <div class="pc-threads" x-show="pulseGrpOpen('fyi')" x-cloak>
+                            <template x-for="t in pulseQuietItems().slice(0, 80)" :key="t.key">
+                              <div class="pulse-trow" :class="'src-' + (t.source==='email' ? 'email' : 'teams') + (t.link ? ' clickable' : '')" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
+                                <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
+                                <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
+                                <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
+                              </div>
+                            </template>
+                            <div class="pulse-more" x-show="pulseQuietItems().length > 80" x-text="'…' + (pulseQuietItems().length - 80) + ' more'"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                   </template>
 
                   <!-- Quieter tail (the firehose, opt-in) -->
                   <section class="pulse-tail" :class="pulse.tailOpen ? 'open' : ''" x-show="pulse.counts.all > 0">
@@ -25700,7 +26117,7 @@
           historyBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', showMuted: false, summary: null, summaryStale: false, counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _autoRefreshed: false },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: 'focus', showMuted: false, summary: null, summaryStale: false, counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -33813,14 +34230,82 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/me-ai/pulse');
             this._pulseApply(r);
             const w = this.pulse;
-            if (w.consent && w.summaryStale && !w._autoRefreshed && !w.busy) {
+            // A refresh may already be running server-side (e.g. we kicked one,
+            // then reloaded). Reflect it and poll so the page fills in on its own.
+            if (w.busy) this._pulseStartPoll();
+            // Cached-first: the GET above is cheap and returns the last read
+            // instantly. Only kick off the expensive gather+summary when the
+            // cache is older than the user's chosen interval — NOT on every
+            // navigation just because a thread ticked. Within the interval we
+            // show the cache (with a "last updated" time) and leave refresh to
+            // the user, so the page never sits blank while nothing useful shows.
+            if (w.consent && !w.busy && this._pulseAutoDue()) {
               w._autoRefreshed = true;
               this.pulseRefresh();
+            }
+            // Light, WorkIQ-free read of the saved monitoring selection so the
+            // header "Monitoring" control can show a count without opening the picker.
+            if (w.consent) {
+              try {
+                const mr = await this.request('/api/me-ai/pulse/monitoring');
+                w.monitorCount = (mr && Array.isArray(mr.selection)) ? mr.selection.length : 0;
+              } catch {}
             }
           } catch (e) {
             this.pulse.loaded = true;
             this.toast("Failed to load Pulse.AI: " + (e.message || e), 'error');
           }
+        },
+        // Chosen auto-refresh cadence in minutes (0 = off). Hydrated once from
+        // localStorage, default hourly.
+        pulseAutoMin() {
+          if (this.pulse.autoMin == null) {
+            let s = NaN;
+            try { s = parseInt(localStorage.getItem('pulse-auto-min'), 10); } catch {}
+            this.pulse.autoMin = isFinite(s) ? s : 60;
+          }
+          return this.pulse.autoMin;
+        },
+        setPulseAutoMin(v) {
+          const n = Math.max(0, parseInt(v, 10) || 0);
+          this.pulse.autoMin = n;
+          try { localStorage.setItem('pulse-auto-min', String(n)); } catch {}
+          // Turning it on (or shortening it) may make the current read overdue —
+          // refresh now so the setting takes effect immediately.
+          if (n && !this.pulse.busy && this._pulseAutoDue()) {
+            this.pulse._autoRefreshed = true;
+            this.pulseRefresh();
+          }
+        },
+        // Is an automatic refresh due? Never when auto is off or the cache is
+        // fresh; always on the first-ever read; otherwise only past the interval.
+        _pulseAutoDue() {
+          const w = this.pulse;
+          const min = this.pulseAutoMin();
+          if (!min) return false;
+          if (!w.summaryStale && w.summary) return false;
+          if (!w.gatheredAt) return true;
+          const last = Date.parse(w.gatheredAt);
+          if (!isFinite(last)) return true;
+          return (Date.now() - last) >= min * 60000;
+        },
+        // Cache exists but new activity landed since it was generated — surface a
+        // quiet "refresh to catch up" hint instead of silently re-running.
+        pulseHasNewSinceRead() {
+          const w = this.pulse;
+          return !!(w.summary && w.summaryStale && !w.busy);
+        },
+        // Short label for the refresh control / kicker while a refresh runs.
+        // Phase A analyzes the last few days fast; phase B checks monitored teams.
+        pulseStageLabel() {
+          const s = this.pulse.stage;
+          if (s === 'monitoring') return 'Checking your teams…';
+          return 'Taking a fresh look…';
+        },
+        pulseStageHint() {
+          const s = this.pulse.stage;
+          if (s === 'monitoring') return 'Now checking your monitored Teams channels — the analysis above is already up to date and will refresh again if anything changed.';
+          return 'Reading the last few days of conversations and pulling out what actually matters.';
         },
         _pulseApply(r) {
           const w = this.pulse;
@@ -33834,6 +34319,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           w.summaryStale = !!(r && r.summaryStale);
           w.counts = (r && r.counts && typeof r.counts === 'object') ? r.counts : { all: w.threads.length, teams: 0, email: 0, mentions: 0 };
           w.fingerprint = (r && r.fingerprint) || '';
+          if (typeof r.busy === 'boolean') w.busy = r.busy;
+          if (typeof r.stage === 'string') w.stage = r.stage;
+          if (!w.busy) w.stage = '';
           const byKey = {};
           (w.threads || []).forEach(t => { if (t && t.key) byKey[t.key] = t; });
           w._byKey = byKey;
@@ -33841,14 +34329,169 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async pulseRefresh() {
           if (this.pulse.busy) return;
-          this.pulse.busy = true;
+          this.pulse.busy = true; // optimistic; server confirms via busy flag
           try {
             const r = await this.request('/api/me-ai/pulse/refresh', { method: 'POST', body: JSON.stringify({}) });
-            this._pulseApply(r);
+            this._pulseApply(r); // server returns busy:true and the current cached view
           } catch (e) {
-            this.toast('Refresh failed: ' + (e.message || e), 'error');
-          } finally {
             this.pulse.busy = false;
+            this.toast('Refresh failed: ' + (e.message || e), 'error');
+            return;
+          }
+          // The heavy gather+summary runs server-side. Poll until it lands so the
+          // page fills in on its own — the user doesn't have to stay here.
+          this._pulseStartPoll();
+        },
+        // Poll GET /pulse while a server-side refresh is running, then stop. Safe
+        // to call repeatedly (guards against double-polling) and self-terminates.
+        _pulseStartPoll() {
+          const w = this.pulse;
+          if (w._polling) return;
+          w._polling = true;
+          w._pollTries = 0;
+          const tick = async () => {
+            if (!this.pulse._polling) return;
+            this.pulse._pollTries++;
+            try {
+              const r = await this.request('/api/me-ai/pulse');
+              this._pulseApply(r);
+            } catch { /* transient — keep trying within the cap */ }
+            // Stop once the server is no longer busy, or after ~6 min as a cap
+            // (phase A analysis lands in seconds; phase B monitored-teams refresh
+            // can run several minutes — keep polling so its update paints too).
+            if (!this.pulse.busy || this.pulse._pollTries >= 90) {
+              this.pulse._polling = false;
+              this.pulse._pollTimer = null;
+              return;
+            }
+            this.pulse._pollTimer = setTimeout(tick, 4000);
+          };
+          w._pollTimer = setTimeout(tick, 3500);
+        },
+        // ---- Issue #4: Teams/channel monitoring picker ----------------------
+        // The saved selection folds selected channels' recent activity ON TOP of
+        // Pulse.AI's existing cross-Teams @mention surfacing.
+        pulseMonitorOpen() {
+          const m = this.pulse.monitor;
+          m.open = true;
+          m.q = '';
+          if (!m.teams.length) this.pulseLoadTeams(false);
+          else this._pulseSyncSelFromSaved();
+          this.$nextTick(() => { const d = this.$refs && this.$refs.pulseMonDlg; if (d && !d.open) { try { d.showModal(); } catch { d.setAttribute('open',''); } } });
+        },
+        pulseMonitorClose() {
+          const m = this.pulse.monitor;
+          m.open = false;
+          const d = this.$refs && this.$refs.pulseMonDlg;
+          if (d && d.open) { try { d.close(); } catch { d.removeAttribute('open'); } }
+        },
+        async pulseLoadTeams(refresh) {
+          const m = this.pulse.monitor;
+          m.loading = true;
+          try {
+            const r = await this.request('/api/me-ai/pulse/teams' + (refresh ? '?refresh=1' : ''));
+            m.teams = (r && Array.isArray(r.teams)) ? r.teams : [];
+            m.gatheredAt = (r && r.gatheredAt) || '';
+            // Seed the working selection from the server's saved selection.
+            m.sel = {};
+            const sel = (r && Array.isArray(r.selection)) ? r.selection : [];
+            for (const s of sel) {
+              if (!s || !s.teamId) continue;
+              m.sel[s.teamId] = { teamName: s.teamName || '', channels: Array.isArray(s.channels) && s.channels.length ? s.channels.map(c => ({ id: c.id, name: c.name || c.displayName || '' })) : null };
+            }
+            this.pulse.monitorCount = Object.keys(m.sel).length;
+          } catch (e) {
+            this.toast('Could not load your Teams: ' + (e.message || e), 'error');
+          } finally {
+            m.loading = false;
+          }
+        },
+        _pulseSyncSelFromSaved() {
+          // Re-open resets working edits back to the saved selection.
+          this.pulseLoadTeams(false);
+        },
+        pulseTeamsFiltered() {
+          const m = this.pulse.monitor;
+          const q = (m.q || '').trim().toLowerCase();
+          if (!q) return m.teams;
+          return m.teams.filter(t => String(t.displayName || '').toLowerCase().includes(q));
+        },
+        pulseTeamOn(teamId) { return !!this.pulse.monitor.sel[teamId]; },
+        pulseToggleTeam(t) {
+          const m = this.pulse.monitor;
+          if (m.sel[t.id]) { delete m.sel[t.id]; m.expanded[t.id] = false; }
+          else { m.sel[t.id] = { teamName: t.displayName || '', channels: null }; this.pulseToggleExpand(t, true); }
+        },
+        pulseToggleExpand(t, forceOpen) {
+          const m = this.pulse.monitor;
+          const open = forceOpen ? true : !m.expanded[t.id];
+          m.expanded[t.id] = open;
+        },
+        async pulseLoadChannels(teamId, teamName) {
+          const m = this.pulse.monitor;
+          if (m.channels[teamId] || m.chanLoading[teamId]) return;
+          m.chanLoading[teamId] = true;
+          try {
+            const r = await this.request('/api/me-ai/pulse/teams/' + encodeURIComponent(teamId) + '/channels');
+            m.channels[teamId] = (r && Array.isArray(r.channels)) ? r.channels : [];
+          } catch (e) {
+            m.channels[teamId] = [];
+            this.toast('Could not load channels for ' + (teamName || 'team') + ': ' + (e.message || e), 'error');
+          } finally {
+            m.chanLoading[teamId] = false;
+          }
+        },
+        pulseTeamMode(teamId) {
+          const s = this.pulse.monitor.sel[teamId];
+          return (s && Array.isArray(s.channels)) ? 'specific' : 'all';
+        },
+        pulseSetTeamMode(t, mode) {
+          const m = this.pulse.monitor;
+          const s = m.sel[t.id];
+          if (!s) return;
+          if (mode === 'all') { s.channels = null; }
+          else { if (!Array.isArray(s.channels)) s.channels = []; if (!m.channels[t.id]) this.pulseLoadChannels(t.id, t.displayName); }
+        },
+        pulseChannelChecked(teamId, ch) {
+          const s = this.pulse.monitor.sel[teamId];
+          if (!s || !Array.isArray(s.channels)) return false;
+          return s.channels.some(c => c.id === ch.id);
+        },
+        pulseToggleChannel(teamId, ch) {
+          const s = this.pulse.monitor.sel[teamId];
+          if (!s) return;
+          if (!Array.isArray(s.channels)) s.channels = [];
+          const i = s.channels.findIndex(c => c.id === ch.id);
+          if (i >= 0) s.channels.splice(i, 1);
+          else s.channels.push({ id: ch.id, name: ch.displayName || ch.name || '' });
+        },
+        pulseTeamSummary(teamId) {
+          const s = this.pulse.monitor.sel[teamId];
+          if (!s) return '';
+          if (!Array.isArray(s.channels)) return 'All channels';
+          const n = s.channels.length;
+          return n ? (n + (n === 1 ? ' channel' : ' channels')) : 'No channels chosen';
+        },
+        async pulseSaveMonitoring() {
+          const m = this.pulse.monitor;
+          m.saving = true;
+          const teams = Object.keys(m.sel).map(id => {
+            const s = m.sel[id];
+            const out = { teamId: id, teamName: s.teamName || '' };
+            if (Array.isArray(s.channels)) out.channels = s.channels.map(c => ({ id: c.id, name: c.name || '' }));
+            return out;
+          });
+          try {
+            const r = await this.request('/api/me-ai/pulse/monitoring', { method: 'POST', body: JSON.stringify({ teams }) });
+            this.pulse.monitorCount = (r && Array.isArray(r.selection)) ? r.selection.length : teams.length;
+            this.pulseMonitorClose();
+            this.toast(this.pulse.monitorCount ? ('Monitoring ' + this.pulse.monitorCount + (this.pulse.monitorCount === 1 ? ' team' : ' teams')) : 'Monitoring cleared', 'success');
+            // Fold the new selection in on the next read.
+            if (this.pulse.consent && !this.pulse.busy) { this.pulse._autoRefreshed = true; this.pulseRefresh(); }
+          } catch (e) {
+            this.toast('Could not save monitoring: ' + (e.message || e), 'error');
+          } finally {
+            m.saving = false;
           }
         },
         // AI-curated "Worth a look" — resolve each summary key to its live thread; drop any that are gone.
@@ -33858,6 +34501,115 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!s || !Array.isArray(s.worthALook)) return [];
           return s.worthALook.map(it => ({ key: it.key, reason: it.reason || '', warn: !!it.warn, thread: (w._byKey || {})[it.key] || null }))
             .filter(x => x.thread);
+        },
+        // --- Lens views ---------------------------------------------------
+        pulseLenses() {
+          const s = this.pulse.summary;
+          const hasThemes = !!(s && Array.isArray(s.themes) && s.themes.length);
+          const hasWaiting = !!(s && Array.isArray(s.waiting) && s.waiting.length);
+          return [
+            { key: 'focus', label: 'Focus' },
+            { key: 'themes', label: 'Themes', dim: !hasThemes },
+            { key: 'waiting', label: 'Waiting on you', dim: !hasWaiting },
+            { key: 'people', label: 'People' },
+            { key: 'today', label: 'Today' },
+            { key: 'quiet', label: 'FYI' },
+          ];
+        },
+        pulseSetLens(k) { this.pulse.lens = k || 'focus'; },
+        pulseVibeMeta(vibe) {
+          const map = {
+            decision: { label: 'Decision', icon: '⚖', cls: 'v-decision' },
+            attention: { label: 'Needs a look', icon: '⚠', cls: 'v-attention' },
+            'heads-up': { label: 'Heads up', icon: '📌', cls: 'v-heads' },
+            social: { label: 'Team & culture', icon: '💬', cls: 'v-social' },
+            fyi: { label: 'FYI', icon: '·', cls: 'v-fyi' },
+          };
+          return map[vibe] || map.fyi;
+        },
+        pulseThemes() {
+          const w = this.pulse;
+          const s = w.summary;
+          if (!s || !Array.isArray(s.themes)) return [];
+          return s.themes.map(t => {
+            const threads = (Array.isArray(t.keys) ? t.keys : [])
+              .map(k => (w._byKey || {})[k] || null).filter(Boolean);
+            return { key: t.title || 'Theme', title: t.title || 'Theme', blurb: t.blurb || '', vibe: t.vibe || 'fyi', urgency: t.urgency || 'calm', threads };
+          }).filter(t => t.threads.length);
+        },
+        // Per-lens AI analysis (headline + narrative) from the summary. Null when absent (old cache).
+        pulseLensAnalysis(key) {
+          const s = this.pulse.summary;
+          const L = s && s.lenses && s.lenses[key];
+          if (!L) return null;
+          const headline = (L.headline || '').trim();
+          const analysis = (L.analysis || '').trim();
+          if (!headline && !analysis) return null;
+          return { headline, analysis };
+        },
+        // Per-group drill-in state, keyed by a stable group key (theme title / person / bucket / 'fyi').
+        pulseGrpOpen(k) { return !!(this.pulse._open && this.pulse._open[k]); },
+        pulseGrpToggle(k) {
+          if (!this.pulse._open) this.pulse._open = {};
+          this.pulse._open[k] = !this.pulse._open[k];
+        },
+        pulseUrgMeta(urg) {
+          const map = {
+            urgent: { label: 'Urgent', cls: 'u-urgent' },
+            watch: { label: 'Watch', cls: 'u-watch' },
+            calm: { label: '', cls: 'u-calm' },
+          };
+          return map[urg] || map.calm;
+        },
+        pulseWaiting() {
+          const w = this.pulse;
+          const s = w.summary;
+          if (!s || !Array.isArray(s.waiting)) return [];
+          return s.waiting.map(it => ({ key: it.key, reason: it.reason || '', thread: (w._byKey || {})[it.key] || null }))
+            .filter(x => x.thread);
+        },
+        pulsePeople() {
+          const list = this.pulseThreadList();
+          const groups = {};
+          for (const t of list) {
+            const who = (t.from && String(t.from).trim()) || this.pulseWho(t) || 'Unknown';
+            if (!groups[who]) groups[who] = { who, source: t.source, threads: [], latest: 0 };
+            groups[who].threads.push(t);
+            const ts = (typeof t.activityTs === 'number') ? t.activityTs : Date.parse(t.activityTs || '');
+            if (isFinite(ts) && ts > groups[who].latest) groups[who].latest = ts;
+          }
+          return Object.values(groups).sort((a, b) => b.latest - a.latest);
+        },
+        pulseToday() {
+          const list = this.pulseThreadList().slice().sort((a, b) => {
+            const ta = (typeof a.activityTs === 'number') ? a.activityTs : Date.parse(a.activityTs || '');
+            const tb = (typeof b.activityTs === 'number') ? b.activityTs : Date.parse(b.activityTs || '');
+            return (tb || 0) - (ta || 0);
+          });
+          const now = new Date();
+          const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+          const today0 = startOf(now);
+          const yest0 = today0 - 86400000;
+          const week0 = today0 - 6 * 86400000;
+          const buckets = { today: [], yesterday: [], week: [], older: [] };
+          for (const t of list) {
+            const ts = (typeof t.activityTs === 'number') ? t.activityTs : Date.parse(t.activityTs || '');
+            if (!isFinite(ts) || !ts) { buckets.older.push(t); continue; }
+            if (ts >= today0) buckets.today.push(t);
+            else if (ts >= yest0) buckets.yesterday.push(t);
+            else if (ts >= week0) buckets.week.push(t);
+            else buckets.older.push(t);
+          }
+          return [
+            { key: 'today', label: 'Today', threads: buckets.today },
+            { key: 'yesterday', label: 'Yesterday', threads: buckets.yesterday },
+            { key: 'week', label: 'Earlier this week', threads: buckets.week },
+            { key: 'older', label: 'Older', threads: buckets.older },
+          ].filter(b => b.threads.length);
+        },
+        pulseQuietItems() {
+          const worth = new Set(this.pulseWorthList().map(x => x.key));
+          return this.pulseThreadList().filter(t => !worth.has(t.key));
         },
         pulseSummaryText() {
           const s = this.pulse.summary;

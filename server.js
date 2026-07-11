@@ -12026,6 +12026,7 @@ function _meAiConfig(s) {
     strictTriage,
     grouping,
     workItem,
+    pulseTeams: _pulseMonitorSelection(s),
     conflictAutoReport: s.meAiConflictAutoReport !== false,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
@@ -23692,6 +23693,15 @@ const PULSE_DIR = path.join(dataPath('me-ai'), 'pulse');
 const PULSE_STATE_PATH = path.join(PULSE_DIR, 'state.json');
 const PULSE_MTG_DIR = path.join(PULSE_DIR, 'meetings');
 const PULSE_MTG_THROTTLE_MS = 25 * 60 * 1000;
+// Issue #4 — team/channel monitoring. A user-chosen set of Teams teams (optionally
+// narrowed to specific channels) that Pulse.AI reads ambient activity from, ON TOP of
+// the cross-Teams @mention surfacing. The joined-teams + per-team-channels catalog is
+// cached (rarely changes) and the selected channels' recent messages are gathered on
+// refresh into a per-day store, then folded into the assembled thread list.
+const PULSE_TEAMS_PATH = path.join(PULSE_DIR, 'teams-catalog.json');
+const PULSE_MON_DIR = path.join(PULSE_DIR, 'monitored');
+const PULSE_TEAMS_TTL_MS = 24 * 60 * 60 * 1000;   // joined-teams catalog freshness
+const PULSE_MON_THROTTLE_MS = 20 * 60 * 1000;     // monitored-channel gather throttle
 // One-time rebrand migration: adopt state from the former "whats-happening" dir.
 try {
   const _pulseLegacyDir = path.join(dataPath('me-ai'), 'whats-happening');
@@ -23701,7 +23711,9 @@ function _pulseLoadState() {
   try {
     if (!fs.existsSync(PULSE_STATE_PATH)) return { threads: {}, meetings: {}, gatheredAt: '' };
     const v = JSON.parse(fs.readFileSync(PULSE_STATE_PATH, 'utf-8'));
-    return { threads: (v && v.threads) || {}, meetings: (v && v.meetings) || {}, gatheredAt: (v && v.gatheredAt) || '' };
+    const st = { threads: (v && v.threads) || {}, meetings: (v && v.meetings) || {}, gatheredAt: (v && v.gatheredAt) || '' };
+    if (v && v.summary && typeof v.summary === 'object') st.summary = v.summary;
+    return st;
   } catch { return { threads: {}, meetings: {}, gatheredAt: '' }; }
 }
 function _pulseSaveState(st) {
@@ -23759,6 +23771,8 @@ function _pulseIsInteresting(it) {
   // Meeting-derived items live in the Meetings card, not the conversation list.
   const kind = String(it.kind || '').toLowerCase();
   if (kind === 'meeting' || kind === 'meeting-action' || String(it.source || '').toLowerCase() === 'meeting') return false;
+  // Monitored-channel activity is user-chosen — always surface it (add-on-top).
+  if (it.monitored) return true;
   // Must resolve to a chat/email conversation bucket.
   const bucket = _pulseSourceBucket(it);
   if (!bucket) return false;
@@ -23792,29 +23806,35 @@ function _pulseThreadKey(it) {
 // Aggregate recent inbox comms into interesting conversation threads.
 function _pulseGatherThreads(days) {
   const map = new Map();
+  const ingest = (it, date) => {
+    if (!_pulseIsInteresting(it)) return;
+    const key = _pulseThreadKey(it);
+    const ts = Date.parse(it.ts || '') || Date.parse(date) || 0;
+    const bucket = _pulseSourceBucket(it);
+    let th = map.get(key);
+    if (!th) {
+      th = { key, source: bucket, topic: (it.title || '(conversation)').slice(0, 160), channel: it.channel || it.from || '', from: it.from || '', snippet: (it.detail || it.title || '').slice(0, 200), link: it.link || '', mentioned: !!it.directMention, monitored: !!it.monitored, count: 0, activityTs: 0, firstTs: ts || Date.now() };
+      map.set(key, th);
+    }
+    th.count += 1;
+    if (it.directMention) th.mentioned = true;
+    if (it.monitored) th.monitored = true;
+    if (ts >= th.activityTs) {
+      th.activityTs = ts;
+      if (it.detail || it.title) th.snippet = String(it.detail || it.title).slice(0, 200);
+      if (it.link) th.link = it.link;
+      if (it.title) th.topic = String(it.title).slice(0, 160);
+      if (it.channel) th.channel = it.channel;
+      if (it.from) th.from = it.from;
+    }
+    if (ts && ts < th.firstTs) th.firstTs = ts;
+  };
   for (const date of _pulseRecentDays(days || 4)) {
     let inbox; try { inbox = loadInboxForDate(date); } catch { inbox = null; }
-    if (!inbox || !Array.isArray(inbox.items)) continue;
-    for (const it of inbox.items) {
-      if (!_pulseIsInteresting(it)) continue;
-      const key = _pulseThreadKey(it);
-      const ts = Date.parse(it.ts || '') || Date.parse(date) || 0;
-      const bucket = _pulseSourceBucket(it);
-      let th = map.get(key);
-      if (!th) {
-        th = { key, source: bucket, topic: (it.title || '(conversation)').slice(0, 160), channel: it.channel || it.from || '', snippet: (it.detail || it.title || '').slice(0, 200), link: it.link || '', mentioned: !!it.directMention, count: 0, activityTs: 0, firstTs: ts || Date.now() };
-        map.set(key, th);
-      }
-      th.count += 1;
-      if (it.directMention) th.mentioned = true;
-      if (ts >= th.activityTs) {
-        th.activityTs = ts;
-        if (it.detail || it.title) th.snippet = String(it.detail || it.title).slice(0, 200);
-        if (it.link) th.link = it.link;
-        if (it.title) th.topic = String(it.title).slice(0, 160);
-      }
-      if (ts && ts < th.firstTs) th.firstTs = ts;
-    }
+    if (inbox && Array.isArray(inbox.items)) { for (const it of inbox.items) ingest(it, date); }
+    // Add-on-top: activity from the user's selected monitored teams/channels.
+    let mon; try { mon = _pulseLoadMonitored(date); } catch { mon = null; }
+    if (mon && Array.isArray(mon.items)) { for (const it of mon.items) ingest(it, date); }
   }
   return Array.from(map.values()).sort((a, b) => (b.activityTs || 0) - (a.activityTs || 0));
 }
@@ -23858,6 +23878,173 @@ async function _pulseGatherMeetingsLegacy(date, { force = false } = {}) {
     }).filter(Boolean);
   }
   _pulseSaveMtg(date, store);
+  return { store, changed: true };
+}
+// ---- Issue #4: team/channel monitoring -------------------------------------------
+// Joined-teams + per-team-channel catalog, cached (rarely changes). Shape:
+//   { teams:[{id,displayName,channels:[{id,displayName}]|null,channelsAt:ISO}], gatheredAt }
+function _pulseLoadTeamsCatalog() {
+  try {
+    if (!fs.existsSync(PULSE_TEAMS_PATH)) return { teams: [], gatheredAt: '' };
+    const v = JSON.parse(fs.readFileSync(PULSE_TEAMS_PATH, 'utf-8'));
+    return { teams: Array.isArray(v && v.teams) ? v.teams : [], gatheredAt: (v && v.gatheredAt) || '' };
+  } catch { return { teams: [], gatheredAt: '' }; }
+}
+function _pulseSaveTeamsCatalog(cat) {
+  try { fs.mkdirSync(PULSE_DIR, { recursive: true }); fs.writeFileSync(PULSE_TEAMS_PATH, JSON.stringify(cat || { teams: [] }, null, 2)); } catch (_) {}
+  return cat;
+}
+// Refresh the joined-teams list via the collector agent (WorkIQ /me/joinedTeams).
+// Cached for PULSE_TEAMS_TTL_MS; preserves any previously-cached per-team channels.
+async function _pulseGatherTeams({ force = false } = {}) {
+  const cat = _pulseLoadTeamsCatalog();
+  const now = Date.now();
+  if (!force && cat.gatheredAt) {
+    const last = Date.parse(cat.gatheredAt);
+    if (isFinite(last) && (now - last) < PULSE_TEAMS_TTL_MS && cat.teams.length) return cat;
+  }
+  const prompt = 'Using WorkIQ, list the Microsoft Teams TEAMS I have joined. Fetch /me/joinedTeams and $select id,displayName. Return ONLY a JSON array (no prose, no code fence), each element {"id":string,"displayName":string}. If none, return [].';
+  let arr = null;
+  try { arr = _connectExtractJson(await _connectRunAgent('collector', prompt)); } catch (_) { arr = null; }
+  if (Array.isArray(arr)) {
+    const prevById = new Map(cat.teams.map(t => [String(t.id), t]));
+    const seen = new Set();
+    const teams = arr.map((t) => {
+      const id = String((t && t.id) || '').trim();
+      const name = String((t && t.displayName) || '').trim();
+      if (!id || !name || seen.has(id)) return null;
+      seen.add(id);
+      const prev = prevById.get(id);
+      return { id, displayName: name.slice(0, 160), channels: (prev && Array.isArray(prev.channels)) ? prev.channels : null, channelsAt: (prev && prev.channelsAt) || '' };
+    }).filter(Boolean).sort((a, b) => a.displayName.localeCompare(b.displayName));
+    cat.teams = teams;
+    cat.gatheredAt = new Date(now).toISOString();
+    _pulseSaveTeamsCatalog(cat);
+  }
+  return cat;
+}
+// Refresh the channel list for ONE team via the collector agent. Cached on the team.
+async function _pulseGatherChannels(teamId, { force = false } = {}) {
+  const cat = _pulseLoadTeamsCatalog();
+  const team = cat.teams.find(t => String(t.id) === String(teamId));
+  if (!team) return null;
+  const now = Date.now();
+  if (!force && Array.isArray(team.channels) && team.channelsAt) {
+    const last = Date.parse(team.channelsAt);
+    if (isFinite(last) && (now - last) < PULSE_TEAMS_TTL_MS) return team;
+  }
+  const prompt = `Using WorkIQ, list the channels in the Microsoft Teams team named "${team.displayName}" (team id ${team.id}). Fetch /teams/${team.id}/channels and $select id,displayName. Return ONLY a JSON array (no prose, no code fence), each element {"id":string,"displayName":string}. If none, return [].`;
+  let arr = null;
+  try { arr = _connectExtractJson(await _connectRunAgent('collector', prompt)); } catch (_) { arr = null; }
+  if (Array.isArray(arr)) {
+    const seen = new Set();
+    team.channels = arr.map((c) => {
+      const id = String((c && c.id) || '').trim();
+      const name = String((c && c.displayName) || '').trim();
+      if (!id || !name || seen.has(id)) return null;
+      seen.add(id);
+      return { id, displayName: name.slice(0, 160) };
+    }).filter(Boolean);
+    team.channelsAt = new Date(now).toISOString();
+    _pulseSaveTeamsCatalog(cat);
+  }
+  return team;
+}
+// The user's monitoring selection, normalized from settings.meAiPulseTeams.
+//   [{ teamId, teamName, channels: [{id,name}] | null }]   channels null/[] = all channels
+function _pulseMonitorSelection(s) {
+  s = s || settings.getSettings();
+  const raw = Array.isArray(s.meAiPulseTeams) ? s.meAiPulseTeams : [];
+  const out = [];
+  const seen = new Set();
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue;
+    const teamId = String(e.teamId || e.id || '').trim();
+    const teamName = String(e.teamName || e.displayName || '').trim();
+    if (!teamId || seen.has(teamId)) continue;
+    seen.add(teamId);
+    let channels = null;
+    if (Array.isArray(e.channels) && e.channels.length) {
+      const cs = []; const cseen = new Set();
+      for (const c of e.channels) {
+        if (!c || typeof c !== 'object') continue;
+        const id = String(c.id || '').trim();
+        const name = String(c.name || c.displayName || '').trim();
+        if (!id || cseen.has(id)) continue;
+        cseen.add(id);
+        cs.push({ id, name: name.slice(0, 160) });
+      }
+      channels = cs.length ? cs : null;
+    }
+    out.push({ teamId, teamName: teamName.slice(0, 160), channels });
+  }
+  return out;
+}
+function _pulseMonPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(PULSE_MON_DIR, `${safe}.json`);
+}
+function _pulseLoadMonitored(date) {
+  try {
+    const p = _pulseMonPath(date);
+    if (!fs.existsSync(p)) return { date, items: [], gatheredAt: '' };
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return { date, items: Array.isArray(v && v.items) ? v.items : [], gatheredAt: (v && v.gatheredAt) || '' };
+  } catch { return { date, items: [], gatheredAt: '' }; }
+}
+function _pulseSaveMonitored(date, store) {
+  try { fs.mkdirSync(PULSE_MON_DIR, { recursive: true }); fs.writeFileSync(_pulseMonPath(date), JSON.stringify(store || { date, items: [] }, null, 2)); } catch (_) {}
+  return store;
+}
+// Read recent messages from the user's SELECTED teams/channels via the collector.
+// One collector call covering all selections; results cached per local day + throttled.
+async function _pulseGatherMonitored(date, { force = false } = {}) {
+  const sel = _pulseMonitorSelection();
+  const store = _pulseLoadMonitored(date);
+  if (!sel.length) { store.items = []; store.gatheredAt = new Date().toISOString(); _pulseSaveMonitored(date, store); return { store, changed: true }; }
+  const now = Date.now();
+  if (!force && store.gatheredAt) {
+    const last = Date.parse(store.gatheredAt);
+    if (isFinite(last) && (now - last) < PULSE_MON_THROTTLE_MS) return { store, changed: false };
+  }
+  const scope = sel.map((t) => {
+    const chans = (t.channels && t.channels.length) ? t.channels.map(c => c.name || c.id).join(', ') : 'ALL channels';
+    return `- Team "${t.teamName}" (id ${t.teamId}): ${chans}`;
+  }).join('\n');
+  const prompt = [
+    'Using WorkIQ, read the MOST RECENT messages (posted in the last 3 days) from these specific Microsoft Teams team channels:',
+    scope,
+    'For a team listing specific channels, only read those channels. For a team marked "ALL channels", read its channel list first (/teams/{id}/channels) then read recent messages from each.',
+    'Return ONLY a JSON array (no prose, no code fence). Each element: {"teamName":string,"channelName":string,"title":string,"detail":string,"link":string|null,"ts":string|null,"directMention":boolean}.',
+    '"title" is the message subject or a short summary of the post; "detail" is a one-line snippet of the body. "ts" is the ISO 8601 timestamp the message was posted, or null. "directMention" is true only if I am personally @mentioned.',
+    'CRITICAL — "link" MUST be the exact channel-message "webUrl" that WorkIQ returns for THIS message, copied verbatim (fetch the message with $select including webUrl). Never guess or template a URL. If no real webUrl, set link to null.',
+    'Skip pure automated/bot broadcasts (build results, CI, service alerts). If nothing recent, return [].',
+  ].join('\n');
+  let arr = null;
+  try { arr = _connectExtractJson(await _connectRunAgent('collector', prompt)); } catch (_) { arr = null; }
+  store.gatheredAt = new Date(now).toISOString();
+  if (Array.isArray(arr)) {
+    const seen = new Set();
+    store.items = arr.map((m) => {
+      if (!m || typeof m !== 'object') return null;
+      const title = String(m.title || '').trim();
+      if (!title) return null;
+      const team = String(m.teamName || '').trim();
+      const chan = String(m.channelName || '').trim();
+      const link = (m.link && typeof m.link === 'string') ? m.link : '';
+      const ts = (m.ts && typeof m.ts === 'string' && m.ts.trim()) ? m.ts.trim() : '';
+      const dkey = (link || (team + '|' + chan + '|' + title)).toLowerCase();
+      if (seen.has(dkey)) return null;
+      seen.add(dkey);
+      return {
+        kind: 'teams', source: 'monitored', monitored: true,
+        channel: (team && chan) ? (team + ' › ' + chan) : (chan || team).slice(0, 160),
+        title: title.slice(0, 200), detail: String(m.detail || '').slice(0, 200),
+        link, ts, directMention: !!m.directMention,
+      };
+    }).filter(Boolean);
+  }
+  _pulseSaveMonitored(date, store);
   return { store, changed: true };
 }
 // Assemble the view: apply mute/hide state + resurface + "new since seen" flags.
@@ -23927,7 +24114,7 @@ async function _pulseGenerateSummary(view) {
   const meetings = (view && view.meetings) || [];
   const fingerprint = (view && view.fingerprint) || _pulseSummaryFingerprint(threads, meetings);
   if (!threads.length && !meetings.length) {
-    return { fingerprint, summary: '', worthALook: [], quietNote: '', generatedAt: new Date().toISOString(), empty: true };
+    return { fingerprint, summary: '', worthALook: [], themes: [], waiting: [], quietNote: '', lenses: {}, generatedAt: new Date().toISOString(), empty: true };
   }
   const now = Date.now();
   const ago = (ts) => { const t = (typeof ts === 'number') ? ts : Date.parse(ts || ''); if (!isFinite(t) || !t) return ''; const mm = Math.max(0, Math.floor((now - t) / 60000)); if (mm < 60) return mm + 'm ago'; const h = Math.floor(mm / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
@@ -23947,9 +24134,12 @@ async function _pulseGenerateSummary(view) {
     mlines || '(none)',
     '',
     'Return ONLY minified JSON (no prose, no code fence) shaped exactly like:',
-    '{"summary":"2-4 warm sentences in your own voice about what is worth attention and why; end by noting you kept the routine noise (build/CI results, automated broadcasts, service alerts) out of their way","worthALook":[{"key":"<one of the [keys] above>","reason":"one plain sentence on why this is worth a glance","warn":false}],"quietNote":"short phrase naming what you filtered out, e.g. mostly build results and broadcasts"}',
+    '{"summary":"2-4 warm sentences in your own voice about what is worth attention and why; end by noting you kept the routine noise (build/CI results, automated broadcasts, service alerts) out of their way","worthALook":[{"key":"<one of the [keys] above>","reason":"one plain sentence on why this is worth a glance","warn":false}],"quietNote":"short phrase naming what you filtered out, e.g. mostly build results and broadcasts","themes":[{"title":"short human theme name (3-6 words)","blurb":"2-3 sentences of analysis: what is happening in this theme, what is interesting or at stake, and whether it needs the user","vibe":"decision","urgency":"watch","keys":["<keys in this theme>"]}],"waiting":[{"key":"<one of the [keys] above>","reason":"one plain sentence on what is waiting on the user"}],"lenses":{"focus":{"headline":"3-6 word headline","analysis":"2-3 sentence read of what deserves attention right now and why"},"themes":{"headline":"3-6 word headline","analysis":"2-3 sentences on what the themes together reveal — where the energy is, what is interesting or moving"},"waiting":{"headline":"3-6 word headline","analysis":"2-3 sentences on what is waiting on the user overall and what is most pressing"},"people":{"headline":"3-6 word headline","analysis":"2-3 sentences on who is most active and who, if anyone, needs the user"},"today":{"headline":"3-6 word headline","analysis":"2-3 sentences on the shape of activity over the last few days — where the energy is right now"},"fyi":{"headline":"3-6 word headline","analysis":"2-3 sentences on what you kept out of the way and whether any of it quietly matters"}}}',
     '',
     'Rules: worthALook has AT MOST 5 items and ONLY genuinely human/interesting conversations or things quietly waiting on the user. NEVER include build results, CI/pipeline notifications, automated broadcasts, newsletters, or service/incident bot noise. Set warn:true ONLY when something is time-sensitive or clearly waiting on the user. Use ONLY key values that appear in brackets above. If nothing is truly worth attention, return an empty worthALook array and say so calmly in the summary.',
+    'themes: group the conversations into AT MOST 6 natural themes by what they are actually about. Each theme MUST list >=1 key from the brackets; a conversation appears in at most ONE theme; skip pure automated noise. Titles are human and specific (e.g. "helix-machines needs attention", "process change discussion", "welcoming a new teammate", "running jokes"). blurb is 2-3 sentences of real analysis of the theme (not just a label). vibe is EXACTLY one of: decision (a choice/approval is in play), attention (something is at risk or needs a look), heads-up (relevant but informational), social (banter, culture, welcomes), fyi (routine). urgency is EXACTLY one of: urgent (needs the user soon), watch (worth keeping an eye on), calm (informational or social). If there is nothing to cluster, return an empty themes array.',
+    'waiting: AT MOST 6 conversations that genuinely appear to be waiting on THE USER specifically (their reply, decision, review, or action). Only real human asks — NEVER build/CI/bot noise. Use ONLY keys from the brackets. If nothing is waiting on the user, return an empty waiting array.',
+    'lenses: for EACH of the six keys (focus, themes, waiting, people, today, fyi) give a short headline (3-6 words) and a 2-3 sentence analysis in your own warm voice — high-level takeaways, what is interesting, what is urgent — so the user understands that view WITHOUT reading the underlying items. Base it ONLY on the conversations above. If a lens has nothing meaningful, say so calmly in one sentence rather than inventing detail.',
   ].join('\n');
   let acc = '';
   try {
@@ -23968,17 +24158,123 @@ async function _pulseGenerateSummary(view) {
     worthALook.push({ key, reason: String(w.reason || '').slice(0, 240), warn: !!w.warn });
     if (worthALook.length >= PULSE_SUMMARY_MAX_ITEMS) break;
   }
+  const VIBES = new Set(['decision', 'attention', 'heads-up', 'social', 'fyi']);
+  const URG = new Set(['urgent', 'watch', 'calm']);
+  const themes = [];
+  const themedKeys = new Set();
+  for (const th of (Array.isArray(parsed.themes) ? parsed.themes : [])) {
+    if (!th || typeof th !== 'object') continue;
+    const keys = [];
+    for (const k of (Array.isArray(th.keys) ? th.keys : [])) {
+      const key = String(k || '').trim();
+      if (byKey.has(key) && !themedKeys.has(key)) { themedKeys.add(key); keys.push(key); }
+    }
+    if (!keys.length) continue;
+    const vibe = String(th.vibe || '').trim().toLowerCase();
+    const urgency = String(th.urgency || '').trim().toLowerCase();
+    themes.push({
+      title: String(th.title || 'Theme').slice(0, 80),
+      blurb: String(th.blurb || '').slice(0, 400),
+      vibe: VIBES.has(vibe) ? vibe : 'fyi',
+      urgency: URG.has(urgency) ? urgency : 'calm',
+      keys,
+    });
+    if (themes.length >= 6) break;
+  }
+  const waitSeen = new Set();
+  const waiting = [];
+  for (const wt of (Array.isArray(parsed.waiting) ? parsed.waiting : [])) {
+    if (!wt || typeof wt !== 'object') continue;
+    const key = String(wt.key || '').trim();
+    if (!byKey.has(key) || waitSeen.has(key)) continue;
+    waitSeen.add(key);
+    waiting.push({ key, reason: String(wt.reason || '').slice(0, 240) });
+    if (waiting.length >= 6) break;
+  }
+  const lensKeys = ['focus', 'themes', 'waiting', 'people', 'today', 'fyi'];
+  const lenses = {};
+  const pl = (parsed.lenses && typeof parsed.lenses === 'object') ? parsed.lenses : {};
+  for (const lk of lensKeys) {
+    const o = (pl[lk] && typeof pl[lk] === 'object') ? pl[lk] : {};
+    const headline = String(o.headline || '').slice(0, 80);
+    const analysis = String(o.analysis || '').slice(0, 700);
+    if (headline || analysis) lenses[lk] = { headline, analysis };
+  }
   return {
     fingerprint,
     summary: String(parsed.summary || '').slice(0, 900),
     worthALook,
+    themes,
+    waiting,
     quietNote: String(parsed.quietNote || '').slice(0, 160),
+    lenses,
     generatedAt: new Date().toISOString(),
     empty: false,
   };
 }
 
 // GET /api/me-ai/pulse?days=&date= → assembled ambient digest.
+// A Pulse refresh (gather + LLM summary) can take a while. We run it as a
+// single server-side background job rather than tying its lifetime to the HTTP
+// request, so the work survives the user navigating away or reloading the page,
+// and any tab can see it's running. `busy` is surfaced on GET /pulse so a
+// reloaded client shows an accurate "Refreshing…" state and picks up the result
+// when it lands — no need to stay on the page.
+let _pulseRefreshBusy = false;
+let _pulseRefreshStartedAt = 0;
+let _pulseStage = ''; // '' | 'analyzing' | 'monitoring' — surfaced so the UI can show progress
+const _PULSE_REFRESH_MAX_MS = 10 * 60000; // safety cap: stale in-flight flag never sticks forever
+function _pulseIsBusy() {
+  return _pulseRefreshBusy && (Date.now() - _pulseRefreshStartedAt) < _PULSE_REFRESH_MAX_MS;
+}
+// Analyze the currently-assembled activity and persist the summary. Returns the
+// resulting fingerprint (or '' if nothing to analyze / no consent).
+async function _pulseAnalyzeAndSave(days, date, cfg) {
+  const view = _pulseAssemble(days, date);
+  let summary = null;
+  if (cfg.consent) { try { summary = await _pulseGenerateSummary(view); } catch (_) { summary = null; } }
+  const st = _pulseLoadState();
+  st.gatheredAt = new Date().toISOString();
+  if (summary && summary.fingerprint) st.summary = summary;
+  _pulseSaveState(st);
+  return view.fingerprint || '';
+}
+async function _pulseRunRefresh({ date, days, force }) {
+  if (_pulseRefreshBusy) return; // one at a time
+  _pulseRefreshBusy = true;
+  _pulseRefreshStartedAt = Date.now();
+  _pulseStage = 'analyzing';
+  try {
+    const cfg = _meAiConfig();
+    _meAiLastActive = Date.now();
+    // PHASE A (fast, ~seconds): analyze the activity we ALREADY have on disk —
+    // the triage inbox's gathered comms (loadInboxForDate), the shared meeting
+    // store, and the last-cached monitored-teams items. No WorkIQ calls here, so
+    // the analysis paints almost immediately instead of waiting on slow gathers.
+    const beforeFp = await _pulseAnalyzeAndSave(days, date, cfg);
+    // PHASE B (slow, minutes): refresh the sources that need live WorkIQ reads —
+    // meeting recaps and the user's monitored Teams channels — then RE-analyze
+    // only if that actually changed the assembled activity. Runs in the same
+    // background job so the client keeps seeing busy:true and picks up the update.
+    if (cfg.consent) {
+      const sel = _pulseMonitorSelection();
+      if (sel.length || force) {
+        _pulseStage = 'monitoring';
+        try { await _pulseGatherMeetings(date, { force }); } catch (_) {}
+        try { await _pulseGatherMonitored(date, { force }); } catch (_) {}
+        const afterFp = _pulseAssemble(days, date).fingerprint || '';
+        if (afterFp !== beforeFp) {
+          _pulseStage = 'analyzing';
+          await _pulseAnalyzeAndSave(days, date, cfg);
+        }
+      }
+    }
+  } finally {
+    _pulseRefreshBusy = false;
+    _pulseStage = '';
+  }
+}
+
 app.get('/api/me-ai/pulse', (req, res) => {
   try {
     const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 4));
@@ -23988,27 +24284,29 @@ app.get('/api/me-ai/pulse', (req, res) => {
     const stg = _pulseLoadState();
     const summary = (stg.summary && stg.summary.fingerprint) ? stg.summary : null;
     const summaryStale = !summary || summary.fingerprint !== view.fingerprint;
-    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale });
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, busy: _pulseIsBusy(), stage: _pulseStage });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/pulse/refresh { date? } → poll M365 for meeting
-// summaries now (throttled) and return the freshly-assembled digest.
+// POST /api/me-ai/pulse/refresh { date? } → kick a background gather + summary
+// and return immediately with the current (cached) view plus busy:true. The
+// heavy work runs server-side; clients poll GET /pulse to pick up the result.
 app.post('/api/me-ai/pulse/refresh', async (req, res) => {
   try {
     const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     const days = Math.max(1, Math.min(30, parseInt((req.body && req.body.days), 10) || 4));
-    const cfg = _meAiConfig();
+    const force = !!(req.body && req.body.force);
     _meAiLastActive = Date.now();
-    if (cfg.consent) { try { await _pulseGatherMeetings(date, { force: !!(req.body && req.body.force) }); } catch (_) {} }
+    // Fire-and-forget: start the job (unless one is already running) but don't
+    // await it, so the request returns fast and the run isn't cancelled when
+    // the client disconnects.
+    if (!_pulseRefreshBusy) { _pulseRunRefresh({ date, days, force }).catch(() => {}); }
     const view = _pulseAssemble(days, date);
-    let summary = null;
-    if (cfg.consent) { try { summary = await _pulseGenerateSummary(view); } catch (_) { summary = null; } }
-    const st = _pulseLoadState();
-    st.gatheredAt = new Date().toISOString();
-    if (summary && summary.fingerprint) st.summary = summary;
-    _pulseSaveState(st);
-    res.json({ ok: true, consent: !!cfg.consent, ...view, summary: (st.summary && st.summary.fingerprint) ? st.summary : null, summaryStale: false });
+    const cfg = _meAiConfig();
+    const stg = _pulseLoadState();
+    const summary = (stg.summary && stg.summary.fingerprint) ? stg.summary : null;
+    const summaryStale = !summary || summary.fingerprint !== view.fingerprint;
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, busy: true, stage: _pulseStage || 'analyzing' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -24071,6 +24369,78 @@ app.post('/api/me-ai/pulse/seen', (req, res) => {
     }
     _pulseSaveState(st);
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/pulse/teams?refresh=1 → the user's joined-teams catalog + current
+// monitoring selection. Cached (teams rarely change); refresh=1 forces a WorkIQ poll.
+app.get('/api/me-ai/pulse/teams', async (req, res) => {
+  try {
+    const cfg = _meAiConfig();
+    if (!cfg.consent) return res.json({ ok: true, consent: false, teams: [], selection: [], gatheredAt: '' });
+    const force = String(req.query.refresh || '') === '1';
+    const cat = await _pulseGatherTeams({ force });
+    const selection = _pulseMonitorSelection();
+    const teams = (cat.teams || []).map(t => ({ id: t.id, displayName: t.displayName, hasChannels: Array.isArray(t.channels) }));
+    res.json({ ok: true, consent: true, teams, selection, gatheredAt: cat.gatheredAt || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/pulse/teams/:id/channels?refresh=1 → channels for one team (lazy).
+app.get('/api/me-ai/pulse/teams/:id/channels', async (req, res) => {
+  try {
+    const cfg = _meAiConfig();
+    if (!cfg.consent) return res.json({ ok: true, consent: false, channels: [] });
+    const force = String(req.query.refresh || '') === '1';
+    const team = await _pulseGatherChannels(String(req.params.id || ''), { force });
+    if (!team) return res.status(404).json({ error: 'team not found' });
+    const channels = Array.isArray(team.channels) ? team.channels.map(c => ({ id: c.id, displayName: c.displayName })) : [];
+    res.json({ ok: true, consent: true, teamId: team.id, teamName: team.displayName, channels });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/pulse/monitoring → current selection.
+// POST /api/me-ai/pulse/monitoring { teams:[{teamId,teamName,channels?:[{id,name}]}] }
+//   → validate + persist the selection, kick a background monitored gather.
+app.get('/api/me-ai/pulse/monitoring', (req, res) => {
+  try { res.json({ ok: true, selection: _pulseMonitorSelection() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/me-ai/pulse/monitoring', async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body && req.body.teams) ? req.body.teams : [];
+    const clean = [];
+    const seen = new Set();
+    for (const e of raw.slice(0, 100)) {
+      if (!e || typeof e !== 'object') continue;
+      const teamId = String(e.teamId || e.id || '').trim();
+      const teamName = String(e.teamName || e.displayName || '').trim();
+      if (!teamId || seen.has(teamId)) continue;
+      seen.add(teamId);
+      let channels = null;
+      if (Array.isArray(e.channels) && e.channels.length) {
+        const cs = []; const cseen = new Set();
+        for (const c of e.channels.slice(0, 200)) {
+          if (!c || typeof c !== 'object') continue;
+          const id = String(c.id || '').trim();
+          const name = String(c.name || c.displayName || '').trim();
+          if (!id || cseen.has(id)) continue;
+          cseen.add(id);
+          cs.push({ id, name: name.slice(0, 160) });
+        }
+        channels = cs.length ? cs : null;
+      }
+      clean.push({ teamId, teamName: teamName.slice(0, 160), channels });
+    }
+    settings.updateSettings({ meAiPulseTeams: clean });
+    const selection = _pulseMonitorSelection();
+    // Kick a background gather so the newly-selected channels start surfacing.
+    const cfg = _meAiConfig();
+    if (cfg.consent) {
+      const date = _meAiLocalDay();
+      _pulseGatherMonitored(date, { force: true }).catch(() => {});
+    }
+    res.json({ ok: true, selection });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

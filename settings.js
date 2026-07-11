@@ -203,6 +203,11 @@ const DEFAULTS = {
   // (review|steward|focus|comms|admin|prep) → 'morning' | 'afternoon' | ''.
   // Biases ordering so preferred-morning work lands earlier; also fed to refine.
   meAiTimePrefs: {},
+  // Issue #4: Pulse.AI Teams/channel monitoring selection. Array of
+  // {teamId, teamName, channels:[{id,name}]|null} — channels null/empty = ALL
+  // channels in that team. Selected channels' recent activity folds ON TOP of
+  // the existing cross-Teams @mention surfacing in Pulse.AI (add-on-top).
+  meAiPulseTeams: [],
   // --- Phase 2: confidence-scored auto-triage ------------------------------
   // When enabled, high-confidence attention-inbox decisions auto-apply (with
   // one-click undo) instead of asking. Per-action tiers map each triage action
