@@ -13802,7 +13802,7 @@ async function _meAiGatherMeetingActions(date, { force = false } = {}) {
     let changed = true; // lastGatherAt moved
     if (!Array.isArray(arr)) { saveMtgActStore(date, store); return { signals: [], store, changed }; }
     const signals = [];
-    // Shared recap store (What's happening reads these instead of its own collector query).
+    // Shared recap store (Pulse.AI reads these instead of its own collector query).
     store.meetings = store.meetings || {};
     for (const m of arr) {
       if (!m || typeof m !== 'object') continue;
@@ -23680,7 +23680,7 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ===== What's happening ========================================================
+// ===== Pulse.AI ========================================================
 // An ambient, non-triage digest of team conversations worth staying close to —
 // Teams channels/chats + email threads that are NOT on your agenda/todos/goals and
 // NOT actionable-for-you (those flow through the attention inbox), plus recent
@@ -23688,40 +23688,45 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
 // tracked by Code Flow). Muting a thread hides it but it RESURFACES with a "new
 // activity" flag if the conversation continues; "not interesting" is a stronger,
 // persistent hide.
-const WH_DIR = path.join(dataPath('me-ai'), 'whats-happening');
-const WH_STATE_PATH = path.join(WH_DIR, 'state.json');
-const WH_MTG_DIR = path.join(WH_DIR, 'meetings');
-const WH_MTG_THROTTLE_MS = 25 * 60 * 1000;
-function _whLoadState() {
+const PULSE_DIR = path.join(dataPath('me-ai'), 'pulse');
+const PULSE_STATE_PATH = path.join(PULSE_DIR, 'state.json');
+const PULSE_MTG_DIR = path.join(PULSE_DIR, 'meetings');
+const PULSE_MTG_THROTTLE_MS = 25 * 60 * 1000;
+// One-time rebrand migration: adopt state from the former "whats-happening" dir.
+try {
+  const _pulseLegacyDir = path.join(dataPath('me-ai'), 'whats-happening');
+  if (!fs.existsSync(PULSE_DIR) && fs.existsSync(_pulseLegacyDir)) { fs.renameSync(_pulseLegacyDir, PULSE_DIR); }
+} catch (_) {}
+function _pulseLoadState() {
   try {
-    if (!fs.existsSync(WH_STATE_PATH)) return { threads: {}, meetings: {}, gatheredAt: '' };
-    const v = JSON.parse(fs.readFileSync(WH_STATE_PATH, 'utf-8'));
+    if (!fs.existsSync(PULSE_STATE_PATH)) return { threads: {}, meetings: {}, gatheredAt: '' };
+    const v = JSON.parse(fs.readFileSync(PULSE_STATE_PATH, 'utf-8'));
     return { threads: (v && v.threads) || {}, meetings: (v && v.meetings) || {}, gatheredAt: (v && v.gatheredAt) || '' };
   } catch { return { threads: {}, meetings: {}, gatheredAt: '' }; }
 }
-function _whSaveState(st) {
-  try { fs.mkdirSync(WH_DIR, { recursive: true }); fs.writeFileSync(WH_STATE_PATH, JSON.stringify(st || { threads: {}, meetings: {} }, null, 2)); } catch (_) {}
+function _pulseSaveState(st) {
+  try { fs.mkdirSync(PULSE_DIR, { recursive: true }); fs.writeFileSync(PULSE_STATE_PATH, JSON.stringify(st || { threads: {}, meetings: {} }, null, 2)); } catch (_) {}
   return st;
 }
-function _whMtgPath(date) {
+function _pulseMtgPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
-  return path.join(WH_MTG_DIR, `${safe}.json`);
+  return path.join(PULSE_MTG_DIR, `${safe}.json`);
 }
-function _whLoadMtg(date) {
+function _pulseLoadMtg(date) {
   try {
-    const p = _whMtgPath(date);
+    const p = _pulseMtgPath(date);
     if (!fs.existsSync(p)) return { date, meetings: [], gatheredAt: '' };
     const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
     if (v && Array.isArray(v.meetings)) return v;
     return { date, meetings: [], gatheredAt: '' };
   } catch { return { date, meetings: [], gatheredAt: '' }; }
 }
-function _whSaveMtg(date, store) {
-  try { fs.mkdirSync(WH_MTG_DIR, { recursive: true }); fs.writeFileSync(_whMtgPath(date), JSON.stringify(store || { date, meetings: [] }, null, 2)); } catch (_) {}
+function _pulseSaveMtg(date, store) {
+  try { fs.mkdirSync(PULSE_MTG_DIR, { recursive: true }); fs.writeFileSync(_pulseMtgPath(date), JSON.stringify(store || { date, meetings: [] }, null, 2)); } catch (_) {}
   return store;
 }
 // Recent local days (today back N-1 days), newest first.
-function _whRecentDays(n) {
+function _pulseRecentDays(n) {
   const out = [];
   const base = new Date();
   for (let i = 0; i < n; i++) {
@@ -23731,7 +23736,7 @@ function _whRecentDays(n) {
   return out;
 }
 // Source bucket for an inbox comms item: 'teams' | 'email' | null (uninteresting here).
-function _whSourceBucket(it) {
+function _pulseSourceBucket(it) {
   const kind = String((it && it.kind) || '').toLowerCase();
   if (kind === 'teams' || kind === 'chat') return 'teams';
   if (kind === 'email' || kind === 'mail') return 'email';
@@ -23746,16 +23751,16 @@ function _whSourceBucket(it) {
   }
   return null;
 }
-// A comms item that belongs in "What's happening": a team conversation worth
+// A comms item that belongs in "Pulse.AI": a team conversation worth
 // knowing about but NOT an actionable ask (those live in the inbox/agenda) and NOT
 // a PR review (tracked by Code Flow).
-function _whIsInteresting(it) {
+function _pulseIsInteresting(it) {
   if (!it) return false;
   // Meeting-derived items live in the Meetings card, not the conversation list.
   const kind = String(it.kind || '').toLowerCase();
   if (kind === 'meeting' || kind === 'meeting-action' || String(it.source || '').toLowerCase() === 'meeting') return false;
   // Must resolve to a chat/email conversation bucket.
-  const bucket = _whSourceBucket(it);
+  const bucket = _pulseSourceBucket(it);
   if (!bucket) return false;
   const hay = ((it.title || '') + ' ' + (it.detail || '') + ' ' + (it.link || '') + ' ' + (it.prLink || '')).toLowerCase();
   // Exclude PR review requests / GitHub PR pings — Code Flow owns those.
@@ -23771,30 +23776,30 @@ function _whIsInteresting(it) {
   // Untriaged ("new") items may still become agenda items — wait until parked.
   return false;
 }
-function _whTopicTokens(s) {
+function _pulseTopicTokens(s) {
   const STOP = new Set(['the', 'a', 'an', 'to', 'of', 'and', 'or', 'for', 'in', 'on', 'is', 'are', 're', 'fwd', 'fw', 'about', 'regarding', 'update', 'updated', 'new', 'from', 'with']);
   return String(s || '').toLowerCase().replace(/[^a-z0-9\s]+/g, ' ').split(/\s+/).filter(w => w.length > 2 && !STOP.has(w)).slice(0, 6);
 }
-function _whThreadKey(it) {
+function _pulseThreadKey(it) {
   const crypto = require('crypto');
   const explicit = String((it && (it.threadId || it.conversationId)) || '').trim();
   if (explicit) return 'wh:' + crypto.createHash('sha1').update(explicit.toLowerCase()).digest('hex').slice(0, 12);
   const chan = String((it && (it.channel || it.from)) || '').toLowerCase().trim();
-  const toks = _whTopicTokens((it && it.title) || '').join(' ');
+  const toks = _pulseTopicTokens((it && it.title) || '').join(' ');
   const seed = (chan + '|' + toks) || String((it && it.title) || '');
   return 'wh:' + crypto.createHash('sha1').update(seed).digest('hex').slice(0, 12);
 }
 // Aggregate recent inbox comms into interesting conversation threads.
-function _whGatherThreads(days) {
+function _pulseGatherThreads(days) {
   const map = new Map();
-  for (const date of _whRecentDays(days || 4)) {
+  for (const date of _pulseRecentDays(days || 4)) {
     let inbox; try { inbox = loadInboxForDate(date); } catch { inbox = null; }
     if (!inbox || !Array.isArray(inbox.items)) continue;
     for (const it of inbox.items) {
-      if (!_whIsInteresting(it)) continue;
-      const key = _whThreadKey(it);
+      if (!_pulseIsInteresting(it)) continue;
+      const key = _pulseThreadKey(it);
       const ts = Date.parse(it.ts || '') || Date.parse(date) || 0;
-      const bucket = _whSourceBucket(it);
+      const bucket = _pulseSourceBucket(it);
       let th = map.get(key);
       if (!th) {
         th = { key, source: bucket, topic: (it.title || '(conversation)').slice(0, 160), channel: it.channel || it.from || '', snippet: (it.detail || it.title || '').slice(0, 200), link: it.link || '', mentioned: !!it.directMention, count: 0, activityTs: 0, firstTs: ts || Date.now() };
@@ -23814,8 +23819,8 @@ function _whGatherThreads(days) {
   return Array.from(map.values()).sort((a, b) => (b.activityTs || 0) - (a.activityTs || 0));
 }
 // Collector-driven meeting summaries + my action items for recent ended meetings.
-async function _whGatherMeetings(date, { force = false } = {}) {
-  // Deduped: What's happening no longer runs its OWN collector query for meeting
+async function _pulseGatherMeetings(date, { force = false } = {}) {
+  // Deduped: Pulse.AI no longer runs its OWN collector query for meeting
   // recaps. It reuses the me.ai meeting-actions gather (_meAiGatherMeetingActions) —
   // the same ended/recorded-meeting WorkIQ query the inbox already runs — which now
   // also persists per-meeting summary + highlights into its shared store. Zero extra
@@ -23823,12 +23828,12 @@ async function _whGatherMeetings(date, { force = false } = {}) {
   try { await _meAiGatherMeetingActions(date, { force }); } catch (_) {}
   return { store: loadMtgActStore(date), changed: true };
 }
-async function _whGatherMeetingsLegacy(date, { force = false } = {}) {
-  const store = _whLoadMtg(date);
+async function _pulseGatherMeetingsLegacy(date, { force = false } = {}) {
+  const store = _pulseLoadMtg(date);
   const now = Date.now();
   if (!force && store.gatheredAt) {
     const last = Date.parse(store.gatheredAt);
-    if (isFinite(last) && (now - last) < WH_MTG_THROTTLE_MS) return { store, changed: false };
+    if (isFinite(last) && (now - last) < PULSE_MTG_THROTTLE_MS) return { store, changed: false };
   }
   const prompt = `For ${date}, using WorkIQ, find calendar meetings I attended that have ALREADY ENDED and have a recording OR transcript available. For each, produce a SHORT plain-language summary (2-3 sentences) of what happened, up to 4 key highlights/decisions, and the action items assigned to ME. Return ONLY a JSON array (no prose, no code fence). Each element: {"meetingId":string,"meeting":string,"end":"HH:MM"|null,"summary":string,"highlights":[string],"actions":[{"text":string,"due":string|null}],"recordingUrl":string|null,"webLink":string|null}. "meetingId" is a STABLE unique id (calendar event id or iCalUId). "webLink" opens the event in Outlook/OWA (NOT the join URL). ONLY meetings that have ENDED and have a recording/transcript. If none, return [].`;
   let arr = null;
@@ -23852,13 +23857,13 @@ async function _whGatherMeetingsLegacy(date, { force = false } = {}) {
       };
     }).filter(Boolean);
   }
-  _whSaveMtg(date, store);
+  _pulseSaveMtg(date, store);
   return { store, changed: true };
 }
 // Assemble the view: apply mute/hide state + resurface + "new since seen" flags.
-function _whAssemble(days, date) {
-  const st = _whLoadState();
-  const rawThreads = _whGatherThreads(days);
+function _pulseAssemble(days, date) {
+  const st = _pulseLoadState();
+  const rawThreads = _pulseGatherThreads(days);
   const visible = [];
   const muted = [];
   let mutedCount = 0;
@@ -23881,10 +23886,10 @@ function _whAssemble(days, date) {
   }
   // Merge cached meeting recaps across the recent window (dedupe by id), newest first.
   // These come from the SHARED me.ai meeting-actions store (loadMtgActStore) — the same
-  // ended/recorded-meeting gather the inbox uses — so What's happening spends ZERO extra
+  // ended/recorded-meeting gather the inbox uses — so Pulse.AI spends ZERO extra
   // WorkIQ calls of its own.
   const mByKey = new Map();
-  for (const d of _whRecentDays(days || 4)) {
+  for (const d of _pulseRecentDays(days || 4)) {
     let mstore; try { mstore = loadMtgActStore(d); } catch (_) { mstore = null; }
     const mm = (mstore && mstore.meetings && typeof mstore.meetings === 'object') ? mstore.meetings : {};
     for (const id of Object.keys(mm)) {
@@ -23902,7 +23907,7 @@ function _whAssemble(days, date) {
     email: visible.filter(t => t.source === 'email').length,
     mentions: visible.filter(t => t.mentioned).length,
   };
-  const fingerprint = _whSummaryFingerprint(visible, meetings);
+  const fingerprint = _pulseSummaryFingerprint(visible, meetings);
   return { threads: visible, muted, meetings, mutedCount, counts, fingerprint, gatheredAt: st.gatheredAt || '' };
 }
 
@@ -23911,16 +23916,16 @@ function _whAssemble(days, date) {
 // returns a short warm read + up to 5 "worth a look" items. Cached in WH state keyed
 // by a content fingerprint so it doesn't re-run on every page load — only when the
 // ambient activity actually changes (or the user forces a refresh).
-const WH_SUMMARY_MAX_ITEMS = 5;
-function _whSummaryFingerprint(threads, meetings) {
+const PULSE_SUMMARY_MAX_ITEMS = 5;
+function _pulseSummaryFingerprint(threads, meetings) {
   const t = (threads || []).map(x => x.key + ':' + (x.activityTs || 0) + ':' + (x.count || 0) + ':' + (x.hasNew ? 1 : 0)).sort().join('|');
   const m = (meetings || []).map(x => String(x.id) + ':' + ((x.actions || []).length)).sort().join('|');
   return require('crypto').createHash('sha1').update(t + '#' + m).digest('hex').slice(0, 16);
 }
-async function _whGenerateSummary(view) {
+async function _pulseGenerateSummary(view) {
   const threads = (view && view.threads) || [];
   const meetings = (view && view.meetings) || [];
-  const fingerprint = (view && view.fingerprint) || _whSummaryFingerprint(threads, meetings);
+  const fingerprint = (view && view.fingerprint) || _pulseSummaryFingerprint(threads, meetings);
   if (!threads.length && !meetings.length) {
     return { fingerprint, summary: '', worthALook: [], quietNote: '', generatedAt: new Date().toISOString(), empty: true };
   }
@@ -23961,7 +23966,7 @@ async function _whGenerateSummary(view) {
     if (!byKey.has(key) || seen.has(key)) continue;
     seen.add(key);
     worthALook.push({ key, reason: String(w.reason || '').slice(0, 240), warn: !!w.warn });
-    if (worthALook.length >= WH_SUMMARY_MAX_ITEMS) break;
+    if (worthALook.length >= PULSE_SUMMARY_MAX_ITEMS) break;
   }
   return {
     fingerprint,
@@ -23973,51 +23978,51 @@ async function _whGenerateSummary(view) {
   };
 }
 
-// GET /api/me-ai/whats-happening?days=&date= → assembled ambient digest.
-app.get('/api/me-ai/whats-happening', (req, res) => {
+// GET /api/me-ai/pulse?days=&date= → assembled ambient digest.
+app.get('/api/me-ai/pulse', (req, res) => {
   try {
     const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 4));
     const date = String(req.query.date || '').slice(0, 10) || _meAiLocalDay();
-    const view = _whAssemble(days, date);
+    const view = _pulseAssemble(days, date);
     const cfg = _meAiConfig();
-    const stg = _whLoadState();
+    const stg = _pulseLoadState();
     const summary = (stg.summary && stg.summary.fingerprint) ? stg.summary : null;
     const summaryStale = !summary || summary.fingerprint !== view.fingerprint;
     res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/whats-happening/refresh { date? } → poll M365 for meeting
+// POST /api/me-ai/pulse/refresh { date? } → poll M365 for meeting
 // summaries now (throttled) and return the freshly-assembled digest.
-app.post('/api/me-ai/whats-happening/refresh', async (req, res) => {
+app.post('/api/me-ai/pulse/refresh', async (req, res) => {
   try {
     const date = String((req.body && req.body.date) || '').slice(0, 10) || _meAiLocalDay();
     const days = Math.max(1, Math.min(30, parseInt((req.body && req.body.days), 10) || 4));
     const cfg = _meAiConfig();
     _meAiLastActive = Date.now();
-    if (cfg.consent) { try { await _whGatherMeetings(date, { force: !!(req.body && req.body.force) }); } catch (_) {} }
-    const view = _whAssemble(days, date);
+    if (cfg.consent) { try { await _pulseGatherMeetings(date, { force: !!(req.body && req.body.force) }); } catch (_) {} }
+    const view = _pulseAssemble(days, date);
     let summary = null;
-    if (cfg.consent) { try { summary = await _whGenerateSummary(view); } catch (_) { summary = null; } }
-    const st = _whLoadState();
+    if (cfg.consent) { try { summary = await _pulseGenerateSummary(view); } catch (_) { summary = null; } }
+    const st = _pulseLoadState();
     st.gatheredAt = new Date().toISOString();
     if (summary && summary.fingerprint) st.summary = summary;
-    _whSaveState(st);
+    _pulseSaveState(st);
     res.json({ ok: true, consent: !!cfg.consent, ...view, summary: (st.summary && st.summary.fingerprint) ? st.summary : null, summaryStale: false });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/whats-happening/thread { key, action } → mute | unmute | hide.
+// POST /api/me-ai/pulse/thread { key, action } → mute | unmute | hide.
 // mute: hide but resurface on new activity. hide: "not interesting" (persistent).
-app.post('/api/me-ai/whats-happening/thread', (req, res) => {
+app.post('/api/me-ai/pulse/thread', (req, res) => {
   try {
     const b = req.body || {};
     const key = String(b.key || '').trim();
     const action = String(b.action || '').trim();
     if (!key) return res.status(400).json({ error: 'key required' });
-    const st = _whLoadState();
+    const st = _pulseLoadState();
     // Snapshot the thread's current activity so a later reply can trigger a resurface.
-    const cur = _whGatherThreads(10).find(t => t.key === key) || null;
+    const cur = _pulseGatherThreads(10).find(t => t.key === key) || null;
     const now = new Date().toISOString();
     if (action === 'unmute') {
       delete st.threads[key];
@@ -24028,34 +24033,34 @@ app.post('/api/me-ai/whats-happening/thread', (req, res) => {
     } else {
       return res.status(400).json({ error: 'action must be mute | unmute | hide' });
     }
-    _whSaveState(st);
+    _pulseSaveState(st);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/whats-happening/meeting { id, action } → hide | unhide a meeting card.
-app.post('/api/me-ai/whats-happening/meeting', (req, res) => {
+// POST /api/me-ai/pulse/meeting { id, action } → hide | unhide a meeting card.
+app.post('/api/me-ai/pulse/meeting', (req, res) => {
   try {
     const b = req.body || {};
     const id = String(b.id || '').trim();
     const action = String(b.action || '').trim();
     if (!id) return res.status(400).json({ error: 'id required' });
-    const st = _whLoadState();
+    const st = _pulseLoadState();
     if (action === 'unhide') delete st.meetings[id];
     else if (action === 'hide') st.meetings[id] = { state: 'hidden', at: new Date().toISOString() };
     else return res.status(400).json({ error: 'action must be hide | unhide' });
-    _whSaveState(st);
+    _pulseSaveState(st);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/whats-happening/seen { keys?[] } → clear "new since you looked"
+// POST /api/me-ai/pulse/seen { keys?[] } → clear "new since you looked"
 // markers by recording the current activity timestamp as seen (all when keys omitted).
-app.post('/api/me-ai/whats-happening/seen', (req, res) => {
+app.post('/api/me-ai/pulse/seen', (req, res) => {
   try {
     const keys = Array.isArray(req.body && req.body.keys) ? req.body.keys.map(String) : null;
-    const st = _whLoadState();
-    const threads = _whGatherThreads(10);
+    const st = _pulseLoadState();
+    const threads = _pulseGatherThreads(10);
     for (const th of threads) {
       if (keys && !keys.includes(th.key)) continue;
       const rec = st.threads[th.key] || {};
@@ -24064,7 +24069,7 @@ app.post('/api/me-ai/whats-happening/seen', (req, res) => {
       if (!rec.state) rec.state = 'seen';
       st.threads[th.key] = rec;
     }
-    _whSaveState(st);
+    _pulseSaveState(st);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

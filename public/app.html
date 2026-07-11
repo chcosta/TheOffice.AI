@@ -16901,213 +16901,213 @@
 
           </section>
 
-          <!-- ===== What's happening (ambient team-conversation & meeting digest — Me.AI companion) ===== -->
-          <section x-show="!loading && !errorMessage && route === 'whatsup'">
+          <!-- ===== Pulse.AI (ambient team-conversation & meeting digest — Me.AI companion) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'pulse'">
             <style>
-              .wh2-wrap { max-width:760px; margin:0 auto; }
-              .wh2-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:6px; }
-              .wh2-title { font-size:24px; font-weight:650; letter-spacing:-0.01em; margin:0; }
-              .wh2-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; }
-              .wh2-refresh { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13px;
+              .pulse-wrap { max-width:760px; margin:0 auto; }
+              .pulse-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:6px; }
+              .pulse-title { font-size:24px; font-weight:650; letter-spacing:-0.01em; margin:0; }
+              .pulse-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; }
+              .pulse-refresh { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13px;
                 cursor:pointer; padding:4px 2px; display:inline-flex; align-items:center; gap:6px;
                 border-bottom:1px solid transparent; transition:color .15s ease, border-color .15s ease; }
-              .wh2-refresh:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
-              .wh2-refresh:disabled { cursor:default; opacity:.7; }
-              .wh2-refresh .dot { width:6px; height:6px; border-radius:50%; background:var(--cp-success); display:inline-block; }
-              .wh2-refresh.busy .dot { background:var(--cp-warning); }
+              .pulse-refresh:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
+              .pulse-refresh:disabled { cursor:default; opacity:.7; }
+              .pulse-refresh .dot { width:6px; height:6px; border-radius:50%; background:var(--cp-success); display:inline-block; }
+              .pulse-refresh.busy .dot { background:var(--cp-warning); }
 
-              .wh2-summary { margin:26px 0 6px; padding:24px 26px; border-radius:14px;
+              .pulse-summary { margin:26px 0 6px; padding:24px 26px; border-radius:14px;
                 background:linear-gradient(180deg, color-mix(in srgb,var(--cp-surface) 96%, var(--cp-accent) 4%), var(--cp-surface));
                 border:1px solid var(--cp-border); animation:wh2rise .5s cubic-bezier(.22,1,.36,1) both; }
               @keyframes wh2rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
-              .wh2-kicker { display:flex; align-items:center; gap:9px; color:var(--cp-text-muted); font-size:12.5px; margin-bottom:12px; }
-              .wh2-kicker .glyph { font-size:14px; }
-              .wh2-summary p { margin:0; font-size:16px; line-height:1.62; color:var(--cp-text); text-wrap:pretty; }
+              .pulse-kicker { display:flex; align-items:center; gap:9px; color:var(--cp-text-muted); font-size:12.5px; margin-bottom:12px; }
+              .pulse-kicker .glyph { font-size:14px; }
+              .pulse-summary p { margin:0; font-size:16px; line-height:1.62; color:var(--cp-text); text-wrap:pretty; }
 
-              .wh2-focus { margin:30px 0 8px; }
-              .wh2-focus-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.01em; margin:0 0 4px; }
-              .wh2-item { display:flex; gap:14px; align-items:flex-start; padding:16px 4px; border-top:1px solid var(--cp-border); }
-              .wh2-item:last-child { border-bottom:1px solid var(--cp-border); }
-              .wh2-item .mark { flex:0 0 auto; width:8px; height:8px; border-radius:50%; margin-top:7px; background:var(--cp-accent); }
-              .wh2-item.warn .mark { background:var(--cp-warning); }
-              .wh2-item .body { flex:1 1 auto; min-width:0; }
-              .wh2-item .reason { font-size:15px; color:var(--cp-text); margin:0 0 3px; text-wrap:pretty; }
-              .wh2-item .meta { font-size:12.5px; color:var(--cp-text-muted); }
-              .wh2-item .meta .who { color:var(--cp-text-soft); }
-              .wh2-item .you { color:var(--cp-warning); font-weight:600; }
-              .wh2-item .acts { display:flex; gap:16px; margin-top:9px; }
-              .wh2-item .acts a, .wh2-item .acts button { background:none; border:none; padding:0; font:inherit; font-size:12.5px; cursor:pointer;
+              .pulse-focus { margin:30px 0 8px; }
+              .pulse-focus-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.01em; margin:0 0 4px; }
+              .pulse-item { display:flex; gap:14px; align-items:flex-start; padding:16px 4px; border-top:1px solid var(--cp-border); }
+              .pulse-item:last-child { border-bottom:1px solid var(--cp-border); }
+              .pulse-item .mark { flex:0 0 auto; width:8px; height:8px; border-radius:50%; margin-top:7px; background:var(--cp-accent); }
+              .pulse-item.warn .mark { background:var(--cp-warning); }
+              .pulse-item .body { flex:1 1 auto; min-width:0; }
+              .pulse-item .reason { font-size:15px; color:var(--cp-text); margin:0 0 3px; text-wrap:pretty; }
+              .pulse-item .meta { font-size:12.5px; color:var(--cp-text-muted); }
+              .pulse-item .meta .who { color:var(--cp-text-soft); }
+              .pulse-item .you { color:var(--cp-warning); font-weight:600; }
+              .pulse-item .acts { display:flex; gap:16px; margin-top:9px; }
+              .pulse-item .acts a, .pulse-item .acts button { background:none; border:none; padding:0; font:inherit; font-size:12.5px; cursor:pointer;
                 color:var(--cp-link); text-decoration:none; border-bottom:1px solid transparent; transition:border-color .15s ease; }
-              .wh2-item .acts a:hover { border-bottom-color:currentColor; }
-              .wh2-item .acts .mute { color:var(--cp-text-muted); }
-              .wh2-item .acts .mute:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
-              .wh2-item .when { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; margin-top:2px; white-space:nowrap; }
+              .pulse-item .acts a:hover { border-bottom-color:currentColor; }
+              .pulse-item .acts .mute { color:var(--cp-text-muted); }
+              .pulse-item .acts .mute:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
+              .pulse-item .when { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; margin-top:2px; white-space:nowrap; }
 
-              .wh2-mtg { margin:34px 0 8px; }
-              .wh2-mtg-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); margin:0 0 10px; }
-              .wh2-mrow { display:flex; gap:14px; align-items:flex-start; padding:12px 4px; border-top:1px solid var(--cp-border); }
-              .wh2-mrow:last-child { border-bottom:1px solid var(--cp-border); }
-              .wh2-mrow .mtitle { font-size:14px; font-weight:600; margin:0 0 2px; }
-              .wh2-mrow .mrecap { font-size:13px; color:var(--cp-text-muted); margin:0; text-wrap:pretty; }
-              .wh2-mrow .mfoot { font-size:12px; color:var(--cp-text-muted); margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
-              .wh2-mrow .mfoot a, .wh2-mrow .mfoot button { color:var(--cp-link); text-decoration:none; background:none; border:none; padding:0; font:inherit; font-size:12px; cursor:pointer; border-bottom:1px solid transparent; }
-              .wh2-mrow .mfoot a:hover, .wh2-mrow .mfoot button:hover { border-bottom-color:currentColor; }
-              .wh2-mrow .mfoot .mute { color:var(--cp-text-muted); }
-              .wh2-mrow .mtime { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; white-space:nowrap; }
+              .pulse-mtg { margin:34px 0 8px; }
+              .pulse-mtg-h { font-size:13px; font-weight:600; color:var(--cp-text-soft); margin:0 0 10px; }
+              .pulse-mrow { display:flex; gap:14px; align-items:flex-start; padding:12px 4px; border-top:1px solid var(--cp-border); }
+              .pulse-mrow:last-child { border-bottom:1px solid var(--cp-border); }
+              .pulse-mrow .mtitle { font-size:14px; font-weight:600; margin:0 0 2px; }
+              .pulse-mrow .mrecap { font-size:13px; color:var(--cp-text-muted); margin:0; text-wrap:pretty; }
+              .pulse-mrow .mfoot { font-size:12px; color:var(--cp-text-muted); margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+              .pulse-mrow .mfoot a, .pulse-mrow .mfoot button { color:var(--cp-link); text-decoration:none; background:none; border:none; padding:0; font:inherit; font-size:12px; cursor:pointer; border-bottom:1px solid transparent; }
+              .pulse-mrow .mfoot a:hover, .pulse-mrow .mfoot button:hover { border-bottom-color:currentColor; }
+              .pulse-mrow .mfoot .mute { color:var(--cp-text-muted); }
+              .pulse-mrow .mtime { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; white-space:nowrap; }
 
-              .wh2-tail { margin-top:38px; }
-              .wh2-tail-toggle { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13.5px; cursor:pointer;
+              .pulse-tail { margin-top:38px; }
+              .pulse-tail-toggle { background:none; border:none; color:var(--cp-text-muted); font:inherit; font-size:13.5px; cursor:pointer;
                 padding:0; display:inline-flex; align-items:center; gap:8px; }
-              .wh2-tail-toggle:hover { color:var(--cp-text); }
-              .wh2-tail-toggle .car { transition:transform .18s ease; display:inline-block; }
-              .wh2-tail.open .wh2-tail-toggle .car { transform:rotate(90deg); }
-              .wh2-tabs { display:flex; gap:18px; flex-wrap:wrap; margin:16px 0 8px; font-size:13px; }
-              .wh2-tab { background:none; border:none; padding:4px 0; font:inherit; cursor:pointer; color:var(--cp-text-muted);
+              .pulse-tail-toggle:hover { color:var(--cp-text); }
+              .pulse-tail-toggle .car { transition:transform .18s ease; display:inline-block; }
+              .pulse-tail.open .pulse-tail-toggle .car { transform:rotate(90deg); }
+              .pulse-tabs { display:flex; gap:18px; flex-wrap:wrap; margin:16px 0 8px; font-size:13px; }
+              .pulse-tab { background:none; border:none; padding:4px 0; font:inherit; cursor:pointer; color:var(--cp-text-muted);
                 border-bottom:2px solid transparent; transition:color .15s ease, border-color .15s ease; }
-              .wh2-tab .n { color:var(--cp-text-soft); margin-left:5px; }
-              .wh2-tab:hover { color:var(--cp-text); }
-              .wh2-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
-              .wh2-tab.on .n { color:var(--cp-text-muted); }
-              .wh2-trow { display:flex; gap:12px; align-items:baseline; padding:10px 4px; border-top:1px solid var(--cp-border); font-size:13.5px; cursor:pointer; }
-              .wh2-trow:hover { background:var(--cp-surface-soft); }
-              .wh2-trow .src { flex:0 0 52px; color:var(--cp-text-muted); font-size:12px; }
-              .wh2-trow .t { flex:1 1 auto; min-width:0; color:var(--cp-text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-              .wh2-trow .you { color:var(--cp-warning); }
-              .wh2-trow .tw { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; }
-              .wh2-more { display:flex; gap:12px; padding:10px 4px; border-top:1px solid var(--cp-border); border-bottom:1px solid var(--cp-border); color:var(--cp-text-muted); font-size:12.5px; }
+              .pulse-tab .n { color:var(--cp-text-soft); margin-left:5px; }
+              .pulse-tab:hover { color:var(--cp-text); }
+              .pulse-tab.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .pulse-tab.on .n { color:var(--cp-text-muted); }
+              .pulse-trow { display:flex; gap:12px; align-items:baseline; padding:10px 4px; border-top:1px solid var(--cp-border); font-size:13.5px; cursor:pointer; }
+              .pulse-trow:hover { background:var(--cp-surface-soft); }
+              .pulse-trow .src { flex:0 0 52px; color:var(--cp-text-muted); font-size:12px; }
+              .pulse-trow .t { flex:1 1 auto; min-width:0; color:var(--cp-text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .pulse-trow .you { color:var(--cp-warning); }
+              .pulse-trow .tw { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; }
+              .pulse-more { display:flex; gap:12px; padding:10px 4px; border-top:1px solid var(--cp-border); border-bottom:1px solid var(--cp-border); color:var(--cp-text-muted); font-size:12.5px; }
 
-              .wh2-muted { margin-top:32px; }
-              .wh2-muted a { color:var(--cp-text-muted); font-size:13px; text-decoration:none; cursor:pointer; border-bottom:1px solid transparent; }
-              .wh2-muted a:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
-              .wh2-mutelist { margin-top:12px; }
+              .pulse-muted { margin-top:32px; }
+              .pulse-muted a { color:var(--cp-text-muted); font-size:13px; text-decoration:none; cursor:pointer; border-bottom:1px solid transparent; }
+              .pulse-muted a:hover { color:var(--cp-text); border-bottom-color:var(--cp-border-strong); }
+              .pulse-mutelist { margin-top:12px; }
 
-              .wh2-empty { padding:24px 4px; color:var(--cp-text-muted); font-size:14px; line-height:1.6; }
-              .wh2-consent { margin:26px 0; padding:26px; border:1px solid var(--cp-border); border-radius:14px; background:var(--cp-surface); text-align:center; }
+              .pulse-empty { padding:24px 4px; color:var(--cp-text-muted); font-size:14px; line-height:1.6; }
+              .pulse-consent { margin:26px 0; padding:26px; border:1px solid var(--cp-border); border-radius:14px; background:var(--cp-surface); text-align:center; }
 
               @media (prefers-reduced-motion: reduce) {
-                .wh2-summary { animation:none; }
-                .wh2-refresh, .wh2-tab, .wh2-tail-toggle .car, .wh2-item .acts a, .wh2-item .acts button { transition:none; }
+                .pulse-summary { animation:none; }
+                .pulse-refresh, .pulse-tab, .pulse-tail-toggle .car, .pulse-item .acts a, .pulse-item .acts button { transition:none; }
               }
             </style>
 
-            <div class="wh2-wrap">
-              <div class="wh2-head">
+            <div class="pulse-wrap">
+              <div class="pulse-head">
                 <div>
-                  <h1 class="wh2-title">What's happening</h1>
-                  <p class="wh2-sub"><span>A calm read on your team</span><span x-show="whatsHappening.gatheredAt"> · last looked <span x-text="whAgo(whatsHappening.gatheredAt)"></span></span></p>
+                  <h1 class="pulse-title">Pulse.AI</h1>
+                  <p class="pulse-sub"><span>A calm read on your team</span><span x-show="pulse.gatheredAt"> · last looked <span x-text="pulseAgo(pulse.gatheredAt)"></span></span></p>
                 </div>
-                <button class="wh2-refresh" :class="whatsHappening.busy ? 'busy' : ''" type="button" :disabled="whatsHappening.busy" @click="whatsHappening._autoRefreshed = true; whRefresh()">
-                  <span class="dot"></span><span x-text="whatsHappening.busy ? 'Refreshing…' : 'Refresh'"></span>
+                <button class="pulse-refresh" :class="pulse.busy ? 'busy' : ''" type="button" :disabled="pulse.busy" @click="pulse._autoRefreshed = true; pulseRefresh()">
+                  <span class="dot"></span><span x-text="pulse.busy ? 'Refreshing…' : 'Refresh'"></span>
                 </button>
               </div>
 
               <!-- Consent-off state -->
-              <div class="wh2-consent" x-show="whatsHappening.loaded &amp;&amp; !whatsHappening.consent">
+              <div class="pulse-consent" x-show="pulse.loaded &amp;&amp; !pulse.consent">
                 <div style="font-size:26px;margin-bottom:8px">🔒</div>
-                <div>What's happening reads your Teams &amp; email to surface interesting conversations.</div>
+                <div>Pulse.AI reads your Teams &amp; email to surface interesting conversations.</div>
                 <div style="margin-top:6px;color:var(--cp-text-muted)">Turn on Me.AI data collection in <a class="clickable" style="color:var(--cp-link);text-decoration:underline;text-underline-offset:2px" @click="goTo('#/me-ai')">Me.AI settings</a> to enable it.</div>
               </div>
 
               <!-- initial loading -->
-              <div class="wh2-empty" x-show="!whatsHappening.loaded">Reading your team…</div>
+              <div class="pulse-empty" x-show="!pulse.loaded">Reading your team…</div>
 
-              <template x-if="whatsHappening.loaded &amp;&amp; whatsHappening.consent">
+              <template x-if="pulse.loaded &amp;&amp; pulse.consent">
                 <div>
                   <!-- AI summary hero -->
-                  <section class="wh2-summary" x-show="whSummaryText() || whatsHappening.busy">
-                    <div class="wh2-kicker"><span class="glyph">✨</span> <span x-text="whatsHappening.busy ? 'Taking a fresh look…' : (whWorthList().length ? 'Here\'s what\'s worth your attention' : 'Here\'s the read on your team')"></span></div>
-                    <p x-show="whSummaryText()" x-text="whSummaryText()"></p>
-                    <p x-show="!whSummaryText() &amp;&amp; whatsHappening.busy" style="color:var(--cp-text-muted)">Reading the last few days of conversations and pulling out what actually matters.</p>
+                  <section class="pulse-summary" x-show="pulseSummaryText() || pulse.busy">
+                    <div class="pulse-kicker"><span class="glyph">✨</span> <span x-text="pulse.busy ? 'Taking a fresh look…' : (pulseWorthList().length ? 'Here\'s what\'s worth your attention' : 'Here\'s the read on your team')"></span></div>
+                    <p x-show="pulseSummaryText()" x-text="pulseSummaryText()"></p>
+                    <p x-show="!pulseSummaryText() &amp;&amp; pulse.busy" style="color:var(--cp-text-muted)">Reading the last few days of conversations and pulling out what actually matters.</p>
                   </section>
 
                   <!-- prompt to generate the first summary -->
-                  <section class="wh2-summary" x-show="!whSummaryText() &amp;&amp; !whatsHappening.busy">
-                    <div class="wh2-kicker"><span class="glyph">✨</span> A calm summary is one tap away</div>
-                    <p>I can read the last few days of your team's conversations and tell you what's actually worth your attention. <a style="color:var(--cp-link);cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="whatsHappening._autoRefreshed = true; whRefresh()">Take a look →</a></p>
+                  <section class="pulse-summary" x-show="!pulseSummaryText() &amp;&amp; !pulse.busy">
+                    <div class="pulse-kicker"><span class="glyph">✨</span> A calm summary is one tap away</div>
+                    <p>I can read the last few days of your team's conversations and tell you what's actually worth your attention. <a style="color:var(--cp-link);cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="pulse._autoRefreshed = true; pulseRefresh()">Take a look →</a></p>
                   </section>
 
                   <!-- Worth a look -->
-                  <section class="wh2-focus" x-show="whWorthList().length > 0">
-                    <h2 class="wh2-focus-h">Worth a look</h2>
-                    <template x-for="w in whWorthList()" :key="w.key">
-                      <div class="wh2-item" :class="w.warn ? 'warn' : ''">
+                  <section class="pulse-focus" x-show="pulseWorthList().length > 0">
+                    <h2 class="pulse-focus-h">Worth a look</h2>
+                    <template x-for="w in pulseWorthList()" :key="w.key">
+                      <div class="pulse-item" :class="w.warn ? 'warn' : ''">
                         <span class="mark"></span>
                         <div class="body">
                           <p class="reason" x-text="w.reason || w.thread.topic || 'A conversation worth a look.'"></p>
                           <div class="meta">
-                            <span class="who" x-text="whWho(w.thread)"></span>
+                            <span class="who" x-text="pulseWho(w.thread)"></span>
                             <span x-show="w.thread.count > 1"> · <span x-text="w.thread.count + ' replies'"></span></span>
                             <span class="you" x-show="w.thread.mentioned"> · @you</span>
                           </div>
                           <div class="acts">
-                            <a x-show="w.thread.link" @click="whOpen(w.thread)" x-text="w.thread.source==='email' ? 'Open in Outlook →' : 'Open in Teams →'"></a>
-                            <button class="mute" @click="whMute(w.key)">Dismiss</button>
+                            <a x-show="w.thread.link" @click="pulseOpen(w.thread)" x-text="w.thread.source==='email' ? 'Open in Outlook →' : 'Open in Teams →'"></a>
+                            <button class="mute" @click="pulseMute(w.key)">Dismiss</button>
                           </div>
                         </div>
-                        <div class="when" x-show="w.thread.activityTs" x-text="whAgo(w.thread.activityTs)"></div>
+                        <div class="when" x-show="w.thread.activityTs" x-text="pulseAgo(w.thread.activityTs)"></div>
                       </div>
                     </template>
                   </section>
 
                   <!-- Meetings recap strip -->
-                  <section class="wh2-mtg" x-show="whatsHappening.meetings.length > 0">
-                    <h2 class="wh2-mtg-h">Since your last meetings</h2>
-                    <template x-for="m in whatsHappening.meetings" :key="m.id">
-                      <div class="wh2-mrow">
+                  <section class="pulse-mtg" x-show="pulse.meetings.length > 0">
+                    <h2 class="pulse-mtg-h">Since your last meetings</h2>
+                    <template x-for="m in pulse.meetings" :key="m.id">
+                      <div class="pulse-mrow">
                         <div class="body" style="flex:1 1 auto; min-width:0;">
                           <p class="mtitle" x-text="m.meeting || 'Meeting'"></p>
                           <p class="mrecap" x-show="m.summary" x-text="m.summary"></p>
                           <p class="mrecap" x-show="!m.summary &amp;&amp; m.highlights &amp;&amp; m.highlights.length" x-text="(m.highlights || [])[0]"></p>
                           <div class="mfoot">
                             <span x-show="m.actions &amp;&amp; m.actions.length" x-text="m.actions.length + (m.actions.length === 1 ? ' action item for you' : ' action items for you')"></span>
-                            <a x-show="m.webLink" @click="whExtOpen(m.webLink)">Recap →</a>
-                            <a x-show="m.recordingUrl" @click="whExtOpen(m.recordingUrl)">Recording →</a>
-                            <button class="mute" @click="whMeetingHide(m.id)">Dismiss</button>
+                            <a x-show="m.webLink" @click="pulseExtOpen(m.webLink)">Recap →</a>
+                            <a x-show="m.recordingUrl" @click="pulseExtOpen(m.recordingUrl)">Recording →</a>
+                            <button class="mute" @click="pulseMeetingHide(m.id)">Dismiss</button>
                           </div>
                         </div>
-                        <div class="mtime" x-show="m.end" x-text="'ended ' + whAgo(m.end)"></div>
+                        <div class="mtime" x-show="m.end" x-text="'ended ' + pulseAgo(m.end)"></div>
                       </div>
                     </template>
                   </section>
 
                   <!-- Quieter tail (the firehose, opt-in) -->
-                  <section class="wh2-tail" :class="whatsHappening.tailOpen ? 'open' : ''" x-show="whatsHappening.counts.all > 0">
-                    <button class="wh2-tail-toggle" @click="whatsHappening.tailOpen = !whatsHappening.tailOpen">
+                  <section class="pulse-tail" :class="pulse.tailOpen ? 'open' : ''" x-show="pulse.counts.all > 0">
+                    <button class="pulse-tail-toggle" @click="pulse.tailOpen = !pulse.tailOpen">
                       <span class="car">›</span>
-                      <span x-show="whTailCount() > 0" x-text="whTailCount() + ' quieter ' + (whTailCount() === 1 ? 'item' : 'items') + ' — mostly build results and broadcasts'"></span>
-                      <span x-show="whTailCount() <= 0" x-text="'Everything else (' + whatsHappening.counts.all + ')'"></span>
+                      <span x-show="pulseTailCount() > 0" x-text="pulseTailCount() + ' quieter ' + (pulseTailCount() === 1 ? 'item' : 'items') + ' — mostly build results and broadcasts'"></span>
+                      <span x-show="pulseTailCount() <= 0" x-text="'Everything else (' + pulse.counts.all + ')'"></span>
                     </button>
-                    <div class="wh2-tail-body" x-show="whatsHappening.tailOpen" x-cloak>
-                      <div class="wh2-tabs">
-                        <button class="wh2-tab" :class="whatsHappening.filter==='all' ? 'on' : ''" @click="whatsHappening.filter='all'; whatsHappening.showMuted=false">Everything <span class="n" x-text="whatsHappening.counts.all"></span></button>
-                        <button class="wh2-tab" :class="whatsHappening.filter==='teams' ? 'on' : ''" @click="whatsHappening.filter='teams'; whatsHappening.showMuted=false">Teams <span class="n" x-text="whatsHappening.counts.teams"></span></button>
-                        <button class="wh2-tab" :class="whatsHappening.filter==='email' ? 'on' : ''" @click="whatsHappening.filter='email'; whatsHappening.showMuted=false">Email <span class="n" x-text="whatsHappening.counts.email"></span></button>
-                        <button class="wh2-tab" :class="whatsHappening.filter==='mentions' ? 'on' : ''" @click="whatsHappening.filter='mentions'; whatsHappening.showMuted=false">Mentions <span class="n" x-text="whatsHappening.counts.mentions"></span></button>
+                    <div class="pulse-tail-body" x-show="pulse.tailOpen" x-cloak>
+                      <div class="pulse-tabs">
+                        <button class="pulse-tab" :class="pulse.filter==='all' ? 'on' : ''" @click="pulse.filter='all'; pulse.showMuted=false">Everything <span class="n" x-text="pulse.counts.all"></span></button>
+                        <button class="pulse-tab" :class="pulse.filter==='teams' ? 'on' : ''" @click="pulse.filter='teams'; pulse.showMuted=false">Teams <span class="n" x-text="pulse.counts.teams"></span></button>
+                        <button class="pulse-tab" :class="pulse.filter==='email' ? 'on' : ''" @click="pulse.filter='email'; pulse.showMuted=false">Email <span class="n" x-text="pulse.counts.email"></span></button>
+                        <button class="pulse-tab" :class="pulse.filter==='mentions' ? 'on' : ''" @click="pulse.filter='mentions'; pulse.showMuted=false">Mentions <span class="n" x-text="pulse.counts.mentions"></span></button>
                       </div>
-                      <template x-for="t in whThreadList().slice(0, 50)" :key="t.key">
-                        <div class="wh2-trow" @click="whOpen(t)" :title="t.snippet || t.topic || ''">
+                      <template x-for="t in pulseThreadList().slice(0, 50)" :key="t.key">
+                        <div class="pulse-trow" @click="pulseOpen(t)" :title="t.snippet || t.topic || ''">
                           <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
                           <span class="t"><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span></span>
-                          <span class="tw" x-show="t.activityTs" x-text="whAgo(t.activityTs)"></span>
+                          <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
                         </div>
                       </template>
-                      <div class="wh2-more" x-show="whThreadList().length > 50" x-text="'…' + (whThreadList().length - 50) + ' more'"></div>
-                      <div class="wh2-empty" x-show="whThreadList().length === 0">Nothing in this view right now.</div>
+                      <div class="pulse-more" x-show="pulseThreadList().length > 50" x-text="'…' + (pulseThreadList().length - 50) + ' more'"></div>
+                      <div class="pulse-empty" x-show="pulseThreadList().length === 0">Nothing in this view right now.</div>
                     </div>
                   </section>
 
                   <!-- Muted footer -->
-                  <div class="wh2-muted" x-show="whatsHappening.mutedCount > 0">
-                    <a @click="whatsHappening.showMuted = !whatsHappening.showMuted" x-text="(whatsHappening.showMuted ? 'Hide' : 'Show') + ' muted conversations (' + whatsHappening.mutedCount + ')'"></a>
-                    <div class="wh2-mutelist" x-show="whatsHappening.showMuted" x-cloak>
-                      <template x-for="t in (whatsHappening.muted || [])" :key="t.key">
-                        <div class="wh2-trow">
+                  <div class="pulse-muted" x-show="pulse.mutedCount > 0">
+                    <a @click="pulse.showMuted = !pulse.showMuted" x-text="(pulse.showMuted ? 'Hide' : 'Show') + ' muted conversations (' + pulse.mutedCount + ')'"></a>
+                    <div class="pulse-mutelist" x-show="pulse.showMuted" x-cloak>
+                      <template x-for="t in (pulse.muted || [])" :key="t.key">
+                        <div class="pulse-trow">
                           <span class="src" x-text="t.source==='email' ? 'Email' : 'Teams'"></span>
                           <span class="t" x-text="t.topic || '(untitled)'"></span>
-                          <span class="tw" style="cursor:pointer;color:var(--cp-link)" @click="whUnmute(t.key)">Unmute</span>
+                          <span class="tw" style="cursor:pointer;color:var(--cp-link)" @click="pulseUnmute(t.key)">Unmute</span>
                         </div>
                       </template>
-                      <div class="wh2-empty" x-show="(whatsHappening.muted || []).length === 0">No muted conversations.</div>
+                      <div class="pulse-empty" x-show="(pulse.muted || []).length === 0">No muted conversations.</div>
                     </div>
                   </div>
                 </div>
@@ -24911,14 +24911,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, whatsup: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, whatsup: true };
+          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -25467,7 +25467,7 @@
           historyBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        whatsHappening: { loaded: false, busy: false, consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', showMuted: false, summary: null, summaryStale: false, counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _autoRefreshed: false },
+        pulse: { loaded: false, busy: false, consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', showMuted: false, summary: null, summaryStale: false, counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _autoRefreshed: false },
         meai: {
           loaded: false,
           loading: false,
@@ -26709,7 +26709,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'whatsup', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -26825,8 +26825,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
             await this.loadMeAi();
-          } else if (this.route === 'whatsup') {
-            await this.loadWhatsHappening();
+          } else if (this.route === 'pulse') {
+            await this.loadPulse();
           } else if (this.route === 'backlog') {
             if (!this.meai.loaded) await this.loadMeAi();
             await this.loadMeaiBacklog();
@@ -27770,7 +27770,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
             case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai', { badge: this.meAiGoalsLeftCount(), badgeTitle: 'Goals left today' });
-            case 'whatsup': return mk("What's happening", '📡', '#/whatsup', 'whatsup', { attnBadge: (this.whatsHappening.summary && Array.isArray(this.whatsHappening.summary.worthALook)) ? this.whWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
+            case 'pulse': return mk("Pulse.AI", '📡', '#/pulse', 'pulse', { attnBadge: (this.pulse.summary && Array.isArray(this.pulse.summary.worthALook)) ? this.pulseWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
             case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
             case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards', { badge: (this.homeBoards() || []).length, badgeTitle: 'Your workspaces' });
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
@@ -27796,7 +27796,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (scope === 'basic') {
             const out = ['home', 'boards', 'codeflow'];
             if (en('me-ai')) out.push('me-ai', 'backlog');
-            if (en('whatsup')) out.push('whatsup');
+            if (en('pulse')) out.push('pulse');
             out.push('agents');
             if (en('diary')) out.push('diary');
             if (en('autonomous')) out.push('autonomous');
@@ -27813,7 +27813,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // (e.g. diary off -> connect/newsletter/me-ai drop out). Core stays unconditional.
           const out = ['home'];
           if (en('me-ai')) out.push('me-ai', 'backlog');
-          if (en('whatsup')) out.push('whatsup');
+          if (en('pulse')) out.push('pulse');
           if (en('playbooks')) out.push('playbooks');
           out.push('boards');
           out.push('codeflow', 'agents');
@@ -28302,7 +28302,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'whatsup', 'backlog', 'diary', 'playbooks',
+          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -28335,7 +28335,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
-            { key: 'whatsup', label: "What's happening", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
+            { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
@@ -28351,7 +28351,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
             { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
-            { key: 'whatsup', label: "What's happening", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
+            { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📘', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
@@ -28435,7 +28435,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
-            whatsup: ['whatsup'],
+            pulse: ['pulse'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
             sessions: ['sessions'],
@@ -28458,7 +28458,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
-            whatsup: ['whatsup'],
+            pulse: ['pulse'],
             playbooks: ['playbooks'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
@@ -28487,7 +28487,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // it (transitively) requires is also enabled. Editing the catalogs' `requires`
         // fields is the source of truth; this mirrors them for the runtime gate.
         featureRequires(key) {
-          const R = { 'me-ai': ['diary'], whatsup: ['diary', 'me-ai'], connect: ['diary'], newsletter: ['connect'] };
+          const R = { 'me-ai': ['diary'], pulse: ['diary', 'me-ai'], connect: ['diary'], newsletter: ['connect'] };
           return R[key] || [];
         },
         // Human label for a feature key (from whichever catalog defines it), for toasts.
@@ -33569,23 +33569,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.loading = false;
           }
         },
-        // ── What's happening (ambient team-conversation + meeting digest) ──────────
-        async loadWhatsHappening() {
+        // ── Pulse.AI (ambient team-conversation + meeting digest) ──────────
+        async loadPulse() {
           try {
-            const r = await this.request('/api/me-ai/whats-happening');
-            this._whApply(r);
-            const w = this.whatsHappening;
+            const r = await this.request('/api/me-ai/pulse');
+            this._pulseApply(r);
+            const w = this.pulse;
             if (w.consent && w.summaryStale && !w._autoRefreshed && !w.busy) {
               w._autoRefreshed = true;
-              this.whRefresh();
+              this.pulseRefresh();
             }
           } catch (e) {
-            this.whatsHappening.loaded = true;
-            this.toast("Failed to load What's happening: " + (e.message || e), 'error');
+            this.pulse.loaded = true;
+            this.toast("Failed to load Pulse.AI: " + (e.message || e), 'error');
           }
         },
-        _whApply(r) {
-          const w = this.whatsHappening;
+        _pulseApply(r) {
+          const w = this.pulse;
           w.consent = !!(r && r.consent);
           w.threads = (r && Array.isArray(r.threads)) ? r.threads : [];
           w.muted = (r && Array.isArray(r.muted)) ? r.muted : [];
@@ -33601,46 +33601,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           w._byKey = byKey;
           w.loaded = true;
         },
-        async whRefresh() {
-          if (this.whatsHappening.busy) return;
-          this.whatsHappening.busy = true;
+        async pulseRefresh() {
+          if (this.pulse.busy) return;
+          this.pulse.busy = true;
           try {
-            const r = await this.request('/api/me-ai/whats-happening/refresh', { method: 'POST', body: JSON.stringify({}) });
-            this._whApply(r);
+            const r = await this.request('/api/me-ai/pulse/refresh', { method: 'POST', body: JSON.stringify({}) });
+            this._pulseApply(r);
           } catch (e) {
             this.toast('Refresh failed: ' + (e.message || e), 'error');
           } finally {
-            this.whatsHappening.busy = false;
+            this.pulse.busy = false;
           }
         },
         // AI-curated "Worth a look" — resolve each summary key to its live thread; drop any that are gone.
-        whWorthList() {
-          const w = this.whatsHappening;
+        pulseWorthList() {
+          const w = this.pulse;
           const s = w.summary;
           if (!s || !Array.isArray(s.worthALook)) return [];
           return s.worthALook.map(it => ({ key: it.key, reason: it.reason || '', warn: !!it.warn, thread: (w._byKey || {})[it.key] || null }))
             .filter(x => x.thread);
         },
-        whSummaryText() {
-          const s = this.whatsHappening.summary;
+        pulseSummaryText() {
+          const s = this.pulse.summary;
           return (s && s.summary) ? s.summary : '';
         },
-        whQuietNote() {
-          const s = this.whatsHappening.summary;
+        pulseQuietNote() {
+          const s = this.pulse.summary;
           return (s && s.quietNote) ? s.quietNote : '';
         },
-        whTailCount() {
-          const w = this.whatsHappening;
+        pulseTailCount() {
+          const w = this.pulse;
           const all = (w.counts && w.counts.all) || (w.threads || []).length;
-          return Math.max(0, all - this.whWorthList().length);
+          return Math.max(0, all - this.pulseWorthList().length);
         },
-        whWho(t) {
+        pulseWho(t) {
           if (!t) return '';
           const who = t.channel || (t.source === 'email' ? 'Email' : 'Teams');
           return who;
         },
-        whThreadList() {
-          const w = this.whatsHappening;
+        pulseThreadList() {
+          const w = this.pulse;
           if (w.showMuted) return (w.muted || []);
           let list = (w.threads || []);
           if (w.filter === 'teams') list = list.filter(t => t.source !== 'email');
@@ -33648,10 +33648,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           else if (w.filter === 'mentions') list = list.filter(t => !!t.mentioned);
           return list;
         },
-        whNewCount() {
-          return (this.whatsHappening.threads || []).filter(t => t.hasNew).length;
+        pulseNewCount() {
+          return (this.pulse.threads || []).filter(t => t.hasNew).length;
         },
-        whAgo(ts) {
+        pulseAgo(ts) {
           if (!ts) return '';
           const t = (typeof ts === 'number') ? ts : Date.parse(ts);
           if (!isFinite(t) || !t) return '';
@@ -33666,7 +33666,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (d < 7) return d + 'd ago';
           return new Date(t).toLocaleDateString();
         },
-        whOpen(t) {
+        pulseOpen(t) {
           if (!t || !t.link) return;
           if (t.source === 'email' && this.isEmailUrl && this.isEmailUrl(t.link)) {
             this.openEmailDesktop(t.link);
@@ -33674,13 +33674,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             window.open(t.link, '_blank');
           }
         },
-        whExtOpen(url) {
+        pulseExtOpen(url) {
           if (!url) return;
           if (this.isEmailUrl && this.isEmailUrl(url)) this.openEmailDesktop(url);
           else window.open(url, '_blank');
         },
-        async _whThreadAction(key, action, optimistic) {
-          const w = this.whatsHappening;
+        async _pulseThreadAction(key, action, optimistic) {
+          const w = this.pulse;
           if (optimistic) {
             const thread = (w._byKey || {})[key] || (w.threads || []).find(t => t && t.key === key) || null;
             // Drop ONLY this item — keep the summary text and the other curated items intact.
@@ -33696,21 +33696,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           }
           try {
-            await this.request('/api/me-ai/whats-happening/thread', { method: 'POST', body: JSON.stringify({ key, action }) });
+            await this.request('/api/me-ai/pulse/thread', { method: 'POST', body: JSON.stringify({ key, action }) });
           } catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
         },
-        whMute(key) { return this._whThreadAction(key, 'mute', true); },
-        whUnmute(key) { const w = this.whatsHappening; w.muted = (w.muted || []).filter(t => t.key !== key); if (w.mutedCount > 0) w.mutedCount--; if (w.mutedCount <= 0) w.showMuted = false; return this._whThreadAction(key, 'unmute', false); },
-        whHide(key) { return this._whThreadAction(key, 'hide', true); },
-        async whMeetingHide(id) {
-          this.whatsHappening.meetings = this.whatsHappening.meetings.filter(m => m.id !== id);
-          try { await this.request('/api/me-ai/whats-happening/meeting', { method: 'POST', body: JSON.stringify({ id, action: 'hide' }) }); }
+        pulseMute(key) { return this._pulseThreadAction(key, 'mute', true); },
+        pulseUnmute(key) { const w = this.pulse; w.muted = (w.muted || []).filter(t => t.key !== key); if (w.mutedCount > 0) w.mutedCount--; if (w.mutedCount <= 0) w.showMuted = false; return this._pulseThreadAction(key, 'unmute', false); },
+        pulseHide(key) { return this._pulseThreadAction(key, 'hide', true); },
+        async pulseMeetingHide(id) {
+          this.pulse.meetings = this.pulse.meetings.filter(m => m.id !== id);
+          try { await this.request('/api/me-ai/pulse/meeting', { method: 'POST', body: JSON.stringify({ id, action: 'hide' }) }); }
           catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
         },
-        async whSeen() {
-          try { await this.request('/api/me-ai/whats-happening/seen', { method: 'POST', body: JSON.stringify({}) }); }
+        async pulseSeen() {
+          try { await this.request('/api/me-ai/pulse/seen', { method: 'POST', body: JSON.stringify({}) }); }
           catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
-          await this.loadWhatsHappening();
+          await this.loadPulse();
         },
         async meAiLoadAgenda() {
           try {
