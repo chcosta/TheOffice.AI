@@ -15677,8 +15677,7 @@
                             <textarea class="field-input meai-pu-composer-in" rows="2" x-model="meai.pursuit.steer"
                               :placeholder="meAiPursuitBusy() ? 'The agent is working…' : 'Ask what it found, request a change to the report, or send it further…'"
                               :disabled="meAiPursuitBusy()"
-                              @keydown.enter.meta.prevent="meAiPursuitSend()"
-                              @keydown.enter.ctrl.prevent="meAiPursuitSend()"></textarea>
+                              @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); meAiPursuitSend(); }"></textarea>
                             <div class="meai-pu-composer-row">
                               <span class="meai-pu-composer-note" x-show="meAiPursuitBusy()">Working… you can chat as soon as it pauses.</span>
                               <button type="button" class="meai-pu-composer-done" x-show="!meAiPursuitBusy() && meAiPursuitConcluded() && !(meai.pursuit.tree && meai.pursuit.tree.stage==='done')" @click="meAiPursuitFinish()">Looks good — done ✓</button>
@@ -40028,14 +40027,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const n = (t.order || []).length;
           const open = (t.stops || []).filter(s => s.status === 'open').length;
           const st = ({ working: 'Working', awaiting: 'Waiting on you', error: 'Needs attention', done: 'Complete' })[t.stage] || t.stage;
-          return st + ' · ' + n + ' leg' + (n === 1 ? '' : 's') + (open ? ' · ' + open + ' awaiting you' : '');
+          // A pursuit parked at 'awaiting' with NO open approval/answer stop has simply
+          // concluded — it's idle, your move, but nothing is mandatory. Don't cry the
+          // alarming "Waiting on you" (identical to a genuine block) when there's nothing
+          // to act on; that's exactly the "I don't see what I should do" confusion.
+          const label = (t.stage === 'awaiting' && !open) ? 'Ready · your move' : st;
+          return label + ' · ' + n + ' leg' + (n === 1 ? '' : 's') + (open ? ' · ' + open + ' awaiting you' : '');
         },
         // Overall live/waiting/done state for the header dot (item 5).
         meAiPursuitLiveCls() {
           const t = this.meai.pursuit.tree; if (!t) return '';
           if (t.stage === 'done') return 'done';
           if ((t.stops || []).some(s => s.status === 'open')) return 'wait';
-          if (t.stage === 'awaiting') return 'wait';
+          // Concluded-idle (awaiting, no open stop) is a calm "your move", not the amber
+          // "wait" of a genuine block — use the steady green dot, no pulse.
+          if (t.stage === 'awaiting') return 'done';
           if (t.stage === 'error') return 'err';
           return 'live';
         },
