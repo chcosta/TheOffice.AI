@@ -1483,7 +1483,7 @@
     .home-nl-card:hover .home-nl-go { color: var(--cp-accent); }
     .home-nl-card .home-nl-dek { font-size: 13px; color: var(--cp-text-soft); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .home-nl-card .home-nl-meta { font-size: 12px; color: var(--cp-text-muted); }
-    /* Clickable card titles (Workspaces / My pull requests) — the whole rows below are
+    /* Clickable card titles (Workspaces.AI / My pull requests) — the whole rows below are
        already clickable, so the title just needs to look and behave like a link. */
     .home-title-link { cursor: pointer; }
     .home-title-link:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -1525,14 +1525,14 @@
     .home-wn-go { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 14px; font-weight: 600; }
     .home-wn-row:hover .home-wn-go { color: var(--cp-accent); }
 
-    /* ----- Home: Today's agenda glance (Me.AI) ----- */
+    /* ----- Home: Today's agenda glance (Agenda.AI) ----- */
     .home-agenda-list { display: flex; flex-direction: column; gap: 6px; }
     .home-agenda-row {
       display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 9px;
       border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 8px);
       background: var(--cp-surface-soft);
     }
-    /* Vertical block-type spine — mirrors the Me.AI page agenda's per-block colour bar. */
+    /* Vertical block-type spine — mirrors the Agenda.AI page agenda's per-block colour bar. */
     .home-agenda-lead { align-self: stretch; width: 3px; border-radius: 3px; flex: 0 0 auto; }
     .home-agenda-row.is-now { background: color-mix(in srgb, var(--cp-accent) 10%, var(--cp-surface-soft)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
     .home-agenda-time { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; color: var(--cp-text-muted); min-width: 42px; }
@@ -2535,7 +2535,7 @@
     .cf-dtab.active .rc { color:var(--cp-accent); }
     .cf-dtab-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
     .cf-dtab-panes { margin-top:12px; }
-    /* Primary "Workspaces" row on dev/PR cards — color-coded chips (no per-board icons),
+    /* Primary "Workspaces.AI" row on dev/PR cards — color-coded chips (no per-board icons),
        promoted out of the details drawer so pins are visible without expanding a tab. */
     .cf-ws-row { display:flex; align-items:center; flex-wrap:wrap; gap:6px 8px; margin-top:10px; }
     .cf-ws-label { font-size:11px; font-weight:600; color:var(--cp-text-soft); letter-spacing:.02em; }
@@ -3004,7 +3004,7 @@
     .report-stat { padding: 16px 18px; }
     .report-stat-label { font-size: 12px; color: var(--cp-text-muted); font-weight: 600; }
     .report-stat-value { font-size: 26px; font-weight: 700; margin: 6px 0 4px; color: var(--cp-text); letter-spacing: -0.01em; }
-    /* Me.AI Focus & flow — impact cards + time-allocation bar */
+    /* Agenda.AI Focus & flow — impact cards + time-allocation bar */
     .meai-impact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px 22px; }
     .meai-impact { padding: 4px 0; }
     .meai-impact-v { font-size: 30px; font-weight: 700; color: var(--cp-text); letter-spacing: -0.02em; line-height: 1.1; }
@@ -4061,7 +4061,7 @@
     .dagr-persona .ph .have { font-size:10px; font-weight:600; color:var(--cp-success); }
     .dagr-persona .pd { font-size:11px; color:var(--cp-text-muted); line-height:1.4; margin:0; }
     @media (prefers-reduced-motion: reduce) { .dagr-persona { transition:none; } }
-    /* ---- Me.AI agent recommendation strip (dc-autoadd) ---- */
+    /* ---- Agenda.AI agent recommendation strip (dc-autoadd) ---- */
     .dcrec { border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-bg-elevated, var(--cp-bg)); padding:10px 12px; margin-bottom:10px; }
     .dcrec-h { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
     .dcrec-h .t { font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--cp-text-muted); flex:1 1 auto; }
@@ -4833,6 +4833,48 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .activity-step.kind-intent { padding: 5px 0; }
+    .intent-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: var(--cp-text);
+      font-weight: 600;
+      line-height: 1.4;
+      padding: 5px 9px;
+      border-radius: 8px;
+      background: var(--cp-accent-soft);
+      border: 1px solid color-mix(in oklch, var(--cp-accent) 30%, transparent);
+    }
+    .intent-icon { font-size: 13px; flex: 0 0 auto; }
+    .intent-text { flex: 1 1 auto; min-width: 0; }
+    .msg-session {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+    }
+    .msg-session-id {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--cp-text-soft);
+      background: var(--cp-surface-2, var(--cp-surface));
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      padding: 1px 6px;
+      cursor: pointer;
+    }
+    .msg-session-id:hover { color: var(--cp-text); border-color: var(--cp-accent); }
+    .msg-session-resume {
+      font-size: 11px;
+      color: var(--cp-accent);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      padding: 1px 4px;
+      cursor: pointer;
+    }
+    .msg-session-resume:hover { text-decoration: underline; }
 
     .timeline-marker {
       width: 10px;
@@ -7279,9 +7321,9 @@
                       <span class="hs-num" :class="homePrsAttention() ? 'is-hot' : ''" x-text="homePrs.items.length"></span>
                       <span class="hs-label">Open PRs</span>
                     </div>
-                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Workspaces">
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Workspaces.AI">
                       <span class="hs-num" x-text="homeBoards().length"></span>
-                      <span class="hs-label">Workspaces</span>
+                      <span class="hs-label">Workspaces.AI</span>
                     </div>
                     <div class="home-stat" x-show="runningEntities().length" title="Running now">
                       <span class="hs-num is-hot" x-text="runningEntities().length"></span>
@@ -7308,7 +7350,7 @@
 
               <div class="home-cards">
 
-                <!-- Today's agenda (Me.AI glance — read-only; click through to plan/act) -->
+                <!-- Today's agenda (Agenda.AI glance — read-only; click through to plan/act) -->
                 <div class="home-rsec span-full" :style="{ order: homeSecIndex('agenda') }" x-show="homeSectionVisible('agenda')"
                      :class="homeDragOver === 'agenda' ? 'is-drop' : ''"
                      @dragover.prevent="homeReorderOver('agenda')" @drop.prevent="homeReorderDrop('agenda')" draggable="true" @dragstart="homeReorderStart('agenda',$event)" @dragend="homeReorderEnd()">
@@ -7317,7 +7359,7 @@
                       <div>
                         <h2 class="card-title clickable" role="button" tabindex="0"
                             @click="homeAgendaOpen()" @keydown.enter.prevent="homeAgendaOpen()"
-                            title="Open Me.AI"
+                            title="Open Agenda.AI"
                             x-text="(homeAgenda.isTomorrow ? '🗓️ Tomorrow\'s agenda' : '🗓️ Today\'s agenda')"></h2>
                         <div class="card-subtitle">Your AI-planned day at a glance</div>
                       </div>
@@ -7332,7 +7374,7 @@
                     </div>
                     <div x-show="homeAgenda.loading && !homeAgenda.blocks.length" class="hint" style="padding:14px">🗓️ Loading today's plan…</div>
                     <div x-show="homeAgenda.loaded && !homeAgenda.blocks.length" class="empty-state" style="padding:16px">
-                      No agenda planned for today yet. <a href="#/me-ai" @click.prevent="goTo('#/me-ai')">Open Me.AI</a> to generate one.
+                      No agenda planned for today yet. <a href="#/me-ai" @click.prevent="goTo('#/me-ai')">Open Agenda.AI</a> to generate one.
                     </div>
                     <div class="home-agenda-list" x-show="homeAgenda.blocks.length">
                       <template x-for="(b, bi) in homeAgendaUpcoming(5)" :key="'ha-'+bi">
@@ -7344,7 +7386,7 @@
                         </div>
                       </template>
                       <div class="home-agenda-more" x-show="homeAgenda.blocks.filter(x=>x.type!=='lunch').length > 5">
-                        <a href="#/me-ai" @click.prevent="goTo('#/me-ai')" x-text="'+ ' + (homeAgenda.blocks.filter(x=>x.type!=='lunch').length - 5) + ' more in Me.AI →'"></a>
+                        <a href="#/me-ai" @click.prevent="goTo('#/me-ai')" x-text="'+ ' + (homeAgenda.blocks.filter(x=>x.type!=='lunch').length - 5) + ' more in Agenda.AI →'"></a>
                       </div>
                     </div>
                   </section>
@@ -7384,7 +7426,7 @@
                   <section class="card">
                     <div class="card-header">
                       <div>
-                        <h2 class="card-title home-title-link" role="link" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Open Workspaces">📌 Workspaces</h2>
+                        <h2 class="card-title home-title-link" role="link" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Open Workspaces.AI">📌 Workspaces.AI</h2>
                         <div class="card-subtitle" x-text="homeBoards().length + ' workspace' + (homeBoards().length === 1 ? '' : 's') + (currentTeamId === 'all' ? '' : ' in this team')"></div>
                       </div>
                     </div>
@@ -7407,7 +7449,7 @@
                         </div>
                       </template>
                     </div>
-                    <div class="empty-state" x-show="!homeBoards().length">No workspaces in this team yet.</div>
+                    <div class="empty-state" x-show="!homeBoards().length">No Workspaces.AI in this team yet.</div>
                   </section>
                 </div>
 
@@ -8887,7 +8929,7 @@
           <section class="board-calm" x-show="!loading && !errorMessage && route === 'boards'">
             <div class="nlx-top board-top" :style="boardBannerStyle()">
               <div class="page-title">
-                <h1>📌 Workspaces</h1>
+                <h1>📌 Workspaces.AI</h1>
                 <p>Pin sessions, chats, tasks, flows, assignments, agents &amp; managers you're actively working on. Add notes and checklists, and get a <strong>Briefing</strong> of where you left off.</p>
               </div>
               <div class="nlx-actions">
@@ -8937,7 +8979,7 @@
             <div x-show="boardsLoading" class="hint" style="padding:24px">Loading boards…</div>
 
             <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="margin-top:24px">
-              No workspaces yet. <button class="btn" type="button" @click="openBoardModal(null)" style="margin-left:6px">＋ New Workspace</button>
+              No Workspaces.AI yet. <button class="btn" type="button" @click="openBoardModal(null)" style="margin-left:6px">＋ New Workspace</button>
             </div>
 
             <template x-if="!boardsLoading && visibleBoards().length">
@@ -10171,9 +10213,9 @@
                                         </div>
                                       </div>
 
-                                      <!-- Workspaces (primary, color-coded, no per-board icons) -->
+                                      <!-- Workspaces.AI (primary, color-coded, no per-board icons) -->
                                       <div class="cf-ws-row">
-                                        <span class="cf-ws-label">Workspaces</span>
+                                        <span class="cf-ws-label">Workspaces.AI</span>
                                         <template x-for="b in devPinnedBoards(d)" :key="b.id">
                                           <span class="cf-ws-item">
                                             <a class="cf-ws-chip" href="#" @click.prevent.stop="boardJumpToBoard(b)" :title="'Open ' + b.name"><span class="cf-ws-dot" :style="boardSwatchStyle(b)"></span><span class="nm" x-text="b.name"></span></a>
@@ -10381,10 +10423,10 @@
 
                                         <!-- Card-level actions: write per-repo dev agents into every worktree. PRs are created per repo (in each slot above). -->
                                         <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px">
-                                          <!-- Me.AI agent recommendations -->
+                                          <!-- Agenda.AI agent recommendations -->
                                           <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
                                             <div class="dcrec-h">
-                                              <span class="t"><b>✦ Me.AI</b> recommends adding</span>
+                                              <span class="t"><b>✦ Agenda.AI</b> recommends adding</span>
                                               <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
                                             </div>
                                             <template x-for="rec in devRecoList(d)" :key="rec.persona">
@@ -11578,9 +11620,9 @@
                                   </div>
                                 </div>
 
-                                <!-- Workspaces (primary, color-coded, no per-board icons) -->
+                                <!-- Workspaces.AI (primary, color-coded, no per-board icons) -->
                                 <div class="cf-ws-row">
-                                  <span class="cf-ws-label">Workspaces</span>
+                                  <span class="cf-ws-label">Workspaces.AI</span>
                                   <template x-for="b in devPinnedBoards(d)" :key="b.id">
                                     <span class="cf-ws-item">
                                       <a class="cf-ws-chip" href="#" @click.prevent.stop="boardJumpToBoard(b)" :title="'Open ' + b.name"><span class="cf-ws-dot" :style="boardSwatchStyle(b)"></span><span class="nm" x-text="b.name"></span></a>
@@ -11829,10 +11871,10 @@
                                           </div>
                                         </template>
                                         <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px">
-                                          <!-- Me.AI agent recommendations -->
+                                          <!-- Agenda.AI agent recommendations -->
                                           <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
                                             <div class="dcrec-h">
-                                              <span class="t"><b>✦ Me.AI</b> recommends adding</span>
+                                              <span class="t"><b>✦ Agenda.AI</b> recommends adding</span>
                                               <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
                                             </div>
                                             <template x-for="rec in devRecoList(d)" :key="rec.persona">
@@ -12069,7 +12111,7 @@
 
 
           <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
-          <!-- ===== Me.AI (personal daily agenda / command center) — M1 read-only ===== -->
+          <!-- ===== Agenda.AI (personal daily agenda / command center) — M1 read-only ===== -->
           <section x-show="!loading && !errorMessage && route === 'me-ai'">
             <style>
               .meai-wrap { max-width:1100px; margin:0 auto; }
@@ -12258,7 +12300,7 @@
               .meai-tri:hover { border-color:var(--cp-accent); }
               .meai-tri.ghost { color:var(--cp-text-muted); }
               .meai-tri:disabled { opacity:.5; cursor:default; }
-              /* Phase 2: suggested-action highlight (the tier Me.AI would pick). Accent ring,
+              /* Phase 2: suggested-action highlight (the tier Agenda.AI would pick). Accent ring,
                  not a filled pill. */
               .meai-tri-sug { border-color:var(--cp-accent); box-shadow:0 0 0 1px var(--cp-accent) inset; color:var(--cp-text); font-weight:600; }
               .meai-tri-sug.ghost { color:var(--cp-text); }
@@ -13561,7 +13603,7 @@
               .meai-rollover-row .meai-ro-from { color:var(--cp-text-muted); font-size:11px; }
               .meai-ro-act { border:0; background:transparent; color:var(--cp-accent); font-size:11.5px; cursor:pointer; padding:0; white-space:nowrap; }
               .meai-ro-act:hover { text-decoration:underline; }
-              /* Me.AI settings modal (renamed from "Hours & grid"; tabbed sections) */
+              /* Agenda.AI settings modal (renamed from "Hours & grid"; tabbed sections) */
               .meai-hours-modal { position:fixed; inset:0; z-index:9700; display:flex; align-items:flex-start; justify-content:center;
                 background:rgba(0,0,0,.42); padding:6vh 16px; overflow-y:auto; }
               .meai-hours-panel { width:min(560px, 96vw); background:var(--cp-bg); border:1px solid var(--cp-border);
@@ -13610,19 +13652,19 @@
                    Today's goals — see the rail block near the goals panel below. -->
               <div class="meai-head">
                 <div>
-                  <h1 class="meai-title">🧭 Me.AI</h1>
+                  <h1 class="meai-title">🧭 Agenda.AI</h1>
                   <p class="meai-scope">Your AI-planned daily agenda. Reads Code Flow<span x-show="meai.config.hasAdo"> · Azure DevOps</span><span x-show="meai.config.hasGithub"> · GitHub</span><span x-show="meai.config.consent"> · calendar &amp; mail</span> to plan your day.</p>
                 </div>
                 <div class="meai-head-right">
                   <div class="meai-head-actions">
                     <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating || meai.rebuilding"
-                            :title="meai.rebuilding ? 'Me.AI is updating this agenda — hold on…' : ''">
+                            :title="meai.rebuilding ? 'Agenda.AI is updating this agenda — hold on…' : ''">
                       <span x-show="!meai.generating && !meai.rebuilding" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
                       <span x-show="meai.generating" x-text="(meai.progress && meai.progress.label) ? meai.progress.label : 'Planning your day…'"></span>
                       <span x-show="meai.rebuilding && !meai.generating">Updating…</span>
                     </button>
                     <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
-                            title="Me.AI settings — working hours, work week, grid, focus times & triage">
+                            title="Agenda.AI settings — working hours, work week, grid, focus times & triage">
                       ⚙ Settings
                     </button>
                   </div>
@@ -13671,7 +13713,7 @@
               <!-- Consent (off) banner -->
               <div class="meai-consent" x-show="meai.loaded && !meai.config.consent">
                 <h4>Turn on personal signals</h4>
-                <p>Me.AI can read your calendar, email, and Teams to build a realistic agenda. Nothing is read until you turn this on. You can still generate a Code Flow–only agenda without it.</p>
+                <p>Agenda.AI can read your calendar, email, and Teams to build a realistic agenda. Nothing is read until you turn this on. You can still generate a Code Flow–only agenda without it.</p>
                 <button class="btn primary" type="button" @click="meAiSetConsent(true)" :disabled="meai.savingSettings">Turn on &amp; save</button>
               </div>
 
@@ -13684,11 +13726,11 @@
               <div class="meai-daybar" x-show="meai.loaded && meai.agenda && (meai.agenda.blocks||[]).length">
                 <button type="button" class="meai-auto-toggle" x-show="meai.date===meai.today && !meai.rebuilding"
                         @click="meAiToggleAutoUpdates()"
-                        :title="meai.autoUpdates ? 'Auto-updates are on — Me.AI re-plans today automatically when your work changes. Click to turn off.' : 'Auto-updates are off — today will only change when you regenerate by hand. Click to turn on.'">
+                        :title="meai.autoUpdates ? 'Auto-updates are on — Agenda.AI re-plans today automatically when your work changes. Click to turn off.' : 'Auto-updates are off — today will only change when you regenerate by hand. Click to turn on.'">
                   <span class="meai-auto-dot" :class="{ 'is-off': !meai.autoUpdates }"></span><span x-text="meai.autoUpdates ? 'Auto-updates on' : 'Auto-updates off'"></span>
                 </button>
                 <span class="meai-auto meai-auto-building" x-show="meai.rebuilding" x-transition
-                      title="Me.AI is re-planning this day in the background. Your current agenda stays put until the new plan is ready.">
+                      title="Agenda.AI is re-planning this day in the background. Your current agenda stays put until the new plan is ready.">
                   <span class="meai-building-dot"></span><span x-text="meai.rebuildLabel || 'Updating your agenda…'"></span>
                 </span>
                 <span class="meai-auto-flash" x-show="meai.justUpdated && !meai.rebuilding" x-transition>Agenda updated</span>
@@ -13805,7 +13847,7 @@
                               <span class="meai-lb-title" x-text="c.title"></span>
                             </div>
                           </template>
-                          <div class="meai-lb-none" x-show="!(meai.lookback.actual.completions||[]).length">No Me.AI task completions recorded.</div>
+                          <div class="meai-lb-none" x-show="!(meai.lookback.actual.completions||[]).length">No Agenda.AI task completions recorded.</div>
                           <template x-if="(meai.lookback.actual.declined||[]).length">
                             <div class="meai-lb-outcome">
                               <div class="meai-lb-outcome-h">Declined · won't fix</div>
@@ -14477,7 +14519,7 @@
                                 <button class="meai-chk-goto" type="button" x-show="meAiGoalHasBlock(t)" @click="meAiGoalToAgenda(t)" title="Jump to the agenda block that gets this done">→ On today's agenda</button>
                                 <a class="meai-chk-open" x-show="t.link" :href="t.link" target="_blank" rel="noopener">Open ↗</a>
                                 <span class="meai-chk-autobig" x-show="!meAiBigGoalManual()">auto-picked</span>
-                                <button class="meai-chk-goto" type="button" x-show="meAiBigGoalManual()" @click="meAiClearBigGoal()" title="Let Me.AI pick the big thing automatically">use auto</button>
+                                <button class="meai-chk-goto" type="button" x-show="meAiBigGoalManual()" @click="meAiClearBigGoal()" title="Let Agenda.AI pick the big thing automatically">use auto</button>
                               </div>
                               <div class="meai-chk-status">
                                 <button class="meai-chk-st" type="button" :class="{ on: meAiTodoStatus(t)==='partial' }" @click="meAiSetTodoStatus(t, 'partial')">Need more time</button>
@@ -14828,7 +14870,7 @@
                       </div>
                     </template>
 
-                    <!-- Auto-handled: asks Me.AI dispositioned for you automatically (learned rules).
+                    <!-- Auto-handled: asks Agenda.AI dispositioned for you automatically (learned rules).
                          Surfaced separately so you can spot-check that nothing slipped into the wrong
                          bucket; Undo any to take it back. -->
                     <template x-if="meai.agenda && meAiTriagedAuto().length">
@@ -15773,7 +15815,7 @@
             <div class="meai-hours-modal" x-show="meai.hoursOpen" x-transition.opacity.duration.150ms x-cloak @click.self="meai.hoursOpen=false">
               <div class="meai-hours-panel">
                 <div class="meai-hours-panel-head">
-                  <h3>⚙ Me.AI settings</h3>
+                  <h3>⚙ Agenda.AI settings</h3>
                   <button class="icon-button" type="button" @click="meai.hoursOpen=false" title="Close">✕</button>
                 </div>
                 <nav class="meai-set-tabs">
@@ -15788,8 +15830,8 @@
                   <label>End</label><input type="time" x-model="meai.config.workEnd">
                   <label>Lunch</label>
                   <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
-                  <label title="The smallest time block Me.AI uses for flexible work. Fixed meetings always keep their exact times.">Minimum block</label>
-                  <select x-model.number="meai.config.grid" title="The smallest time block Me.AI uses for flexible work. Fixed meetings always keep their exact times."><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                  <label title="The smallest time block Agenda.AI uses for flexible work. Fixed meetings always keep their exact times.">Minimum block</label>
+                  <select x-model.number="meai.config.grid" title="The smallest time block Agenda.AI uses for flexible work. Fixed meetings always keep their exact times."><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
                   <label>Protect near-now</label>
                   <select x-model.number="meai.config.imminentWindow" title="On a re-plan of today, a block starting within this window is held in place — too close to now to move.">
                     <option :value="10">10 min</option><option :value="15">15 min</option><option :value="30">30 min</option><option :value="45">45 min</option><option :value="60">1 hour</option>
@@ -15888,7 +15930,7 @@
                     <input type="checkbox" x-model="meai.config.autoTriage.enabled">
                     <span>
                       <span class="meai-at-title">Auto-triage high-confidence items</span>
-                      <span class="meai-at-sub">Let Me.AI quietly file the asks it's sure about, and tell you what it did (always undoable). Off by default.</span>
+                      <span class="meai-at-sub">Let Agenda.AI quietly file the asks it's sure about, and tell you what it did (always undoable). Off by default.</span>
                     </span>
                   </label>
                   <div class="meai-at-body" x-show="meai.config.autoTriage.enabled" x-transition.opacity>
@@ -15912,7 +15954,7 @@
                       <span x-text="meai.autoTriageAdvOpen ? '▾' : '▸'"></span> Per-action control
                     </button>
                     <div class="meai-at-adv" x-show="meai.autoTriageAdvOpen" x-transition.opacity>
-                      <div class="meai-at-hint" style="margin-bottom:8px">Choose how sure Me.AI must be before it does each thing on its own.</div>
+                      <div class="meai-at-hint" style="margin-bottom:8px">Choose how sure Agenda.AI must be before it does each thing on its own.</div>
                       <template x-for="row in [['later','Park for later'],['today','Fit into today'],['dismiss','Not mine'],['wontfix','Won\u2019t fix']]" :key="row[0]">
                         <div class="meai-at-arow">
                           <span class="meai-at-aname" x-text="row[1]"></span>
@@ -15935,7 +15977,7 @@
                      Flow). Distinct from the confidence model above. NO pills; --cp-* tokens. -->
                 <div class="meai-classrules" x-show="meai.config.consent" style="margin-top:16px">
                   <div class="meai-at-title" style="display:block;margin-bottom:2px">Always-ignore rules</div>
-                  <div class="meai-at-sub" style="display:block;margin-bottom:10px">Ignore whole classes of Teams/email noise no matter how sure Me.AI is — e.g. review requests you already handle through Code Flow. Add one from any attention item with “Always ignore items like this.”</div>
+                  <div class="meai-at-sub" style="display:block;margin-bottom:10px">Ignore whole classes of Teams/email noise no matter how sure Agenda.AI is — e.g. review requests you already handle through Code Flow. Add one from any attention item with “Always ignore items like this.”</div>
                   <template x-if="!(meai.classRules && meai.classRules.length)">
                     <div class="meai-at-hint" style="padding:8px 0">No ignore rules yet.</div>
                   </template>
@@ -15959,11 +16001,11 @@
                 </div>
                 <!-- Instance-count dedup sensitivity: how much of a NEW arrival an
                      already-triaged related item must explain (title token containment)
-                     before Me.AI folds it in as another instance instead of a fresh row.
+                     before Agenda.AI folds it in as another instance instead of a fresh row.
                      Higher = stricter (fewer auto-folds); lower = looser. NO pills. -->
                 <div class="meai-grpmin" x-show="meai.config.consent" style="margin-top:16px">
                   <div class="meai-at-title" style="display:block;margin-bottom:2px">Group-similar sensitivity</div>
-                  <div class="meai-at-sub" style="display:block;margin-bottom:10px">When a new item closely matches one you already triaged, Me.AI folds it in (bumps its count) instead of nagging again. This sets how close the match must be.</div>
+                  <div class="meai-at-sub" style="display:block;margin-bottom:10px">When a new item closely matches one you already triaged, Agenda.AI folds it in (bumps its count) instead of nagging again. This sets how close the match must be.</div>
                   <div class="meai-at-slider">
                     <div class="meai-at-slabel">
                       <span>Match strictness</span>
@@ -15983,7 +16025,7 @@
                     <span></span>
                     <span class="meai-at-title" style="margin:0">Auto-report scheduling conflicts</span>
                   </label>
-                  <div class="meai-at-sub" style="display:block;margin-top:6px">If the planner ever produces a double-booked day, Me.AI files a private issue with an <strong>anonymized</strong> before/after of the schedule + why it happened — no real titles, links, or names leave your machine — so the scheduling bug can be fixed.</div>
+                  <div class="meai-at-sub" style="display:block;margin-top:6px">If the planner ever produces a double-booked day, Agenda.AI files a private issue with an <strong>anonymized</strong> before/after of the schedule + why it happened — no real titles, links, or names leave your machine — so the scheduling bug can be fixed.</div>
                 </div>
                 </div>
                 <div class="meai-set-foot">
@@ -17125,7 +17167,7 @@
 
           </section>
 
-          <!-- ===== Pulse.AI (ambient team-conversation & meeting digest — Me.AI companion) ===== -->
+          <!-- ===== Pulse.AI (ambient team-conversation & meeting digest — Agenda.AI companion) ===== -->
           <section x-show="!loading && !errorMessage && route === 'pulse'">
             <style>
               .pulse-wrap { max-width:1180px; margin:0 auto; }
@@ -17308,8 +17350,9 @@
               .pc .pc-reel-track { transition:transform .42s cubic-bezier(.22,1,.36,1); }
               .pc .pc-slide { height:300px; display:flex; flex-direction:column; }
               .pc .pc-s-media { position:relative; flex:1 1 auto; min-height:0; background:#0a0d12; border-radius:10px 10px 0 0; overflow:hidden; }
-              .pc .pc-s-full { position:absolute; top:8px; right:8px; z-index:2; width:28px; height:28px; border-radius:8px; border:1px solid rgba(255,255,255,.2); background:rgba(0,0,0,.5); color:#e6edf3; font-size:15px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background .15s ease; }
+              .pc .pc-s-full { position:absolute; top:8px; right:8px; z-index:2; width:28px; height:28px; border-radius:8px; border:1px solid rgba(255,255,255,.2); background:rgba(0,0,0,.5); color:#e6edf3; font-size:15px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; opacity:0; transition:background .15s ease, opacity .16s ease-out; }
               .pc .pc-s-full:hover { background:rgba(0,0,0,.72); }
+              .pc .pc-s-media:hover .pc-s-full, .pc .pc-s-media:focus-within .pc-s-full { opacity:1; }
               .pc .pc-svg { width:100%; height:100%; }
               .pc .pc-svg svg { display:block; width:100%; height:100%; }
               .pc .pc-svg img { display:block; width:100%; height:100%; object-fit:contain; background:#0a0d12; }
@@ -17331,6 +17374,34 @@
               .pc .pc-mini:hover { background:var(--cp-surface-hover); color:var(--cp-text); }
               .pc .pc-mini.on { border-color:var(--joy-line); color:var(--joy); }
 
+              /* share */
+              .pc .pc-sec-h .pc-share-btn { margin-left:auto; }
+              .pc-share-btn { font-size:11px; padding:2px 8px; border-radius:7px; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-muted); cursor:pointer; transition:color .14s ease-out, border-color .14s ease-out; }
+              .pc-share-btn:hover { color:var(--cp-text); border-color:var(--cp-text-soft); }
+              .pc .pc-kick .pc-share-btn { margin-left:10px; }
+              .pc-share-ov { position:fixed; inset:0; z-index:10052; background:rgba(6,9,14,.72); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:24px; }
+              .pc-share { width:min(94vw,440px); max-height:88vh; overflow:auto; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; box-shadow:0 24px 60px rgba(0,0,0,.45); }
+              .pc-share-h { display:flex; align-items:center; justify-content:space-between; padding:16px 18px 12px; border-bottom:1px solid var(--cp-border); }
+              .pc-share-h .t { font-size:15px; font-weight:660; letter-spacing:-0.01em; color:var(--cp-text); }
+              .pc-share-h .pc-lb-close { position:static; width:28px; height:28px; }
+              .pc-share-b { padding:14px 18px; display:flex; flex-direction:column; gap:6px; }
+              .pc-share-lab { font-size:12px; font-weight:600; color:var(--cp-text-soft); margin-top:6px; }
+              .pc-share-in { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:13px; font-family:inherit; box-sizing:border-box; }
+              .pc-share-in:focus { outline:none; border-color:var(--joy-line); }
+              .pc-share-note { resize:vertical; }
+              .pc-share-seg { display:flex; gap:8px; margin-top:8px; }
+              .pc-share-seg button { flex:1; padding:8px 10px; border-radius:8px; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-soft); font-size:12.5px; cursor:pointer; transition:border-color .14s ease-out, color .14s ease-out; }
+              .pc-share-seg button:hover { color:var(--cp-text); }
+              .pc-share-seg button.on { border-color:var(--joy-line); color:var(--joy); background:var(--joy-soft, transparent); }
+              .pc-share-teams { display:flex; flex-direction:column; gap:6px; }
+              .pc-share-meta { font-size:12px; color:var(--cp-text-muted); margin-top:8px; }
+              .pc-share-err { font-size:12.5px; color:var(--cp-danger,#c0392b); margin-top:8px; }
+              .pc-share-done { font-size:12.5px; color:var(--joy); margin-top:8px; }
+              .pc-share-f { display:flex; justify-content:flex-end; gap:8px; padding:12px 18px 16px; border-top:1px solid var(--cp-border); }
+              .pc-share-send { padding:8px 16px; border-radius:8px; border:1px solid var(--joy-line); background:var(--joy); color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
+              .pc-share-send:disabled { opacity:.55; cursor:default; }
+              @media (prefers-reduced-motion: reduce) { .pc-share-btn, .pc-share-seg button { transition:none; } }
+
               /* sections */
               .pc .pc-sec { margin-top:22px; }
               .pc .pc-sec-h { display:flex; align-items:baseline; gap:9px; margin-bottom:4px; }
@@ -17338,10 +17409,20 @@
               .pc .pc-sec-h .t { font-size:16px; font-weight:660; letter-spacing:-0.01em; color:var(--cp-text); }
               .pc .pc-sec-h .c { font-size:12px; color:var(--cp-text-muted); }
               .pc .pc-sec-sub { font-size:12.5px; color:var(--cp-text-muted); margin:0 0 12px; text-wrap:pretty; }
+              .pc .pc-strip { margin:6px 0 20px; }
+              .pc .pc-strip-art { position:relative; margin-top:8px; border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; background:#f6f1e6; }
+              .pc .pc-strip-svg { width:100%; }
+              .pc .pc-strip-svg svg { display:block; width:100%; height:auto; }
+              .pc .pc-strip-art .pc-s-full { position:absolute; top:8px; right:8px; z-index:2; width:30px; height:30px; border-radius:8px; border:1px solid rgba(0,0,0,.14); background:rgba(255,255,255,.82); color:#1a1712; font-size:15px; line-height:1; cursor:pointer; opacity:0; transition:opacity .16s ease-out; }
+              .pc .pc-strip-art:hover .pc-s-full { opacity:1; }
+              @media (prefers-reduced-motion: reduce) { .pc .pc-strip-art .pc-s-full { transition:none; } }
               .pc .pc-artrow { display:flex; gap:14px; align-items:flex-start; }
               .pc .pc-artbody { flex:1 1 auto; min-width:0; }
               .pc .pc-art-thumb { flex:0 0 128px; }
-              .pc .pc-art-thumb .pc-svg { height:128px; border-radius:10px; overflow:hidden; background:#0a0d12; }
+              .pc .pc-art-thumb .pc-svg { position:relative; height:128px; border-radius:10px; overflow:hidden; background:#0a0d12; }
+              .pc .pc-art-thumb .pc-svg.clickable { cursor:zoom-in; }
+              .pc .pc-art-thumb .pc-svg .pc-s-full { width:26px; height:26px; }
+              .pc .pc-art-thumb .pc-svg:hover .pc-s-full, .pc .pc-art-thumb .pc-svg:focus-within .pc-s-full { opacity:1; }
               .pc .pc-lab { font-size:10.5px; color:var(--cp-text-muted); margin-top:4px; text-align:center; }
 
               /* today's bit */
@@ -17696,7 +17777,7 @@
               <div class="pulse-consent" x-show="pulse.loaded &amp;&amp; !pulse.consent">
                 <div style="font-size:26px;margin-bottom:8px">🔒</div>
                 <div>Pulse.AI reads your Teams &amp; email to surface interesting conversations.</div>
-                <div style="margin-top:6px;color:var(--cp-text-muted)">Turn on Me.AI data collection in <a class="clickable" style="color:var(--cp-link);text-decoration:underline;text-underline-offset:2px" @click="goTo('#/me-ai')">Me.AI settings</a> to enable it.</div>
+                <div style="margin-top:6px;color:var(--cp-text-muted)">Turn on Agenda.AI data collection in <a class="clickable" style="color:var(--cp-link);text-decoration:underline;text-underline-offset:2px" @click="goTo('#/me-ai')">Agenda.AI settings</a> to enable it.</div>
               </div>
 
               <!-- initial loading -->
@@ -17725,7 +17806,7 @@
                   </nav>
 
                   <!-- Shared urgency legend (gradient heat scale) -->
-                  <div class="pulse-legend" x-show="(pulse.counts.all > 0 || pulseSummaryText()) &amp;&amp; pulse.lens !== 'today'">
+                  <div class="pulse-legend" x-show="(pulse.counts.all > 0 || pulseSummaryText()) &amp;&amp; pulse.lens !== 'today' &amp;&amp; pulse.lens !== 'comedy'">
                     <div>
                       <div class="scale"><span class="mid"></span></div>
                       <div class="ends"><span>Calm</span><span>Urgent</span></div>
@@ -17762,7 +17843,7 @@
                             </div>
                             <div class="pl-acts">
                               <button class="todo" x-show="!pulseHasTodo(w.thread)" @click.stop="pulseMakeTodo(w)">＋ To-do</button>
-                              <a class="onlist" x-show="pulseHasTodo(w.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Me.AI to-do list — open it">✓ On your to-do list</a>
+                              <a class="onlist" x-show="pulseHasTodo(w.thread)" @click.stop="meAiTodosToggle(true); goTo('#/me-ai')" title="On your Agenda.AI to-do list — open it">✓ On your to-do list</a>
                               <button class="mute" @click.stop="pulseMute(w.key)">Dismiss</button>
                             </div>
                           </div>
@@ -17986,7 +18067,7 @@
                           <div class="pc-top">
                             <!-- mood of the room -->
                             <div class="pc-hero" x-show="pulseActiveComedy().mood">
-                              <div class="pc-kick">😄 The mood of the room</div>
+                              <div class="pc-kick">😄 The mood of the room <button class="pc-share-btn" @click="pulseShareNewsletter()">Send as newsletter</button></div>
                               <h3 class="pc-mood-h" x-text="pulseActiveComedy().mood ? pulseActiveComedy().mood.headline : ''"></h3>
                               <p class="pc-mood-read" x-text="pulseActiveComedy().mood ? pulseActiveComedy().mood.read : ''"></p>
                               <div class="pc-levity" x-data="{ lv: pulseComedyLevity() }">
@@ -18027,6 +18108,7 @@
                                           <div class="pc-s-acts">
                                             <button class="pc-mini" :class="it.pinned ? 'on' : ''" @click="pulseComedyArt(it.id, it.pinned ? 'unpin' : 'pin')" x-text="it.pinned ? '★ Kept' : '☆ Keep'"></button>
                                             <button class="pc-mini" @click="pulseComedyArt(it.id, 'hide')">Hide</button>
+                                            <button class="pc-mini" @click="pulseShareReel(it)">Share</button>
                                           </div>
                                         </div>
                                       </div>
@@ -18049,9 +18131,62 @@
                             </div>
                           </div>
 
+                          <!-- Share sheet (email / Teams channel / newsletter) -->
+                          <div class="pc-share-ov" x-show="pulse._share.open" x-transition.opacity @click="pulseShareClose()" @keydown.escape.window="pulseShareClose()" x-cloak style="display:none">
+                            <div class="pc-share" @click.stop>
+                              <div class="pc-share-h">
+                                <span class="t" x-text="pulse._share.kind === 'newsletter' ? 'Send as newsletter' : 'Share this'"></span>
+                                <button class="pc-lb-close" @click="pulseShareClose()" aria-label="Close">✕</button>
+                              </div>
+                              <div class="pc-share-b">
+                                <label class="pc-share-lab">Subject</label>
+                                <input class="pc-share-in" type="text" x-model="pulse._share.title" placeholder="Subject">
+                                <div class="pc-share-seg">
+                                  <button :class="pulse._share.target === 'email' ? 'on' : ''" @click="pulse._share.target = 'email'">✉️ Email draft</button>
+                                  <button :class="pulse._share.target === 'teams' ? 'on' : ''" @click="pulse._share.target = 'teams'; pulseShareLoadTeams()" x-show="pulse.consent">💬 Team channel</button>
+                                </div>
+                                <template x-if="pulse._share.target === 'teams'">
+                                  <div class="pc-share-teams">
+                                    <label class="pc-share-lab">Team</label>
+                                    <select class="pc-share-in" x-model="pulse._share.teamId" @change="pulseShareLoadChannels(pulse._share.teamId)" :disabled="pulse._share.loadingTeams">
+                                      <option value="" x-text="pulse._share.loadingTeams ? 'Loading teams…' : 'Choose a team…'"></option>
+                                      <template x-for="t in pulse._share.teams" :key="t.id">
+                                        <option :value="t.id" x-text="t.displayName"></option>
+                                      </template>
+                                    </select>
+                                    <label class="pc-share-lab" x-show="pulse._share.teamId">Channel</label>
+                                    <select class="pc-share-in" x-show="pulse._share.teamId" x-model="pulse._share.channelId" :disabled="pulse._share.loadingChannels">
+                                      <option value="" x-text="pulse._share.loadingChannels ? 'Loading channels…' : 'Choose a channel…'"></option>
+                                      <template x-for="ch in pulse._share.channels" :key="ch.id">
+                                        <option :value="ch.id" x-text="ch.displayName"></option>
+                                      </template>
+                                    </select>
+                                  </div>
+                                </template>
+                                <label class="pc-share-lab">Add a note (optional)</label>
+                                <textarea class="pc-share-in pc-share-note" x-model="pulse._share.note" rows="2" placeholder="Say something…"></textarea>
+                                <div class="pc-share-meta" x-show="pulse._share.images.length" x-text="pulse._share.images.length + ' image' + (pulse._share.images.length === 1 ? '' : 's') + ' attached'"></div>
+                                <div class="pc-share-err" x-show="pulse._share.err" x-text="pulse._share.err"></div>
+                                <div class="pc-share-done" x-show="pulse._share.done" x-text="pulse._share.done"></div>
+                              </div>
+                              <div class="pc-share-f">
+                                <button class="pc-mini" @click="pulseShareClose()">Cancel</button>
+                                <button class="pc-share-send" @click="pulseShareSend()" :disabled="pulse._share.sending" x-text="pulse._share.sending ? 'Sending…' : (pulse._share.target === 'teams' ? 'Post to channel' : 'Open email draft')"></button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="pc-strip" x-show="pulseComedyStrip()" x-data="{ c: pulseComedyStrip() }">
+                            <div class="pc-sec-h"><span class="i">🗞️</span><span class="t">Daily strip</span><span class="c" x-show="c &amp;&amp; c.premise" x-text="'· ' + c.premise"></span><button class="pc-share-btn" @click="pulseShareStrip()">Share</button></div>
+                            <div class="pc-strip-art clickable" @click="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" title="View fullscreen">
+                              <button class="pc-s-full" @click.stop="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
+                              <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? c.art.svg : ''"></div>
+                            </div>
+                          </div>
+
                           <!-- Today's bit -->
                           <div class="pc-sec" x-show="pulseActiveComedy().bit">
-                            <div class="pc-sec-h"><span class="i">🏆</span><span class="t">Today's bit</span></div>
+                            <div class="pc-sec-h"><span class="i">🏆</span><span class="t">Today's bit</span><button class="pc-share-btn" @click="pulseShareBit()">Share</button></div>
                             <div class="pc-bit" x-data="{ b: pulseActiveComedy().bit }">
                               <div class="pc-artrow">
                                 <div class="pc-artbody">
@@ -18065,7 +18200,8 @@
                                   </div>
                                 </div>
                                 <div class="pc-art-thumb" x-show="b.art">
-                                  <div class="pc-svg">
+                                  <div class="pc-svg clickable" @click="pulseReelOpenFull(b.art)" title="View fullscreen">
+                                    <button class="pc-s-full" @click.stop="pulseReelOpenFull(b.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                     <img x-show="b.art && b.art.img" :src="b.art ? b.art.img : ''" alt="" loading="lazy">
                                     <div x-show="b.art && !b.art.img" x-html="b.art ? b.art.svg : ''" style="width:100%;height:100%"></div>
                                   </div>
@@ -18087,12 +18223,14 @@
                                       <div class="pc-line-top">
                                         <span class="pc-who" x-text="g.title"></span>
                                         <span class="pc-where" x-show="g.who" x-text="g.who"></span>
+                                        <button class="pc-share-btn" @click="pulseShareGag(g)">Share</button>
                                       </div>
                                       <div class="pc-line-body" x-text="g.blurb"></div>
                                       <div class="pc-gagmeta" x-show="g.span" x-text="g.span"></div>
                                     </div>
                                     <div class="pc-art-thumb" x-show="g.art">
-                                      <div class="pc-svg">
+                                      <div class="pc-svg clickable" @click="pulseReelOpenFull(g.art)" title="View fullscreen">
+                                        <button class="pc-s-full" @click.stop="pulseReelOpenFull(g.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                         <img x-show="g.art && g.art.img" :src="g.art ? g.art.img : ''" alt="" loading="lazy">
                                         <div x-show="g.art && !g.art.img" x-html="g.art ? g.art.svg : ''" style="width:100%;height:100%"></div>
                                       </div>
@@ -18114,6 +18252,7 @@
                                     <span class="pc-who" x-text="o.who"></span>
                                     <span class="pc-where" x-show="o.where" x-text="o.where"></span>
                                     <a class="pc-jump clickable" x-show="pulseThreadFor(o.key)" @click.prevent="pulseOpen(pulseThreadFor(o.key))">Jump →</a>
+                                    <button class="pc-share-btn" @click="pulseShareOverheard(o)">Share</button>
                                   </div>
                                   <div class="pc-line-body pc-oneliner" x-text="o.line"></div>
                                 </div>
@@ -18189,7 +18328,7 @@
             </div>
           </section>
 
-          <!-- ===== Diary (standalone page — the shared activity journal Connect / Newsletter / Me.AI build on) ===== -->
+          <!-- ===== Diary (standalone page — the shared activity journal Connect / Newsletter / Agenda.AI build on) ===== -->
           <section x-show="!loading && !errorMessage && route === 'diary'">
             <style>
               .diary-wrap { max-width:1180px; }
@@ -18225,7 +18364,7 @@
               <div class="diary-head">
                 <div>
                   <h1><span>📖</span> Diary</h1>
-                  <p class="diary-sub">Your running record of what you actually worked on — meetings you ran, features you shipped, people you unblocked. Connect, Newsletter, and Me.AI all build on these entries.</p>
+                  <p class="diary-sub">Your running record of what you actually worked on — meetings you ran, features you shipped, people you unblocked. Connect, Newsletter, and Agenda.AI all build on these entries.</p>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px">
                   <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
@@ -18331,7 +18470,7 @@
 
               <!-- Empty states -->
               <div x-show="!connect.loading && !connectFilteredEvidence().length && !connect.evForm && !connect.filterFrom && !connect.filterTo && connect.aiMatchIds === null && !connect.filterSource" class="hint" style="padding:32px 0;text-align:center">
-                <div>No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect, Newsletter, and Me.AI.</div>
+                <div>No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect, Newsletter, and Agenda.AI.</div>
                 <div x-show="connect.config && connect.config.consent" style="margin-top:14px">
                   <button class="btn primary small" type="button" :disabled="connect.collecting" @click="connectWideBackfill()" x-text="connect.collecting ? 'Backfilling…' : '⟳ Backfill my last 45 days'"></button>
                   <div class="hint" style="font-size:0.72rem;margin-top:6px;opacity:0.85">One-time deeper pull across all sources. Takes longer than a normal collect — meetings stream in the background while the rest lands right away.</div>
@@ -19368,7 +19507,7 @@
                               title="Link this pull request to an existing dev card (or create one)"
                               @click.stop="openLinkToDevCard(pr)">🔗 Link to dev card</button>
                       <button class="btn ghost" type="button" style="font-size:0.72rem" x-show="codeflow.view !== 'other'"
-                              title="Add this pull request to today's Me.AI agenda (at least 30 min out; after hours if the day is full)"
+                              title="Add this pull request to today's Agenda.AI agenda (at least 30 min out; after hours if the day is full)"
                               @click.stop="cfAddPrToAgenda(pr)">🗓 Add to today</button>
                       <button class="btn ghost" type="button" style="font-size:0.82rem;padding:4px 8px"
                               :title="cfPrPinnedBoard(pr) ? ('Pinned to ' + cfPrPinnedLabel(pr) + ' — change board') : 'Pin this pull request to a board (with full review/worktree actions)'"
@@ -19666,10 +19805,10 @@
                         <div class="cf-subsec" x-show="prReadyWt(pr) || prAgentList(pr).length" x-init="recommendPrAgents(pr)">
                         <div class="cf-subhead">🎭 Playbook agents</div>
                         <p class="cf-agent-explain">Add focused agents from a playbook — a rubber-duck reviewer, security or design review, test-coverage audit, release-note drafter. Each writes its own agent into the worktree; read-only personas review and propose without touching the PR.</p>
-                        <!-- Me.AI agent recommendations -->
+                        <!-- Agenda.AI agent recommendations -->
                         <div class="dcrec" x-show="prRecoList(pr).length" x-cloak>
                           <div class="dcrec-h">
-                            <span class="t"><b>✦ Me.AI</b> recommends adding</span>
+                            <span class="t"><b>✦ Agenda.AI</b> recommends adding</span>
                             <button class="dcrec-refresh" type="button" :disabled="prRecoBusy(pr)" @click="recommendPrAgents(pr,{force:true,noAuto:true})" x-text="prRecoBusy(pr) ? 'Thinking…' : '↻ Recommend agents'"></button>
                           </div>
                           <template x-for="rec in prRecoList(pr)" :key="rec.persona">
@@ -21669,7 +21808,7 @@
           <section x-show="!loading && !errorMessage && (route === 'chat' || route === 'chat-detail')">
             <div class="page-header">
               <div class="page-title">
-                <h1>Water cooler</h1>
+                <h1>Agent Chats</h1>
                 <p>Your intentional conversations — chat one-to-one with an agent, or bring several together in a group.</p>
               </div>
               <div class="toolbar">
@@ -21868,6 +22007,12 @@
                               <template x-if="message.role !== 'user' && message.model">
                                 <span class="model-badge" :title="'Model: ' + message.model" x-text="'🧠 ' + formatModelName(message.model)"></span>
                               </template>
+                              <template x-if="message.role !== 'user' && message.sessionId">
+                                <span class="msg-session">
+                                  <button type="button" class="msg-session-id" :title="'CLI session ' + message.sessionId + ' — click to copy'" @click="navigator.clipboard?.writeText(message.sessionId); showToast('Copied', 'Session id copied to clipboard.', 'success')" x-text="'⌥ ' + String(message.sessionId).slice(0, 8)"></button>
+                                  <button type="button" class="msg-session-resume" title="Resume this CLI session in a terminal" @click="resumeCliSession({ id: message.sessionId })">↻ Resume</button>
+                                </span>
+                              </template>
                             </div>
                           </div>
                           <div class="msg-actions" style="display:flex;flex-direction:column;gap:4px">
@@ -21893,22 +22038,29 @@
                       <span class="reason-caret" x-show="chatActivity[activeChat?.id]?.steps?.length" x-text="liveReasonOpen ? '▾' : '▸'"></span>
                     </div>
                     <template x-for="(step, si) in (liveReasonOpen ? (chatActivity[activeChat?.id]?.steps || []) : [])" :key="'step-' + si">
-                      <div class="activity-step" :class="step.type">
-                        <template x-if="step.type === 'tool' || step.type === 'tool_start'">
+                      <div class="activity-step" :class="[step.type, step.kind ? ('kind-' + step.kind) : '']">
+                        <template x-if="step.kind === 'intent'">
+                          <div class="intent-step"><span class="intent-icon" x-text="step.icon || '💡'"></span><span class="intent-text" x-text="step.text"></span></div>
+                        </template>
+                        <template x-if="step.kind === 'thinking' || step.kind === 'agent'">
+                          <div class="thinking-step"><span x-text="step.icon || '💭'"></span><span class="thinking-text" x-text="step.text || step.content"></span></div>
+                        </template>
+                        <template x-if="step.kind === 'tool'">
+                          <div class="tool-step">
+                            <span class="tool-icon" x-text="step.icon || '🔧'"></span>
+                            <span class="tool-name" x-text="step.text || step.tool"></span>
+                            <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                          </div>
+                        </template>
+                        <template x-if="!step.kind && (step.type === 'tool' || step.type === 'tool_start')">
                           <div class="tool-step">
                             <span class="tool-icon">🔧</span>
                             <span class="tool-name" x-text="step.tool"></span>
                             <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
                           </div>
                         </template>
-                        <template x-if="step.type === 'thinking'">
-                          <div class="thinking-step">
-                            <span>💭</span>
-                            <span class="thinking-text" x-text="step.content"></span>
-                          </div>
-                        </template>
-                        <template x-if="step.partial">
-                          <pre class="live-stream-pre" x-text="step.partial" x-effect="step.partial; $el.scrollTop = $el.scrollHeight"></pre>
+                        <template x-if="!step.kind && step.type === 'thinking'">
+                          <div class="thinking-step"><span>💭</span><span class="thinking-text" x-text="step.content"></span></div>
                         </template>
                       </div>
                     </template>
@@ -21928,22 +22080,29 @@
                         <span class="reason-caret" x-show="act.steps?.length" x-text="(act.open === true) ? '▾' : '▸'"></span>
                       </div>
                       <template x-for="(step, si) in ((act.open === true) ? (act.steps || []) : [])" :key="'bstep-' + busyId + '-' + si">
-                        <div class="activity-step" :class="step.type">
-                          <template x-if="step.type === 'tool' || step.type === 'tool_start'">
+                        <div class="activity-step" :class="[step.type, step.kind ? ('kind-' + step.kind) : '']">
+                          <template x-if="step.kind === 'intent'">
+                            <div class="intent-step"><span class="intent-icon" x-text="step.icon || '💡'"></span><span class="intent-text" x-text="step.text"></span></div>
+                          </template>
+                          <template x-if="step.kind === 'thinking' || step.kind === 'agent'">
+                            <div class="thinking-step"><span x-text="step.icon || '💭'"></span><span class="thinking-text" x-text="step.text || step.content"></span></div>
+                          </template>
+                          <template x-if="step.kind === 'tool'">
+                            <div class="tool-step">
+                              <span class="tool-icon" x-text="step.icon || '🔧'"></span>
+                              <span class="tool-name" x-text="step.text || step.tool"></span>
+                              <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                            </div>
+                          </template>
+                          <template x-if="!step.kind && (step.type === 'tool' || step.type === 'tool_start')">
                             <div class="tool-step">
                               <span class="tool-icon">🔧</span>
                               <span class="tool-name" x-text="step.tool"></span>
                               <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
                             </div>
                           </template>
-                          <template x-if="step.type === 'thinking'">
-                            <div class="thinking-step">
-                              <span>💭</span>
-                              <span class="thinking-text" x-text="step.content"></span>
-                            </div>
-                          </template>
-                          <template x-if="step.partial">
-                            <pre class="live-stream-pre" x-text="step.partial" x-effect="step.partial; $el.scrollTop = $el.scrollHeight"></pre>
+                          <template x-if="!step.kind && step.type === 'thinking'">
+                            <div class="thinking-step"><span>💭</span><span class="thinking-text" x-text="step.content"></span></div>
                           </template>
                         </div>
                       </template>
@@ -22359,7 +22518,7 @@
             <div x-show="settingsCat === 'experience'">
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">🧭 Experience level</h3>
-              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Workspaces, Code Flow, Agents and Marketplace — that starts small and lets you switch on more. <strong>Advanced</strong> starts with every feature on and lets you switch off the ones you don't use. Each level keeps its own set.</p>
+              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Workspaces.AI, Code Flow, Agents and Marketplace — that starts small and lets you switch on more. <strong>Advanced</strong> starts with every feature on and lets you switch off the ones you don't use. Each level keeps its own set.</p>
               <div class="filter-pills">
                 <button class="pill" type="button" :class="{ active: experienceLevel === 'basic' }" @click="setExperienceLevel('basic')">🌱 Basic</button>
                 <button class="pill" type="button" :class="{ active: experienceLevel === 'advanced' }" @click="setExperienceLevel('advanced')">🚀 Advanced</button>
@@ -24273,7 +24432,7 @@
               </div>
             </template>
 
-            <!-- Focus & flow (Me.AI daily activity + fragmentation) — decoupled from the usage `reports` object -->
+            <!-- Focus & flow (Agenda.AI daily activity + fragmentation) — decoupled from the usage `reports` object -->
             <div x-show="reportView === 'focus'">
               <div class="empty-state" x-show="meaiReportLoading">Loading focus &amp; flow…</div>
               <template x-if="!meaiReportLoading && meaiReport && meaiReport.summary">
@@ -24483,7 +24642,7 @@
                      <h3 style="margin:0">End-of-day reflections</h3>
                      <span class="hint">AI commentary you generated on how days went</span>
                     </div>
-                    <p class="hint" style="margin:0 0 14px">Only days where you generated an end-of-day reflection appear here. Open any past day on Me.AI to add one.</p>
+                    <p class="hint" style="margin:0 0 14px">Only days where you generated an end-of-day reflection appear here. Open any past day on Agenda.AI to add one.</p>
                     <template x-if="meaiReport.eod.tips && meaiReport.eod.tips.length">
                      <div class="meai-eod-tips" style="margin:0 0 16px">
                        <h5>Recurring suggestions</h5>
@@ -24535,7 +24694,7 @@
                       <h3 style="margin:0">Triage automation</h3>
                       <span class="hint">How much of your attention inbox gets handled for you</span>
                     </div>
-                    <p class="hint" style="margin:0 0 16px">Every incoming email, Teams and meeting ask lands in your attention inbox. Some you triage by hand; the rest Me.AI's learned rules handle automatically. The aim is for that automatic share to climb as it learns your patterns — reclaiming the seconds each manual decision costs.</p>
+                    <p class="hint" style="margin:0 0 16px">Every incoming email, Teams and meeting ask lands in your attention inbox. Some you triage by hand; the rest Agenda.AI's learned rules handle automatically. The aim is for that automatic share to climb as it learns your patterns — reclaiming the seconds each manual decision costs.</p>
                     <div class="report-grid" style="margin-bottom:16px">
                       <div class="card report-stat">
                         <div class="report-stat-label">🤖 Auto-handled</div>
@@ -24613,7 +24772,7 @@
                           </template>
                         </tbody>
                       </table>
-                      <div class="empty-state" x-show="!meaiActiveDays().length" style="padding:18px">No Me.AI activity recorded in this range yet. As you plan and run your day, focus &amp; fragmentation will appear here.</div>
+                      <div class="empty-state" x-show="!meaiActiveDays().length" style="padding:18px">No Agenda.AI activity recorded in this range yet. As you plan and run your day, focus &amp; fragmentation will appear here.</div>
                     </div>
                   </div>
                 </div>
@@ -25122,7 +25281,7 @@
       <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
         <div class="hint" x-text="boardKindIcon(quickPin.kind) + ' ' + boardKindLabel(quickPin.kind) + ' · ' + quickPin.label"></div>
         <div x-show="boardsLoading" class="hint">Loading boards…</div>
-        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No workspaces on this team yet.</div>
+        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No Workspaces.AI on this team yet.</div>
         <div style="display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto">
           <template x-for="b in visibleBoards()" :key="b.id">
             <button type="button" class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;text-align:left" @click="quickPinTo(b)">
@@ -26386,7 +26545,7 @@
         devPersonasLoaded: false,
         devPickerOpen: {},
         devAgentBusy: {},
-        // Me.AI agent recommendations per dev card: { suggest:[], loaded, busy }.
+        // Agenda.AI agent recommendations per dev card: { suggest:[], loaded, busy }.
         // High-confidence autoAdd personas are added silently; the rest surface here.
         devRecos: {},
         devRecoDismissed: {},
@@ -26531,7 +26690,7 @@
             progress: [],        // live activity while the assistant investigates: { icon, text }
           },
         },
-        // ===== Me.AI (personal daily agenda / command center) — M1 read-only =====
+        // ===== Agenda.AI (personal daily agenda / command center) — M1 read-only =====
         playbooksPage: {
           loaded: false,
           loading: false,
@@ -26569,7 +26728,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' }, _reelFull: null, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -28663,7 +28822,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 this.toast('📰 A new newsletter is ready for review', 'success');
               } catch {}
             });
-            // Me.AI M2 — Me-agent console/task stream (thinking/tools/report/stage).
+            // Agenda.AI M2 — Me-agent console/task stream (thinking/tools/report/stage).
             source.addEventListener('me-ai-task', (event) => {
               try { this._meAiOnTaskEvent(JSON.parse(event.data || '{}')); } catch {}
             });
@@ -28876,15 +29035,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const mk = (label, icon, href, routeGroup, extra) => Object.assign({ key, label, title: label, icon, href, routeGroup, items: [], collapsible: false }, extra || {});
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
-            case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai', { badge: this.meAiGoalsLeftCount(), badgeTitle: 'Goals left today' });
+            case 'me-ai': return mk('Agenda.AI', '🧭', '#/me-ai', 'me-ai', { badge: this.meAiGoalsLeftCount(), badgeTitle: 'Goals left today' });
             case 'pulse': return mk("Pulse.AI", '📡', '#/pulse', 'pulse', { attnBadge: (this.pulseActiveSummary() && Array.isArray(this.pulseActiveSummary().worthALook)) ? this.pulseWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
             case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
-            case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards', { badge: (this.homeBoards() || []).length, badgeTitle: 'Your workspaces' });
+            case 'boards': return mk('Workspaces.AI', '📌', '#/boards', 'boards', { badge: (this.homeBoards() || []).length, badgeTitle: 'Your Workspaces.AI' });
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
             case 'connect': return mk('Connect', '🌟', '#/connect', 'connect');
             case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
             case 'newsletter': return mk('Newsletter', '📰', '#/newsletter', 'newsletter', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
-            case 'watercooler': return mk('Water cooler', '💬', '#/chat', 'chat');
+            case 'watercooler': return mk('Agent Chats', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
             case 'playbooks': return mk('Playbooks', '📘', '#/playbooks', 'playbooks');
             case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
@@ -29151,7 +29310,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const scopeLabel = org ? `Team · ${org.name}` : 'All teams';
           const scope = { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' };
           const home = { key: 'home', label: 'Home', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false };
-          const watercooler = { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false };
+          const watercooler = { key: 'watercooler', label: 'Agent Chats', title: 'Agent Chats', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false };
           // Shared "Office-wide" zone — appears at the bottom of both modes.
           const globalZone = [
             { key: '_zone_company', caption: true, label: 'Office-wide', icon: '🏛️' },
@@ -29165,8 +29324,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Default items + any optional features the user switched on in Settings.
           if (this.experienceLevel === 'basic') {
             const bf = this.basicFeatures || {};
-            const boards = { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false };
-            const meai = { key: 'me-ai', label: 'Me.AI', title: 'Me.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false };
+            const boards = { key: 'boards', label: 'Workspaces.AI', title: 'Workspaces.AI', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false };
+            const meai = { key: 'me-ai', label: 'Agenda.AI', title: 'Agenda.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false };
             const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
             const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
             const autonomous = { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false };
@@ -29202,9 +29361,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             scope,
             home,
-            { key: 'me-ai', label: 'Me.AI', title: 'Me.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false },
+            { key: 'me-ai', label: 'Agenda.AI', title: 'Agenda.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false },
             { key: 'playbooks', label: 'Playbooks', title: 'Playbooks', icon: '📘', href: '#/playbooks', routeGroup: 'playbooks', items: [], collapsible: false },
-            { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
+            { key: 'boards', label: 'Workspaces.AI', title: 'Workspaces.AI', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
             { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
             { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false },
@@ -29440,11 +29599,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Order here drives the order they appear in the Settings checklist.
         basicFeatureCatalog() {
           return [
-            { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
-            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
+            { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Agenda.AI build on.' },
+            { key: 'me-ai', label: 'Agenda.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
-            { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
+            { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
@@ -29456,12 +29615,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Advanced-only. Order drives the Settings checklist order.
         advancedFeatureCatalog() {
           return [
-            { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Me.AI build on.' },
-            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
+            { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Agenda.AI build on.' },
+            { key: 'me-ai', label: 'Agenda.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📘', hint: 'Author & tune the Me-agent playbook prompts.' },
-            { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
+            { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
@@ -31709,7 +31868,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homeSecLabel(key) {
           const labels = {
             greeting: 'Good evening', devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
-            boards: 'Workspaces', prs: 'Pull requests', activeprs: 'Active PRs (needs review)', agenda: "Today's agenda",
+            boards: 'Workspaces.AI', prs: 'Pull requests', activeprs: 'Active PRs (needs review)', agenda: "Today's agenda",
             teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
             flowchart: 'Flow / Task activity',
@@ -31765,7 +31924,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         // #1 Compact read-only "Today's agenda" glance for the HOME page. Reads the
         // persisted snapshot for TODAY only (never generates) so it stays fast and never
-        // spawns the collector. Uses its own state so it's decoupled from the Me.AI page's
+        // spawns the collector. Uses its own state so it's decoupled from the Agenda.AI page's
         // viewed date (which #8 may hold on a future day).
         async loadHomeAgenda() {
           if (this.appMode !== 'workspace' || !this.featureVisible('me-ai')) return;
@@ -31809,7 +31968,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.homeAgenda.loading = false;
           }
         },
-        // Navigate to Me.AI, opening the agenda on the day the home card is showing.
+        // Navigate to Agenda.AI, opening the agenda on the day the home card is showing.
         homeAgendaOpen() {
           const day = this.homeAgenda.day || this._meLocalDay();
           try {
@@ -34430,10 +34589,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ---- Code Flow (Azure DevOps PR monitoring) ----------------------------
         // ===== Connect (living impact / performance diary) =====
-        // ===== Me.AI methods (M1 read-only agenda) =====
+        // ===== Agenda.AI methods (M1 read-only agenda) =====
         // Local calendar day (YYYY-MM-DD) in the BROWSER's timezone. Never use
         // toISOString().slice(0,10) for "today" — that is UTC and rolls over to
-        // tomorrow after ~5pm PDT, which made the Me.AI page think today was tomorrow.
+        // tomorrow after ~5pm PDT, which made the Agenda.AI page think today was tomorrow.
         _meLocalDay(d) {
           const x = d ? new Date(d) : new Date();
           return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
@@ -34671,7 +34830,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.request('/api/me-ai/preindex', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) }).catch(() => {});
             }
           } catch (e) {
-            this.toast('Failed to load Me.AI: ' + (e.message || e), 'error');
+            this.toast('Failed to load Agenda.AI: ' + (e.message || e), 'error');
           } finally {
             this.meai.loading = false;
           }
@@ -34989,7 +35148,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'people', label: 'People' },
             { key: 'today', label: 'Today' },
             { key: 'quiet', label: 'FYI' },
-            { key: 'comedy', label: 'Comedy 😄', dim: !(c && !c.empty) },
+            { key: 'comedy', label: 'Water cooler ☕', dim: !(c && !c.empty) },
           ];
         },
         pulseSetLens(k) { this.pulse.lens = k || 'focus'; try { localStorage.setItem('pulse-lens', this.pulse.lens); } catch (e) {} },
@@ -35000,6 +35159,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return w.comedyNoDm || w.comedy;
         },
         pulseComedyEmpty() { const c = this.pulseActiveComedy(); return !c || c.empty; },
+        pulseComedyStrip() { const c = this.pulseActiveComedy(); return (c && c.comic && c.comic.art && c.comic.art.svg) ? c.comic : null; },
         pulseComedyLevity() {
           const c = this.pulseActiveComedy();
           const bits = c ? ((c.bit ? 1 : 0) + (Array.isArray(c.overheard) ? c.overheard.length : 0)) : 0;
@@ -35032,6 +35192,117 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         pulseReelCaption(it) { const c = (it && Array.isArray(it.captions)) ? it.captions.filter(Boolean) : []; return c.join(' · '); },
         pulseReelOpenFull(it) { this.pulse._reelFull = it || null; },
         pulseReelCloseFull() { this.pulse._reelFull = null; },
+        // ── Comedy sharing (email / Teams channel / whole-page newsletter) ──
+        _pulseShareImg(art, caption) {
+          // art is a reel/strip item ({img?|svg?}) — normalize to the share payload shape
+          if (!art) return null;
+          if (art.img) return { url: art.img, caption: caption || this.pulseReelCaption(art) || '' };
+          if (art.svg) return { svg: art.svg, caption: caption || this.pulseReelCaption(art) || '' };
+          return null;
+        },
+        pulseShareOpen(payload) {
+          payload = payload || {};
+          const sh = this.pulse._share;
+          sh.kind = payload.kind || 'item';
+          sh.title = payload.title || 'From the comedy lens';
+          sh.markdown = payload.markdown || '';
+          sh.images = Array.isArray(payload.images) ? payload.images.filter(Boolean) : [];
+          sh.note = '';
+          sh.err = ''; sh.done = ''; sh.sending = false;
+          sh.target = 'email';
+          sh.open = true;
+          if (this.pulse.consent) this.pulseShareLoadTeams();
+        },
+        pulseShareClose() { this.pulse._share.open = false; },
+        async pulseShareLoadTeams() {
+          const sh = this.pulse._share;
+          if (sh.loadingTeams || (sh.teams && sh.teams.length)) return;
+          sh.loadingTeams = true;
+          try {
+            const r = await this.request('/api/me-ai/pulse/teams');
+            sh.teams = (r && Array.isArray(r.teams)) ? r.teams : [];
+          } catch (e) { /* Teams optional; email always works */ }
+          finally { sh.loadingTeams = false; }
+        },
+        async pulseShareLoadChannels(teamId) {
+          const sh = this.pulse._share;
+          sh.channelId = ''; sh.channels = [];
+          if (!teamId) return;
+          sh.loadingChannels = true;
+          try {
+            const r = await this.request('/api/me-ai/pulse/teams/' + encodeURIComponent(teamId) + '/channels');
+            sh.channels = (r && Array.isArray(r.channels)) ? r.channels : [];
+            if (sh.channels.length === 1) sh.channelId = sh.channels[0].id;
+          } catch (e) { sh.err = 'Could not load channels: ' + (e.message || e); }
+          finally { sh.loadingChannels = false; }
+        },
+        async pulseShareSend() {
+          const sh = this.pulse._share;
+          if (sh.sending) return;
+          const body = (sh.markdown || '') + (sh.note ? ('\n\n' + sh.note) : '');
+          if (!body.trim() && !(sh.images && sh.images.length)) { sh.err = 'Nothing to share.'; return; }
+          sh.err = ''; sh.done = ''; sh.sending = true;
+          try {
+            if (sh.target === 'teams') {
+              if (!sh.teamId || !sh.channelId) { sh.err = 'Pick a team and channel.'; sh.sending = false; return; }
+              const r = await this.request('/api/me-ai/pulse/share/teams', { method: 'POST', body: JSON.stringify({ teamId: sh.teamId, channelId: sh.channelId, subject: sh.title, markdown: body, images: sh.images }) });
+              if (r && r.ok) { sh.done = 'Posted to the channel.'; this.toast('Posted to Teams', 'success'); setTimeout(() => { sh.open = false; }, 900); }
+              else { sh.err = (r && r.error) || 'Teams post could not be confirmed.'; }
+            } else {
+              const r = await this.request('/api/me-ai/pulse/share/email', { method: 'POST', body: JSON.stringify({ subject: sh.title, markdown: body, images: sh.images }) });
+              if (r && r.ok) { sh.done = 'Draft opened in your mail app.'; this.toast('Email draft opened', 'success'); setTimeout(() => { sh.open = false; }, 900); }
+              else { sh.err = (r && r.error) || 'Could not open a draft.'; }
+            }
+          } catch (e) { sh.err = e.message || String(e); }
+          finally { sh.sending = false; }
+        },
+        // Per-item share composers → open the sheet with a ready payload
+        pulseShareBit() {
+          const b = (this.pulseActiveComedy() || {}).bit; if (!b) return;
+          let md = '### Today\'s bit\n\n> ' + (b.quote || '');
+          if (b.setup) md += '\n\n' + b.setup;
+          const foot = [b.source ? ('💬 ' + b.source) : '', b.who || '', b.ago || ''].filter(Boolean).join(' · ');
+          if (foot) md += '\n\n*' + foot + '*';
+          this.pulseShareOpen({ kind: 'bit', title: 'A laugh from the team', markdown: md, images: [this._pulseShareImg(b.art)].filter(Boolean) });
+        },
+        pulseShareGag(g) {
+          if (!g) return;
+          let md = '### ' + (g.title || 'Running gag') + '\n\n' + (g.blurb || '');
+          const foot = [g.who || '', g.span || ''].filter(Boolean).join(' · ');
+          if (foot) md += '\n\n*' + foot + '*';
+          this.pulseShareOpen({ kind: 'gag', title: g.title || 'A running gag', markdown: md, images: [this._pulseShareImg(g.art)].filter(Boolean) });
+        },
+        pulseShareOverheard(o) {
+          if (!o) return;
+          let md = '### Overheard\n\n> ' + (o.line || '');
+          const foot = [o.who || '', o.where || ''].filter(Boolean).join(' · ');
+          if (foot) md += '\n\n*' + foot + '*';
+          this.pulseShareOpen({ kind: 'overheard', title: 'Overheard on the team', markdown: md });
+        },
+        pulseShareReel(it) {
+          if (!it) return;
+          const cap = this.pulseReelCaption(it);
+          let md = '### From the reel' + (cap ? ('\n\n' + cap) : '');
+          this.pulseShareOpen({ kind: 'reel', title: cap || 'From the comedy reel', markdown: md, images: [this._pulseShareImg(it, cap)].filter(Boolean) });
+        },
+        pulseShareStrip() {
+          const c = this.pulseComedyStrip(); if (!c) return;
+          let md = '### Daily strip' + (c.premise ? ('\n\n' + c.premise) : '');
+          this.pulseShareOpen({ kind: 'strip', title: 'The daily strip', markdown: md, images: [this._pulseShareImg(c.art, c.premise)].filter(Boolean) });
+        },
+        pulseShareNewsletter() {
+          const c = this.pulseActiveComedy() || {};
+          const lines = ['# The comedy lens', ''];
+          if (c.mood) { if (c.mood.headline) lines.push('**' + c.mood.headline + '**'); if (c.mood.read) lines.push('', c.mood.read); lines.push(''); }
+          const images = [];
+          if (c.comic && c.comic.art) { lines.push('## Daily strip', c.comic.premise || '', ''); const im = this._pulseShareImg(c.comic.art, c.comic.premise); if (im) images.push(im); }
+          if (c.bit) { lines.push('## Today\'s bit', '', '> ' + (c.bit.quote || '')); if (c.bit.setup) lines.push('', c.bit.setup); const foot = [c.bit.source ? ('💬 ' + c.bit.source) : '', c.bit.who || '', c.bit.ago || ''].filter(Boolean).join(' · '); if (foot) lines.push('', '*' + foot + '*'); lines.push(''); const im = this._pulseShareImg(c.bit.art); if (im) images.push(im); }
+          if (Array.isArray(c.gags) && c.gags.length) { lines.push('## Running gags', ''); c.gags.forEach(g => { lines.push('**' + (g.title || '') + '** — ' + (g.blurb || '')); const foot = [g.who || '', g.span || ''].filter(Boolean).join(' · '); if (foot) lines.push('*' + foot + '*'); lines.push(''); }); }
+          if (Array.isArray(c.overheard) && c.overheard.length) { lines.push('## Overheard', ''); c.overheard.forEach(o => { lines.push('> ' + (o.line || '') + (o.who ? ('  \n— ' + o.who) : '')); lines.push(''); }); }
+          if (Array.isArray(c.guide) && c.guide.length) { lines.push('## The Guide to your team', ''); c.guide.forEach(e => { lines.push('**' + (e.subject || '') + '** — ' + (e.riff || '')); lines.push(''); }); }
+          (this.pulseComedyReel() || []).forEach(it => { const im = this._pulseShareImg(it); if (im) images.push(im); });
+          this.pulseShareOpen({ kind: 'newsletter', title: 'The comedy lens — team roundup', markdown: lines.join('\n'), images });
+        },
         async pulseComedyArt(id, action) {
           if (!id || !action) return;
           try {
@@ -35238,10 +35509,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             window.open(t.link, '_blank');
           }
         },
-        // Stable marker linking a Me.AI to-do back to its Pulse thread. Stored on the todo's
+        // Stable marker linking a Agenda.AI to-do back to its Pulse thread. Stored on the todo's
         // `origin` field (which the server preserves + round-trips), so the correlation
         // survives a reload and drives both the Pulse "on your list" indicator and the
-        // Me.AI "Pulse.AI ↗" backlink.
+        // Agenda.AI "Pulse.AI ↗" backlink.
         pulseTodoKey(t) { return 'pulse:' + ((t && t.key) || ''); },
         pulseHasTodo(t) {
           if (!t) return false;
@@ -35251,7 +35522,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             td && typeof td === 'object' && !td.done &&
             ((td.origin && td.origin === ok) || (link && (td.link || '').toLowerCase() === link)));
         },
-        // Turn a "worth a look" item into a Me.AI to-do. `w` is the curated entry (reason +
+        // Turn a "worth a look" item into a Agenda.AI to-do. `w` is the curated entry (reason +
         // thread). De-dupes on the pulse key / conversation link.
         pulseMakeTodo(w) {
           const t = (w && w.thread) ? w.thread : w;
@@ -36388,7 +36659,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           window.addEventListener('pointerup', up);
           window.addEventListener('pointercancel', up);
         },
-        // REQ-9: items Me.AI auto-triaged for you (safe, reversible decisions applied from
+        // REQ-9: items Agenda.AI auto-triaged for you (safe, reversible decisions applied from
         // your past behaviour). Shown in a dedicated strip with Undo, not the main list.
         meAiAutoHandled() {
           return (this.meai.inbox.items || []).filter(i => i.auto);
@@ -36490,10 +36761,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return out;
         },
         // Triaged, split so the user can spot-check the two buckets independently:
-        // manual = you dispositioned it yourself; auto = Me.AI's learned rules did.
+        // manual = you dispositioned it yourself; auto = Agenda.AI's learned rules did.
         meAiTriagedManual() { return this.meAiTriagedItems().filter(r => r.status !== 'auto'); },
         meAiTriagedAuto()   { return this.meAiTriagedItems().filter(r => r.status === 'auto'); },
-        // Smooth-scroll the long Me.AI page to an anchored section / marker.
+        // Smooth-scroll the long Agenda.AI page to an anchored section / marker.
         meAiJump(id) {
           // Jumping to a Needs-attention subsection should reveal it: if that
           // section is collapsed, expand it first, then scroll once it has height.
@@ -36658,7 +36929,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }),
             });
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
-            this.toast('Me.AI settings saved', 'success');
+            this.toast('Agenda.AI settings saved', 'success');
           } catch (e) {
             this.toast('Failed to save settings: ' + (e.message || e), 'error');
           } finally {
@@ -37783,7 +38054,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const h = Math.floor(this.meai.nowMin / 60), m = this.meai.nowMin % 60;
           return this._meAiFmtHm(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
         },
-        // ===== Me.AI M2 — Me-agent console (dispatch / stream / decide / complete) =====
+        // ===== Agenda.AI M2 — Me-agent console (dispatch / stream / decide / complete) =====
         async meAiLoadTasks() {
           try {
             if (this.meai.railCollapsed.archived === undefined) this.meai.railCollapsed.archived = true; // Archived card starts collapsed
@@ -37909,7 +38180,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let pb = block.playbook || (known.includes(block.type) ? block.type : (block.type === 'meeting' ? 'prep' : 'review'));
           if (pb === 'focus') pb = 'implement';
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
-          this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
+          this.meAiDispatch(pb, block.title || 'Agenda.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
         // Pursue a block as a fan-out on the live canvas. Curated playbooks (review/comms/
         // prep/steward) get server-seeded candidate angles; forcing Deep on any other type
@@ -38330,7 +38601,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // External sends are real — one final confirm summarising them (the Approve click
           // recorded intent; this is the "actually send now" gate).
           const ext = approved.filter(a => a.risk === 'external');
-          if (ext.length && !confirm('This will actually perform ' + ext.length + ' external action(s):\n\n' + ext.map(a => '• ' + a.label).join('\n') + '\n\nMe.AI will use WorkIQ to send/post these for real. Continue?')) return;
+          if (ext.length && !confirm('This will actually perform ' + ext.length + ' external action(s):\n\n' + ext.map(a => '• ' + a.label).join('\n') + '\n\nAgenda.AI will use WorkIQ to send/post these for real. Continue?')) return;
           const note = (this.meai.consoleReply || '').trim();
           const lines = ['Here are my decisions on the actions you proposed:'];
           if (approved.length) lines.push('APPROVED — carry out ONLY these, in order: ' + approved.map(a => '"' + a.label + '"').join(', ') + '.');
@@ -38363,7 +38634,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiLaneAct(tk, intent, label, risk) {
           if (!tk || this.meai.laneActingId) return;
           // An external action performs a real send/post — confirm before it fires.
-          if (risk === 'external' && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
+          if (risk === 'external' && !confirm('This will actually perform: "' + (label || intent) + '".\n\nAgenda.AI will use WorkIQ to send/post this for real. Continue?')) return;
           this.meai.laneActingId = tk.id;
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(tk.id) + '/act', {
@@ -38496,7 +38767,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Frame the pursuit surface to the live content area so it never covers the
         // sidebar/topbar — it should feel like we're still inside the app shell. Clamp the
-        // height to the VISIBLE viewport, not main.content's full scroll height (the Me.AI
+        // height to the VISIBLE viewport, not main.content's full scroll height (the Agenda.AI
         // page is very tall, so the raw rect height would make this fixed frame overflow the
         // viewport — spawning a useless outer scrollbar and a big dead black zone below).
         meAiPursuitFrame() {
@@ -39395,7 +39666,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiAct(intent, text, label, risk, opts) {
           const t = this.meai.console;
           if (!t || this.meai.consoleBusy) return;
-          if (risk === 'external' && !(opts && opts.skipConfirm) && !confirm('This will actually perform: "' + (label || intent) + '".\n\nMe.AI will use WorkIQ to send/post this for real. Continue?')) return;
+          if (risk === 'external' && !(opts && opts.skipConfirm) && !confirm('This will actually perform: "' + (label || intent) + '".\n\nAgenda.AI will use WorkIQ to send/post this for real. Continue?')) return;
           this.meai.consoleBusy = true;
           try {
             const body = { intent, text: text || '', label: label || '', risk: risk || 'none' };
@@ -42932,7 +43203,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return !b.teamId || b.teamId === cur;
           });
         },
-        // Group the visible workspaces by team for the picker's <optgroup> headers, so
+        // Group the visible Workspaces.AI by team for the picker's <optgroup> headers, so
         // the team name appears once as a header instead of being repeated after every
         // board name (which read as "Helix UX · Helix UX"). Global (team-less) first.
         boardPickerGroups() {
@@ -51214,7 +51485,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.linkDev = { open: true, prKey: this.cfPrKey(pr), pr, q: '', busy: false };
           if (!this.devItemsLoaded) { try { this.loadDevItems(true); } catch {} }
         },
-        // Add a pull request to TODAY's Me.AI agenda. The server honors a 30-minute
+        // Add a pull request to TODAY's Agenda.AI agenda. The server honors a 30-minute
         // look-ahead buffer (never schedules something imminent), drops it into the
         // first free slot for the rest of the day, and — if the day is packed —
         // appends it after normal business hours instead of bumping it to another day.
@@ -51239,12 +51510,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const msg = r.afterHours
                 ? ('🗓 Added after hours' + (at ? ' at ' + at : '') + ' — today was already full.')
                 : ('🗓 On today\u2019s agenda' + (at ? ' at ' + at : '') + '.');
-              this.showToast('Me.AI agenda', msg, 'success');
+              this.showToast('Agenda.AI agenda', msg, 'success');
             } else {
-              this.showToast('Me.AI agenda', (r && r.error) || 'Could not add to today.', 'error');
+              this.showToast('Agenda.AI agenda', (r && r.error) || 'Could not add to today.', 'error');
             }
           } catch (e) {
-            this.showToast('Me.AI agenda', (e && e.message) || 'Could not add to today.', 'error');
+            this.showToast('Agenda.AI agenda', (e && e.message) || 'Could not add to today.', 'error');
           } finally {
             this._cfAgendaBusy = false;
           }
@@ -51695,7 +51966,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } catch (e) { /* leave picker with a graceful empty state */ }
         },
-        // --- Me.AI agent recommendations for a dev card (dc-autoadd) --------------
+        // --- Agenda.AI agent recommendations for a dev card (dc-autoadd) --------------
         // Fetch signal-based recommendations, silently add the truly-obvious
         // (autoAdd:true) high-confidence personas when a worktree is ready, and
         // keep the rest as dismissible suggestions in the .dcrec strip.
@@ -53439,6 +53710,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!args) return '';
           if (typeof args === 'string') return args;
           if (typeof args === 'object') {
+            if (args.intent) return String(args.intent);
             if (args.command) return String(args.command);
             if (args.cmd) return String(args.cmd);
             if (args.script) return String(args.script);
@@ -53475,9 +53747,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // the user has scrolled to.
             if (navigate) this._chatAtBottom = true;
             if (navigate || this._chatAtBottom) {
-              this.$nextTick(() => {
+              // Jump to the newest message. A single $nextTick fires before the
+              // x-for rows + their heights settle, so it can land mid-scroll — pin
+              // to the bottom across two animation frames and a short timeout so we
+              // always end at the true end regardless of when layout settles.
+              const pin = () => {
                 const el = this.$refs?.chatScroll || document.querySelector('.chat-main-messages');
                 if (el) el.scrollTop = el.scrollHeight;
+              };
+              this.$nextTick(() => {
+                pin();
+                requestAnimationFrame(() => { pin(); requestAnimationFrame(pin); });
+                setTimeout(pin, 60);
+                setTimeout(pin, 160);
               });
             }
             // Recovery: if manager chat's last message is user with no assistant reply, check for completed run
@@ -54043,12 +54325,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (steps && steps.length > 0) {
                 this.chatActivity[chatId] = {
                   status: isActive ? (retryCount > 0 ? `Retry ${retryCount + 1}: Working...` : 'Agent is working...') : 'Finishing up...',
-                  steps: steps.map(s => ({
-                    type: s.type === 'tool' || s.type === 'tool_start' ? 'tool' : 'thinking',
-                    tool: s.tool || '',
-                    content: s.content || '',
-                    success: s.success
-                  })).slice(-8)
+                  steps: this.caLiveSteps(steps).slice(-8)
                 };
               } else {
                 this.chatActivity[chatId] = { status: retryCount > 0 ? `Retry ${retryCount + 1}: Thinking...` : 'Agent is thinking...', steps: [] };
@@ -54118,7 +54395,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }
               await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                 method: 'POST',
-                body: JSON.stringify({ role: 'assistant', content: richResponse, activity, model: lastTurn?.model || '' })
+                body: JSON.stringify({ role: 'assistant', content: richResponse, activity, model: lastTurn?.model || '', sessionId })
               });
               if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
               this.scheduleRefresh();
@@ -58416,13 +58693,76 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Map raw poll steps → the live activity-step shape the main chat uses
         // ({type:'tool'|'thinking', tool, content, success}) so the draft chat's
         // running stream renders with the exact same markup/CSS.
+        // ---- Live agent-activity humanizer -------------------------------
+        // Turn raw run steps (tool_start/tool_complete/thinking/run_agent) into
+        // calm, human-readable activity: surface the agent's INTENT and reasoning
+        // as it happens, and reduce tool noise to a quiet one-liner instead of a
+        // raw tool name like "report_intent" or "powershell". Objects stay
+        // backward-compatible (type/tool/content/success) so the board & create-
+        // agent render blocks keep working, and add kind/icon/text for the richer
+        // Agent Chats view.
+        _liveClip(s, n = 170) {
+          const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+          return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
+        },
+        _liveArg(args, ...keys) {
+          let a = args;
+          if (typeof a === 'string') { try { a = JSON.parse(a); } catch { return a.trim() ? a : ''; } }
+          if (!a || typeof a !== 'object') return '';
+          for (const k of keys) {
+            const v = a[k];
+            if (v == null) continue;
+            if (Array.isArray(v)) { const j = v.filter(Boolean).join(', '); if (j) return j; continue; }
+            const sv = String(v).trim();
+            if (sv) return sv;
+          }
+          return '';
+        },
+        liveStepView(s) {
+          if (!s) return null;
+          const type = s.type;
+          // Pure reasoning / narration
+          if (type === 'thinking' || type === 'comment' || type === 'reasoning') {
+            const text = this._liveClip(s.content || s.reasoning || s.text || '');
+            return text ? { type: 'thinking', kind: 'thinking', icon: '💭', text, content: text } : null;
+          }
+          // Bringing in another agent
+          if (type === 'run_agent' || type === 'agent') {
+            const name = s.tool || s.agent || s.name || 'a helper agent';
+            const text = 'Bringing in ' + name;
+            return { type: 'thinking', kind: 'agent', icon: '🤝', text, content: text, tool: name };
+          }
+          const isTool = type === 'tool' || type === 'tool_start' || type === 'tool_complete';
+          if (isTool) {
+            const raw = String(s.tool || 'tool');
+            const lc = raw.toLowerCase();
+            const success = s.success;
+            const result = (s.result || s.content || '');
+            // Intent-reporting tools carry the agent's own plain-language plan —
+            // promote it to a prominent intent line rather than a tool call.
+            if (lc.includes('intent') || lc === 'report_intent' || lc === 'reportintent') {
+              const intent = this._liveArg(s.args, 'intent', 'summary', 'message', 'text', 'description');
+              const text = this._liveClip(intent || 'Deciding what to do next');
+              return { type: 'thinking', kind: 'intent', icon: '💡', text, content: text, tool: raw, success };
+            }
+            // Domain-routed quiet one-liner for everything else.
+            let icon = '🔧', verb = 'Working';
+            if (/(workiq|m365|graph|outlook|calendar|mail|teams)/.test(lc)) { icon = '📇'; verb = 'Checking Microsoft 365'; }
+            else if (/(azdo|devops|workitem|work_item|boards|pipeline|ado)/.test(lc)) { icon = '📋'; verb = 'Working in Azure DevOps'; }
+            else if (/(github|^gh|pull|issue|repo)/.test(lc)) { icon = '🐙'; verb = 'Working in GitHub'; }
+            else if (/(browser|fetch|http|web_|search|url)/.test(lc)) { icon = '🌐'; verb = 'Looking something up'; }
+            else if (/(shell|powershell|bash|exec|command|terminal|cli)/.test(lc)) { icon = '⚙️'; verb = 'Running a command'; }
+            else if (/(write|create|edit|replace|image|save|upload)/.test(lc)) { icon = '✏️'; verb = 'Making a change'; }
+            else if (/(read|view|grep|glob|find|list|cat|open)/.test(lc)) { icon = '🔍'; verb = 'Reading something'; }
+            const detail = this._liveArg(s.args, 'command', 'cmd', 'script', 'path', 'pattern', 'query', 'url', 'title', 'name');
+            const text = detail ? verb + ' · ' + this._liveClip(detail, 80) : verb;
+            return { type: 'tool', kind: 'tool', icon, text, tool: raw, success, content: result };
+          }
+          const text = this._liveClip(s.content || s.reasoning || s.text || '');
+          return text ? { type: 'thinking', kind: 'thinking', icon: '💭', text, content: text } : null;
+        },
         caLiveSteps(steps) {
-          return (steps || []).map((s) => {
-            const isTool = s.type === 'tool' || s.type === 'tool_start';
-            if (isTool) return { type: 'tool', tool: s.tool || 'tool', success: s.success, content: (s.result || s.content || '') };
-            const content = (s.content || s.reasoning || '').trim();
-            return content ? { type: 'thinking', content } : null;
-          }).filter(Boolean);
+          return (steps || []).map((s) => this.liveStepView(s)).filter(Boolean);
         },
         caPoll(warn) {
           const c = this.createAgent;
@@ -58850,7 +59190,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (v === 'focus' && !this.meaiReport) this.loadMeaiReport();
         },
 
-        // REQ-12: Me.AI daily activity + fragmentation rollup for the Reports "Focus & flow" view.
+        // REQ-12: Agenda.AI daily activity + fragmentation rollup for the Reports "Focus & flow" view.
         async loadMeaiReport() {
           this.meaiReportLoading = true;
           try {

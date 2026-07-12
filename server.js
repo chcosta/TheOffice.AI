@@ -24410,28 +24410,177 @@ function _pulseComedyRenderMeme(top, bottom, glyph, seed) {
     '</g></svg>',
   ].join('');
 }
-// Render a short vertical comic: N stacked panels, each a tinted cell with a caption.
-function _pulseComedyRenderComic(panels, seed) {
-  const rows = (Array.isArray(panels) ? panels : []).slice(0, 3);
-  if (!rows.length) return _pulseComedyRenderMeme('', '', '🗯', seed);
-  const tints = ['#161f2e', '#1c2230', '#12202a'];
-  const glyphs = ['💬', '⚙️', '🎯'];
-  const h = 100 / rows.length;
-  const gid = 'cg' + (String(seed || Math.random()).replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'x');
-  const cells = rows.map((p, i) => {
-    const cap = _pulseSvgEsc(String((p && p.caption) || p || '').toUpperCase()).slice(0, 40);
-    const gl = _pulseSvgEsc(String((p && p.glyph) || glyphs[i % glyphs.length]));
-    const y = i * h;
-    return [
-      '<g>',
-      '<rect x="0" y="', y.toFixed(2), '" width="100" height="', h.toFixed(2), '" fill="', tints[i % tints.length], '"/>',
-      '<rect x="0.6" y="', (y + 0.6).toFixed(2), '" width="98.8" height="', (h - 1.2).toFixed(2), '" fill="none" stroke="#2a3140" stroke-width="0.6"/>',
-      '<text x="14" y="', (y + h / 2).toFixed(2), '" font-size="', (h * 0.42).toFixed(1), '" text-anchor="middle" dominant-baseline="central">', gl, '</text>',
-      cap ? '<text x="30" y="' + (y + h / 2).toFixed(2) + '" font-size="4.6" fill="#e6edf3" font-family="system-ui,sans-serif" dominant-baseline="central">' + cap + '</text>' : '',
-      '</g>',
-    ].join('');
-  }).join('');
-  return '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" role="img"><defs><linearGradient id="' + gid + '"/></defs>' + cells + '</svg>';
+// ---- Daily comic strip: an art-directed, procedurally-DRAWN SVG (no emoji/icons) ----
+// A fixed library of office "scenes" (backgrounds + props) plus an expressive character
+// whose face is driven by an emotion, speech bubbles with wrapped dialogue, bold comic
+// panel borders + a newsprint title banner. The LLM maps the day's real threads onto a
+// 3-beat story (setup / turn / punchline); this renders that spec. Pure SVG, offline-safe.
+const CC_INK = '#1a1712';
+const CC_SKIN = ['#f2cda6', '#e2b183', '#c98f60', '#a97142'];
+const CC_SHIRT = ['#4f7cff', '#e5533c', '#2bb673', '#f2a83b', '#8b5cf6', '#20b8cf'];
+const CC_HAIR = ['#2b2b2b', '#5c3b1e', '#a8641b', '#131313', '#6b7280'];
+const CC_SCENES = ['desk', 'duo', 'fire', 'celebrate', 'phone', 'whiteboard'];
+const CC_EMOS = ['happy', 'stressed', 'smug', 'tired', 'surprised', 'neutral'];
+function _ccHashNum(s) { let h = 0; s = String(s == null ? '' : s); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
+function _ccPick(arr, n) { return arr[Math.abs(n | 0) % arr.length]; }
+function _ccWrap(s, per, maxLines) {
+  const words = String(s == null ? '' : s).trim().split(/\s+/).filter(Boolean);
+  const max = maxLines || 3;
+  const out = []; let cur = '';
+  for (const w of words) {
+    const t = cur ? cur + ' ' + w : w;
+    if (t.length <= per || !cur) { cur = t; }
+    else { out.push(cur); cur = w; if (out.length >= max) break; }
+  }
+  if (cur && out.length < max) out.push(cur);
+  if (out.length >= max && words.join(' ').length > out.join(' ').length) {
+    out[out.length - 1] = (out[out.length - 1] || '').replace(/[.,;:!?]*$/, '') + '\u2026';
+  }
+  return out;
+}
+// Eyes + mouth for a head centered at (cx,cy) with radius r, per emotion.
+function _ccFace(cx, cy, r, emotion) {
+  const e = String(emotion || 'neutral'); const k = CC_INK;
+  const ex = r * 0.42, eyY = cy - r * 0.06, el = cx - ex, er = cx + ex;
+  let eyes = '', mouth = '', extra = '';
+  if (e === 'happy') {
+    eyes = `<path d="M${(el - 2.4).toFixed(1)} ${eyY.toFixed(1)} q2.4 -2.6 4.8 0" stroke="${k}" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M${(er - 2.4).toFixed(1)} ${eyY.toFixed(1)} q2.4 -2.6 4.8 0" stroke="${k}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+    mouth = `<path d="M${(cx - r * 0.42).toFixed(1)} ${(cy + r * 0.34).toFixed(1)} q${(r * 0.42).toFixed(1)} ${(r * 0.5).toFixed(1)} ${(r * 0.84).toFixed(1)} 0 z" stroke="${k}" stroke-width="1.5" fill="#fff" stroke-linejoin="round"/>`;
+  } else if (e === 'surprised') {
+    eyes = `<circle cx="${el.toFixed(1)}" cy="${eyY.toFixed(1)}" r="2.6" fill="#fff" stroke="${k}" stroke-width="1"/><circle cx="${el.toFixed(1)}" cy="${eyY.toFixed(1)}" r="1" fill="${k}"/><circle cx="${er.toFixed(1)}" cy="${eyY.toFixed(1)}" r="2.6" fill="#fff" stroke="${k}" stroke-width="1"/><circle cx="${er.toFixed(1)}" cy="${eyY.toFixed(1)}" r="1" fill="${k}"/>`;
+    mouth = `<ellipse cx="${cx.toFixed(1)}" cy="${(cy + r * 0.44).toFixed(1)}" rx="${(r * 0.17).toFixed(1)}" ry="${(r * 0.25).toFixed(1)}" fill="${k}"/>`;
+  } else if (e === 'stressed') {
+    eyes = `<circle cx="${el.toFixed(1)}" cy="${eyY.toFixed(1)}" r="2.3" fill="#fff" stroke="${k}" stroke-width="1"/><circle cx="${(el + 0.6).toFixed(1)}" cy="${eyY.toFixed(1)}" r="0.9" fill="${k}"/><circle cx="${er.toFixed(1)}" cy="${eyY.toFixed(1)}" r="2.3" fill="#fff" stroke="${k}" stroke-width="1"/><circle cx="${(er - 0.6).toFixed(1)}" cy="${eyY.toFixed(1)}" r="0.9" fill="${k}"/>`;
+    mouth = `<path d="M${(cx - r * 0.4).toFixed(1)} ${(cy + r * 0.5).toFixed(1)} q${(r * 0.13).toFixed(1)} -${(r * 0.24).toFixed(1)} ${(r * 0.26).toFixed(1)} 0 q${(r * 0.13).toFixed(1)} ${(r * 0.24).toFixed(1)} ${(r * 0.26).toFixed(1)} 0 q${(r * 0.13).toFixed(1)} -${(r * 0.24).toFixed(1)} ${(r * 0.27).toFixed(1)} 0" stroke="${k}" stroke-width="1.4" fill="none"/>`;
+    extra = `<path d="M${(cx + r * 0.92).toFixed(1)} ${(cy - r * 0.5).toFixed(1)} q3 4.5 0 7.5 q-3 -3 0 -7.5 z" fill="#7ec8ff" stroke="${k}" stroke-width="0.5"/>`;
+  } else if (e === 'smug') {
+    eyes = `<path d="M${(el - 2.6).toFixed(1)} ${eyY.toFixed(1)} l5.2 0" stroke="${k}" stroke-width="1.5" stroke-linecap="round"/><path d="M${(er - 2.6).toFixed(1)} ${eyY.toFixed(1)} l5.2 0" stroke="${k}" stroke-width="1.5" stroke-linecap="round"/>`;
+    mouth = `<path d="M${(cx - r * 0.3).toFixed(1)} ${(cy + r * 0.46).toFixed(1)} q${(r * 0.36).toFixed(1)} ${(r * 0.3).toFixed(1)} ${(r * 0.64).toFixed(1)} -${(r * 0.06).toFixed(1)}" stroke="${k}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+  } else if (e === 'tired') {
+    eyes = `<path d="M${(el - 2.6).toFixed(1)} ${eyY.toFixed(1)} q2.6 2.2 5.2 0" stroke="${k}" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M${(er - 2.6).toFixed(1)} ${eyY.toFixed(1)} q2.6 2.2 5.2 0" stroke="${k}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+    mouth = `<path d="M${(cx - r * 0.32).toFixed(1)} ${(cy + r * 0.5).toFixed(1)} l${(r * 0.64).toFixed(1)} 0" stroke="${k}" stroke-width="1.4" stroke-linecap="round"/>`;
+    extra = `<text x="${(cx + r * 0.85).toFixed(1)}" y="${(cy - r * 0.7).toFixed(1)}" font-size="${(r * 0.55).toFixed(1)}" fill="${k}" font-family="Impact,system-ui,sans-serif">z</text>`;
+  } else {
+    eyes = `<circle cx="${el.toFixed(1)}" cy="${eyY.toFixed(1)}" r="1.5" fill="${k}"/><circle cx="${er.toFixed(1)}" cy="${eyY.toFixed(1)}" r="1.5" fill="${k}"/>`;
+    mouth = `<path d="M${(cx - r * 0.28).toFixed(1)} ${(cy + r * 0.46).toFixed(1)} q${(r * 0.28).toFixed(1)} ${(r * 0.2).toFixed(1)} ${(r * 0.56).toFixed(1)} 0" stroke="${k}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+  }
+  return eyes + mouth + extra;
+}
+// A single stylized character. bx,by = head center; body drawn below. pose: idle|up|point.
+function _ccGuy(bx, by, o) {
+  o = o || {}; const r = o.r || 13, skin = o.skin || CC_SKIN[0], shirt = o.shirt || CC_SHIRT[0], hair = o.hair || CC_HAIR[0], k = CC_INK;
+  const pose = o.pose || 'idle', flip = o.flip ? -1 : 1;
+  const bodyTop = by + r + 1, bodyH = o.bodyH || 34, sh = r + 6;
+  let arms = '';
+  if (pose === 'up') {
+    arms = `<path d="M${(bx - sh + 3).toFixed(1)} ${(bodyTop + 5).toFixed(1)} q-8 -15 -3 -23" stroke="${skin}" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M${(bx + sh - 3).toFixed(1)} ${(bodyTop + 5).toFixed(1)} q8 -15 3 -23" stroke="${skin}" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+  } else if (pose === 'point') {
+    arms = `<path d="M${(bx + flip * (sh - 3)).toFixed(1)} ${(bodyTop + 7).toFixed(1)} q${(flip * 15).toFixed(1)} -3 ${(flip * 21).toFixed(1)} -11" stroke="${skin}" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+  }
+  const body = `<path d="M${(bx - sh).toFixed(1)} ${(bodyTop + bodyH).toFixed(1)} q0 -${bodyH} ${sh} -${bodyH} q${sh} 0 ${sh} ${bodyH} z" fill="${shirt}" stroke="${k}" stroke-width="1.4"/>`;
+  const neck = `<rect x="${(bx - 3).toFixed(1)}" y="${(by + r - 3).toFixed(1)}" width="6" height="6" fill="${skin}"/>`;
+  const hairC = `<circle cx="${bx.toFixed(1)}" cy="${(by - 4).toFixed(1)}" r="${r}" fill="${hair}"/>`;
+  const head = `<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="${r}" fill="${skin}" stroke="${k}" stroke-width="1.4"/>`;
+  return arms + body + neck + hairC + head + _ccFace(bx, by, r, o.emotion);
+}
+// Draw a scene background + props + character within a panel rect.
+function _ccScene(scene, px, py, pw, ph, emotion, ch) {
+  const k = CC_INK, floor = py + ph * 0.72, cx = px + pw / 2;
+  const wall = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="#eef2f6"/><rect x="${px}" y="${floor.toFixed(1)}" width="${pw}" height="${(py + ph - floor).toFixed(1)}" fill="#dfe6ec"/><line x1="${px}" y1="${floor.toFixed(1)}" x2="${px + pw}" y2="${floor.toFixed(1)}" stroke="#b9c4cd" stroke-width="1"/>`;
+  const gy = floor - 30; // head baseline for a standing figure
+  if (scene === 'desk') {
+    const deskY = floor - 6, hbY = gy - 4;
+    return wall +
+      _ccGuy(cx, hbY - 6, Object.assign({}, ch, { emotion, bodyH: 30 })) +
+      `<rect x="${(px + 8).toFixed(1)}" y="${deskY.toFixed(1)}" width="${(pw - 16).toFixed(1)}" height="10" rx="1.5" fill="#8a5a33" stroke="${k}" stroke-width="1.4"/>` +
+      `<rect x="${(cx + 8).toFixed(1)}" y="${(deskY - 14).toFixed(1)}" width="20" height="13" rx="1.5" fill="#20303f" stroke="${k}" stroke-width="1.2"/><rect x="${(cx + 10).toFixed(1)}" y="${(deskY - 12).toFixed(1)}" width="16" height="9" fill="#5fd0ff" opacity="0.85"/>`;
+  }
+  if (scene === 'fire') {
+    const flames = [];
+    for (let i = 0; i < 6; i++) {
+      const fx = px + 8 + i * ((pw - 16) / 5), fh = 14 + (i % 3) * 6;
+      flames.push(`<path d="M${fx.toFixed(1)} ${floor.toFixed(1)} q-4 -${(fh * 0.6).toFixed(1)} 0 -${fh} q4 ${(fh * 0.55).toFixed(1)} 3 ${fh} q4 -${(fh * 0.45).toFixed(1)} 3 -${(fh * 0.7).toFixed(1)} q3 ${(fh * 0.5).toFixed(1)} -1 ${(fh * 0.7).toFixed(1)} z" fill="${i % 2 ? '#ff8a3d' : '#ffb03a'}" stroke="#d2661a" stroke-width="0.6"/>`);
+    }
+    return `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="#3a1f12"/><rect x="${px}" y="${floor.toFixed(1)}" width="${pw}" height="${(py + ph - floor).toFixed(1)}" fill="#59301b"/>` +
+      _ccGuy(cx, gy - 2, Object.assign({}, ch, { emotion: emotion || 'smug', bodyH: 28 })) +
+      `<rect x="${(cx - 16).toFixed(1)}" y="${(floor - 10).toFixed(1)}" width="32" height="10" rx="1.5" fill="#6b3f22" stroke="#2a170c" stroke-width="1"/>` +
+      flames.join('');
+  }
+  if (scene === 'celebrate') {
+    const bits = [];
+    for (let i = 0; i < 16; i++) {
+      const rx = px + 6 + ((i * 37) % (pw - 12)), ry = py + 6 + ((i * 53) % (ph * 0.55)), col = _ccPick(CC_SHIRT, i * 7 + 3);
+      bits.push(`<rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="4" height="4" fill="${col}" transform="rotate(${(i * 40) % 360} ${rx.toFixed(1)} ${ry.toFixed(1)})"/>`);
+    }
+    return wall + bits.join('') + _ccGuy(cx, gy - 2, Object.assign({}, ch, { emotion: emotion || 'happy', pose: 'up', bodyH: 30 }));
+  }
+  if (scene === 'phone') {
+    return wall +
+      _ccGuy(cx, gy - 2, Object.assign({}, ch, { emotion: emotion || 'surprised', bodyH: 30 })) +
+      `<rect x="${(cx - 5).toFixed(1)}" y="${(gy + 20).toFixed(1)}" width="10" height="16" rx="2" fill="#12181f" stroke="${k}" stroke-width="1.2"/><rect x="${(cx - 3.5).toFixed(1)}" y="${(gy + 22).toFixed(1)}" width="7" height="11" fill="#6fe0ff" opacity="0.85"/>` +
+      `<text x="${(cx + 12).toFixed(1)}" y="${(gy - 6).toFixed(1)}" font-size="10" fill="#e5533c" font-family="Impact,system-ui" font-weight="800">!</text><text x="${(cx - 18).toFixed(1)}" y="${(gy - 2).toFixed(1)}" font-size="8" fill="#f2a83b" font-family="Impact,system-ui" font-weight="800">!</text>`;
+  }
+  if (scene === 'whiteboard') {
+    const bx0 = px + 8, bw = pw - 16, bh = ph * 0.4, by0 = py + 10;
+    return wall +
+      `<rect x="${bx0.toFixed(1)}" y="${by0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="#ffffff" stroke="${k}" stroke-width="1.6"/>` +
+      `<line x1="${(bx0 + 6).toFixed(1)}" y1="${(by0 + 8).toFixed(1)}" x2="${(bx0 + bw * 0.5).toFixed(1)}" y2="${(by0 + 8).toFixed(1)}" stroke="#2b6cff" stroke-width="1.4"/>` +
+      `<path d="M${(bx0 + 6).toFixed(1)} ${(by0 + bh * 0.55).toFixed(1)} q${(bw * 0.25).toFixed(1)} -6 ${(bw * 0.5).toFixed(1)} 0" stroke="#e5533c" stroke-width="1.4" fill="none"/>` +
+      `<path d="M${(bx0 + bw * 0.55).toFixed(1)} ${(by0 + bh * 0.4).toFixed(1)} l${(bw * 0.3).toFixed(1)} 0 m-5 -3 l5 3 l-5 3" stroke="#2bb673" stroke-width="1.4" fill="none"/>` +
+      _ccGuy(px + pw * 0.32, gy - 2, Object.assign({}, ch, { emotion, pose: 'point', bodyH: 30 }));
+  }
+  // duo: two figures facing each other
+  const a = _ccGuy(px + pw * 0.32, gy - 2, Object.assign({}, ch, { emotion, bodyH: 30 }));
+  const b = _ccGuy(px + pw * 0.68, gy - 2, { r: 13, skin: _ccPick(CC_SKIN, (ch._n || 0) + 2), shirt: _ccPick(CC_SHIRT, (ch._n || 0) + 3), hair: _ccPick(CC_HAIR, (ch._n || 0) + 1), emotion: emotion === 'happy' ? 'neutral' : 'happy', flip: true, bodyH: 30 });
+  return wall + a + b;
+}
+// A speech bubble anchored to the top of the panel, tail pointing down to the speaker.
+function _ccBubble(px, py, pw, line, tailX) {
+  const lines = _ccWrap(line, 22, 3);
+  if (!lines.length) return '';
+  const k = CC_INK, bx = px + 8, bw = pw - 16, lh = 10.5, bh = 9 + lines.length * lh, by = py + 7;
+  const tx = Math.max(bx + 12, Math.min(px + pw - 12, tailX));
+  const tail = `<path d="M${(tx - 5).toFixed(1)} ${(by + bh - 1).toFixed(1)} L${tx.toFixed(1)} ${(by + bh + 8).toFixed(1)} L${(tx + 5).toFixed(1)} ${(by + bh - 1).toFixed(1)} Z" fill="#fff" stroke="${k}" stroke-width="1.4"/>`;
+  const text = lines.map((ln, i) => `<text x="${(px + pw / 2).toFixed(1)}" y="${(by + 8 + i * lh).toFixed(1)}" font-size="7.6" fill="${k}" text-anchor="middle" font-family="'Comic Sans MS','Segoe Print',system-ui,sans-serif" font-weight="700">${_pulseSvgEsc(ln)}</text>`).join('');
+  return `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="7" fill="#fff" stroke="${k}" stroke-width="1.6"/>` + tail + `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="7" fill="none" stroke="${k}" stroke-width="1.6"/>` + text;
+}
+// Render the full daily strip. Accepts a spec {title, panels:[{scene,emotion,line,caption}]}
+// (or a bare panels array for legacy callers). Wide 3-panel newsprint layout.
+function _pulseComedyRenderComic(spec, seed) {
+  const panels = Array.isArray(spec) ? spec : (spec && Array.isArray(spec.panels) ? spec.panels : []);
+  const rows = panels.slice(0, 3);
+  if (!rows.length) return _pulseComedyRenderMeme('', '', '', seed);
+  const title = _pulseSvgEsc(String((spec && !Array.isArray(spec) && spec.title) || 'Today at the office').toUpperCase()).slice(0, 40);
+  const k = CC_INK, padX = 16, padY = 12, titleH = 34, gutter = 14, PW = 150, PH = 150;
+  const n = rows.length, panelsW = n * PW + (n - 1) * gutter;
+  const W = padX * 2 + panelsW, panelY = padY + titleH + 6, H = panelY + PH + 24;
+  const base = _ccHashNum(String(seed || '') + '|' + rows.map(r => (r && r.line) || '').join('|'));
+  const uid = 'cc' + (Math.abs(base) % 100000);
+  const parts = [];
+  parts.push(`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Daily comic strip">`);
+  parts.push(`<defs><pattern id="${uid}h" width="7" height="7" patternUnits="userSpaceOnUse"><circle cx="1.6" cy="1.6" r="1" fill="#000" opacity="0.05"/></pattern></defs>`);
+  parts.push(`<rect width="${W}" height="${H}" rx="10" fill="#f6f1e6"/><rect width="${W}" height="${H}" rx="10" fill="url(#${uid}h)"/><rect x="0.75" y="0.75" width="${W - 1.5}" height="${H - 1.5}" rx="9.5" fill="none" stroke="${k}" stroke-width="1.5"/>`);
+  // masthead + title
+  parts.push(`<text x="${padX}" y="${padY + 9}" font-size="7" letter-spacing="1.5" fill="#6b5f47" font-family="Georgia,'Times New Roman',serif">THE OFFICE \u00b7 DAILY STRIP</text>`);
+  parts.push(`<text x="${(W / 2).toFixed(1)}" y="${padY + titleH - 4}" font-size="19" fill="${k}" text-anchor="middle" font-family="Impact,'Arial Narrow Bold',system-ui,sans-serif" font-weight="800" letter-spacing="0.5">${title}</text>`);
+  parts.push(`<line x1="${padX}" y1="${padY + titleH + 1}" x2="${W - padX}" y2="${padY + titleH + 1}" stroke="${k}" stroke-width="1.2"/>`);
+  rows.forEach((p, i) => {
+    const px = padX + i * (PW + gutter), scene = CC_SCENES.includes(String(p && p.scene)) ? p.scene : 'desk';
+    const emo = CC_EMOS.includes(String(p && p.emotion)) ? p.emotion : 'neutral';
+    const ch = { r: 13, skin: _ccPick(CC_SKIN, base + i), shirt: _ccPick(CC_SHIRT, base + i * 3 + 1), hair: _ccPick(CC_HAIR, base + i * 2), _n: base + i };
+    const clip = uid + 'c' + i;
+    parts.push(`<clipPath id="${clip}"><rect x="${px}" y="${panelY}" width="${PW}" height="${PH}" rx="6"/></clipPath>`);
+    parts.push(`<g clip-path="url(#${clip})">`);
+    parts.push(_ccScene(scene, px, panelY, PW, PH, emo, ch));
+    parts.push(_ccBubble(px, panelY, PW, (p && p.line) || '', px + PW * 0.5));
+    const cap = _pulseSvgEsc(String((p && p.caption) || '').toUpperCase()).slice(0, 26);
+    if (cap) parts.push(`<rect x="${px}" y="${(panelY + PH - 15)}" width="${PW}" height="15" fill="#000" opacity="0.5"/><text x="${(px + 6)}" y="${(panelY + PH - 5)}" font-size="7" fill="#fff" font-family="system-ui,sans-serif" letter-spacing="0.4">${cap}</text>`);
+    parts.push(`</g>`);
+    parts.push(`<rect x="${px}" y="${panelY}" width="${PW}" height="${PH}" rx="6" fill="none" stroke="${k}" stroke-width="2.6"/>`);
+  });
+  parts.push(`<text x="${(W / 2).toFixed(1)}" y="${H - 8}" font-size="7.5" fill="#6b5f47" text-anchor="middle" font-family="Georgia,serif" font-style="italic">drawn from today\u2019s team activity</text>`);
+  parts.push('</svg>');
+  return parts.join('');
 }
 // ---- memegen source: real, recognizable meme templates (open-source api.memegen.link) ----
 // A higher-quality, higher-variety alternative to the built-in SVG. URL-based, needs NO
@@ -24555,8 +24704,9 @@ function _pulseComedyArt(sourceKey, kind, spec, opts) {
       : [String((spec && spec.top) || ''), String((spec && spec.bottom) || '')].filter((v, i, a) => v || i < a.filter(Boolean).length);
     const useMemegen = !!tmplInfo;
     const captions = isComic
-      ? (Array.isArray(spec && spec.panels) ? spec.panels.map(p => (p && p.caption) || p || '') : [])
+      ? (Array.isArray(spec && spec.panels) ? spec.panels.map(p => (p && (p.line || p.caption)) || p || '') : [])
       : (useMemegen ? memeLines.filter(x => String(x).trim()) : [String((spec && spec.top) || ''), String((spec && spec.bottom) || '')]);
+    const comicTitle = isComic ? String((spec && spec.title) || '').slice(0, 60) : '';
     // Hash includes the template so a memegen render is a distinct backlog entry from the
     // built-in SVG of the same captions (lets the two sources coexist / A-B in the vault).
     const hash = _pulseComedyHash(sourceKey, (useMemegen ? 'meme:' + tmpl : kind), captions);
@@ -24568,11 +24718,11 @@ function _pulseComedyArt(sourceKey, kind, spec, opts) {
       entry.showCount = (entry.showCount || 1) + 1;
     } else {
       const svg = isComic
-        ? _pulseComedyRenderComic((spec && spec.panels) || [], hash)
+        ? _pulseComedyRenderComic(spec || {}, hash)
         : _pulseComedyRenderMeme((spec && spec.top) || '', (spec && spec.bottom) || '', (spec && spec.glyph) || '🙂', hash);
       entry = {
         id: 'art_' + hash, kind: isComic ? 'comic' : 'meme', hash,
-        sourceKey: String(sourceKey || ''), captions, svg,
+        sourceKey: String(sourceKey || ''), captions, svg, title: comicTitle,
         createdAt: nowIso, lastShownAt: nowIso, showCount: 1, pinned: false, hidden: false,
       };
       if (useMemegen) {
@@ -24582,7 +24732,7 @@ function _pulseComedyArt(sourceKey, kind, spec, opts) {
       bl.items.push(entry);
     }
     _pulseComedySaveBacklog(bl);
-    return { id: entry.id, kind: entry.kind, svg: entry.svg, img: entry.img || '', template: entry.template || '', captions: entry.captions, vault: (entry.showCount || 1) > 1 };
+    return { id: entry.id, kind: entry.kind, svg: entry.svg, img: entry.img || '', template: entry.template || '', title: entry.title || '', captions: entry.captions, vault: (entry.showCount || 1) > 1 };
   } catch { return null; }
 }
 // Assemble The Reel: recent generated art first, then a couple of "from the vault"
@@ -24599,7 +24749,7 @@ function _pulseComedyReel(limit) {
     for (const x of recent) { if (picked.length >= cap - 2) break; picked.push(x); used.add(x.id); }
     const vault = items.filter(x => !used.has(x.id)).sort((a, b) => ((b.pinned ? 1e6 : 0) + (b.showCount || 0)) - ((a.pinned ? 1e6 : 0) + (a.showCount || 0)));
     for (const x of vault) { if (picked.length >= cap) break; picked.push(Object.assign({}, x, { _vault: true })); used.add(x.id); }
-    return picked.map(x => ({ id: x.id, kind: x.kind, svg: x.svg || '', img: x.img || '', template: x.template || '', captions: x.captions || [], sourceKey: x.sourceKey || '', vault: !!x._vault || (x.showCount || 1) > 1, pinned: !!x.pinned }));
+    return picked.map(x => ({ id: x.id, kind: x.kind, svg: x.svg || '', img: x.img || '', template: x.template || '', title: x.title || '', captions: x.captions || [], sourceKey: x.sourceKey || '', vault: !!x._vault || (x.showCount || 1) > 1, pinned: !!x.pinned }));
   } catch { return []; }
 }
 
@@ -24608,7 +24758,7 @@ function _pulseComedyReel(limit) {
 async function _pulseGenerateComedy(view) {
   const threads = (view && view.threads) || [];
   const fingerprint = (view && view.fingerprint) || _pulseSummaryFingerprint(threads, (view && view.meetings) || []);
-  const empty = { fingerprint, mood: null, bit: null, gags: [], overheard: [], guide: [], reel: [], generatedAt: new Date().toISOString(), empty: true };
+  const empty = { fingerprint, mood: null, bit: null, gags: [], overheard: [], guide: [], reel: [], comic: null, generatedAt: new Date().toISOString(), empty: true };
   if (!threads.length) return empty;
   const now = Date.now();
   const ago = (ts) => { const t = (typeof ts === 'number') ? ts : Date.parse(ts || ''); if (!isFinite(t) || !t) return ''; const mm = Math.max(0, Math.floor((now - t) / 60000)); if (mm < 60) return mm + 'm ago'; const h = Math.floor(mm / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
@@ -24633,9 +24783,10 @@ async function _pulseGenerateComedy(view) {
     tlines || '(none)',
     '',
     'Return ONLY minified JSON (no prose, no code fence) shaped exactly like:',
-    '{"mood":{"headline":"3-6 word read of the room\'s mood","read":"2-3 warm, light sentences on the vibe today"},"bit":{"key":"<one [key]>","quote":"the funniest actual line or moment, lightly cleaned up","setup":"1-2 sentences of context on why it landed",' + memeShape + '},"gags":[{"title":"the running gag in 3-6 words","blurb":"1-2 sentences on how it started and evolved","who":"names involved","span":"e.g. 7 messages over 3 days","keys":["<keys>"],' + memeShape + '}],"overheard":[{"key":"<one [key]>","who":"name","where":"channel","line":"the standalone line that landed"}],"guide":[{"subject":"what the team is doing, 2-4 words","riff":"1-2 deadpan, affectionate Hitchhiker\'s-Guide-style sentences about it"}]}',
+    '{"mood":{"headline":"3-6 word read of the room\'s mood","read":"2-3 warm, light sentences on the vibe today"},"bit":{"key":"<one [key]>","quote":"the funniest actual line or moment, lightly cleaned up","setup":"1-2 sentences of context on why it landed",' + memeShape + '},"gags":[{"title":"the running gag in 3-6 words","blurb":"1-2 sentences on how it started and evolved","who":"names involved","span":"e.g. 7 messages over 3 days","keys":["<keys>"],' + memeShape + '}],"overheard":[{"key":"<one [key]>","who":"name","where":"channel","line":"the standalone line that landed"}],"guide":[{"subject":"what the team is doing, 2-4 words","riff":"1-2 deadpan, affectionate Hitchhiker\'s-Guide-style sentences about it"}],"comic":{"title":"the strip title in 2-5 words","premise":"1 sentence on the real thread it draws from","keys":["<one or two keys the strip is about>"],"panels":[{"scene":"desk|duo|fire|celebrate|phone|whiteboard","emotion":"happy|stressed|smug|tired|surprised|neutral","line":"the character\'s dialogue, <=9 words","caption":"tiny bottom caption, <=4 words (optional)"}]}}',
     '',
     'Rules: Ground EVERYTHING in the conversations above — invent no jokes that are not in the text. Be kind; never punch down, never mock a person for a mistake. Skip pure automated/bot/CI noise and anything that reads as private or sensitive. Use ONLY key values that appear in [brackets]. bit.meme captions must riff on that real moment. Provide meme captions for the bit and for AT MOST 2 gags (leave meme fields empty for the rest). AT MOST 4 gags, 5 overheard, 3 guide riffs. If there is genuinely nothing funny, return empty arrays and a gentle mood.read saying it was a quiet, heads-down day.',
+    'comic: draw a DAILY COMIC STRIP of EXACTLY 3 panels telling a tiny 3-beat story (setup → turn → punchline; panel 3 IS the punchline) grounded in ONE real thread from above. Pick the scene per panel that best fits the beat (desk = heads-down work, whiteboard = planning/explaining, phone = an alert/interruption, fire = calm-amid-chaos, celebrate = a win, duo = two people talking). Choose the character\'s emotion to match. Keep each line short and readable. comic.keys must be real [keys]. Never mock a person; keep it affectionate.',
   ];
   if (useMemegen) {
     promptParts.push(
@@ -24705,8 +24856,31 @@ async function _pulseGenerateComedy(view) {
     guide.push({ subject, riff });
     if (guide.length >= 3) break;
   }
-  const anything = mood || bit || gags.length || overheard.length || guide.length;
-  return { fingerprint, mood, bit, gags, overheard, guide, generatedAt: new Date().toISOString(), empty: !anything };
+  // comic strip (+ drawn SVG art)
+  let comic = null;
+  if (parsed.comic && typeof parsed.comic === 'object') {
+    const validScenes = ['desk', 'duo', 'fire', 'celebrate', 'phone', 'whiteboard'];
+    const validEmos = ['happy', 'stressed', 'smug', 'tired', 'surprised', 'neutral'];
+    const keys = (Array.isArray(parsed.comic.keys) ? parsed.comic.keys : []).map(k => clip(k, 80).trim()).filter(k => byKey.has(k));
+    let panels = (Array.isArray(parsed.comic.panels) ? parsed.comic.panels : [])
+      .filter(p => p && typeof p === 'object')
+      .map(p => ({
+        scene: validScenes.includes(String(p.scene)) ? String(p.scene) : 'desk',
+        emotion: validEmos.includes(String(p.emotion)) ? String(p.emotion) : 'neutral',
+        line: clip(p.line, 90),
+        caption: clip(p.caption, 40),
+      }))
+      .slice(0, 3);
+    // require a real story: at least 2 panels carrying dialogue
+    if (panels.length >= 2 && panels.filter(p => p.line).length >= 2) {
+      const title = clip(parsed.comic.title, 60) || 'Today at the office';
+      const premise = clip(parsed.comic.premise, 240);
+      const art = _pulseComedyArt(keys[0] || title || 'strip', 'comic', { title, panels }, { source: 'svg' });
+      if (art) comic = { title, premise, keys, art };
+    }
+  }
+  const anything = mood || bit || gags.length || overheard.length || guide.length || comic;
+  return { fingerprint, mood, bit, gags, overheard, guide, comic, generatedAt: new Date().toISOString(), empty: !anything };
 }
 
 // GET /api/me-ai/pulse?days=&date= → assembled ambient digest.
@@ -24994,6 +25168,126 @@ app.post('/api/me-ai/pulse/monitoring', async (req, res) => {
       _pulseGatherMonitored(date, { force: true }).catch(() => {});
     }
     res.json({ ok: true, selection });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Pulse.AI comedy sharing (email / Teams channel / newsletter) -------------
+// Build an HTML body from markdown + optional images. URL images (memegen PNGs)
+// embed as <img>; drawn SVG art embeds inline (best-effort — some mail clients
+// strip SVG, so the text always carries the joke). Shared by email + Teams.
+function _pulseShareHtml(markdown, images) {
+  let bodyHtml = '';
+  try {
+    const { marked } = require('marked');
+    bodyHtml = marked.parse(String(markdown || ''));
+  } catch (_) {
+    bodyHtml = `<p>${String(markdown || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`;
+  }
+  const imgs = Array.isArray(images) ? images.slice(0, 12) : [];
+  let art = '';
+  for (const im of imgs) {
+    if (!im || typeof im !== 'object') continue;
+    const url = String(im.url || '').trim();
+    const svg = String(im.svg || '').trim();
+    const cap = String(im.caption || '').trim();
+    if (url && /^https?:\/\//i.test(url)) {
+      art += `<div style="margin:14px 0;"><img src="${url.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:8px;border:1px solid #e5e2dc;" alt="">${cap ? `<div style="font-size:12px;color:#6b675f;margin-top:4px;">${cap.replace(/</g, '&lt;')}</div>` : ''}</div>`;
+    } else if (svg && /^<svg[\s>]/i.test(svg)) {
+      art += `<div style="margin:14px 0;border:1px solid #e5e2dc;border-radius:8px;overflow:hidden;background:#f6f1e6;">${svg}</div>${cap ? `<div style="font-size:12px;color:#6b675f;margin:-8px 0 8px;">${cap.replace(/</g, '&lt;')}</div>` : ''}`;
+    }
+  }
+  return `<html><head><style>
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #24211c; padding: 18px; max-width: 720px; }
+h1,h2,h3 { color:#1a1712; }
+a { color:#b11f4b; }
+blockquote { border-left:3px solid #e0b34b; margin:10px 0; padding:2px 0 2px 12px; color:#3a352c; }
+hr { border:none; border-top:1px solid #e5e2dc; margin:16px 0; }
+</style></head><body>${bodyHtml}${art}</body></html>`;
+}
+
+// POST /api/me-ai/pulse/share/email { subject, markdown, images? }
+// Compose an .eml (X-Unsent) and open it in the default mail client.
+app.post('/api/me-ai/pulse/share/email', (req, res) => {
+  try {
+    const b = req.body || {};
+    const markdown = String(b.markdown || b.content || '').trim();
+    const subject = String(b.subject || 'From the Pulse.AI comedy lens').slice(0, 240);
+    if (!markdown && !(Array.isArray(b.images) && b.images.length)) {
+      return res.status(400).json({ error: 'Nothing to share' });
+    }
+    const htmlEmail = _pulseShareHtml(markdown, b.images);
+    const boundary = `----=_Part_${Date.now()}`;
+    const eml = [
+      `Subject: ${subject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      `X-Unsent: 1`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      markdown || subject,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/html; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      htmlEmail,
+      ``,
+      `--${boundary}--`
+    ].join('\r\n');
+    const draftDir = path.join(__dirname, '.share-drafts');
+    fs.mkdirSync(draftDir, { recursive: true });
+    const emlPath = path.join(draftDir, `pulse-share-${Date.now()}.eml`);
+    fs.writeFileSync(emlPath, eml, 'utf8');
+    const { exec } = require('child_process');
+    exec(`start "" "${emlPath}"`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/pulse/share/teams { teamId, channelId, subject?, markdown, images? }
+// Post the shared item to a Teams channel via WorkIQ. The click is the approval.
+app.post('/api/me-ai/pulse/share/teams', async (req, res) => {
+  try {
+    const cfg = _meAiConfig();
+    if (!cfg.consent) return res.status(409).json({ error: 'Teams sharing needs M365 access — enable it in Me.AI settings first.' });
+    const b = req.body || {};
+    const teamId = String(b.teamId || '').trim();
+    const channelId = String(b.channelId || '').trim();
+    const markdown = String(b.markdown || b.content || '').trim();
+    const subject = String(b.subject || '').slice(0, 240);
+    if (!teamId || !channelId) return res.status(400).json({ error: 'teamId and channelId are required' });
+    if (!markdown && !(Array.isArray(b.images) && b.images.length)) return res.status(400).json({ error: 'Nothing to share' });
+    // Teams renders basic HTML but strips inline SVG + most external <img>; carry
+    // memegen PNG URLs as links so they stay clickable in the posted message.
+    const linkImgs = (Array.isArray(b.images) ? b.images : [])
+      .map(im => (im && /^https?:\/\//i.test(String(im.url || '')) ? String(im.url).trim() : ''))
+      .filter(Boolean);
+    let html = _pulseShareHtml(markdown, b.images);
+    if (linkImgs.length) {
+      html = html.replace('</body>', `<hr><p>Images: ${linkImgs.map((u, i) => `<a href="${u.replace(/"/g, '&quot;')}">image ${i + 1}</a>`).join(' · ')}</p></body>`);
+    }
+    // Extract just the <body> inner HTML for the Teams message content.
+    const inner = (html.match(/<body>([\s\S]*)<\/body>/i) || [, html])[1];
+    const safeInner = inner.replace(/`/g, "'").replace(/\r?\n/g, ' ').slice(0, 24000);
+    const heading = subject ? `<h3>${subject.replace(/</g, '&lt;')}</h3>` : '';
+    const prompt = [
+      'Using WorkIQ, post a NEW message to a Microsoft Teams channel.',
+      `Create the message with create_entity on the path /teams/${teamId}/channels/${channelId}/messages.`,
+      'The JSON body MUST be exactly:',
+      '{ "body": { "contentType": "html", "content": <<<CONTENT>>> } }',
+      `where <<<CONTENT>>> is this HTML string: ${JSON.stringify(heading + safeInner)}`,
+      'After posting, return ONLY a JSON object (no prose, no code fence): {"ok":true,"id":"<message id>","webUrl":"<the message webUrl if present>"}.',
+      'If the post fails for any reason, return {"ok":false,"error":"<the real error>"} — never claim success you cannot verify.'
+    ].join('\n');
+    let parsed = null;
+    try { parsed = _connectExtractJson(await _connectRunAgent('collector', prompt)); } catch (e) { parsed = { ok: false, error: e.message }; }
+    if (parsed && parsed.ok) {
+      return res.json({ ok: true, id: parsed.id || '', webUrl: parsed.webUrl || '' });
+    }
+    return res.status(502).json({ error: (parsed && parsed.error) || 'Teams post could not be confirmed. Check your M365 access and channel permissions.' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -31722,6 +32016,8 @@ app.post('/api/chats/:id/messages', (req, res) => {
   // Optional lightweight message kind (e.g. 'route' for the facilitator's compact
   // routing trace) so the UI can render it as a micro-line instead of a full bubble.
   if (req.body.kind) msg.kind = String(req.body.kind).slice(0, 32);
+  // CLI session id for the turn, so a user can copy it / resume that session later.
+  if (req.body.sessionId) msg.sessionId = String(req.body.sessionId).slice(0, 128);
   chat.messages.push(msg);
   chat.updatedAt = msg.timestamp;
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
