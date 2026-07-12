@@ -13209,6 +13209,7 @@
               .meai-pnode.pmain .meai-pnode-role { color:var(--cp-accent); opacity:1; }
               .meai-pnode-t { font-weight:700; color:var(--cp-text); font-size:13.5px; margin-top:2px; line-height:1.3; }
               .meai-pnode-g { font-size:12px; color:var(--cp-text-muted); margin-top:4px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+              .meai-pnode-think { font-size:11px; font-style:italic; color:color-mix(in srgb,var(--cp-accent) 68%, var(--cp-text)); margin-top:7px; padding-top:6px; border-top:1px dashed color-mix(in srgb,var(--cp-accent) 26%, var(--cp-border)); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-pnode-foot { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
               .meai-pnode-st { font-size:11px; color:var(--cp-text-muted); }
               .meai-pnode-badge { font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:calc(var(--cp-radius-scale,1)*6px); border:1px solid var(--cp-border); color:var(--cp-text-muted); }
@@ -15532,7 +15533,7 @@
                                       <span class="meai-pu-fold-oc" x-text="meAiPursuitFoldOutcome(ev)"></span>
                                     </div>
                                     <div class="meai-pu-fold-attr" x-show="meAiPursuitFoldAttr(ev)" x-text="meAiPursuitFoldAttr(ev)"></div>
-                                    <div class="meai-pu-fold-sum" x-show="ev.text" x-text="ev.text"></div>
+                                    <div class="meai-pu-fold-sum md-output" x-show="ev.text" x-html="renderMarkdown(ev.text)"></div>
                                     <ul class="meai-pu-fold-find" x-show="ev.findings && ev.findings.length">
                                       <template x-for="(f, fi) in (ev.findings||[])" :key="'ff-'+ei+'-'+fi">
                                         <li x-text="String(f).replace(/^•\s*/,'')"></li>
@@ -15574,7 +15575,7 @@
                                     <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
                                     <span x-text="meAiPursuitOutcome().title"></span>
                                   </div>
-                                  <div class="meai-pu-outcome-sum" x-show="meAiPursuitOutcome().summary" x-text="meAiPursuitOutcome().summary"></div>
+                                  <div class="meai-pu-outcome-sum md-output" x-show="meAiPursuitOutcome().summary" x-html="renderMarkdown(meAiPursuitOutcome().summary)"></div>
                                   <div class="meai-pu-outcome-meta">
                                     <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
                                     <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
@@ -15891,6 +15892,7 @@
                             </div>
                             <div class="meai-pnode-t" x-text="n.leg.title"></div>
                             <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
+                            <div class="meai-pnode-think" x-show="meAiPursuitNodeThought(n)" x-text="meAiPursuitNodeThought(n)"></div>
                             <div class="meai-pnode-foot">
                               <span class="meai-pnode-dot" :class="meAiPursuitNodeState(n).cls" :title="meAiPursuitNodeState(n).label"></span>
                               <span class="meai-pnode-st" x-text="meAiPursuitNodeState(n).label"></span>
@@ -39611,18 +39613,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitEvHasDetail(ev) {
           if (!ev) return false;
           if (ev.kind === 'thinking') return String(ev.text || '').length > 120;
+          if (ev.kind === 'response' || ev.kind === 'note') return String(ev.text || '').length > 120;
           if (ev.kind === 'tool_start') return !!ev.args;
           if (ev.kind === 'tool_complete') return !!(ev.result || ev.output || ev.error);
           if (ev.kind === 'report') return !!(ev.markdown || ev.summary);
           return false;
         },
-        // The expanded detail body for an event (markdown for reports, else preformatted).
+        // The expanded detail body for an event (markdown for prose kinds, else preformatted).
         meAiPursuitEvDetail(ev) {
           if (!ev) return '';
           if (ev.kind === 'report' && (ev.markdown || ev.summary)) {
             try { return this.renderMarkdown ? this.renderMarkdown(ev.markdown || ev.summary) : (ev.markdown || ev.summary); } catch (_) { return ev.markdown || ev.summary; }
           }
-          if (ev.kind === 'thinking') return String(ev.text || '');
+          if (ev.kind === 'response' || ev.kind === 'note' || ev.kind === 'thinking') {
+            const txt = String(ev.text || '');
+            if (ev.kind === 'thinking') return txt;
+            try { return this.renderMarkdown ? this.renderMarkdown(txt) : txt; } catch (_) { return txt; }
+          }
           if (ev.kind === 'tool_start') { try { return typeof ev.args === 'string' ? ev.args : JSON.stringify(ev.args, null, 2); } catch (_) { return String(ev.args || ''); } }
           if (ev.kind === 'tool_complete') {
             const v = ev.result || ev.output || ev.error || '';
@@ -39630,7 +39637,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return ev.text || '';
         },
-        meAiPursuitEvIsMd(ev) { return ev && ev.kind === 'report'; },
+        meAiPursuitEvIsMd(ev) { return ev && (ev.kind === 'report' || ev.kind === 'response' || ev.kind === 'note'); },
+        // Item 5 — most-recent live thinking/tool for an ACTIVE (non-terminal) node, so
+        // each still-working agent on the map shows what it's doing right now.
+        meAiPursuitNodeThought(n) {
+          try {
+            const st = this.meAiPursuitNodeState(n);
+            if (!st || st.cls === 'done' || st.cls === 'dead') return '';
+            const evs = this.meAiPursuitNodeEvents(n) || [];
+            for (let i = evs.length - 1; i >= 0; i--) {
+              const e = evs[i]; if (!e) continue;
+              if (e.kind === 'thinking' && e.text) { const s = String(e.text).trim(); return s.length > 150 ? s.slice(0, 150) + '…' : s; }
+              if (e.kind === 'response' && e.text) { const s = String(e.text).trim(); return s.length > 150 ? s.slice(0, 150) + '…' : s; }
+              if (e.kind === 'tool_start') return '⚙ ' + (e.tool || 'tool') + '…';
+              if (e.kind === 'tool_complete') return '⚙ ' + (e.tool || 'tool') + (e.success === false ? ' failed' : ' done');
+            }
+            return '';
+          } catch (_) { return ''; }
+        },
         // ── Conclusion / outcome ────────────────────────────────────────────────
         // The pursuit's headline report artifact (server files ONE kind:'report' on
         // completion — "PR blocker report" with a markdown body + recommended move).
