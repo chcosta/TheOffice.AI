@@ -39445,15 +39445,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             while (cur != null) { onMain[cur] = true; cur = (kids[cur] || []).find((c) => isMainKind(c)); }
           });
           const slot = {};
-          let nextCol = 1; // side columns start at 1; slot 0 is the reserved trunk
-          // Tidy pack of one side subtree: leaves take the next free right column,
-          // internal nodes centre over their (non-scout) children — so sibling
-          // subtrees never overlap and each branch sits above its own fan.
-          const layoutSide = (id) => {
-            const ch = (kids[id] || []).filter((cid) => kindOf(cid) !== 'scout' && !onMain[cid]);
-            if (!ch.length) { slot[id] = nextCol++; return; }
-            ch.forEach(layoutSide);
-            slot[id] = (slot[ch[0]] + slot[ch[ch.length - 1]]) / 2;
+          let nextCol = 1; // fallback column cursor (scout overlay + defensive only)
+          // ── Fan packing with column reuse ──────────────────────────────────
+          // Each main-path node spawns a small side fan directly below it. Because
+          // the main path is a long chain, laying every fan out in globally-unique
+          // columns makes them march ever-rightward — the wide diagonal staircase.
+          // Fans at different depths are vertically separated, so their COLUMNS can
+          // be reused: pack each fan into the lowest column band that is free across
+          // every row it spans (tracked per depth in rowNext). A long chain of small
+          // fans then forms a narrow ribbon beside the trunk instead of fanning
+          // across the whole screen. Collision-guarded: two subtrees that share ANY
+          // depth get disjoint columns at that depth, so nothing ever overlaps.
+          const rowNext = {};                              // depth -> next free integer column (>=1)
+          const freeAt = (d) => (rowNext[d] == null ? 1 : rowNext[d]);
+          // Lay a side subtree out LOCALLY (leaves 0,1,2…; parents centred over their
+          // non-scout kids), collecting its members + per-depth column span, then
+          // shift the whole block right to the first band free across all its rows.
+          const layoutSide = (rootId) => {
+            const local = {}, members = [], span = {};
+            let leafN = 0;
+            const walk = (id) => {
+              members.push(id);
+              const d = depthOf(id);
+              const ch = (kids[id] || []).filter((cid) => kindOf(cid) !== 'scout' && !onMain[cid]);
+              if (!ch.length) { local[id] = leafN++; }
+              else { ch.forEach(walk); local[id] = (local[ch[0]] + local[ch[ch.length - 1]]) / 2; }
+              const s = span[d] || (span[d] = [Infinity, -Infinity]);
+              s[0] = Math.min(s[0], Math.floor(local[id]));
+              s[1] = Math.max(s[1], Math.ceil(local[id]));
+            };
+            walk(rootId);
+            let base = 1;
+            for (const d in span) base = Math.max(base, freeAt(+d) - span[d][0]);
+            members.forEach((id) => { slot[id] = local[id] + base; });
+            for (const d in span) rowNext[+d] = base + span[d][1] + 1;
           };
           order.forEach((id) => { if (onMain[id]) slot[id] = 0; });
           order.forEach((id) => {
