@@ -13256,6 +13256,9 @@
               .meai-pu-outcome.done .meai-pu-outcome-ic { background:#2ea043; }
               .meai-pu-outcome-sum { font-size:13px; color:var(--cp-text); margin-top:8px; line-height:1.5; }
               .meai-pu-outcome-meta { font-size:12px; color:var(--cp-text-muted); margin-top:8px; }
+              .meai-pu-outcome-pause { display:flex; align-items:flex-start; gap:8px; margin-top:12px; padding:10px 12px; border:1px solid color-mix(in srgb,var(--cp-warning,#b7791f) 40%, var(--cp-border)); border-radius:8px; background:color-mix(in srgb,var(--cp-warning,#b7791f) 10%, transparent); font-size:12.5px; line-height:1.5; color:color-mix(in srgb,var(--cp-text) 88%, var(--cp-warning,#b7791f)); }
+              .meai-pu-pause-dot { flex:0 0 auto; width:8px; height:8px; border-radius:999px; margin-top:5px; background:var(--cp-warning,#b7791f); }
+              .meai-pu-outcome-resume { margin-top:10px; }
               .meai-pu-outcome-acts { margin-top:12px; }
               .meai-pu-ev { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
               .meai-pu-ev-ic { flex:0 0 auto; }
@@ -15573,6 +15576,16 @@
                                   <div class="meai-pu-outcome-meta">
                                     <span x-show="meAiPursuitMergeCount()" x-text="meAiPursuitMergeCount()+' leg'+(meAiPursuitMergeCount()===1?'':'s')+' rejoined the main thread'"></span>
                                     <span x-show="!meAiPursuitMergeCount()">No legs merged back yet</span>
+                                  </div>
+                                  <!-- Auto-loop pause: the pursuit stopped itself on a soft cap
+                                       (budget/loop/no-progress), so say WHY + offer a one-click resume. -->
+                                  <div class="meai-pu-outcome-pause" x-show="meAiPursuitOutcome().pauseReason">
+                                    <span class="meai-pu-pause-dot" aria-hidden="true"></span>
+                                    <span x-text="meAiPursuitOutcome().pauseReason"></span>
+                                  </div>
+                                  <div class="meai-pu-outcome-resume" x-show="meAiPursuitOutcome().resumable">
+                                    <button type="button" class="btn primary" :disabled="meAiPursuitBusy()"
+                                      @click="meAiPursuitAct({ intent:'continue', label:'Keep going', risk:'none' })">Keep going →</button>
                                   </div>
                                   <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
                                     <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
@@ -39627,6 +39640,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const task = this.meai._taskById[this.meai.pursuit.tid] || {};
           const rep = this.meAiPursuitReport();
           const summary = (task.report && task.report.summary) || (rep && (rep.title || '')) || t.question || '';
+          const pauseReason = task.pauseReason || null;
+          // "Resumable" = the pursuit paused itself on a soft cap (budget/loop/no-progress)
+          // rather than a genuine gate, so a one-click "Keep going" can push it further.
+          const resumable = !!pauseReason && t.stage === 'awaiting' && !this.meAiPursuitStops().length;
           return {
             stage: t.stage,
             title: (t.stage === 'done') ? 'Pursuit complete' : 'Recommendation ready',
@@ -39634,6 +39651,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             report: rep,
             merges: this.meAiPursuitMergeCount(),
             nextActions: Array.isArray(task.nextActions) ? task.nextActions : [],
+            pauseReason: pauseReason,
+            resumable: resumable,
           };
         },
         // Approvals/artifacts rail data.

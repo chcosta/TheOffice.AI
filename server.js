@@ -20835,6 +20835,7 @@ function _meAiTaskPublic(t) {
     error: t.error || null, completedToDiary: !!t.completedToDiary,
     createdAt: t.createdAt, updatedAt: t.updatedAt, startedAt: t.startedAt, finishedAt: t.finishedAt,
     awaitingSince: t.awaitingSince || null,
+    pauseReason: t.pauseReason || null,
   };
 }
 // Push a transcript event, persist, and stream it live over the shared SSE bus.
@@ -22051,7 +22052,7 @@ function _meAiActRun(t, intent, text, label, opts = {}) {
 // (mode !== 'tree') are untouched. Deep per-substep canvas streaming is P2; P0
 // journals the structural layer (legs, checkpoints, stops, merges, reroute).
 // ============================================================================
-const ME_AI_TREE_BUDGET = { maxLegs: 12, maxDepth: 4, maxParallel: 3, wallMs: 15 * 60 * 1000, toolCalls: 200 };
+const ME_AI_TREE_BUDGET = { maxLegs: 12, maxDepth: 4, maxParallel: 3, wallMs: 15 * 60 * 1000, toolCalls: 200, maxAutoRounds: 8, totalWallMs: 30 * 60 * 1000 };
 const _meAiUuid = () => require('crypto').randomUUID();
 
 // Mirror a one-line milestone into the FLAT task transcript so the "at work"
@@ -22635,7 +22636,37 @@ function _meAiReportTitle(t) {
 
 // Assemble the ONE artifact (the pursuit report) from merged findings, journal the
 // merges, reroute the spine if the merge is strong, and park the task awaiting.
-async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
+// A calm, honest sentence explaining WHY an autonomous pursuit paused, so the
+// outcome card never shows a bare "waiting on you" with no reason. Only used for
+// the SOFT caps (budget/loop/no-progress) — genuine gates already carry their own
+// question/approval copy.
+function _meAiPauseReasonText(reason) {
+  const n = ME_AI_TREE_BUDGET.maxAutoRounds;
+  if (reason === 'round-cap') return `I ran ${n} autonomous rounds on this and paused so you can check in before I keep going. The recommendation above is where I landed — say “Keep going” and I’ll continue on my own.`;
+  if (reason === 'time-cap') return `I hit my time budget for one stretch of autonomous work and paused here so you can review. Say “Keep going” to pick up where I left off.`;
+  if (reason === 'loop') return `I noticed I was circling the same angles, so I stopped rather than repeat work. The recommendation above is my best read — steer me or say “Keep going” to push further.`;
+  if (reason === 'no-progress') return `I couldn’t make further progress on my own this round. Tell me what to try, or say “Keep going” to take another pass.`;
+  return '';
+}
+
+// Decide whether an orchestration round should AUTO-CONTINUE (return null) or PARK
+// with a named reason. Priority: genuine gates first (they need you), then the goal
+// state, then budget/loop safety caps. A null return means "converged, actionable,
+// budget left → keep pursuing on your own recommendation instead of waiting on you".
+function _meAiTreeAutoStopReason(t, ctx) {
+  if (ctx.pendingAuth) return 'needs-approval';
+  if (ctx.deliveryStop) return 'delivery';
+  if (ctx.unresolvedConflicts) return 'needs-decision';
+  if (ctx.pendingInfo) return 'needs-info';
+  if (t._loopBreak) return 'loop';
+  if (ctx.noMoreAngles) return 'no-more-angles';
+  if (!ctx.done) return 'no-progress';
+  if ((t._autoRounds || 0) >= ME_AI_TREE_BUDGET.maxAutoRounds) return 'round-cap';
+  if (t._pursuitStartedMs && (Date.now() - t._pursuitStartedMs) > ME_AI_TREE_BUDGET.totalWallMs) return 'time-cap';
+  return null; // converged + actionable + budget remaining → continue autonomously.
+}
+
+async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   const id = t.id;
   const done = legs.filter(l => l._result && l._result.outcome !== 'dead-end');
   const dead = legs.filter(l => l._result && l._result.outcome === 'dead-end');
@@ -22710,6 +22741,17 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     });
     _meAiTreeEmit(id, 'stop', { stop: deliveryStop });
   }
+  // AUTO-CONTINUE decision (Issue 1): should this round keep pursuing on its own
+  // recommendation, or park and wait on the user? Computed here so the reroute
+  // block below only spawns an inert "re-plan" node when we're actually parking.
+  const autoStop = _meAiTreeAutoStopReason(t, {
+    pendingAuth: pendingAuth.length,
+    deliveryStop: !!deliveryStop,
+    unresolvedConflicts: unresolvedConflicts.length,
+    pendingInfo: pendingInfo.length,
+    done: done.length,
+    noMoreAngles: !!(opts && opts.noMoreAngles),
+  });
   // Build the pursuit report markdown.
   const reportTitle = _meAiReportTitle(t);
   const rankC = { high: 3, medium: 2, low: 1 };
@@ -22765,7 +22807,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
   // visible reroute spine leg. GUARDED so a delivered pursuit, a broken loop, or a
   // pending delivery offer never spawns another re-scouting round (the spin fix).
   const strong = done.some(l => l._result.confidence === 'high') || pendingAuth.length > 0;
-  if (strong && !t._delivered && !t._loopBreak && !deliveryStop) {
+  if (strong && !t._delivered && !t._loopBreak && !deliveryStop && autoStop) {
     const epoch = 1;
     _meAiTreeEmit(id, 'epoch_bump', { epoch });
     const reroute = _meAiNewLeg({ kind: 'reroute', parentId: spine.id, lane: 'spine', baseEpoch: epoch, status: pendingAuth.length ? 'blocked' : 'done', title: 'Re-route: ' + (best ? best.text : 'act on findings').slice(0, 80), goal: best ? best.text : '' });
@@ -22799,7 +22841,55 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs) {
     t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
   }
   _meAiFilterDeclined(t);
+
+  // ── AUTONOMOUS CONTINUATION (Issue 1) ────────────────────────────────────
+  // Converged, actionable, budget remaining → act on our OWN recommendation
+  // instead of parking at "waiting on you". Mirrors the approved-reroute /
+  // re-engage pattern: bump epoch, spawn a RUNNING reroute spine carrying the
+  // next move, set an autonomous steer, and re-orchestrate. Recursion terminates
+  // via the round/time cap, loop-break, or no-more-angles inside _meAiTreeAutoStopReason.
+  if (autoStop === null) {
+    t._autoRounds = (t._autoRounds || 0) + 1;
+    const nextMove = best ? best.text : 'Act on the strongest conclusion and keep closing the goal.';
+    _meAiTreeMirror(t, `Converged this round — continuing on my own recommendation (auto-round ${t._autoRounds}/${ME_AI_TREE_BUDGET.maxAutoRounds}): ${String(nextMove).slice(0, 160)}`);
+    const epoch = curEpoch + 1;
+    _meAiTreeEmit(id, 'epoch_bump', { epoch });
+    const reroute = _meAiNewLeg({ kind: 'reroute', parentId: spine.id, lane: 'spine', status: 'running', baseEpoch: epoch, title: 'Continue: ' + String(nextMove).slice(0, 72), goal: nextMove, sessionId: _meAiUuid() });
+    t._spineId = reroute.id;
+    _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
+    t._steerNote = 'Continue autonomously toward the goal. Act on this recommendation: ' + nextMove + ' Verify the result, then either finish (if the goal is fully met) or take the next concrete step. Do NOT repeat work already completed in earlier rounds.';
+    try { await _meAiTreeOrchestrate(t, reroute, { replan: true, auto: true }); }
+    finally { t._steerNote = null; }
+    return;
+  }
+
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
+
+  // Exhausted the avenues on an autonomous pass → the goal is as met as it's going
+  // to get. Conclude cleanly rather than loop or park with an empty ask.
+  if (autoStop === 'no-more-angles' || t._delivered) {
+    t.pauseReason = null;
+    if (!pendingAuth.length && !deliveryStop && !unresolvedConflicts.length && !pendingInfo.length) {
+      t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+      _meAiTreeEmit(id, 'stage', { stage: 'done' });
+      _meAiSetStage(t, 'done', 'done');
+      return;
+    }
+  }
+
+  // Soft caps (budget/loop/no-progress): pause with an HONEST reason + a one-click
+  // "Keep going" so you're never left with an unexplained "waiting on you".
+  const softCap = (autoStop === 'round-cap' || autoStop === 'time-cap' || autoStop === 'loop' || autoStop === 'no-progress');
+  if (softCap && !pendingAuth.length && !deliveryStop && !unresolvedConflicts.length && !pendingInfo.length) {
+    t.pauseReason = _meAiPauseReasonText(autoStop);
+    t.nextActions = [
+      { label: 'Keep going', intent: 'continue', primary: true, risk: 'none' },
+      { label: 'Looks good — done', intent: 'approve', primary: false, risk: 'none' },
+    ];
+  } else {
+    // Genuine gate (approval/decision/info) — its own copy already explains the wait.
+    t.pauseReason = null;
+  }
   _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
   _meAiSetStage(t, 'awaiting', 'awaiting');
 }
@@ -22962,6 +23052,9 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
   const id = t.id;
   const startedMs = Date.now();
   const replan = !!(opts && opts.replan);
+  // A user-initiated turn (dispatch / steer / "Keep going") starts a FRESH autonomous
+  // budget; auto-rounds preserve it so the pursuit-wide caps actually bound the loop.
+  if (!opts.auto) { t._pursuitStartedMs = Date.now(); t._autoRounds = 0; t.pauseReason = null; }
   try {
     // On a re-engagement we skip the static playbook candidates and always re-plan
     // around the steer; on a fresh task, curated candidates win when present.
@@ -22976,7 +23069,7 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
       const out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, spine), { resume: false }).catch(e => 'Error: ' + (e.message || e));
       const r = _meAiParseLegResult(out); spine._result = r;
       _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: spine.id, title: spine.title, summary: r.summary, confidence: r.confidence }) });
-      return await _meAiTreeMergeReport(t, spine, startedMs, [spine]);
+      return await _meAiTreeMergeReport(t, spine, startedMs, [spine], { auto: !!opts.auto, noMoreAngles: !!opts.auto });
     }
     _meAiTreeMirror(t, `Fanning out into ${cands.length} parallel pursuits…`);
     const legs = cands.map(c => _meAiNewLeg({ parentId: spine.id, kind: c.kind, lane: c.lane, title: c.title, goal: c.goal, status: 'planned', baseEpoch: (spine.baseEpoch || 0), sessionId: _meAiUuid() }));
@@ -23038,7 +23131,7 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
     else if (survivors.length) { _meAiTreeMirror(t, 'Wall-clock budget reached before the branches — consolidating what the scouts found.'); for (const b of survivors) { _meAiTreeEmit(id, 'leg_status', { legId: b.id, status: 'skipped' }); b._result = { summary: 'Skipped — time budget reached before this branch ran.', confidence: 'low', outcome: 'dead-end', findings: [], proposedAction: null, question: null, invalidates: [] }; } }
     // Budget/loop guard: if we blew the wall clock, don't expand further.
     if (Date.now() - startedMs > ME_AI_TREE_BUDGET.wallMs) _meAiTreeMirror(t, 'Wall-clock budget reached — consolidating what I have.');
-    await _meAiTreeMergeReport(t, spine, startedMs, legs);
+    await _meAiTreeMergeReport(t, spine, startedMs, legs, { auto: !!opts.auto, noMoreAngles: false });
   } catch (e) {
     _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: 'error' });
     _meAiTreeMirror(t, 'Orchestrator error: ' + String(e.message || e));
