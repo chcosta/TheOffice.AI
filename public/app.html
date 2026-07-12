@@ -11463,6 +11463,18 @@
               .cf-primeact.pr { border-color:var(--cp-pr); background:var(--cp-pr); }
               .cf-primeact:hover { transform:translateY(-1px); }
               .cf-primeact:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+              .cf-conflict { border:1px solid var(--cp-warning); background:var(--cp-accent-soft); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:11px 13px; display:flex; flex-direction:column; gap:9px; }
+              .cf-conflict-head { display:flex; align-items:flex-start; gap:9px; }
+              .cf-conflict-mark { font-size:16px; line-height:1.2; flex:0 0 auto; }
+              .cf-conflict-title { font-weight:650; font-size:13px; color:var(--cp-text); }
+              .cf-conflict-sub { font-size:11.5px; line-height:1.45; color:var(--cp-text); opacity:.82; margin-top:2px; }
+              .cf-conflict-files { border-top:1px dashed var(--cp-border); padding-top:8px; }
+              .cf-conflict-files-cap { font-size:11px; font-weight:600; color:var(--cp-text-soft); margin-bottom:4px; }
+              .cf-conflict-files ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:2px; }
+              .cf-conflict-files li { font-size:11px; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .cf-conflict-more { color:var(--cp-text-muted) !important; font-style:italic; }
+              .cf-conflict-steward { font-size:11.5px; line-height:1.45; color:var(--cp-text); background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 6px); padding:7px 9px; }
+              .cf-conflict-acts { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
             </style>
             <!-- Icon-button tooltips are delegated (body-teleported) and normally live on
                  the Boards canvas; the dev studio is outside it, so mirror the flyout here
@@ -11812,6 +11824,7 @@
                                     <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfCurPr(d).num + ' · ' + cfCurPr(d).bn"></strong><span class="hint" style="font-size:11px">PR review</span></div>
                                     <div class="cf-sidebody" style="display:flex;flex-direction:column;gap:3px"><span x-show="cfCurPr(d).approvals" x-text="'Approvals: ' + cfCurPr(d).approvals"></span><span x-text="'Checks: ' + cfCurPr(d).checks"></span><span x-show="cfCurPr(d).promote > 0" x-text="cfCurPr(d).promote + ' to promote from dev →'"></span><span x-show="cfCurPr(d).pull > 0" x-text="'← ' + cfCurPr(d).pull + ' review to pull'"></span><span x-show="cfPrCanMerge(cfCurPr(d))" style="color:var(--cp-success)">✓ Ready to merge</span></div>
                                     <div class="cf-sidewt" x-show="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" x-text="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" :title="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath"></div>
+                                    <div class="cf-sidebody" x-show="cfMergeConflict(d)" style="color:var(--cp-warning);display:flex;align-items:center;gap:6px"><span>⚠</span><span x-text="'Merge conflict' + ((cfMergeConflict(d) && cfMergeConflict(d).files && cfMergeConflict(d).files.length) ? (' in ' + cfMergeConflict(d).files.length + ' file' + (cfMergeConflict(d).files.length === 1 ? '' : 's')) : '') + ' — see details below.'"></span></div>
                                     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
                                       <button class="cf-primeact" type="button" x-show="cfCurPr(d).promote > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'promote')" @click.stop="cfPromote(d, cfCurPr(d)._slot)" x-text="'↑ Promote from dev (' + cfCurPr(d).promote + ')'"></button>
                                       <button class="cf-primeact" type="button" x-show="cfCurPr(d).pull > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'pull')" @click.stop="cfPullReview(d, cfCurPr(d)._slot)" x-text="'↓ Pull review (' + cfCurPr(d).pull + ')'"></button>
@@ -11860,6 +11873,35 @@
                                         <p class="cf-agent-explain" style="margin:0">This pull request owns its own worktree, branched from the dev worktree. Promote or pull review changes using the actions in the summary above; open the worktree to review, build &amp; validate.</p>
                                         <div class="cf-sidewt" x-show="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" x-text="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" :title="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath"></div>
                                       </div>
+                                      <template x-if="cfMergeConflict(d)">
+                                        <div class="cf-conflict">
+                                          <div class="cf-conflict-head">
+                                            <span class="cf-conflict-mark">⚠</span>
+                                            <div style="min-width:0">
+                                              <div class="cf-conflict-title" x-text="'Merge conflict promoting ' + (cfMergeConflict(d).devBranch || 'dev') + ' → ' + (cfMergeConflict(d).prBranch || 'PR')"></div>
+                                              <div class="cf-conflict-sub">The dev branch and the PR branch both changed the same lines. Reconcile before this can promote — nothing was pushed.</div>
+                                            </div>
+                                          </div>
+                                          <template x-if="cfMergeConflict(d).files && cfMergeConflict(d).files.length">
+                                            <div class="cf-conflict-files">
+                                              <div class="cf-conflict-files-cap" x-text="cfMergeConflict(d).files.length + ' conflicting file' + (cfMergeConflict(d).files.length === 1 ? '' : 's')"></div>
+                                              <ul>
+                                                <template x-for="(f, fi) in cfMergeConflict(d).files.slice(0, 12)" :key="fi">
+                                                  <li class="mono" x-text="f"></li>
+                                                </template>
+                                                <li x-show="cfMergeConflict(d).files.length > 12" class="cf-conflict-more" x-text="'+ ' + (cfMergeConflict(d).files.length - 12) + ' more'"></li>
+                                              </ul>
+                                            </div>
+                                          </template>
+                                          <template x-if="cfMergeConflict(d).stewardSlug">
+                                            <div class="cf-conflict-steward" x-text="'Merge steward “' + cfMergeConflict(d).stewardSlug + '” is on it — run it in Copilot CLI from the PR worktree to reconcile both sides, then promote again.'"></div>
+                                          </template>
+                                          <div class="cf-conflict-acts">
+                                            <button class="cf-primeact" type="button" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'steward')" @click.stop="cfMergeSteward(d, cfCurPr(d)._slot)" x-text="cfActBusy(d, cfCurPr(d)._slot, 'steward') ? 'Adding…' : (cfMergeConflict(d).stewardSlug ? '↻ Re-add merge steward' : '🔀 Add a merge steward')"></button>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:3px 10px" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'clearconflict')" @click.stop="cfClearMergeConflict(d, cfCurPr(d)._slot)">Dismiss</button>
+                                          </div>
+                                        </div>
+                                      </template>
                                     </div>
                                   </template>
                                     <template x-if="cfView(d)==='dev'">
@@ -51302,7 +51344,57 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && r.dev) { this._applyDevUpdate(d.id, r.dev); this.$nextTick(() => this.cfDrawEdges(d)); }
             this.showToast('Code Flow', (r && r.message) || 'Promoted to the PR branch.', (r && r.ok) ? 'success' : 'error');
           } catch (e) {
-            this.showToast('Code Flow', (e && e.message) || 'Promote failed', 'error');
+            // A merge conflict is a decision point, not a failure: the server persisted
+            // the conflict on the slot (409) and returned the updated dev. Apply it so the
+            // decision card renders, then nudge the user toward reconciliation.
+            if (e && e.status === 409 && e.body && e.body.conflict) {
+              if (e.body.dev) { this._applyDevUpdate(d.id, e.body.dev); this.$nextTick(() => this.cfDrawEdges(d)); }
+              const n = (e.body.files && e.body.files.length) || 0;
+              this.showToast('Code Flow', 'Merge conflict' + (n ? (' in ' + n + ' file' + (n === 1 ? '' : 's')) : '') + ' — reconcile before this can promote.', 'error');
+            } else {
+              this.showToast('Code Flow', (e && e.message) || 'Promote failed', 'error');
+            }
+          } finally { delete this.devBusy[key]; }
+        },
+        // The active PR's outstanding merge-conflict decision (persisted on the slot), or
+        // null. Survives reload since it rides on slot.mergeConflict.
+        cfMergeConflict(d) {
+          const cur = this.cfCurPr(d);
+          const s = cur && cur._slot;
+          return (s && s.mergeConflict) || null;
+        },
+        // Hand the conflict to a merge-steward agent: the server writes its .agent.md into
+        // the PR worktree; the user runs it in Copilot CLI to reconcile both sides.
+        async cfMergeSteward(d, slot) {
+          const cur = this.cfCurPr(d);
+          const s = slot || (cur && cur._slot);
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s) + ':steward';
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'steward';
+          try {
+            const body = s.primary ? {} : { repoId: s.id };
+            const r = await this.request(this._devUrl(d, 'merge-steward'), { method: 'POST', body: JSON.stringify(body) });
+            if (r && r.dev) { this._applyDevUpdate(d.id, r.dev); this.$nextTick(() => this.cfDrawEdges(d)); }
+            this.showToast('Code Flow', 'Merge steward ready: run “' + ((r && r.agentName) || 'merge steward') + '” in Copilot CLI from the PR worktree to reconcile.', 'success');
+          } catch (e) {
+            this.showToast('Code Flow', (e && e.message) || 'Could not add the merge steward', 'error');
+          } finally { delete this.devBusy[key]; }
+        },
+        // Dismiss a merge-conflict decision card (resolved manually or no longer relevant).
+        async cfClearMergeConflict(d, slot) {
+          const cur = this.cfCurPr(d);
+          const s = slot || (cur && cur._slot);
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s) + ':clearconflict';
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'clear';
+          try {
+            const body = s.primary ? {} : { repoId: s.id };
+            const r = await this.request(this._devUrl(d, 'merge-steward/clear'), { method: 'POST', body: JSON.stringify(body) });
+            if (r && r.dev) { this._applyDevUpdate(d.id, r.dev); this.$nextTick(() => this.cfDrawEdges(d)); }
+          } catch (e) {
+            this.showToast('Code Flow', (e && e.message) || 'Could not dismiss', 'error');
           } finally { delete this.devBusy[key]; }
         },
         // Pull review-time commits from a PR branch back into the dev branch (pr -> dev).

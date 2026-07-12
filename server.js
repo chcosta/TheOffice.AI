@@ -29238,6 +29238,26 @@ const DEV_AGENT_PERSONAS = [
       'Report only high-confidence bugs, logic errors, and design flaws. Skip style nits and trivia unless they cause real harm.',
     ],
   },
+  {
+    id: 'merge-steward', label: 'Merge steward', emoji: '🔀',
+    gradFrom: '#7c3aed', gradTo: '#a855f7', readOnly: false,
+    tagline: 'Resolve merge conflicts promoting a dev branch into a PR branch that already moved on.',
+    tags: 'code-aware · merge only',
+    goal: 'Safely merge this work item\'s dev branch INTO its pull-request branch when the two have diverged and conflict. Reconcile every conflict to preserve BOTH sides\' intent, verify nothing broke, and leave the PR branch ready to push — surfacing any ambiguous conflict where a human must choose rather than guessing.',
+    steps: [
+      'Establish the two sides: the PR/target branch (this worktree\'s current branch, which already has changes) and the dev branch being promoted. Read the divergent commits on each so you understand what each side was trying to do.',
+      'Start the merge of the dev branch into the PR branch and let git surface the conflicting files. For each conflict, understand BOTH sides\' intent before touching the hunk.',
+      'Resolve mechanical/obvious conflicts (independent additions, import ordering, formatting, non-overlapping edits) by combining both sides so no one\'s work is lost.',
+      'For AMBIGUOUS conflicts — where the two sides make genuinely incompatible choices and picking one silently would discard real intent — do NOT guess. Leave that hunk unresolved (or clearly annotate it), and record a specific DECISION the human must make in your report: what each side wants, the trade-off, and your recommendation.',
+      'Once the safe conflicts are resolved, run the project\'s build/lint/tests to prove the merge didn\'t break anything. Only complete the merge commit when the tree is clean and green.',
+      'Write a `dev-merge-report.html` at the worktree root: what merged cleanly, what you resolved and how, and — front and center — any DECISIONS still needed from the human. Do NOT push until the human has resolved the flagged decisions and approved.',
+    ],
+    constraints: [
+      'You operate ONLY inside this PR worktree and touch ONLY the merge. Do not start unrelated refactors, reformat untouched files, or change behavior beyond reconciling the two branches.',
+      'Never resolve an ambiguous conflict by silently discarding one side. When both sides\' intent genuinely conflicts, STOP and surface it as a decision — losing someone\'s work quietly is the worst outcome.',
+      'Do NOT force-push or rewrite published history. Complete the merge with a normal merge commit and only push once the merge is clean, validated, and any flagged decisions are resolved.',
+    ],
+  },
 ];
 const DEV_AGENT_PERSONA_MAP = Object.fromEntries(DEV_AGENT_PERSONAS.map(p => [p.id, p]));
 
@@ -30374,14 +30394,33 @@ app.post('/api/boards/:id/dev-items/:devId/promote', async (req, res) => {
   let r;
   try { r = devitems.promoteToPr(prWtPath, { devBranch: slot.branch, prBranch: slot.prBranch, desc: _devDesc(slot) }); }
   catch (e) { return res.status(500).json({ error: 'Promote failed: ' + ((e && e.message) || e) }); }
-  if (!r.ok) return res.status(500).json({ error: r.message, dev: d });
+  if (!r.ok) {
+    // A merge conflict is not a hard failure — it's a decision point. Persist the
+    // conflict on the slot so the dev card can render a decision card (and offer the
+    // merge-steward playbook), and return 409 so the SPA branches to that flow.
+    if (r.conflict) {
+      const mergeConflict = {
+        at: new Date().toISOString(),
+        devBranch: slot.branch, prBranch: slot.prBranch, prId: slot.prId,
+        files: Array.isArray(r.files) ? r.files.slice(0, 200) : [],
+        stewardSlug: null,
+      };
+      let dc = d;
+      try { dc = _saveRepoSlot(ctx, slot.id, { mergeConflict, prWorktreePath: prWtPath }); } catch {}
+      return res.status(409).json({
+        error: r.message, conflict: true, files: mergeConflict.files,
+        devBranch: slot.branch, prBranch: slot.prBranch, repoId: slot.id, dev: dc,
+      });
+    }
+    return res.status(500).json({ error: r.message, dev: d });
+  }
 
   // 4) Re-attach fresh divergence + persist the (possibly restored) PR worktree path.
   const prDivergence = devitems.devPrDivergence({
     org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
     devBranch: slot.branch, prBranch: slot.prBranch
   });
-  const partial = { prWorktreePath: prWtPath, prDivergence };
+  const partial = { prWorktreePath: prWtPath, prDivergence, mergeConflict: null };
   let updated = _saveRepoSlot(ctx, slot.id, partial);
   // Mark this approach as the one feeding the PR (clears siblings).
   try {
@@ -30393,6 +30432,63 @@ app.post('/api/boards/:id/dev-items/:devId/promote', async (req, res) => {
     }
   } catch {}
   res.json({ ok: true, dev: updated, repoId: slot.id, promoted: r.promoted, committed: committedCount, prDivergence, message: r.message });
+});
+
+// Add a merge-steward agent into the PR worktree to reconcile a promote conflict.
+// Writes .github/agents/<slug>.agent.md into the PR worktree (kept out of git) so
+// the user can run it in Copilot CLI, and records the steward slug on the slot's
+// mergeConflict decision state so the dev card can show "steward is on it". The
+// steward's goal is made concrete with the two branch names (and the last set of
+// conflicting files, if known). Body { repoId? }.
+app.post('/api/boards/:id/dev-items/:devId/merge-steward', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const slot = _findRepoSlot(d, (req.body && req.body.repoId) || 'primary');
+  if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
+  if (!slot.prId || !slot.prBranch || !slot.branch) return res.status(400).json({ error: 'Need a PR branch and a dev branch to reconcile.' });
+  // Self-heal the PR worktree if its dir is gone (same as promote).
+  let prWtPath = slot.prWorktreePath;
+  if (!prWtPath || !fs.existsSync(prWtPath)) {
+    try {
+      const wt = devitems.createPrWorktree({
+        org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+        prBranch: slot.prBranch, fromRef: slot.branch, wtDevId: String(d.id) + '--pr' + (slot.prSeq || 1)
+      });
+      prWtPath = wt.worktreePath;
+    } catch (e) { return res.status(500).json({ error: 'Failed to restore PR worktree: ' + ((e && e.message) || e) }); }
+  }
+  let wi = d.workItem;
+  try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
+  // Concrete steward persona: name the two branches (this PR worktree is ON the PR
+  // branch) and the conflicting files so the agent knows exactly what to reconcile.
+  const base = _devPersona('merge-steward');
+  const files = (slot.mergeConflict && Array.isArray(slot.mergeConflict.files)) ? slot.mergeConflict.files : [];
+  const persona = Object.assign({}, base, {
+    goal: base.goal + ` Merge the dev branch \`${slot.branch}\` INTO the pull-request branch \`${slot.prBranch}\` (this worktree is checked out on \`${slot.prBranch}\`).`
+      + (files.length ? ` The last promote attempt conflicted on: ${files.slice(0, 30).join(', ')}.` : '')
+  });
+  const synthWt = { id: 'pr', worktreePath: prWtPath };
+  let written;
+  try { written = _writeDevAgentFileForWt(d, wi, persona, slot, synthWt); }
+  catch (e) { return res.status(500).json({ error: 'Failed to write the merge-steward agent: ' + ((e && e.message) || e) }); }
+  if (!written) return res.status(400).json({ error: 'PR worktree is not ready.' });
+  const mergeConflict = Object.assign({}, slot.mergeConflict || { files, devBranch: slot.branch, prBranch: slot.prBranch, prId: slot.prId }, {
+    stewardSlug: written.slug, stewardFile: written.rel, stewardAt: new Date().toISOString(), prWorktreePath: prWtPath,
+  });
+  const updated = _saveRepoSlot(ctx, slot.id, { mergeConflict, prWorktreePath: prWtPath });
+  res.json({ ok: true, dev: updated, repoId: slot.id, agentName: written.slug, agentFile: written.rel, prWorktreePath: prWtPath });
+});
+
+// Dismiss/clear a merge-conflict decision card on a repo slot (the user resolved it
+// manually, or promoted successfully elsewhere). Body { repoId? }.
+app.post('/api/boards/:id/dev-items/:devId/merge-steward/clear', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const slot = _findRepoSlot(ctx.dev, (req.body && req.body.repoId) || 'primary');
+  if (!slot) return res.status(400).json({ error: 'Repo not found on this card.' });
+  const updated = _saveRepoSlot(ctx, slot.id, { mergeConflict: null });
+  res.json({ ok: true, dev: updated, repoId: slot.id });
 });
 
 // Pull review-time commits from an EXISTING PR branch back into the dev card's

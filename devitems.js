@@ -387,7 +387,24 @@ function promoteToPr(prWt, { devBranch, prBranch, desc = null } = {}) {
   _ensureGitIdentity(prWt);
   let merged = _gitTry(['merge', '--ff-only', devRef], prWt);
   if (!merged.ok) merged = _gitTry(['merge', '--no-edit', devRef], prWt);
-  if (!merged.ok) return { ok: false, promoted: n, pushed: false, message: 'Could not promote (merge failed — resolve conflicts in the PR worktree): ' + merged.err.split('\n').slice(-2).join(' ').slice(0, 260) };
+  if (!merged.ok) {
+    // Collect the conflicting paths, then abort so the PR worktree is left clean
+    // (not mid-conflict). The caller surfaces { conflict, files } so the UI can
+    // offer the merge-steward playbook instead of a raw failure.
+    let files = [];
+    try {
+      const u = _gitTry(['diff', '--name-only', '--diff-filter=U'], prWt);
+      files = (u.out || '').split('\n').map(s => s.trim()).filter(Boolean);
+    } catch {}
+    _gitTry(['merge', '--abort'], prWt);
+    const isConflict = files.length > 0 || /conflict/i.test(merged.err || '');
+    return {
+      ok: false, promoted: n, pushed: false, conflict: isConflict, files,
+      message: isConflict
+        ? 'Promoting ' + dev + ' into ' + pr + ' hit ' + (files.length ? files.length + ' conflicting file' + (files.length === 1 ? '' : 's') : 'conflicts') + '. A merge steward can resolve them safely.'
+        : 'Could not promote (merge failed): ' + merged.err.split('\n').slice(-2).join(' ').slice(0, 260)
+    };
+  }
   const push = _gitTry(['push', 'origin', pr], prWt, { auth: desc || true });
   if (!push.ok) return { ok: false, promoted: n, pushed: false, message: 'Promoted locally but the push failed: ' + push.err.split('\n').slice(-2).join(' ').slice(0, 260) };
   return { ok: true, promoted: n, pushed: true, message: 'Promoted ' + n + ' commit' + (n === 1 ? '' : 's') + ' to the PR.' };
