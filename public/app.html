@@ -13439,9 +13439,10 @@
               .meai-pu-fold-open { margin-top:8px; font-size:11.5px; font-weight:600; color:var(--cp-accent); opacity:0; transition:opacity .12s ease; }
               .meai-pu-fold.is-click:hover .meai-pu-fold-open { opacity:1; }
               @media (prefers-reduced-motion: reduce) { .meai-pu-fold.is-click, .meai-pu-fold-open { transition:none; } }
-              .meai-pu-chat-tools { display:flex; justify-content:flex-end; margin:0 0 6px; }
+              .meai-pu-chat-tools { display:flex; justify-content:flex-end; gap:6px; margin:0 -12px 6px; padding:6px 12px; position:sticky; top:-12px; z-index:2; background:var(--cp-surface); border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
               .meai-pu-stepall { background:transparent; border:1px solid color-mix(in srgb,var(--cp-border) 70%, transparent); border-radius:8px; padding:4px 10px; font-size:11.5px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; transition:color .12s ease, border-color .12s ease; }
               .meai-pu-stepall:hover { color:var(--cp-text); border-color:var(--cp-accent); }
+              .meai-pu-stepall.on { color:var(--cp-text); border-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 10%, transparent); }
               @media (prefers-reduced-motion: reduce) { .meai-pu-stepall { transition:none; } }
               .meai-pu-fold-sum { font-size:13px; color:var(--cp-text); line-height:1.5; margin-top:6px; }
               .meai-pu-fold-find { margin:7px 0 0; padding-left:18px; }
@@ -15517,8 +15518,12 @@
                       <!-- CHAT: the main-thread conversation (goal → reasoning → outcome + steer) -->
                       <template x-if="meai.pursuit.nav==='chat'">
                         <div class="meai-pu-chat">
-                          <!-- Expand/collapse every step in the transcript at once -->
+                          <!-- Sticky tools: expand/collapse steps + hide the low-signal trace at once -->
                           <div class="meai-pu-chat-tools" x-show="meAiPursuitHasSteps('spine', meAiPursuitChatEvents())">
+                            <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleHideThinking()"
+                              :class="{ on: meai.pursuit.hideThinking }"
+                              :title="meai.pursuit.hideThinking ? 'Show the full reasoning/tool trace' : 'Hide State/Note/Tool trace rows'"
+                              x-text="meai.pursuit.hideThinking ? '👁 Show thinking' : '🙈 Hide thinking'"></button>
                             <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleAllSteps('spine', meAiPursuitChatEvents())"
                               x-text="meAiPursuitAllStepsOpen('spine', meAiPursuitChatEvents()) ? '▾ Collapse all steps' : '▸ Expand all steps'"></button>
                           </div>
@@ -15560,7 +15565,7 @@
                                   </div>
                                 </template>
                                 <!-- Every other spine event → the existing collapsible substep row. -->
-                                <template x-if="ev.kind!=='fold'">
+                                <template x-if="ev.kind!=='fold' && !(meai.pursuit.hideThinking && meAiPursuitIsThinking(ev))">
                                   <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
                                     <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
                                     <div class="meai-pu-ev-b">
@@ -15639,7 +15644,7 @@
                                   </div>
                                 </template>
                                 <!-- Reasoning / tools / notes → the existing collapsible substep row. -->
-                                <template x-if="ev.who!=='you' && ev.kind!=='response'">
+                                <template x-if="ev.who!=='you' && ev.kind!=='response' && !(meai.pursuit.hideThinking && meAiPursuitIsThinking(ev))">
                                   <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
                                     <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
                                     <div class="meai-pu-ev-b">
@@ -27277,6 +27282,7 @@
             _nodes: [], _legShortId: {}, _artRaw: {}, _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
             evOpen: {},                  // per-event expand map (transcript substeps)
+            hideThinking: (localStorage.getItem('meai-pu-hide-thinking') === '1'), // hide State/Note/Tool_* trace rows
             acting: false,               // a next-action resume is in flight
             steer: '',                   // free-text follow-up / redirect for the agent
             nodeSteer: '',               // free-text redirect scoped to a node-view leg
@@ -39604,6 +39610,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // anchored between them in the transcript instead of forever pinned to the bottom.
         meAiPursuitWorkEvents() {
           return this.meAiPursuitChatEvents().filter(e => !e.converse);
+        },
+        // "Hide thinking" predicate — true for the low-signal trace rows (State/Note/
+        // Tool_*/stage/thinking) the user can fold away. Substantive kinds (report, agent,
+        // response, question, error, delta, fold) always stay visible. Case-insensitive so
+        // it catches both the lowercase engine kinds and the capitalized leg labels.
+        meAiPursuitIsThinking(ev) {
+          const k = String((ev && ev.kind) || '').toLowerCase();
+          if (!k) return false;
+          if (k.startsWith('tool')) return true;
+          return ['state', 'note', 'stage', 'thinking'].includes(k);
+        },
+        meAiPursuitToggleHideThinking() {
+          const p = this.meai.pursuit;
+          p.hideThinking = !p.hideThinking;
+          try { localStorage.setItem('meai-pu-hide-thinking', p.hideThinking ? '1' : '0'); } catch (e) {}
         },
         // Follow-up Q&A (Ask/Revise) after the pursuit concluded — rendered AFTER the
         // recommendation card so it reads as a conversation about a settled result.
