@@ -23025,7 +23025,7 @@ function _meAiTreeConverse(t, mode, text) {
       t.question = null; t.error = null; t._lastError = null;
       _meAiSetStage(t, 'working', 'running');
       _meAiTreeEmit(id, 'stage', { stage: 'working' });
-      _meAiEmit(t, { kind: 'note', converse: true, text: (isRevise ? 'You asked me to revise the report: ' : 'You asked: ') + (msg || (isRevise ? 'refine it' : '(no question)')) });
+      _meAiEmit(t, { kind: 'note', converse: true, who: 'you', text: (isRevise ? 'You asked me to revise the report: ' : 'You asked: ') + (msg || (isRevise ? 'refine it' : '(no question)')) });
       const report = (t.report && t.report.markdown) ? String(t.report.markdown) : (t.report && t.report.summary) || '';
       const findings = (t.report && Array.isArray(t.report.findings) ? t.report.findings : [])
         .slice(0, 12).map(f => `- ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`).join('\n');

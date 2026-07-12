@@ -13421,6 +13421,9 @@
               .meai-pu-turn.you .meai-pu-bubble { background:color-mix(in srgb,var(--cp-accent) 12%, var(--cp-bg)); border:1px solid color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); color:var(--cp-text); font-weight:600; }
               .meai-pu-turn.agent { align-items:stretch; }
               .meai-pu-turn.agent .meai-pu-outcome { margin-bottom:0; }
+              .meai-pu-turn.agent .meai-pu-bubble { max-width:100%; background:var(--cp-surface); border:1px solid var(--cp-border); color:var(--cp-text); }
+              .meai-pu-turn.agent .meai-pu-bubble.md-output > :first-child { margin-top:0; }
+              .meai-pu-turn.agent .meai-pu-bubble.md-output > :last-child { margin-bottom:0; }
               .meai-pu-ev.side-you { flex-direction:row-reverse; }
               .meai-pu-ev.side-you .meai-pu-ev-b { align-items:flex-end; text-align:right; }
               /* Folded leg conclusion — a calm agent message summarising a leg that rejoined
@@ -15620,21 +15623,40 @@
 
                             <!-- Follow-up conversation about the settled result — after the recommendation. -->
                             <template x-for="(ev, ci) in meAiPursuitConverseEvents()" :key="'pc-'+ci">
-                              <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
-                                <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
-                                <div class="meai-pu-ev-b">
-                                  <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('conv',ci,ev))">
-                                    <span class="meai-pu-ev-k" x-text="ev.kind"></span>
-                                    <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
-                                    <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('conv',ci,ev)] ? '▾' : '▸'"></span>
-                                  </button>
-                                  <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('conv',ci,ev)]">
-                                    <div class="meai-pu-ev-d">
-                                      <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
-                                      <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                              <div style="display:contents">
+                                <!-- Your follow-up ask → a prominent right-aligned user bubble. -->
+                                <template x-if="ev.who==='you'">
+                                  <div class="meai-pu-turn you">
+                                    <div class="meai-pu-turn-who">You</div>
+                                    <div class="meai-pu-bubble" x-text="String(ev.text||'').replace(/^You asked( me to revise the report)?:\s*/i,'')"></div>
+                                  </div>
+                                </template>
+                                <!-- The agent's answer → an aligned agent response bubble (markdown). -->
+                                <template x-if="ev.who!=='you' && ev.kind==='response'">
+                                  <div class="meai-pu-turn agent">
+                                    <div class="meai-pu-turn-who">Chief of Staff</div>
+                                    <div class="meai-pu-bubble md-output" x-html="renderMarkdown(ev.text||'')"></div>
+                                  </div>
+                                </template>
+                                <!-- Reasoning / tools / notes → the existing collapsible substep row. -->
+                                <template x-if="ev.who!=='you' && ev.kind!=='response'">
+                                  <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                                    <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                                    <div class="meai-pu-ev-b">
+                                      <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('conv',ci,ev))">
+                                        <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                                        <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                                        <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('conv',ci,ev)] ? '▾' : '▸'"></span>
+                                      </button>
+                                      <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('conv',ci,ev)]">
+                                        <div class="meai-pu-ev-d">
+                                          <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                          <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                                        </div>
+                                      </template>
                                     </div>
-                                  </template>
-                                </div>
+                                  </div>
+                                </template>
                               </div>
                             </template>
 
