@@ -17277,6 +17277,114 @@
               .pulse-lens-empty { padding:24px 4px; color:var(--cp-text-muted); font-size:14px; line-height:1.6; }
               .pulse-lens-note { color:var(--cp-text-muted); font-size:13px; margin:0 0 12px; text-wrap:pretty; }
 
+              /* ===== Comedy lens (scoped under .pc) ===== */
+              .pc { --joy:#f0883e; --joy-soft:#ffb27a; --grin:#58a6ff; --coral:#f85149; --joy-line:color-mix(in srgb, var(--joy) 24%, var(--cp-border)); }
+              .pc .pc-body { margin-top:4px; }
+              .pc .pc-top { display:grid; grid-template-columns:1fr minmax(300px, 46%); gap:16px; align-items:start; margin-bottom:6px; }
+              .pc .pc-hero { padding:18px 20px; border:1px solid var(--joy-line); border-radius:12px; background:color-mix(in srgb, var(--joy) 5%, var(--cp-surface)); }
+              .pc .pc-kick { font-size:12.5px; font-weight:700; letter-spacing:.02em; color:var(--joy); margin-bottom:8px; }
+              .pc .pc-mood-h { font-size:21px; font-weight:680; line-height:1.24; letter-spacing:-0.015em; color:var(--cp-text); margin:0 0 10px; text-wrap:balance; }
+              .pc .pc-mood-read { font-size:14.5px; line-height:1.62; color:var(--cp-text); text-wrap:pretty; margin:0; max-width:64ch; }
+              .pc .pc-levity { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:12.5px; color:var(--cp-text-soft); flex-wrap:wrap; }
+              .pc .pc-lev-lab { color:var(--cp-text-muted); }
+              .pc .pc-lev-track { flex:0 0 96px; height:6px; border-radius:999px; background:color-mix(in srgb, var(--joy) 16%, var(--cp-border)); overflow:hidden; }
+              .pc .pc-lev-fill { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg, var(--joy-soft), var(--joy)); }
+              .pc .pc-levity b { color:var(--cp-text); font-weight:660; }
+              .pc .pc-lev-note { color:var(--cp-text-muted); }
+
+              /* The Reel */
+              .pc .pc-reel-panel { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-surface); overflow:hidden; }
+              .pc .pc-reel-head { display:flex; align-items:center; gap:8px; padding:11px 14px; border-bottom:1px solid var(--cp-border); }
+              .pc .pc-reel-head .i { font-size:15px; }
+              .pc .pc-reel-head .t { font-weight:650; font-size:14px; color:var(--cp-text); }
+              .pc .pc-reel-head .c { margin-left:auto; font-size:11.5px; color:var(--cp-text-muted); }
+              .pc .pc-reel { position:relative; padding:12px 12px 12px 40px; }
+              .pc .pc-reel-nav { position:absolute; left:8px; top:50%; transform:translateY(-50%); width:26px; height:26px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:2; }
+              .pc .pc-reel-nav:hover { background:var(--cp-surface-hover); }
+              .pc .pc-reel-dots { position:absolute; left:16px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:6px; z-index:2; }
+              .pc .pc-dot { width:7px; height:7px; border-radius:999px; border:0; padding:0; background:color-mix(in srgb, var(--cp-text) 22%, transparent); cursor:pointer; }
+              .pc .pc-dot.on { background:var(--joy); }
+              .pc .pc-reel-view { height:300px; overflow:hidden; border-radius:10px; }
+              .pc .pc-reel-track { transition:transform .42s cubic-bezier(.22,1,.36,1); }
+              .pc .pc-slide { height:300px; display:flex; flex-direction:column; }
+              .pc .pc-s-media { position:relative; flex:1 1 auto; min-height:0; background:#0a0d12; border-radius:10px 10px 0 0; overflow:hidden; }
+              .pc .pc-s-full { position:absolute; top:8px; right:8px; z-index:2; width:28px; height:28px; border-radius:8px; border:1px solid rgba(255,255,255,.2); background:rgba(0,0,0,.5); color:#e6edf3; font-size:15px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background .15s ease; }
+              .pc .pc-s-full:hover { background:rgba(0,0,0,.72); }
+              .pc .pc-svg { width:100%; height:100%; }
+              .pc .pc-svg svg { display:block; width:100%; height:100%; }
+              .pc .pc-svg img { display:block; width:100%; height:100%; object-fit:contain; background:#0a0d12; }
+              .pc .pc-s-foot { flex:0 0 auto; padding:9px 11px; border:1px solid var(--cp-border); border-top:0; border-radius:0 0 10px 10px; background:var(--cp-surface); }
+              .pc .pc-s-cap { font-size:12.5px; font-weight:560; color:var(--cp-text); line-height:1.4; text-wrap:pretty; }
+              .pc .pc-s-src { font-size:10.5px; color:var(--cp-text-muted); margin-top:4px; }
+              .pc-lightbox { position:fixed; inset:0; z-index:10050; background:rgba(6,9,14,.86); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; padding:32px; }
+              .pc-lb-inner { position:relative; max-width:min(92vw,900px); display:flex; flex-direction:column; gap:14px; }
+              .pc-lb-close { position:absolute; top:-16px; right:-16px; width:36px; height:36px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:15px; line-height:1; cursor:pointer; z-index:2; display:flex; align-items:center; justify-content:center; }
+              .pc-lb-close:hover { background:var(--cp-surface-hover); }
+              .pc-lb-media { display:flex; align-items:center; justify-content:center; }
+              .pc-lb-media img { max-width:100%; max-height:78vh; border-radius:12px; display:block; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+              .pc-lb-svg { width:min(78vw,540px); aspect-ratio:1/1; }
+              .pc-lb-svg svg { width:100%; height:100%; border-radius:12px; display:block; }
+              .pc-lb-cap { color:#e6edf3; font-size:14px; text-align:center; line-height:1.5; text-wrap:pretty; }
+              @media (prefers-reduced-motion: reduce) { .pc .pc-s-full { transition:none; } }
+              .pc .pc-s-acts { display:flex; gap:7px; margin-top:7px; }
+              .pc .pc-mini { font-size:11px; padding:3px 9px; border-radius:7px; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-soft); cursor:pointer; }
+              .pc .pc-mini:hover { background:var(--cp-surface-hover); color:var(--cp-text); }
+              .pc .pc-mini.on { border-color:var(--joy-line); color:var(--joy); }
+
+              /* sections */
+              .pc .pc-sec { margin-top:22px; }
+              .pc .pc-sec-h { display:flex; align-items:baseline; gap:9px; margin-bottom:4px; }
+              .pc .pc-sec-h .i { font-size:15px; }
+              .pc .pc-sec-h .t { font-size:16px; font-weight:660; letter-spacing:-0.01em; color:var(--cp-text); }
+              .pc .pc-sec-h .c { font-size:12px; color:var(--cp-text-muted); }
+              .pc .pc-sec-sub { font-size:12.5px; color:var(--cp-text-muted); margin:0 0 12px; text-wrap:pretty; }
+              .pc .pc-artrow { display:flex; gap:14px; align-items:flex-start; }
+              .pc .pc-artbody { flex:1 1 auto; min-width:0; }
+              .pc .pc-art-thumb { flex:0 0 128px; }
+              .pc .pc-art-thumb .pc-svg { height:128px; border-radius:10px; overflow:hidden; background:#0a0d12; }
+              .pc .pc-lab { font-size:10.5px; color:var(--cp-text-muted); margin-top:4px; text-align:center; }
+
+              /* today's bit */
+              .pc .pc-bit { padding:16px 18px; border:1px solid var(--joy-line); border-radius:12px; background:color-mix(in srgb, var(--joy) 4%, var(--cp-surface)); }
+              .pc .pc-quote { font-size:16px; line-height:1.5; font-weight:560; color:var(--cp-text); margin:0 0 10px; text-wrap:pretty; }
+              .pc .pc-setup { font-size:13.5px; line-height:1.56; color:var(--cp-text-soft); margin:0 0 10px; text-wrap:pretty; }
+              .pc .pc-foot { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--cp-text-muted); }
+              .pc .pc-where { color:var(--cp-text-soft); }
+              .pc .pc-open, .pc .pc-jump { color:var(--cp-link); font-size:12px; text-decoration:none; }
+              .pc .pc-open:hover, .pc .pc-jump:hover { text-decoration:underline; }
+
+              /* lists (gags + overheard) */
+              .pc .pc-list { display:flex; flex-direction:column; gap:12px; }
+              .pc .pc-line { padding:13px 15px; border:1px solid var(--cp-border); border-radius:11px; background:var(--cp-surface); }
+              .pc .pc-line-top { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-bottom:5px; }
+              .pc .pc-who { font-weight:640; font-size:13.5px; color:var(--cp-text); }
+              .pc .pc-line-top .pc-where { font-size:11.5px; color:var(--cp-text-muted); }
+              .pc .pc-jump { margin-left:auto; }
+              .pc .pc-line-body { font-size:13.5px; line-height:1.56; color:var(--cp-text-soft); text-wrap:pretty; }
+              .pc .pc-oneliner { color:var(--cp-text); font-weight:520; }
+              .pc .pc-gagmeta { font-size:11.5px; color:var(--cp-text-muted); margin-top:6px; }
+
+              /* The Guide */
+              .pc .pc-guide { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-surface); overflow:hidden; }
+              .pc .pc-g-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 14px; border-bottom:1px solid var(--cp-border); font-size:11px; font-weight:700; letter-spacing:.06em; color:var(--cp-text-soft); background:color-mix(in srgb, var(--grin) 5%, var(--cp-surface)); }
+              .pc .pc-g-badge { font-weight:500; letter-spacing:0; text-transform:none; color:var(--cp-text-muted); }
+              .pc .pc-entry { padding:14px; border-bottom:1px solid var(--cp-border); }
+              .pc .pc-entry:last-child { border-bottom:0; }
+              .pc .pc-term { font-size:14.5px; font-weight:660; color:var(--cp-text); margin-bottom:6px; }
+              .pc .pc-def { font-size:13.5px; line-height:1.6; color:var(--cp-text-soft); text-wrap:pretty; max-width:74ch; }
+
+              .pc .pc-foothint { margin-top:22px; font-size:11.5px; line-height:1.6; color:var(--cp-text-muted); text-wrap:pretty; }
+
+              @media (max-width:900px) {
+                .pc .pc-top { grid-template-columns:1fr; }
+                .pc .pc-artrow { flex-direction:column; }
+                .pc .pc-art-thumb { flex:1 1 auto; width:100%; }
+                .pc .pc-art-thumb .pc-svg { height:180px; }
+              }
+              @media (prefers-reduced-motion:reduce) {
+                .pc .pc-reel-track { transition:none; }
+              }
+
               /* Per-lens AI analysis header */
               .pulse-analysis { margin:8px 0 20px; }
               .pulse-analysis .pa-h { font-size:18px; font-weight:650; letter-spacing:-0.01em; color:var(--cp-text); margin:0 0 8px; text-wrap:balance; }
@@ -17410,6 +17518,7 @@
               .pulse-digest .pd-ref.clickable { cursor:pointer; }
               .pulse-digest .pd-ref.clickable:hover { color:var(--cp-text); }
               .pulse-digest .pd-ref .you { color:var(--cp-warning); }
+              .pulse-digest .pd-ref .pd-when { color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
 
               /* WAITING — aging ledger */
               .pulse-ledger { max-width:860px; margin-top:4px; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; }
@@ -17445,6 +17554,7 @@
               .pulse-person .pp-a .k { color:var(--cp-text-muted); font-size:11.5px; flex:0 0 auto; min-width:44px; }
               .pulse-person .pp-a .v { color:var(--cp-text-soft); min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .pulse-person .pp-a .v .you { color:var(--cp-warning); }
+              .pulse-person .pp-a .t { flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .pulse-person .pp-a .tw { color:var(--cp-text-muted); font-size:11.5px; flex:0 0 auto; }
               .pulse-person .pp-more { color:var(--cp-text-muted); font-size:12px; padding:7px 0 0; }
 
@@ -17709,7 +17819,7 @@
                             </div>
                             <template x-for="t in th.threads.slice(0, 5)" :key="t.key">
                               <div class="pd-ref" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
-                                <b x-text="pulseWho(t)"></b><span> — </span><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span>
+                                <b x-text="pulseWho(t)"></b><span> — </span><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span><span class="pd-when" x-show="t.activityTs"> · <span x-text="pulseAgo(t.activityTs)"></span></span>
                               </div>
                             </template>
                             <div class="pd-ref" x-show="th.threads.length > 5" x-text="'+ ' + (th.threads.length - 5) + ' more in this theme'"></div>
@@ -17787,6 +17897,7 @@
                               <div class="pp-a" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
                                 <span class="dot" :class="t.mentioned ? 'you' : ''"></span>
                                 <span class="t" x-text="t.topic || '(untitled)'"></span>
+                                <span class="tw" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
                               </div>
                             </template>
                             <div class="pp-a more" x-show="g.threads.length > 4" x-text="'+ ' + (g.threads.length - 4) + ' more'"></div>
@@ -17819,7 +17930,7 @@
                           <div class="pr-list">
                             <template x-for="t in b.threads.slice(0, 6)" :key="t.key">
                               <div class="pr-row" :class="t.link ? 'clickable' : ''" @click="t.link &amp;&amp; pulseOpen(t)" :title="t.snippet || t.topic || ''">
-                                <b x-text="pulseWho(t)"></b><span> — </span><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span>
+                                <b x-text="pulseWho(t)"></b><span> — </span><span x-text="t.topic || '(untitled)'"></span><span class="you" x-show="t.mentioned"> · @you</span><span class="tw" style="margin-left:auto" x-show="t.activityTs" x-text="pulseAgo(t.activityTs)"></span>
                               </div>
                             </template>
                             <div class="pr-row more" x-show="b.threads.length > 6" x-text="'+ ' + (b.threads.length - 6) + ' more'"></div>
@@ -17860,6 +17971,178 @@
 
                     </section>
                    </template>
+
+                  <!-- ===== Comedy lens ===== -->
+                  <template x-if="pulse.lens === 'comedy'">
+                    <section class="pulse-lensview pc">
+                      <!-- empty / busy -->
+                      <template x-if="pulseComedyEmpty()">
+                        <p class="pulse-lens-empty" x-text="pulse.busy ? 'Reading the room for something funny…' : 'No comedy read yet — hit Refresh and I\'ll scan the team\'s chatter for the good bits.'"></p>
+                      </template>
+
+                      <template x-if="!pulseComedyEmpty()">
+                        <div class="pc-body">
+                          <!-- top grid: mood hero (left) + The Reel (top-right, half width) -->
+                          <div class="pc-top">
+                            <!-- mood of the room -->
+                            <div class="pc-hero" x-show="pulseActiveComedy().mood">
+                              <div class="pc-kick">😄 The mood of the room</div>
+                              <h3 class="pc-mood-h" x-text="pulseActiveComedy().mood ? pulseActiveComedy().mood.headline : ''"></h3>
+                              <p class="pc-mood-read" x-text="pulseActiveComedy().mood ? pulseActiveComedy().mood.read : ''"></p>
+                              <div class="pc-levity" x-data="{ lv: pulseComedyLevity() }">
+                                <span class="pc-lev-lab">Levity today</span>
+                                <span class="pc-lev-track"><span class="pc-lev-fill" :style="'width:' + lv.pct + '%'"></span></span>
+                                <b x-text="lv.label"></b>
+                                <span class="pc-lev-note" x-show="lv.note" x-text="'· ' + lv.note"></span>
+                              </div>
+                            </div>
+
+                            <!-- The Reel -->
+                            <div class="pc-reel-panel" x-show="pulseComedyReel().length">
+                              <div class="pc-reel-head">
+                                <span class="i">📱</span><span class="t">The Reel</span>
+                                <span class="c">generated from today · tap image →</span>
+                              </div>
+                              <div class="pc-reel">
+                                <button class="pc-reel-nav" @click="pulseReelStep(-1)" aria-label="Previous">‹</button>
+                                <div class="pc-reel-dots">
+                                  <template x-for="(it, i) in pulseComedyReel()" :key="it.id || i">
+                                    <button class="pc-dot" :class="i === pulseReelIdx() ? 'on' : ''" @click="pulseReelGoTo(i)" :aria-label="'Slide ' + (i+1)"></button>
+                                  </template>
+                                </div>
+                                <div class="pc-reel-view">
+                                  <div class="pc-reel-track" :style="'transform: translateY(' + (-pulseReelIdx() * 300) + 'px)'">
+                                    <template x-for="(it, i) in pulseComedyReel()" :key="it.id || i">
+                                      <div class="pc-slide">
+                                        <div class="pc-s-media clickable" @click="pulseReelStep(1)">
+                                          <button class="pc-s-full" @click.stop="pulseReelOpenFull(it)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
+                                          <div class="pc-svg">
+                                            <img x-show="it.img" :src="it.img" alt="" loading="lazy">
+                                            <div x-show="!it.img" x-html="it.svg" style="width:100%;height:100%"></div>
+                                          </div>
+                                        </div>
+                                        <div class="pc-s-foot">
+                                          <div class="pc-s-cap" x-text="pulseReelCaption(it)"></div>
+                                          <div class="pc-s-src" x-text="(it.kind || 'meme') + ' · ' + (it.vault ? 'from the vault' : 'generated today')"></div>
+                                          <div class="pc-s-acts">
+                                            <button class="pc-mini" :class="it.pinned ? 'on' : ''" @click="pulseComedyArt(it.id, it.pinned ? 'unpin' : 'pin')" x-text="it.pinned ? '★ Kept' : '☆ Keep'"></button>
+                                            <button class="pc-mini" @click="pulseComedyArt(it.id, 'hide')">Hide</button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </template>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Reel fullscreen lightbox -->
+                          <div class="pc-lightbox" x-show="pulse._reelFull" x-transition.opacity @click="pulseReelCloseFull()" @keydown.escape.window="pulseReelCloseFull()" x-cloak style="display:none">
+                            <div class="pc-lb-inner" @click.stop>
+                              <button class="pc-lb-close" @click="pulseReelCloseFull()" aria-label="Close">✕</button>
+                              <div class="pc-lb-media">
+                                <img x-show="pulse._reelFull && pulse._reelFull.img" :src="pulse._reelFull ? pulse._reelFull.img : ''" alt="">
+                                <div class="pc-lb-svg" x-show="pulse._reelFull && !pulse._reelFull.img" x-html="pulse._reelFull ? pulse._reelFull.svg : ''"></div>
+                              </div>
+                              <div class="pc-lb-cap" x-text="pulse._reelFull ? pulseReelCaption(pulse._reelFull) : ''"></div>
+                            </div>
+                          </div>
+
+                          <!-- Today's bit -->
+                          <div class="pc-sec" x-show="pulseActiveComedy().bit">
+                            <div class="pc-sec-h"><span class="i">🏆</span><span class="t">Today's bit</span></div>
+                            <div class="pc-bit" x-data="{ b: pulseActiveComedy().bit }">
+                              <div class="pc-artrow">
+                                <div class="pc-artbody">
+                                  <p class="pc-quote" x-text="b.quote"></p>
+                                  <p class="pc-setup" x-show="b.setup" x-text="b.setup"></p>
+                                  <div class="pc-foot">
+                                    <span class="pc-where" x-show="b.source" x-text="'💬 ' + b.source"></span>
+                                    <span x-show="b.who" x-text="b.who"></span>
+                                    <span x-show="b.ago" x-text="b.ago"></span>
+                                    <a class="pc-open clickable" x-show="pulseThreadFor(b.key)" @click.prevent="pulseOpen(pulseThreadFor(b.key))">Open in Teams →</a>
+                                  </div>
+                                </div>
+                                <div class="pc-art-thumb" x-show="b.art">
+                                  <div class="pc-svg">
+                                    <img x-show="b.art && b.art.img" :src="b.art ? b.art.img : ''" alt="" loading="lazy">
+                                    <div x-show="b.art && !b.art.img" x-html="b.art ? b.art.svg : ''" style="width:100%;height:100%"></div>
+                                  </div>
+                                  <div class="pc-lab" x-text="(b.art ? b.art.kind : 'meme') + (b.art && b.art.img ? '' : ' · generated')"></div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Running gags -->
+                          <div class="pc-sec" x-show="pulseActiveComedy().gags && pulseActiveComedy().gags.length">
+                            <div class="pc-sec-h"><span class="i">🔁</span><span class="t">Running gags</span><span class="c" x-text="pulseActiveComedy().gags.length + ' recurring'"></span></div>
+                            <div class="pc-sec-sub">Bits the team keeps coming back to — tracked across messages, not one-offs.</div>
+                            <div class="pc-list">
+                              <template x-for="(g, gi) in pulseActiveComedy().gags" :key="gi">
+                                <div class="pc-line">
+                                  <div class="pc-artrow">
+                                    <div class="pc-artbody">
+                                      <div class="pc-line-top">
+                                        <span class="pc-who" x-text="g.title"></span>
+                                        <span class="pc-where" x-show="g.who" x-text="g.who"></span>
+                                      </div>
+                                      <div class="pc-line-body" x-text="g.blurb"></div>
+                                      <div class="pc-gagmeta" x-show="g.span" x-text="g.span"></div>
+                                    </div>
+                                    <div class="pc-art-thumb" x-show="g.art">
+                                      <div class="pc-svg">
+                                        <img x-show="g.art && g.art.img" :src="g.art ? g.art.img : ''" alt="" loading="lazy">
+                                        <div x-show="g.art && !g.art.img" x-html="g.art ? g.art.svg : ''" style="width:100%;height:100%"></div>
+                                      </div>
+                                      <div class="pc-lab" x-text="(g.art ? g.art.kind : 'meme') + (g.art && g.art.img ? '' : ' · generated')"></div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+
+                          <!-- Overheard -->
+                          <div class="pc-sec" x-show="pulseActiveComedy().overheard && pulseActiveComedy().overheard.length">
+                            <div class="pc-sec-h"><span class="i">💬</span><span class="t">Overheard</span><span class="c">standalone lines that landed</span></div>
+                            <div class="pc-list">
+                              <template x-for="(o, oi) in pulseActiveComedy().overheard" :key="oi">
+                                <div class="pc-line">
+                                  <div class="pc-line-top">
+                                    <span class="pc-who" x-text="o.who"></span>
+                                    <span class="pc-where" x-show="o.where" x-text="o.where"></span>
+                                    <a class="pc-jump clickable" x-show="pulseThreadFor(o.key)" @click.prevent="pulseOpen(pulseThreadFor(o.key))">Jump →</a>
+                                  </div>
+                                  <div class="pc-line-body pc-oneliner" x-text="o.line"></div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+
+                          <!-- The Guide -->
+                          <div class="pc-sec" x-show="pulseActiveComedy().guide && pulseActiveComedy().guide.length">
+                            <div class="pc-sec-h"><span class="i">📖</span><span class="t">The Guide to your team</span></div>
+                            <div class="pc-sec-sub">Deadpan, encyclopedic entries on what actually happened today. Affectionate. Occasionally too honest.</div>
+                            <div class="pc-guide">
+                              <div class="pc-g-top">THE GUIDE · ENTRY LOG <span class="pc-g-badge">generated from today's activity · verify before quoting to your VP</span></div>
+                              <template x-for="(e, ei) in pulseActiveComedy().guide" :key="ei">
+                                <div class="pc-entry">
+                                  <div class="pc-term" x-text="e.subject"></div>
+                                  <div class="pc-def" x-text="e.riff"></div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+
+                          <div class="pc-foothint">
+                            Comedy is read from the same team chatter as every other lens — nothing extra is fetched · generated art is saved so old jokes resurface in The Reel over time.
+                          </div>
+                        </div>
+                      </template>
+                    </section>
+                  </template>
 
                   <!-- Quieter tail (the firehose, opt-in) -->
                   <section class="pulse-tail" :class="pulse.tailOpen ? 'open' : ''" x-show="pulse.counts.all > 0">
@@ -26286,7 +26569,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: 'focus', showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -34488,6 +34771,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           w.summaryStale = !!(r && r.summaryStale);
           w.summaryNoDm = (r && r.summaryNoDm && typeof r.summaryNoDm === 'object') ? r.summaryNoDm : null;
           w.summaryNoDmStale = !!(r && r.summaryNoDmStale);
+          w.comedy = (r && r.comedy && typeof r.comedy === 'object') ? r.comedy : null;
+          w.comedyStale = !!(r && r.comedyStale);
+          w.comedyNoDm = (r && r.comedyNoDm && typeof r.comedyNoDm === 'object') ? r.comedyNoDm : null;
+          w.comedyNoDmStale = !!(r && r.comedyNoDmStale);
+          if (r && Array.isArray(r.comedyReel)) { w.comedyReel = r.comedyReel; if ((w._reelIdx | 0) >= w.comedyReel.length) w._reelIdx = 0; }
           w.counts = (r && r.counts && typeof r.counts === 'object') ? r.counts : { all: w.threads.length, teams: 0, email: 0, mentions: 0 };
           w.fingerprint = (r && r.fingerprint) || '';
           if (typeof r.busy === 'boolean') w.busy = r.busy;
@@ -34693,6 +34981,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const s = this.pulseActiveSummary();
           const hasThemes = !!(s && Array.isArray(s.themes) && s.themes.length);
           const hasWaiting = !!(s && Array.isArray(s.waiting) && s.waiting.length);
+          const c = this.pulseActiveComedy();
           return [
             { key: 'focus', label: 'Focus' },
             { key: 'themes', label: 'Themes', dim: !hasThemes },
@@ -34700,9 +34989,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'people', label: 'People' },
             { key: 'today', label: 'Today' },
             { key: 'quiet', label: 'FYI' },
+            { key: 'comedy', label: 'Comedy 😄', dim: !(c && !c.empty) },
           ];
         },
-        pulseSetLens(k) { this.pulse.lens = k || 'focus'; },
+        pulseSetLens(k) { this.pulse.lens = k || 'focus'; try { localStorage.setItem('pulse-lens', this.pulse.lens); } catch (e) {} },
+        // --- Comedy lens --------------------------------------------------
+        pulseActiveComedy() {
+          const w = this.pulse;
+          if (w.includeDms) return w.comedy;
+          return w.comedyNoDm || w.comedy;
+        },
+        pulseComedyEmpty() { const c = this.pulseActiveComedy(); return !c || c.empty; },
+        pulseComedyLevity() {
+          const c = this.pulseActiveComedy();
+          const bits = c ? ((c.bit ? 1 : 0) + (Array.isArray(c.overheard) ? c.overheard.length : 0)) : 0;
+          const gags = c && Array.isArray(c.gags) ? c.gags.length : 0;
+          const reel = this.pulseComedyReel().length;
+          const n = bits + gags * 2;
+          const pct = Math.max(8, Math.min(100, Math.round((n / 10) * 100)));
+          let label = 'Quiet day';
+          if (pct >= 75) label = 'Pretty good'; else if (pct >= 45) label = 'Ticking along'; else if (pct >= 20) label = 'A few laughs';
+          const parts = [];
+          if (bits) parts.push(bits + (bits === 1 ? ' bit' : ' bits'));
+          if (gags) parts.push(gags + ' running ' + (gags === 1 ? 'gag' : 'gags'));
+          if (reel) parts.push(reel + ' in the reel');
+          return { pct, label, note: parts.join(' · ') };
+        },
+        pulseComedyStale() { const w = this.pulse; return w.includeDms ? w.comedyStale : (w.comedyNoDm ? w.comedyNoDmStale : w.comedyStale); },
+        pulseThreadFor(key) { return (this.pulse._byKey || {})[key] || null; },
+        // The Reel (vertical carousel over generated comedy art)
+        pulseComedyReel() { return Array.isArray(this.pulse.comedyReel) ? this.pulse.comedyReel : []; },
+        pulseReelIdx() {
+          const n = this.pulseComedyReel().length; if (!n) return 0;
+          let i = this.pulse._reelIdx | 0; if (i < 0) i = 0; if (i > n - 1) i = n - 1; return i;
+        },
+        pulseReelGoTo(i) {
+          const n = this.pulseComedyReel().length; if (!n) return;
+          if (i < 0) i = n - 1; if (i > n - 1) i = 0; this.pulse._reelIdx = i;
+        },
+        pulseReelStep(d) { this.pulseReelGoTo(this.pulseReelIdx() + (d || 1)); },
+        pulseReelActive() { const r = this.pulseComedyReel(); return r[this.pulseReelIdx()] || null; },
+        pulseReelCaption(it) { const c = (it && Array.isArray(it.captions)) ? it.captions.filter(Boolean) : []; return c.join(' · '); },
+        pulseReelOpenFull(it) { this.pulse._reelFull = it || null; },
+        pulseReelCloseFull() { this.pulse._reelFull = null; },
+        async pulseComedyArt(id, action) {
+          if (!id || !action) return;
+          try {
+            const r = await this.request('/api/me-ai/pulse/comedy/art', { method: 'POST', body: JSON.stringify({ id, action }) });
+            if (r && Array.isArray(r.reel)) {
+              this.pulse.comedyReel = r.reel;
+              if ((this.pulse._reelIdx | 0) >= r.reel.length) this.pulse._reelIdx = 0;
+            }
+          } catch (e) { this.toast('Could not update: ' + (e.message || e), 'error'); }
+        },
         pulseVibeMeta(vibe) {
           const map = {
             decision: { label: 'Decision', icon: '⚖', cls: 'v-decision' },

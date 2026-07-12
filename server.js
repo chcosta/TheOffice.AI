@@ -23796,6 +23796,10 @@ const PULSE_MTG_THROTTLE_MS = 25 * 60 * 1000;
 // refresh into a per-day store, then folded into the assembled thread list.
 const PULSE_TEAMS_PATH = path.join(PULSE_DIR, 'teams-catalog.json');
 const PULSE_MON_DIR = path.join(PULSE_DIR, 'monitored');
+const PULSE_COMEDY_DIR = path.join(PULSE_DIR, 'comedy');
+const PULSE_COMEDY_BACKLOG_PATH = path.join(PULSE_COMEDY_DIR, 'backlog.json');
+const PULSE_COMEDY_MAX_BACKLOG = 200;   // cap stored generated pieces (prune oldest, keep pinned)
+const PULSE_MEMEGEN_TEMPLATES_PATH = path.join(PULSE_COMEDY_DIR, 'memegen-templates.json'); // cached live template list
 const PULSE_TEAMS_TTL_MS = 24 * 60 * 60 * 1000;   // joined-teams catalog freshness
 const PULSE_MON_THROTTLE_MS = 20 * 60 * 1000;     // monitored-channel gather throttle
 // One-time rebrand migration: adopt state from the former "whats-happening" dir.
@@ -23809,6 +23813,9 @@ function _pulseLoadState() {
     const v = JSON.parse(fs.readFileSync(PULSE_STATE_PATH, 'utf-8'));
     const st = { threads: (v && v.threads) || {}, meetings: (v && v.meetings) || {}, gatheredAt: (v && v.gatheredAt) || '' };
     if (v && v.summary && typeof v.summary === 'object') st.summary = v.summary;
+    if (v && v.summaryNoDm && typeof v.summaryNoDm === 'object') st.summaryNoDm = v.summaryNoDm;
+    if (v && v.comedy && typeof v.comedy === 'object') st.comedy = v.comedy;
+    if (v && v.comedyNoDm && typeof v.comedyNoDm === 'object') st.comedyNoDm = v.comedyNoDm;
     return st;
   } catch { return { threads: {}, meetings: {}, gatheredAt: '' }; }
 }
@@ -24354,6 +24361,354 @@ async function _pulseGenerateSummary(view) {
   };
 }
 
+// ---- Comedy lens: image/meme/comic backlog + a light-hearted LLM pass ------------
+// The comedy lens is a SECOND reasoning pass over the SAME cached ambient threads the
+// calm summary reads (zero extra WorkIQ calls). Generated art (procedural SVG memes and
+// short comics) is deduped by a content hash and persisted so old jokes can resurface
+// later ("from the vault"). All prose is generated from real text — nothing hard-coded.
+function _pulseComedyLoadBacklog() {
+  try {
+    if (!fs.existsSync(PULSE_COMEDY_BACKLOG_PATH)) return { version: 1, items: [] };
+    const v = JSON.parse(fs.readFileSync(PULSE_COMEDY_BACKLOG_PATH, 'utf-8'));
+    return { version: 1, items: Array.isArray(v && v.items) ? v.items : [] };
+  } catch { return { version: 1, items: [] }; }
+}
+function _pulseComedySaveBacklog(bl) {
+  try {
+    fs.mkdirSync(PULSE_COMEDY_DIR, { recursive: true });
+    let items = Array.isArray(bl && bl.items) ? bl.items : [];
+    // Prune to cap: keep all pinned, then most-recently-shown, newest first.
+    if (items.length > PULSE_COMEDY_MAX_BACKLOG) {
+      const score = (x) => (x.pinned ? 1e15 : 0) + (Date.parse(x.lastShownAt || x.createdAt || '') || 0);
+      items = items.slice().sort((a, b) => score(b) - score(a)).slice(0, PULSE_COMEDY_MAX_BACKLOG);
+    }
+    fs.writeFileSync(PULSE_COMEDY_BACKLOG_PATH, JSON.stringify({ version: 1, items }, null, 2));
+  } catch (_) {}
+  return bl;
+}
+function _pulseComedyHash(sourceKey, kind, captions) {
+  const norm = (Array.isArray(captions) ? captions : [captions]).map(c => String(c || '').toLowerCase().replace(/\s+/g, ' ').trim()).join('|');
+  return require('crypto').createHash('sha1').update(String(kind || 'meme') + '::' + String(sourceKey || '') + '::' + norm).digest('hex').slice(0, 16);
+}
+function _pulseSvgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+// Render a self-contained meme SVG (dark radial bg, centered glyph, impact-style
+// top/bottom captions with a black outline via paint-order). No external fonts/images.
+function _pulseComedyRenderMeme(top, bottom, glyph, seed) {
+  const t = _pulseSvgEsc(String(top || '').toUpperCase()).slice(0, 42);
+  const b = _pulseSvgEsc(String(bottom || '').toUpperCase()).slice(0, 42);
+  const g = _pulseSvgEsc(String(glyph || '🙂')).slice(0, 4);
+  const gid = 'mg' + (String(seed || Math.random()).replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'x');
+  return [
+    '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" role="img">',
+    '<defs><radialGradient id="', gid, '" cx="50%" cy="40%" r="75%">',
+    '<stop offset="0%" stop-color="#1b2534"/><stop offset="100%" stop-color="#0a0d12"/></radialGradient></defs>',
+    '<rect width="100" height="100" fill="url(#', gid, ')"/>',
+    '<text x="50" y="52" font-size="34" text-anchor="middle" dominant-baseline="central">', g, '</text>',
+    '<g font-family="Impact,\'Arial Narrow Bold\',system-ui,sans-serif" font-weight="800" fill="#fff" stroke="#000" stroke-width="1.1" paint-order="stroke" text-anchor="middle" text-transform="uppercase">',
+    t ? '<text x="50" y="13" font-size="9">' + t + '</text>' : '',
+    b ? '<text x="50" y="94" font-size="9">' + b + '</text>' : '',
+    '</g></svg>',
+  ].join('');
+}
+// Render a short vertical comic: N stacked panels, each a tinted cell with a caption.
+function _pulseComedyRenderComic(panels, seed) {
+  const rows = (Array.isArray(panels) ? panels : []).slice(0, 3);
+  if (!rows.length) return _pulseComedyRenderMeme('', '', '🗯', seed);
+  const tints = ['#161f2e', '#1c2230', '#12202a'];
+  const glyphs = ['💬', '⚙️', '🎯'];
+  const h = 100 / rows.length;
+  const gid = 'cg' + (String(seed || Math.random()).replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'x');
+  const cells = rows.map((p, i) => {
+    const cap = _pulseSvgEsc(String((p && p.caption) || p || '').toUpperCase()).slice(0, 40);
+    const gl = _pulseSvgEsc(String((p && p.glyph) || glyphs[i % glyphs.length]));
+    const y = i * h;
+    return [
+      '<g>',
+      '<rect x="0" y="', y.toFixed(2), '" width="100" height="', h.toFixed(2), '" fill="', tints[i % tints.length], '"/>',
+      '<rect x="0.6" y="', (y + 0.6).toFixed(2), '" width="98.8" height="', (h - 1.2).toFixed(2), '" fill="none" stroke="#2a3140" stroke-width="0.6"/>',
+      '<text x="14" y="', (y + h / 2).toFixed(2), '" font-size="', (h * 0.42).toFixed(1), '" text-anchor="middle" dominant-baseline="central">', gl, '</text>',
+      cap ? '<text x="30" y="' + (y + h / 2).toFixed(2) + '" font-size="4.6" fill="#e6edf3" font-family="system-ui,sans-serif" dominant-baseline="central">' + cap + '</text>' : '',
+      '</g>',
+    ].join('');
+  }).join('');
+  return '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" role="img"><defs><linearGradient id="' + gid + '"/></defs>' + cells + '</svg>';
+}
+// ---- memegen source: real, recognizable meme templates (open-source api.memegen.link) ----
+// A higher-quality, higher-variety alternative to the built-in SVG. URL-based, needs NO
+// API key. The LLM picks a template slug + line text; we validate the slug against the
+// live template list (cached to disk, refreshed weekly) and store the rendered image URL.
+// Privacy: only the short caption text we author ever leaves the machine — never raw team
+// content. Any failure (offline, bad slug, fetch error) transparently falls back to SVG.
+const MEMEGEN_BASE = 'https://api.memegen.link';
+const PULSE_MEMEGEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;   // refresh the template list weekly
+// Curated fallback used ONLY if the live list can't be fetched (offline / API down).
+const MEMEGEN_FALLBACK = [
+  { id: 'drake', name: 'Drakeposting', lines: 2, hint: 'reject the top thing / prefer the bottom thing' },
+  { id: 'db', name: 'Distracted Boyfriend', lines: 3, hint: 'tempted away from line1 by line3 (line2 = the distracted one)' },
+  { id: 'two-btns', name: 'Two Buttons', lines: 3, hint: 'agonizing over two options (line1, line2); line3 = who is sweating' },
+  { id: 'cmm', name: 'Change My Mind', lines: 1, hint: 'a bold/contrarian one-line take' },
+  { id: 'fine', name: 'This Is Fine', lines: 2, hint: 'calmly carrying on amid chaos' },
+  { id: 'success', name: 'Success Kid', lines: 2, hint: 'a small satisfying win' },
+  { id: 'mordor', name: 'One Does Not Simply', lines: 2, hint: 'one does not simply <do the hard thing>' },
+  { id: 'aag', name: 'Ancient Aliens', lines: 2, hint: 'wild over-confident explanation' },
+  { id: 'rollsafe', name: 'Roll Safe', lines: 2, hint: "can't have a problem if you <dubious clever move>" },
+  { id: 'boardroom', name: 'Boardroom Suggestion', lines: 4, hint: 'boss asks (l1), ideas l2/l3, l4 = the one who gets thrown out' },
+  { id: 'buzz', name: 'X, X Everywhere', lines: 2, hint: '<thing>, <thing> everywhere' },
+  { id: 'oprah', name: 'Oprah You Get A', lines: 2, hint: 'everyone gets a <thing>' },
+  { id: 'gru', name: "Gru's Plan", lines: 4, hint: 'a 4-step plan where step 4 is the flaw' },
+  { id: 'philosoraptor', name: 'Philosoraptor', lines: 2, hint: 'a wry rhetorical shower-thought' },
+  { id: 'spongebob', name: 'Mocking Spongebob', lines: 2, hint: 'mockingly repeating something silly' },
+];
+// A small preference order so the shortlist we hand the LLM leads with the classics.
+const MEMEGEN_PREFERRED = MEMEGEN_FALLBACK.map(t => t.id);
+const _MEMEGEN_HINTS = Object.fromEntries(MEMEGEN_FALLBACK.map(t => [t.id, t.hint]));
+let _memegenCache = null;   // in-memory { at, items:[{id,name,lines}] }
+
+// Resolve the active art source: env override → per-user setting → default 'memegen'
+// (upgraded art, with SVG fallback on any failure). Set to 'svg' for a fully offline/
+// private demo where no caption text should leave the machine.
+function _pulseComedyArtSource() {
+  const env = String(process.env.PULSE_COMEDY_ART || '').toLowerCase().trim();
+  if (env === 'svg' || env === 'memegen') return env;
+  try {
+    const v = String((require('./settings').getSettings() || {}).pulseComedyArtSource || '').toLowerCase().trim();
+    if (v === 'svg' || v === 'memegen') return v;
+  } catch (_) {}
+  return 'memegen';
+}
+async function _memegenFetchTemplates() {
+  if (typeof fetch !== 'function') return null;
+  const ac = new AbortController();
+  const to = setTimeout(() => { try { ac.abort(); } catch (_) {} }, 15000);
+  try {
+    const r = await fetch(MEMEGEN_BASE + '/templates', { signal: ac.signal });
+    if (!r || !r.ok) return null;
+    const arr = await r.json();
+    if (!Array.isArray(arr)) return null;
+    return arr.map(t => ({ id: String((t && t.id) || ''), name: String((t && (t.name || t.id)) || ''), lines: Math.max(1, Number(t && t.lines) || 2) })).filter(t => t.id);
+  } catch (_) { return null; } finally { clearTimeout(to); }
+}
+// Load the template list: in-memory → fresh disk cache → live fetch → stale disk → curated.
+async function _pulseMemegenTemplates() {
+  const now = Date.now();
+  if (_memegenCache && (now - _memegenCache.at) < PULSE_MEMEGEN_TTL_MS && Array.isArray(_memegenCache.items) && _memegenCache.items.length) return _memegenCache.items;
+  const readDisk = () => { try { const j = JSON.parse(fs.readFileSync(PULSE_MEMEGEN_TEMPLATES_PATH, 'utf-8')); if (j && Array.isArray(j.items) && j.items.length) return j; } catch (_) {} return null; };
+  const disk = fs.existsSync(PULSE_MEMEGEN_TEMPLATES_PATH) ? readDisk() : null;
+  if (disk && (now - (disk.at || 0)) < PULSE_MEMEGEN_TTL_MS) { _memegenCache = { at: disk.at || now, items: disk.items }; return disk.items; }
+  const live = await _memegenFetchTemplates();
+  if (live && live.length) {
+    _memegenCache = { at: now, items: live };
+    try { fs.mkdirSync(PULSE_COMEDY_DIR, { recursive: true }); fs.writeFileSync(PULSE_MEMEGEN_TEMPLATES_PATH, JSON.stringify({ at: now, items: live })); } catch (_) {}
+    return live;
+  }
+  if (disk && disk.items.length) { _memegenCache = { at: disk.at || now, items: disk.items }; return disk.items; }
+  _memegenCache = { at: now, items: MEMEGEN_FALLBACK.map(t => ({ id: t.id, name: t.name, lines: t.lines })) };
+  return _memegenCache.items;
+}
+// Build the shortlist we hand the LLM: classics first (when available), then fill with
+// other real templates, capped so we don't blow the prompt budget.
+function _memegenShortlist(items, cap) {
+  const max = Math.max(6, Math.min(40, cap || 24));
+  const byId = new Map((items || []).map(t => [t.id, t]));
+  const out = [];
+  const used = new Set();
+  for (const id of MEMEGEN_PREFERRED) { const t = byId.get(id); if (t && !used.has(id)) { out.push({ id: t.id, name: t.name, lines: t.lines, hint: _MEMEGEN_HINTS[id] || '' }); used.add(id); } }
+  for (const t of (items || [])) { if (out.length >= max) break; if (used.has(t.id)) continue; out.push({ id: t.id, name: t.name, lines: t.lines, hint: _MEMEGEN_HINTS[t.id] || '' }); used.add(t.id); }
+  return out.slice(0, max);
+}
+// memegen path text escaping (per api.memegen.link rules). Spaces→'_', literal '_'→'__',
+// '-'→'--', a set of specials→'~x', '"'→"''". Empty line → '_' (memegen blank placeholder).
+function _memegenEscape(text) {
+  let s = String(text == null ? '' : text).trim();
+  if (!s) return '_';
+  s = s.replace(/_/g, '__').replace(/-/g, '--');
+  s = s.replace(/\n/g, '~n').replace(/\?/g, '~q').replace(/%/g, '~p').replace(/#/g, '~h')
+       .replace(/\//g, '~s').replace(/\\/g, '~b').replace(/</g, '~l').replace(/>/g, '~g').replace(/&/g, '~a');
+  s = s.replace(/"/g, "''").replace(/ /g, '_').replace(/\+/g, '~a');
+  return s || '_';
+}
+function _memegenUrl(template, lines, declaredLines) {
+  const id = String(template || '').trim();
+  if (!id) return '';
+  const n = Math.max(1, Math.min(5, Number(declaredLines) || 2));
+  const arr = (Array.isArray(lines) ? lines : [lines]).map(x => String(x == null ? '' : x));
+  const segs = arr.slice(0, n).map(_memegenEscape);
+  while (segs.length < Math.min(2, n)) segs.push('_');   // memegen expects at least the visible lines
+  return MEMEGEN_BASE + '/images/' + encodeURIComponent(id) + '/' + segs.join('/') + '.png';
+}
+
+// Get-or-generate a piece of comedy art for a moment. Dedups by content hash so the
+// same moment reuses its stored image (bumping show stats) instead of regenerating.
+// `opts` may carry { source:'memegen'|'svg', templates: Map(id→{lines}) } — when memegen
+// is active, a valid template pick yields a real image URL (entry.img); the SVG is always
+// rendered too and used as the fallback whenever no img is available.
+function _pulseComedyArt(sourceKey, kind, spec, opts) {
+  try {
+    const isComic = String(kind) === 'comic';
+    const o = opts || {};
+    // memegen: valid only for memes, when the source is active and the LLM picked a
+    // template that exists in the live list. `lines` carries the per-line caption text.
+    const tmpl = (!isComic && spec && typeof spec === 'object') ? String(spec.template || '').trim() : '';
+    const tmplInfo = (o.source === 'memegen' && tmpl && o.templates && o.templates.get) ? o.templates.get(tmpl) : null;
+    const memeLines = (spec && Array.isArray(spec.lines) && spec.lines.length)
+      ? spec.lines.map(x => String(x == null ? '' : x))
+      : [String((spec && spec.top) || ''), String((spec && spec.bottom) || '')].filter((v, i, a) => v || i < a.filter(Boolean).length);
+    const useMemegen = !!tmplInfo;
+    const captions = isComic
+      ? (Array.isArray(spec && spec.panels) ? spec.panels.map(p => (p && p.caption) || p || '') : [])
+      : (useMemegen ? memeLines.filter(x => String(x).trim()) : [String((spec && spec.top) || ''), String((spec && spec.bottom) || '')]);
+    // Hash includes the template so a memegen render is a distinct backlog entry from the
+    // built-in SVG of the same captions (lets the two sources coexist / A-B in the vault).
+    const hash = _pulseComedyHash(sourceKey, (useMemegen ? 'meme:' + tmpl : kind), captions);
+    const bl = _pulseComedyLoadBacklog();
+    let entry = bl.items.find(x => x && x.hash === hash && !x.hidden);
+    const nowIso = new Date().toISOString();
+    if (entry) {
+      entry.lastShownAt = nowIso;
+      entry.showCount = (entry.showCount || 1) + 1;
+    } else {
+      const svg = isComic
+        ? _pulseComedyRenderComic((spec && spec.panels) || [], hash)
+        : _pulseComedyRenderMeme((spec && spec.top) || '', (spec && spec.bottom) || '', (spec && spec.glyph) || '🙂', hash);
+      entry = {
+        id: 'art_' + hash, kind: isComic ? 'comic' : 'meme', hash,
+        sourceKey: String(sourceKey || ''), captions, svg,
+        createdAt: nowIso, lastShownAt: nowIso, showCount: 1, pinned: false, hidden: false,
+      };
+      if (useMemegen) {
+        const url = _memegenUrl(tmpl, memeLines, tmplInfo.lines);
+        if (url) { entry.img = url; entry.artSource = 'memegen'; entry.template = tmpl; }
+      }
+      bl.items.push(entry);
+    }
+    _pulseComedySaveBacklog(bl);
+    return { id: entry.id, kind: entry.kind, svg: entry.svg, img: entry.img || '', template: entry.template || '', captions: entry.captions, vault: (entry.showCount || 1) > 1 };
+  } catch { return null; }
+}
+// Assemble The Reel: recent generated art first, then a couple of "from the vault"
+// resurfaces (most-shown / pinned) that aren't already in the recent set.
+function _pulseComedyReel(limit) {
+  try {
+    const cap = Math.max(1, Math.min(20, limit || 8));
+    const items = _pulseComedyLoadBacklog().items.filter(x => x && !x.hidden && (x.svg || x.img));
+    if (!items.length) return [];
+    const ts = (x) => Date.parse(x.lastShownAt || x.createdAt || '') || 0;
+    const recent = items.slice().sort((a, b) => ts(b) - ts(a));
+    const picked = [];
+    const used = new Set();
+    for (const x of recent) { if (picked.length >= cap - 2) break; picked.push(x); used.add(x.id); }
+    const vault = items.filter(x => !used.has(x.id)).sort((a, b) => ((b.pinned ? 1e6 : 0) + (b.showCount || 0)) - ((a.pinned ? 1e6 : 0) + (a.showCount || 0)));
+    for (const x of vault) { if (picked.length >= cap) break; picked.push(Object.assign({}, x, { _vault: true })); used.add(x.id); }
+    return picked.map(x => ({ id: x.id, kind: x.kind, svg: x.svg || '', img: x.img || '', template: x.template || '', captions: x.captions || [], sourceKey: x.sourceKey || '', vault: !!x._vault || (x.showCount || 1) > 1, pinned: !!x.pinned }));
+  } catch { return []; }
+}
+
+// A single light-hearted LLM reasoning pass (NO WorkIQ) over the assembled threads.
+// Returns the comedy lens content + attaches generated art refs. Cached by fingerprint.
+async function _pulseGenerateComedy(view) {
+  const threads = (view && view.threads) || [];
+  const fingerprint = (view && view.fingerprint) || _pulseSummaryFingerprint(threads, (view && view.meetings) || []);
+  const empty = { fingerprint, mood: null, bit: null, gags: [], overheard: [], guide: [], reel: [], generatedAt: new Date().toISOString(), empty: true };
+  if (!threads.length) return empty;
+  const now = Date.now();
+  const ago = (ts) => { const t = (typeof ts === 'number') ? ts : Date.parse(ts || ''); if (!isFinite(t) || !t) return ''; const mm = Math.max(0, Math.floor((now - t) / 60000)); if (mm < 60) return mm + 'm ago'; const h = Math.floor(mm / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
+  const tlines = threads.slice(0, 50).map((t) => {
+    const who = t.channel || (t.source === 'email' ? 'Email' : 'Teams');
+    return '[' + t.key + '] ' + t.source + ' · "' + String(t.topic || '').slice(0, 120) + '" · ' + who + ' · ' + (t.count || 1) + ' msg · ' + ago(t.activityTs) + (t.snippet ? ' · ' + String(t.snippet).slice(0, 200) : '');
+  }).join('\n');
+  const artSource = _pulseComedyArtSource();
+  let tmpls = [];
+  if (artSource === 'memegen') { try { tmpls = await _pulseMemegenTemplates(); } catch (_) { tmpls = []; } }
+  const tmplMap = new Map((tmpls || []).map(t => [t.id, { lines: t.lines }]));
+  const shortlist = (artSource === 'memegen') ? _memegenShortlist(tmpls, 24) : [];
+  const useMemegen = shortlist.length > 0;
+  const memeShape = useMemegen
+    ? '"meme":{"template":"<one id from the meme templates list below>","lines":["caption for line 1","caption for line 2 — add more only to match the template\'s line count"],"top":"fallback top (<=5 words)","bottom":"fallback bottom (<=5 words)","glyph":"one emoji"}'
+    : '"meme":{"top":"top caption (<=5 words, uppercase ok)","bottom":"bottom caption (<=5 words)","glyph":"a single emoji that fits"}';
+  const promptParts = [
+    "You are the user's witty, warm teammate. Below is ambient team activity (Teams + email conversations). Your job is to surface the JOY in it — this is the user's break from a stressful day.",
+    'Find the genuinely funny moments, the running jokes the team keeps coming back to, memorable one-liners, and give a couple of deadpan Douglas-Adams-style "Guide" interpretations of what the team is up to.',
+    '',
+    'Conversations:',
+    tlines || '(none)',
+    '',
+    'Return ONLY minified JSON (no prose, no code fence) shaped exactly like:',
+    '{"mood":{"headline":"3-6 word read of the room\'s mood","read":"2-3 warm, light sentences on the vibe today"},"bit":{"key":"<one [key]>","quote":"the funniest actual line or moment, lightly cleaned up","setup":"1-2 sentences of context on why it landed",' + memeShape + '},"gags":[{"title":"the running gag in 3-6 words","blurb":"1-2 sentences on how it started and evolved","who":"names involved","span":"e.g. 7 messages over 3 days","keys":["<keys>"],' + memeShape + '}],"overheard":[{"key":"<one [key]>","who":"name","where":"channel","line":"the standalone line that landed"}],"guide":[{"subject":"what the team is doing, 2-4 words","riff":"1-2 deadpan, affectionate Hitchhiker\'s-Guide-style sentences about it"}]}',
+    '',
+    'Rules: Ground EVERYTHING in the conversations above — invent no jokes that are not in the text. Be kind; never punch down, never mock a person for a mistake. Skip pure automated/bot/CI noise and anything that reads as private or sensitive. Use ONLY key values that appear in [brackets]. bit.meme captions must riff on that real moment. Provide meme captions for the bit and for AT MOST 2 gags (leave meme fields empty for the rest). AT MOST 4 gags, 5 overheard, 3 guide riffs. If there is genuinely nothing funny, return empty arrays and a gentle mood.read saying it was a quiet, heads-down day.',
+  ];
+  if (useMemegen) {
+    promptParts.push(
+      '',
+      'Meme templates you may use (choose the format whose STRUCTURE best fits each joke; put the caption text in meme.lines in the template\'s line order):',
+      shortlist.map(t => '- ' + t.id + ' — ' + t.name + ' (' + t.lines + ' line' + (t.lines === 1 ? '' : 's') + ')' + (t.hint ? ': ' + t.hint : '')).join('\n'),
+      'Set meme.template to an EXACT id from this list only. Keep each line short (<=6 words). Always also fill top/bottom/glyph as a fallback in case the image cannot be rendered.'
+    );
+  }
+  const prompt = promptParts.join('\n');
+  let acc = '';
+  try {
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'me_ai' } });
+    if (!acc && result && result.output) acc = result.output;
+  } catch (_) { acc = ''; }
+  const parsed = _connectExtractJson(acc) || {};
+  const byKey = new Map(threads.map(t => [t.key, t]));
+  const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
+  // mood
+  let mood = null;
+  if (parsed.mood && typeof parsed.mood === 'object') {
+    mood = { headline: clip(parsed.mood.headline, 80), read: clip(parsed.mood.read, 500) };
+    if (!mood.headline && !mood.read) mood = null;
+  }
+  // bit (+ meme art)
+  let bit = null;
+  if (parsed.bit && typeof parsed.bit === 'object') {
+    const key = clip(parsed.bit.key, 80).trim();
+    const th = byKey.get(key) || null;
+    if (th && (parsed.bit.quote || parsed.bit.setup)) {
+      bit = { key, quote: clip(parsed.bit.quote, 400), setup: clip(parsed.bit.setup, 320), who: th.channel || (th.source === 'email' ? 'Email' : 'Teams'), source: th.source, ago: ago(th.activityTs) };
+      const ms = parsed.bit.meme;
+      if (ms && typeof ms === 'object') { const art = _pulseComedyArt(key, 'meme', ms, { source: artSource, templates: tmplMap }); if (art) bit.art = art; }
+    }
+  }
+  // gags (+ meme art for first 2 with a spec)
+  const gags = [];
+  let gagArt = 0;
+  for (const g of (Array.isArray(parsed.gags) ? parsed.gags : [])) {
+    if (!g || typeof g !== 'object') continue;
+    const keys = (Array.isArray(g.keys) ? g.keys : []).map(k => clip(k, 80).trim()).filter(k => byKey.has(k));
+    if (!keys.length) continue;
+    const gag = { title: clip(g.title, 80), blurb: clip(g.blurb, 320), who: clip(g.who, 120), span: clip(g.span, 80), keys };
+    const ms = g.meme;
+    if (gagArt < 2 && ms && typeof ms === 'object' && (ms.top || ms.bottom || ms.glyph || ms.template || (Array.isArray(ms.lines) && ms.lines.length))) {
+      const art = _pulseComedyArt(keys[0], 'meme', ms, { source: artSource, templates: tmplMap });
+      if (art) { gag.art = art; gagArt++; }
+    }
+    gags.push(gag);
+    if (gags.length >= 4) break;
+  }
+  // overheard
+  const overheard = [];
+  for (const o of (Array.isArray(parsed.overheard) ? parsed.overheard : [])) {
+    if (!o || typeof o !== 'object') continue;
+    const key = clip(o.key, 80).trim();
+    if (!byKey.has(key)) continue;
+    overheard.push({ key, who: clip(o.who, 80), where: clip(o.where, 80), line: clip(o.line, 240) });
+    if (overheard.length >= 5) break;
+  }
+  // guide riffs
+  const guide = [];
+  for (const gd of (Array.isArray(parsed.guide) ? parsed.guide : [])) {
+    if (!gd || typeof gd !== 'object') continue;
+    const subject = clip(gd.subject, 80), riff = clip(gd.riff, 320);
+    if (!riff) continue;
+    guide.push({ subject, riff });
+    if (guide.length >= 3) break;
+  }
+  const anything = mood || bit || gags.length || overheard.length || guide.length;
+  return { fingerprint, mood, bit, gags, overheard, guide, generatedAt: new Date().toISOString(), empty: !anything };
+}
+
 // GET /api/me-ai/pulse?days=&date= → assembled ambient digest.
 // A Pulse refresh (gather + LLM summary) can take a while. We run it as a
 // single server-side background job rather than tying its lifetime to the HTTP
@@ -24372,9 +24727,10 @@ function _pulseIsBusy() {
 // resulting fingerprint (or '' if nothing to analyze / no consent).
 async function _pulseAnalyzeAndSave(days, date, cfg) {
   const view = _pulseAssemble(days, date);
-  let summary = null, summaryNoDm = null;
+  let summary = null, summaryNoDm = null, comedy = null, comedyNoDm = null;
   if (cfg.consent) {
     try { summary = await _pulseGenerateSummary(view); } catch (_) { summary = null; }
+    try { comedy = await _pulseGenerateComedy(view); } catch (_) { comedy = null; }
     // Precompute a SECOND summary with DMs excluded so the client's "include DMs"
     // toggle is instant (no extra LLM call on toggle). If there are no DMs, reuse
     // the full summary rather than paying for an identical second pass.
@@ -24382,9 +24738,12 @@ async function _pulseAnalyzeAndSave(days, date, cfg) {
       const nonDm = (view.threads || []).filter(t => !t.dm);
       if (nonDm.length === (view.threads || []).length) {
         summaryNoDm = summary;
+        comedyNoDm = comedy;
       } else {
         const fpNoDm = _pulseSummaryFingerprint(nonDm, view.meetings);
-        summaryNoDm = await _pulseGenerateSummary({ threads: nonDm, meetings: view.meetings, fingerprint: fpNoDm });
+        const viewNoDm = { threads: nonDm, meetings: view.meetings, fingerprint: fpNoDm };
+        summaryNoDm = await _pulseGenerateSummary(viewNoDm);
+        try { comedyNoDm = await _pulseGenerateComedy(viewNoDm); } catch (_) { comedyNoDm = null; }
       }
     } catch (_) { summaryNoDm = null; }
   }
@@ -24392,6 +24751,8 @@ async function _pulseAnalyzeAndSave(days, date, cfg) {
   st.gatheredAt = new Date().toISOString();
   if (summary && summary.fingerprint) st.summary = summary;
   if (summaryNoDm && summaryNoDm.fingerprint) st.summaryNoDm = summaryNoDm;
+  if (comedy && comedy.fingerprint) st.comedy = comedy;
+  if (comedyNoDm && comedyNoDm.fingerprint) st.comedyNoDm = comedyNoDm;
   _pulseSaveState(st);
   return view.fingerprint || '';
 }
@@ -24444,7 +24805,12 @@ app.get('/api/me-ai/pulse', (req, res) => {
     const fpNoDm = _pulseSummaryFingerprint(nonDm, view.meetings);
     const summaryNoDm = (stg.summaryNoDm && stg.summaryNoDm.fingerprint) ? stg.summaryNoDm : null;
     const summaryNoDmStale = !summaryNoDm || summaryNoDm.fingerprint !== fpNoDm;
-    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, summaryNoDm, summaryNoDmStale, busy: _pulseIsBusy(), stage: _pulseStage });
+    const comedy = (stg.comedy && stg.comedy.fingerprint) ? stg.comedy : null;
+    const comedyStale = !comedy || comedy.fingerprint !== view.fingerprint;
+    const comedyNoDm = (stg.comedyNoDm && stg.comedyNoDm.fingerprint) ? stg.comedyNoDm : null;
+    const comedyNoDmStale = !comedyNoDm || comedyNoDm.fingerprint !== fpNoDm;
+    const comedyReel = _pulseComedyReel(8);
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, summaryNoDm, summaryNoDmStale, comedy, comedyStale, comedyNoDm, comedyNoDmStale, comedyReel, busy: _pulseIsBusy(), stage: _pulseStage });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -24470,7 +24836,30 @@ app.post('/api/me-ai/pulse/refresh', async (req, res) => {
     const fpNoDm = _pulseSummaryFingerprint(nonDm, view.meetings);
     const summaryNoDm = (stg.summaryNoDm && stg.summaryNoDm.fingerprint) ? stg.summaryNoDm : null;
     const summaryNoDmStale = !summaryNoDm || summaryNoDm.fingerprint !== fpNoDm;
-    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, summaryNoDm, summaryNoDmStale, busy: true, stage: _pulseStage || 'analyzing' });
+    const comedy = (stg.comedy && stg.comedy.fingerprint) ? stg.comedy : null;
+    const comedyStale = !comedy || comedy.fingerprint !== view.fingerprint;
+    const comedyNoDm = (stg.comedyNoDm && stg.comedyNoDm.fingerprint) ? stg.comedyNoDm : null;
+    const comedyNoDmStale = !comedyNoDm || comedyNoDm.fingerprint !== fpNoDm;
+    const comedyReel = _pulseComedyReel(8);
+    res.json({ ok: true, consent: !!cfg.consent, ...view, summary, summaryStale, summaryNoDm, summaryNoDmStale, comedy, comedyStale, comedyNoDm, comedyNoDmStale, comedyReel, busy: true, stage: _pulseStage || 'analyzing' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/pulse/comedy/art { id, action } → pin | unpin | hide a backlog piece.
+// pin: always eligible to resurface in The Reel. hide: never show again.
+app.post('/api/me-ai/pulse/comedy/art', (req, res) => {
+  try {
+    const id = String((req.body && req.body.id) || '').trim();
+    const action = String((req.body && req.body.action) || '').trim();
+    if (!id || !['pin', 'unpin', 'hide'].includes(action)) return res.status(400).json({ error: 'bad request' });
+    const bl = _pulseComedyLoadBacklog();
+    const entry = bl.items.find(x => x && x.id === id);
+    if (!entry) return res.status(404).json({ error: 'not found' });
+    if (action === 'pin') entry.pinned = true;
+    else if (action === 'unpin') entry.pinned = false;
+    else if (action === 'hide') entry.hidden = true;
+    _pulseComedySaveBacklog(bl);
+    res.json({ ok: true, reel: _pulseComedyReel(8) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

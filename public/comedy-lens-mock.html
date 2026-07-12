@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse.AI — Comedy lens mockup</title>
+<style>
+:root{
+  --cp-bg:#0d1117; --cp-surface:#161b22; --cp-surface-2:#1c2230; --cp-border:#2a3140;
+  --cp-ink:#e6edf3; --cp-muted:#9aa7b4; --cp-faint:#6b7684;
+  --cp-accent:#58a6ff; --cp-dev:#3fb950; --cp-pr:#a371f7; --cp-here:#db61a2;
+  --cp-warn:#d29922; --cp-danger:#f85149;
+  /* joy palette — warm, tasteful, one accent carries the lens */
+  --joy:#e3b341; --joy-soft:rgba(227,179,65,.13); --joy-line:rgba(227,179,65,.32);
+  --coral:#f0883e; --grin:#56d364;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--cp-bg); color:var(--cp-ink);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+a{color:inherit}
+.wrap{max-width:1120px; margin:0 auto; padding:22px 32px 100px}
+
+/* ---- mock chrome ---- */
+.mockbar{
+  position:sticky; top:0; z-index:20; background:rgba(13,17,23,.92);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--cp-border);
+  padding:10px 32px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+.mockbar b{font-weight:650; letter-spacing:-0.01em}
+.mockbar .muted{color:var(--cp-faint); font-size:12.5px}
+.note{
+  color:var(--cp-muted); font-size:12.5px; line-height:1.6; max-width:100%;
+  background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px;
+  padding:12px 15px; margin:18px 0 24px;
+}
+.note b{color:var(--cp-ink)}
+.note .ok{color:var(--grin)} .note .part{color:var(--joy)}
+
+/* ---- pulse header ---- */
+.pulse-head{display:flex; align-items:flex-start; gap:14px; margin-bottom:6px}
+.pulse-head h2{margin:0; font-size:20px; font-weight:650; letter-spacing:-0.02em}
+.pulse-head .stamp{color:var(--cp-faint); font-size:12px; margin-top:4px}
+.pulse-head .acts{margin-left:auto; display:flex; align-items:center; gap:9px}
+.pbtn{font:inherit; font-size:12.5px; color:var(--cp-ink); background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:6px 12px; cursor:pointer}
+.pbtn:hover{border-color:var(--cp-faint)}
+.pbtn.j{border-color:var(--joy-line); color:var(--joy)}
+.pbtn.j:hover{background:var(--joy-soft)}
+
+/* lens switcher = quiet text links (no pills) */
+.lensbar{display:flex; gap:22px; border-bottom:1px solid var(--cp-border); margin:14px 0 26px; flex-wrap:wrap}
+.lensbar a{
+  padding:0 0 10px; color:var(--cp-muted); text-decoration:none; font-size:13.5px;
+  border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer;
+}
+.lensbar a.on{color:var(--cp-ink); border-bottom-color:var(--joy); font-weight:600}
+.lensbar a:hover{color:var(--cp-ink)}
+
+/* ---- AI hero (matches other lenses: headline + narrative) ---- */
+.hero{margin:0 0 8px}
+.hero .kick{color:var(--joy); font-size:12px; font-weight:600; letter-spacing:.02em; margin-bottom:7px; display:flex; align-items:center; gap:8px}
+.hero h3{margin:0 0 9px; font-size:19px; font-weight:650; letter-spacing:-0.015em; text-wrap:balance}
+.hero p{margin:0; color:var(--cp-ink); font-size:14.5px; line-height:1.72; max-width:70ch}
+.hero p .q{color:var(--cp-muted)}
+/* levity meter — small, quiet, LLM-rated */
+.levity{display:flex; align-items:center; gap:10px; margin:16px 0 2px; color:var(--cp-faint); font-size:11.5px}
+.levity .track{position:relative; width:150px; height:6px; border-radius:999px; background:var(--cp-surface-2); overflow:hidden}
+.levity .fill{position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg,var(--cp-muted),var(--joy)); border-radius:999px}
+.levity b{color:var(--joy); font-weight:600}
+
+/* section heads */
+.sec{margin:34px 0 0}
+.sec-h{display:flex; align-items:baseline; gap:10px; margin:0 0 4px}
+.sec-h .t{font-size:13px; font-weight:600; letter-spacing:.01em; color:var(--cp-ink)}
+.sec-h .i{font-size:14px; line-height:1}
+.sec-h .c{color:var(--cp-faint); font-size:12px}
+.sec-h .more{margin-left:auto; color:var(--cp-faint); font-size:12px; text-decoration:none}
+.sec-h .more:hover{color:var(--cp-muted)}
+.sec-sub{color:var(--cp-faint); font-size:12px; margin:0 0 14px; line-height:1.5}
+
+/* ---- Today's bit (featured moment) ---- */
+.bit{
+  border:1px solid var(--joy-line); border-radius:10px; background:var(--joy-soft);
+  padding:18px 20px; margin-top:12px; position:relative;
+}
+.bit .quote{font-size:16px; line-height:1.6; color:var(--cp-ink); margin:0 0 12px; text-wrap:pretty}
+.bit .quote .name{color:var(--joy); font-weight:600}
+.bit .setup{color:var(--cp-muted); font-size:13px; line-height:1.6; margin:0 0 14px}
+.bit .foot{display:flex; align-items:center; gap:14px; color:var(--cp-faint); font-size:12px}
+.bit .foot .where{display:flex; align-items:center; gap:6px}
+.bit .foot a{margin-left:auto; color:var(--cp-accent); text-decoration:none; font-size:12px}
+.bit .foot a:hover{text-decoration:underline}
+
+/* ---- Overheard / running gags: quiet list, no cards ---- */
+.list{margin-top:12px}
+.line{padding:13px 0; border-top:1px solid var(--cp-border)}
+.line:first-child{border-top:0}
+.line .top{display:flex; align-items:baseline; gap:10px}
+.line .top .who{color:var(--joy); font-size:12.5px; font-weight:600; flex:none}
+.line .top .where{color:var(--cp-faint); font-size:11.5px}
+.line .top .jump{margin-left:auto; color:var(--cp-accent); font-size:11.5px; text-decoration:none; flex:none; opacity:0; transition:opacity .12s}
+.line:hover .top .jump{opacity:1}
+.line .body{margin:5px 0 0; font-size:14px; line-height:1.6; color:var(--cp-ink)}
+.line .why{margin:5px 0 0; font-size:12px; color:var(--cp-faint); font-style:italic}
+/* running gag: shows the recurrence */
+.line .gagmeta{margin:6px 0 0; color:var(--cp-muted); font-size:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.line .gagmeta .dot{width:3px; height:3px; border-radius:999px; background:var(--cp-faint)}
+
+/* ---- The Guide (Douglas Adams entries) ---- */
+.guide{margin-top:14px; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden}
+.guide .g-top{
+  display:flex; align-items:center; gap:9px; padding:11px 16px;
+  background:linear-gradient(90deg,rgba(86,211,100,.1),transparent);
+  border-bottom:1px solid var(--cp-border); color:var(--grin); font-size:12px; font-weight:600; letter-spacing:.02em;
+}
+.guide .g-top .badge{margin-left:auto; color:var(--cp-faint); font-weight:400; font-size:11px}
+.entry{padding:15px 18px; border-top:1px solid var(--cp-border)}
+.entry:first-of-type{border-top:0}
+.entry .term{font-size:14px; font-weight:650; color:var(--cp-ink)}
+.entry .term .verdict{color:var(--grin); font-weight:600; font-size:12.5px; margin-left:8px}
+.entry .def{margin:6px 0 0; font-size:13.5px; line-height:1.68; color:var(--cp-muted); max-width:72ch}
+.entry .src{margin:8px 0 0; color:var(--cp-faint); font-size:11.5px}
+.entry .src a{color:var(--cp-accent); text-decoration:none}
+
+/* ---- Freshly generated: meme + comic ---- */
+.gen{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:14px}
+@media(max-width:760px){ .gen{grid-template-columns:1fr} }
+.card{border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); overflow:hidden}
+.card .c-h{display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--cp-border); font-size:12px; color:var(--cp-muted)}
+.card .c-h .tag{color:var(--joy); font-weight:600}
+.card .c-h .redo{margin-left:auto; color:var(--cp-faint); font-size:11.5px; cursor:pointer}
+.card .c-h .redo:hover{color:var(--cp-muted)}
+.card .c-f{padding:9px 14px; border-top:1px solid var(--cp-border); color:var(--cp-faint); font-size:11.5px; display:flex; align-items:center; gap:12px}
+.card .c-f a{color:var(--cp-accent); text-decoration:none}
+.card .c-f .save{margin-left:auto; color:var(--cp-muted); cursor:pointer}
+
+/* meme render: original SVG scene + impact caption overlay (no licensed stock) */
+.meme{position:relative; aspect-ratio:1/1; background:#0a0d12}
+.meme svg{display:block; width:100%; height:100%}
+.meme .cap{
+  position:absolute; left:0; right:0; text-align:center; padding:0 10px;
+  font-family:Impact,"Haettenschweiler","Arial Narrow Bold",system-ui,sans-serif;
+  font-weight:800; text-transform:uppercase; color:#fff; letter-spacing:.01em; line-height:1.05;
+  font-size:clamp(15px,4.6vw,26px);
+  text-shadow:-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 6px rgba(0,0,0,.6);
+}
+.meme .cap.top{top:10px} .meme .cap.bot{bottom:12px}
+
+/* comic strip: 3 SVG panels + real-quote speech bubbles */
+.comic{display:grid; grid-template-columns:repeat(3,1fr); gap:2px; background:var(--cp-border)}
+.panel{position:relative; aspect-ratio:3/4; background:#10151d; overflow:hidden}
+.panel svg{position:absolute; inset:0; width:100%; height:100%}
+.bubble{
+  position:absolute; left:7%; right:7%; top:7%; background:#f4f6f8; color:#10151d;
+  border-radius:9px; padding:6px 8px; font-size:10.5px; line-height:1.28; font-weight:600;
+  box-shadow:0 1px 0 rgba(0,0,0,.4);
+}
+.bubble:after{content:""; position:absolute; bottom:-7px; left:22px; border:7px solid transparent; border-top-color:#f4f6f8; border-bottom:0}
+.panel .cap{position:absolute; left:0; right:0; bottom:0; background:rgba(6,9,13,.82); color:#e6edf3; font-size:9.5px; line-height:1.3; padding:4px 6px; font-style:italic}
+
+/* ---- Posted in the wild (message-linked references) ---- */
+.wild{margin-top:12px}
+.wild .row{display:flex; gap:13px; align-items:center; padding:11px 0; border-top:1px solid var(--cp-border)}
+.wild .row:first-child{border-top:0}
+.thumb{width:56px; height:56px; border-radius:8px; flex:none; background:var(--cp-surface-2); border:1px solid var(--cp-border); display:flex; align-items:center; justify-content:center; font-size:22px; overflow:hidden; position:relative}
+.thumb.blur{filter:blur(0)} /* placeholder slot; real thumb needs auth proxy */
+.thumb .kindtag{position:absolute; bottom:2px; right:3px; font-size:8px; color:var(--cp-faint); background:rgba(13,17,23,.7); padding:0 3px; border-radius:3px; text-transform:uppercase; letter-spacing:.04em}
+.wild .row .meta{min-width:0; flex:1}
+.wild .row .meta .t{font-size:13.5px; color:var(--cp-ink); line-height:1.45}
+.wild .row .meta .s{color:var(--cp-faint); font-size:11.5px; margin-top:3px}
+.wild .row .meta .s .who{color:var(--joy)}
+.wild .row .open{color:var(--cp-accent); font-size:12px; text-decoration:none; flex:none}
+.wild .capnote{color:var(--cp-faint); font-size:11.5px; margin:12px 0 0; line-height:1.55; padding:10px 12px; border:1px dashed var(--cp-border); border-radius:8px}
+
+/* ---- top grid: narrative on the left, The Reel top-right (half width) ---- */
+.top-grid{display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; margin-bottom:8px}
+.top-grid .hero{margin:0}
+@media (max-width:760px){ .top-grid{grid-template-columns:1fr} }
+
+/* ---- The Reel: vertical, reels-style, top-right ---- */
+.reel-panel{
+  border:1px solid var(--joy-line); border-radius:14px; overflow:hidden;
+  background:linear-gradient(180deg,var(--joy-soft),transparent 60%),var(--cp-surface);
+  display:flex; flex-direction:column;
+}
+.reel-head{display:flex; align-items:baseline; gap:9px; padding:12px 15px 10px}
+.reel-head .i{font-size:15px}
+.reel-head .t{font-weight:650; letter-spacing:-0.01em; font-size:14px}
+.reel-head .c{color:var(--cp-faint); font-size:11.5px; margin-left:auto}
+.reel{position:relative}
+.reel-track{
+  display:flex; flex-direction:column; gap:0; overflow-y:auto; scroll-snap-type:y mandatory;
+  scroll-behavior:smooth; height:360px; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+}
+.reel-track::-webkit-scrollbar{display:none}
+.slide{flex:0 0 360px; scroll-snap-align:start; position:relative; display:flex; flex-direction:column; background:#0a0d12}
+.slide .s-media{position:relative; flex:1 1 auto; min-height:0; background:#0a0d12; display:flex; align-items:center; justify-content:center; overflow:hidden; cursor:pointer}
+.slide .s-media svg{display:block; width:100%; height:100%}
+.slide .s-media .cap{
+  position:absolute; left:0; right:0; text-align:center; padding:0 14px;
+  font-family:Impact,"Haettenschweiler","Arial Narrow Bold",system-ui,sans-serif;
+  font-weight:800; text-transform:uppercase; color:#fff; letter-spacing:.01em; line-height:1.05;
+  font-size:clamp(16px,3vw,26px);
+  text-shadow:-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 6px rgba(0,0,0,.6);
+}
+.slide .s-media .cap.top{top:16px} .slide .s-media .cap.bot{bottom:74px}
+.slide .s-media .big{font-size:120px; line-height:1}
+.slide .s-comic{display:grid; grid-template-rows:repeat(3,1fr); gap:2px; background:var(--cp-border); width:100%; height:100%}
+.slide .s-comic .p{position:relative; background:#10151d; overflow:hidden}
+.slide .s-comic .p svg{position:absolute; inset:0; width:100%; height:100%}
+.slide .s-comic .b{position:absolute; left:4%; top:50%; transform:translateY(-50%); max-width:70%; background:#f4f6f8; color:#10151d; border-radius:8px; padding:6px 9px; font-size:12px; line-height:1.25; font-weight:600}
+.slide .s-kind{position:absolute; top:11px; left:12px; font-size:10.5px; color:var(--joy); font-weight:600; background:rgba(13,17,23,.72); padding:3px 8px; border-radius:6px; z-index:2; backdrop-filter:blur(4px)}
+.slide .s-foot{
+  position:absolute; left:0; right:0; bottom:0; padding:14px 15px 15px;
+  background:linear-gradient(180deg,transparent,rgba(4,6,10,.62) 34%,rgba(4,6,10,.9));
+}
+.slide .s-foot .t{font-size:13px; color:#fff; line-height:1.4; font-weight:550}
+.slide .s-foot .s{color:rgba(255,255,255,.72); font-size:11px; margin-top:5px; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.slide .s-foot .s .who{color:var(--joy)} .slide .s-foot .s a{margin-left:auto; color:#9ecbff; text-decoration:none}
+/* round flick controls (true circular icon buttons) — vertical up/down */
+.reel-nav{
+  position:absolute; right:10px; width:32px; height:32px; z-index:4;
+  border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(4,6,10,.55);
+  color:#fff; font-size:16px; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);
+}
+.reel-nav:hover{border-color:var(--joy); color:var(--joy); background:rgba(4,6,10,.8)}
+.reel-nav.prev{top:12px} .reel-nav.next{bottom:12px}
+/* vertical dot rail on the left edge */
+.reel-dots{position:absolute; left:11px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:7px; z-index:4}
+.reel-dots i{width:6px; height:6px; border-radius:999px; background:rgba(255,255,255,.3); cursor:pointer; transition:background .15s,height .15s}
+.reel-dots i.on{background:var(--joy); height:18px}
+@media (prefers-reduced-motion:reduce){ .reel-track{scroll-behavior:auto} .reel-dots i{transition:none} }
+
+/* ---- inline art: generated/posted images sprinkled beside a story ---- */
+.artrow{display:flex; gap:14px; align-items:flex-start; margin-top:12px}
+.artrow .artbody{flex:1 1 auto; min-width:0}
+.art-thumb{
+  flex:0 0 132px; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden;
+  background:#0a0d12; position:relative; text-decoration:none; display:block;
+}
+.art-thumb .m{position:relative; height:96px; display:flex; align-items:center; justify-content:center; overflow:hidden}
+.art-thumb .m svg{width:100%; height:100%; display:block}
+.art-thumb .m .cap{
+  position:absolute; left:0; right:0; text-align:center; padding:0 5px; color:#fff;
+  font-family:Impact,"Arial Narrow Bold",system-ui,sans-serif; font-weight:800; text-transform:uppercase;
+  font-size:9px; line-height:1.05; text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;
+}
+.art-thumb .m .cap.top{top:5px} .art-thumb .m .cap.bot{bottom:6px}
+.art-thumb .m .big{font-size:44px}
+.art-thumb .lab{padding:5px 8px; font-size:10px; color:var(--joy); font-weight:600; border-top:1px solid var(--cp-border); display:flex; align-items:center; gap:5px}
+.art-thumb .lab .k{color:var(--cp-faint); font-weight:400; margin-left:auto}
+.art-thumb:hover{border-color:var(--joy-line)}
+
+.foothint{color:var(--cp-faint); font-size:11.5px; margin-top:40px; text-align:center; line-height:1.6}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>Pulse.AI</b> <span class="muted">— Comedy lens · mockup</span>
+  <span class="muted" style="margin-left:auto">populated state</span>
+</div>
+
+<div class="wrap">
+
+  <div class="note">
+    <b>What's real here vs. what needs work</b> — I built this to match how Pulse actually gathers data (a WorkIQ agent pulls
+    <i>text</i> snippets — message body, sender, channel, timestamp, deep-link — from Teams &amp; email).
+    <span class="ok">✓ Fully realistic today</span> from that text: funny one-liners, running gags, the deadpan "Guide" riffs,
+    the <b>generated</b> meme (LLM writes the caption over an original in-house template) and the <b>generated</b> comic strip
+    (panels are drawn in-app; the dialogue is lifted verbatim from real messages).
+    <span class="part">◐ Needs one capture change</span>: "Posted in the wild" (memes/gifs the team actually posted) — the
+    collector only reads body text today, so this is mocked as <b>message-linked references</b> with a thumbnail slot; showing
+    the real image needs the collector to also grab attachment URLs + an auth proxy. Nothing here relies on custom AI art generation.
+  </div>
+
+  <div class="pulse-head">
+    <div>
+      <h2>Pulse</h2>
+      <div class="stamp">Updated 6 min ago · last 3 days · Team: DncEng · DMs excluded</div>
+    </div>
+    <div class="acts">
+      <button class="pbtn j">✨ Make me a meme</button>
+      <button class="pbtn">Refresh</button>
+    </div>
+  </div>
+
+  <!-- lens switcher (Comedy added to the real set) -->
+  <div class="lensbar">
+    <a>Focus <span style="color:var(--cp-faint);font-size:12px">4</span></a>
+    <a>Themes <span style="color:var(--cp-faint);font-size:12px">3</span></a>
+    <a>Waiting on you <span style="color:var(--cp-faint);font-size:12px">2</span></a>
+    <a>People</a>
+    <a>Today</a>
+    <a>FYI</a>
+    <a class="on">Comedy 😄</a>
+  </div>
+
+  <div class="top-grid">
+  <!-- left: AI hero — mood of the room -->
+  <div class="hero">
+    <div class="kick">😄 THE MOOD OF THE ROOM</div>
+    <h3>Morale's holding, mostly powered by snacks and mild despair</h3>
+    <p>
+      It was a <b>helix-machines</b> kind of day — the queue backed up, everyone made peace with it, and the coping mechanism
+      was jokes. The running bit about the "haunted" west-region agent got a third act. Dana welcomed the new hire by immediately
+      assigning them the flakiest test. And somebody described the Friday deploy as
+      <span class="q">"a trust fall where nobody agreed to catch."</span> Nobody's actually upset — the laughing is the load-bearing wall.
+    </p>
+    <div class="levity">
+      <span>Levity today</span>
+      <span class="track"><span class="fill" style="width:72%"></span></span>
+      <b>Pretty good</b> <span>· 9 bits · 2 running gags · 1 meme in the wild</span>
+    </div>
+  </div>
+
+  <!-- right: The Reel — vertical reels-style, mixes posted + generated visuals -->
+  <div class="reel-panel">
+    <div class="reel-head">
+      <span class="i">📱</span><span class="t">The Reel</span>
+      <span class="c">posted + generated · tap image →</span>
+    </div>
+    <div class="reel">
+      <button class="reel-nav prev" aria-label="Previous">‹</button>
+      <div class="reel-dots" id="reelDots"></div>
+      <div class="reel-track" id="reelTrack">
+
+        <!-- slide 1: posted gif (user image) -->
+        <div class="slide">
+          <div class="s-media">
+            <span class="s-kind">gif · posted</span>
+            <span class="big">🔥</span>
+          </div>
+          <div class="s-foot">
+            <div class="t">A "this is fine" gif, zero context, perfect timing</div>
+            <div class="s"><span class="who">Priya</span> · helix-ops · 11:45 AM · 😂×6<a href="#">Open in Teams →</a></div>
+          </div>
+        </div>
+
+        <!-- slide 2: generated meme (system image) -->
+        <div class="slide">
+          <div class="s-media">
+            <span class="s-kind">meme · generated</span>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs><radialGradient id="rmg" cx="50%" cy="38%" r="70%">
+                <stop offset="0%" stop-color="#1b2534"/><stop offset="100%" stop-color="#0a0d12"/></radialGradient></defs>
+              <rect width="100" height="100" fill="url(#rmg)"/>
+              <g opacity=".22" fill="#f0883e">
+                <path d="M6 82 q3 -14 8 0 q3 -13 6 0 q4 -15 8 0 z"/>
+                <path d="M78 84 q3 -12 7 0 q3 -11 6 0 q3 -13 7 0 z"/>
+                <path d="M40 90 q2 -9 5 0 q2 -8 4 0 z"/>
+              </g>
+              <rect x="34" y="60" width="32" height="6" rx="1" fill="#2a3140"/>
+              <rect x="44" y="47" width="12" height="10" rx="1.5" fill="#161b22" stroke="#2a3140"/>
+              <circle cx="50" cy="40" r="6" fill="#e6edf3" opacity=".85"/>
+              <path d="M45 42 q5 4 10 0" stroke="#0a0d12" stroke-width="1.1" fill="none"/>
+              <circle cx="47.6" cy="39" r="1" fill="#0a0d12"/><circle cx="52.4" cy="39" r="1" fill="#0a0d12"/>
+              <rect x="46" y="46" width="8" height="12" rx="2" fill="#58a6ff" opacity=".55"/>
+            </svg>
+            <div class="cap top">merged on green ci</div>
+            <div class="cap bot">it failed on the 41st run</div>
+          </div>
+          <div class="s-foot">
+            <div class="t">The "everything's fine" desk meme</div>
+            <div class="s"><span class="who">from Marcus</span> · helix-ops<a href="#">source →</a></div>
+          </div>
+        </div>
+
+        <!-- slide 3: generated comic (system image) -->
+        <div class="slide">
+          <div class="s-media">
+            <span class="s-kind">comic · generated</span>
+            <div class="s-comic">
+              <div class="p">
+                <svg viewBox="0 0 90 40" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="90" height="40" fill="#12181f"/><rect x="30" y="26" width="30" height="4" rx="1" fill="#233"/>
+                  <circle cx="45" cy="22" r="5" fill="#e6edf3" opacity=".9"/><rect x="41" y="26" width="8" height="7" rx="2" fill="#3fb950" opacity=".6"/>
+                </svg>
+                <div class="b">40 clean runs. Merging it.</div>
+              </div>
+              <div class="p">
+                <svg viewBox="0 0 90 40" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="90" height="40" fill="#171016"/>
+                  <g opacity=".3" fill="#f0883e"><path d="M8 34 q3 -10 7 0 q3 -9 6 0z"/><path d="M70 35 q3 -9 6 0 q3 -8 5 0z"/></g>
+                  <rect x="30" y="26" width="30" height="4" rx="1" fill="#332"/><circle cx="45" cy="22" r="5" fill="#e6edf3" opacity=".9"/>
+                </svg>
+                <div class="b">Run #41 has entered the chat.</div>
+              </div>
+              <div class="p">
+                <svg viewBox="0 0 90 40" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <rect width="90" height="40" fill="#12181f"/><rect x="30" y="26" width="30" height="4" rx="1" fill="#233"/>
+                  <circle cx="45" cy="22" r="5" fill="#e6edf3" opacity=".9"/><rect x="39" y="31" width="12" height="3" rx="1" fill="#f85149" opacity=".6"/>
+                </svg>
+                <div class="b">…re-running locally forever.</div>
+              </div>
+            </div>
+          </div>
+          <div class="s-foot">
+            <div class="t">3-panel · "Gary wins again"</div>
+            <div class="s"><span class="who">the "haunted agent" thread</span><a href="#">source →</a></div>
+          </div>
+        </div>
+
+        <!-- slide 4: posted image (user image) -->
+        <div class="slide">
+          <div class="s-media">
+            <span class="s-kind">img · posted</span>
+            <span class="big">🐈</span>
+          </div>
+          <div class="s-foot">
+            <div class="t">Cat-at-a-keyboard: "me reviewing my own PR at 6pm"</div>
+            <div class="s"><span class="who">Sam</span> · random · 4:18 PM<a href="#">Open in Teams →</a></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  </div><!-- /top-grid -->
+
+  <!-- Today's bit (the single best moment, featured warmly) -->
+  <div class="sec">
+    <div class="sec-h"><span class="i">🏆</span><span class="t">Today's bit</span></div>
+    <div class="bit">
+      <div class="artrow">
+        <div class="artbody">
+          <p class="quote">“I ran the repro 40 times and it passed every time. So naturally I merged it, and it failed on the 41st.
+            <span class="name">The 41st run was watching.</span> The 41st run knew.”</p>
+          <p class="setup">Marcus, on the west-region agent that only fails when it thinks no one's looking. This is the third day
+            the "haunted agent" bit has run and it is only getting better.</p>
+          <div class="foot">
+            <span class="where">💬 DncEng › helix-ops</span>
+            <span>·</span><span>11:42 AM</span>
+            <a href="#">Open in Teams →</a>
+          </div>
+        </div>
+        <a class="art-thumb" href="#" title="Generated from this moment — opens in The Reel">
+          <div class="m">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs><radialGradient id="tbg" cx="50%" cy="38%" r="70%">
+                <stop offset="0%" stop-color="#1b2534"/><stop offset="100%" stop-color="#0a0d12"/></radialGradient></defs>
+              <rect width="100" height="100" fill="url(#tbg)"/>
+              <g opacity=".22" fill="#f0883e"><path d="M6 82 q3 -14 8 0 q3 -13 6 0 q4 -15 8 0 z"/><path d="M78 84 q3 -12 7 0 q3 -11 6 0 q3 -13 7 0 z"/></g>
+              <rect x="34" y="60" width="32" height="6" rx="1" fill="#2a3140"/>
+              <circle cx="50" cy="40" r="6" fill="#e6edf3" opacity=".85"/>
+              <path d="M45 42 q5 4 10 0" stroke="#0a0d12" stroke-width="1.1" fill="none"/>
+              <circle cx="47.6" cy="39" r="1" fill="#0a0d12"/><circle cx="52.4" cy="39" r="1" fill="#0a0d12"/>
+              <rect x="46" y="46" width="8" height="12" rx="2" fill="#58a6ff" opacity=".55"/>
+            </svg>
+            <div class="cap top">merged on green ci</div>
+            <div class="cap bot">failed on run 41</div>
+          </div>
+          <div class="lab">meme · generated <span class="k">↻ new</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Running gags -->
+  <div class="sec">
+    <div class="sec-h"><span class="i">🔁</span><span class="t">Running gags</span><span class="c">2 recurring</span></div>
+    <div class="sec-sub">Bits the team keeps coming back to. Tracked across messages, not a one-off.</div>
+    <div class="list">
+      <div class="line">
+        <div class="artrow">
+          <div class="artbody">
+            <div class="top"><span class="who">The haunted west-region agent</span><span class="where">helix-ops</span>
+              <a class="jump" href="#">Jump →</a></div>
+            <div class="body">Started Tuesday as "why does wus2 only fail overnight," now a full folklore arc with a name (Gary),
+              a motive, and an exorcism PR.</div>
+            <div class="gagmeta"><span>Marcus, Priya, Dana</span><span class="dot"></span><span>7 messages over 3 days</span>
+              <span class="dot"></span><span>peaked 11:42 AM today</span></div>
+          </div>
+          <a class="art-thumb" href="#" title="Gary, as the team imagines him — opens in The Reel">
+            <div class="m">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                <defs><radialGradient id="ggb" cx="50%" cy="40%" r="72%">
+                  <stop offset="0%" stop-color="#161f2e"/><stop offset="100%" stop-color="#0a0d12"/></radialGradient></defs>
+                <rect width="100" height="100" fill="url(#ggb)"/>
+                <g opacity=".9">
+                  <path d="M35 34 q15 -14 30 0 v34 q-4 6 -7.5 0 q-3.5 6 -7.5 0 q-3.5 6 -7.5 0 V34 z" fill="#dbe4ee" opacity=".92"/>
+                  <circle cx="45" cy="45" r="2.4" fill="#0a0d12"/><circle cx="55" cy="45" r="2.4" fill="#0a0d12"/>
+                  <path d="M45.5 53 q4.5 4 9 0" stroke="#0a0d12" stroke-width="1.1" fill="none"/>
+                </g>
+                <g opacity=".28" fill="#58a6ff"><circle cx="22" cy="24" r="1.4"/><circle cx="78" cy="30" r="1.1"/><circle cx="72" cy="70" r="1.3"/></g>
+              </svg>
+              <div class="cap top">wus2 passes ci</div>
+              <div class="cap bot">gary was watching</div>
+            </div>
+            <div class="lab">meme · generated <span class="k">↻ recurring</span></div>
+          </a>
+        </div>
+      </div>
+      <div class="line">
+        <div class="top"><span class="who">"It's a trust fall"</span><span class="where">dnceng-eng</span>
+          <a class="jump" href="#">Jump →</a></div>
+        <div class="body">Sam's Friday-deploy metaphor from last week that everyone now applies to anything mildly risky —
+          config changes, lunch orders, the new hire's first PR.</div>
+        <div class="gagmeta"><span>Sam +3</span><span class="dot"></span><span>4 callbacks this week</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overheard one-liners -->
+  <div class="sec">
+    <div class="sec-h"><span class="i">💬</span><span class="t">Overheard</span><span class="c">standalone lines that landed</span></div>
+    <div class="list">
+      <div class="line">
+        <div class="top"><span class="who">Priya</span><span class="where">random</span><a class="jump" href="#">Jump →</a></div>
+        <div class="body">“Our test suite is like a smoke detector that also occasionally starts fires.”</div>
+      </div>
+      <div class="line">
+        <div class="top"><span class="who">Dana</span><span class="where">helix-ops</span><a class="jump" href="#">Jump →</a></div>
+        <div class="body">Welcoming the new hire: “Great to have you! Here's the flakiest test we own. It's a rite of passage. It's also just Tuesday.”</div>
+        <div class="why">bit — hazing-as-onboarding, affectionate</div>
+      </div>
+      <div class="line">
+        <div class="top"><span class="who">Alex</span><span class="where">dnceng-eng</span><a class="jump" href="#">Jump →</a></div>
+        <div class="body">“I'm not saying the queue is slow, but I aged during the wait and now I have opinions about jazz.”</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- The Guide (Douglas Adams entries) -->
+  <div class="sec">
+    <div class="sec-h"><span class="i">📖</span><span class="t">The Guide to your team</span></div>
+    <div class="sec-sub">Deadpan, encyclopedic entries on what actually happened today. Affectionate. Occasionally too honest.</div>
+    <div class="guide">
+      <div class="g-top">THE GUIDE · ENTRY LOG <span class="badge">generated from today's activity · verify before quoting to your VP</span></div>
+      <div class="entry">
+        <div class="term">helix-machines <span class="verdict">— Mostly harmless</span></div>
+        <div class="def">A fleet of build agents that exists in a superposition of "fine" and "on fire" until directly observed,
+          at which point it is invariably on fire. The west-region node, Gary, has achieved a rare state of being both
+          load-bearing and possessed. Recommended interaction: sacrifice one retry and back away slowly.</div>
+        <div class="src">from 7 messages in <a href="#">helix-ops</a> · Priya, Marcus, Dana</div>
+      </div>
+      <div class="entry">
+        <div class="term">The Friday deploy <span class="verdict">— Statistically inadvisable</span></div>
+        <div class="def">An ancient ritual in which a team collectively agrees that this time will be different. It never is.
+          Best understood not as an engineering practice but as a group act of optimism, performed weekly, with snacks.
+          Survival rate is high; dignity rate is not.</div>
+        <div class="src">from a thread in <a href="#">dnceng-eng</a> · Sam, Alex</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-h"><span class="i">🖼️</span><span class="t">Posted in the wild</span><span class="c">stuff the team actually shared</span></div>
+    <div class="sec-sub">Memes &amp; gifs people posted, linked back to the message. Open in Teams to see the image.</div>
+    <div class="wild">
+      <div class="row">
+        <div class="thumb">🔥<span class="kindtag">gif</span></div>
+        <div class="meta">
+          <div class="t">A "this is fine" gif, deployed with zero context and perfect timing</div>
+          <div class="s"><span class="who">Priya</span> · helix-ops · 11:45 AM · reacted 😂×6</div>
+        </div>
+        <a class="open" href="#">Open in Teams →</a>
+      </div>
+      <div class="row">
+        <div class="thumb">🐈<span class="kindtag">img</span></div>
+        <div class="meta">
+          <div class="t">Cat-at-a-keyboard captioned "me reviewing my own PR at 6pm"</div>
+          <div class="s"><span class="who">Sam</span> · random · 4:18 PM</div>
+        </div>
+        <a class="open" href="#">Open in Teams →</a>
+      </div>
+    </div>
+    <div class="capnote">
+      ◐ <b>Realism note:</b> today the collector only stores message <i>text</i>, so these are detected from context and
+      linked to the source message — the thumbnail is a placeholder. To render the actual image inline, the collector needs
+      to also capture attachment / hosted-content URLs, served through an authenticated proxy. One focused change, not new infrastructure.
+    </div>
+  </div>
+
+  <div class="foothint">
+    Comedy lens caches on the normal Pulse schedule like every other lens · toggle it on in Basic via a Pulse feature switch ·
+    "Make me a meme" / "redraw" are on-demand and only run when you click.
+  </div>
+
+</div>
+<script>
+  (function(){
+    var track = document.getElementById('reelTrack');
+    var dotsWrap = document.getElementById('reelDots');
+    if (!track || !dotsWrap) return;
+    var slides = Array.prototype.slice.call(track.querySelectorAll('.slide'));
+    function goTo(i){ track.scrollTo({top: slides[i].offsetTop, behavior:'smooth'}); }
+    slides.forEach(function(_, i){
+      var d = document.createElement('i');
+      d.addEventListener('click', function(){ goTo(i); });
+      dotsWrap.appendChild(d);
+    });
+    var dots = Array.prototype.slice.call(dotsWrap.children);
+    function activeIndex(){
+      var center = track.scrollTop + track.clientHeight / 2;
+      var best = 0, bestDist = Infinity;
+      slides.forEach(function(s, i){
+        var mid = s.offsetTop + s.offsetHeight / 2;
+        var dist = Math.abs(mid - center);
+        if (dist < bestDist){ bestDist = dist; best = i; }
+      });
+      return best;
+    }
+    function sync(){
+      var a = activeIndex();
+      dots.forEach(function(d, i){ d.classList.toggle('on', i === a); });
+    }
+    function step(dir){
+      var a = activeIndex();
+      var n = a + dir;
+      if (n < 0) n = slides.length - 1;
+      if (n > slides.length - 1) n = 0;
+      goTo(n);
+    }
+    // tap the image to advance (wraps); footer links still work
+    slides.forEach(function(s){
+      var media = s.querySelector('.s-media');
+      if (media) media.addEventListener('click', function(e){
+        if (e.target.closest('a')) return;
+        step(1);
+      });
+    });
+    var prev = document.querySelector('.reel-nav.prev');
+    if (prev) prev.addEventListener('click', function(){ step(-1); });
+    var raf;
+    track.addEventListener('scroll', function(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(sync); }, {passive:true});
+    sync();
+  })();
+</script>
+</body>
+</html>
