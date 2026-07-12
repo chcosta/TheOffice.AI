@@ -140,8 +140,12 @@ function devItemRepos(d) {
 
 function devItemReports(d) {
   return (Array.isArray(d.reports) ? d.reports : []).map(r => ({
-    name: r.name || r.rel || '', rel: r.rel || '', kind: r.kind || '',
-    size: r.size || 0, mtime: r.mtime || null,
+    name: r.name || r.rel || '', rel: r.rel || '', cacheRel: r.cacheRel || r.rel || '',
+    kind: r.kind || '', size: r.size || 0, mtime: r.mtime || null,
+    // Phase-6 approach awareness: which dev worktree ("approach") produced this report,
+    // its aspect label, whether it's the active approach, and (if promoted) the PR it fed.
+    repo: r.repo || '', wtId: r.wtId || '', aspect: r.aspect || '',
+    approachActive: !!r.approachActive, promotedPrId: r.promotedPrId || '',
   }));
 }
 
@@ -693,7 +697,7 @@ const TOOLS = {
   },
 
   list_dev_reports: {
-    description: "List the read-only Reports captured for a Dev card (generated artifacts — HTML/markdown/text). Returns each report's name, rel path and kind. Reports are read-only from here; they're produced by the dev workflow, not added via this API.",
+    description: "List the read-only Reports captured for a Dev card (generated artifacts — HTML/markdown/text). Each report is tagged with the APPROACH that produced it: a dev card can have multiple parallel dev worktrees (\"approaches\"/aspects) tackling the same work item, and each produces its own reports. Returns name, rel path, cacheRel (use with get_dev_report), kind, plus approach fields (repo, wtId, aspect, approachActive, promotedPrId). Reports are read-only from here; they're produced by the dev workflow, not added via this API.",
     inputSchema: {
       type: 'object',
       properties: { boardId: { type: 'string' }, devId: { type: 'string' } },
@@ -703,6 +707,31 @@ const TOOLS = {
     async run({ boardId, devId }) {
       const { dev } = await getDevItem(boardId, devId);
       return { reports: devItemReports(dev) };
+    },
+  },
+
+  get_dev_report: {
+    description: "Read the CONTENT of one Dev-card report so you can learn what an approach found or built. Pass the report's `cacheRel` (or `rel`) from list_dev_reports as `file`. Returns the report text (HTML/markdown/text), truncated for very large reports. Use this to acquire artifacts from a sibling approach on the same work item to inform your own work.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        file: { type: 'string', description: "The report's cacheRel or rel path (from list_dev_reports)." },
+        maxChars: { type: 'number', description: 'Truncate the content to this many characters (default 40000).' },
+      },
+      required: ['boardId', 'devId', 'file'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId, file, maxChars }) {
+      const cap = Math.max(1000, Math.min(200000, Number(maxChars) || 40000));
+      const data = await api(`/api/boards/${encodeURIComponent(boardId)}/dev-items/${encodeURIComponent(devId)}/report?file=${encodeURIComponent(file)}`);
+      // The report endpoint returns raw content; api() surfaces non-JSON as { raw }.
+      let content = (data && typeof data.raw === 'string') ? data.raw : (typeof data === 'string' ? data : JSON.stringify(data));
+      const total = content.length;
+      const truncated = total > cap;
+      if (truncated) content = content.slice(0, cap);
+      return { file, content, chars: content.length, totalChars: total, truncated };
     },
   },
 };

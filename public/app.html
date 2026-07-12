@@ -2535,6 +2535,16 @@
     .cf-dtab.active .rc { color:var(--cp-accent); }
     .cf-dtab-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
     .cf-dtab-panes { margin-top:12px; }
+    /* Graph-driven dev card body: the branch graph above is the navigator; below it the
+       workbench canvas + a persistent artifacts rail sit side by side (no Code/Artifacts tabs). */
+    .cf-body2 { display:grid; grid-template-columns: minmax(0,1fr) clamp(240px,26%,320px); gap:18px; margin-top:12px; align-items:start; }
+    .cf-canvas { min-width:0; }
+    .cf-artrail { min-width:0; border-left:1px solid var(--cp-border); padding-left:18px; display:flex; flex-direction:column; gap:12px; }
+    .cf-arthead { font-size:12px; font-weight:600; letter-spacing:.01em; color:var(--cp-text-muted); margin:0; }
+    @media (max-width: 900px) {
+      .cf-body2 { grid-template-columns:1fr; gap:14px; }
+      .cf-artrail { border-left:0; padding-left:0; border-top:1px solid var(--cp-border); padding-top:14px; }
+    }
     /* Primary "Workspaces.AI" row on dev/PR cards — color-coded chips (no per-board icons),
        promoted out of the details drawer so pins are visible without expanding a tab. */
     .cf-ws-row { display:flex; align-items:center; flex-wrap:wrap; gap:6px 8px; margin-top:10px; }
@@ -4064,6 +4074,10 @@
     /* ---- Agenda.AI agent recommendation strip (dc-autoadd) ---- */
     .dcrec { border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-bg-elevated, var(--cp-bg)); padding:10px 12px; margin-bottom:10px; }
     .dcrec-h { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .dcrec-h-toggle { cursor:pointer; user-select:none; }
+    .dcrec-h-toggle:hover .t { color:var(--cp-text); }
+    .dcrec-caret { display:inline-block; width:.9em; color:var(--cp-text-muted); font-size:10px; margin-right:4px; }
+    .dcrec-cnt { color:var(--cp-text-muted); font-weight:600; margin-left:6px; }
     .dcrec-h .t { font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--cp-text-muted); flex:1 1 auto; }
     .dcrec-h .t b { color:var(--cp-accent); font-weight:700; }
     .dcrec-refresh { font-size:11px; padding:2px 8px; color:var(--cp-text-muted); }
@@ -5248,6 +5262,28 @@
     .cal-tbtn:disabled { opacity: .4; cursor: default; background: transparent; box-shadow: none; }
     .cal-tbtn.primary:hover { color: var(--cp-accent); }
     .cal-tsep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--cp-border); }
+    /* Approaches (dev-worktree aspects): quiet text-link index, accent+underline on active. No pills. */
+    .cal-approaches { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; margin-top: 6px; }
+    .cal-approaches-lead { font-size: 10.5px; color: var(--cp-text-soft); text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+    .cal-approach { border: none; background: transparent; color: var(--cp-text-muted); font: inherit; font-size: 12px; padding: 2px 5px; border-radius: calc(var(--cp-radius-scale, 1) * 6px); cursor: pointer; line-height: 1.4; border-bottom: 1.5px solid transparent; transition: color .12s ease, border-color .12s ease, background .12s ease; }
+    .cal-approach:hover { color: var(--cp-text); background: var(--cp-surface-soft); }
+    .cal-approach.active { color: var(--cp-accent); border-bottom-color: var(--cp-accent); font-weight: 600; }
+    .cal-approach:disabled { opacity: .45; cursor: default; background: transparent; }
+    .cal-approach.add { color: var(--cp-text-soft); }
+    .cal-approach.add:hover { color: var(--cp-accent); background: var(--cp-surface-soft); }
+    .cal-approach-hint { font-size: 10px; color: var(--cp-text-soft); }
+    .cal-approach-sheet { margin-top: 6px; padding: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 8px); }
+    .cal-approach-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--cp-text-muted); }
+    .cal-approach-field > span { font-weight: 600; }
+    .cal-approach-field .field-input { font-size: 12px; }
+    .cal-approach-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+    .cal-approach-quick .hint { font-size: 11px; font-weight: 600; color: var(--cp-text-muted); margin-right: 2px; }
+    .cal-quick-link { background: none; border: none; padding: 2px 2px; margin: 0; font: inherit; font-size: 12px; line-height: 1.2; color: var(--cp-accent, #2563eb); cursor: pointer; border-radius: calc(var(--cp-radius-scale, 1) * 4px); }
+    .cal-quick-link:hover { text-decoration: underline; }
+    .cal-quick-link.on { font-weight: 700; text-decoration: underline; }
+    .cal-aspect-more { flex-basis: 100%; }
+    .cal-aspect-lineage { font-size: 11px; color: var(--cp-text-muted); margin-top: 4px; }
+    .cal-aspect-lineage b { color: var(--cp-text); font-weight: 600; }
     .cal-caption { font-weight: 600; font-size: 12px; color: var(--cp-text-muted); letter-spacing: .01em; }
     .cal-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: calc(var(--cp-radius-scale, 1) * 7px); font-size: 12px; min-width: 0; }
     .cal-row:hover { background: var(--cp-surface-soft); }
@@ -10284,6 +10320,49 @@
                                               <span x-show="s.prId && s.agentName" class="sep">·</span>
                                               <span x-show="s.agentName" :title="'Dev agent: ' + s.agentName + ' — selectable in VS Code / Copilot; auto-selected when opening the CLI'">agent <span class="mono" x-text="s.agentName"></span></span>
                                             </div>
+                                            <!-- Approaches ("aspects"): each is a distinct dev worktree + branch where agents
+                                                 implement a different angle of the work item. The ACTIVE approach is mirrored to
+                                                 this slot's worktree/PR actions above; switching changes the workbench the card
+                                                 operates on. Shown once at least one worktree exists. -->
+                                            <template x-if="s.worktreePath && s.worktreeStatus !== 'creating'">
+                                              <div class="cal-approaches">
+                                                <span class="cal-approaches-lead">Aspects</span>
+                                                <template x-for="w in devWorktrees(d, s)" :key="'aw-' + s.id + '-' + w.id">
+                                                  <button type="button" class="cal-approach" :class="{ active: w.id === activeDevWtId(s) }" :disabled="devBusy[slotBusyKey(d,s)]==='activate' || w.worktreeStatus==='creating'" @click="activateDevWorktree(d, s, w.id)" :title="(w.id === activeDevWtId(s) ? 'Active aspect' : 'Switch to this aspect') + (w.scope ? ' — ' + w.scope : '') + (w.branch ? '  (' + w.branch + ')' : '')"><span x-text="approachLabel(w)"></span><span class="cal-approach-hint" x-show="w.worktreeStatus==='creating'"> ·creating</span><span class="cal-approach-hint" x-show="w.worktreeStatus==='error'" style="color:var(--cp-danger)"> ·failed</span><span class="cal-approach-hint" x-show="w.promotedPrId" title="This aspect feeds the pull request" style="color:var(--cp-accent)"> ·in PR</span></button>
+                                                </template>
+                                                <button type="button" class="cal-approach add" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="toggleNewApproach(d, s)" title="Start a new aspect — a fresh dev worktree + branch to tackle a different part of the work item">＋ New aspect</button>
+                                                <button type="button" class="cal-approach" x-show="mergeAspectCandidates(d, s).length > 1" :disabled="devBusy[slotBusyKey(d,s)]==='merge'" @click="toggleMergeAspect(d, s)" title="Merge one aspect’s work into another">⇄ Merge…</button>
+                                                <div class="cal-aspect-more">
+                                                  <template x-for="w in devWorktrees(d, s)" :key="'lin-' + s.id + '-' + w.id">
+                                                    <div class="cal-aspect-lineage" x-show="w.id === activeDevWtId(s) && mergedFromLabels(w).length"><b x-text="approachLabel(w)"></b> includes: <span x-text="mergedFromLabels(w).join(', ')"></span></div>
+                                                  </template>
+                                                  <template x-if="devMergeOpen[approachKey(d, s)]">
+                                                    <div class="cal-approach-sheet">
+                                                      <label class="cal-approach-field"><span>Merge this aspect</span><select class="field-input" :value="mergeDraft(d,s).source" @change="mergeDraft(d,s).source = $event.target.value"><template x-for="w in mergeAspectCandidates(d, s)" :key="'ms-' + s.id + '-' + w.id"><option :value="w.id" x-text="approachLabel(w) + (w.branch ? '  (' + w.branch + ')' : '')"></option></template></select></label>
+                                                      <label class="cal-approach-field"><span>Into</span><select class="field-input" :value="mergeDraft(d,s).target" @change="mergeDraft(d,s).target = $event.target.value"><template x-for="w in mergeAspectCandidates(d, s)" :key="'mt-' + s.id + '-' + w.id"><option :value="w.id" x-text="approachLabel(w) + (w.branch ? '  (' + w.branch + ')' : '') + (w.id === activeDevWtId(s) ? ' — active (updates the PR)' : '')"></option></template></select></label>
+                                                      <div class="cal-toolbar">
+                                                        <button class="cal-tbtn primary" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='merge'" @click="mergeAspect(d, s)" x-text="devBusy[slotBusyKey(d,s)]==='merge' ? '⇄ Merging…' : '⇄ Merge'"></button>
+                                                        <button class="cal-tbtn" type="button" @click="toggleMergeAspect(d, s)">Cancel</button>
+                                                      </div>
+                                                    </div>
+                                                  </template>
+                                                </div>
+                                              </div>
+                                            </template>
+                                            <template x-if="devApproachOpen[approachKey(d, s)]">
+                                              <div class="cal-approach-sheet">
+                                                <div class="cal-approach-quick">
+                                                  <span class="hint">Quick start</span>
+                                                  <template x-for="p in aspectPresets()" :key="'qp-'+s.id+'-'+p.id"><button type="button" class="cal-quick-link" :class="{on: approachDraft(d,s).preset===p.id}" @click="applyAspectPreset(d, s, p)" x-text="p.title"></button></template>
+                                                </div>
+                                                <label class="cal-approach-field"><span>Title</span><input type="text" class="field-input" :value="approachDraft(d,s).aspect" @input="approachDraft(d,s).aspect = $event.target.value" placeholder="e.g. Observability" @keydown.enter.prevent="createDevWorktreeApproach(d, s)"></label>
+                                                <label class="cal-approach-field"><span>Agent brief <span class="hint" style="font-weight:400">(optional — steers this aspect's agent)</span></span><textarea class="field-input" rows="2" :value="approachDraft(d,s).scope" @input="approachDraft(d,s).scope = $event.target.value" placeholder="What should this aspect's agent focus on and stay within?"></textarea></label>
+                                                <div class="cal-toolbar">
+                                                  <button class="cal-tbtn primary" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="createDevWorktreeApproach(d, s)" x-text="devBusy[slotBusyKey(d,s)]==='worktree' ? '🌱 Creating…' : '🌱 Create aspect'"></button>
+                                                  <button class="cal-tbtn" type="button" @click="toggleNewApproach(d, s)">Cancel</button>
+                                                </div>
+                                              </div>
+                                            </template>
                                             <template x-if="!s.worktreePath && s.worktreeStatus !== 'creating' && s.worktreeStatus !== 'error'">
                                               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                                 <span class="hint" style="font-size:11px">No worktree yet.</span>
@@ -10512,7 +10591,7 @@
                                              <template x-for="r in d.reports" :key="r.cacheRel || r.rel">
                                                <div class="cal-row">
                                                  <a class="cal-row-link" :href="devReportUrl(d,r)" target="_blank" rel="noopener" :title="'Open ' + (r.rel || '') + ' in a new tab — ' + formatRelative(devReportTime(r))">
-                                                   <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span><span x-show="devReportsMultiRepo(d) && r.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.repo"></span>
+                                                   <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span><span x-show="devReportsMultiRepo(d) && r.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.repo"></span><span x-show="devReportsMultiApproach(d) && r.aspect" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.aspect"></span>
                                                  </a>
                                                  <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                                                  <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
@@ -11349,18 +11428,31 @@
               .cf-gnode.sel { box-shadow:0 0 0 2px currentColor; }
               .cf-gnode.ghost { background:transparent; border:1px dashed var(--cp-border-strong); color:var(--cp-text-soft); font-weight:600; }
               .cf-gnode.ghost:hover { border-color:var(--cp-pr); color:var(--cp-pr); }
+              .cf-gnode.cf-gaddwt { font-size:11.5px; padding:7px 11px; cursor:pointer; align-self:flex-start; }
+              .cf-gnode.cf-gaddwt:hover { border-color:var(--cp-dev); color:var(--cp-dev); }
               .cf-gsub .cf-sd { width:7px; height:7px; border-radius:50%; flex:none; }
               .cf-gsub .cf-sd.ok { background:var(--cp-success); } .cf-gsub .cf-sd.warn { background:var(--cp-warning); } .cf-gsub .cf-sd.run { background:var(--cp-warning); }
+              /* approach fan: shared root anchor + a column of per-approach dev nodes */
+              .cf-gfan { display:flex; align-items:center; gap:clamp(28px, 8%, 90px); }
+              .cf-groot { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-surface); border:1px solid var(--cp-border); font-size:11px; font-weight:650; color:var(--cp-text-soft); letter-spacing:.01em; align-self:center; white-space:nowrap; }
+              .cf-groot .cf-dot { width:7px; height:7px; border-radius:50%; background:var(--cp-text-soft); flex:none; }
+              .cf-groot[role="button"] { cursor:pointer; transition:border-color .12s ease, color .12s ease; }
+              .cf-groot[role="button"]:hover { border-color:var(--cp-text-soft); color:var(--cp-text); }
+              .cf-groot.sel { box-shadow:0 0 0 2px var(--cp-text-soft); color:var(--cp-text); }
+              .cf-gdevcol { display:flex; flex-direction:column; gap:10px; }
+              .cf-gnode.dev.alt { background:var(--cp-surface); color:var(--cp-text-soft); border-color:var(--cp-border); }
+              .cf-gnode.dev.alt .cf-gtop .cf-dot { background:var(--cp-text-soft); }
+              .cf-gnode.dev.alt:hover { color:var(--cp-dev); border-color:color-mix(in srgb,var(--cp-dev) 40%,var(--cp-border)); }
               /* per-side contextual panel: one side at a time, swaps with the node toggle */
-              .cf-sidesum { margin-top:12px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); overflow:hidden; background:var(--cp-bg-elevated); }
-              .cf-sidesum.dev { border-color:color-mix(in srgb,var(--cp-dev) 30%,var(--cp-border)); }
-              .cf-sidesum.pr { border-color:color-mix(in srgb,var(--cp-pr) 30%,var(--cp-border)); }
-              .cf-sidehead { display:flex; align-items:center; gap:9px; padding:9px 12px; font-size:12.5px; font-weight:650; border-bottom:1px solid var(--cp-border); }
+              .cf-sidesum { margin-top:4px; padding:2px 6px 4px; }
+              .cf-sidesum.dev { }
+              .cf-sidesum.pr { }
+              .cf-sidehead { display:flex; align-items:center; gap:9px; padding:6px 0 3px; font-size:12.5px; font-weight:650; }
               .cf-sidehead .cf-dot { width:9px; height:9px; border-radius:50%; flex:none; }
               .cf-sidesum.dev .cf-sidehead { color:var(--cp-dev); } .cf-sidesum.dev .cf-sidehead .cf-dot { background:var(--cp-dev); }
               .cf-sidesum.pr .cf-sidehead { color:var(--cp-pr); } .cf-sidesum.pr .cf-sidehead .cf-dot { background:var(--cp-pr); }
-              .cf-sidebody { padding:11px 12px; }
-              .cf-sidewt { margin:0 12px 11px; padding:5px 8px; font-family:var(--cp-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size:11px; color:var(--cp-text-muted); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 6px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .cf-sidebody { padding:0 0 6px; font-size:12px; color:var(--cp-text-muted); }
+              .cf-sidewt { margin:0 0 9px; font-family:var(--cp-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size:10.5px; color:var(--cp-text-soft); opacity:.7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .cf-primeact { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--cp-dev); background:var(--cp-dev); color:#fff; border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; transition:transform .14s cubic-bezier(.2,.7,.2,1); }
               .cf-primeact.pr { border-color:var(--cp-pr); background:var(--cp-pr); }
               .cf-primeact:hover { transform:translateY(-1px); }
@@ -11637,14 +11729,35 @@
                                      what the panes below focus on (dev workbench vs a PR's review). Independent
                                      PRs = solid cyan off dev; a stacked PR = dashed violet + gated-by label; a
                                      dashed ghost node opens the New-PR flow. -->
-                                <div class="cf-flowgraph" :id="'cfFlow-' + d.id" x-init="requestAnimationFrame(() => cfDrawEdges(d))" @resize.window.debounce.150ms="cfDrawEdges(d)">
+                                <div class="cf-flowgraph" :id="'cfFlow-' + d.id" x-init="requestAnimationFrame(() => cfDrawEdges(d))" x-effect="cfEdgeSig(d); $nextTick(() => cfDrawEdges(d))" @resize.window.debounce.150ms="cfDrawEdges(d)">
                                   <svg class="cf-edges" :id="'cfEdges-' + d.id" aria-hidden="true"></svg>
                                   <div class="cf-gnodes">
                                     <div class="cf-gdev">
-                                      <div class="cf-gnode dev" :class="{ sel: cfNodeSel(d,'dev'), 'cf-here': yahIsOn('dev:'+d.id) }" data-node="dev" role="button" tabindex="0" @click="cfFocusNode(d,'dev')" @keydown.enter.prevent="cfFocusNode(d,'dev')" :title="'Dev branch — ' + cfGraphModel(d).dev.branch">
-                                        <div class="cf-gtop"><span class="cf-dot"></span><span class="cf-bn" x-text="cfGraphModel(d).dev.branch"></span></div>
-                                        <div class="cf-gsub"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' ahead'"></span><span x-show="cfGraphModel(d).dev.syncedAgo" x-text="cfGraphModel(d).dev.syncedAgo"></span><span x-show="!cfGraphModel(d).dev.ahead && !cfGraphModel(d).dev.syncedAgo">dev workbench</span></div>
-                                      </div>
+                                      <!-- Single dev node ONLY before a worktree exists (no aspects yet). -->
+                                      <template x-if="!cfGraphModel(d).hasFan">
+                                        <div class="cf-gnode dev" :class="{ sel: cfNodeSel(d,'dev'), 'cf-here': yahIsOn('dev:'+d.id) }" data-node="dev" role="button" tabindex="0" @click="cfFocusNode(d,'dev')" @keydown.enter.prevent="cfFocusNode(d,'dev')" :title="'Dev branch — ' + cfGraphModel(d).dev.branch">
+                                          <div class="cf-gtop"><span class="cf-dot"></span><span class="cf-bn" x-text="cfGraphModel(d).dev.branch"></span></div>
+                                          <div class="cf-gsub"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' ahead'"></span><span x-show="cfGraphModel(d).dev.syncedAgo" x-text="cfGraphModel(d).dev.syncedAgo"></span><span x-show="!cfGraphModel(d).dev.ahead && !cfGraphModel(d).dev.syncedAgo">dev workbench</span></div>
+                                        </div>
+                                      </template>
+                                      <!-- Aspects fan: EVERY work item leads with its aspects. Each aspect is a
+                                           distinct dev worktree + branch off a shared "work" root; the active one is solid
+                                           violet, alternatives dashed. A trailing "＋ aspect" node always invites another
+                                           angle. Promote one aspect into the single PR (dev-side action / PR side). -->
+                                      <template x-if="cfGraphModel(d).hasFan">
+                                        <div class="cf-gfan">
+                                          <div class="cf-groot" data-node="root" role="button" tabindex="0" @click="cfFocusNode(d,'root')" @keydown.enter.prevent="cfFocusNode(d,'root')" :class="{ sel: cfNodeSel(d,'root') }" :title="'Work item overview · ' + (d.workItemId ? ('#' + d.workItemId) : 'this work item') + ' — worktrees branch from here'"><span class="cf-dot"></span><span x-text="d.workItemId ? ('#' + d.workItemId) : 'work'"></span></div>
+                                          <div class="cf-gdevcol">
+                                            <template x-for="dn in cfGraphModel(d).devs" :key="'cfdev-'+d.id+'-'+dn.key">
+                                              <div class="cf-gnode dev" :class="{ sel: cfNodeSel(d, dn.key), alt: !dn.active, 'cf-here': dn.active && yahIsOn('dev:'+d.id) }" :data-node="dn.key" role="button" tabindex="0" @click="cfFocusDev(d, dn)" @keydown.enter.prevent="cfFocusDev(d, dn)" :title="(dn.active ? 'Active worktree — ' : 'Switch to worktree — ') + dn.aspect + (dn.branch ? '  (' + dn.branch + ')' : '')">
+                                                <div class="cf-gtop"><span class="cf-dot"></span><span class="cf-bn" x-text="dn.aspect"></span><span class="cal-approach-hint" x-show="dn.promoted" title="This aspect feeds the pull request" style="color:var(--cp-accent)"> ·in PR</span><span class="cal-approach-hint" x-show="dn.mergedFrom && dn.mergedFrom.length" :title="'Includes work merged from: ' + (dn.mergedFrom || []).map(x => x.aspect).join(', ')" style="color:var(--cp-text-muted)"> ·⇄<span x-text="dn.mergedFrom.length"></span></span></div>
+                                                <div class="cf-gsub"><span x-show="dn.ahead" x-text="dn.ahead + ' ahead'"></span><span x-show="dn.syncedAgo" x-text="dn.syncedAgo"></span><span x-show="!dn.ahead && !dn.syncedAgo" x-text="dn.active ? 'dev workbench' : 'alternative'"></span></div>
+                                              </div>
+                                            </template>
+                                            <div class="cf-gnode ghost cf-gaddwt" data-node="wtadd" role="button" tabindex="0" @click="cfAddApproach(d)" @keydown.enter.prevent="cfAddApproach(d)" :title="'Start a new worktree — a fresh dev worktree + branch for a different angle of this work item'"><span x-text="(cfPrimarySlot(d) && devApproachOpen[approachKey(d, cfPrimarySlot(d))]) ? '✕ cancel' : '＋ worktree'"></span></div>
+                                          </div>
+                                        </div>
+                                      </template>
                                     </div>
                                     <div class="cf-gtree">
                                       <template x-for="chain in cfGraphChains(d)" :key="'cfch-'+d.id+'-'+(chain.nodes[0] ? chain.nodes[0].key : 'x')">
@@ -11661,13 +11774,29 @@
                                   </div>
                                 </div>
 
+                                <!-- Inline "new aspect" sheet — opens from the ＋ aspect graph node so the whole
+                                    aspect loop (add / switch / promote) lives on the primary surface. -->
+                                <template x-if="cfPrimarySlot(d) && devApproachOpen[approachKey(d, cfPrimarySlot(d))]">
+                                 <div class="cal-approach-sheet" style="margin-top:10px">
+                                  <div class="cal-approach-quick">
+                                    <span class="hint">Quick start</span>
+                                    <template x-for="p in aspectPresets()" :key="'gqp-'+p.id"><button type="button" class="cal-quick-link" :class="{on: approachDraft(d, cfPrimarySlot(d)).preset===p.id}" @click="applyAspectPreset(d, cfPrimarySlot(d), p)" x-text="p.title"></button></template>
+                                  </div>
+                                  <label class="cal-approach-field"><span>Title</span><input type="text" class="field-input" :value="approachDraft(d, cfPrimarySlot(d)).aspect" @input="approachDraft(d, cfPrimarySlot(d)).aspect = $event.target.value" placeholder="e.g. Observability" @keydown.enter.prevent="createDevWorktreeApproach(d, cfPrimarySlot(d))"></label>
+                                   <label class="cal-approach-field"><span>Agent brief <span class="hint" style="font-weight:400">(optional — steers this worktree's agent)</span></span><textarea class="field-input" rows="2" :value="approachDraft(d, cfPrimarySlot(d)).scope" @input="approachDraft(d, cfPrimarySlot(d)).scope = $event.target.value" placeholder="What should this worktree's agent focus on and stay within?"></textarea></label>
+                                   <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                     <button class="cal-tbtn primary" type="button" :disabled="devBusy[slotBusyKey(d, cfPrimarySlot(d))]==='worktree'" @click="createDevWorktreeApproach(d, cfPrimarySlot(d))" x-text="devBusy[slotBusyKey(d, cfPrimarySlot(d))]==='worktree' ? '🌱 Creating…' : '🌱 Create worktree'"></button>
+                                     <button class="cal-tbtn" type="button" @click="toggleNewApproach(d, cfPrimarySlot(d))">Cancel</button>
+                                   </div>
+                                 </div>
+                                </template>
+
                                 <!-- Contextual side summary — swaps with the selected node -->
                                 <template x-if="cfView(d)==='dev'">
                                   <div class="cf-sidesum dev">
-                                    <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfGraphModel(d).dev.branch"></strong><span class="hint" style="font-size:11px">Dev workbench</span></div>
+                                    <div class="cf-sidehead"><span class="cf-dot"></span><strong x-text="cfGraphModel(d).dev.branch"></strong><span class="hint" style="font-size:11px" x-text="cfActiveAspect(d) ? ('Worktree · ' + cfActiveAspect(d)) : 'Dev workbench'"></span><button class="cf-primeact" type="button" style="margin-left:auto;padding:4px 11px;font-size:12px" :disabled="cfDevAction(d).disabled || (cfDevAction(d).kind==='promote' && cfActBusy(d, cfDevAction(d).slot, 'promote'))" @click="cfDevAction(d).kind==='openpr' ? cfNewPr(d) : (cfDevAction(d).kind==='promote' ? cfPromote(d, cfDevAction(d).slot) : null)" x-text="cfDevAction(d).label"></button></div>
                                     <div class="cf-sidebody"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' commit(s) ahead — ready to promote to a PR.'"></span><span x-show="!cfGraphModel(d).dev.ahead">This dev branch owns its own worktree. Build, test &amp; validate here — nothing is pushed without you.</span></div>
                                     <div class="cf-sidewt" x-show="d.worktreePath" x-text="d.worktreePath" :title="d.worktreePath"></div>
-                                    <button class="cf-primeact" type="button" :disabled="cfDevAction(d).disabled || (cfDevAction(d).kind==='promote' && cfActBusy(d, cfDevAction(d).slot, 'promote'))" @click="cfDevAction(d).kind==='openpr' ? cfNewPr(d) : (cfDevAction(d).kind==='promote' ? cfPromote(d, cfDevAction(d).slot) : null)" x-text="cfDevAction(d).label"></button>
                                   </div>
                                 </template>
                                 <template x-if="cfView(d)==='pr' && cfCurPr(d)">
@@ -11684,21 +11813,55 @@
                                 </template>
 
                                                                 <!-- Details &amp; actions drawer (rail + panes) -->
-                                <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id), disabled: sec.disabled }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
-<div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
-                                    <div class="cf-pane" x-show="devActivePane(d)==='repos'">
-                                      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                                
+<div class="cf-body2"><div class="cf-canvas">
+                                    <template x-if="cfView(d)==='root'">
+                                    <div class="cf-pane">
+                                      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center">
                                         <template x-if="d.workItemId">
                                           <a class="pill" :href="devWorkItemUrl(d)" target="_blank" rel="noopener" style="font-size:11px;text-decoration:none" :title="d.workItem ? (d.workItem.type + ': ' + d.workItem.title) : 'Open work item'">
                                             <span x-text="'📋 #' + d.workItemId"></span>
                                             <span x-show="d.workItem && d.workItem.state" x-text="' · ' + (d.workItem ? d.workItem.state : '')"></span>
                                           </a>
                                         </template>
-                                        <span class="hint" x-show="!d.workItemId && !d.prId" style="font-size:11px">No work item / PR linked — ✎ to add.</span>
+                                        <span class="hint" x-show="!d.workItemId" style="font-size:11px">No work item linked — ✎ to add.</span>
+                                      </div>
+                                      <div style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+                                        <div style="font-weight:650;font-size:14px" x-text="(d.workItem && d.workItem.title) ? d.workItem.title : (d.workItemId ? ('Work item #' + d.workItemId) : (d.title || 'Work item'))"></div>
+                                        <p class="cf-agent-explain" style="margin:0">This work item is the root of the branch graph. Every worktree branches from here to tackle a different angle of the work, and each can open its own pull request. Pick a worktree in the graph above, or start a new one from the ＋ node.</p>
+                                        <div x-show="cfGraphModel(d).devs && cfGraphModel(d).devs.length" style="display:flex;flex-direction:column;gap:4px">
+                                          <div class="hint" style="font-size:11px;font-weight:600">Worktrees</div>
+                                          <template x-for="dn in cfGraphModel(d).devs" :key="'rootwt-'+d.id+'-'+dn.key">
+                                            <button type="button" @click="cfFocusDev(d, dn)" :title="(dn.branch || dn.aspect)" style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;border:1px solid var(--cp-border);background:var(--cp-surface);border-radius:calc(var(--cp-radius-scale, 1) * 6px);padding:6px 9px;cursor:pointer;font-size:12px;color:var(--cp-text)">
+                                              <span style="font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="dn.aspect"></span>
+                                              <span class="hint" style="font-size:11px;flex-shrink:0;white-space:nowrap"><span x-show="dn.active">active</span><span x-show="dn.promoted"> · in PR</span><span x-show="dn.ahead" x-text="' · ' + dn.ahead + ' ahead'"></span></span>
+                                            </button>
+                                          </template>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                    <template x-if="cfView(d)==='pr' && cfCurPr(d)">
+                                    <div class="cf-pane">
+                                      <div style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                          <span style="font-weight:650;font-size:14px" x-text="'🔀 ' + cfCurPr(d).num + ' · ' + cfCurPr(d).bn"></span>
+                                          <a :href="cfCurPr(d).href || '#'" target="_blank" rel="noopener" x-show="cfCurPr(d).href" @click.stop style="font-size:11px;text-decoration:none;color:var(--cp-pr);font-weight:600">Open PR ↗</a>
+                                        </div>
+                                        <div class="hint" style="font-size:11px" x-text="'Checks: ' + cfCurPr(d).checks + (cfCurPr(d).approvals ? '  ·  Approvals: ' + cfCurPr(d).approvals : '')"></div>
+                                        <p class="cf-agent-explain" style="margin:0">This pull request owns its own worktree, branched from the dev worktree. Promote or pull review changes using the actions in the summary above; open the worktree to review, build &amp; validate.</p>
+                                        <div class="cf-sidewt" x-show="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" x-text="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath" :title="cfCurPr(d)._slot && cfCurPr(d)._slot.prWorktreePath"></div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                    <template x-if="cfView(d)==='dev'">
+                                    <div class="cf-pane">
+                                      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px" x-show="!d.workItemId && !d.prId">
+                                        <span class="hint" style="font-size:11px">No work item / PR linked — ✎ to add.</span>
                                       </div>
                                       <div style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                          <span style="font-weight:600;font-size:13.5px">🗃 Code</span>
+                                          <span style="font-weight:600;font-size:13.5px">🗃 Worktree</span>
                                           <div style="display:flex;gap:6px;flex-wrap:wrap">
                                             <template x-if="devReadyWorktrees(d) >= 2">
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='workspace'" @click="openDevWorkspace(d,'editor')" title="Open every ready worktree together as one VS Code multi-root workspace" x-text="devBusy[d.id]==='workspace' ? 'Opening…' : '🗂 Open workspace'"></button>
@@ -11734,6 +11897,34 @@
                                               <span x-show="s.prId && s.agentName" class="sep">·</span>
                                               <span x-show="s.agentName" :title="'Dev agent: ' + s.agentName + ' — selectable in VS Code / Copilot; auto-selected when opening the CLI'">agent <span class="mono" x-text="s.agentName"></span></span>
                                             </div>
+                                            <!-- Approaches ("aspects"): each is a distinct dev worktree + branch where agents
+                                                 implement a different angle of the work item. The ACTIVE approach is mirrored to
+                                                 this slot's worktree/PR actions above; switching changes the workbench the card
+                                                 operates on. Shown once at least one worktree exists. -->
+                                            <template x-if="s.worktreePath && s.worktreeStatus !== 'creating'">
+                                              <div class="cal-approaches">
+                                                <span class="cal-approaches-lead">Worktrees</span>
+                                                <template x-for="w in devWorktrees(d, s)" :key="'aw-' + s.id + '-' + w.id">
+                                                  <button type="button" class="cal-approach" :class="{ active: w.id === activeDevWtId(s) }" :disabled="devBusy[slotBusyKey(d,s)]==='activate' || w.worktreeStatus==='creating'" @click="activateDevWorktree(d, s, w.id)" :title="(w.id === activeDevWtId(s) ? 'Active aspect' : 'Switch to this aspect') + (w.scope ? ' — ' + w.scope : '') + (w.branch ? '  (' + w.branch + ')' : '')"><span x-text="approachLabel(w)"></span><span class="cal-approach-hint" x-show="w.worktreeStatus==='creating'"> ·creating</span><span class="cal-approach-hint" x-show="w.worktreeStatus==='error'" style="color:var(--cp-danger)"> ·failed</span><span class="cal-approach-hint" x-show="w.promotedPrId" title="This aspect feeds the pull request" style="color:var(--cp-accent)"> ·in PR</span></button>
+                                                </template>
+                                                <button type="button" class="cal-approach" x-show="mergeAspectCandidates(d, s).length > 1" :disabled="devBusy[slotBusyKey(d,s)]==='merge'" @click="toggleMergeAspect(d, s)" title="Merge one worktree’s work into another">⇄ Merge…</button>
+                                                <div class="cal-aspect-more">
+                                                  <template x-for="w in devWorktrees(d, s)" :key="'lin-' + s.id + '-' + w.id">
+                                                    <div class="cal-aspect-lineage" x-show="w.id === activeDevWtId(s) && mergedFromLabels(w).length"><b x-text="approachLabel(w)"></b> includes: <span x-text="mergedFromLabels(w).join(', ')"></span></div>
+                                                  </template>
+                                                  <template x-if="devMergeOpen[approachKey(d, s)]">
+                                                    <div class="cal-approach-sheet">
+                                                      <label class="cal-approach-field"><span>Merge this worktree</span><select class="field-input" :value="mergeDraft(d,s).source" @change="mergeDraft(d,s).source = $event.target.value"><template x-for="w in mergeAspectCandidates(d, s)" :key="'ms-' + s.id + '-' + w.id"><option :value="w.id" x-text="approachLabel(w) + (w.branch ? '  (' + w.branch + ')' : '')"></option></template></select></label>
+                                                      <label class="cal-approach-field"><span>Into</span><select class="field-input" :value="mergeDraft(d,s).target" @change="mergeDraft(d,s).target = $event.target.value"><template x-for="w in mergeAspectCandidates(d, s)" :key="'mt-' + s.id + '-' + w.id"><option :value="w.id" x-text="approachLabel(w) + (w.branch ? '  (' + w.branch + ')' : '') + (w.id === activeDevWtId(s) ? ' — active (updates the PR)' : '')"></option></template></select></label>
+                                                      <div class="cal-toolbar">
+                                                        <button class="cal-tbtn primary" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='merge'" @click="mergeAspect(d, s)" x-text="devBusy[slotBusyKey(d,s)]==='merge' ? '⇄ Merging…' : '⇄ Merge'"></button>
+                                                        <button class="cal-tbtn" type="button" @click="toggleMergeAspect(d, s)">Cancel</button>
+                                                      </div>
+                                                    </div>
+                                                  </template>
+                                                </div>
+                                              </div>
+                                            </template>
                                             <template x-if="!s.worktreePath && s.worktreeStatus !== 'creating' && s.worktreeStatus !== 'error'">
                                               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                                 <span class="hint" style="font-size:11px">No worktree yet.</span>
@@ -11870,33 +12061,11 @@
                                             </div>
                                           </div>
                                         </template>
-                                        <div x-show="devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px">
-                                          <!-- Agenda.AI agent recommendations -->
-                                          <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
-                                            <div class="dcrec-h">
-                                              <span class="t"><b>✦ Agenda.AI</b> recommends adding</span>
-                                              <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
-                                            </div>
-                                            <template x-for="rec in devRecoList(d)" :key="rec.persona">
-                                              <div class="dcrec-row">
-                                                <span class="dagr-dot" :style="devAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
-                                                <span class="dcrec-body">
-                                                  <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
-                                                  <span class="dcrec-why" x-html="rec.why"></span>
-                                                  <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="devRecoConfLabel(rec)"></span>
-                                                </span>
-                                                <span class="dcrec-acts">
-                                                  <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="devAgentBusy[d.id+':'+rec.persona]" @click="addRecoAgent(d, rec)" x-text="devAgentBusy[d.id+':'+rec.persona] ? '…' : '＋ Add'"></button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissReco(d, rec)">Dismiss</button>
-                                                </span>
-                                              </div>
-                                            </template>
-                                            <div class="dcrec-foot">
-                                              <button class="dcrec-link" type="button" @click="addAllReco(d)">Add all recommended</button>
-                                              <button class="dcrec-link" type="button" @click="toggleDevPicker(d)">Browse all agents →</button>
-                                            </div>
-                                          </div>
-                                          <div class="dagr-h">
+                                        
+                                      </div>
+                                    </div>
+                                    </template>
+                                    <div x-show="cfView(d)!=='root' && (devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length)" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px"><div class="dagr-h">
                                             <span class="lbl">Agents on this card</span>
                                             <span class="cnt" x-show="(d.devAgents||[]).length" x-text="((d.devAgents||[]).length)+' '+((d.devAgents||[]).length===1?'agent':'agents')"></span>
                                           </div>
@@ -11940,9 +12109,36 @@
                                             </div>
                                           </div>
                                         </div>
-                                      </div>
-                                    </div>
-                                    <div class="cf-pane" x-show="devActivePane(d)==='artifacts'">
+                                        <div x-show="devRecoList(d).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                          <!-- Agenda.AI agent recommendations -->
+                                          <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
+                                            <div class="dcrec-h dcrec-h-toggle" @click="devRecoOpen[d.id] = !devRecoOpen[d.id]" role="button" tabindex="0" @keydown.enter.prevent="devRecoOpen[d.id] = !devRecoOpen[d.id]">
+                                              <span class="t"><span class="dcrec-caret" x-text="devRecoOpen[d.id] ? '▾' : '▸'"></span><b>✦ Agenda.AI</b> recommends adding<span class="dcrec-cnt" x-text="devRecoList(d).length"></span></span>
+                                              <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click.stop="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
+                                            </div>
+                                            <div x-show="devRecoOpen[d.id]" x-cloak>
+                                            <template x-for="rec in devRecoList(d)" :key="rec.persona">
+                                              <div class="dcrec-row">
+                                                <span class="dagr-dot" :style="devAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
+                                                <span class="dcrec-body">
+                                                  <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
+                                                  <span class="dcrec-why" x-html="rec.why"></span>
+                                                  <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="devRecoConfLabel(rec)"></span>
+                                                </span>
+                                                <span class="dcrec-acts">
+                                                  <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="devAgentBusy[d.id+':'+rec.persona]" @click="addRecoAgent(d, rec)" x-text="devAgentBusy[d.id+':'+rec.persona] ? '…' : '＋ Add'"></button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissReco(d, rec)">Dismiss</button>
+                                                </span>
+                                              </div>
+                                            </template>
+                                            <div class="dcrec-foot">
+                                              <button class="dcrec-link" type="button" @click="addAllReco(d)">Add all recommended</button>
+                                              <button class="dcrec-link" type="button" @click="toggleDevPicker(d)">Browse all agents →</button>
+                                            </div>
+                                          </div>
+                                          </div>
+                                          </div>
+                                    </div><div class="cf-artrail"><p class="cf-arthead">Artifacts</p><div class="cf-pane">
                                       <div style="display:flex;flex-direction:column;gap:10px">
                                        <template x-if="d.reports && d.reports.length">
                                          <div style="display:flex;flex-direction:column;gap:4px">
@@ -11954,7 +12150,7 @@
                                              <template x-for="r in d.reports" :key="r.cacheRel || r.rel">
                                                <div class="cal-row">
                                                  <a class="cal-row-link" :href="devReportUrl(d,r)" target="_blank" rel="noopener" :title="'Open ' + (r.rel || '') + ' in a new tab — ' + formatRelative(devReportTime(r))">
-                                                   <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span><span x-show="devReportsMultiRepo(d) && r.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.repo"></span>
+                                                   <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span><span x-show="devReportsMultiRepo(d) && r.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.repo"></span><span x-show="devReportsMultiApproach(d) && r.aspect" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.aspect"></span>
                                                  </a>
                                                  <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                                                  <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
@@ -11991,7 +12187,7 @@
                                        <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
                                       </div>
                                     </div>
-                                    <div class="cf-pane" x-show="devActivePane(d)==='boards'">
+                                    <div class="cf-pane" x-show="false" style="display:none">
                                       <div style="display:flex;flex-direction:column;gap:6px">
                                         <span class="cal-caption">📌 Boards</span>
                                         <template x-if="!devPinnedBoards(d).length">
@@ -26549,6 +26745,8 @@
         // High-confidence autoAdd personas are added silently; the rest surface here.
         devRecos: {},
         devRecoDismissed: {},
+        // Per-card collapse state for the recommendations list (default collapsed).
+        devRecoOpen: {},
         // PR-card playbook-agent parallel to the dev-card roster above: catalog +
         // per-PR picker/busy state + recommendation strip (keyed by cfPrKey).
         prPersonas: [],
@@ -26561,6 +26759,12 @@
         // Per-slot commit-detail panel: open flag + loaded data keyed by slot.
         slotCommitsOpen: {},
         slotCommits: {},
+        // Per-slot "new approach" input sheet: open flag + aspect/scope draft,
+        // keyed by slotCommitsKey (card id + repo slot).
+        devApproachOpen: {},
+        devApproachDraft: {},
+        devMergeOpen: {},
+        devMergeDraft: {},
         devLinkDraft: {},
         devNoteDraft: {},
         devNoteEdit: {},
@@ -42297,7 +42501,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else {
             wtAttn = !!(wt && wt.worktreeStatus === 'error');
           }
-          s.push({ id: 'worktree', label: '🗃 Code', attn: wtAttn });
+          s.push({ id: 'worktree', label: '🗃 Worktree', attn: wtAttn });
           const arts = (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) ? ((wt.reports || []).length || 1) : 0;
           s.push({ id: 'links', label: '🔗 Artifacts', count: arts || undefined, disabled: !arts });
           const pinned = this.cfPrPinnedBoards(pr);
@@ -50684,7 +50888,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s.worktreeStatus === 'error') { repoAttn = true; break; }
             if (s.worktreePath && this.devGitBadge(s).attention) { repoAttn = true; break; }
           }
-          secs.push({ id: 'repos', label: '🗃 Code', count: slots.length, attn: repoAttn });
+          secs.push({ id: 'repos', label: '🗃 Worktree', count: slots.length, attn: repoAttn });
           const artCount = ((d && d.reports && d.reports.length) || 0) + ((d && d.links && d.links.length) || 0);
           secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount, disabled: !artCount });
           return secs;
@@ -50759,10 +50963,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // (base=main, stacked=false) => a solid-cyan fan off the dev node. A genuine
         // same-repo stacked PR (pr/<slug>-<N> based on another PR) is a later phase.
         cfGraphModel(d) {
-          if (!d) return { dev: { branch: '', ahead: 0, syncedAgo: '' }, prs: [] };
+          if (!d) return { dev: { branch: '', ahead: 0, syncedAgo: '' }, devs: [], hasFan: false, prs: [] };
           const ahead = (d.git && Number(d.git.ahead)) || 0;
           const syncedAgo = (d.git && d.git.syncedAgo) || (d.worktreeStatus === 'ready' ? 'synced' : '');
           const dev = { branch: d.branch || ('dev/' + this._cfSlug(d)), ahead, syncedAgo };
+          // Fan a dev node per approach (dev worktree) on the primary repo slot. The
+          // ACTIVE approach keeps key 'dev' (so all existing wiring — cfView/cfCurPr/
+          // cfDevAction/YAH/PR edges — is untouched); alternatives get key 'dev:<wtId>'.
+          const primarySlot = (this.devSlots(d) || []).find(s => s.primary) || (this.devSlots(d) || [])[0] || null;
+          const wts = primarySlot ? this.devWorktrees(d, primarySlot) : [];
+          const activeWtId = primarySlot ? this.activeDevWtId(primarySlot) : 'main';
+          const devs = wts.map(w => {
+            const active = (w.id === activeWtId);
+            const g = w.git || (active ? d.git : null) || {};
+            return {
+              key: active ? 'dev' : ('dev:' + w.id),
+              wtId: w.id,
+              active,
+              promoted: !!w.promotedPrId,
+              aspect: this.approachLabel(w),
+              branch: w.branch || (active ? dev.branch : ''),
+              ahead: active ? ahead : (Number(g.ahead) || 0),
+              syncedAgo: active ? syncedAgo : (g.syncedAgo || (w.worktreeStatus === 'ready' ? 'synced' : '')),
+              status: w.worktreeStatus || '',
+              mergedFrom: Array.isArray(w.mergedFrom) ? w.mergedFrom.slice() : []
+            };
+          });
+          const anyWt = wts.some(w => w.worktreePath);
+          const hasFan = devs.length > 1 || anyWt;
           const prs = [];
           const slots = this.devSlots(d);
           for (const s of slots) {
@@ -50790,7 +51018,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               _slot: s
             });
           }
-          return { dev, prs };
+          return { dev, devs, hasFan, prs };
         },
         _cfSlug(d) {
           const raw = (d && (d.branch || d.workItemId || d.title || d.id) || '').toString();
@@ -50832,8 +51060,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             walk(p, arr);
             chains.push({ nodes: arr });
           }
-          // ghost "new PR" node always hangs off dev
-          chains.push({ nodes: [{ key: 'ghost', kind: 'ghost', parent: 'dev', label: prs.length ? '＋ New PR' : '＋ Open first PR' }] });
           return chains;
         },
         cfNodeDot(n) {
@@ -50859,8 +51085,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!this.codeflow.gnode) this.codeflow.gnode = {};
           if (!this.codeflow.gview) this.codeflow.gview = {};
           this.codeflow.gnode[d.id] = key;
-          this.codeflow.gview[d.id] = (key === 'dev') ? 'dev' : 'pr';
+          this.codeflow.gview[d.id] = (key === 'dev') ? 'dev' : (key === 'root' ? 'root' : 'pr');
           this.$nextTick(() => this.cfDrawEdges(d));
+        },
+        // Click an approach dev node in the fan. The active one opens the Dev workbench;
+        // an alternative activates that approach (re-mirrors the slot) and the graph
+        // rebuilds so it becomes the 'dev' node, then selects the workbench.
+        cfFocusDev(d, dn) {
+          if (!d || !dn) return;
+          if (dn.active) { this.cfFocusNode(d, 'dev'); return; }
+          const primary = (this.devSlots(d) || []).find(s => s.primary) || (this.devSlots(d) || [])[0];
+          if (!primary || !dn.wtId) return;
+          Promise.resolve(this.activateDevWorktree(d, primary, dn.wtId)).then(() => this.cfFocusNode(d, 'dev'));
         },
         // Open the New PR affordance for a dev card. If the card's primary repo has no
         // PR yet, that's the common "open first PR" path; else add another.
@@ -50870,6 +51106,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (primary && !primary.prId) { this.slotCreatePr(d, primary); return; }
           // additional PR: for now route to the primary create (same-repo fan = later phase)
           this.slotCreatePr(d, primary);
+        },
+        // The card's primary repo slot (owns the single PR + the aspect worktrees).
+        cfPrimarySlot(d) { const ss = this.devSlots(d) || []; return ss.find(s => s.primary) || ss[0] || null; },
+        // Label of the currently-active aspect (the promoted / checked-out dev worktree).
+        cfActiveAspect(d) {
+          const s = this.cfPrimarySlot(d);
+          if (!s) return '';
+          const id = this.activeDevWtId(s);
+          const w = (this.devWorktrees(d, s) || []).find(x => x.id === id);
+          return w ? this.approachLabel(w) : '';
+        },
+        // Open the inline "new aspect" sheet on the primary slot + repaint edges (the
+        // ＋ aspect add-node changes the DOM node count cfDrawEdges keys off).
+        cfAddApproach(d) {
+          const s = this.cfPrimarySlot(d);
+          if (!s) return;
+          this.toggleNewApproach(d, s);
+          this.$nextTick(() => this.cfDrawEdges(d));
+        },
+        // Reactive signature of the graph so x-effect repaints edges whenever the
+        // model changes (e.g. a PR is linked/loaded AFTER the one-shot x-init +
+        // self-heal window has expired — the node appears but no edge would redraw).
+        // Touching these reactive fields registers the dependency for x-effect.
+        cfEdgeSig(d) {
+          try {
+            const m = this.cfGraphModel(d);
+            const devs = (m.devs || []).map(x => x.key + ':' + (x.ahead || 0) + ':' + (x.active ? 1 : 0) + ':' + (x.status || '')).join(',');
+            const prs = (m.prs || []).map(p => p.key + ':' + (p.promote || 0) + ':' + (p.pull || 0) + ':' + p.checks + ':' + p.bn).join(',');
+            return (m.hasFan ? 'F' : 'S') + '|' + devs + '|' + prs + '|' + this.cfNodeKey(d);
+          } catch (e) { return ''; }
         },
         // Imperative edge drawer (ported from the mock). Reads live DOM rects so edges
         // track exactly. Independent (parent=dev) = solid cyan; stacked = dashed violet
@@ -50884,7 +51150,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Self-heal for first render: the PR/ghost nodes come from nested x-for/x-if
           // templates that may not be laid out yet when x-init fires. If the graph box
           // has no width or the expected node count isn't in the DOM, retry next frame.
-          const expected = 1 + m.prs.length + 1; // dev + prs + ghost
+          const expected = (m.hasFan ? m.devs.length + 1 : 1) + m.prs.length; // devs (+ aspect-add node) + prs
           const present = wrap.querySelectorAll('.cf-gnode[data-node]').length;
           if ((box.width < 2 || present < expected) && (_try || 0) < 30) {
             requestAnimationFrame(() => this.cfDrawEdges(d, (_try || 0) + 1));
@@ -50893,7 +51159,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           svg.setAttribute('width', box.width);
           svg.setAttribute('height', box.height);
           svg.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
-          const nodeEl = k => wrap.querySelector('.cf-gnode[data-node="' + (window.CSS && CSS.escape ? CSS.escape(k) : k) + '"]');
+          const nodeEl = k => wrap.querySelector('[data-node="' + (window.CSS && CSS.escape ? CSS.escape(k) : k) + '"]');
           const center = el => {
             const r = el.getBoundingClientRect();
             return { l: r.left - box.left, r: r.right - box.left, y: r.top - box.top + r.height / 2 };
@@ -50929,11 +51195,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           };
           const cyan = 'var(--cp-pr)', violet = 'var(--cp-dev)', ghost = 'var(--cp-border-strong)';
+          // Approach fan: each approach branches off the shared 'root'. The active
+          // approach gets a solid violet edge; alternatives are dashed neutral.
+          if (m.hasFan) {
+            for (const dn of m.devs) {
+              if (dn.active) edge('root', 'dev', { col: violet });
+              else edge('root', dn.key, { col: ghost, ghost: true });
+            }
+            edge('root', 'wtadd', { col: ghost, ghost: true });
+          }
           for (const p of m.prs) {
             if (p.stacked) edge(p.base, p.key, { col: violet, stacked: true, parentBn: p.base, pr: p });
             else edge('dev', p.key, { col: cyan, pr: p });
           }
-          edge('dev', 'ghost', { col: ghost, ghost: true });
           svg.innerHTML = parts.join('');
           for (const l of labels) {
             const el = document.createElement('div');
@@ -51609,6 +51883,163 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             delete this.devBusy[d.id];
           }
         },
+        // ===== Multi-approach dev worktrees ("aspects") =====
+        // A repo slot can hold several independent dev worktrees, each its own
+        // dev/<slug>-<n> branch + workspace where agents implement a distinct
+        // aspect of the work item. Switching the active approach mirrors that
+        // worktree onto the slot's top-level fields (server-side).
+        approachKey(d, s) { return this.slotCommitsKey(d, s); },
+        approachDraft(d, s) {
+          const k = this.approachKey(d, s);
+          return this.devApproachDraft[k] || (this.devApproachDraft[k] = { aspect: '', scope: '', fromWtId: '', preset: '' });
+        },
+        // Quick-start presets — one click prefills the Title + Agent brief for a
+        // common kind of aspect. The brief is what actually steers this aspect's
+        // own agent (server injects it as "Your focus for this aspect"); no
+        // per-aspect persona plumbing is involved.
+        aspectPresets() {
+          return [
+            { id: 'implement', title: 'Implementer', brief: '' },
+            { id: 'observability', title: 'Observability', brief: 'Focus on telemetry, logging, metrics and tracing. Add or improve the signals needed to understand this system in production; do not change unrelated behavior.' },
+            { id: 'performance', title: 'Performance', brief: 'Focus on performance: find hot paths, measure, and reduce latency/allocations/work. Prefer measured wins over speculative rewrites; keep behavior identical.' },
+            { id: 'security', title: 'Security', brief: 'Focus on security: review inputs, auth, secrets, injection and unsafe calls in this area. Report and fix concrete vulnerabilities; avoid unrelated refactors.' },
+            { id: 'tests', title: 'Tests & coverage', brief: 'Focus on test coverage for this area: add meaningful unit/integration tests for the important and edge-case paths. Do not change production behavior to make tests pass.' },
+            { id: 'design-review', title: 'Design review', brief: 'Focus on the design/architecture of this change: assess structure, boundaries and tradeoffs, and propose concrete improvements before deep implementation.' },
+            { id: 'docs', title: 'Docs', brief: 'Focus on documentation: update or add the docs, comments and READMEs needed for this work. Keep them accurate and concise; no functional code changes.' },
+          ];
+        },
+        applyAspectPreset(d, s, p) {
+          if (!d || !s || !p) return;
+          const draft = this.approachDraft(d, s);
+          draft.aspect = p.title;
+          draft.scope = p.brief;
+          draft.preset = p.id;
+        },
+        toggleNewApproach(d, s) {
+          const k = this.approachKey(d, s);
+          this.devApproachOpen[k] = !this.devApproachOpen[k];
+          if (this.devApproachOpen[k]) {
+            const draft = this.approachDraft(d, s);
+            // Default to the straight "Implementer" path so opening the sheet and
+            // hitting Create just works — no lens or focus required. The agent
+            // brief stays available for optional steering.
+            if (!draft.aspect && !draft.preset) {
+              const impl = this.aspectPresets().find(p => p.id === 'implement');
+              if (impl) this.applyAspectPreset(d, s, impl);
+            }
+          }
+        },
+        // Create a new approach (a distinct dev worktree) on a repo slot. The
+        // server seeds a dev/<slug>-<n> branch off the base (or off fromWtId's
+        // branch tip) in its own worktree dir, then switches the active approach
+        // to it once the clone lands.
+        async createDevWorktreeApproach(d, s) {
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s);
+          if (this.devBusy[key]) return;
+          const draft = this.approachDraft(d, s);
+          const aspect = (draft.aspect || '').trim();
+          if (!aspect) { this.showToast('Dev card', 'Give this aspect a short title (a label for the part of the work it tackles).', 'error'); return; }
+          this.devBusy[key] = 'worktree';
+          try {
+            const body = JSON.stringify({ repoId: s.id, aspect, scope: (draft.scope || '').trim(), fromWtId: draft.fromWtId || this.activeDevWtId(s) || '' });
+            const r = await this.request(this._devUrl(d, 'dev-worktree'), { method: 'POST', body });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.devApproachOpen[this.approachKey(d, s)] = false;
+            this.devApproachDraft[this.approachKey(d, s)] = { aspect: '', scope: '', fromWtId: '', preset: '' };
+            this.showToast('Dev card', '🌱 Creating a new aspect "' + aspect + '" — this can take a moment…', 'info');
+            // The server flips the pending entry creating→ready and switches the
+            // active approach to it in the background; poll for the outcome.
+            this._pollDevWorktree(d.id);
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not create the aspect', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        // Switch which approach is active on a repo slot. The active approach is
+        // the one mirrored to the slot's top-level worktree/branch/PR fields, so
+        // switching changes which workbench the card's other actions operate on.
+        async activateDevWorktree(d, s, wtId) {
+          if (!d || !s || !wtId) return;
+          if (wtId === this.activeDevWtId(s)) return;
+          const key = this.slotBusyKey(d, s);
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'activate';
+          try {
+            const r = await this.request(this._devUrl(d, 'dev-worktree/activate'), { method: 'POST', body: JSON.stringify({ repoId: s.id, wtId }) });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.showToast('Dev card', 'Switched active aspect.', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not switch the aspect', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        // ---- Aspect → aspect merge (layer one aspect's work into another) ----
+        // Aspects on a repo can merge into each other freely and repeatedly: the
+        // chosen source aspect's branch is merged into the target aspect's branch
+        // (a local git merge run inside the target's worktree). The target records
+        // its merge lineage so the card can show which aspects it now contains, and
+        // if the target is the aspect currently feeding the repo's PR the merge is
+        // promoted so the open PR updates.
+        mergeDraft(d, s) {
+          const k = this.approachKey(d, s);
+          if (!this.devMergeDraft[k]) this.devMergeDraft[k] = { source: '', target: '' };
+          return this.devMergeDraft[k];
+        },
+        toggleMergeAspect(d, s) {
+          const k = this.approachKey(d, s);
+          this.devMergeOpen[k] = !this.devMergeOpen[k];
+          if (this.devMergeOpen[k]) {
+            const draft = this.mergeDraft(d, s);
+            const list = this.mergeAspectCandidates(d, s);
+            const active = this.activeDevWtId(s);
+            if (!draft.source) draft.source = list.some(w => w.id === active) ? active : (list[0] ? list[0].id : '');
+            if (!draft.target) { const other = list.find(w => w.id !== draft.source); draft.target = other ? other.id : ''; }
+          }
+        },
+        // Aspects eligible to take part in a merge — real, ready worktrees on this slot.
+        mergeAspectCandidates(d, s) {
+          return (this.devWorktrees(d, s) || []).filter(w => w && w.branch && w.worktreeStatus !== 'creating' && w.worktreeStatus !== 'error');
+        },
+        // Labels of the aspects a given aspect has absorbed (its merge lineage).
+        mergedFromLabels(w) {
+          if (!w || !Array.isArray(w.mergedFrom)) return [];
+          return w.mergedFrom.map(x => (x && x.aspect) || '').filter(Boolean);
+        },
+        async mergeAspect(d, s) {
+          if (!d || !s) return;
+          const draft = this.mergeDraft(d, s);
+          const sourceWtId = draft.source, targetWtId = draft.target;
+          if (!sourceWtId || !targetWtId) { this.showToast('Dev card', 'Pick a source and a target aspect.', 'error'); return; }
+          if (sourceWtId === targetWtId) { this.showToast('Dev card', 'Pick two different aspects.', 'error'); return; }
+          const key = this.slotBusyKey(d, s);
+          if (this.devBusy[key]) return;
+          const list = this.mergeAspectCandidates(d, s);
+          const sLbl = this.approachLabel(list.find(w => w.id === sourceWtId) || {});
+          const tLbl = this.approachLabel(list.find(w => w.id === targetWtId) || {});
+          this.devBusy[key] = 'merge';
+          try {
+            const r = await this.request(this._devUrl(d, 'dev-worktree/merge'), { method: 'POST', body: JSON.stringify({ repoId: s.id, sourceWtId, targetWtId }) });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.devMergeOpen[this.approachKey(d, s)] = false;
+            const msg = (r && r.merged === 0) ? ('"' + tLbl + '" already contains "' + sLbl + '".') : ('Merged "' + sLbl + '" into "' + tLbl + '".' + (r && r.prUpdated ? ' PR updated.' : ''));
+            this.showToast('Dev card', msg, 'success');
+          } catch (e) {
+            const m = (e && e.message) || 'Merge failed';
+            if (/conflict/i.test(m)) this.showToast('Dev card', 'Merge hit conflicts and was rolled back — resolve "' + sLbl + '" vs "' + tLbl + '" manually.', 'error');
+            else this.showToast('Dev card', m, 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        // A short human label for an approach worktree row (aspect + status hint).
+        approachLabel(w) {
+          if (!w) return '';
+          const a = (w.aspect || '').trim() || (w.id === 'main' ? 'Main' : w.branch || 'approach');
+          return a;
+        },
         // True when the dev card has an OPEN PR whose source branch differs from the
         // card's default dev branch — i.e. there's a distinct PR branch to open against.
         devPrBranchAvailable(d) {
@@ -51671,6 +52102,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const set = new Set();
           for (const r of rs) set.add((r && (r.repoId || r.repo)) || 'primary');
           return set.size > 1;
+        },
+        // True when a card has more than one dev worktree ("approach") on any repo
+        // slot — used to show a muted "· <approach>" tag so reports produced by
+        // different approaches are distinguishable in the unified Artifacts list.
+        devReportsMultiApproach(d) {
+          try { return (this.devSlots(d) || []).some(s => (this.devWorktrees(d, s) || []).length > 1); }
+          catch { return false; }
         },
         devLinkHref(d, l) {
           // A link backed by a cached local file is served (and survives worktree
@@ -52321,11 +52759,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
               worktreeError: d.worktreeError || null, git: d.git || null,
                 prBranch: d.prBranch || '', prWorktreePath: d.prWorktreePath || '', prDivergence: d.prDivergence || null,
-                agentName: d.devAgentName || '', prId: d.prId || '', pr: d.pr || null
+                  agentName: d.devAgentName || '', prId: d.prId || '', pr: d.pr || null,
+                  devs: Array.isArray(d.devs) ? d.devs : null, activeDevId: d.activeDevId || null
             });
           }
           for (const r of ((d && d.repos) || [])) if (r && r.id) slots.push({ ...r, primary: false, agentName: r.agentName || '', prId: r.prId || '', pr: r.pr || null });
           return slots;
+        },
+        // The dev worktrees ("approaches") on a repo slot. Mirrors the server's
+        // _slotDevWorktrees: a slot may hold many independent approaches, each its
+        // own dev/<slug>-<n> branch + worktree + agent + reports. Legacy slots with
+        // a single top-level worktree migrate to devs[0] (aspect "Main").
+        devWorktrees(d, s) {
+          const slot = s || (this.devSlots(d) || [])[0];
+          if (!slot) return [];
+          const list = Array.isArray(slot.devs) ? slot.devs.filter(Boolean) : [];
+          if (list.length) return list;
+          return [{
+            id: 'main', aspect: 'Main', scope: '',
+            branch: slot.branch || '', worktreePath: slot.worktreePath || '',
+            worktreeStatus: slot.worktreeStatus || null, worktreeError: slot.worktreeError || null,
+            git: slot.git || null, agentName: slot.agentName || '',
+            promotedPrId: (slot.prId && slot.prBranch) ? String(slot.prId) : '', createdAt: slot.createdAt || null
+          }];
+        },
+        // The active dev worktree id on a slot (the one mirrored to the slot's
+        // top-level fields). Defaults to the first approach.
+        activeDevWtId(s) {
+          const list = (Array.isArray(s && s.devs) ? s.devs.filter(Boolean) : []);
+          if (s && s.activeDevId && list.some(w => w.id === s.activeDevId)) return s.activeDevId;
+          return (list[0] && list[0].id) || 'main';
         },
         // The devBusy key for a slot: the card id for the primary, a composite for extras.
         slotBusyKey(d, s) { return (s && s.primary) ? d.id : d.id + '#' + (s && s.id); },

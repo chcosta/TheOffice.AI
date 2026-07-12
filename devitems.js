@@ -167,6 +167,56 @@ function _branchWorktree(clone, br) {
   return '';
 }
 
+// Free local branch `br` from any FOREIGN worktree that currently has it checked
+// out (i.e. a worktree other than `keepDir`). Under the current model a real
+// branch lives in exactly one place: dev/<slug> in the dev card's own worktree,
+// pr/<slug>-N in that PR's own worktree. Anything else holding it is a review
+// checkout that should have been detached (legacy non-detached cfpr dirs squat
+// the branch and block the rightful owner from `git worktree add`). We detach
+// those in place — the working tree stays at the same commit, HEAD just goes
+// detached — releasing the branch name. `git worktree add` can then reclaim it.
+// Returns the list of dirs we freed (for logging). Never throws.
+function _freeBranchFromForeignWorktrees(clone, br, keepDir) {
+  const freed = [];
+  const r = _gitTry(['worktree', 'list', '--porcelain'], clone);
+  if (!r.ok || !r.out) return freed;
+  const want = 'refs/heads/' + br;
+  const keep = path.resolve(keepDir || '');
+  let cur = '';
+  const holders = [];
+  for (const raw of r.out.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('worktree ')) { cur = line.slice(9).trim(); continue; }
+    if ((line === 'branch ' + want || line === 'branch ' + br) && cur) holders.push(cur);
+  }
+  for (const dir of holders) {
+    if (keep && path.resolve(dir) === keep) continue;   // the rightful owner — leave it
+    // Detach HEAD in place at the current commit so the branch name is released
+    // but the checked-out tree (and any review artifacts) survive.
+    if (_gitTry(['checkout', '--detach'], dir).ok || _gitTry(['switch', '--detach'], dir).ok) {
+      freed.push(dir);
+    }
+  }
+  if (freed.length) _gitTry(['worktree', 'prune'], clone);
+  return freed;
+}
+
+// Add a worktree for local branch `br`, first freeing it from any foreign
+// worktree that squats it (see _freeBranchFromForeignWorktrees). On the initial
+// add failing with "already used by worktree", free + retry once. Throws (via
+// _git) only if the retry also fails.
+function _addBranchWorktreeReclaiming(clone, wt, br) {
+  _freeBranchFromForeignWorktrees(clone, br, wt);
+  const first = _gitTry(['worktree', 'add', wt, br], clone);
+  if (first.ok) return;
+  if (/already used by worktree|already checked out/i.test(first.err)) {
+    _freeBranchFromForeignWorktrees(clone, br, wt);
+    _git(['worktree', 'add', wt, br], clone);   // throw with a clean message if still stuck
+    return;
+  }
+  throw new Error(first.err);
+}
+
 // Ensure the managed clone exists and is fetched. Returns the clone path.
 // `desc` (optional) carries {provider, org/owner, project, repo}; when absent
 // the record is treated as Azure DevOps (back-compat with positional callers).
@@ -232,8 +282,11 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId, detach,
 
   if (localHas) {
     // Check out the pre-existing local branch into the new worktree (no -b/-B so we
-    // don't discard any local commits the branch already carries).
-    _git(['worktree', 'add', wt, br], clone);
+    // don't discard any local commits the branch already carries). If a foreign
+    // worktree (e.g. a legacy non-detached PR-review checkout) is squatting the
+    // branch, free it first and reclaim — this is the fix for dev cards that could
+    // never (re)create their own worktree because a review dir held dev/<slug>.
+    _addBranchWorktreeReclaiming(clone, wt, br);
   } else if (remoteHas) {
     // Track the existing remote branch.
     _git(['worktree', 'add', '--track', '-B', br, wt, 'origin/' + br], clone);
@@ -264,8 +317,9 @@ function createPrWorktree({ org, project, repo, provider, prBranch, fromRef, wtD
   _gitTry(['worktree', 'prune'], clone);
   const localHas = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok;
   if (localHas) {
-    // Branch already exists (e.g. a re-open after the worktree dir was removed) — attach it.
-    _git(['worktree', 'add', wt, br], clone);
+    // Branch already exists (e.g. a re-open after the worktree dir was removed) — attach it,
+    // freeing it from any foreign worktree squatting it first.
+    _addBranchWorktreeReclaiming(clone, wt, br);
   } else {
     // Seed the new PR branch at the dev tip. `fromRef` is a local ref (the dev branch)
     // whose commit is a real object in this shared clone, so branching from it works
@@ -364,6 +418,41 @@ function pullFromPr(devWt, { devBranch, prBranch } = {}) {
   if (!merged.ok) merged = _gitTry(['merge', '--no-edit', prRef], devWt);
   if (!merged.ok) return { ok: false, pulled: n, message: 'Could not pull (merge failed — resolve conflicts in the dev worktree): ' + merged.err.split('\n').slice(-2).join(' ').slice(0, 260) };
   return { ok: true, pulled: n, message: 'Pulled ' + n + ' review commit' + (n === 1 ? '' : 's') + ' into dev.' };
+}
+
+// Merge one aspect's branch INTO another aspect's branch, running inside the
+// TARGET aspect's worktree. Both branches are local branches of the same shared
+// clone (every aspect is a worktree of it), so this is a local merge only — the
+// source branch is referenced as a ref and never checked out here. Nothing is
+// pushed; the caller decides whether to promote/push afterwards (e.g. when the
+// target aspect owns the repo PR). Fast-forwards when possible, else a merge
+// commit. Returns { ok, merged, message }. Never throws.
+function mergeAspectBranch(targetWt, { sourceBranch, targetBranch, desc = null } = {}) {
+  if (!targetWt || !_isRepo(targetWt)) return { ok: false, merged: 0, message: 'Target aspect worktree is missing.' };
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  const tgt = String(targetBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!src || !tgt) return { ok: false, merged: 0, message: 'sourceBranch and targetBranch are required.' };
+  if (src === tgt) return { ok: false, merged: 0, message: 'An aspect cannot merge into itself.' };
+  const srcRef = 'refs/heads/' + src;
+  if (!_gitTry(['rev-parse', '--verify', '--quiet', srcRef], targetWt).ok) return { ok: false, merged: 0, message: 'Source aspect branch ' + src + ' not found.' };
+  // Ensure the target worktree is actually on the target branch before merging.
+  const cur = (_gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], targetWt).out || '').trim();
+  if (cur !== tgt) {
+    const co = _gitTry(['checkout', tgt], targetWt);
+    if (!co.ok) return { ok: false, merged: 0, message: 'Could not switch the target aspect worktree to ' + tgt + ': ' + co.err.split('\n').slice(-2).join(' ').slice(0, 200) };
+  }
+  const cnt = _gitTry(['rev-list', '--count', tgt + '..' + src], targetWt);
+  const n = cnt.ok ? (parseInt(cnt.out, 10) || 0) : 0;
+  if (n === 0) return { ok: true, merged: 0, message: 'This aspect already contains everything from ' + src + '.' };
+  _ensureGitIdentity(targetWt);
+  let merged = _gitTry(['merge', '--ff-only', srcRef], targetWt);
+  if (!merged.ok) merged = _gitTry(['merge', '--no-edit', srcRef], targetWt);
+  if (!merged.ok) {
+    // Abort a half-applied merge so the worktree is left clean, not mid-conflict.
+    _gitTry(['merge', '--abort'], targetWt);
+    return { ok: false, merged: n, conflict: true, message: 'Merge failed — resolve conflicts in the target aspect worktree: ' + merged.err.split('\n').slice(-2).join(' ').slice(0, 260) };
+  }
+  return { ok: true, merged: n, message: 'Merged ' + n + ' commit' + (n === 1 ? '' : 's') + ' from ' + src + '.' };
 }
 
 // Compute ahead/behind/dirty for a worktree. Optionally fetch first.
@@ -1296,6 +1385,11 @@ function _cacheSlotReports(boardId, devId, slot) {
     r.repoId = repoId;
     r.repo = slot.repo || '';
     r.cacheRel = cacheRel;
+    // Per-approach tags (dev-worktree "approaches") when the caller supplied them.
+    if (slot.wtId != null) r.wtId = slot.wtId;
+    if (slot.aspect != null) r.aspect = slot.aspect;
+    if (slot.active != null) r.approachActive = !!slot.active;
+    if (slot.promotedPrId) r.promotedPrId = String(slot.promotedPrId);
     // Keep generated reports out of git so they never dirty the card / a push.
     try { addGitExclude(slot.worktreePath, r.rel); } catch {}
   }
@@ -1331,6 +1425,11 @@ function listCachedReportsForSlots(boardId, devId, slots) {
       r.repo = s.repo || '';
       r.cacheRel = ns ? (ns + '/' + r.rel) : r.rel;
       r.cached = true;
+      // Per-approach tags (dev-worktree "approaches") when the caller supplied them.
+      if (s.wtId != null) r.wtId = s.wtId;
+      if (s.aspect != null) r.aspect = s.aspect;
+      if (s.active != null) r.approachActive = !!s.active;
+      if (s.promotedPrId) r.promotedPrId = String(s.promotedPrId);
     }
     for (const r of reports) out.push(r);
   }
@@ -1426,6 +1525,7 @@ module.exports = {
   devPrDivergence,
   promoteToPr,
   pullFromPr,
+  mergeAspectBranch,
   createWorktreeAsync,
   worktreeStatus,
   branchCommits,

@@ -27693,7 +27693,8 @@ function _devRepoSlots(d) {
       branch: d.branch, baseBranch: d.baseBranch,
       prId: d.prId || '', prBranch: d.prBranch || '', prWorktreePath: d.prWorktreePath || '', prSeq: d.prSeq || 0,
       worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
-      worktreeError: d.worktreeError || null, git: d.git || null
+      worktreeError: d.worktreeError || null, git: d.git || null,
+      devs: Array.isArray(d.devs) ? d.devs : null, activeDevId: d.activeDevId || null
     });
   }
   for (const r of _devExtraRepos(d)) if (r && r.id) slots.push({ ...r, provider: r.provider || 'azdo', primary: false });
@@ -27716,13 +27717,151 @@ function _saveRepoSlot(ctx, slotId, partial) {
   return ctx.save({ repos });
 }
 
-// Re-scan status reports across ALL of a dev card's repo slots and merge in the
-// durably-cached reports from slots whose worktree is gone. This makes d.reports
-// the aggregate across every repo — reports are tagged with their source repo
-// ({repoId, repo}) so identically-named reports from different repos are
-// disambiguable, and cached copies survive worktree removal (like PR cards).
+// ---- Dev worktrees ("approaches") per repo slot ---------------------------
+// A repo slot may hold MULTIPLE dev worktrees — each an independent "approach" or
+// "aspect" of the work, a real workshop where agents implement. Each has its own
+// dev/<slug>-<n> branch + worktree + agent + reports. When happy with one, the user
+// PROMOTES it into the slot's single PR (promote-only).
+//
+// Source of truth: slot.devs[] + slot.activeDevId. Legacy cards stored a single dev
+// worktree in the slot's top-level fields (worktreePath/branch/git/…); we migrate
+// that into devs[0] (aspect "Main") on read, so old cards keep working. The slot's
+// top-level fields always MIRROR the active dev worktree (see _saveDevWorktree), so
+// every existing route/reader (createWorktree, commits, summary, cleanup, /pr,
+// promote, report scanning, client devSlots) keeps operating on the active approach
+// with zero changes — only the new multi-worktree flows read/write devs[] directly.
+function _slotDevWorktrees(slot) {
+  const list = Array.isArray(slot && slot.devs) ? slot.devs.filter(Boolean).map(w => ({ ...w })) : [];
+  if (list.length) return list;
+  // Migrate a legacy single-worktree slot into devs[0].
+  return [{
+    id: 'main', aspect: 'Main', scope: '',
+    branch: (slot && slot.branch) || '',
+    worktreePath: (slot && slot.worktreePath) || '',
+    worktreeStatus: (slot && slot.worktreeStatus) || null,
+    worktreeError: (slot && slot.worktreeError) || null,
+    git: (slot && slot.git) || null,
+    agentName: (slot && (slot.agentName || slot.devAgentName)) || '',
+    promotedPrId: (slot && slot.prId && slot.prBranch) ? String(slot.prId) : '',
+    createdAt: (slot && slot.createdAt) || null
+  }];
+}
+// The active (mirrored-to-top-level) dev worktree id for a slot.
+function _activeDevWtId(slot) {
+  const list = _slotDevWorktrees(slot);
+  const want = slot && slot.activeDevId;
+  if (want && list.some(w => w.id === want)) return want;
+  return (list[0] && list[0].id) || 'main';
+}
+// Resolve a dev worktree on a slot by id (defaults to the active one). Returns the
+// migrated devs[] entry or null.
+function _resolveDevWt(slot, wtId) {
+  const list = _slotDevWorktrees(slot);
+  if (!list.length) return null;
+  if (!wtId) wtId = _activeDevWtId(slot);
+  return list.find(w => w.id === wtId) || null;
+}
+// Runtime fields that mirror between an active dev worktree entry and the slot's
+// legacy top-level fields, so passive readers never need to know about devs[].
+const _DEV_WT_MIRROR = ['branch', 'worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'agentName'];
+// Persist the full devs[] array (and optionally activeDevId) onto a slot, then
+// re-mirror the active entry's runtime fields to the slot top level.
+function _saveDevWorktrees(ctx, slotId, devs, activeDevId) {
+  const slotBefore = _findRepoSlot(ctx.dev, slotId);
+  const list = (Array.isArray(devs) ? devs.filter(Boolean) : []).map(w => ({ ...w }));
+  const active = (activeDevId && list.some(w => w.id === activeDevId))
+    ? activeDevId
+    : ((slotBefore && slotBefore.activeDevId && list.some(w => w.id === slotBefore.activeDevId))
+      ? slotBefore.activeDevId
+      : ((list[0] && list[0].id) || 'main'));
+  const activeWt = list.find(w => w.id === active) || list[0] || null;
+  const partial = { devs: list, activeDevId: active };
+  // Mirror the active worktree's runtime fields to the slot top level. For the
+  // primary slot the mirror lives at the card top level; devAgentName is the
+  // legacy primary agent field, agentName the extra-slot field — set both.
+  if (activeWt) {
+    for (const k of _DEV_WT_MIRROR) partial[k] = activeWt[k] != null ? activeWt[k] : (k === 'git' ? null : (k === 'worktreeStatus' || k === 'worktreeError' ? null : ''));
+    if (slotId === 'primary') partial.devAgentName = activeWt.agentName || '';
+  }
+  return _saveRepoSlot(ctx, slotId, partial);
+}
+// Update ONE dev worktree entry (by id) with a partial, then persist + re-mirror.
+// Creates the devs[] array from the legacy migration on first write.
+function _saveDevWorktree(ctx, slotId, wtId, partial) {
+  const slot = _findRepoSlot(ctx.dev, slotId);
+  if (!slot) return null;
+  const list = _slotDevWorktrees(slot);
+  const id = wtId || _activeDevWtId(slot);
+  let found = false;
+  const next = list.map(w => (w.id === id ? (found = true, { ...w, ...partial }) : w));
+  if (!found) next.push({ id, aspect: 'Main', scope: '', branch: '', worktreePath: '', worktreeStatus: null, worktreeError: null, git: null, agentName: '', promotedPrId: '', createdAt: null, ...partial });
+  return _saveDevWorktrees(ctx, slotId, next, slot.activeDevId);
+}
+// Slug base for a dev worktree branch, shared with the client _cfSlug.
+function _devSlug(d) {
+  const raw = String((d && (d.branch || d.workItemId || d.title || d.id)) || '');
+  return raw.replace(/^refs\/heads\//, '').replace(/^(dev|pr)\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 40) || 'work';
+}
+// Flip which dev worktree is the active (mirrored) approach on a slot.
+function _setActiveDevWt(ctx, slotId, wtId) {
+  const slot = _findRepoSlot(ctx.dev, slotId);
+  if (!slot) return null;
+  const list = _slotDevWorktrees(slot);
+  if (!list.some(w => w.id === wtId)) return null;
+  return _saveDevWorktrees(ctx, slotId, list, wtId);
+}
+// Mark which approach fed the slot's single PR. Only ONE approach promotes at a
+// time, so we set promotedPrId on the chosen worktree and clear it on every other
+// (a later promote of a different approach re-points the single PR). Requires a
+// FRESH ctx so ctx.dev reflects the latest devs[].
+function _markPromotedApproach(ctx, slotId, wtId, prId) {
+  const slot = _findRepoSlot(ctx.dev, slotId);
+  if (!slot) return null;
+  const list = _slotDevWorktrees(slot).map(w => ({ ...w, promotedPrId: (w.id === wtId ? String(prId || '') : '') }));
+  return _saveDevWorktrees(ctx, slotId, list, slot.activeDevId);
+}
+
+// Human-readable label for a dev worktree ("approach"), matching the client's
+// approachLabel(): the explicit aspect, else "Main" for the legacy migrated
+// worktree, else its branch.
+function _approachLabel(w) {
+  const a = String((w && w.aspect) || '').trim();
+  if (a) return a;
+  if (!w || w.id === 'main') return 'Main';
+  return (w && w.branch) || 'approach';
+}
+// Expand each repo slot into ONE report-slot per dev worktree ("approach"), so
+// reports are surfaced + cached per approach (not just the active/mirrored one).
+// The cache namespace is stable per approach: the legacy 'main' worktree keeps
+// the slot's base namespace (root for primary, repoId for extras) so existing
+// cached reports survive; every other approach caches under `<base>~<wtId>`.
+// Each report-slot also carries { wtId, aspect, active, promotedPrId } tags that
+// devitems copies onto every report it finds/caches for that slot.
+function _devReportSlots(d) {
+  const out = [];
+  for (const s of _devRepoSlots(d)) {
+    const active = _activeDevWtId(s);
+    for (const w of _slotDevWorktrees(s)) {
+      const base = s.id;
+      const pid = (!w.id || w.id === 'main') ? base : (base + '~' + w.id);
+      out.push({
+        id: pid, repo: s.repo, worktreePath: w.worktreePath || '',
+        wtId: w.id || 'main', aspect: _approachLabel(w), active: (w.id === active),
+        promotedPrId: w.promotedPrId || ''
+      });
+    }
+  }
+  return out;
+}
+
+// Re-scan status reports across ALL of a dev card's repo slots + approaches and
+// merge in the durably-cached reports from approaches whose worktree is gone.
+// This makes d.reports the aggregate across every repo AND approach — reports are
+// tagged with their source repo ({repoId, repo}) AND approach ({wtId, aspect,
+// approachActive}) so identically-named reports are disambiguable, and cached
+// copies survive worktree removal (like PR cards).
 function _rescanDevReports(boardId, devId, d) {
-  const slots = _devRepoSlots(d);
+  const slots = _devReportSlots(d);
   const live = slots.filter(s => s.worktreePath);
   const dead = slots.filter(s => !s.worktreePath);
   let reports = [];
@@ -28104,6 +28243,177 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       if (fresh) _saveRepoSlot(fresh, slot.id, { worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
     }
   })();
+});
+
+// Create a NEW dev worktree ("approach"/"aspect") on a repo slot. A slot may hold
+// many independent approaches — each its own dev/<slug>-<n> branch + worktree +
+// agent + reports, a real workshop where agents implement. Seeds off the slot's
+// base branch by default, or off another approach's tip (fromWtId). Appends to
+// devs[] as 'creating', then (on success) makes it the ACTIVE approach — we do NOT
+// flip active until it's ready, so the in-flight empty path never blanks the
+// mirror of the currently-active approach.
+app.post('/api/boards/:id/dev-items/:devId/dev-worktree', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const slot = _findRepoSlot(d, slotId);
+  if (!slot || !slot.org || !slot.project || !slot.repo) {
+    return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
+  }
+  const aspect = String((req.body && req.body.aspect) || '').trim() || 'Approach';
+  const scope = String((req.body && req.body.scope) || '').trim();
+  const fromWtId = (req.body && req.body.fromWtId) || '';
+
+  const existing = _slotDevWorktrees(slot);
+  const slug = _devSlug(d);
+  // Next approach sequence: past the highest existing -N suffix and the count.
+  let seq = existing.length + 1;
+  for (const w of existing) { const m = String(w.branch || '').match(/-(\d+)$/); if (m) seq = Math.max(seq, parseInt(m[1], 10) + 1); }
+  if (seq < 2) seq = 2;
+  const wtId = 'dev' + seq;
+  const branch = 'dev/' + slug + '-' + seq;
+  const wtKey = String(d.id) + '--dev' + seq;
+  // Seed off another approach's local branch tip, or off the base branch.
+  let seedBase = slot.baseBranch || 'main';
+  if (fromWtId) { const src = existing.find(w => w.id === fromWtId); if (src && src.branch) seedBase = src.branch; }
+
+  // Optimistically append the pending approach WITHOUT changing the active one.
+  const pending = { id: wtId, aspect, scope, branch, worktreePath: '', worktreeStatus: 'creating', worktreeError: null, git: null, agentName: '', promotedPrId: '', createdAt: new Date().toISOString() };
+  const withPending = _saveDevWorktrees(ctx, slot.id, existing.concat([pending]), _activeDevWtId(slot));
+  res.json({ ok: true, status: 'creating', repoId: slot.id, wtId, dev: withPending });
+
+  (async () => {
+    try {
+      const r = await devitems.createWorktreeAsync({
+        org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+        baseBranch: seedBase, branch, devId: wtKey
+      });
+      const fresh = _devItemCtx(req.params.id, req.params.devId);
+      if (!fresh) return;
+      // Mark ready and flip active to the new approach (its path is now real, so
+      // mirroring it to the slot top level is safe).
+      _saveDevWorktree(fresh, slot.id, wtId, { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null, aspect, scope });
+      const afterSet = _devItemCtx(req.params.id, req.params.devId);
+      if (afterSet) _setActiveDevWt(afterSet, slot.id, wtId);
+      // If a dev agent roster already exists on this card, write the agent files into
+      // the newly-active aspect worktree so this aspect's DIRECTIVE (scope) reaches its
+      // own agent. _writeDevAgentFiles targets each repo slot's active worktree — which
+      // is now this new aspect — so _buildDevAgentMd injects its "Your focus" directive.
+      try {
+        const after = _devItemCtx(req.params.id, req.params.devId);
+        if (after && after.dev && after.dev.devAgentName) {
+          let wi2 = after.dev.workItem;
+          try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi2 = await _devWorkItem(_devDesc(after.dev), after.dev.workItemId); } catch {}
+          const written = _writeDevAgentFiles(after.dev, wi2);
+          if (written) _persistDevAgentNames(after, written);
+        }
+      } catch {}
+      // Re-aggregate reports across every slot now that a new worktree is live.
+      try { const withWt = _devItemCtx(req.params.id, req.params.devId); if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); withWt.save({ reports }); } } catch {}
+    } catch (e) {
+      const fresh = _devItemCtx(req.params.id, req.params.devId);
+      if (fresh) _saveDevWorktree(fresh, slot.id, wtId, { worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
+    }
+  })();
+});
+
+// Switch which dev worktree ("approach") is active on a repo slot. The active
+// approach is the one mirrored to the slot's top-level fields, so commits / PR /
+// summary target it.
+app.post('/api/boards/:id/dev-items/:devId/dev-worktree/activate', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const wtId = (req.body && req.body.wtId) || '';
+  if (!wtId) return res.status(400).json({ error: 'wtId is required' });
+  const updated = _setActiveDevWt(ctx, slotId, wtId);
+  if (!updated) return res.status(404).json({ error: 'Approach not found on this repo.' });
+  res.json({ ok: true, dev: updated, repoId: slotId, wtId });
+});
+
+// Merge one aspect (dev worktree) INTO another on the same repo slot. This is a
+// local git merge run inside the TARGET aspect's worktree — the source aspect's
+// branch is layered on top of the target's. Aspects can merge into each other
+// freely and repeatedly; the target aspect records its merge lineage (mergedFrom)
+// so the card can visualize which aspects it now contains. Nothing is pushed
+// UNLESS the target aspect is the one currently feeding the repo's single PR
+// (active + a PR exists): then the merge is promoted so the open PR updates.
+app.post('/api/boards/:id/dev-items/:devId/dev-worktree/merge', async (req, res) => {
+  let ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const sourceWtId = (req.body && req.body.sourceWtId) || '';
+  const targetWtId = (req.body && req.body.targetWtId) || '';
+  if (!sourceWtId || !targetWtId) return res.status(400).json({ error: 'sourceWtId and targetWtId are required.' });
+  if (sourceWtId === targetWtId) return res.status(400).json({ error: 'An aspect cannot merge into itself.' });
+  let slot = _findRepoSlot(ctx.dev, slotId);
+  if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
+  const source = _resolveDevWt(slot, sourceWtId);
+  const target = _resolveDevWt(slot, targetWtId);
+  if (!source) return res.status(404).json({ error: 'Source aspect not found on this repo.' });
+  if (!target) return res.status(404).json({ error: 'Target aspect not found on this repo.' });
+  if (!source.branch) return res.status(400).json({ error: 'Source aspect has no branch yet.' });
+  if (!target.branch) return res.status(400).json({ error: 'Target aspect has no branch yet.' });
+
+  // Self-heal the target worktree if its dir is gone (branch survives in the clone).
+  let tgtWtPath = target.worktreePath;
+  if (!tgtWtPath || !fs.existsSync(tgtWtPath)) {
+    try {
+      const wt = devitems.createWorktree({
+        org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+        baseBranch: slot.baseBranch, branch: target.branch, devId: String(ctx.dev.id) + '--' + targetWtId
+      });
+      tgtWtPath = wt.worktreePath;
+      _saveDevWorktree(ctx, slot.id, targetWtId, { worktreePath: tgtWtPath });
+      ctx = _devItemCtx(req.params.id, req.params.devId); slot = _findRepoSlot(ctx.dev, slotId);
+    } catch (e) { return res.status(500).json({ error: 'Failed to restore target aspect worktree: ' + ((e && e.message) || e) }); }
+  }
+
+  // Perform the merge.
+  let r;
+  try { r = devitems.mergeAspectBranch(tgtWtPath, { sourceBranch: source.branch, targetBranch: target.branch, desc: _devDesc(slot) }); }
+  catch (e) { return res.status(500).json({ error: 'Merge failed: ' + ((e && e.message) || e) }); }
+  if (!r.ok) return res.status(r.conflict ? 409 : 500).json({ error: r.message, dev: ctx.dev, conflict: !!r.conflict });
+
+  // Record merge lineage on the target aspect (dedupe by source wtId, keep latest).
+  const srcLabel = _approachLabel(source);
+  const prevLineage = Array.isArray(target.mergedFrom) ? target.mergedFrom.filter(x => x && x.wtId !== sourceWtId) : [];
+  const mergedFrom = prevLineage.concat([{ wtId: sourceWtId, aspect: srcLabel, branch: source.branch, at: new Date().toISOString() }]);
+  let git = target.git;
+  try { git = devitems.worktreeStatus(tgtWtPath, { fetch: false, baseBranch: slot.baseBranch, desc: _devDesc(slot) }); } catch {}
+  _saveDevWorktree(ctx, slot.id, targetWtId, { mergedFrom, git, worktreePath: tgtWtPath, worktreeStatus: 'ready' });
+  ctx = _devItemCtx(req.params.id, req.params.devId); slot = _findRepoSlot(ctx.dev, slotId);
+
+  // If the target aspect is the one feeding the repo's single PR (it's active and a
+  // PR exists), promote so the open PR picks up the merged commits.
+  let prUpdated = false, prMessage = '';
+  const targetIsActive = _activeDevWtId(slot) === targetWtId;
+  if (targetIsActive && slot.prId && slot.prBranch && r.merged > 0) {
+    let prWtPath = slot.prWorktreePath;
+    if (!prWtPath || !fs.existsSync(prWtPath)) {
+      try {
+        const wt = devitems.createPrWorktree({
+          org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
+          prBranch: slot.prBranch, fromRef: slot.branch, wtDevId: String(ctx.dev.id) + '--pr' + (slot.prSeq || 1)
+        });
+        prWtPath = wt.worktreePath;
+      } catch (e) { prWtPath = ''; }
+    }
+    if (prWtPath) {
+      try {
+        const pr = devitems.promoteToPr(prWtPath, { devBranch: slot.branch, prBranch: slot.prBranch, desc: _devDesc(slot) });
+        if (pr && pr.ok && pr.pushed) { prUpdated = true; prMessage = pr.message; }
+        else if (pr && !pr.ok) { prMessage = pr.message; }
+        const prDivergence = devitems.devPrDivergence({ org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo', devBranch: slot.branch, prBranch: slot.prBranch });
+        _saveRepoSlot(ctx, slot.id, { prWorktreePath: prWtPath, prDivergence });
+        ctx = _devItemCtx(req.params.id, req.params.devId);
+      } catch (e) { prMessage = (e && e.message) || 'PR update failed'; }
+    }
+  }
+
+  const message = r.message + (prUpdated ? ' PR updated.' : '');
+  res.json({ ok: true, dev: ctx.dev, repoId: slot.id, merged: r.merged, sourceWtId, targetWtId, prUpdated, prMessage, message });
 });
 
 // Refresh a dev card's live state: git ahead/behind/dirty + work item + PR.
@@ -29036,6 +29346,17 @@ function _devAgentSlug(d, slot, persona) {
   return raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase() || 'dev-agent';
 }
 
+// Shallow-scan a worktree root for the read-only status reports agents produce
+// (self-contained dev-*-report.html / dev-status-report.html / *.report.md). Used
+// only to name sibling-approach artifacts in an agent's context file — cheap, safe.
+function _approachReportNames(wtPath) {
+  try {
+    return fs.readdirSync(wtPath)
+      .filter(n => /^dev-.*-report\.(html|md)$/i.test(n) || /^dev-status-report\.html$/i.test(n) || /\.report\.(html|md)$/i.test(n))
+      .slice(0, 8);
+  } catch { return []; }
+}
+
 function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot, persona }) {
   persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
   const isImpl = persona.id === 'implementer' && !persona.custom;
@@ -29057,6 +29378,22 @@ function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot, person
   ctx.push('## Repository');
   ctx.push('- ' + [repoOrg, repoProj, repoName].filter(Boolean).join(' / ') + (repoBranch ? `  (branch \`${repoBranch}\`, base \`${repoBase || 'main'}\`)` : ''));
   ctx.push('');
+  // THIS worktree's own aspect directive — the user-authored focus for this specific
+  // aspect. Unlike the sibling listing below (which describes OTHER aspects), this
+  // STEERS the current agent: it narrows what to work on within the broader work item.
+  let selfWt = null;
+  try { selfWt = _slotDevWorktrees(slot).find(w => w && w.worktreePath && currentPath && w.worktreePath === currentPath) || null; } catch { selfWt = null; }
+  if (selfWt) {
+    const title = String(selfWt.aspect || '').trim();
+    const directive = String(selfWt.scope || '').trim();
+    if (directive || (title && title !== 'Main')) {
+      ctx.push('## Your focus for this aspect');
+      if (title && title !== 'Main') ctx.push(`This worktree is the **${title}** aspect of the work item.`);
+      if (directive) ctx.push(directive);
+      ctx.push('This directive **scopes your work**: stay within this slice of the work item and do not wander into parts other aspects own. If the directive and the broader work item genuinely conflict, follow the directive for your changes and call out the tension in your status report.');
+      ctx.push('');
+    }
+  }
   const ready = (slots || []).filter(s => s && s.worktreePath);
   if (ready.length > 1) {
     ctx.push('## Worktrees for this work item');
@@ -29065,6 +29402,27 @@ function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot, person
       const here = currentPath && s.worktreePath === currentPath;
       ctx.push(`- **${s.repo}** — \`${s.worktreePath}\`${here ? '  ← you are here' : ''}`);
     }
+    ctx.push('');
+  }
+  // Sibling APPROACHES on THIS repo slot: other dev worktrees tackling the same work
+  // item in the same repo, each an independent attempt with its own branch/worktree/
+  // reports. The user promotes ONE into this card's PR. An agent can read/search/diff
+  // them (read-only) to learn what another approach tried — same-card scope only.
+  let approaches = [];
+  try { approaches = _slotDevWorktrees(slot).filter(w => w && w.worktreePath && fs.existsSync(w.worktreePath)); } catch { approaches = []; }
+  if (approaches.length > 1) {
+    ctx.push('## Other approaches to this work item (same repo)');
+    ctx.push('This work item is being tackled with **multiple parallel approaches** in this repo — each an independent dev worktree with its own branch and its own attempt at the solution. They are siblings on disk. You may **read, search, and `git diff` across them (read-only)** to see what another approach tried, reuse an idea, or avoid a dead end — but do **not** edit another approach\'s worktree; make your changes only in your own. When the user is happy with one approach they **promote** it into this card\'s pull request.');
+    for (const w of approaches) {
+      const isHere = w.worktreePath === currentPath;
+      const label = (w.aspect || 'Approach') + (w.scope ? ` — ${w.scope}` : '');
+      const reports = _approachReportNames(w.worktreePath);
+      let line = `- **${label}**${w.promotedPrId ? ' (promoted → this card\'s PR)' : ''} — branch \`${w.branch || '(none)'}\`, \`${w.worktreePath}\`${isHere ? '  ← you are here' : ''}`;
+      if (reports.length) line += '\n  - reports: ' + reports.join(', ');
+      ctx.push(line);
+    }
+    ctx.push('');
+    ctx.push('The read-only status **reports** each approach produces (self-contained `dev-*-report.html` at the worktree root) are the quickest way to understand what another approach found or built — open or read them directly from the paths above.');
     ctx.push('');
   }
   // Non-implementer personas get a persona-scoped body (role, goal, working loop,
@@ -29721,13 +30079,23 @@ function _extractJsonObject(s) {
 // formatted title + description, open the PR, and associate it with the item
 // (and, best-effort, with the work item).
 app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
-  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  let ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
-  const d = ctx.dev;
+  let d = ctx.dev;
   // PRs are per repo slot: the primary repo stores prId/pr at the top level; an
   // extra repo stores them inside its d.repos[] entry. Default to the primary.
   const slotId = (req.body && req.body.repoId) || 'primary';
-  const slot = _findRepoSlot(d, slotId);
+  // Promote a CHOSEN approach (dev worktree) into the slot's single PR. Activating
+  // it first re-mirrors its branch/worktree to the slot top level, so the existing
+  // PR logic below seeds the PR from that approach's branch with zero other changes.
+  const wtId = (req.body && req.body.wtId) || '';
+  if (wtId) {
+    const flipped = _setActiveDevWt(ctx, slotId, wtId);
+    if (!flipped) return res.status(404).json({ error: 'Approach not found on this repo.' });
+    ctx = _devItemCtx(req.params.id, req.params.devId);
+    d = ctx.dev;
+  }
+  let slot = _findRepoSlot(d, slotId);
   if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
   const existingPrId = slot.primary ? d.prId : slot.prId;
   if (existingPrId) return res.status(400).json({ error: 'A pull request is already associated with this repo.', dev: d });
@@ -29846,6 +30214,16 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     if (wi && !hadPrAlready) topSave.workItem = wi;
     updated = ctx.save(topSave);
   }
+  // 8) Mark which approach fed this PR (clears the flag on sibling approaches). The
+  //    active approach is the promoted one (we activated the chosen wtId above).
+  try {
+    const freshCtx = _devItemCtx(req.params.id, req.params.devId);
+    if (freshCtx) {
+      const activeId = _activeDevWtId(_findRepoSlot(freshCtx.dev, slot.id) || {});
+      const marked = _markPromotedApproach(freshCtx, slot.id, activeId, pr.pullRequestId);
+      if (marked) updated = marked;
+    }
+  } catch {}
   res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, repoId: slot.id, committed: committedCount, stateWarning });
 });
 
@@ -29856,10 +30234,21 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
 // dev/<slug> into pr/<slug>-<N> in the PR's OWN worktree and pushes. Re-attaches the
 // fresh divergence so the graph badge updates.
 app.post('/api/boards/:id/dev-items/:devId/promote', async (req, res) => {
-  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  let ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
-  const d = ctx.dev;
-  const slot = _findRepoSlot(d, (req.body && req.body.repoId) || 'primary');
+  let d = ctx.dev;
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  // Promote a CHOSEN approach: activate it first so its branch/worktree mirror to
+  // the slot top level, then the merge below advances the single PR from THAT
+  // approach's branch (not always the previously-active one).
+  const wtId = (req.body && req.body.wtId) || '';
+  if (wtId) {
+    const flipped = _setActiveDevWt(ctx, slotId, wtId);
+    if (!flipped) return res.status(404).json({ error: 'Approach not found on this repo.' });
+    ctx = _devItemCtx(req.params.id, req.params.devId);
+    d = ctx.dev;
+  }
+  const slot = _findRepoSlot(d, slotId);
   if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
   if (!slot.prId || !slot.prBranch) return res.status(400).json({ error: 'No pull request on this repo to promote to — open a PR first.' });
   if (!slot.branch) return res.status(400).json({ error: 'Dev card has no working branch.' });
@@ -29899,7 +30288,16 @@ app.post('/api/boards/:id/dev-items/:devId/promote', async (req, res) => {
     devBranch: slot.branch, prBranch: slot.prBranch
   });
   const partial = { prWorktreePath: prWtPath, prDivergence };
-  const updated = _saveRepoSlot(ctx, slot.id, partial);
+  let updated = _saveRepoSlot(ctx, slot.id, partial);
+  // Mark this approach as the one feeding the PR (clears siblings).
+  try {
+    const freshCtx = _devItemCtx(req.params.id, req.params.devId);
+    if (freshCtx) {
+      const activeId = _activeDevWtId(_findRepoSlot(freshCtx.dev, slot.id) || {});
+      const marked = _markPromotedApproach(freshCtx, slot.id, activeId, slot.prId);
+      if (marked) updated = marked;
+    }
+  } catch {}
   res.json({ ok: true, dev: updated, repoId: slot.id, promoted: r.promoted, committed: committedCount, prDivergence, message: r.message });
 });
 
