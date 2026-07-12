@@ -28225,17 +28225,15 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
         const withWt = _devItemCtx(req.params.id, req.params.devId);
         if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); withWt.save({ reports }); }
       } catch {}
-      // If a dev agent already exists for this card, refresh it across ALL ready
-      // worktrees so every repo (the ones that existed before AND this new one)
-      // learns about the newly-added sibling worktree. Re-read the context so the
-      // freshly-persisted worktree path is included in the slot list.
+      // Per-worktree agents: seed this slot's ACTIVE aspect worktree with its OWN
+      // implementer only when the card carried a legacy card-level agent and the
+      // worktree has no roster yet (migration bridge — see _seedWtImplementerIfLegacy).
       try {
         const after = _devItemCtx(req.params.id, req.params.devId);
-        if (after && after.dev && after.dev.devAgentName) {
-          let wi = after.dev.workItem;
-          try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi = await _devWorkItem(_devDesc(after.dev), after.dev.workItemId); } catch {}
-          const written = _writeDevAgentFiles(after.dev, wi);
-          if (written) _persistDevAgentNames(after, written);
+        if (after) {
+          const s2 = _findRepoSlot(after.dev, slot.id);
+          const wt2 = s2 && _resolveDevWt(s2, undefined);
+          if (s2 && wt2) await _seedWtImplementerIfLegacy(after, s2, wt2);
         }
       } catch {}
     } catch (e) {
@@ -28296,17 +28294,16 @@ app.post('/api/boards/:id/dev-items/:devId/dev-worktree', async (req, res) => {
       _saveDevWorktree(fresh, slot.id, wtId, { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null, aspect, scope });
       const afterSet = _devItemCtx(req.params.id, req.params.devId);
       if (afterSet) _setActiveDevWt(afterSet, slot.id, wtId);
-      // If a dev agent roster already exists on this card, write the agent files into
-      // the newly-active aspect worktree so this aspect's DIRECTIVE (scope) reaches its
-      // own agent. _writeDevAgentFiles targets each repo slot's active worktree — which
-      // is now this new aspect — so _buildDevAgentMd injects its "Your focus" directive.
+      // Per-worktree agents: seed the newly-active aspect worktree with its OWN
+      // implementer only when the card carried a legacy card-level agent and the new
+      // worktree has no roster yet (migration bridge). New aspects otherwise start
+      // empty and are driven per-worktree by the SPA.
       try {
         const after = _devItemCtx(req.params.id, req.params.devId);
-        if (after && after.dev && after.dev.devAgentName) {
-          let wi2 = after.dev.workItem;
-          try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi2 = await _devWorkItem(_devDesc(after.dev), after.dev.workItemId); } catch {}
-          const written = _writeDevAgentFiles(after.dev, wi2);
-          if (written) _persistDevAgentNames(after, written);
+        if (after) {
+          const s2 = _findRepoSlot(after.dev, slot.id);
+          const wt2 = s2 && _resolveDevWt(s2, wtId);
+          if (s2 && wt2) await _seedWtImplementerIfLegacy(after, s2, wt2);
         }
       } catch {}
       // Re-aggregate reports across every slot now that a new worktree is live.
@@ -29289,13 +29286,13 @@ function _devPersonaCatalog() {
 // confidence ('high' | 'medium'), and an `autoAdd` flag for the truly-obvious
 // high-confidence ones. No LLM — cheap, stable, and explainable. Personas already
 // on the card are skipped so a re-run never re-suggests what's applied.
-function _recommendDevAgents(d, wi) {
+function _recommendDevAgents(d, wi, wt) {
   wi = wi || (d && d.workItem) || {};
   const tags = Array.isArray(wi.tags) ? wi.tags.join(' ') : (wi.tags || '');
   const hay = [wi.title, wi.description, wi.type, (d && d.title), tags,
     wi.areaPath || (d && d.areaPath)].filter(Boolean).join(' \n ').toLowerCase();
   const has = (re) => re.test(hay);
-  const roster = new Set((Array.isArray(d && d.devAgents) ? d.devAgents : []).map(r => r.persona));
+  const roster = new Set(_wtAgentRoster(wt).map(r => r.persona));
   const recs = [];
   const push = (id, confidence, autoAdd, why) => {
     if (roster.has(id) || recs.some(r => r.persona === id)) return;
@@ -29595,42 +29592,137 @@ function _persistDevAgentNames(ctx, written, extra) {
   return ctx.save(partial);
 }
 
+// ---- Per-worktree (per-aspect) dev agents --------------------------------
+// A dev card is scoped to ONE repo; each aspect worktree in the branch graph
+// (slot.devs[]) gets its OWN independent agent set — its own roster + its own
+// .agent.md files in that worktree only. These helpers replace the card-level
+// _writeDevAgentFiles / _persistDevAgentNames path for the aspect worktrees.
+// The .agent.md slug can stay repo+work-item keyed (the SAME slug in two aspect
+// worktrees never collides — the files live in separate worktree directories),
+// so CLI auto-select (wt.agentName mirrored to the slot when active) still works.
+function _wtAgentRoster(wt) { return Array.isArray(wt && wt.agents) ? wt.agents.map(a => ({ ...a })) : []; }
+// Write ONE persona's .agent.md into ONE aspect worktree. Returns
+// { slug, rel, agentName } or null when the worktree isn't ready.
+function _writeDevAgentFileForWt(d, wi, persona, slot, wt) {
+  persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
+  if (!wt || !wt.worktreePath || !fs.existsSync(wt.worktreePath)) return null;
+  const slug = _devAgentSlug(d, slot, persona);
+  const rel = '.github/agents/' + slug + '.agent.md';
+  const agentsDir = path.join(wt.worktreePath, '.github', 'agents');
+  fs.mkdirSync(agentsDir, { recursive: true });
+  const slots = _devRepoSlots(d).filter(s => s.worktreePath && fs.existsSync(s.worktreePath));
+  fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'),
+    _buildDevAgentMd({ agentName: slug, dev: d, wi, slots, currentPath: wt.worktreePath, slot, persona }));
+  try { devitems.addGitExclude(wt.worktreePath, rel); } catch {}
+  return { slug, rel, agentName: slug };
+}
+
+// Remove ONE persona's .agent.md from ONE aspect worktree. Returns 1 or 0.
+function _removeDevAgentFileForWt(d, persona, slot, wt) {
+  persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
+  if (!wt || !wt.worktreePath) return 0;
+  const slug = _devAgentSlug(d, slot, persona);
+  const p = path.join(wt.worktreePath, '.github', 'agents', slug + '.agent.md');
+  try { if (fs.existsSync(p)) { fs.unlinkSync(p); return 1; } } catch {}
+  return 0;
+}
+
+// Upsert the roster entry for a persona onto ONE aspect worktree (wt.agents[]),
+// then persist + re-mirror. For the implementer, also set wt.agentName so the
+// active worktree's implementer flows up to the slot/CLI auto-select. Returns
+// the updated card.
+function _persistWtAgent(ctx, slot, wt, persona, written) {
+  persona = persona || DEV_AGENT_PERSONA_MAP.implementer;
+  const isImpl = persona.id === 'implementer' && !persona.custom;
+  const roster = _wtAgentRoster(wt);
+  const prev = roster.find(r => r.persona === persona.id);
+  const entry = {
+    persona: persona.id, label: persona.label, emoji: persona.emoji,
+    readOnly: !!persona.readOnly, playbookId: persona.playbookId || null,
+    slug: written.slug, file: written.rel, agentName: written.agentName,
+    createdAt: (prev && prev.createdAt) || new Date().toISOString(),
+  };
+  const idx = roster.findIndex(r => r.persona === persona.id);
+  if (idx >= 0) roster[idx] = entry; else roster.push(entry);
+  const partial = { agents: roster };
+  if (isImpl) partial.agentName = written.agentName;
+  return _saveDevWorktree(ctx, slot.id, wt.id, partial);
+}
+
+// Migration bridge for the per-worktree agent model. If a card carried a legacy
+// card-level implementer (the old single-roster model, signalled by d.devAgentName
+// or the mirrored wt.agentName) and this aspect worktree has no roster of its OWN
+// yet, seed its own implementer so every worktree keeps a working default. Cards
+// that never had an agent start EMPTY and are driven per-worktree by the SPA — we
+// do NOT invent agents for them.
+async function _seedWtImplementerIfLegacy(ctx, slot, wt) {
+  try {
+    const d = ctx && ctx.dev;
+    if (!d || !slot || !wt || !wt.worktreePath) return;
+    if (!d.devAgentName && !wt.agentName) return;
+    if (_wtAgentRoster(wt).length) return;
+    let wi = d.workItem;
+    try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
+    const persona = _devPersona('implementer');
+    const written = _writeDevAgentFileForWt(d, wi, persona, slot, wt);
+    if (written) _persistWtAgent(ctx, slot, wt, persona, written);
+  } catch {}
+}
+
 // The persona catalog for the dev-agent roster picker (built-ins + custom playbooks).
 app.get('/api/dev-agent-personas', (req, res) => {
   try { res.json(_devPersonaCatalog()); }
   catch (e) { res.status(500).json({ error: (e && e.message) || String(e) }); }
 });
 
-// Signal-based agent recommendations for a dev card. Read-only, deterministic (no
-// LLM); returns { recommendations: [...], roster: [...] } so the SPA can show the
-// "Me.AI recommends adding" strip. Optionally refreshes the work item first so
-// recommendations reflect the latest title/state.
+// Resolve the target aspect worktree for an agent request on a dev card. Each
+// aspect worktree (slot.devs[]) owns its own agent set, so recommend/create/remove
+// operate on ONE worktree — the one named by { slotId?, wtId? } (from query or
+// body), defaulting to the primary slot's active aspect. Returns { slot, wt } or
+// null when the worktree isn't ready.
+function _devAgentTarget(d, sel) {
+  sel = sel || {};
+  const slot = _findRepoSlot(d, sel.slotId || 'primary') || _devRepoSlots(d)[0] || null;
+  if (!slot) return null;
+  const wt = _resolveDevWt(slot, sel.wtId);
+  if (!wt) return null;
+  return { slot, wt };
+}
+
+// Signal-based agent recommendations for ONE aspect worktree. Read-only,
+// deterministic (no LLM); returns { recommendations: [...], roster: [...] } so the
+// SPA can show the "Me.AI recommends adding" strip per worktree. Optionally
+// refreshes the work item first so recommendations reflect the latest title/state.
 app.get('/api/boards/:id/dev-items/:devId/recommend-agents', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
+  const tgt = _devAgentTarget(d, { slotId: req.query.slotId, wtId: req.query.wtId });
   let wi = d.workItem;
   try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
   try {
     res.json({
       ok: true,
-      recommendations: _recommendDevAgents(d, wi || d.workItem),
-      roster: Array.isArray(d.devAgents) ? d.devAgents : [],
+      recommendations: _recommendDevAgents(d, wi || d.workItem, tgt && tgt.wt),
+      roster: (tgt && _wtAgentRoster(tgt.wt)) || [],
+      wtId: (tgt && tgt.wt && tgt.wt.id) || null,
     });
   } catch (e) {
     res.status(500).json({ error: (e && e.message) || String(e) });
   }
 });
 
-// Create a focused dev agent for a dev card by writing a `.github/agents/<name>.agent.md`
-// into the item's worktree so VS Code / Copilot can select it. The file is kept
-// out of git so it never lands in the user's commits or PR. Accepts an optional
-// { persona, playbookId } — defaults to the implementer (legacy behavior).
+// Create a focused dev agent for ONE aspect worktree by writing a
+// `.github/agents/<name>.agent.md` into THAT worktree so VS Code / Copilot can
+// select it. The file is kept out of git so it never lands in the user's commits
+// or PR. Body { persona, playbookId, slotId?, wtId? } — defaults to the
+// implementer on the primary slot's active aspect.
 app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
-  if (!_devRepoSlots(d).some(s => s.worktreePath && fs.existsSync(s.worktreePath))) {
+  const tgt = _devAgentTarget(d, { slotId: req.body && req.body.slotId, wtId: req.body && req.body.wtId });
+  if (!tgt || !tgt.wt.worktreePath || !fs.existsSync(tgt.wt.worktreePath)) {
     return res.status(400).json({ error: 'Create a worktree first.' });
   }
   const persona = _devPersona((req.body && req.body.persona) || 'implementer', req.body && req.body.playbookId);
@@ -29639,33 +29731,35 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
   let written;
   try {
-    written = _writeDevAgentFiles(d, wi, persona);
+    written = _writeDevAgentFileForWt(d, wi, persona, tgt.slot, tgt.wt);
   } catch (e) {
     return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) });
   }
   if (!written) return res.status(400).json({ error: 'Create a worktree first.' });
-  const updated = _persistDevAgentNames(ctx, written, { workItem: wi || d.workItem });
-  res.json({ ok: true, dev: updated, agentName: written.slug, agentFile: written.rel, agents: written.written });
+  const updated = _persistWtAgent(ctx, tgt.slot, tgt.wt, persona, written);
+  res.json({ ok: true, dev: updated, agentName: written.slug, agentFile: written.rel, wtId: tgt.wt.id });
 });
 
-// Remove a dev-agent persona from a card: delete its .agent.md from every worktree
-// and drop it from the roster. Body { persona } (defaults to implementer).
+// Remove a dev-agent persona from ONE aspect worktree: delete its .agent.md from
+// that worktree and drop it from that worktree's roster. Body
+// { persona, playbookId, slotId?, wtId? } (defaults to implementer on the active aspect).
 app.post('/api/boards/:id/dev-items/:devId/dev-agent/remove', (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
+  const tgt = _devAgentTarget(d, { slotId: req.body && req.body.slotId, wtId: req.body && req.body.wtId });
+  if (!tgt) return res.status(400).json({ error: 'Worktree not found.' });
   const persona = _devPersona((req.body && req.body.persona) || 'implementer', req.body && req.body.playbookId);
   const isImpl = persona.id === 'implementer' && !persona.custom;
   let removed = 0;
-  try { removed = _removeDevAgentFiles(d, persona); } catch {}
-  const roster = (Array.isArray(d.devAgents) ? d.devAgents : []).filter(r => r.persona !== persona.id);
-  const partial = { devAgents: roster };
-  if (isImpl) {
-    partial.devAgentName = null; partial.devAgentFile = null;
-    partial.repos = _devExtraRepos(d).map(r => { const c = { ...r }; delete c.agentName; delete c.agentFile; return c; });
-  }
-  const updated = ctx.save(partial);
-  res.json({ ok: true, dev: updated, removed });
+  try { removed = _removeDevAgentFileForWt(d, persona, tgt.slot, tgt.wt); } catch {}
+  const roster = _wtAgentRoster(tgt.wt).filter(r => r.persona !== persona.id);
+  const partial = { agents: roster };
+  // Clearing the implementer clears the worktree's CLI auto-select agent (mirrors
+  // to the slot top level when this is the active aspect).
+  if (isImpl) partial.agentName = '';
+  const updated = _saveDevWorktree(ctx, tgt.slot.id, tgt.wt.id, partial);
+  res.json({ ok: true, dev: updated, removed, wtId: tgt.wt.id });
 });
 
 // ---- PR playbook agents --------------------------------------------------

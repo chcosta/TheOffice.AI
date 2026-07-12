@@ -10557,13 +10557,13 @@
                                             </div>
                                             <div class="dagr-grid">
                                               <template x-for="p in devPersonas" :key="p.id">
-                                                <button class="dagr-persona" type="button" :disabled="devAgentHas(d,p.id) || devAgentBusy[d.id+':'+p.id]" @click="createDevAgent(d, p.id)">
+                                                <button class="dagr-persona" type="button" :disabled="devPersonaDisabled(d, p && p.id)" @click="createDevAgent(d, p.id)">
                                                   <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="devAgentHas(d,p.id)">✓ added</span></span>
                                                   <span class="pd" x-text="p.tagline"></span>
                                                 </button>
                                               </template>
                                               <template x-for="pb in devCustomPlaybooks" :key="pb.id">
-                                                <button class="dagr-persona custom" type="button" :disabled="devAgentHas(d,'pb-'+pb.id) || devAgentBusy[d.id+':pb-'+pb.id]" @click="createDevAgent(d, 'custom', pb.id)">
+                                                <button class="dagr-persona custom" type="button" :disabled="devPersonaDisabled(d, pb && ('pb-'+pb.id))" @click="createDevAgent(d, 'custom', pb.id)">
                                                   <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="devAgentHas(d,'pb-'+pb.id)">✓ added</span></span>
                                                   <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
                                                 </button>
@@ -12058,6 +12058,81 @@
                                                 </div>
                                               </template>
                                             </div>
+                                             <!-- Agents in THIS worktree (per-aspect roster) -->
+                                             <div x-show="cfView(d)!=='root' && (wtReady(d,s) || wtAgentList(activeDevWt(d,s)).length)" x-init="recommendDevAgentsWt(d,s)" style="border-top:1px dashed var(--cp-border);padding-top:10px;margin-top:2px">
+                                               <div class="dagr-h">
+                                                 <span class="lbl">Agents in this worktree</span>
+                                                 <span class="cnt" x-show="wtAgentList(activeDevWt(d,s)).length" x-text="(wtAgentList(activeDevWt(d,s)).length)+' '+(wtAgentList(activeDevWt(d,s)).length===1?'agent':'agents')"></span>
+                                               </div>
+                                               <template x-if="wtAgentList(activeDevWt(d,s)).length">
+                                                 <div class="dagr-list">
+                                                   <template x-for="ag in wtAgentList(activeDevWt(d,s))" :key="ag.persona">
+                                                     <div class="dagr-row">
+                                                       <span class="dagr-dot" :style="devAgentDotStyle(ag)" x-text="ag.emoji||'🤖'"></span>
+                                                       <span class="dagr-nm">
+                                                         <span class="n"><span x-text="ag.label"></span><span class="ro" x-show="ag.readOnly" title="Read-only — reviews and proposes, never writes code">· read-only</span></span>
+                                                         <span class="d">Written into this worktree</span>
+                                                       </span>
+                                                       <span class="dagr-st ready"><span class="sdot"></span><span>ready</span></span>
+                                                       <span class="dagr-acts">
+                                                         <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="launchDevAgentWt(d, s, ag)" title="Open the CLI with this agent selected">🤖 Launch</button>
+                                                         <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="devAgentBusy[wtKey(d,s)+':'+ag.persona]" @click="removeDevAgentWt(d, s, ag)" x-text="devAgentBusy[wtKey(d,s)+':'+ag.persona] ? '…' : 'Remove'"></button>
+                                                       </span>
+                                                     </div>
+                                                   </template>
+                                                 </div>
+                                               </template>
+                                               <button class="dagr-add" type="button" @click="toggleDevPickerWt(d,s)" x-text="devPickerOpen[wtKey(d,s)] ? '× Close' : '＋ Add an agent'"></button>
+                                               <div class="dagr-picker" x-show="devPickerOpen[wtKey(d,s)]" x-cloak>
+                                                 <div class="dagr-picker-h">
+                                                   <span class="t">Add an agent from a playbook</span>
+                                                   <span class="s">Each persona writes a focused agent into this worktree — add more than one.</span>
+                                                 </div>
+                                                 <div class="dagr-grid">
+                                                   <template x-for="p in devPersonas" :key="p.id">
+                                                     <button class="dagr-persona" type="button" :disabled="wtPersonaDisabled(d, s, p && p.id)" @click="createDevAgentWt(d, s, p.id)">
+                                                       <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="wtAgentHas(activeDevWt(d,s),p.id)">✓ added</span></span>
+                                                       <span class="pd" x-text="p.tagline"></span>
+                                                     </button>
+                                                   </template>
+                                                   <template x-for="pb in devCustomPlaybooks" :key="pb.id">
+                                                     <button class="dagr-persona custom" type="button" :disabled="wtPersonaDisabled(d, s, pb && ('pb-'+pb.id))" @click="createDevAgentWt(d, s, 'custom', pb.id)">
+                                                       <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="wtAgentHas(activeDevWt(d,s),'pb-'+pb.id)">✓ added</span></span>
+                                                       <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
+                                                     </button>
+                                                   </template>
+                                                 </div>
+                                               </div>
+                                               <div x-show="devRecoListWt(d,s).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
+                                                 <!-- Agenda.AI agent recommendations for this worktree -->
+                                                 <div class="dcrec" x-show="devRecoListWt(d,s).length" x-cloak>
+                                                   <div class="dcrec-h dcrec-h-toggle" @click="devRecoOpen[wtKey(d,s)] = !devRecoOpen[wtKey(d,s)]" role="button" tabindex="0" @keydown.enter.prevent="devRecoOpen[wtKey(d,s)] = !devRecoOpen[wtKey(d,s)]">
+                                                     <span class="t"><span class="dcrec-caret" x-text="devRecoOpen[wtKey(d,s)] ? '▾' : '▸'"></span><b>✦ Agenda.AI</b> recommends adding<span class="dcrec-cnt" x-text="devRecoListWt(d,s).length"></span></span>
+                                                     <button class="dcrec-refresh" type="button" :disabled="devRecoBusyWt(d,s)" @click.stop="recommendDevAgentsWt(d,s,{force:true,noAuto:true})" x-text="devRecoBusyWt(d,s) ? 'Thinking…' : '↻ Recommend agents'"></button>
+                                                   </div>
+                                                   <div x-show="devRecoOpen[wtKey(d,s)]" x-cloak>
+                                                     <template x-for="rec in devRecoListWt(d,s)" :key="rec.persona">
+                                                       <div class="dcrec-row">
+                                                         <span class="dagr-dot" :style="devAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
+                                                         <span class="dcrec-body">
+                                                           <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
+                                                           <span class="dcrec-why" x-html="rec.why"></span>
+                                                           <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="devRecoConfLabel(rec)"></span>
+                                                         </span>
+                                                         <span class="dcrec-acts">
+                                                           <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="devAgentBusy[wtKey(d,s)+':'+rec.persona]" @click="addRecoAgentWt(d, s, rec)" x-text="devAgentBusy[wtKey(d,s)+':'+rec.persona] ? '…' : '＋ Add'"></button>
+                                                           <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissRecoWt(d, s, rec)">Dismiss</button>
+                                                         </span>
+                                                       </div>
+                                                     </template>
+                                                     <div class="dcrec-foot">
+                                                       <button class="dcrec-link" type="button" @click="addAllRecoWt(d,s)">Add all recommended</button>
+                                                       <button class="dcrec-link" type="button" @click="toggleDevPickerWt(d,s)">Browse all agents →</button>
+                                                     </div>
+                                                   </div>
+                                                 </div>
+                                               </div>
+                                             </div>
                                             </div>
                                           </div>
                                         </template>
@@ -12065,79 +12140,6 @@
                                       </div>
                                     </div>
                                     </template>
-                                    <div x-show="cfView(d)!=='root' && (devReadyWorktrees(d) >= 1 || (d.devAgents||[]).length)" x-init="recommendDevAgents(d)" style="border-top:1px dashed var(--cp-border);padding-top:10px"><div class="dagr-h">
-                                            <span class="lbl">Agents on this card</span>
-                                            <span class="cnt" x-show="(d.devAgents||[]).length" x-text="((d.devAgents||[]).length)+' '+((d.devAgents||[]).length===1?'agent':'agents')"></span>
-                                          </div>
-                                          <template x-if="(d.devAgents||[]).length">
-                                            <div class="dagr-list">
-                                              <template x-for="ag in (d.devAgents||[])" :key="ag.persona">
-                                                <div class="dagr-row">
-                                                  <span class="dagr-dot" :style="devAgentDotStyle(ag)" x-text="ag.emoji||'🤖'"></span>
-                                                  <span class="dagr-nm">
-                                                    <span class="n"><span x-text="ag.label"></span><span class="ro" x-show="ag.readOnly" title="Read-only — reviews and proposes, never writes code">· read-only</span></span>
-                                                    <span class="d" x-text="devReadyWorktrees(d)>=1 ? 'Written into every ready worktree' : 'Staged — add a repo/worktree to launch'"></span>
-                                                  </span>
-                                                  <span class="dagr-st" :class="devReadyWorktrees(d)>=1 ? 'ready' : 'needrepo'"><span class="sdot"></span><span x-text="devReadyWorktrees(d)>=1 ? 'ready' : 'needs repo'"></span></span>
-                                                  <span class="dagr-acts">
-                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" x-show="devReadyWorktrees(d)>=1" @click="launchDevAgent(d, ag)" title="Open the CLI with this agent selected">🤖 Launch</button>
-                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="devAgentBusy[d.id+':'+ag.persona]" @click="removeDevAgent(d, ag)" x-text="devAgentBusy[d.id+':'+ag.persona] ? '…' : 'Remove'"></button>
-                                                  </span>
-                                                </div>
-                                              </template>
-                                            </div>
-                                          </template>
-                                          <button class="dagr-add" type="button" @click="toggleDevPicker(d)" x-text="devPickerOpen[d.id] ? '× Close' : '＋ Add an agent'"></button>
-                                          <div class="dagr-picker" x-show="devPickerOpen[d.id]" x-cloak>
-                                            <div class="dagr-picker-h">
-                                              <span class="t">Add an agent from a playbook</span>
-                                              <span class="s">Each persona writes a focused agent into the worktree — add more than one.</span>
-                                            </div>
-                                            <div class="dagr-grid">
-                                              <template x-for="p in devPersonas" :key="p.id">
-                                                <button class="dagr-persona" type="button" :disabled="devAgentHas(d,p.id) || devAgentBusy[d.id+':'+p.id]" @click="createDevAgent(d, p.id)">
-                                                  <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="devAgentHas(d,p.id)">✓ added</span></span>
-                                                  <span class="pd" x-text="p.tagline"></span>
-                                                </button>
-                                              </template>
-                                              <template x-for="pb in devCustomPlaybooks" :key="pb.id">
-                                                <button class="dagr-persona custom" type="button" :disabled="devAgentHas(d,'pb-'+pb.id) || devAgentBusy[d.id+':pb-'+pb.id]" @click="createDevAgent(d, 'custom', pb.id)">
-                                                  <span class="ph"><span class="dagr-dot sm" :style="devAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="devAgentHas(d,'pb-'+pb.id)">✓ added</span></span>
-                                                  <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
-                                                </button>
-                                              </template>
-                                            </div>
-                                          </div>
-                                        </div>
-                                        <div x-show="devRecoList(d).length" style="border-top:1px dashed var(--cp-border);padding-top:10px">
-                                          <!-- Agenda.AI agent recommendations -->
-                                          <div class="dcrec" x-show="devRecoList(d).length" x-cloak>
-                                            <div class="dcrec-h dcrec-h-toggle" @click="devRecoOpen[d.id] = !devRecoOpen[d.id]" role="button" tabindex="0" @keydown.enter.prevent="devRecoOpen[d.id] = !devRecoOpen[d.id]">
-                                              <span class="t"><span class="dcrec-caret" x-text="devRecoOpen[d.id] ? '▾' : '▸'"></span><b>✦ Agenda.AI</b> recommends adding<span class="dcrec-cnt" x-text="devRecoList(d).length"></span></span>
-                                              <button class="dcrec-refresh" type="button" :disabled="devRecoBusy(d)" @click.stop="recommendDevAgents(d,{force:true,noAuto:true})" x-text="devRecoBusy(d) ? 'Thinking…' : '↻ Recommend agents'"></button>
-                                            </div>
-                                            <div x-show="devRecoOpen[d.id]" x-cloak>
-                                            <template x-for="rec in devRecoList(d)" :key="rec.persona">
-                                              <div class="dcrec-row">
-                                                <span class="dagr-dot" :style="devAgentDotStyle(rec)" x-text="rec.emoji||'🤖'"></span>
-                                                <span class="dcrec-body">
-                                                  <span class="dcrec-nm" :class="rec.readOnly?'ro':''"><span x-text="rec.label"></span></span>
-                                                  <span class="dcrec-why" x-html="rec.why"></span>
-                                                  <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="devRecoConfLabel(rec)"></span>
-                                                </span>
-                                                <span class="dcrec-acts">
-                                                  <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="devAgentBusy[d.id+':'+rec.persona]" @click="addRecoAgent(d, rec)" x-text="devAgentBusy[d.id+':'+rec.persona] ? '…' : '＋ Add'"></button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissReco(d, rec)">Dismiss</button>
-                                                </span>
-                                              </div>
-                                            </template>
-                                            <div class="dcrec-foot">
-                                              <button class="dcrec-link" type="button" @click="addAllReco(d)">Add all recommended</button>
-                                              <button class="dcrec-link" type="button" @click="toggleDevPicker(d)">Browse all agents →</button>
-                                            </div>
-                                          </div>
-                                          </div>
-                                          </div>
                                     </div><div class="cf-artrail"><p class="cf-arthead">Artifacts</p><div class="cf-pane">
                                       <div style="display:flex;flex-direction:column;gap:10px">
                                        <template x-if="d.reports && d.reports.length">
@@ -42303,6 +42305,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const w = this.cfWt(pr);
           return !!(w && !w.artifactsOnly && (w.worktreePath || w.worktreeStatus));
         },
+        // Current in-flight action string (e.g. 'create'/'review'/'push') for this PR's
+        // worktree, or falsy when idle. Reads the codeflow.wtBusy store keyed by cfPrKey.
+        cfBusy(pr) { return (this.codeflow.wtBusy || {})[this.cfPrKey(pr)] || ''; },
         // Is this `pr` the full live object (loaded via loadBoardPrs / Code Flow list)
         // rather than a thin board-pin stub? Gates the rich drawer sections so a stub
         // degrades gracefully. Code Flow PRs leave `_full` undefined → treated as true.
@@ -52379,6 +52384,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devAgentHas(d, personaId) {
           return !!(d && (d.devAgents || []).some(a => a && a.persona === personaId));
         },
+        // Should a persona-picker button be disabled? Single guarded helper (returns a
+        // STRICT boolean, never undefined, never throws during x-for init). Reads both
+        // reactive sources unconditionally so Alpine tracks d.devAgents AND devAgentBusy
+        // and the effect re-runs to a correct value. (Fixes the frozen-truthy :disabled
+        // bug where the old `A || B` short-circuit expression evaluated during template
+        // init left every button stuck disabled.)
+        devPersonaDisabled(d, personaId) {
+          const agents = (d && d.devAgents) || [];
+          if (!d || !personaId) return false;
+          const has = agents.some(a => a && a.persona === personaId);
+          const busy = !!this.devAgentBusy[d.id + ':' + personaId];
+          return !!(has || busy);
+        },
         // Round gradient dot style for a persona/roster entry.
         devAgentDotStyle(p) {
           const a = (p && (p.gradFrom || p.gradfrom)) || '#4b5563';
@@ -52484,6 +52502,164 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (rec.confidence === 'high') return rec.readOnly ? 'High confidence \u00b7 read-only, won\u2019t change code' : 'High confidence';
           return 'Medium confidence \u00b7 optional';
         },
+        // --- Per-worktree (per-aspect) dev agents ---------------------------------
+        // Each aspect worktree owns its OWN roster (wt.agents[]) + its own .agent.md
+        // files. These mirror the card-level helpers above but target ONE worktree —
+        // the active aspect of the given slot — so every aspect gets an independent
+        // agent set. Busy/picker/reco state is keyed per worktree via wtKey().
+        activeDevWt(d, s) {
+          const list = this.devWorktrees(d, s) || [];
+          const id = this.activeDevWtId(s);
+          return list.find(w => w && w.id === id) || list[0] || null;
+        },
+        wtAgentList(w) { return (w && Array.isArray(w.agents)) ? w.agents : []; },
+        wtAgentHas(w, personaId) { return this.wtAgentList(w).some(a => a && a.persona === personaId); },
+        // Per-worktree twin of devPersonaDisabled (strict boolean, guarded, no throw).
+        wtPersonaDisabled(d, s, personaId) {
+          const w = this.activeDevWt(d, s);
+          const agents = this.wtAgentList(w);
+          if (!personaId) return false;
+          const has = agents.some(a => a && a.persona === personaId);
+          const busy = !!this.devAgentBusy[this.wtKey(d, s) + ':' + personaId];
+          return !!(has || busy);
+        },
+        // Is the active aspect worktree ready to receive agent files?
+        wtReady(d, s) {
+          const w = this.activeDevWt(d, s);
+          return !!(w && w.worktreePath && w.worktreeStatus !== 'creating' && w.worktreeStatus !== 'error');
+        },
+        // Stable per-worktree state key (busy/picker/reco maps).
+        wtKey(d, s) { return d.id + ':' + ((s && s.id) || 'primary') + ':' + this.activeDevWtId(s); },
+        // Identity of the target worktree for a POST body / GET query.
+        _wtSel(s) { return { slotId: (s && s.id) || 'primary', wtId: this.activeDevWtId(s) }; },
+        // Add a persona's agent into the active aspect worktree.
+        async createDevAgentWt(d, s, personaId, playbookId) {
+          if (!d) return;
+          personaId = personaId || 'implementer';
+          const wk = this.wtKey(d, s);
+          const busyKey = wk + ':' + (personaId === 'custom' ? 'pb-' + (playbookId || '') : personaId);
+          if (this.devAgentBusy[busyKey]) return;
+          if (!this.wtReady(d, s)) { this.showToast('Worktree', 'Create this worktree first — the agent is written into it.', 'error'); return; }
+          this.devAgentBusy[busyKey] = true;
+          try {
+            const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: JSON.stringify(Object.assign({ persona: personaId, playbookId: playbookId || '' }, this._wtSel(s))) });
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Worktree', '\uD83E\uDD16 Agent ready in this worktree — selectable in VS Code / Copilot; auto-selected in the CLI.', 'success');
+            } else {
+              this.showToast('Worktree', 'Agent returned no result — try again.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Worktree', (e && e.message) || 'Create agent failed', 'error');
+          } finally {
+            delete this.devAgentBusy[busyKey];
+          }
+        },
+        // createDevAgentWt without the worktree-gate toast (used by auto-add).
+        async createDevAgentWtQuiet(d, s, personaId) {
+          const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: JSON.stringify(Object.assign({ persona: personaId, playbookId: '' }, this._wtSel(s))) });
+          if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+          return r;
+        },
+        // Remove a persona's agent files + roster entry from the active worktree.
+        async removeDevAgentWt(d, s, ag) {
+          if (!d || !ag) return;
+          const busyKey = this.wtKey(d, s) + ':' + ag.persona;
+          if (this.devAgentBusy[busyKey]) return;
+          this.devAgentBusy[busyKey] = true;
+          try {
+            const r = await this.request(this._devUrl(d, 'dev-agent/remove'), { method: 'POST', body: JSON.stringify(Object.assign({ persona: ag.custom ? 'custom' : ag.persona, playbookId: ag.playbookId || '' }, this._wtSel(s))) });
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Worktree', 'Removed ' + (ag.label || 'agent') + '.', 'success');
+            }
+          } catch (e) {
+            this.showToast('Worktree', (e && e.message) || 'Remove agent failed', 'error');
+          } finally {
+            delete this.devAgentBusy[busyKey];
+          }
+        },
+        // Open the CLI in this worktree with the persona's agent selected.
+        launchDevAgentWt(d, s, ag) {
+          if (!d || !ag) return;
+          const name = ag.agentName || ((ag.slots || []).find(x => x && x.agentName) || {}).agentName || ag.slug || '';
+          if (s && s.primary) this.openDevItem(d, 'cli', name);
+          else this.openDevSlot(d, s, 'cli');
+        },
+        // Toggle the inline persona picker for a worktree; lazily load the catalog.
+        toggleDevPickerWt(d, s) {
+          const wk = this.wtKey(d, s);
+          const open = !this.devPickerOpen[wk];
+          this.devPickerOpen[wk] = open;
+          if (open) this.loadDevPersonas();
+        },
+        // Signal-based recommendations for the active worktree (auto-add the obvious,
+        // keep the rest as dismissible suggestions), keyed per worktree.
+        async recommendDevAgentsWt(d, s, opts) {
+          if (!d) return;
+          opts = opts || {};
+          const wk = this.wtKey(d, s);
+          const st = this.devRecos[wk] || { suggest: [], loaded: false, busy: false };
+          if (st.busy) return;
+          if (st.loaded && !opts.force) return;
+          st.busy = true;
+          this.devRecos[wk] = st;
+          try {
+            const sel = this._wtSel(s);
+            const r = await this.request(this._devUrl(d, 'recommend-agents') + '?slotId=' + encodeURIComponent(sel.slotId) + '&wtId=' + encodeURIComponent(sel.wtId));
+            const recos = (r && r.recommendations) || [];
+            const w = this.activeDevWt(d, s);
+            const autoAdd = recos.filter(x => x && x.autoAdd && !this.wtAgentHas(w, x.persona));
+            const ready = this.wtReady(d, s);
+            if (ready && autoAdd.length && !opts.noAuto) {
+              let added = 0;
+              for (const x of autoAdd) {
+                try { await this.createDevAgentWtQuiet(d, s, x.persona); added++; }
+                catch (e) { /* leave as a suggestion if the write fails */ }
+              }
+              if (added) {
+                const allRO = autoAdd.every(x => x && x.readOnly);
+                this.showToast('Worktree', '\uD83E\uDD16 Added ' + added + ' recommended ' + (added === 1 ? 'agent' : 'agents') + ' automatically' + (allRO ? ' — read-only, won\u2019t change code.' : '.'), 'success');
+              }
+            }
+            const dismissed = this.devRecoDismissed[wk] || {};
+            const addedAuto = ready && !opts.noAuto;
+            const w2 = this.activeDevWt(d, s);
+            st.suggest = recos.filter(x => x && !this.wtAgentHas(w2, x.persona) && !dismissed[x.persona] && !(addedAuto && x.autoAdd));
+            st.loaded = true;
+          } catch (e) {
+            st.suggest = [];
+            st.loaded = true;
+          } finally {
+            st.busy = false;
+            this.devRecos[wk] = { ...st };
+          }
+        },
+        async addRecoAgentWt(d, s, rec) {
+          if (!d || !rec) return;
+          await this.createDevAgentWt(d, s, rec.persona);
+          const wk = this.wtKey(d, s);
+          const st = this.devRecos[wk];
+          if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.devRecos[wk] = { ...st }; }
+        },
+        async addAllRecoWt(d, s) {
+          const wk = this.wtKey(d, s);
+          const st = this.devRecos[wk];
+          if (!d || !st || !(st.suggest || []).length) return;
+          const list = st.suggest.slice();
+          for (const rec of list) { await this.addRecoAgentWt(d, s, rec); }
+        },
+        dismissRecoWt(d, s, rec) {
+          if (!d || !rec) return;
+          const wk = this.wtKey(d, s);
+          const dm = this.devRecoDismissed[wk] || {};
+          dm[rec.persona] = true;
+          this.devRecoDismissed[wk] = dm;
+          const st = this.devRecos[wk];
+          if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.devRecos[wk] = { ...st }; }
+        },
+        devRecoListWt(d, s) { const st = this.devRecos[this.wtKey(d, s)]; return (st && st.suggest) || []; },
+        devRecoBusyWt(d, s) { const st = this.devRecos[this.wtKey(d, s)]; return !!(st && st.busy); },
         // --- PR-card playbook agents (parallel to the dev-card roster above) -------
         // Identity payloads shared by every PR agent call.
         _prReqBody(pr, extra) {
