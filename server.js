@@ -20262,7 +20262,7 @@ function _meAiNewArtifact(o = {}) {
     id: o.id || ('art-' + Math.random().toString(36).slice(2, 9)),
     legId: o.legId || null, kind: o.kind || 'report',   // report|chart|table|diff|link
     title: o.title || 'Artifact', path: o.path || null, link: o.link || null,
-    body: o.body || null, at: new Date().toISOString(),
+    body: o.body || null, format: o.format || null, at: new Date().toISOString(),
   };
 }
 function _meAiNewStop(o = {}) {
@@ -21727,7 +21727,7 @@ function _meAiParseArtifacts(text) {
 function _meAiSurfaceArtifact(t, a) {
   const treeId = (t && t.id && typeof meAiTrees !== 'undefined' && meAiTrees.has(t.id)) ? t.id : null;
   const legId = (t && t._legId) || null;
-  const art = _meAiNewArtifact({ legId, kind: a.kind, title: a.title, body: a.body || null, link: a.link || null });
+  const art = _meAiNewArtifact({ legId, kind: a.kind, title: a.title, body: a.body || null, link: a.link || null, format: a.format || null });
   try {
     const dir = path.join(_meAiTreeDir(treeId || (t && t.id) || 'adhoc'), 'artifacts');
     fs.mkdirSync(dir, { recursive: true });

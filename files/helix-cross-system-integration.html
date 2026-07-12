@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Helix Architecture — Cross-System Integration Map</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --text-muted: #8b949e; --text-bright: #f0f6fc;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922;
+    --red: #f85149; --purple: #bc8cff; --cyan: #39d2c0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; }
+  h1 { color: var(--text-bright); font-size: 1.8rem; margin-bottom: .3rem; }
+  h2 { color: var(--accent); font-size: 1.35rem; margin: 2.5rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: .4rem; }
+  h3 { color: var(--text-bright); font-size: 1.1rem; margin: 1.5rem 0 .6rem; }
+  h4 { color: var(--purple); font-size: .95rem; margin: 1rem 0 .4rem; }
+  p, li { font-size: .92rem; }
+  .subtitle { color: var(--text-muted); font-size: .95rem; margin-bottom: 2rem; }
+  a { color: var(--accent); text-decoration: none; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin: 1rem 0; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
+  .card h3 { margin-top: 0; }
+  .card-accent { border-left: 3px solid var(--accent); }
+  .card-green  { border-left: 3px solid var(--green); }
+  .card-orange { border-left: 3px solid var(--orange); }
+  .card-purple { border-left: 3px solid var(--purple); }
+  .card-cyan   { border-left: 3px solid var(--cyan); }
+  .card-red    { border-left: 3px solid var(--red); }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0; font-size: .88rem; }
+  th { background: #1c2128; color: var(--text-bright); text-align: left; padding: .55rem .7rem; border-bottom: 2px solid var(--border); }
+  td { padding: .5rem .7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover td { background: rgba(88,166,255,.04); }
+  code { background: #1c2128; padding: .15rem .4rem; border-radius: 4px; font-size: .85rem; color: var(--cyan); }
+  pre { background: #1c2128; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; line-height: 1.5; color: var(--text); margin: .6rem 0; }
+  .diagram { background: #1c2128; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin: 1.2rem 0; overflow-x: auto; }
+  .diagram pre { background: none; border: none; padding: 0; margin: 0; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: .78rem; line-height: 1.55; color: var(--text); }
+  ul, ol { padding-left: 1.4rem; margin: .4rem 0; }
+  li { margin: .25rem 0; }
+  .tag { display: inline-block; font-size: .75rem; padding: .15rem .5rem; border-radius: 4px; margin: .1rem .2rem; font-weight: 600; }
+  .tag-blue   { background: rgba(88,166,255,.15); color: var(--accent); }
+  .tag-green  { background: rgba(63,185,80,.15);  color: var(--green); }
+  .tag-orange { background: rgba(210,153,34,.15); color: var(--orange); }
+  .tag-purple { background: rgba(188,140,255,.15);color: var(--purple); }
+  .tag-cyan   { background: rgba(57,210,192,.15); color: var(--cyan); }
+  .tag-red    { background: rgba(248,81,73,.15);  color: var(--red); }
+  .section-num { color: var(--text-muted); font-weight: 400; margin-right: .4rem; }
+</style>
+</head>
+<body>
+
+<h1>&#x1F3D7;&#xFE0F; Helix Architecture — Cross-System Integration Map</h1>
+<p class="subtitle">How dotnet-helix-machines, dotnet-helix-service, dotnet-autoscaler, arcade SDK, and helix-observer connect.<br>
+Generated 2026-07-12 &bull; Read-only investigation of local clones</p>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">1</span> System Overview Diagram</h2>
+
+<div class="diagram"><pre>
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474;                              HELIX ECOSYSTEM DATA and CONTROL FLOW                             &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+
+  +---------------------+      NuGet / MSBuild Tasks         +----------------------------------+
+  |   ARCADE SDK        |-------------------------------------&gt;|   PRODUCT REPOS (runtime, etc.) |
+  |  (dotnet/arcade)    |  Microsoft.DotNet.Helix.Sdk          |   Submit Helix jobs via SDK     |
+  |                     |  Microsoft.DotNet.Helix.JobSender     |   in CI/CD pipelines           |
+  |  - REST client      |  Microsoft.DotNet.Helix.Client       +----------------+---------------+
+  |  - Job sender       |                                                       |
+  |  - MSBuild tasks    |                                      POST /api/jobs (job list JSON)
+  +---------------------+                                                       |
+                                                                                v
+  +---------------------+  autoscale/*.json    +------------------------------------------------+
+  |  HELIX MACHINES     |  (blob storage)      |              HELIX SERVICE                     |
+  |  (dotnet-helix-     |----------------------&gt;|         (dotnet-helix-service)                 |
+  |   machines)         |                      |                                                |
+  |                     |  info.json           |  +----------+ +--------------+ +------------+  |
+  |  - Image builds     |  (queue registry)    |  | HelixAPI | | HelixControll| | SqlProcess |  |
+  |  - Queue defs YAML  |----------------------&gt;|  | (REST)   | | er (EventHub)| | or (SF)    |  |
+  |  - VMSS deploy      |                      |  +----+-----+ +------+-------+ +------+-----+  |
+  |  - Gallery images   |  clientSettings.zip  |       |              |                |         |
+  |  - Client wheels    |  (agent config)      |  +----+--------------+----------------+------+  |
+  |  - Matrix of Truth  |----------------------&gt;|  |  Azure Service Bus  |  Azure Storage     |  |
+  +----------+----------+                      |  |  (job queues)       |  (blobs/tables)    |  |
+             |                                 |  +---------+-----------+--------------------+  |
+             |  Gallery images --&gt; VMSS        |            |                                   |
+             |  (Azure Compute Gallery)        |  +---------+----------------------------------+|
+             |                                 |  |  helixdata SQL DB                          ||
+             |                                 |  |  (Jobs, WorkItems, Events, Reasons)        ||
+             |                                 |  +--------------------------------------------+|
+             |                                 |                                                |
+             |                                 |  Old Autoscaler (Service Fabric Actors):       |
+             |                                 |  AutoScaleActorService, QuotaManagerActor,     |
+             |                                 |  ProcessAutoScaleService                       |
+             |                                 +---------------+--------------------------------+
+             |                                                 |
+             |           GET /api/machines/{q}/{m}/state       |  Service Bus queue depth
+             |                                                 |
+             |                                                 v
+             |                                 +------------------------------------------------+
+             |   autoscale-aca/*.json           |            AUTOSCALER (ACA)                    |
+             |   (blob storage)                |        (dotnet-autoscaler)                     |
+             +---------------------------------&gt;|                                                |
+                                               |  +--------------+  +----------------------+   |
+                                               |  | AutoScale    |  | QuotaManager         |   |
+                                               |  | Processor    |--| (core distribution)  |   |
+                                               |  +------+-------+  +----------------------+   |
+                                               |         |                                     |
+                                               |  +------+-------+                             |
+                                               |  | ScaleManager |--- VMSS ARM API --&gt; VMs    |
+                                               |  | (scale ops)  |--- Helix Machine API        |
+                                               |  +--------------+    (drain/online)           |
+                                               |                                               |
+                                               |  Redis: configs, quotas, allocations          |
+                                               |  Kusto: historical processing times           |
+                                               +-----------------------------------------------+
+
+  +---------------------+                      +------------------------------------------------+
+  |  HELIX OBSERVER     |&lt;--- Kusto queries ---|  engineeringdata (Kusto)                      |
+  |  (helix-observer)   |&lt;--- AzDO API --------|  Azure DevOps builds                          |
+  |                     |&lt;--- App Insights -----|  Autoscaler telemetry                         |
+  |  - Wait predictions |&lt;--- Service Bus ------|  Queue depth counters                         |
+  |  - Stuck-job alerts |&lt;--- Heartbeat export -|  Machine lifecycle                            |
+  |  - Capacity reports |                      +------------------------------------------------+
+  |  - Cosmos DB store  |
+  +---------------------+
+</pre></div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">2</span> The Four Repos at a Glance</h2>
+
+<div class="grid">
+  <div class="card card-accent">
+    <h3>dotnet-helix-machines</h3>
+    <p><strong>Role:</strong> Source of truth for queue definitions, images, and autoscale configs</p>
+    <p><strong>Produces:</strong></p>
+    <ul>
+      <li>Azure Compute Gallery images (OS images for VMs)</li>
+      <li>Autoscale config blobs (<code>autoscale/*.json</code>, <code>autoscale-aca/*.json</code>)</li>
+      <li>Queue registry (<code>info.json</code>) consumed by helix-service</li>
+      <li>Client config (<code>clientSettings.zip</code>) for agent bootstrap</li>
+      <li>Helix client Python wheels (pip feed)</li>
+      <li>Matrix-of-Truth capability reports</li>
+    </ul>
+  </div>
+
+  <div class="card card-green">
+    <h3>dotnet-helix-service</h3>
+    <p><strong>Role:</strong> Core platform — job orchestration, data processing, monitoring</p>
+    <p><strong>Contains:</strong> 25+ Service Fabric services, 21 shared libraries, SQL database, admin CLI, monitoring alerts</p>
+    <p><strong>Key services:</strong> HelixAPI, HelixController, SqlProcessor, DeadVMCleaner, KnownIssuesProcessor, MetricsObserver, old SF-based AutoScaler actors</p>
+  </div>
+
+  <div class="card card-orange">
+    <h3>dotnet-autoscaler</h3>
+    <p><strong>Role:</strong> New-generation autoscaler on Azure Container Apps (replacing SF actors)</p>
+    <p><strong>Components:</strong> AutoScaleProcessor (orchestrator), ScaleManager (VMSS ops), QuotaManager (core distribution), QueueObserver</p>
+    <p><strong>Consumes:</strong> autoscale-aca blobs, Helix Machine API, Service Bus queue depth, Kusto historical data, Azure ARM for VMSS</p>
+  </div>
+
+  <div class="card card-purple">
+    <h3>arcade &amp; helix-observer</h3>
+    <p><strong>Arcade:</strong> Helix SDK — NuGet packages for job submission (Client, JobSender, Sdk MSBuild tasks)</p>
+    <p><strong>Observer:</strong> Monitoring dashboard — wait predictions, stuck-job detection, capacity analysis via Cosmos DB + Kusto + AzDO + App Insights</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">3</span> Shared Contracts &amp; Integration Points</h2>
+
+<h3>3.1 — Queue Name Format (universal identifier)</h3>
+<div class="card card-cyan">
+  <p>Queue names are the <strong>primary key</strong> that ties all systems together. Every repo uses the same naming convention:</p>
+  <pre>{OsGroup}.{Version}.{Arch}[.Open]    e.g. Windows.VS2022.Amd64.Open
+                                             Ubuntu.2204.Amd64
+                                             OSX.15.Arm64</pre>
+  <table>
+    <tr><th>System</th><th>Uses Queue Name For</th></tr>
+    <tr><td>helix-machines</td><td>YAML definition file key; autoscale blob filename; VMSS naming</td></tr>
+    <tr><td>helix-service</td><td>Service Bus queue routing; API endpoints; queue registry lookup</td></tr>
+    <tr><td>autoscaler</td><td>Config key in blob storage &amp; Redis; scaling decisions per queue</td></tr>
+    <tr><td>arcade SDK</td><td><code>QueueId</code> in job submission; queue discovery API</td></tr>
+    <tr><td>helix-observer</td><td>Cosmos partition key; wait-time tracking; capacity dashboards</td></tr>
+  </table>
+</div>
+
+<h3>3.2 — Autoscale Configuration Blob (helix-machines &#x2192; autoscaler)</h3>
+<div class="card card-orange">
+  <p><strong>Storage Account:</strong> <code>helixosauto</code> (prod) / <code>helixosautostaging</code> (staging)</p>
+  <p><strong>Container:</strong> <code>info</code></p>
+  <p><strong>Blob Paths:</strong></p>
+  <ul>
+    <li><code>autoscale/{queueName}.json</code> — consumed by old SF autoscaler</li>
+    <li><code>autoscale-aca/{queueName}.json</code> — consumed by new ACA autoscaler</li>
+  </ul>
+  <pre>{
+  "QueueName": "Windows.VS2022.Amd64.Open",
+  "slaInMinutes": 30,
+  "SubscriptionId": "...",
+  "ServiceBusNamespaceId": "...",
+  "ScaleSetIds": ["..."],
+  "MinCapacity": 3,
+  "MaxCapacity": 200,
+  "HasFixedMaxScale": true,
+  "VMSize": 4,
+  "CoresPerInstance": 4.0,
+  "Enabled": true
+}</pre>
+  <p><strong>Producer:</strong> <code>DeployQueues.dll --scaleset-config-only</code> (helix-machines pipeline)</p>
+  <p><strong>Fast-path pipeline:</strong> <code>azure-pipeline-autoscale-config.yaml</code> updates configs without full redeploy</p>
+</div>
+
+<h3>3.3 — Queue Registry (helix-machines &#x2192; helix-service)</h3>
+<div class="card card-green">
+  <p><strong>Artifact:</strong> <code>info.json</code> in management storage account</p>
+  <p><strong>Content:</strong> Complete queue definitions with capabilities, OS, architecture, region metadata</p>
+  <p><strong>Consumer:</strong> HelixAPI serves this via <code>/api/2018-03-14/info/queues</code></p>
+  <p><strong>Trigger:</strong> <code>DeployQueues --update-registry=true</code></p>
+</div>
+
+<h3>3.4 — Helix Machine API (helix-service &#x2194; autoscaler)</h3>
+<div class="card card-accent">
+  <p><strong>Base URIs:</strong></p>
+  <ul>
+    <li>Production: <code>https://helix.dot.net</code></li>
+    <li>Staging: <code>https://helix.int-dot.net</code></li>
+  </ul>
+  <p><strong>Endpoint:</strong> <code>PUT/GET /api/machines/{queueId}/{machineName}/state?api-version=2019-06-17</code></p>
+  <p><strong>Auth:</strong> Bearer token from Key Vault (<code>helix-api-access-token</code>)</p>
+  <p><strong>Purpose:</strong> Autoscaler sets machine state (online/offline) for graceful drain before scale-down</p>
+</div>
+
+<h3>3.5 — Image Version Format (helix-machines &#x2192; Azure Compute Gallery &#x2192; VMSS)</h3>
+<div class="card card-purple">
+  <p><strong>Gallery Image Names:</strong> <code>Helix-{OS}-{Version}-{Date}</code> (e.g., <code>Helix-Ubuntu-2204-2025-11-12</code>)</p>
+  <p><strong>Version Format:</strong> <code>YYYY.MMDD.HHMMSS</code> (e.g., <code>2024.0520.063705</code>)</p>
+  <p><strong>Defined in:</strong> Queue YAML definitions under <code>GalleryImage.Name</code> + <code>GalleryImage.Version</code></p>
+  <p><strong>Flow:</strong> helix-machines pipeline &#x2192; Azure Compute Gallery &#x2192; VMSS model references &#x2192; autoscaler scales instances</p>
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">4</span> Helix-Service Internal Architecture</h2>
+
+<h3>4.1 — Service Fabric Services (25+ services)</h3>
+<table>
+  <tr><th>Service</th><th>Type</th><th>Instances</th><th>Role</th></tr>
+  <tr><td><strong>HelixAPI</strong></td><td>Stateless</td><td>5</td><td>REST API — job submission, queue info, webhooks (GitHub, general)</td></tr>
+  <tr><td><strong>HelixController</strong></td><td>Stateless</td><td>2</td><td>Job/work orchestration — reads Service Bus &amp; Event Hubs</td></tr>
+  <tr><td><strong>SqlProcessor</strong></td><td>Stateful</td><td>3 replicas</td><td>Processes job results into SQL database</td></tr>
+  <tr><td><strong>JobFinishedProcessor</strong></td><td>Stateless</td><td>1</td><td>Handles job completion events from queues</td></tr>
+  <tr><td><strong>TestDataAggregationService</strong></td><td>Stateless</td><td>1</td><td>Aggregates test data; writes to Kusto</td></tr>
+  <tr><td><strong>AzureDevOpsTestAggregation</strong></td><td>Stateless</td><td>32 partitions</td><td>High-throughput AzDO test result aggregation</td></tr>
+  <tr><td><strong>AzureDevOpsTestSummary</strong></td><td>Stateless</td><td>1</td><td>Summarizes AzDO test results</td></tr>
+  <tr><td><strong>BuildResultAnalysisProcessor</strong></td><td>Stateless</td><td>1</td><td>Build failure pattern analysis (high network load)</td></tr>
+  <tr><td><strong>KnownIssuesProcessor</strong></td><td>Stateless</td><td>1</td><td>Known-issue lifecycle management via GitHub/AzDO</td></tr>
+  <tr><td><strong>KnownIssuesMonitor</strong></td><td>Stateless</td><td>1</td><td>Watches known issues state</td></tr>
+  <tr><td><strong>DeadVMCleaner</strong></td><td>Stateful</td><td>5 replicas</td><td>Removes dead/offline VMs from queues</td></tr>
+  <tr><td><strong>DeadLetterProcessor</strong></td><td>Stateless</td><td>1</td><td>Handles failed messages — requeue or dispose</td></tr>
+  <tr><td><strong>WebJobService</strong></td><td>Stateless</td><td>1</td><td>Heartbeat cleanup, storage cleanup (WebJobs host)</td></tr>
+  <tr><td><strong>SQLCleaner</strong></td><td>Stateless</td><td>1</td><td>Database maintenance — removes old data</td></tr>
+  <tr><td><strong>MetricsObserver</strong></td><td>Stateless</td><td>1</td><td>Collects &amp; publishes performance metrics</td></tr>
+  <tr><td><strong>HelixCoreHealthMonitor</strong></td><td>Stateless</td><td>All nodes</td><td>Cluster-wide health checks</td></tr>
+  <tr><td><strong>DataMigration</strong></td><td>Stateless</td><td>5</td><td>Data version migration (high network load)</td></tr>
+  <tr><td><strong>DeadServiceRestarter</strong></td><td>Stateless</td><td>All nodes</td><td>Auto-restarts dead services</td></tr>
+</table>
+
+<h3>4.2 — Old Autoscaler (Service Fabric Actors, still in helix-service)</h3>
+<table>
+  <tr><th>Service</th><th>Type</th><th>Partitions</th><th>Role</th></tr>
+  <tr><td><strong>AutoScaleActorService</strong></td><td>Stateful Actor</td><td>10 x 3 replicas</td><td>Distributed scaling decision actors</td></tr>
+  <tr><td><strong>QuotaManagerActorService</strong></td><td>Stateful Actor</td><td>10 x 3 replicas</td><td>Resource quota management per queue</td></tr>
+  <tr><td><strong>ProcessAutoScaleService</strong></td><td>Stateless</td><td>1</td><td>Orchestrates auto-scaling decisions</td></tr>
+  <tr><td><strong>ProcessTelemetryService</strong></td><td>Stateless</td><td>1</td><td>Telemetry for scaling decisions</td></tr>
+</table>
+<p style="margin-top:.5rem;color:var(--orange)">&#x26A0;&#xFE0F; The old SF autoscaler coexists with the new ACA autoscaler (<code>dotnet-autoscaler</code>). Queue definitions specify <code>AutoScalerSystem: AutoScalerSF | AutoScalerACA</code> to route to the correct system.</p>
+
+<h3>4.3 — Shared Utility Libraries (21 libraries)</h3>
+<div class="grid">
+  <div class="card">
+    <h4>Azure Integration</h4>
+    <ul>
+      <li><code>Helix.Utility.Azure</code> — Blobs, Queues, Tables, ARM</li>
+      <li><code>Helix.Utility.Azure.ApplicationInsights</code> — Telemetry</li>
+      <li><code>Helix.Utility.AzureDevOps</code> — AzDO REST API</li>
+      <li><code>Helix.Utility.QueueRegistry</code> — Service Bus queue mgmt</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Analysis &amp; External</h4>
+    <ul>
+      <li><code>Helix.Utility.Analysis</code> — Build/test failure analysis</li>
+      <li><code>Helix.Utility.GitHubGraphQL</code> — GitHub GraphQL client</li>
+      <li><code>Helix.Utility.Mail</code> — Email notifications</li>
+      <li><code>Helix.Utility.UserSentiment</code> — User feedback</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Foundation</h4>
+    <ul>
+      <li><code>Helix.Utility.Common</code> — Logging, helpers</li>
+      <li><code>Helix.Utility.Models</code> — Shared data models</li>
+      <li><code>Helix.Utility.Audit</code> — Audit trail</li>
+      <li><code>Helix.Utility.Settings</code> — Configuration</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Operations</h4>
+    <ul>
+      <li><code>Helix.Utility.Parallel</code> — Parallel execution</li>
+      <li><code>Helix.Utility.ServiceFabric</code> — SF helpers</li>
+      <li><code>Helix.Utility.FileSystem.Temporary</code> — Temp files</li>
+      <li><code>Helix.Utility.Testing</code> — Test mocks</li>
+    </ul>
+  </div>
+</div>
+
+<h3>4.4 — Data Layer: helixdata SQL Database</h3>
+<table>
+  <tr><th>Table</th><th>Purpose</th></tr>
+  <tr><td><code>Jobs</code></td><td>Test job records — links to Repository, Branch, Source, Properties</td></tr>
+  <tr><td><code>WorkItems</code></td><td>Individual work items within jobs — timing, status, results</td></tr>
+  <tr><td><code>Events</code> / <code>EventData</code></td><td>Event log entries with extended details</td></tr>
+  <tr><td><code>Reasons</code> / <code>ReasonMappings</code></td><td>Failure reason taxonomy</td></tr>
+  <tr><td><code>NameMapping</code></td><td>Name/ID mappings for compact storage</td></tr>
+  <tr><td><code>StorageContainers</code></td><td>Blob storage container references</td></tr>
+</table>
+<p>Views: <code>EventsView</code>, <code>EventDataView</code>, <code>WorkItemStageCounts</code>. Full-text search, encryption, and Query Store enabled.</p>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">5</span> New Autoscaler Architecture (ACA)</h2>
+
+<h3>5.1 — Three-Service Choreography</h3>
+<div class="diagram"><pre>
++----------------------+     REST API      +----------------------+
+|  AutoScaleProcessor  |-------------------&gt;|    ScaleManager      |
+|  (Orchestrator)      |                   |                      |
+|                      |                   |  - VMSS scale ops    |
+|  - Loads configs     |     REST API      |  - Machine drain via |
+|  - Runs scale loop   |-------------------&gt;|    Helix Machine API |
+|  - Quota allocation  |                   |  - VM lifecycle      |
++----------+-----------+                   +----------------------+
+           |
+           | REST API
+           v
++----------------------+
+|    QuotaManager      |
+|                      |
+|  - Azure core quotas |
+|  - Subscription caps |
+|  - Core distribution |
+|  - Redis state cache |
++----------------------+
+</pre></div>
+
+<h3>5.2 — Internal APIs</h3>
+<table>
+  <tr><th>Client &#x2192; Target</th><th>Endpoint</th><th>Purpose</th></tr>
+  <tr><td>Processor &#x2192; ScaleManager</td><td><code>GET /api/AutoScaleConfiguration</code></td><td>Load all configs</td></tr>
+  <tr><td>Processor &#x2192; ScaleManager</td><td><code>GET /api/scale/queues/{name}</code></td><td>Get queue work info</td></tr>
+  <tr><td>Processor &#x2192; ScaleManager</td><td><code>POST /api/scale/queues/{name}/scale?allocatedCores=N</code></td><td>Trigger scale operation</td></tr>
+  <tr><td>Processor &#x2192; QuotaManager</td><td><code>GET /api/AzureCoreQuotas</code></td><td>Get all quotas</td></tr>
+  <tr><td>Processor &#x2192; QuotaManager</td><td><code>POST /api/AzureCoreQuotas/initialize-quotas-and-allocations</code></td><td>Initialize quotas</td></tr>
+  <tr><td>Processor &#x2192; QuotaManager</td><td><code>POST /api/AzureCoreQuotas/calculate-distribution</code></td><td>Distribute cores across queues</td></tr>
+  <tr><td>ScaleManager &#x2192; QuotaManager</td><td>(same endpoints)</td><td>Allocation lookups during scale</td></tr>
+</table>
+
+<h3>5.3 — External Dependencies</h3>
+<table>
+  <tr><th>Dependency</th><th>Production Value</th><th>Purpose</th></tr>
+  <tr><td>Helix API</td><td><code>https://helix.dot.net</code></td><td>Machine state management (drain/online)</td></tr>
+  <tr><td>Service Bus</td><td>Per-queue namespace</td><td>Queue depth monitoring (message counts)</td></tr>
+  <tr><td>Kusto</td><td><code>engsrvprod.westus.kusto.windows.net/engineeringdata</code></td><td>Historical processing time percentiles</td></tr>
+  <tr><td>Redis</td><td>Azure Cache for Redis</td><td>Config cache, quota state, allocations</td></tr>
+  <tr><td>Blob Storage</td><td><code>helixosauto/info</code></td><td>Autoscale config blobs (from helix-machines)</td></tr>
+  <tr><td>Azure ARM</td><td>Per-subscription</td><td>VMSS capacity get/set, VM lifecycle</td></tr>
+  <tr><td>App Insights</td><td><code>helixautoscalerinsights</code></td><td>Telemetry, logging, diagnostics</td></tr>
+</table>
+
+<h3>5.4 — Redis Cache Keys (distributed state)</h3>
+<table>
+  <tr><th>Key Pattern</th><th>Content</th></tr>
+  <tr><td><code>QueueConfig_*</code></td><td>Cached autoscale configuration per queue</td></tr>
+  <tr><td><code>SubscriptionConfigs_*</code></td><td>Configs grouped by Azure subscription</td></tr>
+  <tr><td><code>SubscriptionQuota_*</code></td><td>Azure core quota per subscription</td></tr>
+  <tr><td><code>Allocation_*</code></td><td>Core allocation per queue</td></tr>
+  <tr><td><code>CoreQuota_*</code></td><td>Subscription-level core quota limits</td></tr>
+  <tr><td><code>MachineCreationTime_*</code></td><td>VM creation timestamps (for age-based eviction)</td></tr>
+  <tr><td><code>helix-state:*</code></td><td>Helix machine state cache (online/offline)</td></tr>
+  <tr><td><code>StaleConfig:FailCount:*</code></td><td>Stale config detection counters</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">6</span> Image &amp; Artifact Production Pipeline</h2>
+
+<h3>6.1 — End-to-End Image Flow</h3>
+<div class="diagram"><pre>
+  DEFINITIONS (YAML)               BUILD PIPELINE                    DEPLOYMENT
+  +--------------+           +---------------------+          +------------------+
+  | definitions/ |           | azure-pipelines.yml  |          | Azure Compute    |
+  |              |           |                      |          | Gallery          |
+  | Windows.     |--Build--&gt;| Stage: Build_Images  |--Publish-&gt;|                  |
+  | VS2022.      |  Stage   | CreateCustomImage     |  Image  | Helix-Ubuntu-    |
+  | Amd64.yaml   |           |                      |          | 2204-2025-11-12  |
+  |              |           | Stage: Build          |          | v2024.0520.xxx   |
+  | GalleryImage:|           | (C# compile, wheels) |          +--------+---------+
+  |  Name: ...   |           +---------------------+                   |
+  |  Version: ...|                                              Referenced by
+  |              |           +---------------------+                   |
+  | Scale:       |--Deploy--&gt;| Stage: Deploy_Queues |                   v
+  |  Max: 200    |  Stage   |                      |          +------------------+
+  |  SLA: 30min  |           | - DeployQueues.dll   |          | VMSS Scale Sets  |
+  |  AutoScaler- |           | - Writes autoscale/* |          | (run the images) |
+  |  System: ACA |           | - Writes info.json   |          +------------------+
+  +--------------+           +---------------------+
+</pre></div>
+
+<h3>6.2 — Artifact Types</h3>
+<table>
+  <tr><th>Artifact</th><th>Format</th><th>Storage</th><th>Consumer</th></tr>
+  <tr><td>Gallery Images</td><td><code>YYYY.MMDD.HHMMSS</code></td><td>Azure Compute Gallery</td><td>VMSS model image reference</td></tr>
+  <tr><td>Autoscale Configs</td><td>JSON per queue</td><td><code>helixosauto/info/autoscale-aca/</code></td><td>Autoscaler (ACA or SF)</td></tr>
+  <tr><td>Queue Registry</td><td><code>info.json</code></td><td>Management storage account</td><td>HelixAPI queue discovery</td></tr>
+  <tr><td>Client Settings</td><td><code>clientSettings.zip</code></td><td>Config storage accounts</td><td>Helix agent bootstrap on VMs</td></tr>
+  <tr><td>Client Wheels</td><td>Python .whl</td><td>Public artifact feed</td><td>Agent pip install on VMs</td></tr>
+  <tr><td>Matrix of Truth</td><td>JSON</td><td>Pipeline artifact</td><td>Capability validation &amp; reporting</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">7</span> Arcade Helix SDK (Job Submission)</h2>
+
+<h3>7.1 — NuGet Packages</h3>
+<table>
+  <tr><th>Package</th><th>Purpose</th><th>Key Dependencies</th></tr>
+  <tr><td><code>Microsoft.DotNet.Helix.Client</code></td><td>Auto-generated REST client (from OpenAPI spec)</td><td>Azure.Core, Newtonsoft.Json</td></tr>
+  <tr><td><code>Microsoft.DotNet.Helix.JobSender</code></td><td>Fluent API for job submission</td><td>Helix.Client, Azure.Storage.Blobs</td></tr>
+  <tr><td><code>Microsoft.DotNet.Helix.Sdk</code></td><td>MSBuild tasks for CI/CD integration</td><td>JobSender, JobMonitor</td></tr>
+</table>
+
+<h3>7.2 — Job Submission Contract</h3>
+<pre>JobCreationRequest {
+  Type, QueueId, ListUri,           // Core routing
+  Source, SourcePrefix,             // Build source tracking
+  Repository, Branch, TeamProject,  // AzDO context
+  Creator, Properties,              // Metadata (includes DefinitionId)
+  DockerTag, QueueAlias             // Optional overrides
+}
+
+WorkItemDefinition {
+  WorkItemName, Command,            // What to run
+  Timeout (default 300s),           // Execution limit
+  PayloadUri / Payload              // Input artifacts (blob URI or inline)
+}</pre>
+
+<h3>7.3 — API Endpoints (helix.dot.net)</h3>
+<table>
+  <tr><th>Endpoint</th><th>Purpose</th></tr>
+  <tr><td><code>POST /api/jobs</code></td><td>Submit a new Helix job</td></tr>
+  <tr><td><code>GET /api/2018-03-14/info/queues</code></td><td>List all queues with capabilities</td></tr>
+  <tr><td><code>GET /api/2019-06-17/jobs/{id}/details</code></td><td>Job status &amp; results</td></tr>
+  <tr><td><code>GET /api/2019-06-17/jobs/{id}/workitems</code></td><td>Work item list &amp; status</td></tr>
+  <tr><td><code>PUT /api/machines/{q}/{m}/state</code></td><td>Machine state (autoscaler drain)</td></tr>
+  <tr><td><code>GET /api/openapi.json</code></td><td>OpenAPI spec (client generation source)</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">8</span> Helix Observer (Monitoring)</h2>
+
+<div class="card card-cyan">
+  <h3>Architecture: 3 Container Apps + Cosmos DB</h3>
+  <p><strong>Components:</strong> ApiService (REST), Web (Razor UI), Worker (background collectors)</p>
+  <p><strong>Storage:</strong> Cosmos DB with containers: <code>observations</code> (queue snapshots), <code>aggregates</code> (historical), <code>agentMemory</code> (AI context), <code>reports</code> (pre-computed)</p>
+  <p><strong>Cache:</strong> Redis for sub-second live query responses</p>
+</div>
+
+<h3>8.1 — Data Sources</h3>
+<table>
+  <tr><th>Source</th><th>Data</th><th>Purpose</th></tr>
+  <tr><td>Kusto (<code>engineeringdata</code>)</td><td>Helix Jobs, WorkItems tables</td><td>Wait times, deadletter rates, historical baselines</td></tr>
+  <tr><td>Azure DevOps API</td><td>Active/completed builds, definitions</td><td>Build-to-Helix-job correlation</td></tr>
+  <tr><td>App Insights (autoscaler)</td><td>Traces, exceptions, zombie machines</td><td>Autoscaler health monitoring</td></tr>
+  <tr><td>Service Bus</td><td>Queue depth counters</td><td>Live queue state</td></tr>
+  <tr><td>Heartbeat Export</td><td>Machine state, lifecycle</td><td>VM availability tracking</td></tr>
+  <tr><td>Autoscale Config Blobs</td><td>Queue &#x2192; subscription/VMSS mapping</td><td>Infrastructure context</td></tr>
+  <tr><td>Azure ARM (Compute)</td><td>VM family quota limits</td><td>Capacity ceiling awareness</td></tr>
+</table>
+
+<h3>8.2 — Key Join Fields (AzDO &#x2194; Helix)</h3>
+<table>
+  <tr><th>AzDO Field</th><th>Helix Field</th><th>Join Logic</th></tr>
+  <tr><td><code>build.repository.name</code></td><td><code>Jobs.Repository</code></td><td>Repository name match</td></tr>
+  <tr><td><code>build.definition.id</code></td><td><code>Jobs.Properties["DefinitionId"]</code></td><td>Definition ID in job metadata</td></tr>
+  <tr><td><code>source.branch</code></td><td>Branch family normalization</td><td>Branch name &#x2192; family grouping</td></tr>
+  <tr><td>Build phase queue names</td><td><code>Jobs.QueueName</code></td><td>Queue-level correlation</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">9</span> Monitoring &amp; Alerting (helix-service)</h2>
+
+<div class="card card-red">
+  <h3>27 Alert Rules in Monitoring.HelixService</h3>
+  <ul>
+    <li><strong>Build Analysis:</strong> Failure rate spikes, exception monitoring</li>
+    <li><strong>Queue Depth:</strong> Message count thresholds per queue</li>
+    <li><strong>VM Cleanup:</strong> DeadVMCleaner failures, stuck VMs</li>
+    <li><strong>SQL Database:</strong> Size monitoring, cleanup failures</li>
+    <li><strong>Machine Heartbeats:</strong> Missing heartbeat detection</li>
+    <li><strong>Mobile Devices:</strong> Android/Apple device health</li>
+    <li><strong>Test SLA:</strong> Work item wait time violations</li>
+  </ul>
+  <p><strong>Visualization:</strong> Grafana dashboards + Azure Monitor + Application Insights</p>
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">10</span> Deployment Topology</h2>
+
+<div class="grid">
+  <div class="card card-green">
+    <h3>Helix Service (Service Fabric)</h3>
+    <ul>
+      <li><strong>Int:</strong> <code>dotnet-eng-int.westus2.cloudapp.azure.com:19080</code></li>
+      <li><strong>Prod:</strong> <code>dotnet-eng.westus2.cloudapp.azure.com:19080</code></li>
+      <li>Certificate-based auth (HelixProdKV)</li>
+      <li>25+ services, stateful + stateless mix</li>
+    </ul>
+  </div>
+  <div class="card card-orange">
+    <h3>Autoscaler (Azure Container Apps)</h3>
+    <ul>
+      <li>Aspire-based service discovery</li>
+      <li>3 container apps: <code>ca-autoscaleprocessor</code>, <code>ca-scalemanager</code>, <code>ca-quotamanager</code></li>
+      <li>Managed Identity (per-service UAMI)</li>
+      <li>Redis for distributed state</li>
+    </ul>
+  </div>
+  <div class="card card-cyan">
+    <h3>Helix Observer (Azure Container Apps)</h3>
+    <ul>
+      <li>3 container apps: api, web, worker</li>
+      <li>Cosmos DB (6 containers)</li>
+      <li>Container Registry (ACR per env)</li>
+      <li>Bicep IaC deployment</li>
+    </ul>
+  </div>
+  <div class="card card-accent">
+    <h3>Helix Machines (Pipelines only)</h3>
+    <ul>
+      <li>No running services — produces artifacts via AzDO pipelines</li>
+      <li>Deploys to: Azure Compute Gallery, blob storage, artifact feeds</li>
+      <li>Manages VMSS via ARM templates</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">11</span> Communication Patterns Summary</h2>
+
+<table>
+  <tr><th>Pattern</th><th>Systems</th><th>Details</th></tr>
+  <tr><td><span class="tag tag-blue">Blob Config</span></td><td>Machines &#x2192; Autoscaler</td><td>JSON per queue in <code>info</code> container; polled by autoscaler</td></tr>
+  <tr><td><span class="tag tag-blue">Blob Config</span></td><td>Machines &#x2192; Service</td><td><code>info.json</code> queue registry; served by HelixAPI</td></tr>
+  <tr><td><span class="tag tag-green">REST API</span></td><td>SDK &#x2192; Service</td><td>Job submission, queue discovery, work item status</td></tr>
+  <tr><td><span class="tag tag-green">REST API</span></td><td>Autoscaler &#x2192; Service</td><td>Machine state drain/online via Helix Machine API</td></tr>
+  <tr><td><span class="tag tag-green">REST API</span></td><td>Autoscaler internal</td><td>Processor &#x2194; ScaleManager &#x2194; QuotaManager via Aspire service discovery</td></tr>
+  <tr><td><span class="tag tag-orange">Service Bus</span></td><td>Service internal</td><td>Job queues for work distribution; autoscaler reads queue depth</td></tr>
+  <tr><td><span class="tag tag-orange">Event Hubs</span></td><td>Service internal</td><td>High-throughput event streaming (HelixController)</td></tr>
+  <tr><td><span class="tag tag-purple">SF Actors</span></td><td>Service internal (old)</td><td>AutoScale/QuotaManager actors for stateful scaling decisions</td></tr>
+  <tr><td><span class="tag tag-purple">SF Remoting</span></td><td>Service internal</td><td>Service-to-service calls within SF cluster</td></tr>
+  <tr><td><span class="tag tag-cyan">Kusto</span></td><td>Observer, Autoscaler, Service</td><td><code>engineeringdata</code> DB — jobs, work items, test data, processing times</td></tr>
+  <tr><td><span class="tag tag-cyan">Azure ARM</span></td><td>Autoscaler, Machines</td><td>VMSS capacity management, VM lifecycle, quota queries</td></tr>
+  <tr><td><span class="tag tag-red">Redis</span></td><td>Autoscaler internal</td><td>Config cache, quota state, machine state, allocation tracking</td></tr>
+  <tr><td><span class="tag tag-red">Cosmos DB</span></td><td>Observer</td><td>Queue snapshots, historical aggregates, AI memory, reports</td></tr>
+  <tr><td><span class="tag tag-blue">SQL Server</span></td><td>Service internal</td><td><code>helixdata</code> — Jobs, WorkItems, Events, Reasons</td></tr>
+  <tr><td><span class="tag tag-green">App Insights</span></td><td>Observer &#x2190; Autoscaler</td><td>Observer reads autoscaler traces/exceptions for health monitoring</td></tr>
+  <tr><td><span class="tag tag-blue">Gallery Images</span></td><td>Machines &#x2192; VMSS</td><td>Azure Compute Gallery image references in scale set models</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">12</span> Additional Tools &amp; Utilities</h2>
+
+<table>
+  <tr><th>Tool</th><th>Location</th><th>Purpose</th></tr>
+  <tr><td><code>helix-admin</code> CLI</td><td><code>helix-service/src/helix-admin-cli</code></td><td>Queue mgmt (list/show/purge), GitHub migration, cert install</td></tr>
+  <tr><td><code>helix-stats</code></td><td><code>helix-service/src/helix-stats</code></td><td>Test execution analytics via Kusto + App Insights</td></tr>
+  <tr><td><code>ListOnPremMachinesNeedingHelp</code></td><td><code>helix-service/src/DDFunUtilities</code></td><td>On-prem (DDFun) machine health via Table Storage + Kusto</td></tr>
+  <tr><td>Staging/Post-Deploy Tests</td><td><code>helix-service/src/Validation</code></td><td>Nightly + post-deployment smoke tests</td></tr>
+  <tr><td>Matrix-of-Truth CLI</td><td><code>helix-machines/matrix-of-truth</code></td><td>Queue capability validation matrix</td></tr>
+  <tr><td>Autoscaler CLI</td><td><code>dotnet-autoscaler/Helix.AutoScaler.CLI</code></td><td>Autoscaler config inspection &amp; management</td></tr>
+  <tr><td>Data Seeding</td><td><code>dotnet-autoscaler/Helix.AutoScaler.DataSeeding</code></td><td>Seed autoscaler configs from blob storage</td></tr>
+</table>
+
+<hr style="margin: 3rem 0 1rem; border-color: var(--border);">
+<p style="color: var(--text-muted); font-size: .8rem;">
+  Generated by cross-system integration analysis &bull; Read-only investigation of local clones at
+  C:\repos\{dotnet-helix-machines, dotnet-helix-service, dotnet-autoscaler, arcade, helix-observer}
+</p>
+
+</body>
+</html>

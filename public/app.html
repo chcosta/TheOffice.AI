@@ -13353,6 +13353,8 @@
               .meai-pu-report-back:hover { border-color:var(--cp-accent); color:var(--cp-text); }
               .meai-pu-report-ti { font-weight:700; color:var(--cp-text); font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-pu-report-body { flex:1; overflow:auto; padding:22px 28px; min-height:0; }
+              .meai-pu-report-frame { flex:1; min-height:0; width:100%; border:0; background:#fff; }
+              .meai-pu-report-src { flex:1; overflow:auto; margin:0; padding:18px 22px; min-height:0; font-family:var(--cp-mono, ui-monospace, monospace); font-size:12px; line-height:1.5; color:var(--cp-text); background:var(--cp-surface-2, rgba(0,0,0,.03)); white-space:pre-wrap; word-break:break-word; }
               /* The report/artifact body reuses .md-output for markdown styling, but must NOT
                  inherit that class's 300px max-height cap or modal chrome (bg/border/radius) —
                  it fills the center panel and scrolls only when content actually overflows. */
@@ -15783,8 +15785,15 @@
                             </span>
                           </div>
                           <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
+                          <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meAiPursuitReport())" @click="meAiPursuitToggleArtRaw(meAiPursuitReport())" x-text="meAiPursuitArtRaw(meAiPursuitReport()) ? 'Rendered' : 'View source'"></button>
                         </div>
-                        <div class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
+                        <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && !meAiPursuitArtRaw(meAiPursuitReport())">
+                          <iframe class="meai-pu-report-frame" :srcdoc="(meAiPursuitReport()||{}).body||''" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
+                        </template>
+                        <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && meAiPursuitArtRaw(meAiPursuitReport())">
+                          <pre class="meai-pu-report-src" x-text="(meAiPursuitReport()||{}).body||''"></pre>
+                        </template>
+                        <div x-show="!meAiPursuitArtIsHtml(meAiPursuitReport())" class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
                       </div>
                     </template>
 
@@ -15803,9 +15812,16 @@
                             </span>
                           </div>
                           <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
+                          <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meai.pursuit.artView)" @click="meAiPursuitToggleArtRaw(meai.pursuit.artView)" x-text="meAiPursuitArtRaw(meai.pursuit.artView) ? 'Rendered' : 'View source'"></button>
                           <button type="button" class="meai-pu-report-back" x-show="meai.pursuit.artView.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.artView.legId)">Show the leg →</button>
                         </div>
-                        <div class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
+                        <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && !meAiPursuitArtRaw(meai.pursuit.artView)">
+                          <iframe class="meai-pu-report-frame" :srcdoc="(meai.pursuit.artView||{}).body||''" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
+                        </template>
+                        <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && meAiPursuitArtRaw(meai.pursuit.artView)">
+                          <pre class="meai-pu-report-src" x-text="(meai.pursuit.artView||{}).body||''"></pre>
+                        </template>
+                        <div x-show="!meAiPursuitArtIsHtml(meai.pursuit.artView)" class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
                       </div>
                     </template>
 
@@ -27236,7 +27252,7 @@
             follow: true,                // auto-recenter on latest
             legendOpen: false,           // canvas legend visible
             _drag: null, _navDrag: null, _fitted: false, _focusId: null,
-            _nodes: [], _legShortId: {}, _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
+            _nodes: [], _legShortId: {}, _artRaw: {}, _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
             evOpen: {},                  // per-event expand map (transcript substeps)
             acting: false,               // a next-action resume is in flight
@@ -39642,6 +39658,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitArtMd(a) {
           const body = (a && a.body) || '';
           try { return this.renderMarkdown ? this.renderMarkdown(body) : body; } catch (_) { return body; }
+        },
+        // Detect an HTML-document artifact (explicit format, or body that opens as an HTML doc).
+        meAiPursuitArtIsHtml(a) {
+          if (!a) return false;
+          if (a.format === 'html') return true;
+          const b = String(a.body || '').trimStart().slice(0, 200).toLowerCase();
+          return b.startsWith('<!doctype') || b.startsWith('<html') || /^<html[\s>]/.test(b);
+        },
+        meAiPursuitArtRaw(a) {
+          const k = (a && (a.id || a.title)) || '';
+          return !!this.meai.pursuit._artRaw[k];
+        },
+        meAiPursuitToggleArtRaw(a) {
+          const k = (a && (a.id || a.title)) || '';
+          const m = this.meai.pursuit._artRaw; m[k] = !m[k];
         },
         // Open the (latest) report artifact for a leg from a node's "N artifacts" badge.
         meAiPursuitOpenLegArt(legId, ev) {
