@@ -28225,15 +28225,15 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
         const withWt = _devItemCtx(req.params.id, req.params.devId);
         if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); withWt.save({ reports }); }
       } catch {}
-      // Per-worktree agents: seed this slot's ACTIVE aspect worktree with its OWN
-      // implementer only when the card carried a legacy card-level agent and the
-      // worktree has no roster yet (migration bridge — see _seedWtImplementerIfLegacy).
+      // Per-worktree agents: seed this slot's ACTIVE worktree with its OWN default
+      // implementer (the intrinsic "worktree agent" the CLI auto-selects) when it has
+      // no roster yet, so opening the CLI always has an agent to launch.
       try {
         const after = _devItemCtx(req.params.id, req.params.devId);
         if (after) {
           const s2 = _findRepoSlot(after.dev, slot.id);
           const wt2 = s2 && _resolveDevWt(s2, undefined);
-          if (s2 && wt2) await _seedWtImplementerIfLegacy(after, s2, wt2);
+          if (s2 && wt2) await _seedWtImplementer(after, s2, wt2);
         }
       } catch {}
     } catch (e) {
@@ -28259,7 +28259,7 @@ app.post('/api/boards/:id/dev-items/:devId/dev-worktree', async (req, res) => {
   if (!slot || !slot.org || !slot.project || !slot.repo) {
     return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
   }
-  const aspect = String((req.body && req.body.aspect) || '').trim() || 'Approach';
+  const aspect = String((req.body && req.body.aspect) || '').trim() || 'Worktree';
   const scope = String((req.body && req.body.scope) || '').trim();
   const fromWtId = (req.body && req.body.fromWtId) || '';
 
@@ -28295,15 +28295,15 @@ app.post('/api/boards/:id/dev-items/:devId/dev-worktree', async (req, res) => {
       const afterSet = _devItemCtx(req.params.id, req.params.devId);
       if (afterSet) _setActiveDevWt(afterSet, slot.id, wtId);
       // Per-worktree agents: seed the newly-active aspect worktree with its OWN
-      // implementer only when the card carried a legacy card-level agent and the new
-      // worktree has no roster yet (migration bridge). New aspects otherwise start
-      // empty and are driven per-worktree by the SPA.
+      // brief-steered implementer (the intrinsic "worktree agent" the CLI auto-selects).
+      // Every new aspect gets one so the brief (wt.scope) becomes a real, launchable
+      // agent — additional specialised personas are added per-worktree from the SPA.
       try {
         const after = _devItemCtx(req.params.id, req.params.devId);
         if (after) {
           const s2 = _findRepoSlot(after.dev, slot.id);
           const wt2 = s2 && _resolveDevWt(s2, wtId);
-          if (s2 && wt2) await _seedWtImplementerIfLegacy(after, s2, wt2);
+          if (s2 && wt2) await _seedWtImplementer(after, s2, wt2);
         }
       } catch {}
       // Re-aggregate reports across every slot now that a new worktree is live.
@@ -29404,10 +29404,10 @@ function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot, person
     const title = String(selfWt.aspect || '').trim();
     const directive = String(selfWt.scope || '').trim();
     if (directive || (title && title !== 'Main')) {
-      ctx.push('## Your focus for this aspect');
-      if (title && title !== 'Main') ctx.push(`This worktree is the **${title}** aspect of the work item.`);
+      ctx.push('## Your focus for this worktree');
+      if (title && title !== 'Main') ctx.push(`This worktree — **${title}** — is your slice of the work item.`);
       if (directive) ctx.push(directive);
-      ctx.push('This directive **scopes your work**: stay within this slice of the work item and do not wander into parts other aspects own. If the directive and the broader work item genuinely conflict, follow the directive for your changes and call out the tension in your status report.');
+      ctx.push('This directive **scopes your work**: stay within this slice of the work item and do not wander into parts other worktrees own. If the directive and the broader work item genuinely conflict, follow the directive for your changes and call out the tension in your status report.');
       ctx.push('');
     }
   }
@@ -29421,25 +29421,25 @@ function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot, person
     }
     ctx.push('');
   }
-  // Sibling APPROACHES on THIS repo slot: other dev worktrees tackling the same work
+  // Sibling worktrees on THIS repo slot: other dev worktrees tackling the same work
   // item in the same repo, each an independent attempt with its own branch/worktree/
   // reports. The user promotes ONE into this card's PR. An agent can read/search/diff
-  // them (read-only) to learn what another approach tried — same-card scope only.
+  // them (read-only) to learn what another worktree tried — same-card scope only.
   let approaches = [];
   try { approaches = _slotDevWorktrees(slot).filter(w => w && w.worktreePath && fs.existsSync(w.worktreePath)); } catch { approaches = []; }
   if (approaches.length > 1) {
-    ctx.push('## Other approaches to this work item (same repo)');
-    ctx.push('This work item is being tackled with **multiple parallel approaches** in this repo — each an independent dev worktree with its own branch and its own attempt at the solution. They are siblings on disk. You may **read, search, and `git diff` across them (read-only)** to see what another approach tried, reuse an idea, or avoid a dead end — but do **not** edit another approach\'s worktree; make your changes only in your own. When the user is happy with one approach they **promote** it into this card\'s pull request.');
+    ctx.push('## Other worktrees for this work item (same repo)');
+    ctx.push('This work item is being tackled with **multiple parallel worktrees** in this repo — each an independent dev worktree with its own branch and its own attempt at the solution. They are siblings on disk. You may **read, search, and `git diff` across them (read-only)** to see what another worktree tried, reuse an idea, or avoid a dead end — but do **not** edit another worktree; make your changes only in your own. When the user is happy with one worktree they **promote** it into this card\'s pull request.');
     for (const w of approaches) {
       const isHere = w.worktreePath === currentPath;
-      const label = (w.aspect || 'Approach') + (w.scope ? ` — ${w.scope}` : '');
+      const label = (w.aspect || 'Worktree') + (w.scope ? ` — ${w.scope}` : '');
       const reports = _approachReportNames(w.worktreePath);
       let line = `- **${label}**${w.promotedPrId ? ' (promoted → this card\'s PR)' : ''} — branch \`${w.branch || '(none)'}\`, \`${w.worktreePath}\`${isHere ? '  ← you are here' : ''}`;
       if (reports.length) line += '\n  - reports: ' + reports.join(', ');
       ctx.push(line);
     }
     ctx.push('');
-    ctx.push('The read-only status **reports** each approach produces (self-contained `dev-*-report.html` at the worktree root) are the quickest way to understand what another approach found or built — open or read them directly from the paths above.');
+    ctx.push('The read-only status **reports** each worktree produces (self-contained `dev-*-report.html` at the worktree root) are the quickest way to understand what another worktree found or built — open or read them directly from the paths above.');
     ctx.push('');
   }
   // Non-implementer personas get a persona-scoped body (role, goal, working loop,
@@ -29675,11 +29675,16 @@ function _persistWtAgent(ctx, slot, wt, persona, written) {
 // yet, seed its own implementer so every worktree keeps a working default. Cards
 // that never had an agent start EMPTY and are driven per-worktree by the SPA — we
 // do NOT invent agents for them.
-async function _seedWtImplementerIfLegacy(ctx, slot, wt) {
+// Always seed an aspect worktree's OWN brief-steered implementer (the intrinsic
+// "worktree agent" the CLI auto-selects). Unlike the legacy bridge above this does
+// NOT gate on a prior card-level agent — every new aspect gets a real implementer
+// steered by its brief (wt.scope, injected server-side as "Your focus for this
+// aspect"), so wt.agentName is populated and the SPA can surface + launch it.
+// No-op when the worktree already has a roster.
+async function _seedWtImplementer(ctx, slot, wt) {
   try {
     const d = ctx && ctx.dev;
     if (!d || !slot || !wt || !wt.worktreePath) return;
-    if (!d.devAgentName && !wt.agentName) return;
     if (_wtAgentRoster(wt).length) return;
     let wi = d.workItem;
     try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}

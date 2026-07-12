@@ -4037,6 +4037,10 @@
       max-width: 320px;
     }
     /* ---- Dev-agent roster + persona picker (Part B) ---- */
+    .dagr-brief { border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); padding:8px 10px; margin-bottom:10px; }
+    .dagr-brief-top { display:flex; align-items:center; gap:10px; }
+    .dagr-brief-txt { font-size:12px; color:var(--cp-text); line-height:1.45; margin-top:6px; white-space:pre-wrap; }
+    .dagr-brief-txt.none { color:var(--cp-text-muted); font-style:italic; }
     .dagr-h { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
     .dagr-h .lbl { font-size:11px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-muted); text-transform:uppercase; }
     .dagr-h .cnt { font-size:11px; color:var(--cp-text-muted); font-weight:500; }
@@ -12109,14 +12113,27 @@
                                               </template>
                                             </div>
                                              <!-- Agents in THIS worktree (per-aspect roster) -->
-                                             <div x-show="cfView(d)!=='root' && (wtReady(d,s) || wtAgentList(activeDevWt(d,s)).length)" x-init="recommendDevAgentsWt(d,s)" style="border-top:1px dashed var(--cp-border);padding-top:10px;margin-top:2px">
-                                               <div class="dagr-h">
-                                                 <span class="lbl">Agents in this worktree</span>
-                                                 <span class="cnt" x-show="wtAgentList(activeDevWt(d,s)).length" x-text="(wtAgentList(activeDevWt(d,s)).length)+' '+(wtAgentList(activeDevWt(d,s)).length===1?'agent':'agents')"></span>
+                                             <div x-show="cfView(d)!=='root' && (wtReady(d,s) || wtAgentList(activeDevWt(d,s)).length)" x-effect="activeDevWtId(s); $nextTick(() => recommendDevAgentsWt(d,s))" style="border-top:1px dashed var(--cp-border);padding-top:10px;margin-top:2px">
+                                               <!-- The intrinsic worktree agent (brief-steered implementer the CLI auto-selects) -->
+                                               <div class="dagr-brief" x-show="wtReady(d,s)">
+                                                 <div class="dagr-brief-top">
+                                                   <span class="dagr-dot" :style="devAgentDotStyle(wtBriefAgent(activeDevWt(d,s)) || {colorKey:'implementer'})" x-text="(wtBriefAgent(activeDevWt(d,s))||{}).emoji || '🛠'"></span>
+                                                   <span class="dagr-nm">
+                                                     <span class="n"><span x-text="(activeDevWt(d,s)||{}).aspect || 'Worktree agent'"></span></span>
+                                                     <span class="d">Auto-selected when you open the CLI here</span>
+                                                   </span>
+                                                   <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="launchWtBrief(d,s)" title="Open the CLI with this worktree's brief agent selected">🤖 Launch</button>
+                                                 </div>
+                                                 <div class="dagr-brief-txt" x-show="wtBriefText(activeDevWt(d,s))" x-text="wtBriefText(activeDevWt(d,s))"></div>
+                                                 <div class="dagr-brief-txt none" x-show="!wtBriefText(activeDevWt(d,s))">Default implementer — no extra focus set for this worktree.</div>
                                                </div>
-                                               <template x-if="wtAgentList(activeDevWt(d,s)).length">
+                                               <div class="dagr-h">
+                                                 <span class="lbl">More agents in this worktree</span>
+                                                 <span class="cnt" x-show="wtExtraAgents(activeDevWt(d,s)).length" x-text="(wtExtraAgents(activeDevWt(d,s)).length)+' '+(wtExtraAgents(activeDevWt(d,s)).length===1?'agent':'agents')"></span>
+                                               </div>
+                                               <template x-if="wtExtraAgents(activeDevWt(d,s)).length">
                                                  <div class="dagr-list">
-                                                   <template x-for="ag in wtAgentList(activeDevWt(d,s))" :key="ag.persona">
+                                                   <template x-for="ag in wtExtraAgents(activeDevWt(d,s))" :key="ag.persona">
                                                      <div class="dagr-row">
                                                        <span class="dagr-dot" :style="devAgentDotStyle(ag)" x-text="ag.emoji||'🤖'"></span>
                                                        <span class="dagr-nm">
@@ -52653,6 +52670,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return list.find(w => w && w.id === id) || list[0] || null;
         },
         wtAgentList(w) { return (w && Array.isArray(w.agents)) ? w.agents : []; },
+        // The intrinsic "worktree agent" = the brief-steered implementer the CLI
+        // auto-selects when you open the terminal on this worktree.
+        wtBriefAgent(w) { return this.wtAgentList(w).find(a => a && a.persona === 'implementer') || null; },
+        // Explicitly-attached specialised agents (everything except the intrinsic implementer).
+        wtExtraAgents(w) { return this.wtAgentList(w).filter(a => a && a.persona !== 'implementer'); },
+        // The worktree's brief ("focus for this aspect"), trimmed.
+        wtBriefText(w) { return (w && typeof w.scope === 'string') ? w.scope.trim() : ''; },
+        // Open the CLI on this worktree with its brief agent auto-selected.
+        launchWtBrief(d, s) {
+          const w = this.activeDevWt(d, s);
+          const ag = this.wtBriefAgent(w);
+          if (ag) { this.launchDevAgentWt(d, s, ag); return; }
+          if (s && s.primary) this.openDevItem(d, 'cli'); else this.openDevSlot(d, s, 'cli');
+        },
         wtAgentHas(w, personaId) { return this.wtAgentList(w).some(a => a && a.persona === personaId); },
         // Per-worktree twin of devPersonaDisabled (strict boolean, guarded, no throw).
         wtPersonaDisabled(d, s, personaId) {
