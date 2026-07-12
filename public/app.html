@@ -13306,6 +13306,8 @@
               .meai-pu-art-k { font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:#6639ba; font-weight:700; flex:0 0 auto; }
               .meai-pu-art-t { font-weight:600; color:var(--cp-text); font-size:13px; }
               .meai-pu-art-body { font-size:12px; color:var(--cp-text-muted); margin-top:6px; line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+              .meai-pu-art-meta { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:11px; color:var(--cp-text-muted); }
+              .meai-pu-art-meta-dot { opacity:.55; }
               .meai-pu-art-open { font-size:12px; color:var(--cp-accent); font-weight:600; margin-top:8px; }
               /* Expanded artifact reader */
               .meai-pu-artmodal { position:absolute; inset:0; z-index:20; background:color-mix(in srgb,#000 42%, transparent); display:flex; align-items:center; justify-content:center; padding:34px; }
@@ -15745,6 +15747,11 @@
                                 <span class="meai-pu-art-k" x-text="a.kind"></span>
                                 <span class="meai-pu-art-t" x-text="a.title"></span>
                               </div>
+                              <div class="meai-pu-art-meta" x-show="meAiPursuitArtBy(a) || meAiPursuitArtTs(a)">
+                                <span x-show="meAiPursuitArtBy(a)" x-text="meAiPursuitArtBy(a)"></span>
+                                <span x-show="meAiPursuitArtBy(a) && meAiPursuitArtTs(a)" class="meai-pu-art-meta-dot">·</span>
+                                <span x-show="meAiPursuitArtTs(a)" x-text="meAiPursuitArtTs(a)"></span>
+                              </div>
                               <div x-show="a.body" class="meai-pu-art-body" x-text="(a.body||'').replace(/[#*`>_-]/g,' ').replace(/\s+/g,' ').trim().slice(0,180)"></div>
                             </button>
                           </template>
@@ -15769,6 +15776,11 @@
                           <div class="meai-pu-report-ti">
                             <span class="meai-pu-art-k" x-text="meAiPursuitReport().kind"></span>
                             <span class="meai-pu-report-t" x-text="meAiPursuitReport().title"></span>
+                            <span class="meai-pu-art-meta" x-show="meAiPursuitArtBy(meAiPursuitReport()) || meAiPursuitArtTs(meAiPursuitReport())">
+                              <span x-show="meAiPursuitArtBy(meAiPursuitReport())" x-text="meAiPursuitArtBy(meAiPursuitReport())"></span>
+                              <span x-show="meAiPursuitArtBy(meAiPursuitReport()) && meAiPursuitArtTs(meAiPursuitReport())" class="meai-pu-art-meta-dot">·</span>
+                              <span x-show="meAiPursuitArtTs(meAiPursuitReport())" x-text="meAiPursuitArtTs(meAiPursuitReport())"></span>
+                            </span>
                           </div>
                           <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
                         </div>
@@ -15784,6 +15796,11 @@
                           <div class="meai-pu-report-ti">
                             <span class="meai-pu-art-k" x-text="meai.pursuit.artView.kind"></span>
                             <span class="meai-pu-report-t" x-text="meai.pursuit.artView.title"></span>
+                            <span class="meai-pu-art-meta" x-show="meAiPursuitArtBy(meai.pursuit.artView) || meAiPursuitArtTs(meai.pursuit.artView)">
+                              <span x-show="meAiPursuitArtBy(meai.pursuit.artView)" x-text="meAiPursuitArtBy(meai.pursuit.artView)"></span>
+                              <span x-show="meAiPursuitArtBy(meai.pursuit.artView) && meAiPursuitArtTs(meai.pursuit.artView)" class="meai-pu-art-meta-dot">·</span>
+                              <span x-show="meAiPursuitArtTs(meai.pursuit.artView)" x-text="meAiPursuitArtTs(meai.pursuit.artView)"></span>
+                            </span>
                           </div>
                           <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
                           <button type="button" class="meai-pu-report-back" x-show="meai.pursuit.artView.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.artView.legId)">Show the leg →</button>
@@ -15798,7 +15815,7 @@
                         <div class="meai-pu-report-top">
                           <button type="button" class="meai-pu-report-back" @click="meAiPursuitToMap()">‹ Back to map</button>
                           <div class="meai-pu-nodeview-ti">
-                            <span class="meai-pu-art-k" x-text="meAiPursuitLegAttr(meai.pursuit.nodeView.leg)"></span>
+                            <span class="meai-pu-art-k" x-text="meAiPursuitAttrFor(meai.pursuit.nodeView.id, meai.pursuit.nodeView.leg)"></span>
                             <span class="meai-pu-report-t" x-text="meai.pursuit.nodeView.leg.title"></span>
                           </div>
                           <span class="meai-pu-nodeview-state">
@@ -27207,7 +27224,7 @@
             // No modals; clicking a node turns the CENTER into that node's view.
             nav: 'chat',                 // left-nav section: chat|index|approvals|artifacts
             navOpen: true,               // left nav expanded
-            navW: (() => { try { const v = parseInt(localStorage.getItem('meAiPuNavW') || '360', 10); return (v >= 300 && v <= 640) ? v : 360; } catch { return 360; } })(),
+            navW: (() => { try { const cap = Math.max(640, Math.floor((window.innerWidth || 1280) / 2)); const v = parseInt(localStorage.getItem('meAiPuNavW') || '360', 10); return (v >= 300 && v <= cap) ? v : 360; } catch { return 360; } })(),
             legPick: 'spine',            // selected leg for the Chat transcript (spine=main thread)
             centerView: 'map',           // center surface: map|node|report|artifact
             nodeView: null,              // the node shown in the CENTER node-view
@@ -27219,7 +27236,7 @@
             follow: true,                // auto-recenter on latest
             legendOpen: false,           // canvas legend visible
             _drag: null, _navDrag: null, _fitted: false, _focusId: null,
-            _nodes: [], _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
+            _nodes: [], _legShortId: {}, _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
             evOpen: {},                  // per-event expand map (transcript substeps)
             acting: false,               // a next-action resume is in flight
@@ -39162,7 +39179,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
           const COLW = 340, ROWH = 168, ROOTH = 300, CX = 460, TOP = 40, W = 300, PAD = 48;
-          if (!tree) { p._nodes = []; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
+          if (!tree) { p._nodes = []; p._legShortId = {}; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
           const legs = tree.legs || {};
           const stopByLeg = {};
@@ -39248,7 +39265,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // agent (chattable, share a conversation); branch legs (L1, L2…) and scouts
           // (S1, S2…) are disposable sub-agents. Counters run in creation order so the
           // labels stay stable across re-renders.
-          let _legN = 0, _scoutN = 0;
+          let _legN = 0, _scoutN = 0, _userN = 0;
+          const legShort = {};
           order.forEach((id, i) => {
             const leg = legs[id]; if (!leg) return;
             const x = CX + slot[id] * COLW;
@@ -39260,9 +39278,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const arts = artByLeg[id] || [];
             const kind = leg.kind || 'branch';
             const isMain = kind === 'spine' || kind === 'reroute';
-            const shortId = isMain ? '' : (kind === 'scout' ? 'S' + (++_scoutN) : 'L' + (++_legN));
-            const role = isMain ? 'main' : 'sub';
-            let cls = 'kind-' + kind + (isMain ? ' pmain' : ' psub');
+            const isUser = kind === 'user';
+            const shortId = isUser ? 'U' + (++_userN) : (isMain ? '' : (kind === 'scout' ? 'S' + (++_scoutN) : 'L' + (++_legN)));
+            legShort[id] = shortId;
+            const role = isUser ? 'you' : (isMain ? 'main' : 'sub');
+            let cls = 'kind-' + kind + (isUser ? ' puser' : (isMain ? ' pmain' : ' psub'));
             if (leg.invalidated || leg.status === 'invalidated') cls += ' pdead';
             if (leg.status === 'done') cls += ' pdone';
             if (stop) cls += (stop.type === 'needs-auth' ? ' pauth' : ' pstop');
@@ -39361,7 +39381,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             dByType.reuse += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
             dByType.reuseA += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1);
           });
-          p._nodes = nodes; p._edgeD = dByType;
+          p._nodes = nodes; p._edgeD = dByType; p._legShortId = legShort;
           p._w = maxX + W + 120; p._h = maxY + ROWH + 80;
         },
         _meAiEdgePath(x1, y1, x2, y2) {
@@ -39384,7 +39404,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return 'transform:translate(' + p.panX + 'px,' + p.panY + 'px) scale(' + p.zoom + ');transform-origin:0 0;width:' + (p._w || 1000) + 'px;height:' + (p._h || 600) + 'px';
         },
         meAiPursuitLegKind(k) {
-          return ({ spine: 'Main thread', branch: 'Pursuit leg', scout: 'Scout', reroute: 'Merged back' })[k] || k;
+          return ({ spine: 'Main thread', branch: 'Pursuit leg', scout: 'Scout', reroute: 'Merged back', user: 'You' })[k] || k;
         },
         // Depth of a leg = how far it forked from the spine root. Spine (parentId
         // null) is L1; a branch/scout off the spine is L2; its children L3; etc.
@@ -39406,12 +39426,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const who = leg.kind === 'spine' ? 'Chief of Staff' : 'Sub-Agent';
           return 'L' + depth + ' · ' + role + ' · ' + who;
         },
+        // Attribution label that ALIGNS the chat card with the map: it uses the same
+        // incrementing short ID the node carries on the map (L#/S#/U#) instead of a
+        // raw fork depth, so "S1" in chat is the same "S1" you see on the canvas. Falls
+        // back to depth only if the layout hasn't run yet. Spine/reroute = Chief of
+        // Staff; user comments = You; everything else = a numbered Sub-Agent.
+        meAiPursuitAttrFor(legId, leg) {
+          if (!leg) return '';
+          const role = this.meAiPursuitLegKind(leg.kind);
+          if (leg.kind === 'user') return 'You';
+          const isMain = leg.kind === 'spine' || leg.kind === 'reroute';
+          if (isMain) return role + ' · Chief of Staff';
+          const map = (this.meai.pursuit && this.meai.pursuit._legShortId) || {};
+          let sid = (legId != null) ? map[legId] : '';
+          if (!sid) { const d = this.meAiPursuitLegDepth(leg); sid = 'L' + d; }
+          return sid + ' · ' + role + ' · Sub-Agent';
+        },
         // Attribution for a fold event (a leg that rejoined the main thread) —
         // resolves the leg from ev.legRef so the fold card can name its source agent.
         meAiPursuitFoldAttr(ev) {
           const tree = this.meai.pursuit.tree;
           const leg = tree && tree.legs && ev && ev.legRef && tree.legs[ev.legRef];
-          return leg ? this.meAiPursuitLegAttr(leg) : '';
+          return leg ? this.meAiPursuitAttrFor(ev.legRef, leg) : '';
         },
         // Interesting index (left panel): the vertices worth jumping to — merge-backs,
         // done results, dead-ends, and artifact-bearing legs.
@@ -39577,14 +39613,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         // Drag the splitter between the left nav and the center view. Pointer-driven,
-        // clamped 300–640px, persisted to localStorage (mirrors cfRailResizeStart).
+        // clamped 300px–half the viewport width, persisted to localStorage.
         meAiPursuitNavResize(ev) {
           const p = this.meai.pursuit;
           if (ev && ev.preventDefault) ev.preventDefault();
           const startX = ev.clientX;
           const startW = p.navW;
           const move = (e) => {
-            const w = Math.min(640, Math.max(300, startW + (e.clientX - startX)));
+            const cap = Math.max(300, Math.floor((window.innerWidth || 1280) / 2));
+            const w = Math.min(cap, Math.max(300, startW + (e.clientX - startX)));
             p.navW = w;
           };
           const up = () => {
@@ -39770,6 +39807,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitArtifacts() {
           const t = this.meai.pursuit.tree; if (!t) return [];
           return (t.artifacts || []).slice().reverse();
+        },
+        // Ask #8 — artifact metadata: WHEN it was produced + WHICH agent/sub-agent made it.
+        // Author resolves through the same map-ID attribution the chat/node cards use, so an
+        // artifact reads e.g. "S2 · Pursuit leg · Sub-Agent" / "Chief of Staff".
+        meAiPursuitArtTs(a) {
+          const iso = a && a.at;
+          if (!iso) return '';
+          const d = new Date(iso); if (isNaN(d)) return '';
+          try {
+            return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(',', ' ·');
+          } catch (e) { return ''; }
+        },
+        meAiPursuitArtBy(a) {
+          if (!a || !a.legId) return '';
+          const t = this.meai.pursuit.tree;
+          const leg = t && t.legs && t.legs[a.legId];
+          return leg ? this.meAiPursuitAttrFor(a.legId, leg) : '';
         },
         meAiPursuitConstraints() {
           const t = this.meai.pursuit.tree;
