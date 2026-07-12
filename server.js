@@ -25236,7 +25236,7 @@ function _pulseComedyReel(limit) {
     for (const x of recent) { if (picked.length >= cap - 2) break; picked.push(x); used.add(x.id); }
     const vault = items.filter(x => !used.has(x.id)).sort((a, b) => ((b.pinned ? 1e6 : 0) + (b.showCount || 0)) - ((a.pinned ? 1e6 : 0) + (a.showCount || 0)));
     for (const x of vault) { if (picked.length >= cap) break; picked.push(Object.assign({}, x, { _vault: true })); used.add(x.id); }
-    return picked.map(x => ({ id: x.id, kind: x.kind, svg: x.svg || '', img: x.img || '', template: x.template || '', title: x.title || '', captions: x.captions || [], sourceKey: x.sourceKey || '', vault: !!x._vault || (x.showCount || 1) > 1, pinned: !!x.pinned }));
+    return picked.map(x => ({ id: x.id, kind: x.kind, svg: x.svg || '', img: x.img || '', template: x.template || '', title: x.title || '', captions: x.captions || [], sourceKey: x.sourceKey || '', vault: !!x._vault || (x.showCount || 1) > 1, pinned: !!x.pinned, createdAt: x.createdAt || '', at: x.lastShownAt || x.createdAt || '' }));
   } catch { return []; }
 }
 

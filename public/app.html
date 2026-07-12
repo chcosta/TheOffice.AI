@@ -13321,6 +13321,9 @@
               .meai-pu-ws-filter > button { font-weight:500; padding:2px 0; }
               .meai-pu-ws-filter > button.on { color:var(--cp-accent); }
               .meai-pu-ws-filter > button span { color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              .meai-pu-ws-sort { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--cp-text-muted); font-weight:500; }
+              .meai-pu-ws-sort select { background:none; border:none; color:var(--cp-text); font-size:12px; font-weight:600; cursor:pointer; padding:2px 2px; border-radius:6px; }
+              .meai-pu-ws-sort select:hover { color:var(--cp-accent); }
               .meai-pu-ws-reload { background:none; border:none; color:var(--cp-text-muted); cursor:pointer; font-size:14px; padding:4px 6px; border-radius:6px; }
               .meai-pu-ws-reload:hover { color:var(--cp-text); background:color-mix(in srgb,var(--cp-border) 40%, transparent); }
               .meai-pu-ws-grp { margin-bottom:10px; }
@@ -13385,7 +13388,7 @@
               .meai-pu-report-ti { font-weight:700; color:var(--cp-text); font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-pu-report-body { flex:1; overflow:auto; padding:22px 28px; min-height:0; }
               .meai-pu-report-frame { flex:1; min-height:0; width:100%; border:0; background:#fff; }
-              .meai-pu-report-src { flex:1; overflow:auto; margin:0; padding:18px 22px; min-height:0; font-family:var(--cp-mono, ui-monospace, monospace); font-size:12px; line-height:1.5; color:var(--cp-text); background:var(--cp-surface-2, rgba(0,0,0,.03)); white-space:pre-wrap; word-break:break-word; }
+              .meai-pu-report-src { flex:1; overflow:auto; margin:0; padding:18px 22px; min-height:0; max-height:none; font-family:var(--cp-mono, ui-monospace, monospace); font-size:12px; line-height:1.5; color:var(--cp-text); background:var(--cp-surface-2, rgba(0,0,0,.03)); white-space:pre-wrap; word-break:break-word; }
               /* The report/artifact body reuses .md-output for markdown styling, but must NOT
                  inherit that class's 300px max-height cap or modal chrome (bg/border/radius) —
                  it fills the center panel and scrolls only when content actually overflows. */
@@ -15808,11 +15811,20 @@
                             <span style="flex:1"></span>
                             <button type="button" class="meai-pu-ws-reload" @click="meAiPursuitLoadWorkspace(true)" title="Rescan the workspace" :disabled="meai.pursuit.ws.busy">↻</button>
                           </div>
-                          <!-- Surfaced / Intermediates filter -->
+                          <!-- Surfaced / Intermediates filter + sort -->
                           <div class="meai-pu-ws-filter">
                             <button type="button" :class="{ on: meai.pursuit.ws.show==='all' }" @click="meAiPursuitWsSetShow('all')">All <span x-text="meAiPursuitWsCount('all')"></span></button>
                             <button type="button" :class="{ on: meai.pursuit.ws.show==='surfaced' }" @click="meAiPursuitWsSetShow('surfaced')">Surfaced <span x-text="meAiPursuitWsCount('surfaced')"></span></button>
                             <button type="button" :class="{ on: meai.pursuit.ws.show==='intermediate' }" @click="meAiPursuitWsSetShow('intermediate')">Intermediates <span x-text="meAiPursuitWsCount('intermediate')"></span></button>
+                            <span style="flex:1"></span>
+                            <label class="meai-pu-ws-sort" title="Sort files">
+                              <span>Sort</span>
+                              <select x-model="meai.pursuit.ws.sort">
+                                <option value="modified">Last modified</option>
+                                <option value="name">Name</option>
+                                <option value="size">Size</option>
+                              </select>
+                            </label>
                           </div>
                           <div x-show="meai.pursuit.ws.busy && !meai.pursuit.ws.files.length" class="meai-pu-empty">Scanning the workspace…</div>
                           <div x-show="meai.pursuit.ws.err" class="meai-pu-empty" x-text="meai.pursuit.ws.err"></div>
@@ -17754,6 +17766,8 @@
               /* ===== Comedy lens (scoped under .pc) ===== */
               .pc { --joy:#f0883e; --joy-soft:#ffb27a; --grin:#58a6ff; --coral:#f85149; --joy-line:color-mix(in srgb, var(--joy) 24%, var(--cp-border)); }
               .pc .pc-body { margin-top:4px; }
+              .pc .pc-genline { display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--cp-text-soft); margin:0 0 12px; }
+              .pc .pc-gendot { width:6px; height:6px; border-radius:999px; background:var(--joy); flex:none; }
               .pc .pc-top { display:grid; grid-template-columns:1fr minmax(300px, 46%); gap:16px; align-items:start; margin-bottom:6px; }
               .pc .pc-hero { padding:18px 20px; border:1px solid var(--joy-line); border-radius:12px; background:color-mix(in srgb, var(--joy) 5%, var(--cp-surface)); }
               .pc .pc-kick { font-size:12.5px; font-weight:700; letter-spacing:.02em; color:var(--joy); margin-bottom:8px; }
@@ -17792,11 +17806,12 @@
               .pc .pc-s-cap { font-size:12.5px; font-weight:560; color:var(--cp-text); line-height:1.4; text-wrap:pretty; }
               .pc .pc-s-src { font-size:10.5px; color:var(--cp-text-muted); margin-top:4px; }
               .pc-lightbox { position:fixed; inset:0; z-index:10050; background:rgba(6,9,14,.86); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; padding:32px; }
-              .pc-lb-inner { position:relative; max-width:min(92vw,900px); display:flex; flex-direction:column; gap:14px; }
+              .pc-lb-inner { position:relative; width:min(92vw,900px); max-width:min(92vw,900px); display:flex; flex-direction:column; gap:14px; }
               .pc-lb-close { position:absolute; top:-16px; right:-16px; width:36px; height:36px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:15px; line-height:1; cursor:pointer; z-index:2; display:flex; align-items:center; justify-content:center; }
               .pc-lb-close:hover { background:var(--cp-surface-hover); }
               .pc-lb-media { display:flex; align-items:center; justify-content:center; }
-              .pc-lb-media img { max-width:100%; max-height:78vh; border-radius:12px; display:block; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+              .pc-lb-media { width:100%; }
+              .pc-lb-media img { width:100%; height:auto; max-height:82vh; object-fit:contain; border-radius:12px; display:block; box-shadow:0 24px 60px rgba(0,0,0,.5); }
               .pc-lb-svg { width:min(78vw,540px); aspect-ratio:1/1; }
               .pc-lb-svg svg { width:100%; height:100%; border-radius:12px; display:block; }
               .pc-lb-cap { color:#e6edf3; font-size:14px; text-align:center; line-height:1.5; text-wrap:pretty; }
@@ -18495,6 +18510,7 @@
 
                       <template x-if="!pulseComedyEmpty()">
                         <div class="pc-body">
+                          <div class="pc-genline" x-show="pulse.gatheredAt"><span class="pc-gendot"></span><span x-text="'Comedy ' + pulseGenStamp(pulse.gatheredAt)"></span></div>
                           <!-- top grid: mood hero (left) + The Reel (top-right, half width) -->
                           <div class="pc-top">
                             <!-- mood of the room -->
@@ -18514,7 +18530,7 @@
                             <div class="pc-reel-panel" x-show="pulseComedyReel().length">
                               <div class="pc-reel-head">
                                 <span class="i">📱</span><span class="t">The Reel</span>
-                                <span class="c">generated from today · tap image →</span>
+                                <span class="c"><span x-text="pulseGenStamp(pulse.gatheredAt)"></span> · tap image →</span>
                               </div>
                               <div class="pc-reel">
                                 <button class="pc-reel-nav" @click="pulseReelStep(-1)" aria-label="Previous">‹</button>
@@ -18536,7 +18552,7 @@
                                         </div>
                                         <div class="pc-s-foot">
                                           <div class="pc-s-cap" x-text="pulseReelCaption(it)"></div>
-                                          <div class="pc-s-src" x-text="(it.kind || 'meme') + ' · ' + (it.vault ? 'from the vault' : 'generated today')"></div>
+                                          <div class="pc-s-src" x-text="(it.kind || 'meme') + ' · ' + (it.vault ? ('from the vault' + (it.createdAt ? ' · first made ' + pulseAgo(it.createdAt) : '')) : pulseGenStamp(it.at || it.createdAt || pulse.gatheredAt))"></div>
                                           <div class="pc-s-acts">
                                             <button class="pc-mini" :class="it.pinned ? 'on' : ''" @click="pulseComedyArt(it.id, it.pinned ? 'unpin' : 'pin')" x-text="it.pinned ? '★ Kept' : '☆ Keep'"></button>
                                             <button class="pc-mini" @click="pulseComedyArt(it.id, 'hide')">Hide</button>
@@ -18697,7 +18713,7 @@
                             <div class="pc-sec-h"><span class="i">📖</span><span class="t">The Guide to your team</span></div>
                             <div class="pc-sec-sub">Deadpan, encyclopedic entries on what actually happened today. Affectionate. Occasionally too honest.</div>
                             <div class="pc-guide">
-                              <div class="pc-g-top">THE GUIDE · ENTRY LOG <span class="pc-g-badge">generated from today's activity · verify before quoting to your VP</span></div>
+                              <div class="pc-g-top">THE GUIDE · ENTRY LOG <span class="pc-g-badge"><span x-text="pulseGenStamp(pulse.gatheredAt)"></span> · verify before quoting to your VP</span></div>
                               <template x-for="(e, ei) in pulseActiveComedy().guide" :key="ei">
                                 <div class="pc-entry">
                                   <div class="pc-term" x-text="e.subject"></div>
@@ -27251,6 +27267,7 @@
           inboxGrouping: false,   // grouped view toggled on
           inboxGroupBusy: false,  // group fetch in flight
           inboxGroups: [],        // [{id,label,reason,ids[]}]
+          _decideSelf: {},        // id -> true: user chose "Decide myself", force into the decision bucket
           inboxItemOpen: {},      // per-item expand state inside a group (id -> bool)
           conflictsDismissKey: '', // signature of the currently-dismissed scheduling-conflict banner
           _conflDismDate: null,    // date the dismiss signature was hydrated for
@@ -27350,7 +27367,7 @@
             // ── Workspace explorer (replaces the flat Artifacts tab) ──────────────
             // Scans the pursuit's shared working dir and surfaces every file any
             // agent/subagent wrote, attributed by leg, grouped Folders/By agent/Timeline.
-            ws: { files: [], loaded: false, busy: false, axis: 'folder', show: 'all', sel: null, err: '' },
+            ws: { files: [], loaded: false, busy: false, axis: 'folder', show: 'all', sort: 'modified', sel: null, err: '' },
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
@@ -35964,6 +35981,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (d < 7) return d + 'd ago';
           return new Date(t).toLocaleDateString();
         },
+        // Honest generation stamp — absolute time + relative age, never a bare "today"
+        // (a forward-copied fixture could read "today" while actually being stale).
+        pulseGenStamp(ts) {
+          const t = (typeof ts === 'number') ? ts : Date.parse(ts || '');
+          if (!isFinite(t) || !t) return 'generation time unavailable';
+          let abs;
+          try { abs = new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+          catch (e) { abs = new Date(t).toLocaleString(); }
+          const rel = this.pulseAgo(t);
+          return 'generated ' + abs + (rel ? ' · ' + rel : '');
+        },
         pulseOpen(t) {
           if (!t || !t.link) return;
           if (t.source === 'email' && this.isEmailUrl && this.isEmailUrl(t.link)) {
@@ -37193,7 +37221,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const c = typeof it.confidence === 'number' ? it.confidence : 0;
             const sug = it.suggested;
             let key, status;
-            if (sug && byKey[sug] && byKey[sug].action && c >= SUGG_MIN) { key = sug; status = 'pending'; }
+            // "Decide myself" overrides the suggestion so the item drops into the
+            // decision bucket with the full action row — it should visibly leave its
+            // suggested section (e.g. "Move to backlog") the moment you click it.
+            if (this.meai._decideSelf && this.meai._decideSelf[it.id]) { key = 'decision'; status = 'decide'; }
+            else if (sug && byKey[sug] && byKey[sug].action && c >= SUGG_MIN) { key = sug; status = 'pending'; }
             else { key = 'decision'; status = 'decide'; }
             // High-urgency asks (urgency >= 4) surface in their own top section so they're
             // seen and addressed separately, regardless of the suggested disposition. They
@@ -37270,7 +37302,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (it && action) await this.meAiTriage(it, action);
         },
         async meAiSendBack(it) {
-          if (it) await this.meAiTriage(it, 'seen');
+          if (!it) return;
+          // Remember this choice so the item jumps to "Needs your decision" even
+          // though the server 'seen' action leaves its suggestion intact.
+          if (it.id) this.meai._decideSelf = Object.assign({}, this.meai._decideSelf, { [it.id]: true });
+          await this.meAiTriage(it, 'seen');
         },
         async meAiApproveAll(sec) {
           const pend = (sec && sec.items || []).filter(x => x.status === 'pending' && x.it && x.it.suggested);
@@ -39804,6 +39840,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiPursuitWsSetAxis(axis) { this.meai.pursuit.ws.axis = axis; },
         meAiPursuitWsSetShow(show) { this.meai.pursuit.ws.show = show; },
+        meAiPursuitWsSetSort(sort) { this.meai.pursuit.ws.sort = sort; },
+        // Comparator for the current sort mode (applied within each group).
+        _meAiPursuitWsCmp() {
+          const s = this.meai.pursuit.ws.sort || 'modified';
+          if (s === 'name') return (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+          if (s === 'size') return (a, b) => ((b.size || 0) - (a.size || 0)) || String(a.name || '').localeCompare(String(b.name || ''));
+          // modified (default): newest first
+          return (a, b) => String(b.mtime).localeCompare(String(a.mtime));
+        },
         // Files after the Surfaced/Intermediates filter.
         meAiPursuitWsShown() {
           const w = this.meai.pursuit.ws;
@@ -39857,11 +39902,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             for (const f of files) { const d = f.dir || '(root)'; push(d, d, f); }
           }
           const out = Array.from(groups.values());
-          // Sort files within a group newest-first; sort groups by newest file (time/agent)
-          // or alphabetically (folder).
-          for (const g of out) g.files.sort((a, b) => String(b.mtime).localeCompare(String(a.mtime)));
-          if (w.axis === 'folder') out.sort((a, b) => a.label.localeCompare(b.label));
-          else out.sort((a, b) => String((b.files[0] || {}).mtime || '').localeCompare(String((a.files[0] || {}).mtime || '')));
+          // Sort files within each group by the chosen sort mode.
+          const cmp = this._meAiPursuitWsCmp();
+          for (const g of out) g.files.sort(cmp);
+          // Group ordering: folder axis → alphabetical; else by each group's first
+          // (already-sorted) file so the group order tracks the active sort.
+          if (w.axis === 'folder') {
+            out.sort((a, b) => a.label.localeCompare(b.label));
+          } else if ((w.sort || 'modified') === 'name') {
+            out.sort((a, b) => String((a.files[0] || {}).name || '').localeCompare(String((b.files[0] || {}).name || ''), undefined, { numeric: true, sensitivity: 'base' }));
+          } else if ((w.sort || 'modified') === 'size') {
+            out.sort((a, b) => ((b.files[0] || {}).size || 0) - ((a.files[0] || {}).size || 0));
+          } else {
+            out.sort((a, b) => String((b.files[0] || {}).mtime || '').localeCompare(String((a.files[0] || {}).mtime || '')));
+          }
           return out;
         },
         meAiPursuitWsIcon(f) {
