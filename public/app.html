@@ -17814,6 +17814,13 @@
               .pc-lb-media img { width:100%; height:auto; max-height:84vh; object-fit:contain; border-radius:12px; display:block; box-shadow:0 24px 60px rgba(0,0,0,.5); }
               .pc-lb-svg { width:100%; max-height:84vh; overflow:auto; border-radius:12px; box-shadow:0 24px 60px rgba(0,0,0,.5); }
               .pc-lb-svg svg { width:100%; height:auto; display:block; }
+              .pc-lb-media.clickable { cursor:pointer; }
+              .pc-lb-nav { position:absolute; top:calc(50% - 22px); transform:translateY(-50%); width:44px; height:44px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:22px; line-height:1; cursor:pointer; z-index:3; display:flex; align-items:center; justify-content:center; opacity:.92; transition:background .14s ease-out, opacity .14s ease-out; }
+              .pc-lb-nav:hover { background:var(--cp-surface-hover); opacity:1; }
+              .pc-lb-nav.prev { left:-22px; }
+              .pc-lb-nav.next { right:-22px; }
+              @media (prefers-reduced-motion: reduce) { .pc-lb-nav { transition:none; } }
+              .pc-lb-count { color:#aeb6c0; font-size:12.5px; text-align:center; font-variant-numeric:tabular-nums; }
               .pc-lb-cap { color:#e6edf3; font-size:14px; text-align:center; line-height:1.5; text-wrap:pretty; }
               @media (prefers-reduced-motion: reduce) { .pc .pc-s-full { transition:none; } }
               .pc .pc-s-acts { display:flex; gap:7px; margin-top:7px; }
@@ -18544,7 +18551,7 @@
                                     <template x-for="(it, i) in pulseComedyReel()" :key="it.id || i">
                                       <div class="pc-slide">
                                         <div class="pc-s-media clickable" @click="pulseReelStep(1)">
-                                          <button class="pc-s-full" @click.stop="pulseReelOpenFull(it)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
+                                          <button class="pc-s-full" @click.stop="pulseReelOpenFull(it, i)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                           <div class="pc-svg">
                                             <img x-show="it.img" :src="it.img" alt="" loading="lazy">
                                             <div x-show="!it.img" x-html="it.svg" style="width:100%;height:100%"></div>
@@ -18568,14 +18575,17 @@
                           </div>
 
                           <!-- Reel fullscreen lightbox -->
-                          <div class="pc-lightbox" x-show="pulse._reelFull" x-transition.opacity @click="pulseReelCloseFull()" @keydown.escape.window="pulseReelCloseFull()" x-cloak style="display:none">
+                          <div class="pc-lightbox" x-show="pulse._reelFull" x-transition.opacity @click="pulseReelCloseFull()" @keydown.escape.window="pulseReelCloseFull()" @keydown.arrow-right.window="pulse._reelFull && pulseReelFullStep(1)" @keydown.arrow-left.window="pulse._reelFull && pulseReelFullStep(-1)" x-cloak style="display:none">
                             <div class="pc-lb-inner" @click.stop>
                               <button class="pc-lb-close" @click="pulseReelCloseFull()" aria-label="Close">✕</button>
-                              <div class="pc-lb-media">
+                              <button class="pc-lb-nav prev" x-show="pulseReelFullNavable()" @click="pulseReelFullStep(-1)" aria-label="Previous">‹</button>
+                              <button class="pc-lb-nav next" x-show="pulseReelFullNavable()" @click="pulseReelFullStep(1)" aria-label="Next">›</button>
+                              <div class="pc-lb-media" :class="pulseReelFullNavable() ? 'clickable' : ''" @click="pulseReelFullNavable() ? pulseReelFullStep(1) : null" :title="pulseReelFullNavable() ? 'Next' : ''">
                                 <img x-show="pulse._reelFull && pulse._reelFull.img" :src="pulse._reelFull ? pulse._reelFull.img : ''" alt="">
                                 <div class="pc-lb-svg" x-show="pulse._reelFull && !pulse._reelFull.img" x-html="pulse._reelFull ? pulse._reelFull.svg : ''"></div>
                               </div>
                               <div class="pc-lb-cap" x-text="pulse._reelFull ? pulseReelCaption(pulse._reelFull) : ''"></div>
+                              <div class="pc-lb-count" x-show="pulseReelFullNavable()" x-text="(pulseReelIdx()+1) + ' / ' + pulseComedyReel().length"></div>
                             </div>
                           </div>
 
@@ -27184,7 +27194,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' }, _reelFull: null, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' }, _reelFull: null, _reelFullReel: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -35670,8 +35680,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         pulseReelStep(d) { this.pulseReelGoTo(this.pulseReelIdx() + (d || 1)); },
         pulseReelActive() { const r = this.pulseComedyReel(); return r[this.pulseReelIdx()] || null; },
         pulseReelCaption(it) { const c = (it && Array.isArray(it.captions)) ? it.captions.filter(Boolean) : []; return c.join(' · '); },
-        pulseReelOpenFull(it) { this.pulse._reelFull = it || null; },
-        pulseReelCloseFull() { this.pulse._reelFull = null; },
+        pulseReelOpenFull(it, reelIdx) {
+          this.pulse._reelFull = it || null;
+          if (typeof reelIdx === 'number' && reelIdx >= 0) { this.pulse._reelFullReel = true; this.pulseReelGoTo(reelIdx); }
+          else { this.pulse._reelFullReel = false; }
+        },
+        pulseReelCloseFull() { this.pulse._reelFull = null; this.pulse._reelFullReel = false; },
+        pulseReelFullNavable() { return !!this.pulse._reelFullReel && this.pulseComedyReel().length > 1; },
+        pulseReelFullStep(d) {
+          if (!this.pulse._reelFull || !this.pulse._reelFullReel) return;
+          this.pulseReelStep(d || 1);
+          const a = this.pulseReelActive();
+          if (a) this.pulse._reelFull = a;
+        },
         // ── Comedy sharing (email / Teams channel / whole-page newsletter) ──
         _pulseShareImg(art, caption) {
           // art is a reel/strip item ({img?|svg?}) — normalize to the share payload shape
