@@ -13199,6 +13199,9 @@
               .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; }
               .meai-pnode:hover { border-color:var(--cp-accent); box-shadow:0 4px 14px rgba(0,0,0,.18); }
               .meai-pnode.kind-spine { border-left:3px solid var(--cp-accent); }
+              .meai-pnode.puser { background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); border-color:color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); }
+              .meai-pnode.puser .meai-pnode-role { color:color-mix(in srgb,var(--cp-accent) 78%, var(--cp-text)); opacity:1; }
+              .meai-pnode.puser .meai-pnode-k { color:color-mix(in srgb,var(--cp-accent) 60%, var(--cp-text)); }
               .meai-pnode.prun { box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
               .meai-pnode.pauth { border-color:#d29922; background:color-mix(in srgb,#d29922 8%, var(--cp-surface)); }
               .meai-pnode.pstop { border-color:#d29922; }

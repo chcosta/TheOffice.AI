@@ -22963,8 +22963,22 @@ function _meAiTreeReAct(t, intent, text, label) {
       if (t._skipChoiceNote) { t._skipChoiceNote = false; }
       else _meAiTreeMirror(t, 'You steered the pursuit — ' + steerNote);
       _meAiTreeEmit(id, 'epoch_bump', { epoch });
+      // Reflect MY steer as its own 'you' node on the map (not just baked into the
+      // spine title); the agent's re-engagement work then hangs off it. Text-less
+      // "keep going" steers stay a fresh root (parentId null) as before.
+      let steerParent = null;
+      if (steer) {
+        const unode = _meAiNewLeg({
+          kind: 'user', lane: 'spine', status: 'done', baseEpoch: epoch,
+          parentId: t._spineId || null,
+          title: 'You: ' + steer.slice(0, 72), goal: steer,
+        });
+        _meAiTreeEmit(id, 'leg_spawn', { leg: unode });
+        steerParent = unode.id;
+      }
       const spine = _meAiNewLeg({
         kind: 'spine', lane: 'spine', status: 'running', baseEpoch: epoch,
+        parentId: steerParent,
         title: (intent === 'change-approach' ? 'New direction: ' : 'Follow-up: ') + (steer || t.title || 'continue').slice(0, 64),
         goal: steer || (t.goal || _meAiGoalFor(t)),
         sessionId: _meAiUuid(),
@@ -23021,10 +23035,40 @@ function _meAiTreeConverse(t, mode, text) {
     // stale session; the copy shares .id and .events with the real task, so streamed
     // substeps still land in the pursuit chat and broadcast under the same task id.
     const lt = Object.assign({}, t, { sessionId: require('crypto').randomUUID(), _ephemeral: false, _legId: t._spineId || null });
+    let _workLegId = null;
     try {
       t.question = null; t.error = null; t._lastError = null;
       _meAiSetStage(t, 'working', 'running');
       _meAiTreeEmit(id, 'stage', { stage: 'working' });
+      // Reflect this conversation round on the map too (not just the transcript): my
+      // comment becomes its own 'you' node, and the Chief of Staff's answer/revision
+      // hangs off it as a main-thread node — so steering the pursuit in chat is visible
+      // on the map, and per-node thinking for this round streams onto the work node.
+      try {
+        const ctree = meAiTrees.get(id) || _meAiFoldJournal(id);
+        const cepoch = (ctree.epoch || 0) + 1;
+        _meAiTreeEmit(id, 'epoch_bump', { epoch: cepoch });
+        const prevSpine = t._spineId || null;
+        const unode = _meAiNewLeg({
+          kind: 'user', lane: 'spine', status: 'done', baseEpoch: cepoch,
+          parentId: prevSpine,
+          title: 'You: ' + (msg || (isRevise ? 'revise the report' : 'follow-up')).slice(0, 72),
+          goal: msg,
+        });
+        _meAiTreeEmit(id, 'leg_spawn', { leg: unode });
+        const work = _meAiNewLeg({
+          kind: 'spine', lane: 'spine', status: 'running', baseEpoch: cepoch,
+          parentId: unode.id,
+          title: isRevise ? 'Revising the report' : 'Answering your follow-up',
+          goal: msg || t.goal || _meAiGoalFor(t),
+          sessionId: lt.sessionId,
+        });
+        _meAiTreeEmit(id, 'leg_spawn', { leg: work });
+        _workLegId = work.id;
+        t._spineId = work.id;
+        lt._legId = work.id;
+        lt._onLegEvent = (ev) => { try { _meAiTreeEmit(id, 'leg_event', { legId: work.id, ev }); } catch (_) {} };
+      } catch (_) {}
       _meAiEmit(t, { kind: 'note', converse: true, who: 'you', text: (isRevise ? 'You asked me to revise the report: ' : 'You asked: ') + (msg || (isRevise ? 'refine it' : '(no question)')) });
       const report = (t.report && t.report.markdown) ? String(t.report.markdown) : (t.report && t.report.summary) || '';
       const findings = (t.report && Array.isArray(t.report.findings) ? t.report.findings : [])
@@ -23075,9 +23119,11 @@ function _meAiTreeConverse(t, mode, text) {
       }
       // Keep the concluded next-actions intact so the finish/steer affordances stay.
       _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+      if (_workLegId) _meAiTreeEmit(id, 'leg_status', { legId: _workLegId, status: 'done' });
       _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
       _meAiSetStage(t, 'awaiting', 'awaiting');
     } catch (e) {
+      if (_workLegId) _meAiTreeEmit(id, 'leg_status', { legId: _workLegId, status: 'error' });
       _meAiEmit(t, { kind: 'response', text: 'Sorry — that follow-up failed: ' + String(e.message || e) });
       // Match the success path: fold the tree stage back to awaiting too, or the
       // canvas/header keep showing "Working" after the follow-up recovers.
