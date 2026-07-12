@@ -15762,7 +15762,7 @@
                               <div class="meai-pu-stop-p" x-text="s.prompt"></div>
                               <div x-show="s.risk" class="meai-pu-stop-risk" x-text="s.risk==='external' ? '↗ sends/posts externally' : (s.risk ? '✎ '+s.risk : '')"></div>
                               <button type="button" x-show="s.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(s.legId)">Show the leg →</button>
-                              <input type="text" class="field-input meai-pu-stop-note" placeholder="Optional note…" x-model="meai.pursuit.note">
+                              <input type="text" class="field-input meai-pu-stop-note" placeholder="Optional note…" x-model="meai.pursuit.notes[s.id]">
                               <div class="meai-pu-stop-acts" x-show="s.type==='needs-auth' || s.type==='needs-decision'">
                                 <button type="button" class="btn primary" @click="meAiPursuitResolve(s,'approve')">Approve</button>
                                 <button type="button" class="btn ghost" @click="meAiPursuitResolve(s,'deny')">Decline</button>
@@ -27411,7 +27411,8 @@
             nodeView: null,              // the node shown in the CENTER node-view
             artView: null,               // artifact shown in the CENTER artifact-view
             filter: 'all',               // Index filter
-            note: '',                    // note for an approve/deny/answer
+            note: '',                    // legacy single note (node-view / fallback)
+            notes: {},                   // per-stop notes, keyed by stop id (approvals list)
             answering: null,             // stopId being answered inline
             zoom: 1, panX: 0, panY: 0,   // canvas transform
             follow: true,                // auto-recenter on latest
@@ -39394,7 +39395,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // merge-back edges become SVG paths. Cached onto pursuit._nodes/_edges.
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
-          const COLW = 300, ROWH = 176, ROOTH = 300, CX = 460, TOP = 40, W = 268, PAD = 48;
+          const COLW = 345, ROWH = 196, ROOTH = 300, CX = 460, TOP = 40, W = 268, PAD = 48;
           if (!tree) { p._nodes = []; p._legShortId = {}; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
           const legs = tree.legs || {};
@@ -40352,11 +40353,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async meAiPursuitResolve(stop, decision) {
           const p = this.meai.pursuit; if (!p.tid) return;
+          const note = (p.notes && p.notes[stop.id] != null ? p.notes[stop.id] : p.note) || '';
           try {
             await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(stop.id) + '/resolve', {
-              method: 'POST', body: JSON.stringify({ decision, note: p.note || '' }),
+              method: 'POST', body: JSON.stringify({ decision, note }),
             });
-            p.note = '';
+            p.note = ''; if (p.notes) delete p.notes[stop.id];
             this.toast(decision === 'approve' ? 'Approved — the leg will continue' : 'Declined — the agent will route around it', 'success');
             setTimeout(() => this.meAiPursuitLoad(), 600);
           } catch (e) { this.toast('Could not resolve: ' + (e.message || e), 'error'); }
@@ -40376,13 +40378,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) { this.toast('Could not resolve: ' + (e.message || e), 'error'); }
         },
         async meAiPursuitAnswer(stop) {          const p = this.meai.pursuit; if (!p.tid) return;
-          const ans = String(p.note || '').trim();
+          const ans = String((p.notes && p.notes[stop.id] != null ? p.notes[stop.id] : p.note) || '').trim();
           if (!ans) { this.toast('Type an answer first', 'info'); return; }
           try {
             await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/answer', {
               method: 'POST', body: JSON.stringify({ stopId: stop.id, text: ans }),
             });
-            p.note = ''; p.answering = null;
+            p.note = ''; p.answering = null; if (p.notes) delete p.notes[stop.id];
             this.toast('Sent — the agent will fold your answer in', 'success');
             setTimeout(() => this.meAiPursuitLoad(), 600);
           } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
