@@ -23531,7 +23531,8 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
           `ACTION: ${action.summary || action.op}`,
           action.target ? `TARGET: ${action.target}` : '',
           action.body ? `CONTENT:\n${action.body}` : '',
-          'Do exactly this one action and nothing else. Then reply with one line confirming it was done and any reference id/url.',
+          note ? `ADDITIONAL INSTRUCTION FROM ME (apply this to the action above): ${note}` : '',
+          'Do exactly this one action, with my instruction applied, and nothing else. Then reply with one line confirming it was done and any reference id/url.',
         ].filter(Boolean).join('\n');
         const out = await _meAiRunTurn(t, prompt, { workiq: true });
         return String(out || 'done').slice(0, 200);

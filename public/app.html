@@ -39501,6 +39501,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           // Defensive: anything not reached above gets a trailing column.
           order.forEach((id) => { if (slot[id] == null && legs[id]) slot[id] = nextCol++; });
+          // ── Variable row heights ───────────────────────────────────────────
+          // A fixed ROWH per depth overlaps tall cards (those with a "waiting on
+          // you" / needs-approval row and/or an artifacts badge) into the row
+          // below. Estimate each card's height from its content, take the max per
+          // depth-row, and stack rows cumulatively so every row clears its tallest
+          // card — tight where cards are small, roomy where they're big. Depth 0
+          // is the tall prompt/root card (ROOTH clearance is preserved).
+          const nodeH = (id) => {
+            let h = 132;                              // header + title + desc + status
+            if (stopByLeg[id]) h += 48;               // "waiting on you" + needs-approval
+            if ((artByLeg[id] || []).length) h += 30; // artifacts badge
+            return h;
+          };
+          const rowMaxH = {};
+          let _maxDepth = 0;
+          order.forEach((id) => {
+            if (!legs[id]) return;
+            const d = depthOf(id); _maxDepth = Math.max(_maxDepth, d);
+            if (d === 0) return;
+            rowMaxH[d] = Math.max(rowMaxH[d] || 0, nodeH(id));
+          });
+          const VGAP = 44;                            // gap between a row's tallest card and the next row
+          const rowY = { 0: TOP };
+          if (_maxDepth >= 1) rowY[1] = TOP + ROOTH;  // keep the root card's clearance
+          for (let d = 2; d <= _maxDepth; d++) rowY[d] = rowY[d - 1] + (rowMaxH[d - 1] || 150) + VGAP;
           const nodes = [], pos = {};
           let minX = Infinity, maxX = -Infinity, maxY = TOP;
           // Short IDs + agent role. The spine + merged-back nodes are the ONE main
@@ -39513,9 +39538,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const leg = legs[id]; if (!leg) return;
             const x = CX + slot[id] * COLW;
             const d = depthOf(id);
-            // Depth 0 is the (tall) prompt/root card, so the first row below it gets
-            // extra clearance (ROOTH); deeper rows use the normal ROWH.
-            const y = d === 0 ? TOP : (TOP + ROOTH + (d - 1) * ROWH);
+            // Depth 0 is the (tall) prompt/root card; deeper rows are stacked
+            // cumulatively by the tallest card in each row (rowY) so tall cards
+            // never overlap the row below. Falls back to the old fixed pitch.
+            const y = rowY[d] != null ? rowY[d] : (d === 0 ? TOP : (TOP + ROOTH + (d - 1) * ROWH));
             const stop = stopByLeg[id];
             const arts = artByLeg[id] || [];
             const kind = leg.kind || 'branch';
