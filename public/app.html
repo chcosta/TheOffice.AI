@@ -13312,6 +13312,34 @@
               .meai-pu-art-meta { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:11px; color:var(--cp-text-muted); }
               .meai-pu-art-meta-dot { opacity:.55; }
               .meai-pu-art-open { font-size:12px; color:var(--cp-accent); font-weight:600; margin-top:8px; }
+              /* ── Workspace explorer ─────────────────────────────────────────── */
+              .meai-pu-ws { display:flex; flex-direction:column; gap:2px; }
+              .meai-pu-ws-axis, .meai-pu-ws-filter { display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--cp-border); margin-bottom:8px; }
+              .meai-pu-ws-filter { gap:16px; padding-bottom:8px; border-bottom:none; margin-bottom:4px; }
+              .meai-pu-ws-axis > button, .meai-pu-ws-filter > button { background:none; border:none; padding:8px 0; font-size:12.5px; color:var(--cp-text-muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; font-weight:600; }
+              .meai-pu-ws-axis > button.on { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+              .meai-pu-ws-filter > button { font-weight:500; padding:2px 0; }
+              .meai-pu-ws-filter > button.on { color:var(--cp-accent); }
+              .meai-pu-ws-filter > button span { color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              .meai-pu-ws-reload { background:none; border:none; color:var(--cp-text-muted); cursor:pointer; font-size:14px; padding:4px 6px; border-radius:6px; }
+              .meai-pu-ws-reload:hover { color:var(--cp-text); background:color-mix(in srgb,var(--cp-border) 40%, transparent); }
+              .meai-pu-ws-grp { margin-bottom:10px; }
+              .meai-pu-ws-grp-h { display:flex; align-items:baseline; gap:8px; padding:4px 2px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); }
+              .meai-pu-ws-grp-n { font-weight:600; opacity:.7; font-variant-numeric:tabular-nums; }
+              .meai-pu-ws-row { display:flex; align-items:center; gap:9px; padding:8px 9px; border:1px solid transparent; border-radius:calc(var(--cp-radius-scale,1)*8px); cursor:pointer; transition:border-color .12s, background .12s; }
+              .meai-pu-ws-row:hover { border-color:var(--cp-border); background:color-mix(in srgb,var(--cp-border) 22%, transparent); }
+              .meai-pu-ws-row.sel { border-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 8%, transparent); }
+              .meai-pu-ws-ic { font-size:16px; flex:0 0 auto; line-height:1; }
+              .meai-pu-ws-main { flex:1; min-width:0; }
+              .meai-pu-ws-name { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600; color:var(--cp-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .meai-pu-ws-badge { font-size:10px; font-weight:700; padding:1px 6px; border-radius:5px; flex:0 0 auto; text-transform:uppercase; letter-spacing:.02em; }
+              .meai-pu-ws-badge.surfaced { color:#6639ba; background:color-mix(in srgb,#6639ba 14%, transparent); }
+              .meai-pu-ws-badge.upd { color:var(--cp-text-muted); background:color-mix(in srgb,var(--cp-border) 45%, transparent); }
+              .meai-pu-ws-sub { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; margin-top:2px; font-size:11px; color:var(--cp-text-muted); }
+              .meai-pu-ws-acts { display:flex; gap:2px; flex:0 0 auto; opacity:0; transition:opacity .12s; }
+              .meai-pu-ws-row:hover .meai-pu-ws-acts, .meai-pu-ws-row.sel .meai-pu-ws-acts { opacity:1; }
+              .meai-pu-ws-acts > button { background:none; border:none; color:var(--cp-text-muted); cursor:pointer; font-size:14px; padding:4px 6px; border-radius:6px; }
+              .meai-pu-ws-acts > button:hover { color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 10%, transparent); }
               /* Expanded artifact reader */
               .meai-pu-artmodal { position:absolute; inset:0; z-index:20; background:color-mix(in srgb,#000 42%, transparent); display:flex; align-items:center; justify-content:center; padding:34px; }
               .meai-pu-artcard { width:min(860px,100%); max-height:100%; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*14px); box-shadow:0 18px 50px rgba(0,0,0,.35); display:flex; flex-direction:column; min-height:0; }
@@ -15513,7 +15541,7 @@
                       <button type="button" :class="{ on: meai.pursuit.nav==='index' }" @click="meai.pursuit.nav='index'">Index</button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='approvals' }" @click="meai.pursuit.nav='approvals'">Approvals<span class="meai-pu-nc" x-show="meAiPursuitStops().length" x-text="meAiPursuitStops().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='conflicts' }" @click="meai.pursuit.nav='conflicts'" x-show="meAiPursuitConflicts().length">Conflicts<span class="meai-pu-nc" x-text="meAiPursuitConflicts().length"></span></button>
-                      <button type="button" :class="{ on: meai.pursuit.nav==='artifacts' }" @click="meai.pursuit.nav='artifacts'">Artifacts<span class="meai-pu-nc" x-show="meAiPursuitArtifacts().length" x-text="meAiPursuitArtifacts().length"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='workspace' }" @click="meai.pursuit.nav='workspace'; meAiPursuitLoadWorkspace()">Workspace<span class="meai-pu-nc" x-show="meai.pursuit.ws.files.length" x-text="meai.pursuit.ws.files.length"></span></button>
                       <span style="flex:1"></span>
                       <button type="button" class="meai-pu-panx" @click="meai.pursuit.navOpen=false" title="Collapse">‹</button>
                     </div>
@@ -15770,23 +15798,53 @@
                       </template>
 
                       <!-- ARTIFACTS -->
-                      <template x-if="meai.pursuit.nav==='artifacts'">
-                        <div>
-                          <template x-for="a in meAiPursuitArtifacts()" :key="a.id">
-                            <button type="button" class="meai-pu-art" @click="meAiPursuitOpenArt(a)">
-                              <div class="meai-pu-art-h">
-                                <span class="meai-pu-art-k" x-text="a.kind"></span>
-                                <span class="meai-pu-art-t" x-text="a.title"></span>
-                              </div>
-                              <div class="meai-pu-art-meta" x-show="meAiPursuitArtBy(a) || meAiPursuitArtTs(a)">
-                                <span x-show="meAiPursuitArtBy(a)" x-text="meAiPursuitArtBy(a)"></span>
-                                <span x-show="meAiPursuitArtBy(a) && meAiPursuitArtTs(a)" class="meai-pu-art-meta-dot">·</span>
-                                <span x-show="meAiPursuitArtTs(a)" x-text="meAiPursuitArtTs(a)"></span>
-                              </div>
-                              <div x-show="a.body" class="meai-pu-art-body" x-text="(a.body||'').replace(/[#*`>_-]/g,' ').replace(/\s+/g,' ').trim().slice(0,180)"></div>
-                            </button>
+                      <template x-if="meai.pursuit.nav==='workspace'">
+                        <div class="meai-pu-ws">
+                          <!-- Axis segmented control (underline, no pills) -->
+                          <div class="meai-pu-ws-axis">
+                            <button type="button" :class="{ on: meai.pursuit.ws.axis==='folder' }" @click="meAiPursuitWsSetAxis('folder')">Folders</button>
+                            <button type="button" :class="{ on: meai.pursuit.ws.axis==='agent' }" @click="meAiPursuitWsSetAxis('agent')">By agent</button>
+                            <button type="button" :class="{ on: meai.pursuit.ws.axis==='time' }" @click="meAiPursuitWsSetAxis('time')">Timeline</button>
+                            <span style="flex:1"></span>
+                            <button type="button" class="meai-pu-ws-reload" @click="meAiPursuitLoadWorkspace(true)" title="Rescan the workspace" :disabled="meai.pursuit.ws.busy">↻</button>
+                          </div>
+                          <!-- Surfaced / Intermediates filter -->
+                          <div class="meai-pu-ws-filter">
+                            <button type="button" :class="{ on: meai.pursuit.ws.show==='all' }" @click="meAiPursuitWsSetShow('all')">All <span x-text="meAiPursuitWsCount('all')"></span></button>
+                            <button type="button" :class="{ on: meai.pursuit.ws.show==='surfaced' }" @click="meAiPursuitWsSetShow('surfaced')">Surfaced <span x-text="meAiPursuitWsCount('surfaced')"></span></button>
+                            <button type="button" :class="{ on: meai.pursuit.ws.show==='intermediate' }" @click="meAiPursuitWsSetShow('intermediate')">Intermediates <span x-text="meAiPursuitWsCount('intermediate')"></span></button>
+                          </div>
+                          <div x-show="meai.pursuit.ws.busy && !meai.pursuit.ws.files.length" class="meai-pu-empty">Scanning the workspace…</div>
+                          <div x-show="meai.pursuit.ws.err" class="meai-pu-empty" x-text="meai.pursuit.ws.err"></div>
+                          <template x-for="g in meAiPursuitWsGroups()" :key="g.key">
+                            <div class="meai-pu-ws-grp">
+                              <div class="meai-pu-ws-grp-h"><span x-text="g.label"></span><span class="meai-pu-ws-grp-n" x-text="g.files.length"></span></div>
+                              <template x-for="f in g.files" :key="f.path">
+                                <div class="meai-pu-ws-row" :class="{ sel: meai.pursuit.ws.sel===f.path }" @click="meAiPursuitWsOpen(f)">
+                                  <span class="meai-pu-ws-ic" x-text="meAiPursuitWsIcon(f)"></span>
+                                  <div class="meai-pu-ws-main">
+                                    <div class="meai-pu-ws-name">
+                                      <span x-text="f.name"></span>
+                                      <span class="meai-pu-ws-badge surfaced" x-show="f.surfaced">surfaced</span>
+                                      <span class="meai-pu-ws-badge upd" x-show="f.updated && !f.surfaced">updated</span>
+                                    </div>
+                                    <div class="meai-pu-ws-sub">
+                                      <span x-text="meAiPursuitWsAuthor(f)"></span>
+                                      <span class="meai-pu-art-meta-dot">·</span>
+                                      <span x-text="meAiPursuitWsTs(f)"></span>
+                                      <span class="meai-pu-art-meta-dot">·</span>
+                                      <span x-text="meAiPursuitWsSize(f)"></span>
+                                    </div>
+                                  </div>
+                                  <div class="meai-pu-ws-acts">
+                                    <button type="button" x-show="!f.surfaced" @click="meAiPursuitWsSurface(f, $event)" title="Surface to chat">⤴</button>
+                                    <button type="button" @click="meAiPursuitWsDownload(f, $event)" title="Download">⬇</button>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
                           </template>
-                          <div x-show="!meAiPursuitArtifacts().length" class="meai-pu-empty">No reports or charts yet. The agent files results here as it reaches conclusions.</div>
+                          <div x-show="meai.pursuit.ws.loaded && !meai.pursuit.ws.busy && !meai.pursuit.ws.files.length && !meai.pursuit.ws.err" class="meai-pu-empty">No files yet. Agents write reports, diagrams, and data here as they work — surfaced results and scratch intermediates both show up.</div>
                         </div>
                       </template>
                     </div>
@@ -27289,6 +27347,10 @@
             steer: '',                   // free-text follow-up / redirect for the agent
             nodeSteer: '',               // free-text redirect scoped to a node-view leg
             _intent: null,               // deep-link intent to apply once the tree loads
+            // ── Workspace explorer (replaces the flat Artifacts tab) ──────────────
+            // Scans the pursuit's shared working dir and surfaces every file any
+            // agent/subagent wrote, attributed by leg, grouped Folders/By agent/Timeline.
+            ws: { files: [], loaded: false, busy: false, axis: 'folder', show: 'all', sel: null, err: '' },
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
@@ -39725,7 +39787,127 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const arts = this.meAiPursuitArtifacts().filter(a => a.legId === legId);
           this.meAiPursuitOpenArt(arts[0] || null);
         },
-        // ── Leg-chat rich substep expansion ─────────────────────────────────────
+        // ── Workspace explorer ──────────────────────────────────────────────────
+        // The pursuit's shared working dir, scanned into an explorable, leg-attributed
+        // file list. Replaces the flat Artifacts tab: surfaced reports AND scratch
+        // intermediates are all here, grouped Folders / By agent / Timeline.
+        async meAiPursuitLoadWorkspace(force) {
+          const p = this.meai.pursuit; const id = p.tid; if (!id) return;
+          if (p.ws.loaded && !force) return;
+          p.ws.busy = true; p.ws.err = '';
+          try {
+            const r = await this.request('/api/me-ai/task/' + id + '/workspace');
+            p.ws.files = (r && Array.isArray(r.files)) ? r.files : [];
+            p.ws.loaded = true;
+          } catch (e) { p.ws.err = (e && e.message) || 'Could not read the workspace.'; }
+          finally { p.ws.busy = false; }
+        },
+        meAiPursuitWsSetAxis(axis) { this.meai.pursuit.ws.axis = axis; },
+        meAiPursuitWsSetShow(show) { this.meai.pursuit.ws.show = show; },
+        // Files after the Surfaced/Intermediates filter.
+        meAiPursuitWsShown() {
+          const w = this.meai.pursuit.ws;
+          const files = w.files || [];
+          if (w.show === 'surfaced') return files.filter(f => f.surfaced);
+          if (w.show === 'intermediate') return files.filter(f => !f.surfaced);
+          return files;
+        },
+        meAiPursuitWsCount(show) {
+          const files = this.meai.pursuit.ws.files || [];
+          if (show === 'surfaced') return files.filter(f => f.surfaced).length;
+          if (show === 'intermediate') return files.filter(f => !f.surfaced).length;
+          return files.length;
+        },
+        // Author label — prefer the rich map-ID attribution (S2 · role · Sub-Agent) the
+        // chat/node cards use; fall back to the server-provided author.
+        meAiPursuitWsAuthor(f) {
+          if (!f) return '';
+          const legId = f.legId;
+          if (!legId || legId === 'spine') return 'Chief of Staff';
+          const t = this.meai.pursuit.tree;
+          const leg = t && t.legs && t.legs[legId];
+          if (leg) { const a = this.meAiPursuitAttrFor(legId, leg); if (a) return a; }
+          return f.author || 'Sub-agent';
+        },
+        meAiPursuitWsTs(f) { return this.meAiPursuitArtTs({ at: f && f.mtime }); },
+        meAiPursuitWsSize(f) {
+          const n = (f && f.size) || 0;
+          if (n < 1024) return n + ' B';
+          if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+          return (n / 1048576).toFixed(1) + ' MB';
+        },
+        // Grouped view for the current axis → [{ key, label, files:[] }].
+        meAiPursuitWsGroups() {
+          const w = this.meai.pursuit.ws;
+          const files = this.meAiPursuitWsShown();
+          const groups = new Map();
+          const push = (key, label, f) => {
+            if (!groups.has(key)) groups.set(key, { key, label, files: [] });
+            groups.get(key).files.push(f);
+          };
+          if (w.axis === 'agent') {
+            for (const f of files) push(f.legId || 'spine', this.meAiPursuitWsAuthor(f), f);
+          } else if (w.axis === 'time') {
+            for (const f of files) {
+              let day = '';
+              try { const d = new Date(f.mtime); if (!isNaN(d)) day = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); } catch (_) {}
+              push(day || 'Unknown', day || 'Unknown', f);
+            }
+          } else { // folder
+            for (const f of files) { const d = f.dir || '(root)'; push(d, d, f); }
+          }
+          const out = Array.from(groups.values());
+          // Sort files within a group newest-first; sort groups by newest file (time/agent)
+          // or alphabetically (folder).
+          for (const g of out) g.files.sort((a, b) => String(b.mtime).localeCompare(String(a.mtime)));
+          if (w.axis === 'folder') out.sort((a, b) => a.label.localeCompare(b.label));
+          else out.sort((a, b) => String((b.files[0] || {}).mtime || '').localeCompare(String((a.files[0] || {}).mtime || '')));
+          return out;
+        },
+        meAiPursuitWsIcon(f) {
+          const fmt = (f && f.format) || '';
+          if (fmt === 'html') return '🌐';
+          if (fmt === 'svg') return '🖼';
+          if (fmt === 'mermaid') return '📐';
+          if (fmt === 'csv' || fmt === 'json') return '📊';
+          if (fmt === 'markdown') return '📄';
+          return '📃';
+        },
+        // Open a workspace file in the shared reader by fetching its bytes and building
+        // a synthetic artifact (HTML → iframe, markdown → md-output, else raw).
+        async meAiPursuitWsOpen(f) {
+          const p = this.meai.pursuit; const id = p.tid; if (!id || !f) return;
+          p.ws.sel = f.path; p.ws.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + id + '/workspace/file?path=' + encodeURIComponent(f.path));
+            this.meAiPursuitOpenArt({
+              id: 'ws:' + f.path, kind: f.surfaced ? (f.kind || 'analysis') : 'file',
+              title: f.name, body: (r && r.content) || '', format: (r && r.format) || f.format || '',
+              legId: f.legId, link: null, at: f.mtime,
+            });
+          } catch (e) { this.toast && this.toast((e && e.message) || 'Could not open file.', 'error'); }
+          finally { p.ws.busy = false; }
+        },
+        // Promote an intermediate into the chat as a surfaced artifact.
+        async meAiPursuitWsSurface(f, ev) {
+          if (ev) ev.stopPropagation();
+          const p = this.meai.pursuit; const id = p.tid; if (!id || !f) return;
+          p.ws.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + id + '/workspace/surface', { method: 'POST', body: JSON.stringify({ path: f.path }) });
+            f.surfaced = true; if (f.kind === 'intermediate') f.kind = 'analysis';
+            this.toast && this.toast('Surfaced “' + f.name + '” to the chat.', 'success');
+          } catch (e) { this.toast && this.toast((e && e.message) || 'Could not surface file.', 'error'); }
+          finally { p.ws.busy = false; }
+        },
+        // Download a workspace file to disk (via the raw file endpoint).
+        meAiPursuitWsDownload(f, ev) {
+          if (ev) ev.stopPropagation();
+          const id = this.meai.pursuit.tid; if (!id || !f) return;
+          const url = '/api/me-ai/task/' + id + '/workspace/file?path=' + encodeURIComponent(f.path) + '&raw=1';
+          window.open(url, '_blank', 'noopener');
+        },
+
         meAiPursuitEvKey(scope, ei, ev) {
           return (scope || 'spine') + ':' + ei + ':' + (ev && (ev.at || ev.toolCallId || ev.kind) || '');
         },

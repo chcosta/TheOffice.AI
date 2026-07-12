@@ -20229,6 +20229,48 @@ function _meAiTreeDir(id) { return path.join(ME_AI_TASKS_DIR, String(id).replace
 function _meAiJournalPath(id) { return path.join(_meAiTreeDir(id), 'journal.ndjson'); }
 function _meAiTreeStatePath(id) { return path.join(_meAiTreeDir(id), 'state.json'); }
 function _meAiOutboxDir(id) { return path.join(_meAiTreeDir(id), 'outbox'); }
+// The pursuit's shared WORKSPACE — every leg + the spine default their cwd here (set in
+// _meAiTreeOrchestrate), so any file an agent/subagent writes lands in ONE scannable place
+// (instead of polluting this app's repo, which is what __dirname-as-cwd used to cause). The
+// Workspace explorer surfaces this tree; workspace-manifest.json attributes each file to the
+// leg that wrote it (best-effort snapshot diff around each turn).
+function _meAiWorkspaceDir(id) { return path.join(_meAiTreeDir(id), 'workspace'); }
+function _meAiWorkspaceManifestPath(id) { return path.join(_meAiTreeDir(id), 'workspace-manifest.json'); }
+const _MEAI_WS_SKIP_DIR = /^(node_modules|\.git|\.cache|\.venv|__pycache__)$/i;
+function _meAiWsWalk(dir, base, out, depth) {
+  if (depth > 12) return out;
+  let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return out; }
+  for (const e of ents) {
+    const rel = base ? base + '/' + e.name : e.name;
+    const abs = path.join(dir, e.name);
+    if (e.isDirectory()) { if (_MEAI_WS_SKIP_DIR.test(e.name)) continue; _meAiWsWalk(abs, rel, out, depth + 1); }
+    else if (e.isFile()) { try { const st = fs.statSync(abs); out[rel] = { size: st.size, mtime: st.mtimeMs }; } catch (_) {} }
+  }
+  return out;
+}
+function _meAiWsSnapshot(id) { return _meAiWsWalk(_meAiWorkspaceDir(id), '', {}, 0); }
+function _meAiWsLoadManifest(id) { try { return JSON.parse(fs.readFileSync(_meAiWorkspaceManifestPath(id), 'utf8')) || {}; } catch (_) { return {}; } }
+function _meAiWsSaveManifest(id, m) { try { fs.mkdirSync(_meAiTreeDir(id), { recursive: true }); fs.writeFileSync(_meAiWorkspaceManifestPath(id), JSON.stringify(m, null, 2)); } catch (_) {} }
+// Diff the workspace before/after a turn; attribute any new/modified file to the turn's leg.
+function _meAiWsAttribute(id, legId, before) {
+  if (!id || !before) return;
+  try {
+    const after = _meAiWsSnapshot(id);
+    const man = _meAiWsLoadManifest(id);
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const rel of Object.keys(after)) {
+      const b = before[rel], a = after[rel];
+      const isNew = !b;
+      const isMod = b && (b.size !== a.size || b.mtime !== a.mtime);
+      if (!isNew && !isMod) continue;
+      const prev = man[rel] || {};
+      man[rel] = { legId: legId || prev.legId || 'spine', firstAt: prev.firstAt || now, at: now, size: a.size, updated: !!prev.firstAt };
+      changed = true;
+    }
+    if (changed) _meAiWsSaveManifest(id, man);
+  } catch (_) {}
+}
 
 // ---- Data-shape factories (§9). Plain serializable objects. ----
 function _meAiNewLeg(o = {}) {
@@ -21813,6 +21855,13 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   const _runStart = Date.now();
   let _lastActivity = _runStart;
   let _hbTimer = null;
+  // Per-turn write attribution for the Workspace explorer: when this turn runs inside the
+  // pursuit's shared workspace dir, snapshot it BEFORE the turn and diff AFTER (in finally),
+  // attributing any new/modified file to the leg that wrote it. Gated on the workspace cwd so
+  // we never walk a huge real repo (dev-card worktree) or the app's __dirname.
+  const _wsId = (t && t.context && t.context._wsTaskId) || null;
+  let _wsBefore = null;
+  if (_wsId && cwd === _meAiWorkspaceDir(_wsId)) { try { _wsBefore = _meAiWsSnapshot(_wsId); } catch (_) {} }
   if (t && !t._ephemeral) {
     _hbTimer = setInterval(() => {
       try {
@@ -21851,6 +21900,7 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
     });
   } finally {
     if (_hbTimer) clearInterval(_hbTimer);
+    if (_wsBefore) _meAiWsAttribute(_wsId, (t && t._legId) || 'spine', _wsBefore);
   }
   if (result && result.fallback) {
     const err = new Error(result.error || 'Me agent runtime unavailable');
@@ -23183,6 +23233,15 @@ function _meAiTreeConverse(t, mode, text) {
 async function _meAiTreeOrchestrate(t, spine, opts = {}) {
   const id = t.id;
   const startedMs = Date.now();
+  // Give the pursuit ONE shared, scannable workspace. Unless a real code worktree was
+  // already resolved (dev-card implement/steward keeps its repo cwd), every leg + the spine
+  // default their cwd here — so files agents produce (reports, diagrams, data) land in one
+  // place the Workspace explorer can surface + attribute, instead of polluting this app's repo.
+  try {
+    const ctx = t.context = (t.context && typeof t.context === 'object') ? t.context : {};
+    if (!ctx.cwd) { const ws = _meAiWorkspaceDir(id); fs.mkdirSync(ws, { recursive: true }); ctx.cwd = ws; }
+    if (ctx.cwd === _meAiWorkspaceDir(id)) ctx._wsTaskId = id;
+  } catch (_) {}
   const replan = !!(opts && opts.replan);
   // A user-initiated turn (dispatch / steer / "Keep going") starts a FRESH autonomous
   // budget; auto-rounds preserve it so the pursuit-wide caps actually bound the loop.
@@ -23865,6 +23924,111 @@ app.get('/api/me-ai/task/:id/tree', (req, res) => {
     const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
     if (!tree) return res.status(404).json({ error: 'No tree for this task' });
     res.json({ ok: true, tree });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Workspace explorer ────────────────────────────────────────────────────
+// The pursuit's shared workspace dir is where every agent/subagent writes files
+// (reports, diagrams, data, scratch). These three routes surface it as an
+// explorable tree, attribute each file to the leg that wrote it, let a file be
+// read for the in-app reader, and promote an intermediate into the chat as a
+// surfaced artifact.
+const _MEAI_WS_HIDE = /^(state\.json|journal\.ndjson|workspace-manifest\.json)$/i;
+function _meAiWsLegLabel(tree, legId) {
+  if (!legId || legId === 'spine') return { legId: 'spine', author: 'Chief of Staff' };
+  try {
+    const lg = tree && tree.legs && tree.legs[legId];
+    if (lg) return { legId, author: (lg.title || lg.lane || 'Sub-agent') };
+  } catch (_) {}
+  return { legId, author: 'Sub-agent' };
+}
+app.get('/api/me-ai/task/:id/workspace', (req, res) => {
+  try {
+    const id = req.params.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const wsDir = _meAiWorkspaceDir(id);
+    const man = _meAiWsLoadManifest(id);
+    // Which relPaths were promoted into the chat (surfaced artifacts that carry a path).
+    const surfacedByPath = new Map();
+    try {
+      const arts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts : [];
+      for (const a of arts) {
+        const p = a && (a.path || a.link);
+        if (!p) continue;
+        try {
+          let ap = String(p); if (!path.isAbsolute(ap)) ap = path.resolve(wsDir, ap);
+          const rel = path.relative(wsDir, ap);
+          if (rel && !rel.startsWith('..')) surfacedByPath.set(rel.replace(/\\/g, '/'), a);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    const snap = _meAiWsSnapshot(id);
+    const files = [];
+    for (const rel of Object.keys(snap)) {
+      const base = rel.split('/').pop();
+      if (_MEAI_WS_HIDE.test(base) || /(^|\/)outbox\//.test(rel)) continue;
+      const meta = man[rel] || {};
+      const { legId, author } = _meAiWsLegLabel(tree, meta.legId);
+      files.push({
+        path: rel,
+        name: base,
+        dir: rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '',
+        size: snap[rel].size,
+        mtime: meta.at || new Date(snap[rel].mtime).toISOString(),
+        format: _meAiFormatFromExt(rel),
+        legId, author,
+        updated: !!meta.updated,
+        surfaced: surfacedByPath.has(rel),
+        kind: surfacedByPath.has(rel) ? (surfacedByPath.get(rel).kind || 'analysis') : 'intermediate',
+      });
+    }
+    files.sort((a, b) => String(b.mtime).localeCompare(String(a.mtime)));
+    res.json({ ok: true, files, count: files.length, hasWorkspace: fs.existsSync(wsDir) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get('/api/me-ai/task/:id/workspace/file', (req, res) => {
+  try {
+    const id = req.params.id;
+    const wsDir = _meAiWorkspaceDir(id);
+    const rel = String(req.query.path || '');
+    if (!rel) return res.status(400).json({ error: 'path required' });
+    const abs = path.resolve(wsDir, rel);
+    const within = path.relative(wsDir, abs);
+    if (within.startsWith('..') || path.isAbsolute(within)) return res.status(403).json({ error: 'Path outside workspace' });
+    let st; try { st = fs.statSync(abs); } catch (_) { return res.status(404).json({ error: 'Not found' }); }
+    if (!st.isFile()) return res.status(400).json({ error: 'Not a file' });
+    if (st.size > 4 * 1024 * 1024) return res.status(413).json({ error: 'File too large to preview (>4MB)' });
+    // ?raw=1 → stream the bytes for download (Content-Disposition) instead of JSON.
+    if (String(req.query.raw || '') === '1') {
+      const name = rel.split('/').pop();
+      res.setHeader('Content-Disposition', 'attachment; filename="' + name.replace(/"/g, '') + '"');
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return fs.createReadStream(abs).pipe(res);
+    }
+    const content = fs.readFileSync(abs, 'utf8');
+    res.json({ ok: true, path: rel, name: rel.split('/').pop(), size: st.size, format: _meAiFormatFromExt(rel), content });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/me-ai/task/:id/workspace/surface', (req, res) => {
+  try {
+    const id = req.params.id;
+    const t = meAiTasks.get(id) || _meAiLoadTask(id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    const wsDir = _meAiWorkspaceDir(id);
+    const rel = String((req.body && req.body.path) || '');
+    if (!rel) return res.status(400).json({ error: 'path required' });
+    const abs = path.resolve(wsDir, rel);
+    const within = path.relative(wsDir, abs);
+    if (within.startsWith('..') || path.isAbsolute(within)) return res.status(403).json({ error: 'Path outside workspace' });
+    let st; try { st = fs.statSync(abs); } catch (_) { return res.status(404).json({ error: 'Not found' }); }
+    if (!st.isFile()) return res.status(400).json({ error: 'Not a file' });
+    const man = _meAiWsLoadManifest(id);
+    const meta = man[rel.replace(/\\/g, '/')] || {};
+    // Attribute the surfaced artifact to the leg that wrote the file.
+    const t2 = Object.assign({}, t, { _legId: meta.legId || t._legId || null });
+    const title = rel.split('/').pop();
+    const art = _meAiSurfaceArtifact(t2, { kind: 'analysis', title, file: abs, format: _meAiFormatFromExt(rel) });
+    res.json({ ok: true, artifact: art });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
