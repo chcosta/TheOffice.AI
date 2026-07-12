@@ -16095,7 +16095,7 @@
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spineA) || ''" class="pe pe-arrow pe-spine" fill="none"></path>
                         </svg>
                         <template x-for="n in meai.pursuit._nodes" :key="n.id">
-                          <div class="meai-pnode" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
+                          <div class="meai-pnode" :data-nid="n.id" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
                             <div class="meai-pnode-k">
                               <span x-show="n.shortId" class="meai-pnode-id" x-text="n.shortId"></span>
                               <span x-text="meAiPursuitLegKind(n.leg.kind)"></span>
@@ -39508,9 +39508,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // depth-row, and stack rows cumulatively so every row clears its tallest
           // card — tight where cards are small, roomy where they're big. Depth 0
           // is the tall prompt/root card (ROOTH clearance is preserved).
+          const realH = p._realH || {};              // true heights (px) measured after a prior paint, keyed by leg id
           const nodeH = (id) => {
-            let h = 132;                              // header + title + desc + status
-            if (stopByLeg[id]) h += 48;               // "waiting on you" + needs-approval
+            if (realH[id]) return realH[id];          // exact measured height always wins
+            // First-paint estimate only (corrected by the reflow pass below). Kept
+            // generous so the initial layout rarely overlaps before measurement: a
+            // waiting/needs-approval card almost always also shows a wrapping
+            // "thinking" line, which the old estimate ignored entirely.
+            let h = 132;                              // header + title + goal + status
+            if (stopByLeg[id]) h += 78;               // waiting/needs-approval + a running card's "thinking" line (both wrap)
             if ((artByLeg[id] || []).length) h += 30; // artifacts badge
             return h;
           };
@@ -39658,6 +39664,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           p._nodes = nodes; p._edgeD = dByType; p._legShortId = legShort;
           p._w = maxX + W + 120; p._h = maxY + ROWH + 80;
+          // No content estimate matches every wrapped card exactly, so once Alpine has
+          // painted the nodes, measure their real heights and — if any row's tallest
+          // card differs from what we assumed — re-run layout with the true numbers.
+          // Measured heights are cached (p._realH) so reloading the SAME tree is
+          // correct on the first pass; the measure/reflow only fires for new/changed
+          // cards, and self-terminates (the follow-up measure matches the cache).
+          try { this.$nextTick(() => this._meAiPursuitReflow()); } catch (e) {}
+        },
+        // Measure the painted pursuit cards and reflow if the real heights differ from
+        // the estimate the last layout used. Keeps tall (waiting/thinking/artifact)
+        // cards from overlapping the row below without guessing at wrap behaviour.
+        _meAiPursuitReflow() {
+          const p = this.meai && this.meai.pursuit;
+          if (!p || !(p._nodes || []).length) return;
+          const els = document.querySelectorAll('.meai-pnode[data-nid]');
+          if (!els.length) return;                     // map not painted (e.g. hidden view) — nothing to measure
+          const prev = p._realH || {};
+          const cur = {}; let changed = false;
+          els.forEach((el) => {
+            const id = el.getAttribute('data-nid'); if (!id) return;
+            const h = el.offsetHeight; if (!h) return;
+            cur[id] = h;
+            if (Math.abs((prev[id] || 0) - h) > 2) changed = true;
+          });
+          if (!Object.keys(cur).length) return;
+          p._realH = Object.assign({}, prev, cur);     // keep cached heights for off-screen nodes, overlay fresh ones
+          if (changed) this._meAiPursuitLayout();       // re-lay with true heights (terminates: next measure matches)
         },
         _meAiEdgePath(x1, y1, x2, y2) {
           const my = (y1 + y2) / 2;
