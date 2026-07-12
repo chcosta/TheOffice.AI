@@ -39115,23 +39115,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
           const COLW = 340, ROWH = 128, CX = 460, TOP = 40, W = 300, PAD = 48;
-          const nodes = [], lane = {}, kidN = {};
-          const laneIndex = (leg) => {
-            // Spine + merged-back (reroute) legs run down the centre column — a
-            // reroute continues the spine.
-            if (leg.kind === 'spine' || leg.kind === 'reroute' || leg.parentId == null) return 0;
-            if (lane[leg.id] != null) return lane[leg.id];
-            // Fan children symmetrically around THEIR parent's column, as wide as
-            // that parent's sibling set needs (1,-1,2,-2,…). Scoping the counter per
-            // parent means parallel branches fan broadly while sequential/vertical
-            // growth adds no width — and deep branches fan around their own parent.
-            const pid = leg.parentId;
-            const k = (kidN[pid] = (kidN[pid] || 0) + 1);
-            const step = Math.ceil(k / 2) * (k % 2 === 1 ? 1 : -1);
-            const base = (lane[pid] != null) ? lane[pid] : 0;
-            lane[leg.id] = base + step;
-            return lane[leg.id];
-          };
           if (!tree) { p._nodes = []; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
           const legs = tree.legs || {};
@@ -39139,7 +39122,64 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const s of (tree.stops || [])) { if (s.status === 'open') stopByLeg[s.legId] = s; }
           const artByLeg = {};
           for (const a of (tree.artifacts || [])) { (artByLeg[a.legId] = artByLeg[a.legId] || []).push(a); }
-          const pos = {};
+          const kindOf = (id) => (legs[id] && legs[id].kind) || 'branch';
+          // Children in creation order (stable across re-renders) + the root set.
+          const kids = {}, roots = [];
+          order.forEach((id) => {
+            const leg = legs[id]; if (!leg) return;
+            if (leg.parentId == null) roots.push(id);
+            else (kids[leg.parentId] = kids[leg.parentId] || []).push(id);
+          });
+          // ── Layered tidy-tree layout ──────────────────────────────────────
+          // Y is the node's DEPTH (distance from the root), so siblings share a
+          // row instead of staircasing down by creation order — that alone kills
+          // most of the diagonal edges that used to cut across other nodes.
+          //
+          // Scouts gate their sibling branches ("waiting on a scout"), so a gated
+          // branch drops ONE extra layer below its scouts. The scout→branch gate
+          // edges then flow straight DOWN like tree edges rather than slicing
+          // sideways across the row.
+          const depthMemo = {};
+          const depthOf = (id) => {
+            if (depthMemo[id] != null) return depthMemo[id];
+            const leg = legs[id];
+            if (!leg || leg.parentId == null) return (depthMemo[id] = 0);
+            let d = depthOf(leg.parentId) + 1;
+            const k = kindOf(id);
+            const gatedBranch = k !== 'scout' && k !== 'reroute' && k !== 'spine'
+              && (kids[leg.parentId] || []).some((sid) => kindOf(sid) === 'scout');
+            if (gatedBranch) d += 1;
+            return (depthMemo[id] = d);
+          };
+          // X is a tidy column "slot": a post-order walk gives every leaf the next
+          // free column and every internal node the midpoint of its children, so
+          // subtrees never overlap and each parent sits centered above its own fan.
+          // Scouts are NOT columned here — they're re-centered over the branch band
+          // they gate (below), which keeps their gate edges symmetric and short.
+          const slot = {};
+          let nextLeaf = 0;
+          const assign = (id) => {
+            const ch = (kids[id] || []).filter((cid) => kindOf(cid) !== 'scout');
+            if (!ch.length) { slot[id] = nextLeaf++; return; }
+            ch.forEach(assign);
+            slot[id] = (slot[ch[0]] + slot[ch[ch.length - 1]]) / 2;
+          };
+          roots.forEach((r) => { if (kindOf(r) !== 'scout') assign(r); });
+          // Center each parent's scout(s) over the sibling branch band they gate;
+          // spread multiple scouts evenly across that span.
+          const scoutsByParent = {};
+          order.forEach((id) => { if (kindOf(id) === 'scout') { const pid = legs[id].parentId; (scoutsByParent[pid] = scoutsByParent[pid] || []).push(id); } });
+          Object.keys(scoutsByParent).forEach((pid) => {
+            const sc = scoutsByParent[pid];
+            const xs = (kids[pid] || []).filter((sid) => kindOf(sid) !== 'scout' && slot[sid] != null).map((sid) => slot[sid]);
+            if (!xs.length) { sc.forEach((id) => { if (slot[id] == null) slot[id] = nextLeaf++; }); return; }
+            const lo = Math.min(...xs), hi = Math.max(...xs);
+            if (sc.length === 1) slot[sc[0]] = (lo + hi) / 2;
+            else sc.forEach((id, k) => { slot[id] = lo + (hi - lo) * (k / (sc.length - 1)); });
+          });
+          // Defensive: anything not reached above gets a trailing column.
+          order.forEach((id) => { if (slot[id] == null && legs[id]) slot[id] = nextLeaf++; });
+          const nodes = [], pos = {};
           let minX = Infinity, maxX = -Infinity, maxY = TOP;
           // Short IDs + agent role. The spine + merged-back nodes are the ONE main
           // agent (chattable, share a conversation); branch legs (L1, L2…) and scouts
@@ -39148,9 +39188,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let _legN = 0, _scoutN = 0;
           order.forEach((id, i) => {
             const leg = legs[id]; if (!leg) return;
-            const li = laneIndex(leg);
-            const x = CX + li * COLW;
-            const y = TOP + i * ROWH;
+            const x = CX + slot[id] * COLW;
+            const y = TOP + depthOf(id) * ROWH;
             const stop = stopByLeg[id];
             const arts = artByLeg[id] || [];
             const kind = leg.kind || 'branch';
