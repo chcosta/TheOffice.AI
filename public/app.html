@@ -11432,6 +11432,12 @@
               .cf-gnode.cf-gaddwt:hover { border-color:var(--cp-dev); color:var(--cp-dev); }
               .cf-gsub .cf-sd { width:7px; height:7px; border-radius:50%; flex:none; }
               .cf-gsub .cf-sd.ok { background:var(--cp-success); } .cf-gsub .cf-sd.warn { background:var(--cp-warning); } .cf-gsub .cf-sd.run { background:var(--cp-warning); }
+              /* agents attached to a worktree / PR — emoji + full name, one per line (not pills) */
+              .cf-gagents { display:flex; flex-direction:column; align-items:stretch; gap:1px; margin-top:3px; max-width:180px; }
+              .cf-gag { display:flex; align-items:center; gap:4px; font-size:10.5px; line-height:1.25; color:var(--cp-text-soft); }
+              .cf-gag .cf-gag-e { flex:none; font-size:10px; line-height:1; }
+              .cf-gag .cf-gag-n { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .cf-gag.more { color:var(--cp-text-dim); font-size:9.5px; padding-left:14px; }
               /* approach fan: shared root anchor + a column of per-approach dev nodes */
               .cf-gfan { display:flex; align-items:center; gap:clamp(28px, 8%, 90px); }
               .cf-groot { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:calc(var(--cp-radius-scale, 1) * 8px); background:var(--cp-surface); border:1px solid var(--cp-border); font-size:11px; font-weight:650; color:var(--cp-text-soft); letter-spacing:.01em; align-self:center; white-space:nowrap; }
@@ -11738,6 +11744,7 @@
                                         <div class="cf-gnode dev" :class="{ sel: cfNodeSel(d,'dev'), 'cf-here': yahIsOn('dev:'+d.id) }" data-node="dev" role="button" tabindex="0" @click="cfFocusNode(d,'dev')" @keydown.enter.prevent="cfFocusNode(d,'dev')" :title="'Dev branch — ' + cfGraphModel(d).dev.branch">
                                           <div class="cf-gtop"><span class="cf-dot"></span><span class="cf-bn" x-text="cfGraphModel(d).dev.branch"></span></div>
                                           <div class="cf-gsub"><span x-show="cfGraphModel(d).dev.ahead" x-text="cfGraphModel(d).dev.ahead + ' ahead'"></span><span x-show="cfGraphModel(d).dev.syncedAgo" x-text="cfGraphModel(d).dev.syncedAgo"></span><span x-show="!cfGraphModel(d).dev.ahead && !cfGraphModel(d).dev.syncedAgo">dev workbench</span></div>
+                                          <template x-if="(cfGraphModel(d).devs[0] ? cfGraphModel(d).devs[0].agents : []).length"><div class="cf-gagents" :title="cfNodeAgentTitle(cfGraphModel(d).devs[0].agents)"><template x-for="ag in cfGraphModel(d).devs[0].agents.slice(0,3)" :key="'gag-'+ag.persona"><span class="cf-gag"><span class="cf-gag-e" x-text="ag.emoji"></span><span class="cf-gag-n" x-text="ag.label"></span></span></template><span class="cf-gag more" x-show="cfGraphModel(d).devs[0].agents.length>3" x-text="'+'+(cfGraphModel(d).devs[0].agents.length-3)+' more'"></span></div></template>
                                         </div>
                                       </template>
                                       <!-- Aspects fan: EVERY work item leads with its aspects. Each aspect is a
@@ -11752,6 +11759,7 @@
                                               <div class="cf-gnode dev" :class="{ sel: cfNodeSel(d, dn.key), alt: !dn.active, 'cf-here': dn.active && yahIsOn('dev:'+d.id) }" :data-node="dn.key" role="button" tabindex="0" @click="cfFocusDev(d, dn)" @keydown.enter.prevent="cfFocusDev(d, dn)" :title="(dn.active ? 'Active worktree — ' : 'Switch to worktree — ') + dn.aspect + (dn.branch ? '  (' + dn.branch + ')' : '')">
                                                 <div class="cf-gtop"><span class="cf-dot"></span><span class="cf-bn" x-text="dn.aspect"></span><span class="cal-approach-hint" x-show="dn.promoted" title="This aspect feeds the pull request" style="color:var(--cp-accent)"> ·in PR</span><span class="cal-approach-hint" x-show="dn.mergedFrom && dn.mergedFrom.length" :title="'Includes work merged from: ' + (dn.mergedFrom || []).map(x => x.aspect).join(', ')" style="color:var(--cp-text-muted)"> ·⇄<span x-text="dn.mergedFrom.length"></span></span></div>
                                                 <div class="cf-gsub"><span x-show="dn.ahead" x-text="dn.ahead + ' ahead'"></span><span x-show="dn.syncedAgo" x-text="dn.syncedAgo"></span><span x-show="!dn.ahead && !dn.syncedAgo" x-text="dn.active ? 'dev workbench' : 'alternative'"></span></div>
+                                                <template x-if="dn.agents && dn.agents.length"><div class="cf-gagents" :title="cfNodeAgentTitle(dn.agents)"><template x-for="ag in dn.agents.slice(0,3)" :key="'gag-'+dn.key+'-'+ag.persona"><span class="cf-gag"><span class="cf-gag-e" x-text="ag.emoji"></span><span class="cf-gag-n" x-text="ag.label"></span></span></template><span class="cf-gag more" x-show="dn.agents.length>3" x-text="'+'+(dn.agents.length-3)+' more'"></span></div></template>
                                               </div>
                                             </template>
                                             <div class="cf-gnode ghost cf-gaddwt" data-node="wtadd" role="button" tabindex="0" @click="cfAddApproach(d)" @keydown.enter.prevent="cfAddApproach(d)" :title="'Start a new worktree — a fresh dev worktree + branch for a different angle of this work item'"><span x-text="(cfPrimarySlot(d) && devApproachOpen[approachKey(d, cfPrimarySlot(d))]) ? '✕ cancel' : '＋ worktree'"></span></div>
@@ -11764,7 +11772,7 @@
                                         <div class="cf-chain">
                                           <template x-for="n in chain.nodes" :key="'cfn-'+d.id+'-'+n.key">
                                             <div class="cf-gnode" :class="{ pr: n.kind==='pr', ghost: n.kind==='ghost', sel: cfNodeSel(d,n.key), 'cf-here': n.kind==='pr' && yahIsOn('pr:'+d.id+':'+n.key) }" :data-node="n.key" role="button" tabindex="0" @click="cfFocusNode(d,n.key)" @keydown.enter.prevent="cfFocusNode(d,n.key)">
-                                              <template x-if="n.kind==='pr'"><div><div class="cf-gtop"><span class="cf-dot"></span><span class="cf-num" x-text="n.num"></span><span class="cf-bn" x-text="n.bn"></span></div><div class="cf-gsub"><span class="cf-sd" :class="cfNodeDot(n)"></span><span x-text="n.checks"></span></div></div></template>
+                                              <template x-if="n.kind==='pr'"><div><div class="cf-gtop"><span class="cf-dot"></span><span class="cf-num" x-text="n.num"></span><span class="cf-bn" x-text="n.bn"></span></div><div class="cf-gsub"><span class="cf-sd" :class="cfNodeDot(n)"></span><span x-text="n.checks"></span></div><template x-if="n.agents && n.agents.length"><div class="cf-gagents" :title="cfNodeAgentTitle(n.agents)"><template x-for="ag in n.agents.slice(0,3)" :key="'gag-'+n.key+'-'+ag.persona"><span class="cf-gag"><span class="cf-gag-e" x-text="ag.emoji"></span><span class="cf-gag-n" x-text="ag.label"></span></span></template><span class="cf-gag more" x-show="n.agents.length>3" x-text="'+'+(n.agents.length-3)+' more'"></span></div></template></div></template>
                                               <template x-if="n.kind==='ghost'"><div class="cf-gtop"><span x-text="n.label"></span></div></template>
                                             </div>
                                           </template>
@@ -31896,12 +31904,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Reorderable section order, persisted per browser. Unknown/removed keys are
         // filtered out and any newly-added default keys are appended, so the order
         // survives future section additions.
+        // Merge any newly-added default keys into a persisted order IN PLACE, positioning
+        // each new key next to its default neighbour instead of dumping it at the end. This
+        // matters because a user's saved order predates newer sections (e.g. 'activeprs'):
+        // appending to the end buries the new panel at the bottom of the page where it's
+        // easily missed. We insert it right after the nearest preceding default sibling that
+        // is already present (or at the front if none precedes it).
+        _homeMergeNewKeys(order, def) {
+          def.forEach((k, di) => {
+            if (order.includes(k)) return;
+            let insertAt = 0;
+            for (let j = di - 1; j >= 0; j--) {
+              const idx = order.indexOf(def[j]);
+              if (idx !== -1) { insertAt = idx + 1; break; }
+            }
+            order.splice(insertAt, 0, k);
+          });
+          return order;
+        },
         homeInitSections() {
           let saved = [];
           try { saved = JSON.parse(localStorage.getItem('home-section-order') || '[]'); } catch { saved = []; }
           const def = this.homeSectionsDefault;
           const order = (Array.isArray(saved) ? saved : []).filter(k => def.includes(k));
-          def.forEach(k => { if (!order.includes(k)) order.push(k); });
+          this._homeMergeNewKeys(order, def);
           this.homeSectionOrder = order;
           try { const h = JSON.parse(localStorage.getItem('home-section-hidden') || '[]'); this.homeSectionHidden = (Array.isArray(h) ? h : []).filter(k => def.includes(k)); } catch { this.homeSectionHidden = []; }
           // Management (workforce) home order + hidden
@@ -31909,7 +31935,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try { msaved = JSON.parse(localStorage.getItem('home-section-order-mgmt') || '[]'); } catch { msaved = []; }
           const mdef = this.mgmtSectionsDefault;
           const morder = (Array.isArray(msaved) ? msaved : []).filter(k => mdef.includes(k));
-          mdef.forEach(k => { if (!morder.includes(k)) morder.push(k); });
+          this._homeMergeNewKeys(morder, mdef);
           this.mgmtSectionOrder = morder;
           try { const mh = JSON.parse(localStorage.getItem('home-section-hidden-mgmt') || '[]'); this.mgmtSectionHidden = (Array.isArray(mh) ? mh : []).filter(k => mdef.includes(k)); } catch { this.mgmtSectionHidden = []; }
         },
@@ -50991,7 +51017,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               ahead: active ? ahead : (Number(g.ahead) || 0),
               syncedAgo: active ? syncedAgo : (g.syncedAgo || (w.worktreeStatus === 'ready' ? 'synced' : '')),
               status: w.worktreeStatus || '',
-              mergedFrom: Array.isArray(w.mergedFrom) ? w.mergedFrom.slice() : []
+              mergedFrom: Array.isArray(w.mergedFrom) ? w.mergedFrom.slice() : [],
+              promotedPrId: w.promotedPrId || null,
+              agents: this._cfNodeAgents(w.agents)
             };
           });
           const anyWt = wts.some(w => w.worktreePath);
@@ -51020,10 +51048,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               state: (pr.status || 'open'),
               repo: s.repo || '',
               href: this.slotPrHref(s),
+              agents: this._cfNodeAgents((wts.find(w => w.promotedPrId && String(w.promotedPrId) === String(s.prId)) || {}).agents),
               _slot: s
             });
           }
           return { dev, devs, hasFan, prs };
+        },
+        // Compact agent roster for a graph node — small, deduped by persona, capped.
+        _cfNodeAgents(list) {
+          if (!Array.isArray(list) || !list.length) return [];
+          const seen = new Set(); const out = [];
+          for (const a of list) {
+            if (!a) continue;
+            const pid = a.persona || a.id || a.label;
+            if (!pid || seen.has(pid)) continue;
+            seen.add(pid);
+            out.push({ persona: pid, label: a.label || a.agentName || pid, emoji: a.emoji || '🤖' });
+          }
+          return out;
+        },
+        cfNodeAgentTitle(list) {
+          const a = Array.isArray(list) ? list : [];
+          if (!a.length) return '';
+          const names = a.map(x => (x.emoji ? x.emoji + ' ' : '') + x.label).join(', ');
+          return (a.length === 1 ? 'Agent on this ' : a.length + ' agents on this ') + 'worktree — ' + names;
         },
         _cfSlug(d) {
           const raw = (d && (d.branch || d.workItemId || d.title || d.id) || '').toString();
@@ -51055,7 +51103,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const walk = (p, arr) => {
             arr.push({
               key: p.key, kind: 'pr', bn: p.bn, num: p.num, parent: p.stacked ? p.base : 'dev',
-              stacked: p.stacked, checks: p.checks, title: p.title
+              stacked: p.stacked, checks: p.checks, title: p.title, agents: p.agents || []
             });
             for (const c of childrenOf(p.bn)) walk(c, arr);
           };
