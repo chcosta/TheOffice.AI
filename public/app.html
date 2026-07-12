@@ -15979,7 +15979,7 @@
                             <div class="meai-pnode-k">
                               <span x-show="n.shortId" class="meai-pnode-id" x-text="n.shortId"></span>
                               <span x-text="meAiPursuitLegKind(n.leg.kind)"></span>
-                              <span class="meai-pnode-role" x-text="n.role==='main' ? 'main agent' : 'sub-agent'"></span>
+                              <span class="meai-pnode-role" x-text="n.role==='main' ? 'main agent' : (n.role==='you' ? 'you' : 'sub-agent')"></span>
                             </div>
                             <div class="meai-pnode-t" x-text="n.leg.title"></div>
                             <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
@@ -39257,7 +39257,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!leg || leg.parentId == null) return (depthMemo[id] = 0);
             let d = depthOf(leg.parentId) + 1;
             const k = kindOf(id);
-            const gatedBranch = k !== 'scout' && k !== 'reroute' && k !== 'spine'
+            const gatedBranch = k !== 'scout' && k !== 'reroute' && k !== 'spine' && k !== 'user'
               && (kids[leg.parentId] || []).some((sid) => kindOf(sid) === 'scout');
             if (gatedBranch) d += 1;
             return (depthMemo[id] = d);
@@ -39268,7 +39268,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // NO repacking of the trunk. All side work (branches + scouts) fans out to
           // the RIGHT of the trunk and never occupies slot 0, so the main path stays
           // clear no matter how the tree grows.
-          const isMainKind = (id) => { const k = kindOf(id); return k === 'spine' || k === 'reroute'; };
+          const isMainKind = (id) => { const leg = legs[id]; if (!leg) return false; const k = leg.kind; return k === 'spine' || k === 'reroute' || (k === 'user' && leg.lane === 'spine'); };
           const onMain = {};
           roots.forEach((r) => {
             if (!isMainKind(r)) return;
@@ -39350,7 +39350,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
-            const type = (leg.kind === 'reroute') ? 'merge' : (leg.kind === 'spine' ? 'spine' : 'branch');
+            const type = (leg.kind === 'reroute') ? 'merge' : ((leg.kind === 'spine' || onMain[id]) ? 'spine' : 'branch');
             const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y;
             dByType[type] += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
             dByType[type + 'A'] += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1);
