@@ -13467,6 +13467,7 @@
                  chevrons — override any inherited dash and keep joins round. Placed after
                  all .pe-* rules so equal-specificity source order wins on dash/width. */
               .meai-pedges .pe-arrow { fill:none; stroke-width:2; stroke-dasharray:none; stroke-linecap:round; stroke-linejoin:round; }
+              .meai-pedges .pe-arrow.pe-converge { opacity:.9; }
               .meai-pnode.pgate { border-color:#d29922; border-style:dashed; }
               .meai-pnode-dot.gate { background:#d29922; }
               .meai-pu-legrow.lg-gate .meai-pu-legdot { background:#d29922; }
@@ -15859,6 +15860,7 @@
                                (at the last subpath). We bake a V-arrow subpath per edge into these
                                solid, un-dashed layers so every connector gets its own arrowhead. -->
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.cullA) || ''" class="pe pe-arrow pe-cull" fill="none"></path>
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.convergeA) || ''" class="pe pe-arrow pe-converge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.reuseA) || ''" class="pe pe-arrow pe-reuse" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.gateA) || ''" class="pe pe-arrow pe-gate" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branchA) || ''" class="pe pe-arrow pe-branch" fill="none"></path>
@@ -39114,7 +39116,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // merge-back edges become SVG paths. Cached onto pursuit._nodes/_edges.
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
-          const COLW = 340, ROWH = 128, CX = 460, TOP = 40, W = 300, PAD = 48;
+          const COLW = 340, ROWH = 168, ROOTH = 300, CX = 460, TOP = 40, W = 300, PAD = 48;
           if (!tree) { p._nodes = []; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
           const legs = tree.legs || {};
@@ -39151,34 +39153,50 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (gatedBranch) d += 1;
             return (depthMemo[id] = d);
           };
-          // X is a tidy column "slot": a post-order walk gives every leaf the next
-          // free column and every internal node the midpoint of its children, so
-          // subtrees never overlap and each parent sits centered above its own fan.
-          // Scouts are NOT columned here — they're re-centered over the branch band
-          // they gate (below), which keeps their gate edges symmetric and short.
+          // X is a column "slot". The MAIN PATH (spine + its reroute chain) owns a
+          // reserved trunk column (slot 0) and runs perfectly straight down the left
+          // edge; a new main-thread node just extends that trunk one row lower, with
+          // NO repacking of the trunk. All side work (branches + scouts) fans out to
+          // the RIGHT of the trunk and never occupies slot 0, so the main path stays
+          // clear no matter how the tree grows.
+          const isMainKind = (id) => { const k = kindOf(id); return k === 'spine' || k === 'reroute'; };
+          const onMain = {};
+          roots.forEach((r) => {
+            if (!isMainKind(r)) return;
+            let cur = r;
+            while (cur != null) { onMain[cur] = true; cur = (kids[cur] || []).find((c) => isMainKind(c)); }
+          });
           const slot = {};
-          let nextLeaf = 0;
-          const assign = (id) => {
-            const ch = (kids[id] || []).filter((cid) => kindOf(cid) !== 'scout');
-            if (!ch.length) { slot[id] = nextLeaf++; return; }
-            ch.forEach(assign);
+          let nextCol = 1; // side columns start at 1; slot 0 is the reserved trunk
+          // Tidy pack of one side subtree: leaves take the next free right column,
+          // internal nodes centre over their (non-scout) children — so sibling
+          // subtrees never overlap and each branch sits above its own fan.
+          const layoutSide = (id) => {
+            const ch = (kids[id] || []).filter((cid) => kindOf(cid) !== 'scout' && !onMain[cid]);
+            if (!ch.length) { slot[id] = nextCol++; return; }
+            ch.forEach(layoutSide);
             slot[id] = (slot[ch[0]] + slot[ch[ch.length - 1]]) / 2;
           };
-          roots.forEach((r) => { if (kindOf(r) !== 'scout') assign(r); });
-          // Center each parent's scout(s) over the sibling branch band they gate;
-          // spread multiple scouts evenly across that span.
+          order.forEach((id) => { if (onMain[id]) slot[id] = 0; });
+          order.forEach((id) => {
+            if (!onMain[id]) return;
+            (kids[id] || []).forEach((c) => { if (!onMain[c] && kindOf(c) !== 'scout') layoutSide(c); });
+          });
+          roots.forEach((r) => { if (!onMain[r] && kindOf(r) !== 'scout' && slot[r] == null) layoutSide(r); });
+          // Scouts overlay the branch band they gate (all to the right of the trunk),
+          // so their gate edges drop straight onto the branches one row below.
           const scoutsByParent = {};
           order.forEach((id) => { if (kindOf(id) === 'scout') { const pid = legs[id].parentId; (scoutsByParent[pid] = scoutsByParent[pid] || []).push(id); } });
           Object.keys(scoutsByParent).forEach((pid) => {
             const sc = scoutsByParent[pid];
             const xs = (kids[pid] || []).filter((sid) => kindOf(sid) !== 'scout' && slot[sid] != null).map((sid) => slot[sid]);
-            if (!xs.length) { sc.forEach((id) => { if (slot[id] == null) slot[id] = nextLeaf++; }); return; }
+            if (!xs.length) { sc.forEach((id) => { if (slot[id] == null) slot[id] = nextCol++; }); return; }
             const lo = Math.min(...xs), hi = Math.max(...xs);
             if (sc.length === 1) slot[sc[0]] = (lo + hi) / 2;
             else sc.forEach((id, k) => { slot[id] = lo + (hi - lo) * (k / (sc.length - 1)); });
           });
           // Defensive: anything not reached above gets a trailing column.
-          order.forEach((id) => { if (slot[id] == null && legs[id]) slot[id] = nextLeaf++; });
+          order.forEach((id) => { if (slot[id] == null && legs[id]) slot[id] = nextCol++; });
           const nodes = [], pos = {};
           let minX = Infinity, maxX = -Infinity, maxY = TOP;
           // Short IDs + agent role. The spine + merged-back nodes are the ONE main
@@ -39189,7 +39207,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           order.forEach((id, i) => {
             const leg = legs[id]; if (!leg) return;
             const x = CX + slot[id] * COLW;
-            const y = TOP + depthOf(id) * ROWH;
+            const d = depthOf(id);
+            // Depth 0 is the (tall) prompt/root card, so the first row below it gets
+            // extra clearance (ROOTH); deeper rows use the normal ROWH.
+            const y = d === 0 ? TOP : (TOP + ROOTH + (d - 1) * ROWH);
             const stop = stopByLeg[id];
             const arts = artByLeg[id] || [];
             const kind = leg.kind || 'branch';
@@ -39213,7 +39234,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // elements in the SVG (not x-for) so they live in the SVG namespace and
           // actually render — Alpine x-for inside <svg> creates HTML-namespaced
           // nodes that never paint.
-          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', reuse: '', spineA: '', branchA: '', mergeA: '', gateA: '', cullA: '', reuseA: '' };
+          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', reuse: '', spineA: '', branchA: '', mergeA: '', convergeA: '', gateA: '', cullA: '', reuseA: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
@@ -39239,7 +39260,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const target = reroutes.find(r => r.i > i);
               if (!target) return;
               const a = pos[id], b = pos[target.id]; if (!a || !b) return;
-              dByType.converge += ' ' + this._meAiEdgePath(a.x + W / 2, a.y + 96, b.x + W / 2, b.y);
+              const cy1 = a.y + 96, cx2 = b.x + W / 2, cy2 = b.y;
+              dByType.converge += ' ' + this._meAiEdgePath(a.x + W / 2, cy1, cx2, cy2);
+              dByType.convergeA += ' ' + this._meAiArrow(cx2, cy2, Math.sign(cy2 - cy1) || 1);
             });
           }
           // Increment 3 — gating legibility. Scouts run first; a branch is gated on

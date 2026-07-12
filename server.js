@@ -21668,6 +21668,70 @@ function _meAiPermissionGate(t) {
   };
 }
 
+// ── Agent-surfaced artifacts ────────────────────────────────────────────────
+// Every Me-agent turn (the main spine AND every sub-agent leg) may EMIT typed
+// artifacts — reports, diagrams, charts, tables, analyses, data sets, or a
+// file/branch/agent it created — by printing `<<<ARTIFACT … >>>` blocks in its
+// reply. We parse those blocks out of the turn text, persist each body to the
+// task's artifacts dir, surface it (a pursuit tree → the Artifacts panel + the
+// map node badge; a flat task → the task's own artifacts), and return the text
+// with the blocks STRIPPED so they never bleed into the report/summary/JSON parse.
+const _MEAI_ART_KINDS = new Set(['report', 'diagram', 'chart', 'table', 'analysis', 'data', 'file', 'link', 'diff']);
+function _meAiArtExt(kind, format) {
+  const f = String(format || '').toLowerCase();
+  if (f === 'html') return '.html';
+  if (f === 'svg') return '.svg';
+  if (f === 'mermaid') return '.mmd';
+  if (f === 'csv') return '.csv';
+  if (f === 'json') return '.json';
+  if (f === 'md' || f === 'markdown') return '.md';
+  if (kind === 'data') return '.csv';
+  return '.md';
+}
+function _meAiParseArtifacts(text) {
+  const raw = String(text || '');
+  const arts = [];
+  const re = /<<<ARTIFACT\b([\s\S]*?)>>>/g;
+  let m;
+  while ((m = re.exec(raw))) {
+    const inner = m[1] || '';
+    // Split the header (key: value lines) from the body on the first line that is just '---'.
+    let head = inner, body = '';
+    const sep = inner.match(/\n[ \t]*---[ \t]*(?:\n|$)/);
+    if (sep) { head = inner.slice(0, sep.index); body = inner.slice(sep.index + sep[0].length); }
+    const meta = {};
+    for (const line of head.split('\n')) {
+      const km = line.match(/^\s*([A-Za-z][\w-]*)\s*:\s*(.*)$/);
+      if (km) meta[km[1].toLowerCase()] = km[2].trim();
+    }
+    let kind = String(meta.kind || 'analysis').toLowerCase().replace(/[^a-z]/g, '');
+    if (!_MEAI_ART_KINDS.has(kind)) kind = 'analysis';
+    const title = String(meta.title || (kind[0].toUpperCase() + kind.slice(1))).slice(0, 120);
+    const format = String(meta.format || '').toLowerCase();
+    const link = meta.link ? String(meta.link).slice(0, 1000) : null;
+    let b = body.replace(/^\s+|\s+$/g, '');
+    // A mermaid body renders in the artifact reader when it's a fenced ```mermaid block.
+    if (b && format === 'mermaid' && !/^```/.test(b)) b = '```mermaid\n' + b + '\n```';
+    if (!b && !link) continue;   // nothing worth surfacing
+    arts.push({ kind, title, format, link, body: b || null });
+  }
+  const stripped = raw.replace(re, '').replace(/\n{3,}/g, '\n\n').trim();
+  return { artifacts: arts, stripped };
+}
+function _meAiSurfaceArtifact(t, a) {
+  const treeId = (t && t.id && typeof meAiTrees !== 'undefined' && meAiTrees.has(t.id)) ? t.id : null;
+  const legId = (t && t._legId) || null;
+  const art = _meAiNewArtifact({ legId, kind: a.kind, title: a.title, body: a.body || null, link: a.link || null });
+  try {
+    const dir = path.join(_meAiTreeDir(treeId || (t && t.id) || 'adhoc'), 'artifacts');
+    fs.mkdirSync(dir, { recursive: true });
+    if (a.body) { art.path = path.join(dir, art.id + _meAiArtExt(a.kind, a.format)); fs.writeFileSync(art.path, a.body); }
+  } catch (_) { /* body still travels in the journal record */ }
+  if (treeId) { _meAiTreeEmit(treeId, 'artifact', { artifact: art }); }
+  else if (t && t.id && !t._ephemeral) { t.artifacts = t.artifacts || []; t.artifacts.push(art); _meAiEmit(t, { kind: 'artifact', artifact: art }); }
+  return art;
+}
+
 async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   const cwd = (t.context && t.context.cwd) || __dirname;
   const _saId = workiq ? 'meai-external' : 'meai-agent';
@@ -21749,9 +21813,22 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   // A run that came back errored (timeout, session.error, sendAndWait throw) with
   // NO usable output must NOT masquerade as a completed empty report ("Run
   // complete."). Surface the real error so the loop can self-correct or show it.
-  const text = acc.trim() ? acc : ((result && result.output) || '');
+  const _acc = acc.trim() ? acc : ((result && result.output) || '');
+  let text = _acc;
   if (!text.trim() && result && result.ok === false) {
     throw new Error(result.error || 'Me agent run failed with no output');
+  }
+  // Surface any artifacts the agent chose to emit (main spine + every sub-agent leg),
+  // then strip the blocks so they can't leak into the report/summary/JSON parse. The
+  // post-approval external-outbox turn (workiq) never produces artifacts, so skip it.
+  if (!workiq && text) {
+    try {
+      const parsed = _meAiParseArtifacts(text);
+      if (parsed.artifacts.length) {
+        for (const a of parsed.artifacts) { try { _meAiSurfaceArtifact(t, a); } catch (_) {} }
+        text = parsed.stripped;
+      }
+    } catch (_) { /* artifact surfacing is best-effort; never fail the turn */ }
   }
   return text;
 }
@@ -22149,6 +22226,27 @@ function _meAiDoggedClause() {
     `  documentation, a metric/measurement, or a follow-on change — and offer to do it. A`,
     `  dead end is only acceptable after you have both exhausted the direct path AND have no`,
     `  constructive alternative that advances the goal.`,
+    ``,
+    `SURFACE YOUR WORK AS ARTIFACTS — be eager about this, don't bury results in prose.`,
+    `Whenever you produce something worth keeping — a report, a diagram/flowchart, a chart,`,
+    `a table, a data set, a written analysis, or a file/branch/agent/system you created —`,
+    `emit it as an ARTIFACT so it appears on my map and in the Artifacts panel instead of`,
+    `only scrolling past in your reply. Prefer a diagram or table over a paragraph when it`,
+    `communicates better. To emit one, write a block EXACTLY like this (emit as many as`,
+    `you like, anywhere in your reply — this is SEPARATE from your JSON result, which you`,
+    `still return as instructed):`,
+    `<<<ARTIFACT`,
+    `kind: report|diagram|chart|table|analysis|data|file|link   (pick the best fit)`,
+    `title: <short human title>`,
+    `format: markdown|mermaid|svg|csv|json   (optional rendering hint; default markdown)`,
+    `link: <url>   (optional — the PR/branch/file/agent you created, or an external source)`,
+    `---`,
+    `<the FULL artifact body here — a mermaid diagram, a markdown table, the analysis text,`,
+    ` CSV rows, etc. Put REAL content here; never "see above" or a promise of content.>`,
+    `>>>`,
+    `Use mermaid for diagrams/flowcharts and markdown tables for tabular data so they render.`,
+    `If you created a file/branch/agent/worktree, emit a file/link artifact naming it and its`,
+    `path or URL so I can find it. This is how a closed analysis becomes real, openable output.`,
   ];
 }
 
@@ -22201,7 +22299,7 @@ async function _meAiTreePlan(t, spine) {
   ].filter(x => x !== '').join('\n');
   let out = '';
   try {
-    const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true });
+    const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true, _legId: spine.id });
     out = await _meAiRunTurn(lt, prompt, { resume: false });
   } catch (_) { return []; }
   let p = null; try { p = _connectExtractJson(String(out || '')); } catch (_) { p = null; }
@@ -22334,7 +22432,7 @@ async function _meAiRunLeg(t, leg) {
   _meAiTreeHeartbeat(id);
   // Leg turn runs on the leg's OWN session (durable resume) and is _ephemeral so
   // its raw substeps don't flood the flat transcript; the tree keeps the structure.
-  const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true });
+  const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true, _legId: leg.id });
   // Fork this leg's thinking/tool/response substeps into its own durable journal
   // record so the pursuit canvas can render a per-leg transcript. Bound to THIS
   // leg's id, so concurrent siblings never cross-attribute.
@@ -22417,7 +22515,7 @@ function _meAiBuildLegPrompt(t, phase, priorSummary) {
 // into the per-leg journal so the canvas shows the build work, then dispose the session.
 async function _meAiRunLegTurn(t, leg, prompt) {
   const id = t.id;
-  const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true });
+  const lt = Object.assign({}, t, { sessionId: leg.sessionId, _ephemeral: true, _legId: leg.id });
   lt._onLegEvent = (ev) => { try { _meAiTreeEmit(id, 'leg_event', { legId: leg.id, ev }); } catch (_) {} };
   try {
     return await _meAiRunTurn(lt, prompt, { resume: false });
@@ -22803,7 +22901,7 @@ function _meAiTreeConverse(t, mode, text) {
     // Run on a shallow copy with a FRESH session id so keep-alive can't hand back a
     // stale session; the copy shares .id and .events with the real task, so streamed
     // substeps still land in the pursuit chat and broadcast under the same task id.
-    const lt = Object.assign({}, t, { sessionId: require('crypto').randomUUID(), _ephemeral: false });
+    const lt = Object.assign({}, t, { sessionId: require('crypto').randomUUID(), _ephemeral: false, _legId: t._spineId || null });
     try {
       t.question = null; t.error = null; t._lastError = null;
       _meAiSetStage(t, 'working', 'running');
@@ -22874,7 +22972,7 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
     }
     if (!cands.length) {
       // Genuinely linear goal -> single spine turn (still journaled as a tree).
-      const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true });
+      const lt = Object.assign({}, t, { sessionId: spine.sessionId, _ephemeral: true, _legId: spine.id });
       const out = await _meAiRunTurn(lt, _meAiTreeLegPrompt(t, spine), { resume: false }).catch(e => 'Error: ' + (e.message || e));
       const r = _meAiParseLegResult(out); spine._result = r;
       _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: spine.id, title: spine.title, summary: r.summary, confidence: r.confidence }) });
