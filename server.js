@@ -22863,6 +22863,10 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
     _meAiTreeEmit(id, 'epoch_bump', { epoch });
     const reroute = _meAiNewLeg({ kind: 'reroute', parentId: spine.id, lane: 'spine', baseEpoch: epoch, status: pendingAuth.length ? 'blocked' : 'done', title: 'Re-route: ' + (best ? best.text : 'act on findings').slice(0, 80), goal: best ? best.text : '' });
     _meAiTreeEmit(id, 'leg_spawn', { leg: reroute });
+    // Advance the spine tail to the merged-back node so any later round (converse /
+    // steer / approved auth) chains onto it and EXTENDS the trunk, instead of hanging
+    // off the pre-merge root as a parallel right-hand branch.
+    t._spineId = reroute.id;
     _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: reroute.id, epoch, title: 'Re-plan', summary: pendingAuth.length ? 'Recommendation ready; one action awaits your approval.' : 'Findings merged; recommendation ready.', confidence: 'high', interesting: true }) });
   }
   _meAiTreeEmit(id, 'leg_status', { legId: spine.id, status: (pendingAuth.length || deliveryStop) ? 'needs-auth' : (unresolvedConflicts.length ? 'needs-decision' : (pendingInfo.length ? 'needs-info' : 'done')) });
