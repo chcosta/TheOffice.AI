@@ -13421,6 +13421,7 @@
               .meai-pu-fold-ic { flex:0 0 auto; font-size:13px; }
               .meai-pu-fold-leg { font-weight:700; font-size:13px; color:var(--cp-text); min-width:0; }
               .meai-pu-fold-oc { font-size:11px; color:var(--cp-text-muted); font-weight:600; text-transform:lowercase; margin-left:auto; flex:0 0 auto; }
+              .meai-pu-fold-attr { font-size:11px; color:var(--cp-text-muted); font-weight:600; letter-spacing:.01em; margin-top:2px; }
               .meai-pu-fold.is-click { cursor:pointer; transition:border-color .12s ease, background .12s ease; }
               .meai-pu-fold.is-click:hover { border-color:color-mix(in srgb,var(--cp-accent) 55%, var(--cp-border)); background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); }
               .meai-pu-fold-open { margin-top:8px; font-size:11.5px; font-weight:600; color:var(--cp-accent); opacity:0; transition:opacity .12s ease; }
@@ -15530,6 +15531,7 @@
                                       <span class="meai-pu-fold-leg" x-text="ev.leg || 'A pursuit leg'"></span>
                                       <span class="meai-pu-fold-oc" x-text="meAiPursuitFoldOutcome(ev)"></span>
                                     </div>
+                                    <div class="meai-pu-fold-attr" x-show="meAiPursuitFoldAttr(ev)" x-text="meAiPursuitFoldAttr(ev)"></div>
                                     <div class="meai-pu-fold-sum" x-show="ev.text" x-text="ev.text"></div>
                                     <ul class="meai-pu-fold-find" x-show="ev.findings && ev.findings.length">
                                       <template x-for="(f, fi) in (ev.findings||[])" :key="'ff-'+ei+'-'+fi">
@@ -15767,7 +15769,7 @@
                         <div class="meai-pu-report-top">
                           <button type="button" class="meai-pu-report-back" @click="meAiPursuitToMap()">‹ Back to map</button>
                           <div class="meai-pu-nodeview-ti">
-                            <span class="meai-pu-art-k" x-text="meAiPursuitLegKind(meai.pursuit.nodeView.leg.kind)"></span>
+                            <span class="meai-pu-art-k" x-text="meAiPursuitLegAttr(meai.pursuit.nodeView.leg)"></span>
                             <span class="meai-pu-report-t" x-text="meai.pursuit.nodeView.leg.title"></span>
                           </div>
                           <span class="meai-pu-nodeview-state">
@@ -39353,6 +39355,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiPursuitLegKind(k) {
           return ({ spine: 'Main thread', branch: 'Pursuit leg', scout: 'Scout', reroute: 'Merged back' })[k] || k;
+        },
+        // Depth of a leg = how far it forked from the spine root. Spine (parentId
+        // null) is L1; a branch/scout off the spine is L2; its children L3; etc.
+        // Walks the parentId chain client-side (the server leg model has no depth).
+        meAiPursuitLegDepth(leg) {
+          const tree = this.meai.pursuit.tree;
+          const legs = (tree && tree.legs) || {};
+          let d = 1, cur = leg, guard = 0;
+          while (cur && cur.parentId != null && guard++ < 32) { d++; cur = legs[cur.parentId]; }
+          return d;
+        },
+        // Attribution label so the chat clearly shows WHICH agent produced the data:
+        // "L{depth} · {role} · Sub-Agent" for a forked leg; the spine is the
+        // orchestrator, so it reads "L1 · Main thread · Chief of Staff".
+        meAiPursuitLegAttr(leg) {
+          if (!leg) return '';
+          const depth = this.meAiPursuitLegDepth(leg);
+          const role = this.meAiPursuitLegKind(leg.kind);
+          const who = leg.kind === 'spine' ? 'Chief of Staff' : 'Sub-Agent';
+          return 'L' + depth + ' · ' + role + ' · ' + who;
+        },
+        // Attribution for a fold event (a leg that rejoined the main thread) —
+        // resolves the leg from ev.legRef so the fold card can name its source agent.
+        meAiPursuitFoldAttr(ev) {
+          const tree = this.meai.pursuit.tree;
+          const leg = tree && tree.legs && ev && ev.legRef && tree.legs[ev.legRef];
+          return leg ? this.meAiPursuitLegAttr(leg) : '';
         },
         // Interesting index (left panel): the vertices worth jumping to — merge-backs,
         // done results, dead-ends, and artifact-bearing legs.
