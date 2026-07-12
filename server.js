@@ -21735,6 +21735,10 @@ function _meAiSurfaceArtifact(t, a) {
   } catch (_) { /* body still travels in the journal record */ }
   if (treeId) { _meAiTreeEmit(treeId, 'artifact', { artifact: art }); }
   else if (t && t.id && !t._ephemeral) { t.artifacts = t.artifacts || []; t.artifacts.push(art); _meAiEmit(t, { kind: 'artifact', artifact: art }); }
+  // Let a caller (e.g. converse) detect that THIS turn surfaced an artifact even when
+  // the model emitted nothing but the artifact block (which gets stripped from `out`),
+  // so the reply can acknowledge the artifact instead of falling through to "No answer."
+  try { if (t) { t._artSurfaced = (t._artSurfaced || 0) + 1; t._lastArtTitle = art.title || ''; } } catch (_) {}
   return art;
 }
 
@@ -23059,7 +23063,15 @@ function _meAiTreeConverse(t, mode, text) {
           `<<<ARTIFACT\nkind: report|diagram|chart|table|analysis|file\ntitle: <short human title>\nformat: markdown|mermaid|svg|csv   (optional; default markdown)\nlink: <path or url>   (optional — the file/branch/PR you created)\n---\n<the FULL artifact content here>\n>>>\n` +
           `If you already produced a file on disk, it's fine to read it back so you can re-surface its real content as an artifact naming its path.`;
         const out = await _meAiRunTurn(lt, prompt, { resume: false }).catch(e => 'Error: ' + (e.message || e));
-        _meAiEmit(t, { kind: 'response', converse: true, text: String(out || 'No answer.').slice(0, 3000) });
+        const answer = String(out || '').trim();
+        if (!answer && (lt._artSurfaced || 0) > 0) {
+          // The agent produced ONLY an artifact this turn (its block was stripped from
+          // `out`). Acknowledge + point at it instead of the misleading "No answer."
+          const title = lt._lastArtTitle ? ` — “${lt._lastArtTitle}”` : '';
+          _meAiEmit(t, { kind: 'response', converse: true, text: `Done${title}. I surfaced it to your Artifacts panel — open it there to view it.` });
+        } else {
+          _meAiEmit(t, { kind: 'response', converse: true, text: (answer || 'No answer.').slice(0, 3000) });
+        }
       }
       // Keep the concluded next-actions intact so the finish/steer affordances stay.
       _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
