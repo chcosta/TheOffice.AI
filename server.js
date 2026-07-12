@@ -21930,8 +21930,13 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   return text;
 }
 // Concurrency gate: run now if a slot is free, else queue. Drains on completion.
-function _meAiSchedule(fn) {
-  if (meAiActive >= ME_AI_MAX_CONCURRENT) { meAiQueue.push(fn); return; }
+function _meAiSchedule(fn, opts) {
+  // Priority jobs (user-initiated gate resolves) bypass the concurrency cap: a person
+  // tapping Approve must never wait behind heavyweight leg turns. Without this, when all
+  // ME_AI_MAX_CONCURRENT slots are busy running legs the resolve callback gets parked in
+  // meAiQueue and the approval sticks open even though the POST returned 200.
+  const priority = !!(opts && opts.priority);
+  if (!priority && meAiActive >= ME_AI_MAX_CONCURRENT) { meAiQueue.push(fn); return; }
   meAiActive++;
   Promise.resolve().then(fn).catch(() => {}).finally(() => {
     meAiActive--;
@@ -23569,7 +23574,7 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
       _meAiTreeMirror(t, 'That action failed: ' + String(e.message || e) + ' — you can retry.');
       _meAiSetStage(t, 'awaiting', 'awaiting');
     }
-  });
+  }, { priority: true });
 }
 
 // Dedup-aware diary write-back on completion (§9.1). Only writes what a passive
