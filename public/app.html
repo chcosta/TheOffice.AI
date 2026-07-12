@@ -13343,6 +13343,14 @@
               .meai-pu-ws-row:hover .meai-pu-ws-acts, .meai-pu-ws-row.sel .meai-pu-ws-acts { opacity:1; }
               .meai-pu-ws-acts > button { background:none; border:none; color:var(--cp-text-muted); cursor:pointer; font-size:14px; padding:4px 6px; border-radius:6px; }
               .meai-pu-ws-acts > button:hover { color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 10%, transparent); }
+              /* Collapsible folder tree (folder axis) */
+              .meai-pu-ws-tree { display:flex; flex-direction:column; gap:1px; }
+              .meai-pu-ws-dir { display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid transparent; border-radius:calc(var(--cp-radius-scale,1)*8px); cursor:pointer; transition:background .12s; user-select:none; }
+              .meai-pu-ws-dir:hover { background:color-mix(in srgb,var(--cp-border) 22%, transparent); }
+              .meai-pu-ws-caret { flex:0 0 auto; width:12px; font-size:10px; color:var(--cp-text-muted); text-align:center; }
+              .meai-pu-ws-dic { flex:0 0 auto; font-size:14px; line-height:1; opacity:.85; }
+              .meai-pu-ws-dname { flex:1; min-width:0; font-size:13px; font-weight:600; color:var(--cp-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .meai-pu-ws-dn { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
               /* Expanded artifact reader */
               .meai-pu-artmodal { position:absolute; inset:0; z-index:20; background:color-mix(in srgb,#000 42%, transparent); display:flex; align-items:center; justify-content:center; padding:34px; }
               .meai-pu-artcard { width:min(860px,100%); max-height:100%; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*14px); box-shadow:0 18px 50px rgba(0,0,0,.35); display:flex; flex-direction:column; min-height:0; }
@@ -15828,30 +15836,73 @@
                           </div>
                           <div x-show="meai.pursuit.ws.busy && !meai.pursuit.ws.files.length" class="meai-pu-empty">Scanning the workspace…</div>
                           <div x-show="meai.pursuit.ws.err" class="meai-pu-empty" x-text="meai.pursuit.ws.err"></div>
-                          <template x-for="g in meAiPursuitWsGroups()" :key="g.key">
-                            <div class="meai-pu-ws-grp">
-                              <div class="meai-pu-ws-grp-h"><span x-text="g.label"></span><span class="meai-pu-ws-grp-n" x-text="g.files.length"></span></div>
-                              <template x-for="f in g.files" :key="f.path">
-                                <div class="meai-pu-ws-row" :class="{ sel: meai.pursuit.ws.sel===f.path }" @click="meAiPursuitWsOpen(f)">
-                                  <span class="meai-pu-ws-ic" x-text="meAiPursuitWsIcon(f)"></span>
-                                  <div class="meai-pu-ws-main">
-                                    <div class="meai-pu-ws-name">
-                                      <span x-text="f.name"></span>
-                                      <span class="meai-pu-ws-badge surfaced" x-show="f.surfaced">surfaced</span>
-                                      <span class="meai-pu-ws-badge upd" x-show="f.updated && !f.surfaced">updated</span>
+                          <template x-if="meai.pursuit.ws.axis === 'folder'">
+                            <div class="meai-pu-ws-tree">
+                              <template x-for="row in meAiPursuitWsTreeRows()" :key="row.key">
+                                <div>
+                                  <template x-if="row.type === 'dir'">
+                                    <div class="meai-pu-ws-dir" :style="'padding-left:' + (row.depth * 15 + 2) + 'px'" @click="meAiPursuitWsToggleDir(row.path)">
+                                      <span class="meai-pu-ws-caret" x-text="meai.pursuit.ws.open[row.path] ? '▾' : '▸'"></span>
+                                      <span class="meai-pu-ws-dic">📁</span>
+                                      <span class="meai-pu-ws-dname" x-text="row.name"></span>
+                                      <span class="meai-pu-ws-dn" x-text="row.count"></span>
                                     </div>
-                                    <div class="meai-pu-ws-sub">
-                                      <span x-text="meAiPursuitWsAuthor(f)"></span>
-                                      <span class="meai-pu-art-meta-dot">·</span>
-                                      <span x-text="meAiPursuitWsTs(f)"></span>
-                                      <span class="meai-pu-art-meta-dot">·</span>
-                                      <span x-text="meAiPursuitWsSize(f)"></span>
+                                  </template>
+                                  <template x-if="row.type === 'file'">
+                                    <div class="meai-pu-ws-row" :class="{ sel: meai.pursuit.ws.sel===row.f.path }" :style="'padding-left:' + (row.depth * 15 + 2) + 'px'" @click="meAiPursuitWsOpen(row.f)">
+                                      <span class="meai-pu-ws-ic" x-text="meAiPursuitWsIcon(row.f)"></span>
+                                      <div class="meai-pu-ws-main">
+                                        <div class="meai-pu-ws-name">
+                                          <span x-text="row.f.name"></span>
+                                          <span class="meai-pu-ws-badge surfaced" x-show="row.f.surfaced">surfaced</span>
+                                          <span class="meai-pu-ws-badge upd" x-show="row.f.updated && !row.f.surfaced">updated</span>
+                                        </div>
+                                        <div class="meai-pu-ws-sub">
+                                          <span x-text="meAiPursuitWsAuthor(row.f)"></span>
+                                          <span class="meai-pu-art-meta-dot">·</span>
+                                          <span x-text="meAiPursuitWsTs(row.f)"></span>
+                                          <span class="meai-pu-art-meta-dot">·</span>
+                                          <span x-text="meAiPursuitWsSize(row.f)"></span>
+                                        </div>
+                                      </div>
+                                      <div class="meai-pu-ws-acts">
+                                        <button type="button" x-show="!row.f.surfaced" @click="meAiPursuitWsSurface(row.f, $event)" title="Surface to chat">⤴</button>
+                                        <button type="button" @click="meAiPursuitWsDownload(row.f, $event)" title="Download">⬇</button>
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div class="meai-pu-ws-acts">
-                                    <button type="button" x-show="!f.surfaced" @click="meAiPursuitWsSurface(f, $event)" title="Surface to chat">⤴</button>
-                                    <button type="button" @click="meAiPursuitWsDownload(f, $event)" title="Download">⬇</button>
-                                  </div>
+                                  </template>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="meai.pursuit.ws.axis !== 'folder'">
+                            <div>
+                              <template x-for="g in meAiPursuitWsGroups()" :key="g.key">
+                                <div class="meai-pu-ws-grp">
+                                  <div class="meai-pu-ws-grp-h"><span x-text="g.label"></span><span class="meai-pu-ws-grp-n" x-text="g.files.length"></span></div>
+                                  <template x-for="f in g.files" :key="f.path">
+                                    <div class="meai-pu-ws-row" :class="{ sel: meai.pursuit.ws.sel===f.path }" @click="meAiPursuitWsOpen(f)">
+                                      <span class="meai-pu-ws-ic" x-text="meAiPursuitWsIcon(f)"></span>
+                                      <div class="meai-pu-ws-main">
+                                        <div class="meai-pu-ws-name">
+                                          <span x-text="f.name"></span>
+                                          <span class="meai-pu-ws-badge surfaced" x-show="f.surfaced">surfaced</span>
+                                          <span class="meai-pu-ws-badge upd" x-show="f.updated && !f.surfaced">updated</span>
+                                        </div>
+                                        <div class="meai-pu-ws-sub">
+                                          <span x-text="meAiPursuitWsAuthor(f)"></span>
+                                          <span class="meai-pu-art-meta-dot">·</span>
+                                          <span x-text="meAiPursuitWsTs(f)"></span>
+                                          <span class="meai-pu-art-meta-dot">·</span>
+                                          <span x-text="meAiPursuitWsSize(f)"></span>
+                                        </div>
+                                      </div>
+                                      <div class="meai-pu-ws-acts">
+                                        <button type="button" x-show="!f.surfaced" @click="meAiPursuitWsSurface(f, $event)" title="Surface to chat">⤴</button>
+                                        <button type="button" @click="meAiPursuitWsDownload(f, $event)" title="Download">⬇</button>
+                                      </div>
+                                    </div>
+                                  </template>
                                 </div>
                               </template>
                             </div>
@@ -27377,7 +27428,7 @@
             // ── Workspace explorer (replaces the flat Artifacts tab) ──────────────
             // Scans the pursuit's shared working dir and surfaces every file any
             // agent/subagent wrote, attributed by leg, grouped Folders/By agent/Timeline.
-            ws: { files: [], loaded: false, busy: false, axis: 'folder', show: 'all', sort: 'modified', sel: null, err: '' },
+            ws: { files: [], loaded: false, busy: false, axis: 'folder', show: 'all', sort: 'modified', sel: null, err: '', open: {} },
           },
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
@@ -39343,7 +39394,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // merge-back edges become SVG paths. Cached onto pursuit._nodes/_edges.
         _meAiPursuitLayout() {
           const p = this.meai.pursuit; const tree = p.tree;
-          const COLW = 340, ROWH = 168, ROOTH = 300, CX = 460, TOP = 40, W = 300, PAD = 48;
+          const COLW = 300, ROWH = 176, ROOTH = 300, CX = 460, TOP = 40, W = 268, PAD = 48;
           if (!tree) { p._nodes = []; p._legShortId = {}; p._edgeD = { spine: '', branch: '', merge: '' }; p._w = 1000; p._h = 600; return; }
           const order = tree.order || [];
           const legs = tree.legs || {};
@@ -39490,9 +39541,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const target = reroutes.find(r => r.i > i);
               if (!target) return;
               const a = pos[id], b = pos[target.id]; if (!a || !b) return;
-              const cy1 = a.y + 96, cx2 = b.x + W / 2, cy2 = b.y;
-              dByType.converge += ' ' + this._meAiEdgePath(a.x + W / 2, cy1, cx2, cy2);
-              dByType.convergeA += ' ' + this._meAiArrow(cx2, cy2, Math.sign(cy2 - cy1) || 1);
+              // Converge edges travel far HORIZONTALLY (a side leg rejoining the trunk),
+              // so entering the reroute at top-center tucks the arrowhead under the trunk
+              // node directly above it. Enter the reroute at its nearest SIDE edge with a
+              // horizontal arrowhead so the connection + head land in clear space.
+              const cy1 = a.y + 96, cx = b.x + W / 2;
+              const fromRight = (a.x + W / 2) >= cx;
+              const ex = fromRight ? (b.x + W) : b.x, ey = b.y + 48;
+              const ctrlx = fromRight ? (ex + 44) : (ex - 44), ctrly = (cy1 + ey) / 2;
+              dByType.converge += ' M ' + (a.x + W / 2) + ' ' + cy1 + ' C ' + (a.x + W / 2) + ' ' + ctrly + ' ' + ctrlx + ' ' + ey + ' ' + ex + ' ' + ey;
+              dByType.convergeA += ' ' + this._meAiArrowH(ex, ey, fromRight ? -1 : 1);
             });
           }
           // Increment 3 — gating legibility. Scouts run first; a branch is gated on
@@ -39560,6 +39618,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiArrow(x, y, dir) {
           const w = 4.5, h = 6, by = y - dir * h;
           return 'M ' + (x - w) + ' ' + by + ' L ' + x + ' ' + y + ' L ' + (x + w) + ' ' + by;
+        },
+        // A horizontal chevron arrowhead whose tip is at (x,y). `dir` -1 points the tip
+        // LEFT (barbs to the right → entering a node from its right edge); +1 points the
+        // tip RIGHT (barbs to the left → entering from the left edge).
+        _meAiArrowH(x, y, dir) {
+          const w = 6, h = 4.5, bx = x - dir * w;
+          return 'M ' + bx + ' ' + (y - h) + ' L ' + x + ' ' + y + ' L ' + bx + ' ' + (y + h);
         },
         meAiPursuitNodeStyle(n) {
           return 'left:' + n.x + 'px;top:' + n.y + 'px;width:' + n.w + 'px';
@@ -39938,6 +40003,57 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out.sort((a, b) => String((b.files[0] || {}).mtime || '').localeCompare(String((a.files[0] || {}).mtime || '')));
           }
           return out;
+        },
+        // Folder axis → an ordered, flat render list honoring per-folder open state.
+        // Folders START COLLAPSED; each shows the recursive count of files beneath it, so
+        // a big cloned/checkout tree (thousands of files) stays tucked away until opened.
+        meAiPursuitWsTreeRows() {
+          const w = this.meai.pursuit.ws;
+          const files = this.meAiPursuitWsShown();
+          const root = { dirs: new Map(), files: [] };
+          for (const f of files) {
+            const parts = String(f.dir || '').split('/').filter(Boolean);
+            let node = root;
+            for (const part of parts) {
+              if (!node.dirs.has(part)) node.dirs.set(part, { dirs: new Map(), files: [] });
+              node = node.dirs.get(part);
+            }
+            node.files.push(f);
+          }
+          const countOf = (node) => {
+            let n = node.files.length;
+            for (const c of node.dirs.values()) n += countOf(c);
+            return n;
+          };
+          const cmp = this._meAiPursuitWsCmp();
+          if (!w.open) w.open = {};
+          const open = w.open;
+          const rows = [];
+          const emitFiles = (node, depth) => {
+            for (const f of node.files.slice().sort(cmp)) rows.push({ type: 'file', key: 'f:' + f.path, f, depth });
+          };
+          const emitDirs = (node, prefix, depth) => {
+            const names = Array.from(node.dirs.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+            for (const name of names) {
+              const child = node.dirs.get(name);
+              const path = prefix ? (prefix + '/' + name) : name;
+              rows.push({ type: 'dir', key: 'd:' + path, name, path, depth, count: countOf(child) });
+              if (open[path]) walk(child, path, depth + 1);
+            }
+          };
+          const walk = (node, prefix, depth) => {
+            // At the root, surface loose files (usually the report artifacts) ABOVE the
+            // folders; deeper, use conventional folders-then-files ordering.
+            if (prefix === '') { emitFiles(node, depth); emitDirs(node, prefix, depth); }
+            else { emitDirs(node, prefix, depth); emitFiles(node, depth); }
+          };
+          walk(root, '', 0);
+          return rows;
+        },
+        meAiPursuitWsToggleDir(path) {
+          const w = this.meai.pursuit.ws;
+          if (!w.open) w.open = {};
+          w.open[path] = !w.open[path];
         },
         meAiPursuitWsIcon(f) {
           const fmt = (f && f.format) || '';
