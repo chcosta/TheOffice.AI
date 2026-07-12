@@ -13172,6 +13172,10 @@
               .meai-pu-legt { font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .meai-pu-legk { font-size:11px; color:var(--cp-text-muted); }
               .meai-pu-empty { color:var(--cp-text-muted); font-size:12px; padding:12px 4px; line-height:1.5; }
+              /* Epoch (re-planning round) divider — a calm centered label on a hairline rule. NO pill. */
+              .meai-pu-epoch { display:flex; align-items:center; gap:10px; margin:14px 2px 8px; color:var(--cp-text-muted); }
+              .meai-pu-epoch::before, .meai-pu-epoch::after { content:''; flex:1 1 auto; height:1px; background:var(--cp-border); }
+              .meai-pu-epoch-l { flex:0 0 auto; font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--cp-text-muted); }
               .meai-pu-center { flex:1; min-width:0; display:flex; flex-direction:column; position:relative; }
               .meai-pu-ctabs { display:flex; align-items:center; gap:4px; padding:6px 12px; border-bottom:1px solid var(--cp-border); }
               .meai-pu-ctab { border:0; background:transparent; color:var(--cp-text-muted); padding:6px 10px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; }
@@ -15520,8 +15524,12 @@
                             </div>
 
                             <!-- The agent's work, as an aligned transcript (reasoning/tools collapse inline) -->
-                            <template x-for="(ev, ei) in meAiPursuitChatEvents()" :key="'pe-'+ei">
+                            <template x-for="(ev, ei) in meAiPursuitWorkEvents()" :key="'pe-'+ei">
                               <div style="display:contents">
+                                <!-- Epoch divider: a new re-planning round begins here -->
+                                <template x-if="meAiPursuitEpochBreak(ei)">
+                                  <div class="meai-pu-epoch"><span class="meai-pu-epoch-l" x-text="meAiPursuitEpochLabel(ev)"></span></div>
+                                </template>
                                 <!-- A leg that rejoined the main thread → a calm folded agent message. -->
                                 <template x-if="ev.kind==='fold'">
                                   <div class="meai-pu-fold" :class="{ 'is-click': ev.legRef && meAiPursuitOpenNodeById }"
@@ -15602,6 +15610,26 @@
                                       </button>
                                     </template>
                                   </div>
+                                </div>
+                              </div>
+                            </template>
+
+                            <!-- Follow-up conversation about the settled result — after the recommendation. -->
+                            <template x-for="(ev, ci) in meAiPursuitConverseEvents()" :key="'pc-'+ci">
+                              <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
+                                <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
+                                <div class="meai-pu-ev-b">
+                                  <button type="button" class="meai-pu-ev-head" :disabled="!meAiPursuitEvHasDetail(ev)" @click="meAiPursuitEvToggle(meAiPursuitEvKey('conv',ci,ev))">
+                                    <span class="meai-pu-ev-k" x-text="ev.kind"></span>
+                                    <span class="meai-pu-ev-s" x-text="meAiPursuitEvSummary(ev)"></span>
+                                    <span class="meai-pu-ev-car" x-show="meAiPursuitEvHasDetail(ev)" x-text="meai.pursuit.evOpen[meAiPursuitEvKey('conv',ci,ev)] ? '▾' : '▸'"></span>
+                                  </button>
+                                  <template x-if="meAiPursuitEvHasDetail(ev) && meai.pursuit.evOpen[meAiPursuitEvKey('conv',ci,ev)]">
+                                    <div class="meai-pu-ev-d">
+                                      <div x-show="meAiPursuitEvIsMd(ev)" class="md-output" x-html="meAiPursuitEvDetail(ev)"></div>
+                                      <pre x-show="!meAiPursuitEvIsMd(ev)" class="meai-pu-ev-pre" x-text="meAiPursuitEvDetail(ev)"></pre>
+                                    </div>
+                                  </template>
                                 </div>
                               </div>
                             </template>
@@ -39496,6 +39524,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const t = this.meai._taskById[this.meai.pursuit.tid];
           if (!t) return [];
           return (t.events || []).filter(e => !e.legId);
+        },
+        // The pursuit's own work (planning + leg fold-backs + spine narration), split
+        // from the follow-up conversation so the Chief-of-Staff recommendation can be
+        // anchored between them in the transcript instead of forever pinned to the bottom.
+        meAiPursuitWorkEvents() {
+          return this.meAiPursuitChatEvents().filter(e => !e.converse);
+        },
+        // Follow-up Q&A (Ask/Revise) after the pursuit concluded — rendered AFTER the
+        // recommendation card so it reads as a conversation about a settled result.
+        meAiPursuitConverseEvents() {
+          return this.meAiPursuitChatEvents().filter(e => e.converse);
+        },
+        // True when work event `ei` begins a new epoch (re-planning round) → draw a calm
+        // labeled divider so the user can see where they steered the pursuit into a new round.
+        meAiPursuitEpochBreak(ei) {
+          const evs = this.meAiPursuitWorkEvents();
+          const cur = (evs[ei] && evs[ei].epoch) || 0;
+          if (ei <= 0) return cur > 0;
+          const prev = (evs[ei - 1] && evs[ei - 1].epoch) || 0;
+          return cur > prev;
+        },
+        // An epoch is one re-planning ROUND: the whole plan → fan-out → merge-back cycle.
+        // Round 1 is the original pursuit; each time you steer it onward it opens a new round.
+        meAiPursuitEpochLabel(ev) {
+          const e = (ev && ev.epoch) || 0;
+          return e <= 0 ? 'Round 1 · the pursuit' : ('Round ' + (e + 1) + ' · you steered it onward');
         },
         // Transcript for a specific node's leg (spine → flat main thread; else the
         // leg's forked journal events).

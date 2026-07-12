@@ -20851,6 +20851,11 @@ function _meAiEmit(t, ev) {
   if (t && t._ephemeral) { t.seq = (t.seq || 0) + 1; return; }
   t.seq = (t.seq || 0) + 1;
   const e = Object.assign({ seq: t.seq, at: Date.now() }, ev);
+  // Stamp the pursuit epoch (re-planning round) so the chat can segment the
+  // transcript by epoch and render each concluded round's recommendation in place.
+  if (t && t.mode === 'tree' && e.epoch == null) {
+    try { const tr = meAiTrees.get(t.id); e.epoch = (tr && tr.epoch) || 0; } catch (_) { e.epoch = 0; }
+  }
   t.events = t.events || [];
   t.events.push(e);
   if (t.events.length > 600) t.events.splice(0, t.events.length - 600);
@@ -22905,6 +22910,26 @@ function _meAiSteerBlock(t) {
     const cons = (tree && tree.rootState && Array.isArray(tree.rootState.constraints)) ? tree.rootState.constraints : [];
     if (cons.length) lines.push('CONSTRAINTS I set earlier (honor ALL of these): ' + cons.slice(-6).map(c => String((c && c.text) || c)).filter(Boolean).map(s => '• ' + s).join('  '));
   } catch (_) {}
+  // Carry prior findings forward so a continued loop builds ON what we already
+  // established instead of re-deriving it from scratch (ask: loop context).
+  try {
+    const tree = meAiTrees.get(t.id);
+    const fs2 = (tree && tree.rootState && Array.isArray(tree.rootState.findings)) ? tree.rootState.findings : [];
+    if (fs2.length) {
+      const seen = new Set();
+      const rows = [];
+      for (const f of fs2.slice().reverse()) {
+        const claim = String((f && f.claim) || f || '').trim();
+        if (!claim) continue;
+        const key = (String((f && f.subject) || '') + '|' + claim).slice(0, 160);
+        if (seen.has(key)) continue; seen.add(key);
+        const conf = (f && typeof f.confidence === 'number') ? ` (${f.confidence}% conf)` : '';
+        rows.push('• ' + (f && f.subject ? String(f.subject).slice(0, 60) + ': ' : '') + claim.slice(0, 200) + conf);
+        if (rows.length >= 8) break;
+      }
+      if (rows.length) lines.push("WHAT WE'VE ALREADY ESTABLISHED (build on these — don't re-investigate settled ground unless my steer contradicts it):\n" + rows.reverse().join('\n'));
+    }
+  } catch (_) {}
   let out = lines.length ? ('\n' + lines.join('\n')) : '';
   try { out += _meAiDeclineDirective(t); } catch (_) {}
   return out;
@@ -22996,7 +23021,7 @@ function _meAiTreeConverse(t, mode, text) {
       t.question = null; t.error = null; t._lastError = null;
       _meAiSetStage(t, 'working', 'running');
       _meAiTreeEmit(id, 'stage', { stage: 'working' });
-      _meAiEmit(t, { kind: 'note', text: (isRevise ? 'You asked me to revise the report: ' : 'You asked: ') + (msg || (isRevise ? 'refine it' : '(no question)')) });
+      _meAiEmit(t, { kind: 'note', converse: true, text: (isRevise ? 'You asked me to revise the report: ' : 'You asked: ') + (msg || (isRevise ? 'refine it' : '(no question)')) });
       const report = (t.report && t.report.markdown) ? String(t.report.markdown) : (t.report && t.report.summary) || '';
       const findings = (t.report && Array.isArray(t.report.findings) ? t.report.findings : [])
         .slice(0, 12).map(f => `- ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`).join('\n');
@@ -23022,16 +23047,19 @@ function _meAiTreeConverse(t, mode, text) {
             art.path = path.join(adir, art.id + '.md'); fs.writeFileSync(art.path, md);
             _meAiTreeEmit(id, 'artifact', { artifact: art });
           } catch (_) {}
-          _meAiEmit(t, { kind: 'response', text: 'Updated the report — open it to see the revised version.' });
-          _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings || [] });
+          _meAiEmit(t, { kind: 'response', converse: true, text: 'Updated the report — open it to see the revised version.' });
+          _meAiEmit(t, { kind: 'report', converse: true, summary: t.report.summary, findings: t.report.findings || [] });
         } else {
-          _meAiEmit(t, { kind: 'response', text: String(out || 'I could not revise the report.').slice(0, 2000) });
+          _meAiEmit(t, { kind: 'response', converse: true, text: String(out || 'I could not revise the report.').slice(0, 2000) });
         }
       } else {
         const prompt = ctx + `\n\nMY QUESTION: ${msg || 'Summarize what you found.'}\n\n` +
-          `Answer directly and concisely in plain prose (no fenced report, no JSON). If I asked about something you didn't cover, say so honestly rather than inventing.`;
+          `Answer directly and concisely in plain prose (no fenced report, no JSON). If I asked about something you didn't cover, say so honestly rather than inventing.\n` +
+          `IF I'M ASKING YOU TO SHOW, SURFACE, or PRODUCE something openable — a report, diagram, chart, table, analysis, or a file you already created (e.g. an HTML report you wrote to disk) — do NOT just describe it or say it was "logged". Emit it as an artifact so it appears in my Artifacts panel and I can open it. Write a block EXACTLY like this (real content only, never "see above"):\n` +
+          `<<<ARTIFACT\nkind: report|diagram|chart|table|analysis|file\ntitle: <short human title>\nformat: markdown|mermaid|svg|csv   (optional; default markdown)\nlink: <path or url>   (optional — the file/branch/PR you created)\n---\n<the FULL artifact content here>\n>>>\n` +
+          `If you already produced a file on disk, it's fine to read it back so you can re-surface its real content as an artifact naming its path.`;
         const out = await _meAiRunTurn(lt, prompt, { resume: false }).catch(e => 'Error: ' + (e.message || e));
-        _meAiEmit(t, { kind: 'response', text: String(out || 'No answer.').slice(0, 3000) });
+        _meAiEmit(t, { kind: 'response', converse: true, text: String(out || 'No answer.').slice(0, 3000) });
       }
       // Keep the concluded next-actions intact so the finish/steer affordances stay.
       _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
@@ -23954,8 +23982,8 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
     // Tree pursuits carry their own journal-folded stage that powers the canvas +
     // outcome card; emit 'done' so the map/header/finish-button agree with the task.
     if (t.mode === 'tree') { try { _meAiTreeEmit(t.id, 'stage', { stage: 'done' }); } catch (_) { /* best-effort */ } }
-    if (diary && diary.written) _meAiEmit(t, { kind: 'note', text: 'Logged to your diary.' });
-    else if (diary && diary.reason === 'consent-off') _meAiEmit(t, { kind: 'note', text: 'Diary write-back is off (turn on personal signals to log outcomes).' });
+    if (diary && diary.written) _meAiEmit(t, { kind: 'note', text: 'Recorded the outcome in your work diary (Connect) so it counts toward your impact log. The full report and any artifacts stay on this pursuit — open them from the Artifacts panel any time.' });
+    else if (diary && diary.reason === 'consent-off') _meAiEmit(t, { kind: 'note', text: 'Diary write-back is off (turn on personal signals to log outcomes). The full report and artifacts are still here — open them from the Artifacts panel.' });
     // REQ-1: reflect completion onto the My Day board note bound to this task.
     try {
       const seed = (t.context && t.context.link) || t.title;
