@@ -15522,13 +15522,13 @@
                       <template x-if="meai.pursuit.nav==='chat'">
                         <div class="meai-pu-chat">
                           <!-- Sticky tools: expand/collapse steps + hide the low-signal trace at once -->
-                          <div class="meai-pu-chat-tools" x-show="meAiPursuitHasSteps('spine', meAiPursuitChatEvents())">
+                          <div class="meai-pu-chat-tools" x-show="meAiPursuitHasChatSteps()">
                             <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleHideThinking()"
                               :class="{ on: meai.pursuit.hideThinking }"
                               :title="meai.pursuit.hideThinking ? 'Show the full reasoning/tool trace' : 'Hide State/Note/Tool trace rows'"
                               x-text="meai.pursuit.hideThinking ? '👁 Show thinking' : '🙈 Hide thinking'"></button>
-                            <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleAllSteps('spine', meAiPursuitChatEvents())"
-                              x-text="meAiPursuitAllStepsOpen('spine', meAiPursuitChatEvents()) ? '▾ Collapse all steps' : '▸ Expand all steps'"></button>
+                            <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleAllChat()"
+                              x-text="meAiPursuitAllChatOpen() ? '▾ Collapse all steps' : '▸ Expand all steps'"></button>
                           </div>
                           <!-- Scrolling transcript: your goal → the agent's reasoning/tools/responses → its conclusion -->
                           <div class="meai-pu-thread">
@@ -39751,6 +39751,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           (events || []).forEach((ev, ei) => {
             if (ev.kind === 'fold' || !this.meAiPursuitEvHasDetail(ev)) return;
             m[this.meAiPursuitEvKey(scope, ei, ev)] = open;
+          });
+        },
+        // The spine chat renders steps in TWO x-fors with DIFFERENT scope+index bases:
+        //   work events     → scope 'spine', index within meAiPursuitWorkEvents()
+        //   converse events → scope 'conv',  index within meAiPursuitConverseEvents()
+        // Expand/collapse-all in the chat toolbar must target the SAME keys those rows
+        // use, so it operates on both groups with their own scope+index (a single
+        // combined list with one scope silently misses every row → the button no-ops).
+        meAiPursuitChatStepGroups() {
+          return [
+            { scope: 'spine', events: this.meAiPursuitWorkEvents() },
+            { scope: 'conv', events: this.meAiPursuitConverseEvents() },
+          ];
+        },
+        meAiPursuitHasChatSteps() {
+          return this.meAiPursuitChatStepGroups().some(g => this.meAiPursuitHasSteps(g.scope, g.events));
+        },
+        meAiPursuitAllChatOpen() {
+          const groups = this.meAiPursuitChatStepGroups().filter(g => this.meAiPursuitHasSteps(g.scope, g.events));
+          if (!groups.length) return false;
+          return groups.every(g => this.meAiPursuitAllStepsOpen(g.scope, g.events));
+        },
+        meAiPursuitToggleAllChat() {
+          const open = !this.meAiPursuitAllChatOpen();
+          const m = this.meai.pursuit.evOpen;
+          this.meAiPursuitChatStepGroups().forEach(g => {
+            (g.events || []).forEach((ev, ei) => {
+              if (ev.kind === 'fold' || !this.meAiPursuitEvHasDetail(ev)) return;
+              m[this.meAiPursuitEvKey(g.scope, ei, ev)] = open;
+            });
           });
         },
         // The one-line summary shown collapsed for an event.

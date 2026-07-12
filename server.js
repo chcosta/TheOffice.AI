@@ -20851,6 +20851,12 @@ function _meAiEmit(t, ev) {
   if (t && t._ephemeral) { t.seq = (t.seq || 0) + 1; return; }
   t.seq = (t.seq || 0) + 1;
   const e = Object.assign({ seq: t.seq, at: Date.now() }, ev);
+  // A follow-up conversation round (Ask/Revise after the pursuit concluded) runs on a
+  // clone flagged `_converse`; stamp every substep it emits so the chat anchors the
+  // WHOLE round (your ask + the agent's thinking/tools + its answer) BELOW the
+  // recommendation card, in order — instead of leaking tool steps up into the work
+  // section above it.
+  if (t && t._converse && e.converse == null) e.converse = true;
   // Stamp the pursuit epoch (re-planning round) so the chat can segment the
   // transcript by epoch and render each concluded round's recommendation in place.
   if (t && t.mode === 'tree' && e.epoch == null) {
@@ -23034,7 +23040,7 @@ function _meAiTreeConverse(t, mode, text) {
     // Run on a shallow copy with a FRESH session id so keep-alive can't hand back a
     // stale session; the copy shares .id and .events with the real task, so streamed
     // substeps still land in the pursuit chat and broadcast under the same task id.
-    const lt = Object.assign({}, t, { sessionId: require('crypto').randomUUID(), _ephemeral: false, _legId: t._spineId || null });
+    const lt = Object.assign({}, t, { sessionId: require('crypto').randomUUID(), _ephemeral: false, _converse: true, _legId: t._spineId || null });
     let _workLegId = null;
     try {
       t.question = null; t.error = null; t._lastError = null;
