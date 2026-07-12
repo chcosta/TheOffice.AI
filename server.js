@@ -21721,19 +21721,50 @@ function _meAiParseArtifacts(text) {
     const title = String(meta.title || (kind[0].toUpperCase() + kind.slice(1))).slice(0, 120);
     const format = String(meta.format || '').toLowerCase();
     const link = meta.link ? String(meta.link).slice(0, 1000) : null;
+    // `file:` (alias `path:`) lets the agent surface a file it WROTE/EDITED on disk
+    // without pasting it inline — the server reads the file's current contents at
+    // surface time (see _meAiSurfaceArtifact), so I always see the real latest version.
+    const file = (meta.file || meta.path) ? String(meta.file || meta.path).slice(0, 1000) : null;
     let b = body.replace(/^\s+|\s+$/g, '');
     // A mermaid body renders in the artifact reader when it's a fenced ```mermaid block.
     if (b && format === 'mermaid' && !/^```/.test(b)) b = '```mermaid\n' + b + '\n```';
-    if (!b && !link) continue;   // nothing worth surfacing
-    arts.push({ kind, title, format, link, body: b || null });
+    if (!b && !link && !file) continue;   // nothing worth surfacing
+    arts.push({ kind, title, format, link, file, body: b || null });
   }
   const stripped = raw.replace(re, '').replace(/\n{3,}/g, '\n\n').trim();
   return { artifacts: arts, stripped };
 }
+function _meAiFormatFromExt(fp) {
+  const e = String(path.extname(fp || '')).toLowerCase();
+  if (e === '.html' || e === '.htm') return 'html';
+  if (e === '.svg') return 'svg';
+  if (e === '.mmd' || e === '.mermaid') return 'mermaid';
+  if (e === '.csv') return 'csv';
+  if (e === '.json') return 'json';
+  if (e === '.md' || e === '.markdown') return 'markdown';
+  return '';
+}
 function _meAiSurfaceArtifact(t, a) {
   const treeId = (t && t.id && typeof meAiTrees !== 'undefined' && meAiTrees.has(t.id)) ? t.id : null;
   const legId = (t && t._legId) || null;
-  const art = _meAiNewArtifact({ legId, kind: a.kind, title: a.title, body: a.body || null, link: a.link || null, format: a.format || null });
+  // If the agent referenced a file it wrote/edited on disk, read its CURRENT contents
+  // now — this is how a real on-disk report (e.g. a 59KB SVG HTML) gets surfaced and
+  // rendered, instead of the agent pasting a stale description or re-generated body.
+  let body = a.body || null, format = a.format || null, link = a.link || null;
+  if (a.file) {
+    try {
+      const cwd = (t && t.context && t.context.cwd) || __dirname;
+      let fp = String(a.file).trim();
+      if (!path.isAbsolute(fp)) fp = path.resolve(cwd, fp);
+      const st = fs.statSync(fp);
+      if (st.isFile() && st.size <= 4 * 1024 * 1024) {
+        body = fs.readFileSync(fp, 'utf8');   // the real, latest bytes win over any inline body
+        if (!format) format = _meAiFormatFromExt(fp);
+        if (!link) link = fp;
+      }
+    } catch (_) { /* fall back to any inline body/link the agent also provided */ }
+  }
+  const art = _meAiNewArtifact({ legId, kind: a.kind, title: a.title, body: body || null, link: link || null, format: format || null });
   try {
     const dir = path.join(_meAiTreeDir(treeId || (t && t.id) || 'adhoc'), 'artifacts');
     fs.mkdirSync(dir, { recursive: true });
@@ -22254,15 +22285,20 @@ function _meAiDoggedClause() {
     `<<<ARTIFACT`,
     `kind: report|diagram|chart|table|analysis|data|file|link   (pick the best fit)`,
     `title: <short human title>`,
-    `format: markdown|mermaid|svg|csv|json   (optional rendering hint; default markdown)`,
-    `link: <url>   (optional — the PR/branch/file/agent you created, or an external source)`,
+    `format: markdown|mermaid|svg|html|csv|json   (optional rendering hint; default markdown)`,
+    `file: <path>   (optional — a file you WROTE or EDITED on disk; I read its current contents)`,
+    `link: <url>   (optional — the PR/branch/agent you created, or an external source)`,
     `---`,
     `<the FULL artifact body here — a mermaid diagram, a markdown table, the analysis text,`,
     ` CSV rows, etc. Put REAL content here; never "see above" or a promise of content.>`,
     `>>>`,
     `Use mermaid for diagrams/flowcharts and markdown tables for tabular data so they render.`,
-    `If you created a file/branch/agent/worktree, emit a file/link artifact naming it and its`,
-    `path or URL so I can find it. This is how a closed analysis becomes real, openable output.`,
+    `IMPORTANT — if you wrote or edited a FILE on disk (e.g. an HTML report with SVG diagrams),`,
+    `do NOT paste it inline and do NOT re-generate it from memory: set "file: <path>" and LEAVE`,
+    `THE BODY EMPTY. I read the file's CURRENT contents straight from disk and render it (HTML`,
+    `renders live, SVG included), so you surface the real latest version every time. Emit a`,
+    `fresh file-artifact each time you change that file so I always see the updated version.`,
+    `This is how a closed analysis becomes real, openable output.`,
   ];
 }
 
@@ -23110,8 +23146,8 @@ function _meAiTreeConverse(t, mode, text) {
         const prompt = ctx + `\n\nMY QUESTION: ${msg || 'Summarize what you found.'}\n\n` +
           `Answer directly and concisely in plain prose (no fenced report, no JSON). If I asked about something you didn't cover, say so honestly rather than inventing.\n` +
           `IF I'M ASKING YOU TO SHOW, SURFACE, or PRODUCE something openable — a report, diagram, chart, table, analysis, or a file you already created (e.g. an HTML report you wrote to disk) — do NOT just describe it or say it was "logged". Emit it as an artifact so it appears in my Artifacts panel and I can open it. Write a block EXACTLY like this (real content only, never "see above"):\n` +
-          `<<<ARTIFACT\nkind: report|diagram|chart|table|analysis|file\ntitle: <short human title>\nformat: markdown|mermaid|svg|csv   (optional; default markdown)\nlink: <path or url>   (optional — the file/branch/PR you created)\n---\n<the FULL artifact content here>\n>>>\n` +
-          `If you already produced a file on disk, it's fine to read it back so you can re-surface its real content as an artifact naming its path.`;
+          `<<<ARTIFACT\nkind: report|diagram|chart|table|analysis|file\ntitle: <short human title>\nformat: markdown|mermaid|svg|html|csv   (optional; default markdown)\nfile: <path>   (optional — a file you wrote/edited on disk; I read its CURRENT contents)\nlink: <path or url>   (optional — the branch/PR/agent you created)\n---\n<the FULL artifact content here>\n>>>\n` +
+          `CRITICAL — if the thing I want is a FILE you already wrote or just edited on disk (an HTML report, an SVG), set "file: <path>" and LEAVE THE BODY EMPTY. I read the file's real current bytes from disk, so I see your latest edits (SVG and all). Do NOT re-type or re-generate the file's contents from memory — that surfaces a stale version.`;
         const out = await _meAiRunTurn(lt, prompt, { resume: false }).catch(e => 'Error: ' + (e.message || e));
         const answer = String(out || '').trim();
         if (!answer && (lt._artSurfaced || 0) > 0) {
