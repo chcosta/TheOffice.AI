@@ -16095,6 +16095,10 @@
               .meai-bk-btn.good { color:var(--cp-success, #1a7f37); }
               .meai-bk-empty { border:1px dashed var(--cp-border); border-radius:12px; padding:40px 24px; text-align:center;
                 color:var(--cp-text-muted); font-size:14px; }
+              .meai-bk-silenced-head { display:flex; align-items:flex-start; gap:14px; margin:2px 0 12px;
+                padding:11px 14px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:8px; }
+              .meai-bk-silenced-head .hint { flex:1 1 auto; font-size:12.5px; line-height:1.5; color:var(--cp-text-muted); }
+              .meai-bk-silenced-head .hint strong { color:var(--cp-text); font-weight:600; }
               .meai-bk-selbar { position:sticky; bottom:14px; z-index:5; margin:14px auto 0; display:flex; align-items:center; gap:10px;
                 flex-wrap:wrap; padding:11px 16px; background:var(--cp-bg-elevated); border:1px solid var(--cp-border-strong);
                 border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.18); }
@@ -16310,8 +16314,39 @@
                 </template>
               </div>
 
+              <!-- silenced / parked view (durable triage decisions) -->
+              <div class="meai-bk-list" x-show="meaiBk.facet === 'silenced' && meaiBk.silencedLoaded">
+                <div x-show="!meaiBk.silenced.length" class="meai-bk-empty">
+                  <div style="font-size:15px;color:var(--cp-text);font-weight:600;margin-bottom:4px;">Nothing silenced</div>
+                  <div>When you dismiss, mark done, or set aside an attention item, the decision is remembered here so it stays out of your agenda and Pulse — until new activity brings it back.</div>
+                </div>
+                <div x-show="meaiBk.silenced.length" class="meai-bk-silenced-head">
+                  <div class="hint">These decisions keep items out of your agenda &amp; Pulse. <strong>Restore</strong> lets an item surface again if it's still active; <strong>Purge</strong> also wipes its stored copies so it can never resurface from old data.</div>
+                  <button class="meai-bk-btn sm danger" @click="meaiBkPurgeAll()" :disabled="meaiBk.silencedBusy">Purge all</button>
+                </div>
+                <template x-for="s in meaiBk.silenced" :key="'sil-'+s.key">
+                  <div class="meai-bk-row done">
+                    <div class="meai-bk-rmain">
+                      <div class="meai-bk-rt" style="cursor:default;" x-text="s.title || '(untitled item)'"></div>
+                      <div class="meai-bk-rmeta">
+                        <span class="kind" x-text="s.label || s.triage"></span>
+                        <template x-if="s.at"><span><span class="dot">·</span> <span x-text="'silenced ' + meaiBkDoneWhen(s.at)"></span></span></template>
+                        <template x-if="s.occurrences"><span><span class="dot">·</span> <span x-text="s.occurrences + ' stored ' + (s.occurrences === 1 ? 'copy' : 'copies')"></span></span></template>
+                      </div>
+                      <template x-if="s.note || s.reason"><div class="meai-bk-rnote" x-text="s.note || s.reason"></div></template>
+                    </div>
+                    <div class="meai-bk-rside">
+                      <div class="meai-bk-qa">
+                        <button @click="meaiBkRestore(s.key)">↩ Restore</button>
+                        <button class="danger" @click="meaiBkPurge(s)">🗑 Purge</button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
               <!-- selection bar -->
-              <div class="meai-bk-selbar" x-show="meaiBkSelCount() && meaiBk.facet !== 'done'" x-transition>
+              <div class="meai-bk-selbar" x-show="meaiBkSelCount() && meaiBk.facet !== 'done' && meaiBk.facet !== 'silenced'" x-transition>
                 <span class="cnt" x-text="meaiBkSelCount() + ' selected'"></span>
                 <button class="meai-bk-btn sm" @click="meaiBkGroupSelected()" :disabled="meaiBk.busy || meaiBkSelCount() < 2">⛓ Group as one unit</button>
                 <button class="meai-bk-btn sm" @click="meaiBkMergeSelected()" :disabled="meaiBk.busy || meaiBkSelCount() < 2">⧉ Merge as duplicates</button>
@@ -26246,6 +26281,9 @@
           history: [],         // completed items (lazy-loaded for the Done facet)
           historyLoaded: false,
           historyBusy: false,
+          silenced: [],        // durable triage decisions (lazy-loaded for the Silenced facet)
+          silencedLoaded: false,
+          silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
         pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: 'focus', showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' } },
@@ -35016,11 +35054,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'week', label: '★ This week', n: live.filter(i => i.week).length },
             { key: 'aside', label: 'Set aside', n: items.filter(i => i.aside).length },
             { key: 'done', label: 'Done', n: this.meaiBk.historyLoaded ? this.meaiBk.history.length : null },
+            { key: 'silenced', label: '🔕 Silenced', n: this.meaiBk.silencedLoaded ? this.meaiBk.silenced.length : null },
           ];
         },
         meaiBkSelectFacet(k) {
           this.meaiBk.facet = k;
           if (k === 'done' && !this.meaiBk.historyLoaded && !this.meaiBk.historyBusy) this.meaiBkLoadHistory();
+          if (k === 'silenced' && !this.meaiBk.silencedLoaded && !this.meaiBk.silencedBusy) this.meaiBkLoadSilenced();
         },
         async meaiBkLoadHistory() {
           this.meaiBk.historyBusy = true;
@@ -35039,6 +35079,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const d = new Date(iso);
             return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
           } catch (e) { return ''; }
+        },
+        // Silenced view: the durable triage-decision store — items you dismissed / marked done /
+        // won't-fix / deferred that are being kept OUT of your agenda + Pulse. Restore un-silences
+        // one; Purge wipes it from the data stores entirely (decision + every inbox snapshot copy).
+        async meaiBkLoadSilenced() {
+          this.meaiBk.silencedBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/parked');
+            this.meaiBk.silenced = (r && Array.isArray(r.items)) ? r.items : [];
+            this.meaiBk.silencedLoaded = true;
+          } catch (e) {
+            this.toast('Failed to load silenced items: ' + (e.message || e), 'error');
+            this.meaiBk.silenced = [];
+          } finally { this.meaiBk.silencedBusy = false; }
+        },
+        async meaiBkRestore(key) {
+          try {
+            await this.request('/api/me-ai/parked/restore', { method: 'POST', body: JSON.stringify({ key }) });
+            this.meaiBk.silenced = (this.meaiBk.silenced || []).filter(s => s.key !== key);
+            this.toast("Restored — it can surface again if it's still active");
+          } catch (e) { this.toast('Failed to restore: ' + (e.message || e), 'error'); }
+        },
+        async meaiBkPurge(s) {
+          const label = String((s && s.title) || 'this item').slice(0, 80);
+          if (!confirm('Purge "' + label + '" from all data stores?\n\nThis deletes the silence decision AND removes every stored copy from your attention-inbox history. It cannot be undone.')) return;
+          try {
+            const r = await this.request('/api/me-ai/parked/purge', { method: 'POST', body: JSON.stringify({ key: s.key }) });
+            this.meaiBk.silenced = (this.meaiBk.silenced || []).filter(x => x.key !== s.key);
+            this.toast('Purged · removed ' + ((r && r.inboxItems) || 0) + ' stored copies');
+          } catch (e) { this.toast('Failed to purge: ' + (e.message || e), 'error'); }
+        },
+        async meaiBkPurgeAll() {
+          const n = (this.meaiBk.silenced || []).length;
+          if (!n) return;
+          if (!confirm('Purge all ' + n + ' silenced items from the data stores?\n\nThis deletes every silence decision AND removes their stored copies from your attention-inbox history. It cannot be undone.')) return;
+          try {
+            const r = await this.request('/api/me-ai/parked/purge', { method: 'POST', body: JSON.stringify({ all: true }) });
+            this.meaiBk.silenced = [];
+            this.toast('Purged ' + ((r && r.purged) || n) + ' items · removed ' + ((r && r.inboxItems) || 0) + ' stored copies');
+          } catch (e) { this.toast('Failed to purge: ' + (e.message || e), 'error'); }
         },
         meaiBkVisible() {
           let arr = (this.meaiBk.items || []).slice();

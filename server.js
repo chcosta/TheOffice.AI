@@ -19519,6 +19519,102 @@ app.get('/api/me-ai/backlog/history', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Silenced / parked items (durable triage decisions) ───────────────────────
+// The durable decision memory (triage-decisions.json) is what keeps a dismissed /
+// done / won't-fix / deferred item from resurfacing across days. The user had no way
+// to SEE what's been silenced or to purge stale ones (e.g. a long-addressed "follow up
+// with Alex" that kept re-parking from forward-copied inbox fixtures). These three
+// routes expose that store: view it, un-silence one (Restore), or purge it from the
+// data stores entirely (decision + every inbox snapshot copy) for the extreme case.
+const ME_AI_PARK_TRIAGE = { dismissed: 'Dismissed', wontfix: "Won't fix", done: 'Done', later: 'Deferred', todo: 'On my list' };
+// Count how many inbox snapshot files carry an item whose stable key matches `key`.
+function _meAiParkedOccurrences(key) {
+  let n = 0;
+  try {
+    if (!fs.existsSync(ME_AI_INBOX_DIR)) return 0;
+    for (const f of fs.readdirSync(ME_AI_INBOX_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const v = JSON.parse(fs.readFileSync(path.join(ME_AI_INBOX_DIR, f), 'utf-8'));
+        const items = (v && Array.isArray(v.items)) ? v.items : [];
+        if (items.some(it => _meAiStableKey(it) === key)) n++;
+      } catch (_) { /* skip corrupt file */ }
+    }
+  } catch (_) { /* best-effort */ }
+  return n;
+}
+// Strip every inbox item whose stable key matches one of `keys` from ALL snapshot files.
+// Returns { files, items } removed. This is the "purge from data stores" half — after it,
+// the item leaves no trace and can only reappear if the source genuinely surfaces it anew.
+function _meAiPurgeInboxItems(keys) {
+  const set = new Set(keys.filter(Boolean));
+  let files = 0, items = 0;
+  try {
+    if (!set.size || !fs.existsSync(ME_AI_INBOX_DIR)) return { files, items };
+    for (const f of fs.readdirSync(ME_AI_INBOX_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      const p = path.join(ME_AI_INBOX_DIR, f);
+      let v; try { v = JSON.parse(fs.readFileSync(p, 'utf-8')); } catch (_) { continue; }
+      const arr = (v && Array.isArray(v.items)) ? v.items : null;
+      if (!arr) continue;
+      const kept = arr.filter(it => !set.has(_meAiStableKey(it)));
+      if (kept.length !== arr.length) { items += (arr.length - kept.length); v.items = kept; try { fs.writeFileSync(p, JSON.stringify(v, null, 2)); files++; } catch (_) { /* keep going */ } }
+    }
+  } catch (_) { /* best-effort */ }
+  return { files, items };
+}
+
+// GET /api/me-ai/parked → the durable triage-decision store (silenced items), newest first.
+app.get('/api/me-ai/parked', (req, res) => {
+  try {
+    const store = loadDecisionMemory();
+    const items = Object.values((store && store.decisions) || {})
+      .filter(d => d && d.key)
+      .map(d => ({
+        key: d.key, triage: d.triage || 'dismissed',
+        label: ME_AI_PARK_TRIAGE[d.triage] || 'Silenced',
+        title: String(d.title || d.key).slice(0, 240),
+        note: d.note || '', reason: d.reason || '', at: d.at || '',
+        occurrences: _meAiParkedOccurrences(d.key),
+      }))
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    res.json({ ok: true, items, count: items.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/parked/restore { key } → un-silence: drop the durable decision so the item
+// behaves as brand-new the next time its source surfaces it. Inbox history is left intact.
+app.post('/api/me-ai/parked/restore', (req, res) => {
+  try {
+    const key = String((req.body && req.body.key) || '').trim();
+    if (!key) return res.status(400).json({ error: 'key required' });
+    const store = loadDecisionMemory();
+    if (store.decisions && store.decisions[key]) { delete store.decisions[key]; saveDecisionMemory(store); }
+    res.json({ ok: true, restored: key });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/parked/purge { key? | keys?[] | all? } → the extreme case: remove the
+// durable decision(s) AND strip every matching item from all inbox snapshot files so the
+// silenced item leaves no residue anywhere. Returns purged decision + inbox-strip counts.
+app.post('/api/me-ai/parked/purge', (req, res) => {
+  try {
+    const b = req.body || {};
+    const store = loadDecisionMemory();
+    store.decisions = store.decisions || {};
+    let keys;
+    if (b.all) keys = Object.keys(store.decisions);
+    else if (Array.isArray(b.keys)) keys = b.keys.map(k => String(k || '').trim()).filter(Boolean);
+    else if (b.key) keys = [String(b.key).trim()];
+    else return res.status(400).json({ error: 'key, keys[] or all required' });
+    let purged = 0;
+    for (const k of keys) { if (store.decisions[k]) { delete store.decisions[k]; purged++; } }
+    if (purged) saveDecisionMemory(store);
+    const stripped = _meAiPurgeInboxItems(keys);
+    res.json({ ok: true, purged, inboxFiles: stripped.files, inboxItems: stripped.items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // POST /api/me-ai/backlog/workitem { key, title?, link?, type?, org?, project? } → create a
 // real ADO work item for a backlog entry (or the whole group) and record it on the curation.
 app.post('/api/me-ai/backlog/workitem', async (req, res) => {
@@ -23763,31 +23859,38 @@ function _pulseSourceBucket(it) {
   }
   return null;
 }
-// A comms item that belongs in "Pulse.AI": a team conversation worth
-// knowing about but NOT an actionable ask (those live in the inbox/agenda) and NOT
-// a PR review (tracked by Code Flow).
-function _pulseIsInteresting(it) {
+// Triage states, grouped by how Pulse.AI should treat them.
+//   PARK  — the user has SEEN and set this aside. "dismissed" = saw it, don't care;
+//           "done" = handled it. Either way it should stay OUT of Pulse UNLESS new
+//           activity arrives after they parked it, in which case it resurfaces.
+//           ("wontfix"/"seen" behave like a park too.)
+//   ASK   — actively on the agenda (todo/today/now); the agenda owns these, not Pulse.
+const PULSE_PARK_STATES = new Set(['dismissed', 'done', 'wontfix', 'seen']);
+const PULSE_ASK_STATES = new Set(['todo', 'today', 'now']);
+// Is this comms item a PR review / GitHub PR ping? Code Flow owns those.
+function _pulseItemIsPr(it) {
   if (!it) return false;
-  // Meeting-derived items live in the Meetings card, not the conversation list.
-  const kind = String(it.kind || '').toLowerCase();
-  if (kind === 'meeting' || kind === 'meeting-action' || String(it.source || '').toLowerCase() === 'meeting') return false;
-  // Monitored-channel activity is user-chosen — always surface it (add-on-top).
-  if (it.monitored) return true;
-  // Must resolve to a chat/email conversation bucket.
-  const bucket = _pulseSourceBucket(it);
-  if (!bucket) return false;
-  const hay = ((it.title || '') + ' ' + (it.detail || '') + ' ' + (it.link || '') + ' ' + (it.prLink || '')).toLowerCase();
-  // Exclude PR review requests / GitHub PR pings — Code Flow owns those.
-  if (it.prLink) return false;
-  if (/pull request|code review|review request|reviewers?\b|_git\/pullrequest|\/pull\//.test(hay)) return false;
-  if (/\bpr[\s#]/.test(hay) && /review/.test(hay)) return false;
-  // On your agenda or already handled — not ambient chatter.
-  if (['done', 'todo', 'today', 'now'].includes(it.triage)) return false;
-  // Ambient = things you parked, dismissed, or that never asked anything of you.
-  if (['dismissed', 'seen', 'later', 'wontfix'].includes(it.triage)) return true;
-  if (it.directMention === false) return true;
-  if (typeof it.urgency === 'number' && it.urgency <= 2) return true;
-  // Untriaged ("new") items may still become agenda items — wait until parked.
+  if (it.prLink) return true;
+  const hay = ((it.title || '') + ' ' + (it.detail || '') + ' ' + (it.link || '')).toLowerCase();
+  if (/pull request|code review|review request|reviewers?\b|_git\/pullrequest|\/pull\//.test(hay)) return true;
+  if (/\bpr[\s#]/.test(hay) && /review/.test(hay)) return true;
+  return false;
+}
+// Decide whether an ASSEMBLED thread belongs in Pulse.AI's ambient view. Works at the
+// thread level (not per-item) so "resurface only if something new comes in" can compare
+// the thread's newest activity against the newest time the user parked it.
+function _pulseThreadKeep(th) {
+  if (!th) return false;
+  if (th.monitored) return true;                       // user explicitly chose to watch this
+  if (th.isPr) return false;                           // Code Flow owns PR reviews
+  if (th.activeAsk) return false;                      // already on the agenda (todo/now)
+  // Parked (dismissed / done / wontfix / seen): only resurface if REAL message activity
+  // arrived after the park. A stale copy carried into later snapshots has no real ts, so
+  // realActivityTs stays 0 → it stays quiet, exactly as the user expects.
+  if (th.parkedAt) return (th.realActivityTs || 0) > th.parkedAt;
+  // Never parked, never an active ask: keep only genuinely ambient chatter (things that
+  // never needed the user). A fresh, untriaged direct ask is an agenda candidate, not Pulse.
+  if (th.everAmbient) return true;
   return false;
 }
 function _pulseTopicTokens(s) {
@@ -23803,22 +23906,39 @@ function _pulseThreadKey(it) {
   const seed = (chan + '|' + toks) || String((it && it.title) || '');
   return 'wh:' + crypto.createHash('sha1').update(seed).digest('hex').slice(0, 12);
 }
-// Aggregate recent inbox comms into interesting conversation threads.
+// Aggregate recent inbox comms into conversation threads. Ingests EVERY Teams/email
+// comms item (regardless of triage) so thread-level signals — newest activity vs newest
+// park time, whether it's on the agenda, whether it's a PR — are accurate, then filters
+// to the ambient set with _pulseThreadKeep.
 function _pulseGatherThreads(days) {
   const map = new Map();
   const ingest = (it, date) => {
-    if (!_pulseIsInteresting(it)) return;
+    if (!it) return;
+    const kind = String(it.kind || '').toLowerCase();
+    if (kind === 'meeting' || kind === 'meeting-action' || String(it.source || '').toLowerCase() === 'meeting') return;
+    const bucket = _pulseSourceBucket(it);
+    if (!bucket && !it.monitored) return;                // not a Teams/email conversation
     const key = _pulseThreadKey(it);
     const ts = Date.parse(it.ts || '') || Date.parse(date) || 0;
-    const bucket = _pulseSourceBucket(it);
+    const triage = String(it.triage || '').toLowerCase();
+    const parkTs = PULSE_PARK_STATES.has(triage) ? (Date.parse(it.triagedAt || it.doneAt || '') || 0) : 0;
     let th = map.get(key);
     if (!th) {
-      th = { key, source: bucket, topic: (it.title || '(conversation)').slice(0, 160), channel: it.channel || it.from || '', from: it.from || '', snippet: (it.detail || it.title || '').slice(0, 200), link: it.link || '', mentioned: !!it.directMention, monitored: !!it.monitored, count: 0, activityTs: 0, firstTs: ts || Date.now() };
+      th = { key, source: bucket || 'teams', topic: (it.title || '(conversation)').slice(0, 160), channel: it.channel || it.from || '', from: it.from || '', snippet: (it.detail || it.title || '').slice(0, 200), link: it.link || '', mentioned: !!it.directMention, monitored: !!it.monitored, count: 0, activityTs: 0, realActivityTs: 0, firstTs: ts || Date.now(), parkedAt: 0, parkState: '', activeAsk: false, isPr: false, everAmbient: false };
       map.set(key, th);
     }
     th.count += 1;
     if (it.directMention) th.mentioned = true;
     if (it.monitored) th.monitored = true;
+    if (_pulseItemIsPr(it)) th.isPr = true;
+    if (PULSE_ASK_STATES.has(triage)) th.activeAsk = true;
+    if (parkTs && parkTs >= th.parkedAt) { th.parkedAt = parkTs; th.parkState = triage; }
+    if (it.directMention === false || (typeof it.urgency === 'number' && it.urgency <= 2)) th.everAmbient = true;
+    // Real message activity only comes from an item's own timestamp. The inbox FILE date
+    // is NOT activity — a parked item copied forward into later daily snapshots must not
+    // read as "new activity" or it would resurface forever. realActivityTs drives the park-gate.
+    const realTs = Date.parse(it.ts || '') || 0;
+    if (realTs > th.realActivityTs) th.realActivityTs = realTs;
     if (ts >= th.activityTs) {
       th.activityTs = ts;
       if (it.detail || it.title) th.snippet = String(it.detail || it.title).slice(0, 200);
@@ -23826,6 +23946,7 @@ function _pulseGatherThreads(days) {
       if (it.title) th.topic = String(it.title).slice(0, 160);
       if (it.channel) th.channel = it.channel;
       if (it.from) th.from = it.from;
+      if (bucket) th.source = bucket;
     }
     if (ts && ts < th.firstTs) th.firstTs = ts;
   };
@@ -23836,7 +23957,7 @@ function _pulseGatherThreads(days) {
     let mon; try { mon = _pulseLoadMonitored(date); } catch { mon = null; }
     if (mon && Array.isArray(mon.items)) { for (const it of mon.items) ingest(it, date); }
   }
-  return Array.from(map.values()).sort((a, b) => (b.activityTs || 0) - (a.activityTs || 0));
+  return Array.from(map.values()).filter(_pulseThreadKeep).sort((a, b) => (b.activityTs || 0) - (a.activityTs || 0));
 }
 // Classify a thread's conversation type from its Teams deep-link. Only VERIFIED
 // 1:1 / private-group chats count as a DM; channels, broadcasts, email, monitored
