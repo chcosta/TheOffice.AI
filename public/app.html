@@ -20045,7 +20045,10 @@
                 position:sticky; top:12px; max-height:calc(100vh - 120px); overflow:hidden; }
               .nlx-chat-head { padding:12px 14px; border-bottom:1px solid var(--cp-border); display:flex; align-items:center; gap:8px; }
               .nlx-chat-log { flex:1; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
-              .nlx-chat-activity { display:flex; flex-direction:column; gap:3px; margin-bottom:6px; padding:8px 10px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); max-height:180px; overflow:auto; }
+              /* The "thinking" activity feed flows inside the chat log's single scroll
+                 (the log auto-pins to the newest line while busy) — no nested max-height
+                 scroll, which otherwise stacked a third scrollbar inside the drawer. */
+              .nlx-chat-activity { display:flex; flex-direction:column; gap:3px; margin-bottom:6px; padding:8px 10px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
               .nlx-chat-act-line { font-size:11.5px; color:var(--cp-text-soft); line-height:1.45; }
               .nlx-chat-act-line:last-child { color:var(--cp-text); }
               .nlx-chat-in { border-top:1px solid var(--cp-border); padding:10px; display:flex; gap:8px; }
