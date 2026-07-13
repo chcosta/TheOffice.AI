@@ -39412,25 +39412,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             else (kids[leg.parentId] = kids[leg.parentId] || []).push(id);
           });
           // ── Layered tidy-tree layout ──────────────────────────────────────
-          // Y is the node's DEPTH (distance from the root), so siblings share a
-          // row instead of staircasing down by creation order — that alone kills
-          // most of the diagonal edges that used to cut across other nodes.
-          //
-          // Scouts gate their sibling branches ("waiting on a scout"), so a gated
-          // branch drops ONE extra layer below its scouts. The scout→branch gate
-          // edges then flow straight DOWN like tree edges rather than slicing
-          // sideways across the row.
+          // Y is the node's DEPTH (distance from the root) — pure parent-chain
+          // distance, nothing else. Siblings share a row instead of staircasing
+          // down by creation order, which kills the diagonal edges that used to
+          // cut across other nodes. Crucially there is NO per-kind depth bump: a
+          // main node's ENTIRE side fan (scouts + the branches they gate) sits on
+          // ONE row directly below it. Because consecutive main nodes occupy
+          // consecutive depths, each depth then holds at most one fan, so fans
+          // never interleave across rows — which is what used to force the layout
+          // ever-wider. (The old "gated branch drops one extra layer" rule made
+          // one node's branches share a depth with the NEXT node's scouts, so two
+          // unrelated fans collided on every row and the packer had to stack them
+          // sideways. Dropping it collapses the width to ~1 + the widest fan.)
           const depthMemo = {};
           const depthOf = (id) => {
             if (depthMemo[id] != null) return depthMemo[id];
             const leg = legs[id];
             if (!leg || leg.parentId == null) return (depthMemo[id] = 0);
-            let d = depthOf(leg.parentId) + 1;
-            const k = kindOf(id);
-            const gatedBranch = k !== 'scout' && k !== 'reroute' && k !== 'spine' && k !== 'user'
-              && (kids[leg.parentId] || []).some((sid) => kindOf(sid) === 'scout');
-            if (gatedBranch) d += 1;
-            return (depthMemo[id] = d);
+            return (depthMemo[id] = depthOf(leg.parentId) + 1);
           };
           // X is a column "slot". The MAIN PATH (spine + its reroute chain) owns a
           // reserved trunk column (slot 0) and runs perfectly straight down the left
@@ -39459,23 +39458,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // depth get disjoint columns at that depth, so nothing ever overlaps.
           const rowNext = {};                              // depth -> next free integer column (>=1)
           const freeAt = (d) => (rowNext[d] == null ? 1 : rowNext[d]);
-          // Lay a side subtree out LOCALLY (leaves 0,1,2…; parents centred over their
-          // non-scout kids), collecting its members + per-depth column span, then
-          // shift the whole block right to the first band free across all its rows.
-          const layoutSide = (rootId) => {
+          // Lay a whole side FOREST out LOCALLY as one block (leaves numbered
+          // 0,1,2… left-to-right across the entire fan; parents centred over
+          // their kids), collect its members + per-depth column span, then shift
+          // the block right to the first band free across all its rows. Scouts are
+          // packed together with the branches they gate — same fan, same row — so
+          // a main node's fan is one contiguous ribbon beside the trunk. Because
+          // each main node's fan owns its depth outright, the shift is almost
+          // always to column 1 and the whole tree stays narrow.
+          const layoutForest = (childIds) => {
             const local = {}, members = [], span = {};
             let leafN = 0;
             const walk = (id) => {
               members.push(id);
               const d = depthOf(id);
-              const ch = (kids[id] || []).filter((cid) => kindOf(cid) !== 'scout' && !onMain[cid]);
+              const ch = (kids[id] || []).filter((cid) => !onMain[cid]);
               if (!ch.length) { local[id] = leafN++; }
               else { ch.forEach(walk); local[id] = (local[ch[0]] + local[ch[ch.length - 1]]) / 2; }
               const s = span[d] || (span[d] = [Infinity, -Infinity]);
               s[0] = Math.min(s[0], Math.floor(local[id]));
               s[1] = Math.max(s[1], Math.ceil(local[id]));
             };
-            walk(rootId);
+            childIds.forEach(walk);
+            if (!members.length) return;
             let base = 1;
             for (const d in span) base = Math.max(base, freeAt(+d) - span[d][0]);
             members.forEach((id) => { slot[id] = local[id] + base; });
@@ -39484,21 +39489,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           order.forEach((id) => { if (onMain[id]) slot[id] = 0; });
           order.forEach((id) => {
             if (!onMain[id]) return;
-            (kids[id] || []).forEach((c) => { if (!onMain[c] && kindOf(c) !== 'scout') layoutSide(c); });
+            const side = (kids[id] || []).filter((c) => !onMain[c]);
+            if (side.length) layoutForest(side);
           });
-          roots.forEach((r) => { if (!onMain[r] && kindOf(r) !== 'scout' && slot[r] == null) layoutSide(r); });
-          // Scouts overlay the branch band they gate (all to the right of the trunk),
-          // so their gate edges drop straight onto the branches one row below.
-          const scoutsByParent = {};
-          order.forEach((id) => { if (kindOf(id) === 'scout') { const pid = legs[id].parentId; (scoutsByParent[pid] = scoutsByParent[pid] || []).push(id); } });
-          Object.keys(scoutsByParent).forEach((pid) => {
-            const sc = scoutsByParent[pid];
-            const xs = (kids[pid] || []).filter((sid) => kindOf(sid) !== 'scout' && slot[sid] != null).map((sid) => slot[sid]);
-            if (!xs.length) { sc.forEach((id) => { if (slot[id] == null) slot[id] = nextCol++; }); return; }
-            const lo = Math.min(...xs), hi = Math.max(...xs);
-            if (sc.length === 1) slot[sc[0]] = (lo + hi) / 2;
-            else sc.forEach((id, k) => { slot[id] = lo + (hi - lo) * (k / (sc.length - 1)); });
-          });
+          roots.forEach((r) => { if (!onMain[r] && slot[r] == null) layoutForest([r]); });
           // Defensive: anything not reached above gets a trailing column.
           order.forEach((id) => { if (slot[id] == null && legs[id]) slot[id] = nextCol++; });
           // ── Variable row heights ───────────────────────────────────────────
@@ -39637,7 +39631,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const b = pos[br.id]; if (!b) return;
               if (br.invalidated || br.status === 'invalidated') {
                 const a = ranScout && pos[ranScout.id];
-                if (a) { const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y; dByType.cull += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2); dByType.cullA += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1); }
+                if (a) { const e = this._meAiGateEdge(a, b); dByType.cull += ' ' + e.d; dByType.cullA += ' ' + e.arrow; }
                 return;
               }
               const started = br.status === 'running' || br.status === 'done';
@@ -39646,7 +39640,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 if (bn) { bn.gated = true; if (!/\bpgate\b/.test(bn.cls)) bn.cls += ' pgate'; }
                 openScouts.forEach((s) => {
                   const a = pos[s.id];
-                  if (a) { const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y; dByType.gate += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2); dByType.gateA += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1); }
+                  if (a) { const e = this._meAiGateEdge(a, b); dByType.gate += ' ' + e.d; dByType.gateA += ' ' + e.arrow; }
                 });
               }
             });
@@ -39710,6 +39704,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _meAiArrowH(x, y, dir) {
           const w = 6, h = 4.5, bx = x - dir * w;
           return 'M ' + bx + ' ' + (y - h) + ' L ' + x + ' ' + y + ' L ' + bx + ' ' + (y + h);
+        },
+        // Gate / cull connector between a scout (a) and the branch it gates or culled
+        // (b). Since the layout redesign packs a scout and its sibling branches on the
+        // SAME row, the old top-to-top vertical edge would draw backwards. Detect the
+        // same-row case and draw a short SIDE-to-side connector (a's near edge → b's
+        // near edge, horizontal arrowhead) so the relationship reads cleanly; fall back
+        // to the vertical top-down edge only when the two genuinely sit on different rows.
+        _meAiGateEdge(a, b) {
+          const W = 268;
+          if (Math.abs(a.y - b.y) < 60) {
+            const fromLeft = (a.x + W / 2) < (b.x + W / 2);   // a left of b → enter b's left edge
+            const sx = fromLeft ? (a.x + W) : a.x;
+            const ex = fromLeft ? b.x : (b.x + W);
+            const sy = a.y + 48, ey = b.y + 48, mx = (sx + ex) / 2;
+            return {
+              d: 'M ' + sx + ' ' + sy + ' C ' + mx + ' ' + sy + ' ' + mx + ' ' + ey + ' ' + ex + ' ' + ey,
+              arrow: this._meAiArrowH(ex, ey, fromLeft ? 1 : -1),
+            };
+          }
+          const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y;
+          return { d: this._meAiEdgePath(a.x + W / 2, y1, x2, y2), arrow: this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1) };
         },
         meAiPursuitNodeStyle(n) {
           return 'left:' + n.x + 'px;top:' + n.y + 'px;width:' + n.w + 'px';
