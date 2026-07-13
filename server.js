@@ -16,6 +16,7 @@ const Supervisor = require('./supervisor');
 const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
+const director = require('./director');
 const azdo = require('./azdo');
 const { forge, providerOf } = require('./forge');
 const devitems = require('./devitems');
@@ -20443,6 +20444,11 @@ function _meAiFoldJournal(id) {
     id, epoch: 0, rootState: { constraints: [], answers: [], findings: [], openConflicts: [] }, stops: [], stage: 'working',
     legs: {}, order: [], checkpoints: [], artifacts: [], merges: [], conflicts: [],
     heartbeatAt: null,
+    // Pursuit Director per-task state: the visual ledger of everything the director
+    // did (attributed to `director`, never the user), plus the user's per-pursuit
+    // pause flag. The reduced view itself is computed on the fly (director.planReduction),
+    // so only durable facts are folded here.
+    director: { paused: false, ledger: [], lastSweepAt: null, grantId: null },
   };
   let raw = '';
   try { raw = fs.readFileSync(_meAiJournalPath(id), 'utf-8'); } catch { return state; }
@@ -20459,6 +20465,18 @@ function _meAiFoldJournal(id) {
         const leg = state.legs[r.legId]; if (leg) { leg.status = r.status; if (r.confidence != null) leg.confidence = r.confidence; leg.updatedAt = r.at; } break;
       }
       case 'leg_invalidate': { const leg = state.legs[r.legId]; if (leg) { leg.invalidated = true; leg.status = 'invalidated'; } break; }
+      case 'leg_redirect': {
+        // The director changed a leg's goal because its premise went stale. Keep the
+        // prior goal so a redirect is undoable (F2), and flag the premise as reset so
+        // the leg re-derives instead of building on the invalidated assumption.
+        const leg = state.legs[r.legId];
+        if (leg) {
+          if (r.restore) { if (leg.priorGoal != null) { leg.goal = leg.priorGoal; } leg.priorGoal = null; leg.redirected = false; leg.premiseInvalidated = false; }
+          else { leg.priorGoal = (leg.priorGoal != null ? leg.priorGoal : leg.goal); leg.goal = r.goal || leg.goal; leg.redirected = true; leg.premiseInvalidated = true; leg.invalidated = false; if (leg.status === 'invalidated') leg.status = 'planned'; }
+          leg.updatedAt = r.at;
+        }
+        break;
+      }
       case 'leg_reuse': {
         // Provenance: this leg reused a prior attempt's conclusion instead of re-running
         // the identical investigation (loop-memo). Stored on the leg so the canvas can draw
@@ -20519,7 +20537,25 @@ function _meAiFoldJournal(id) {
       }
       case 'auth_decision': {
         const s = state.stops.find(x => x.id === r.stopId);
-        if (s) { s.status = r.decision === 'approve' ? 'resolved' : 'denied'; s.resolution = r.decision; s.note = r.note || null; s.resolvedAt = r.at; } break;
+        if (s) { s.status = r.decision === 'approve' ? 'resolved' : 'denied'; s.resolution = r.decision; s.note = r.note || null; s.resolvedAt = r.at; s.by = r.by || 'user'; } break;
+      }
+      case 'director': {
+        // The director's own actions. `ledger` appends a visual-record entry; `pause`
+        // toggles per-pursuit directing (raw stops re-expose, prior handling kept);
+        // `undo` marks a prior ledger entry undone; `sweep` timestamps a reduction pass.
+        if (!state.director) state.director = { paused: false, ledger: [], lastSweepAt: null, grantId: null };
+        if (r.op === 'ledger' && r.entry) {
+          const i = state.director.ledger.findIndex(x => x && x.id === r.entry.id);
+          if (i >= 0) state.director.ledger[i] = r.entry; else state.director.ledger.push(r.entry);
+        } else if (r.op === 'pause') {
+          state.director.paused = !!r.paused;
+        } else if (r.op === 'undo') {
+          const e = state.director.ledger.find(x => x && x.id === r.ledgerId);
+          if (e) { e.state = 'undone'; e.undoneAt = r.at; }
+        } else if (r.op === 'sweep') {
+          state.director.lastSweepAt = r.at; if (r.grantId) state.director.grantId = r.grantId;
+        }
+        break;
       }
       case 'heartbeat': state.heartbeatAt = r.at; break;
       case 'stage': state.stage = r.stage || state.stage; break;
@@ -23038,6 +23074,13 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
     return;
   }
 
+  // ── PURSUIT DIRECTOR sweep ────────────────────────────────────────────────
+  // The pursuit just parked with its stops in front of the user. If directing is
+  // enabled + granted for this pursuit, let the director fold away the provably
+  // safe gates now (default OFF / leader-gated / no-op otherwise) so the desk the
+  // user sees is already reduced.
+  try { _meAiDirectorSweep(t); } catch (e) { try { console.error('[director] sweep failed:', e && e.message); } catch (_) {} }
+
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
 
   // Exhausted the avenues on an autonomous pass → the goal is as met as it's going
@@ -23495,7 +23538,239 @@ function _meAiReconcileAsks(t, tree) {
   } catch (_) { /* best-effort */ }
 }
 
-// Resolve a pending stop (approve/deny an auth gate, or answer needs-info/decision).
+// ---- Pursuit Director (server side) ---------------------------------------
+// The Director governs the legs INSIDE one pursuit. It shrinks the user's approval
+// pile by folding away the provably-safe gates (cull duplicates, resolve factual+
+// verified conflicts, absorb granted reversible-local writes) and batching
+// deliverables — everything attributed to `director`, gated by an explicit standing
+// grant, recorded in a ledger, default OFF. The pure planner lives in director.js;
+// these helpers translate persisted settings into a policy and apply the plan
+// through the real journal-fold path (never a bypass, never impersonating the user).
+
+// Effective policy for one pursuit: global enabled/autonomy from settings, the
+// per-pursuit standing grant, and the tree's own pause flag.
+function _meAiDirectorPolicy(id, tree) {
+  let d = {};
+  try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
+  const grants = (d && d.grants && typeof d.grants === 'object') ? d.grants : {};
+  const g = grants[id] || null;
+  const grant = g
+    ? Object.assign({}, director.DEFAULT_GRANT, g, { pursuitId: id })
+    : Object.assign({}, director.DEFAULT_GRANT, { pursuitId: id, expiresAt: null });
+  return {
+    enabled: !!d.enabled,
+    autonomy: d.autonomy || 'balanced',
+    paused: !!(tree && tree.director && tree.director.paused),
+    offline: false,
+    grant,
+  };
+}
+
+// True when this instance may take autonomous director action: config-sync off
+// (standalone) OR we are the elected leader — never two brains resolving at once.
+function _meAiDirectorLeaderOk() {
+  try { return !configSync.enabled || !!configSync.isLeader; } catch (_) { return true; }
+}
+
+// Reduced view for a pursuit (pure; safe to call regardless of enabled/paused —
+// the caller decides whether to surface it). Never mutates the tree.
+function _meAiDirectorView(id) {
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const policy = _meAiDirectorPolicy(id, tree);
+  const plan = director.planReduction(tree, policy);
+  return { policy, plan, tree };
+}
+
+// Autonomously reduce the desk for one pursuit. STRICTLY GATED: enabled + not
+// paused + leader + an active grant covering the class/path. Performs ONLY
+// zero-side-effect folds (cull / resolve-with-clear-evidence / absorb-granted-write),
+// each attributed to `director` and ledgered with a state-aware undo. It never runs
+// an outbox action, spawns a WorkIQ turn, or re-orchestrates — its sole job is to
+// shrink the approval pile the pursuit just parked with, not to push new work.
+function _meAiDirectorSweep(t) {
+  const id = t.id;
+  let d = {};
+  try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
+  if (!d.enabled) return { skipped: 'disabled' };
+  if (!_meAiDirectorLeaderOk()) return { skipped: 'not-leader' };
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const policy = _meAiDirectorPolicy(id, tree);
+  if (policy.paused) return { skipped: 'paused' };
+  if (!policy.grant || !policy.grant.expiresAt) return { skipped: 'no-grant' };
+  const plan = director.planReduction(tree, policy);
+  const conflicts = (tree.rootState && tree.rootState.openConflicts) || [];
+  const pv = policy.grant.policyVersion, gid = policy.grant.id;
+  let handled = 0;
+  for (const p of plan.per) {
+    if (!director.HANDLED.has(p.disposition)) continue;
+    const stop = (tree.stops || []).find(s => s.id === p.stopId && s.status === 'open');
+    if (!stop) continue;
+    if (p.disposition === 'resolve') {
+      const c = conflicts.find(x => x && x.id === p.conflictId && x.status === 'open');
+      if (!c) continue;
+      const src = c.verdict || c.evidence || c.proof || {};
+      const verdict = { stance: src.stance || null, claim: src.claim || null, legId: src.legId || null, confidence: src.confidence || null, chosenBy: 'director' };
+      _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: c.id, verdict, resolvedBy: 'director' } });
+      _meAiTreeEmit(id, 'auth_decision', { stopId: stop.id, decision: 'approve', by: 'director', note: 'Auto-resolved by director — clear, authoritative evidence.' });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resolved', stopId: stop.id, conflictId: c.id, cls: p.cls, why: 'Factual conflict with an authoritative, high-confidence verdict.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen-conflict', target: c.id, stopId: stop.id } }) });
+      handled++;
+    } else if (p.disposition === 'cull') {
+      _meAiTreeEmit(id, 'auth_decision', { stopId: stop.id, decision: 'approve', by: 'director', note: 'Culled by director — duplicate of an action already on the desk.' });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'culled', stopId: stop.id, legId: stop.legId, cls: p.cls, why: 'Duplicate of an action already handled.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: stop.id } }) });
+      handled++;
+    } else if (p.disposition === 'absorb') {
+      _meAiTreeEmit(id, 'auth_decision', { stopId: stop.id, decision: 'approve', by: 'director', note: 'Absorbed by director — reversible local change inside your standing grant.' });
+      if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'absorbed', stopId: stop.id, legId: stop.legId, cls: p.cls, target: p.target, why: 'Reversible local change under your standing grant for ' + ((policy.grant.paths || []).join(', ') || 'this pursuit') + '.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: stop.id } }) });
+      handled++;
+    }
+  }
+  if (handled) {
+    _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
+    const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
+  }
+  return { handled, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
+}
+
+// Undo a prior director action (state-aware): reopen the folded stop / conflict so
+// it returns to the user's desk, and mark the ledger entry undone. Irreversible
+// entries are logged-only (nothing to revert). Never impersonates the user.
+function _meAiDirectorUndo(t, ledgerId) {
+  const id = t.id;
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const led = ((tree.director && tree.director.ledger) || []).find(e => e && e.id === ledgerId);
+  if (!led) return { ok: false, error: 'no-such-entry' };
+  if (led.state === 'undone') return { ok: false, error: 'already-undone' };
+  if (led.reversible === false || !led.undo) {
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: Object.assign({}, led, { state: 'logged' }) });
+    return { ok: false, error: 'irreversible', logged: true };
+  }
+  const u = led.undo;
+  if ((u.op === 'reopen' || u.op === 'reopen-conflict') && (u.stopId || u.target)) {
+    const sid = u.op === 'reopen-conflict' ? (u.stopId || null) : (u.target || u.stopId);
+    if (sid) {
+      const stop = (tree.stops || []).find(s => s.id === sid);
+      if (stop) _meAiTreeEmit(id, 'stop', { stop: Object.assign({}, stop, { status: 'open', resolution: null, note: null, resolvedAt: null, by: null }) });
+    }
+    if (u.op === 'reopen-conflict' && u.target) {
+      // Return the conflict to "open" so the reopened stop reads as unresolved again.
+      const c = ((tree.rootState && tree.rootState.openConflicts) || []).find(x => x && x.id === u.target);
+      if (c) { c.status = 'open'; c.verdict = null; c.resolvedBy = null; try { _meAiWriteTreeState(id, tree); } catch (_) {} }
+    }
+  } else if (u.op === 'cancel-leg' && u.target) {
+    // Undo a spawn: cancel the drafted/running sub-agent so it stops contributing.
+    const leg = (tree.legs || {})[u.target];
+    if (leg) _meAiTreeEmit(id, 'leg_status', { legId: u.target, status: 'cancelled' });
+  } else if (u.op === 'restore-goal' && u.target) {
+    // Undo a redirect: restore the leg's prior goal (reducer handles the swap-back).
+    _meAiTreeEmit(id, 'leg_redirect', { legId: u.target, restore: true });
+  }
+  _meAiTreeEmit(id, 'director', { op: 'undo', ledgerId });
+  const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
+  return { ok: true };
+}
+
+// ── D1: redirect a leg whose premise went stale ───────────────────────────────
+// Scope is THIS pursuit only (D3): the leg must belong to this tree. Records the
+// prior goal so the redirect is undoable, invalidates the stale premise, and reroutes
+// by re-running the leg on its new goal when it was already active.
+function _meAiDirectorRedirect(t, legId, newGoal, why, opts) {
+  const id = t.id;
+  opts = opts || {};
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const leg = (tree.legs || {})[legId];
+  if (!leg) return { ok: false, error: 'no-such-leg' };
+  newGoal = String(newGoal || '').trim();
+  if (!newGoal) return { ok: false, error: 'goal-required' };
+  const policy = _meAiDirectorPolicy(id, tree);
+  const gid = policy.grant && policy.grant.id, pv = policy.grant && policy.grant.policyVersion;
+  const priorGoal = leg.goal || '';
+  _meAiTreeEmit(id, 'leg_redirect', { legId, goal: newGoal });
+  _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+    verb: 'redirected', legId, cls: 'redirect', target: legId,
+    why: why || ('Premise went stale — was "' + priorGoal.slice(0, 80) + '", now "' + newGoal.slice(0, 80) + '".'),
+    policyVersion: pv, grantId: gid, state: 'applied', reversible: true,
+    undo: { op: 'restore-goal', target: legId },
+  }) });
+  // Re-run the leg on its new goal when it was already working (converge-or-escalate);
+  // a planned/draft leg just carries the new goal until it starts.
+  if (opts.run && _meAiDirectorLeaderOk() && (leg.status === 'running' || leg.status === 'blocked' || leg.status === 'planned' || opts.forceRun)) {
+    const fresh = (meAiTrees.get(id) || tree).legs[legId];
+    _meAiSchedule(async () => { try { await _meAiRunLeg(t, Object.assign(fresh || leg, { goal: newGoal })); } catch (_) {} });
+  }
+  return { ok: true, legId, goal: newGoal };
+}
+
+// ── D2: spin off a bounded sub-agent to close a gap ───────────────────────────
+// Drafted by default (proposed · not running) so nothing runs without approval;
+// `run:true` starts it (leader-gated). Depth/budget capped so it can't fan out
+// unboundedly (max depth 1 — it may not spin off further agents). Its stops re-enter
+// the same reduced queue. On failure it surfaces the original gap back (H1).
+function _meAiDirectorSpawn(t, o) {
+  const id = t.id;
+  o = o || {};
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  // Start an already-drafted sub-agent (from its "Start now" affordance) rather than
+  // minting a new one.
+  if (o.startLegId) {
+    const draft = (tree.legs || {})[o.startLegId];
+    if (!draft) return { ok: false, error: 'no-such-leg' };
+    if (!draft.directorSpawn) return { ok: false, error: 'not-a-spawn' };
+    if (!_meAiDirectorLeaderOk()) return { ok: true, legId: draft.id, status: 'drafted', note: 'not-leader' };
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+      verb: 'spawned', legId: draft.id, cls: 'gap', target: draft.id,
+      why: 'Started the drafted sub-agent inside this pursuit.', state: 'applied', reversible: true,
+      undo: { op: 'cancel-leg', target: draft.id },
+    }) });
+    _meAiSchedule(async () => { try { await _meAiRunLeg(t, draft); } catch (_) {} });
+    return { ok: true, legId: draft.id, status: 'running' };
+  }
+  const goal = String(o.goal || '').trim();
+  if (!goal) return { ok: false, error: 'goal-required' };
+  const policy = _meAiDirectorPolicy(id, tree);
+  const gid = policy.grant && policy.grant.id, pv = policy.grant && policy.grant.policyVersion;
+  const spineId = t._spineId || (tree.order || []).find(lid => { const l = tree.legs[lid]; return l && l.lane === 'spine'; }) || null;
+  const curEpoch = (tree.epoch != null ? tree.epoch : 0);
+  const title = String(o.title || goal).slice(0, 80);
+  const leg = _meAiNewLeg({ kind: 'director-spawn', parentId: spineId, lane: 'spine', baseEpoch: curEpoch, status: 'planned', title, goal, sessionId: _meAiUuid() });
+  leg.directorSpawn = true;         // provenance for the canvas/ledger
+  leg.depth = 1; leg.maxDepth = 1;  // bounded: it may not spin off further agents
+  leg.budget = (o.budget != null ? o.budget : 1);
+  leg.fromStopId = o.fromStopId || null;   // the gap it was drafted to close
+  _meAiTreeEmit(id, 'leg_spawn', { leg });
+  _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+    verb: 'spawned', legId: leg.id, cls: 'gap', target: leg.id,
+    why: why_(o, goal), policyVersion: pv, grantId: gid,
+    state: o.run ? 'applied' : 'proposed', reversible: true,
+    undo: { op: 'cancel-leg', target: leg.id },
+  }) });
+  function why_(oo, g) { return oo.why || ('A gap, not a clash — drafted a bounded sub-agent to close it: "' + g.slice(0, 100) + '".'); }
+  // Draft-only: leave it planned (proposed · not running) until the user approves.
+  if (!o.run) return { ok: true, legId: leg.id, status: 'drafted' };
+  if (!_meAiDirectorLeaderOk()) return { ok: true, legId: leg.id, status: 'drafted', note: 'not-leader' };
+  _meAiSchedule(async () => {
+    try {
+      await _meAiRunLeg(t, leg);
+      const rt = meAiTrees.get(id) || _meAiFoldJournal(id);
+      const fresh = (rt.legs || {})[leg.id] || leg;
+      // Converge-or-escalate: a failed / dead-ended sub-agent surfaces the original
+      // gap back with the failure reason (H1 spun-off-agent-failed) — no blind retry.
+      if (fresh.status === 'error' || fresh.status === 'invalidated') {
+        if (leg.fromStopId) {
+          const stop = (rt.stops || []).find(s => s.id === leg.fromStopId);
+          if (stop && stop.status !== 'open') _meAiTreeEmit(id, 'stop', { stop: Object.assign({}, stop, { status: 'open' }) });
+        }
+        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+          verb: 'failed', legId: leg.id, cls: 'gap', target: leg.id,
+          why: 'The spun-off sub-agent errored or hit its budget without converging — surfaced the original gap back.',
+          policyVersion: pv, grantId: gid, state: 'logged', reversible: false, undo: null,
+        }) });
+        const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, rt); } catch (_) {} }
+      }
+    } catch (_) {}
+  });
+  return { ok: true, legId: leg.id, status: 'running' };
+}
 // Approving a needs-auth stop fires the outbox EXACTLY ONCE (no double-post on
 // crash), then merges that leg back and reroutes the spine.
 function _meAiTreeResolveStop(t, stopId, decision, note) {
@@ -23997,6 +24272,154 @@ app.get('/api/me-ai/task/:id/tree', (req, res) => {
     res.json({ ok: true, tree });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── Pursuit Director API ───────────────────────────────────────────────────
+// Read-modify-write the whole `director` settings object (settings.updateSettings
+// replaces object keys wholesale), defaulting any missing subfields.
+function _directorSaveSettings(mutate) {
+  const cur = settings.getSettings() || {};
+  const d = Object.assign({ enabled: false, autonomy: 'balanced', defaultPaths: ['/src'], grantTtlDays: 7, grants: {} }, cur.director || {});
+  d.grants = Object.assign({}, d.grants || {});
+  mutate(d);
+  settings.updateSettings({ director: d });
+  return d;
+}
+
+// GET the reduced director view for a pursuit (pure; works even when directing is
+// off — the UI decides whether to lead with it). Returns the plan, effective policy
+// (grant metadata only), the ledger, and the honest director state.
+app.get('/api/me-ai/task/:id/director', (req, res) => {
+  try {
+    const id = req.params.id;
+    const { policy, plan, tree } = _meAiDirectorView(id);
+    const grant = policy.grant || {};
+    res.json({
+      ok: true,
+      enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused,
+      leader: _meAiDirectorLeaderOk(),
+      grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
+      plan,
+      ledger: (tree.director && tree.director.ledger) || [],
+      lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET/PUT the global director toggle + autonomy level.
+app.get('/api/me-ai/director/policy', (req, res) => {
+  try {
+    const d = (settings.getSettings() || {}).director || {};
+    res.json({ ok: true, enabled: !!d.enabled, autonomy: d.autonomy || 'balanced', defaultPaths: d.defaultPaths || ['/src'], grantTtlDays: d.grantTtlDays || 7, leader: _meAiDirectorLeaderOk() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put('/api/me-ai/director/policy', (req, res) => {
+  try {
+    const b = req.body || {};
+    const d = _directorSaveSettings((d) => {
+      if (typeof b.enabled === 'boolean') d.enabled = b.enabled;
+      if (director.AUTONOMY_LEVELS.indexOf(b.autonomy) !== -1) d.autonomy = b.autonomy;
+      if (Array.isArray(b.defaultPaths)) d.defaultPaths = b.defaultPaths.map(String).filter(Boolean);
+      const ttl = Number(b.grantTtlDays); if (Number.isFinite(ttl) && ttl > 0) d.grantTtlDays = Math.min(90, Math.round(ttl));
+    });
+    res.json({ ok: true, enabled: d.enabled, autonomy: d.autonomy, defaultPaths: d.defaultPaths, grantTtlDays: d.grantTtlDays });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT a standing grant for THIS pursuit (mint or update). Scoped, path-limited,
+// expiring. Bumps the policy version so prior ledger entries keep their provenance.
+app.put('/api/me-ai/task/:id/director/grant', (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const cur = settings.getSettings() || {};
+    const dd = cur.director || {};
+    const ttlDays = Number(b.ttlDays) > 0 ? Math.min(90, Math.round(Number(b.ttlDays))) : (dd.grantTtlDays || 7);
+    const paths = Array.isArray(b.paths) && b.paths.length ? b.paths.map(String).filter(Boolean) : (dd.defaultPaths || ['/src']);
+    const classes = Array.isArray(b.classes) && b.classes.length ? b.classes : director.DEFAULT_GRANT.classes.slice();
+    const ops = Array.isArray(b.ops) && b.ops.length ? b.ops : director.DEFAULT_GRANT.ops.slice();
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 3600 * 1000).toISOString();
+    const existing = (dd.grants && dd.grants[id]) || null;
+    const version = existing ? ('v' + ((parseInt(String(existing.policyVersion || 'v0').replace(/\D/g, ''), 10) || 0) + 1)) : 'v1';
+    const grant = {
+      id: (existing && existing.id) || ('g-' + Math.random().toString(36).slice(2, 8)),
+      pursuitId: id, paths, ops, classes, expiresAt, policyVersion: version,
+      minClashConfidence: Number(b.minClashConfidence) || director.DEFAULT_GRANT.minClashConfidence,
+    };
+    const d = _directorSaveSettings((d) => { d.grants[id] = grant; });
+    res.json({ ok: true, grant });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Revoke the pursuit's grant: stops future absorption + re-exposes raw stops, WITHOUT
+// undoing anything already handled (prior ledger entries stand).
+app.post('/api/me-ai/task/:id/director/grant/revoke', (req, res) => {
+  try {
+    const id = req.params.id;
+    _directorSaveSettings((d) => { if (d.grants[id]) delete d.grants[id]; });
+    res.json({ ok: true, revoked: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Pause / resume directing for THIS pursuit (raw stops re-expose; prior handling kept).
+app.post('/api/me-ai/task/:id/director/pause', (req, res) => {
+  try {
+    const id = req.params.id;
+    const paused = !!(req.body && req.body.paused);
+    _meAiTreeEmit(id, 'director', { op: 'pause', paused });
+    res.json({ ok: true, paused });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Run a director sweep on demand (same gates as the automatic one).
+app.post('/api/me-ai/task/:id/director/sweep', (req, res) => {
+  try {
+    const id = req.params.id;
+    const t = meAiTasks.get(id) || { id };
+    const result = _meAiDirectorSweep(t);
+    const { plan } = _meAiDirectorView(id);
+    res.json({ ok: true, result, plan });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Undo a director ledger action (state-aware; reopens the stop/conflict).
+app.post('/api/me-ai/task/:id/director/undo', (req, res) => {
+  try {
+    const id = req.params.id;
+    const ledgerId = String((req.body && req.body.ledgerId) || '');
+    if (!ledgerId) return res.status(400).json({ error: 'ledgerId required' });
+    const t = meAiTasks.get(id) || { id };
+    const result = _meAiDirectorUndo(t, ledgerId);
+    res.json(Object.assign({ ok: result.ok !== false }, result));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// D1: redirect a leg's goal (premise went stale). Scoped to this pursuit (D3).
+app.post('/api/me-ai/task/:id/director/redirect', (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const t = meAiTasks.get(id) || { id };
+    const result = _meAiDirectorRedirect(t, String(b.legId || ''), b.newGoal, b.why, { run: b.run !== false, forceRun: !!b.forceRun });
+    if (result.ok === false) return res.status(400).json(result);
+    const { plan } = _meAiDirectorView(id);
+    res.json(Object.assign({}, result, { plan }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// D2: spin off a bounded sub-agent to close a gap. Drafted by default; run:true starts
+// it (leader-gated). Its stops re-enter the same reduced queue.
+app.post('/api/me-ai/task/:id/director/spawn', (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const t = meAiTasks.get(id) || { id };
+    const result = _meAiDirectorSpawn(t, { goal: b.goal, title: b.title, budget: b.budget, fromStopId: b.fromStopId, why: b.why, run: !!b.run, startLegId: b.startLegId });
+    if (result.ok === false) return res.status(400).json(result);
+    const { plan } = _meAiDirectorView(id);
+    res.json(Object.assign({}, result, { plan }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ── Workspace explorer ────────────────────────────────────────────────────
 // The pursuit's shared workspace dir is where every agent/subagent writes files

@@ -75,6 +75,23 @@ const DEFAULTS = {
   // relay, and the related connect/pair endpoints refuse. Local agents, schedules
   // and the browser UI keep working — only the external bridges are severed.
   externalAccessDisabled: false,
+  // --- Pursuit Director ----------------------------------------------------
+  // The Director governs the agents (legs) INSIDE a pursuit: it absorbs the
+  // provably-safe gated stops (duplicate / reversible-local / factual+verified),
+  // batches deliverables into one approval, and escalates only the genuine human
+  // decisions — collapsing a stream of approvals into a handful of desk items.
+  // Default OFF: the live pursuit flow is unchanged until the user opts in AND
+  // mints a standing grant for a specific pursuit. `autonomy` is global
+  // (cautious|balanced|full); `grants` are per-pursuit (pursuitId → grant); each
+  // grant is scoped, path-limited, expiring and revocable. Nothing is auto-applied
+  // without an active grant, and autonomous absorption is leader-gated.
+  director: {
+    enabled: false,
+    autonomy: 'balanced',
+    defaultPaths: ['/src'],
+    grantTtlDays: 7,
+    grants: {},
+  },
   // --- Managed dependencies (Copilot CLI/SDK + machine prereqs) ------------
   // Master switch for scheduled auto-updates of managed dependencies. When
   // false, the app never updates on its own — the user updates manually from

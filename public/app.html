@@ -13374,6 +13374,88 @@
               .meai-pu-conflict-tag { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; }
               .meai-pu-conflict-claim { font-size:13px; color:var(--cp-text); margin:4px 0 8px; }
               .meai-pu-conflict-auto { font-size:12px; color:var(--cp-text-muted); margin-top:8px; font-style:italic; }
+              /* ── Pursuit Director studio (left index / right detail; no pills) ── */
+              .meai-dir-ix { margin-bottom:16px; }
+              .meai-dir-reduce { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:12px 13px; background:var(--cp-bg); margin-bottom:14px; }
+              .meai-dir-reduce-big { font-size:26px; font-weight:800; color:var(--cp-text); letter-spacing:-.01em; line-height:1; }
+              .meai-dir-reduce-big .raw { color:var(--cp-text-muted); }
+              .meai-dir-reduce-big .arw { color:var(--cp-text-soft,var(--cp-text-muted)); margin:0 8px; font-weight:600; }
+              .meai-dir-reduce-sub { font-size:12px; color:var(--cp-text-muted); margin-top:7px; line-height:1.5; }
+              .meai-dir-reduce-sub b { color:var(--cp-text); }
+              .meai-dir-reduce-sub a { color:var(--cp-link); cursor:pointer; font-weight:600; }
+              .meai-dir-h { display:flex; align-items:baseline; gap:8px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin:0 0 8px; }
+              .meai-dir-h .c { color:var(--cp-text); font-weight:800; }
+              .meai-dir-h .tgl { margin-left:auto; text-transform:none; letter-spacing:0; color:var(--cp-link); cursor:pointer; font-weight:600; }
+              .meai-dir-row { display:flex; gap:10px; align-items:flex-start; width:100%; text-align:left; border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*9px); padding:9px 11px; margin-bottom:7px; background:var(--cp-bg); cursor:pointer; transition:border-color .15s,background .15s; }
+              .meai-dir-row:hover { border-color:var(--cp-accent); }
+              .meai-dir-row.sel { border-left-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-bg)); }
+              .meai-dir-row.k-clash { border-left-color:#d97706; }
+              .meai-dir-row.k-chain { border-left-color:#7c3aed; }
+              .meai-dir-row.k-batch { border-left-color:#0ea5e9; }
+              .meai-dir-row.k-gap   { border-left-color:#e11d48; }
+              .meai-dir-row.k-cull  { border-left-color:var(--cp-text-muted); }
+              .meai-dir-row.k-absorb{ border-left-color:#16a34a; }
+              .meai-dir-row.k-resolve{ border-left-color:#16a34a; }
+              .meai-dir-row-b { min-width:0; flex:1; }
+              .meai-dir-row-t { font-size:13px; font-weight:600; color:var(--cp-text); }
+              .meai-dir-row-w { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; line-height:1.4; }
+              .meai-dir-row-s { font-size:11px; margin-top:4px; color:var(--cp-text-soft,var(--cp-text-muted)); }
+              .meai-dir-row-s.desk { color:#d97706; }
+              .meai-dir-row-s.eff { color:#16a34a; }
+              .meai-dir-row-go { color:var(--cp-text-muted); font-weight:700; align-self:center; }
+              .meai-dir-foot { font-size:11.5px; color:var(--cp-text-soft,var(--cp-text-muted)); margin-top:2px; line-height:1.5; }
+              .meai-dir-more a { display:block; font-size:12.5px; color:var(--cp-link); cursor:pointer; padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 45%, transparent); font-weight:600; }
+              .meai-dir-hsum { font-size:12px; color:var(--cp-text-muted); margin-bottom:8px; line-height:1.5; }
+              /* detail (center) */
+              .meai-dir-detail { max-width:760px; }
+              .meai-dir-pane-h { font-size:13px; color:var(--cp-text-muted); line-height:1.55; margin-bottom:14px; }
+              .meai-dir-pane-h b { color:var(--cp-text); }
+              .meai-dir-linklike { background:none; border:0; padding:0; font-size:12px; font-weight:600; color:var(--cp-accent, #2563eb); cursor:pointer; }
+              .meai-dir-linklike:hover { text-decoration:underline; }
+              .meai-dir-spawn-add { display:block; width:100%; margin-top:4px; padding:10px 13px; background:var(--cp-bg); border:1px dashed var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); color:var(--cp-text-muted); font-size:13px; font-weight:600; cursor:pointer; text-align:left; }
+              .meai-dir-spawn-add:hover { color:var(--cp-text); border-color:var(--cp-accent, #2563eb); }
+              .meai-dir-card { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*11px); padding:14px 15px; background:var(--cp-bg); margin-bottom:12px; }
+              .meai-dir-kind { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
+              .meai-dir-title { font-size:15px; font-weight:700; color:var(--cp-text); margin:5px 0 3px; }
+              .meai-dir-target { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--cp-text-muted); }
+              .meai-dir-rec { font-size:12.5px; color:var(--cp-text); line-height:1.6; margin:11px 0; padding:10px 12px; border-radius:calc(var(--cp-radius-scale,1)*8px); background:color-mix(in srgb,var(--cp-accent) 5%, var(--cp-bg)); border:1px solid color-mix(in srgb,var(--cp-border) 70%, transparent); }
+              .meai-dir-rl { display:inline-block; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; font-weight:800; color:var(--cp-accent); margin-right:7px; }
+              .meai-dir-mem { display:flex; gap:9px; align-items:flex-start; padding:8px 0; border-top:1px solid color-mix(in srgb,var(--cp-border) 45%, transparent); }
+              .meai-dir-mem-ord { flex:0 0 20px; height:20px; border-radius:50%; background:color-mix(in srgb,var(--cp-accent) 14%, transparent); color:var(--cp-accent); font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+              .meai-dir-mem-sum { font-size:12.5px; color:var(--cp-text); }
+              .meai-dir-mem-leg { font-size:11px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-dir-foot-acts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+              .meai-dir-foot-lead { font-size:12px; color:var(--cp-text-muted); margin-right:2px; }
+              .meai-dir-note { flex:1; min-width:160px; }
+              .meai-dir-xs { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; margin-top:8px; }
+              .meai-dir-xs .d { width:7px; height:7px; border-radius:50%; background:currentColor; display:inline-block; }
+              .meai-dir-xs.applied { color:#16a34a; }
+              .meai-dir-xs.proposed { color:#d97706; }
+              .meai-dir-led { display:flex; gap:10px; padding:9px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 45%, transparent); }
+              .meai-dir-led-dot { flex:0 0 8px; height:8px; border-radius:50%; margin-top:5px; background:var(--cp-text-muted); }
+              .meai-dir-led.v-culled .meai-dir-led-dot,.meai-dir-led.v-absorbed .meai-dir-led-dot,.meai-dir-led.v-resolved .meai-dir-led-dot{ background:#16a34a; }
+              .meai-dir-led.v-undone { opacity:.55; }
+              .meai-dir-led-b { min-width:0; flex:1; }
+              .meai-dir-led-line { font-size:12.5px; color:var(--cp-text); }
+              .meai-dir-led-verb { font-weight:700; }
+              .meai-dir-led-why { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-dir-led-meta { font-size:11px; color:var(--cp-text-soft,var(--cp-text-muted)); margin-top:4px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+              .meai-dir-led-meta a { color:var(--cp-link); cursor:pointer; font-weight:600; }
+              .meai-dir-state { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*9px); padding:10px 12px; margin-bottom:9px; background:var(--cp-bg); }
+              .meai-dir-state-h { font-size:12.5px; font-weight:700; color:var(--cp-text); }
+              .meai-dir-state-b { font-size:12px; color:var(--cp-text-muted); margin-top:3px; line-height:1.5; }
+              .meai-dir-state.on { border-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 6%, var(--cp-bg)); }
+              .meai-dir-field { margin-bottom:12px; }
+              .meai-dir-field-l { font-size:12px; font-weight:700; color:var(--cp-text); margin-bottom:5px; }
+              .meai-dir-field-h { font-size:11.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.5; }
+              .meai-dir-seg { display:inline-flex; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); overflow:hidden; }
+              .meai-dir-seg button { border:0; background:transparent; padding:6px 13px; font-size:12px; color:var(--cp-text-muted); cursor:pointer; border-right:1px solid var(--cp-border); }
+              .meai-dir-seg button:last-child { border-right:0; }
+              .meai-dir-seg button.on { background:var(--cp-accent); color:#fff; font-weight:700; }
+              .meai-dir-banner { border:1px solid color-mix(in srgb,var(--cp-accent) 40%, var(--cp-border)); background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-bg)); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:13px 14px; margin-bottom:14px; }
+              .meai-dir-banner-t { font-size:13px; font-weight:700; color:var(--cp-text); }
+              .meai-dir-banner-b { font-size:12px; color:var(--cp-text-muted); margin:5px 0 10px; line-height:1.55; }
+              .meai-dir-warn { font-size:11.5px; color:#d97706; margin-top:8px; }
               .meai-pu-constraints { margin-top:14px; }
               .meai-pu-constraints-h { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-muted); font-weight:700; margin-bottom:6px; }
               .meai-pu-constraint { font-size:12px; color:var(--cp-text); padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
@@ -14780,19 +14862,37 @@
                                  @keydown.enter.stop="meAiOpenTask(tk.id)">
                               <template x-if="meAiLaneApprovalNeeded(tk)">
                                 <div>
-                                  <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">⚠️</span> Approval requested</div>
-                                  <div class="meai-lane-ask-list">
-                                    <template x-for="(a, ai) in meAiLaneApprovalList(tk)" :key="ai">
-                                      <div class="meai-lane-ask-line">
-                                        <span class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'" :title="a.risk==='external' ? 'Sends/posts externally' : 'Makes a change'"></span>
-                                        <span>
-                                          <span x-text="a.label"></span>
-                                          <span x-show="a.detail" class="meai-lane-ask-detail" x-text="a.detail"></span>
-                                        </span>
+                                  <!-- Directed summary: when the Director is on + granted for this
+                                       pursuit, collapse the raw approval stream into ONE line (A3). -->
+                                  <template x-if="meAiDirectorRailActive(tk)">
+                                    <div>
+                                      <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">🧭</span> Director handling this pursuit</div>
+                                      <div class="meai-lane-ask-list">
+                                        <div class="meai-lane-ask-line">
+                                          <span class="meai-lane-ask-flag" title="Handled by the Director">✓</span>
+                                          <span><span x-text="meAiDirectorRailSummary(tk).handled"></span> handled automatically · <b x-text="meAiDirectorRailSummary(tk).desk"></b> <span x-text="meAiDirectorRailSummary(tk).desk===1 ? 'needs you' : 'need you'"></span></span>
+                                        </div>
                                       </div>
-                                    </template>
-                                  </div>
-                                  <div class="meai-lane-ask-foot"><span>Open to approve or decline →</span></div>
+                                      <div class="meai-lane-ask-foot"><span>Open the Director →</span></div>
+                                    </div>
+                                  </template>
+                                  <template x-if="!meAiDirectorRailActive(tk)">
+                                    <div>
+                                      <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">⚠️</span> Approval requested</div>
+                                      <div class="meai-lane-ask-list">
+                                        <template x-for="(a, ai) in meAiLaneApprovalList(tk)" :key="ai">
+                                          <div class="meai-lane-ask-line">
+                                            <span class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'" :title="a.risk==='external' ? 'Sends/posts externally' : 'Makes a change'"></span>
+                                            <span>
+                                              <span x-text="a.label"></span>
+                                              <span x-show="a.detail" class="meai-lane-ask-detail" x-text="a.detail"></span>
+                                            </span>
+                                          </div>
+                                        </template>
+                                      </div>
+                                      <div class="meai-lane-ask-foot"><span>Open to approve or decline →</span></div>
+                                    </div>
+                                  </template>
                                 </div>
                               </template>
                               <template x-if="!meAiLaneApprovalNeeded(tk) && tk.question">
@@ -15625,9 +15725,10 @@
 
                 <!-- Persistent approval banner — legs run async, so a pending approval must be
                      non-missable from ANY tab. Clicking jumps to the Approvals tab. -->
-                <div class="meai-pu-approvebar" x-show="meAiPursuitStops().length && meai.pursuit.nav!=='approvals'" @click="meai.pursuit.nav='approvals'" role="button" tabindex="0" @keydown.enter="meai.pursuit.nav='approvals'">
+                <div class="meai-pu-approvebar" x-show="meAiPursuitStops().length && meai.pursuit.nav!=='approvals' && meai.pursuit.nav!=='director'" @click="meAiDirectorActive() ? (meai.pursuit.nav='director', meAiPursuitDirectorLoad()) : (meai.pursuit.nav='approvals')" role="button" tabindex="0" @keydown.enter="meAiDirectorActive() ? (meai.pursuit.nav='director') : (meai.pursuit.nav='approvals')">
                   <span class="meai-pu-approvebar-ico">✋</span>
-                  <span class="meai-pu-approvebar-txt"><strong x-text="meAiPursuitStops().length"></strong> <span x-text="meAiPursuitStops().length===1 ? 'action needs your approval' : 'actions need your approval'"></span> — a leg is paused waiting on you.</span>
+                  <span class="meai-pu-approvebar-txt" x-show="!meAiDirectorActive()"><strong x-text="meAiPursuitStops().length"></strong> <span x-text="meAiPursuitStops().length===1 ? 'action needs your approval' : 'actions need your approval'"></span> — a leg is paused waiting on you.</span>
+                  <span class="meai-pu-approvebar-txt" x-show="meAiDirectorActive()">Director handled <strong x-text="meAiDirectorHandledCount()"></strong> — <strong x-text="meAiDirectorDeskCount()"></strong> <span x-text="meAiDirectorDeskCount()===1 ? 'needs you' : 'need you'"></span>.</span>
                   <span style="flex:1"></span>
                   <span class="meai-pu-approvebar-go">Review →</span>
                 </div>
@@ -15638,8 +15739,9 @@
                     <div class="meai-pu-navtabs">
                       <button type="button" :class="{ on: meai.pursuit.nav==='chat' }" @click="meai.pursuit.nav='chat'">Chat</button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='index' }" @click="meai.pursuit.nav='index'">Index</button>
-                      <button type="button" :class="{ on: meai.pursuit.nav==='approvals' }" @click="meai.pursuit.nav='approvals'">Approvals<span class="meai-pu-nc" x-show="meAiPursuitStops().length" x-text="meAiPursuitStops().length"></span></button>
-                      <button type="button" :class="{ on: meai.pursuit.nav==='conflicts' }" @click="meai.pursuit.nav='conflicts'" x-show="meAiPursuitConflicts().length">Conflicts<span class="meai-pu-nc" x-text="meAiPursuitConflicts().length"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='director' }" @click="meai.pursuit.nav='director'; meAiPursuitDirectorLoad()">Director<span class="meai-pu-nc" x-show="meAiDirectorActive() && meAiDirectorDeskCount()" x-text="meAiDirectorDeskCount()"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='approvals' }" @click="meai.pursuit.nav='approvals'" x-show="!meAiDirectorActive()">Approvals<span class="meai-pu-nc" x-show="meAiPursuitStops().length" x-text="meAiPursuitStops().length"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='conflicts' }" @click="meai.pursuit.nav='conflicts'" x-show="meAiPursuitConflicts().length && !meAiDirectorActive()">Conflicts<span class="meai-pu-nc" x-text="meAiPursuitConflicts().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='workspace' }" @click="meai.pursuit.nav='workspace'; meAiPursuitLoadWorkspace()">Workspace<span class="meai-pu-nc" x-show="meai.pursuit.ws.files.length" x-text="meai.pursuit.ws.files.length"></span></button>
                       <span style="flex:1"></span>
                       <button type="button" class="meai-pu-panx" @click="meai.pursuit.navOpen=false" title="Collapse">‹</button>
@@ -15812,6 +15914,86 @@
                               <button type="button" class="btn primary" :disabled="meAiPursuitBusy() || !meai.pursuit.steer.trim()" @click="meAiPursuitSend()">Send →</button>
                             </div>
                           </div>
+                        </div>
+                      </template>
+
+                      <!-- DIRECTOR — studio index (reduction header / desk / handled / more) -->
+                      <template x-if="meai.pursuit.nav==='director'">
+                        <div class="meai-dir-ix">
+                          <!-- not enabled → opt-in CTA (default OFF) -->
+                          <template x-if="!meai.pursuit.director.enabled">
+                            <div class="meai-dir-banner">
+                              <div class="meai-dir-banner-t">Let the Director cut your approvals</div>
+                              <div class="meai-dir-banner-b">This pursuit has <b x-text="meAiPursuitStops().length"></b> open <span x-text="meAiPursuitStops().length===1?'stop':'stops'"></span>. Turn on the Director and grant it a scope, and it will absorb the safe, provable, reversible ones — leaving only the few that truly need you.</div>
+                              <div class="meai-dir-foot-acts">
+                                <button type="button" class="btn primary" @click="meAiDirectorEnable()">Turn on the Director</button>
+                                <a class="meai-dir-reduce-sub" style="cursor:pointer" @click="meAiDirectorSel('policy', null)">Review policy first →</a>
+                              </div>
+                              <div class="meai-dir-warn" x-show="!meai.pursuit.director.leader">Another instance is the sync leader — autonomous absorption runs there. Here the Director shows the plan read-only.</div>
+                            </div>
+                          </template>
+
+                          <template x-if="meai.pursuit.director.enabled">
+                            <div>
+                              <!-- honesty state banner -->
+                              <template x-if="meAiDirectorStateBanner()">
+                                <div class="meai-dir-state on" @click="meAiDirectorSel('states', null)" role="button" tabindex="0" style="cursor:pointer">
+                                  <div class="meai-dir-state-h" x-text="meAiDirectorStateBanner().h"></div>
+                                  <div class="meai-dir-state-b" x-text="meAiDirectorStateBanner().b"></div>
+                                </div>
+                              </template>
+
+                              <!-- reduction header N → M -->
+                              <div class="meai-dir-reduce">
+                                <div class="meai-dir-reduce-big"><span class="raw" x-text="meAiDirectorTotal()"></span><span class="arw">→</span><span x-text="meAiDirectorDeskCount()"></span></div>
+                                <div class="meai-dir-reduce-sub">The Director handled <b x-text="meAiDirectorHandledCount()"></b> of <b x-text="meAiDirectorTotal()"></b> gated stops. <b x-text="meAiDirectorDeskCount()"></b> <span x-text="meAiDirectorDeskCount()===1?'decision needs':'decisions need'"></span> you.
+                                  <a @click="meAiPursuitDirectorLoad()">Re-check ↻</a></div>
+                              </div>
+
+                              <!-- On your desk -->
+                              <div class="meai-dir-h"><span>On your desk</span> <span class="c" x-text="meAiDirectorDeskCount()"></span></div>
+                              <template x-for="it in meAiDirectorDesk()" :key="it.id">
+                                <button type="button" class="meai-dir-row" :class="['k-'+it.kind, meai.pursuit.director.sel && meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel.id===it.id ? 'sel' : '']" @click="meAiDirectorSel('desk', it)">
+                                  <div class="meai-dir-row-b">
+                                    <div class="meai-dir-row-t" x-text="it.title"></div>
+                                    <div class="meai-dir-row-w" x-text="it.detail"></div>
+                                    <div class="meai-dir-row-s desk" x-text="meAiDirectorDeskKind(it)"></div>
+                                  </div>
+                                  <span class="meai-dir-row-go">→</span>
+                                </button>
+                              </template>
+                              <div x-show="!meAiDirectorDesk().length" class="meai-pu-empty">Nothing needs you. The Director is holding the line — approved work reroutes automatically.</div>
+
+                              <!-- Handled automatically (collapsed when desk non-empty) -->
+                              <div class="meai-dir-h" style="margin-top:16px">
+                                <span>Handled automatically</span> <span class="c" x-text="meAiDirectorHandledCount()"></span>
+                                <span class="tgl" @click="meai.pursuit.director.showHandled=!meai.pursuit.director.showHandled" x-text="meai.pursuit.director.showHandled ? 'Hide' : 'Show'"></span>
+                              </div>
+                              <div class="meai-dir-hsum" x-text="meAiDirectorHandledSummary()"></div>
+                              <template x-if="meai.pursuit.director.showHandled">
+                                <div>
+                                  <template x-for="h in meAiDirectorHandled()" :key="h.stopId">
+                                    <button type="button" class="meai-dir-row" :class="'k-'+h.disposition" @click="meAiDirectorSel('handled', h)">
+                                      <div class="meai-dir-row-b">
+                                        <div class="meai-dir-row-t" x-text="(h.prompt || h.target || h.cls)"></div>
+                                        <div class="meai-dir-row-s eff" x-text="meAiDirectorDispLabel(h.disposition)"></div>
+                                      </div>
+                                      <span class="meai-dir-row-go">→</span>
+                                    </button>
+                                  </template>
+                                </div>
+                              </template>
+
+                              <!-- More -->
+                              <div class="meai-dir-h" style="margin-top:16px"><span>More</span></div>
+                              <div class="meai-dir-more">
+                                <a @click="meAiDirectorSel('ledger', null)">Ledger — every action the Director took</a>
+                                <a @click="meAiDirectorSel('agents', null)">Agents &amp; legs it can act on</a>
+                                <a @click="meAiDirectorSel('states', null)">Director state &amp; health</a>
+                                <a @click="meAiDirectorSel('policy', null)">Autonomy &amp; grant</a>
+                              </div>
+                            </div>
+                          </template>
                         </div>
                       </template>
 
@@ -16007,6 +16189,206 @@
                   <!-- CENTER: one flexible view surface (map | node | report | artifact) -->
                   <main class="meai-pu-view">
                     <button type="button" class="meai-pu-reopen left" x-show="!meai.pursuit.navOpen" @click="meai.pursuit.navOpen=true" title="Show navigation">☰</button>
+
+                    <!-- DIRECTOR detail (right pane of the studio) -->
+                    <template x-if="meai.pursuit.centerView==='director'">
+                      <div class="meai-pu-report">
+                        <div class="meai-pu-report-top">
+                          <button type="button" class="meai-pu-report-back" @click="meAiPursuitToMap()">‹ Back to map</button>
+                          <div class="meai-pu-report-ti">
+                            <span class="meai-pu-art-k">Director</span>
+                            <span class="meai-pu-report-t" x-text="meAiDirectorDetailTitle()"></span>
+                          </div>
+                        </div>
+                        <div class="meai-pu-report-body" style="padding:18px 20px; overflow:auto">
+                          <div class="meai-dir-detail">
+
+                            <!-- DESK: batch -->
+                            <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='batch'">
+                              <div>
+                                <div class="meai-dir-pane-h">The Director folded <b x-text="meai.pursuit.director.sel.count"></b> user-facing <span x-text="meai.pursuit.director.sel.count===1?'deliverable':'deliverables'"></span> into one approval. It never publishes or sends on your behalf — approve once and every held deliverable ships together.</div>
+                                <template x-for="sid in meai.pursuit.director.sel.stopIds" :key="sid">
+                                  <div class="meai-dir-card" style="padding:11px 13px; margin-bottom:8px">
+                                    <div class="meai-dir-title" style="font-size:13px; margin:0" x-text="(meAiDirectorStop(sid)||{}).prompt || ('Deliverable '+sid)"></div>
+                                    <div class="meai-dir-target" x-show="(meAiDirectorStop(sid)||{}).risk" x-text="'↗ '+((meAiDirectorStop(sid)||{}).risk||'')"></div>
+                                  </div>
+                                </template>
+                                <div class="meai-dir-foot-acts">
+                                  <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorApproveBatch(meai.pursuit.director.sel)">Approve all <span x-text="meai.pursuit.director.sel.count"></span> →</button>
+                                  <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorDeclineBatch(meai.pursuit.director.sel)">Decline</button>
+                                </div>
+                              </div>
+                            </template>
+
+                            <!-- DESK: chain (held writes) -->
+                            <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='chain'">
+                              <div>
+                                <div class="meai-dir-pane-h">These writes fell outside the granted scope, or the Director couldn't verify them, so it held them for you rather than absorbing them.</div>
+                                <template x-for="sid in meai.pursuit.director.sel.stopIds" :key="sid">
+                                  <div class="meai-dir-card" style="padding:11px 13px; margin-bottom:8px">
+                                    <div class="meai-dir-title" style="font-size:13px; margin:0 0 2px" x-text="(meAiDirectorStop(sid)||{}).prompt || ('Write '+sid)"></div>
+                                    <div class="meai-dir-target" x-text="(meAiDirectorStop(sid)||{}).risk || ''"></div>
+                                    <div class="meai-dir-foot-acts" style="margin-top:8px">
+                                      <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(sid,'approve')">Approve</button>
+                                      <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(sid,'deny')">Decline</button>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </template>
+
+                            <!-- DESK: clash (judgement call, subsumes the conflict panel) -->
+                            <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='clash'">
+                              <div>
+                                <div class="meai-dir-pane-h">This is a <b>judgement call</b>, not a fact the Director could verify — so it stays yours. Two legs reached opposite conclusions. Pick the one to keep and the Director closes the loop.</div>
+                                <template x-if="meAiDirectorClash(meai.pursuit.director.sel)">
+                                  <div>
+                                    <div class="meai-dir-card">
+                                      <div class="meai-dir-kind">A · <span x-text="(meAiDirectorClash(meai.pursuit.director.sel).a||{}).stance || '—'"></span></div>
+                                      <div class="meai-dir-title" style="font-size:14px" x-text="(meAiDirectorClash(meai.pursuit.director.sel).a||{}).claim || ''"></div>
+                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy || !meAiDirectorClash(meai.pursuit.director.sel)._stopId" @click="meAiDirectorPickClash(meai.pursuit.director.sel,'a')">Keep A</button>
+                                    </div>
+                                    <div class="meai-dir-card">
+                                      <div class="meai-dir-kind">B · <span x-text="(meAiDirectorClash(meai.pursuit.director.sel).b||{}).stance || '—'"></span></div>
+                                      <div class="meai-dir-title" style="font-size:14px" x-text="(meAiDirectorClash(meai.pursuit.director.sel).b||{}).claim || ''"></div>
+                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy || !meAiDirectorClash(meai.pursuit.director.sel)._stopId" @click="meAiDirectorPickClash(meai.pursuit.director.sel,'b')">Keep B</button>
+                                    </div>
+                                  </div>
+                                </template>
+                                <div x-show="!meAiDirectorClash(meai.pursuit.director.sel)" class="meai-pu-empty" x-text="meai.pursuit.director.sel.detail"></div>
+                              </div>
+                            </template>
+
+                            <!-- DESK: gap (missing info) -->
+                            <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='gap'">
+                              <div>
+                                <div class="meai-dir-pane-h">The Director can't invent facts. This needs information only you have.</div>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-title" style="font-size:14px" x-text="meai.pursuit.director.sel.detail"></div>
+                                  <button type="button" x-show="meai.pursuit.director.sel.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.legId)">Show the leg →</button>
+                                  <input type="text" class="field-input meai-dir-note" style="margin-top:10px; width:100%" placeholder="Your answer…" x-model="meai.pursuit.director.note">
+                                  <div class="meai-dir-foot-acts">
+                                    <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy || !meai.pursuit.director.note.trim()" @click="meAiDirectorAnswerGap(meai.pursuit.director.sel)">Send answer</button>
+                                  </div>
+                                </div>
+                              </div>
+                            </template>
+
+                            <!-- HANDLED entry -->
+                            <template x-if="meai.pursuit.director.selKind==='handled' && meai.pursuit.director.sel">
+                              <div>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-kind" x-text="meAiDirectorDispLabel(meai.pursuit.director.sel.disposition)"></div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.prompt || meai.pursuit.director.sel.target || meai.pursuit.director.sel.cls"></div>
+                                  <div class="meai-dir-target" x-show="meai.pursuit.director.sel.target" x-text="meai.pursuit.director.sel.target"></div>
+                                  <div class="meai-dir-rec"><span class="meai-dir-rl">Why</span><span x-text="meai.pursuit.director.sel.reason"></span></div>
+                                  <button type="button" x-show="meai.pursuit.director.sel.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.legId)">Show the leg →</button>
+                                  <div class="meai-dir-xs applied"><span class="d"></span> Applied · attributed to the Director · undoable from the ledger</div>
+                                </div>
+                                <a class="meai-dir-reduce-sub" style="cursor:pointer" @click="meAiDirectorSel('ledger', null)">Open the ledger to undo →</a>
+                              </div>
+                            </template>
+
+                            <!-- LEDGER -->
+                            <template x-if="meai.pursuit.director.selKind==='ledger'">
+                              <div>
+                                <div class="meai-dir-pane-h">Every action the Director took, newest first. Reversible actions can be undone here — undo is state-aware.</div>
+                                <template x-for="(e, ei) in meAiDirectorLedger()" :key="e.id || ei">
+                                  <div class="meai-dir-led" :class="'v-'+(e.verb||e.op||'')">
+                                    <span class="meai-dir-led-dot"></span>
+                                    <div class="meai-dir-led-b">
+                                      <div class="meai-dir-led-line"><span class="meai-dir-led-verb" x-text="meAiDirectorVerbLabel(e)"></span> <span x-text="e.target || e.stopId || ''"></span></div>
+                                      <div class="meai-dir-led-why" x-text="e.why || e.reason || ''"></div>
+                                      <div class="meai-dir-led-meta">
+                                        <span x-text="'by director'"></span>
+                                        <span x-text="'state: '+(e.state||'applied')"></span>
+                                        <span x-show="e.policyVersion!=null" x-text="'policy v'+e.policyVersion"></span>
+                                        <a x-show="meAiDirectorCanUndo(e)" @click="meAiDirectorUndo(e.id)">Undo</a>
+                                        <span x-show="e.state==='undone'" style="opacity:.7">undone</span>
+                                        <span x-show="e.reversible===false">irreversible — logged only</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </template>
+                                <div x-show="!meAiDirectorLedger().length" class="meai-pu-empty">No actions yet. Once the Director absorbs a stop it appears here.</div>
+                              </div>
+                            </template>
+
+                            <!-- AGENTS / legs -->
+                            <template x-if="meai.pursuit.director.selKind==='agents'">
+                              <div>
+                                <div class="meai-dir-pane-h">The legs and agents inside <b>this pursuit</b> the Director governs. It can redirect one whose premise went stale, or spin off a new one to close a gap. It acts only here — never across other pursuits.</div>
+                                <template x-for="lg in meAiDirectorLegs()" :key="lg.legId || '_spine'">
+                                  <div class="meai-dir-card" style="padding:11px 13px; margin-bottom:8px">
+                                    <div class="meai-dir-mem" style="border:0; padding:0">
+                                      <span class="meai-dir-mem-ord" x-text="lg.handled"></span>
+                                      <div style="flex:1">
+                                        <div class="meai-dir-mem-sum">
+                                          <span x-text="lg.title"></span>
+                                          <span x-show="lg.redirected" style="font-size:10px; font-weight:700; color:var(--cp-warn, #d97706); margin-left:6px">redirected</span>
+                                          <span x-show="lg.drafted" style="font-size:10px; font-weight:700; color:var(--cp-accent, #2563eb); margin-left:6px">drafted · not running</span>
+                                        </div>
+                                        <div class="meai-dir-mem-leg" x-show="lg.goal" x-text="lg.goal" style="margin-top:2px"></div>
+                                        <div class="meai-dir-mem-leg" x-show="lg.redirected && lg.priorGoal" style="opacity:.65; text-decoration:line-through" x-text="lg.priorGoal"></div>
+                                        <div class="meai-dir-mem-leg"><span x-text="lg.handled"></span> handled · <span x-text="lg.desk"></span> on your desk<span x-show="lg.status"> · <span x-text="lg.status"></span></span></div>
+                                      </div>
+                                    </div>
+                                    <div style="display:flex; gap:8px; align-items:center; margin-top:9px; flex-wrap:wrap">
+                                      <button type="button" x-show="lg.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(lg.legId)">Open leg →</button>
+                                      <button type="button" x-show="lg.legId" class="meai-dir-linklike" @click="meAiDirectorRedirect(lg.legId)">Redirect…</button>
+                                      <button type="button" x-show="lg.drafted" class="meai-dir-linklike" @click="meAiDirectorSpawnStart(lg.legId)">Start now</button>
+                                    </div>
+                                  </div>
+                                </template>
+                                <div x-show="!meAiDirectorLegs().length" class="meai-pu-empty">No legs yet.</div>
+                                <button type="button" class="meai-dir-spawn-add" @click="meAiDirectorSpawn()">＋ Spin off a new agent to close a gap</button>
+                              </div>
+                            </template>
+
+                            <!-- STATES (honesty) -->
+                            <template x-if="meai.pursuit.director.selKind==='states'">
+                              <div>
+                                <div class="meai-dir-pane-h">The Director never pretends. Here's exactly what it's doing right now, and every state it can be in.</div>
+                                <template x-for="st in meAiDirectorStates()" :key="st.k">
+                                  <div class="meai-dir-state" :class="st.active ? 'on' : ''">
+                                    <div class="meai-dir-state-h"><span x-show="st.active">● </span><span x-text="st.h"></span></div>
+                                    <div class="meai-dir-state-b" x-text="st.b"></div>
+                                  </div>
+                                </template>
+                              </div>
+                            </template>
+
+                            <!-- POLICY / grant -->
+                            <template x-if="meai.pursuit.director.selKind==='policy'">
+                              <div>
+                                <div class="meai-dir-pane-h">How much the Director is allowed to do on its own, and the standing grant that scopes it to this pursuit.</div>
+                                <div class="meai-dir-field">
+                                  <div class="meai-dir-field-l">Autonomy</div>
+                                  <div class="meai-dir-seg">
+                                    <button type="button" :class="meai.pursuit.director.autonomy==='cautious'?'on':''" @click="meAiDirectorSetAutonomy('cautious')">Cautious</button>
+                                    <button type="button" :class="meai.pursuit.director.autonomy==='balanced'?'on':''" @click="meAiDirectorSetAutonomy('balanced')">Balanced</button>
+                                    <button type="button" :class="meai.pursuit.director.autonomy==='full'?'on':''" @click="meAiDirectorSetAutonomy('full')">Full</button>
+                                  </div>
+                                  <div class="meai-dir-field-h" x-text="meAiDirectorAutonomyHelp()"></div>
+                                </div>
+                                <div class="meai-dir-field">
+                                  <div class="meai-dir-field-l">Standing grant</div>
+                                  <div class="meai-dir-field-h" x-show="meai.pursuit.director.grant && meai.pursuit.director.grant.id">Scope: this pursuit only · Paths: <span x-text="((meai.pursuit.director.grant.paths)||[]).join(', ')||'—'"></span> · Ops: <span x-text="((meai.pursuit.director.grant.ops)||[]).join(', ')||'—'"></span><span x-show="meai.pursuit.director.grant.expiresAt"> · Expires <span x-text="meAiDirectorGrantExpiry()"></span></span></div>
+                                  <div class="meai-dir-field-h" x-show="!(meai.pursuit.director.grant && meai.pursuit.director.grant.id)">No active grant. The Director plans but absorbs nothing until you grant a scope.</div>
+                                  <div class="meai-dir-foot-acts">
+                                    <button type="button" class="btn primary" x-show="!(meai.pursuit.director.grant && meai.pursuit.director.grant.id)" :disabled="meai.pursuit.director.busy" @click="meAiDirectorGrant()">Grant scope</button>
+                                    <button type="button" class="btn ghost" x-show="meai.pursuit.director.grant && meai.pursuit.director.grant.id" :disabled="meai.pursuit.director.busy" @click="meAiDirectorRevoke()">Revoke grant</button>
+                                    <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPause(!meai.pursuit.director.paused)" x-text="meai.pursuit.director.paused ? 'Resume Director' : 'Pause Director'"></button>
+                                  </div>
+                                  <div class="meai-dir-field-h">Revoking exposes the raw stops again but never rewinds what was already handled.</div>
+                                </div>
+                              </div>
+                            </template>
+
+                          </div>
+                        </div>
+                      </div>
+                    </template>
 
                     <!-- REPORT view -->
                     <template x-if="meai.pursuit.centerView==='report' && meAiPursuitReport()">
@@ -27576,7 +27958,18 @@
             // Scans the pursuit's shared working dir and surfaces every file any
             // agent/subagent wrote, attributed by leg, grouped Folders/By agent/Timeline.
             ws: { files: [], loaded: false, busy: false, axis: 'folder', show: 'all', sort: 'modified', sel: null, err: '', open: {} },
+            // ── Pursuit Director (governance over the legs inside THIS pursuit) ──
+            // Reduces the approval burden by absorbing safe/provable/reversible stops,
+            // batching deliverables, tie-breaking factual clashes, keeping a ledger.
+            director: {
+              loaded: false, busy: false, err: '',
+              enabled: false, autonomy: 'balanced', paused: false, offline: false, leader: true,
+              grant: null, plan: null, ledger: [], lastSweepAt: null,
+              sel: null, selKind: null,          // current detail selection
+              showHandled: false, note: '',
+            },
           },
+          directorSummary: {},    // per-task rail summary cache { tid → { enabled, active, handled, desk, ... } }
         },
         cfRailW: (() => { try { const v = parseInt(localStorage.getItem('cfRailW') || '300', 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
         cfCtrlsOpen: (() => { try { const raw = localStorage.getItem('cfCtrlsOpen'); if (raw && raw.charAt(0) === '{') return JSON.parse(raw); } catch { /* ignore */ } return {}; })(),
@@ -39549,6 +39942,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!this.meai._taskById[p.tid]) {
             this.request('/api/me-ai/task/' + encodeURIComponent(p.tid)).then(x => { if (x && x.task) this.meai._taskById[p.tid] = x.task; }).catch(() => {});
           }
+          // Keep the Director's reduced view fresh so the tab count + rail summary
+          // track the live stop set (cheap fold-based read; safe when disabled).
+          this.meAiPursuitDirectorLoad();
         },
         // Compute the fan-out geometry from the folded tree. Spine legs run down
         // the centre column; branches/scouts/reroutes fan out to alternating side
@@ -40987,6 +41383,330 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast('Sent — the agent will fold your answer in', 'success');
             setTimeout(() => this.meAiPursuitLoad(), 600);
           } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
+        },
+        // ── Pursuit Director ────────────────────────────────────────────────
+        // Governance over the legs inside THIS pursuit. Loads the reduced view,
+        // renders the studio, and routes desk decisions through the real stop
+        // gates (never a bypass). Absorption itself happens server-side, leader-
+        // gated; the client only shows the plan + drives the few real decisions.
+        async meAiPursuitDirectorLoad() {
+          const p = this.meai.pursuit; if (!p.tid) return;
+          const d = p.director; d.busy = true; d.err = '';
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director');
+            d.loaded = true;
+            d.enabled = !!r.enabled;
+            d.autonomy = r.autonomy || (r.policy && r.policy.autonomy) || 'balanced';
+            d.paused = !!r.paused;
+            d.offline = !!r.offline;
+            d.leader = (r.leader !== false);
+            d.grant = r.grant || null;
+            d.plan = r.plan || null;
+            d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : [];
+            d.lastSweepAt = r.lastSweepAt || null;
+            this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
+          } catch (e) { d.err = e.message || String(e); }
+          finally { d.busy = false; }
+        },
+        meAiDirectorSummaryFor(d) {
+          const pl = d.plan || {};
+          const active = !!(d.enabled && d.grant && d.grant.id && !d.paused && !d.offline);
+          return { enabled: !!d.enabled, active, handled: (pl.handledCount || 0), desk: (pl.deskCount || 0),
+            total: (pl.total || 0), state: pl.state || (d.enabled ? 'active' : 'offline') };
+        },
+        // Active for the VIEW: enabled + granted + a plan loaded + not paused/offline.
+        // NOT leader-gated — a read-only follower still subsumes the raw Approvals /
+        // Conflicts tabs and shows the reduced surface. Criterion I1 gates only who
+        // EXECUTES absorption (server-side); the honesty banner flags read-only followers.
+        meAiDirectorActive() {
+          const d = this.meai.pursuit.director;
+          return !!(d && d.enabled && d.grant && d.grant.id && !d.paused && !d.offline && d.plan);
+        },
+        meAiDirectorTotal() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.total || 0) : this.meAiPursuitStops().length; },
+        meAiDirectorHandledCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.handledCount || 0) : 0; },
+        meAiDirectorDeskCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.deskCount || 0) : 0; },
+        meAiDirectorDesk() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : []; },
+        meAiDirectorHandled() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.handled)) ? pl.handled : []; },
+        meAiDirectorHandledSummary() {
+          const pl = this.meai.pursuit.director.plan; if (!pl || !pl.reconciliation) return '';
+          const r = pl.reconciliation; const bits = [];
+          if (r.culled) bits.push(r.culled + ' duplicate' + (r.culled === 1 ? '' : 's') + ' dropped');
+          if (r.absorbed) bits.push(r.absorbed + ' reversible ' + (r.absorbed === 1 ? 'edit' : 'edits') + ' applied');
+          if (r.resolved) bits.push(r.resolved + ' factual ' + (r.resolved === 1 ? 'clash' : 'clashes') + ' tie-broken');
+          if (r.batched) bits.push(r.batched + ' deliverable' + (r.batched === 1 ? '' : 's') + ' batched');
+          return bits.join(' · ') || 'Nothing absorbed yet.';
+        },
+        meAiDirectorDeskKind(it) {
+          return ({ clash: 'Judgement call — your decision', chain: 'Held writes — review', batch: 'Deliverables — approve once', gap: 'Needs your input' })[it && it.kind] || 'Needs you';
+        },
+        meAiDirectorDispLabel(disp) {
+          return ({ cull: 'Culled — duplicate dropped', absorb: 'Absorbed — reversible edit applied', resolve: 'Resolved — factual clash tie-broken', batch: 'Batched for approval' })[disp] || disp;
+        },
+        meAiDirectorSel(kind, item) {
+          const p = this.meai.pursuit; p.director.selKind = kind; p.director.sel = item || null; p.director.note = '';
+          p.centerView = 'director';
+        },
+        meAiDirectorDetailTitle() {
+          const d = this.meai.pursuit.director; const k = d.selKind;
+          if (k === 'desk' && d.sel) return d.sel.title;
+          if (k === 'handled' && d.sel) return this.meAiDirectorDispLabel(d.sel.disposition);
+          return ({ ledger: 'Ledger', agents: 'Agents & legs', states: 'Director state & health', policy: 'Autonomy & grant' })[k] || 'Director';
+        },
+        meAiDirectorStop(sid) {
+          const t = this.meai.pursuit.tree; if (!t) return null;
+          return (t.stops || []).find(s => s && s.id === sid) || null;
+        },
+        // A desk "clash" maps back to its joined conflict so Keep A / Keep B resolves
+        // the RIGHT needs-decision stop (subsuming the old Conflicts panel — G5).
+        meAiDirectorClash(item) {
+          if (!item || !Array.isArray(item.stopIds) || !item.stopIds.length) return null;
+          const sid = item.stopIds[0];
+          const stop = this.meAiDirectorStop(sid);
+          const cid = stop && stop.conflictId;
+          const conflicts = this.meAiPursuitConflicts();
+          let c = null;
+          if (cid) c = conflicts.find(x => x.id === cid);
+          if (!c) c = conflicts.find(x => x._stopId === sid);
+          if (!c) return null;
+          return { ...c, _stopId: c._stopId || sid };
+        },
+        meAiDirectorPickClash(item, pick) {
+          const c = this.meAiDirectorClash(item); if (!c || !c._stopId) return;
+          const d = this.meai.pursuit.director; d.busy = true;
+          Promise.resolve(this.meAiPursuitResolvePick(c._stopId, pick, c.subject || ''))
+            .finally(() => { d.busy = false; this.meAiDirectorAfterAction(); });
+        },
+        async meAiDirectorApproveBatch(item) {
+          const p = this.meai.pursuit; const d = p.director; if (!item || !Array.isArray(item.stopIds)) return;
+          d.busy = true;
+          try {
+            for (const sid of item.stopIds) {
+              await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/resolve', { method: 'POST', body: JSON.stringify({ decision: 'approve', note: 'Approved as a batch' }) });
+            }
+            this.toast('Approved all ' + item.stopIds.length + ' — deliverables shipping together', 'success');
+          } catch (e) { this.toast('Could not approve batch: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorDeclineBatch(item) {
+          const p = this.meai.pursuit; const d = p.director; if (!item || !Array.isArray(item.stopIds)) return;
+          d.busy = true;
+          try {
+            for (const sid of item.stopIds) {
+              await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/resolve', { method: 'POST', body: JSON.stringify({ decision: 'deny', note: '' }) });
+            }
+            this.toast('Declined — the agent will route around them', 'info');
+          } catch (e) { this.toast('Could not decline: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorResolveStop(sid, decision) {
+          const p = this.meai.pursuit; const d = p.director; d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/resolve', { method: 'POST', body: JSON.stringify({ decision, note: '' }) });
+            this.toast(decision === 'approve' ? 'Approved' : 'Declined', 'success');
+          } catch (e) { this.toast('Could not resolve: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorAnswerGap(item) {
+          const p = this.meai.pursuit; const d = p.director;
+          const sid = item && Array.isArray(item.stopIds) && item.stopIds[0];
+          const ans = String(d.note || '').trim(); if (!sid || !ans) return;
+          d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/answer', { method: 'POST', body: JSON.stringify({ stopId: sid, text: ans }) });
+            d.note = ''; this.toast('Sent — the agent will fold it in', 'success');
+          } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        // After any desk decision: reload the plan, then auto-advance the selection
+        // to the next desk item (or the calm map when the desk is clear — G4).
+        meAiDirectorAfterAction() {
+          const p = this.meai.pursuit;
+          setTimeout(async () => {
+            await this.meAiPursuitDirectorLoad();
+            const d = p.director;
+            if (d.selKind === 'desk') {
+              const desk = this.meAiDirectorDesk();
+              const still = d.sel && desk.find(x => x.id === d.sel.id);
+              if (!still) {
+                if (desk.length) { d.sel = desk[0]; }
+                else { p.centerView = 'map'; d.sel = null; d.selKind = null; }
+              }
+            }
+          }, 700);
+        },
+        async meAiDirectorEnable() {
+          const d = this.meai.pursuit.director; d.busy = true;
+          try {
+            await this.request('/api/me-ai/director/policy', { method: 'PUT', body: JSON.stringify({ enabled: true, autonomy: d.autonomy || 'balanced' }) });
+            await this.meAiDirectorGrant();
+          } catch (e) { this.toast('Could not enable: ' + (e.message || e), 'error'); d.busy = false; }
+        },
+        async meAiDirectorSetAutonomy(level) {
+          const d = this.meai.pursuit.director; d.autonomy = level; d.busy = true;
+          try {
+            await this.request('/api/me-ai/director/policy', { method: 'PUT', body: JSON.stringify({ autonomy: level }) });
+            this.toast('Autonomy set to ' + level, 'success');
+          } catch (e) { this.toast('Could not update: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorGrant() {
+          const p = this.meai.pursuit; const d = p.director; d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/grant', { method: 'PUT', body: JSON.stringify({}) });
+            this.toast('Director is on — it will absorb safe stops for this pursuit', 'success');
+          } catch (e) { this.toast('Could not grant: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorRevoke() {
+          const p = this.meai.pursuit; const d = p.director; d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/grant/revoke', { method: 'POST', body: JSON.stringify({}) });
+            this.toast('Grant revoked — raw stops are exposed again; handled work stays done', 'info');
+          } catch (e) { this.toast('Could not revoke: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorPause(paused) {
+          const p = this.meai.pursuit; const d = p.director; d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/pause', { method: 'POST', body: JSON.stringify({ paused: !!paused }) });
+            this.toast(paused ? 'Director paused — nothing auto-applied' : 'Director resumed', 'info');
+          } catch (e) { this.toast('Could not update: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        async meAiDirectorUndo(ledgerId) {
+          const p = this.meai.pursuit; const d = p.director; if (!ledgerId) return; d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/undo', { method: 'POST', body: JSON.stringify({ ledgerId }) });
+            this.toast('Undone — the stop is back on your desk', 'info');
+          } catch (e) { this.toast('Could not undo: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        meAiDirectorLedger() { const d = this.meai.pursuit.director; return Array.isArray(d.ledger) ? d.ledger : []; },
+        meAiDirectorCanUndo(e) {
+          if (!e) return false;
+          if (e.reversible === false) return false;
+          if (e.state === 'undone' || e.state === 'irreversible' || e.state === 'logged') return false;
+          return !!e.id;
+        },
+        meAiDirectorVerbLabel(e) {
+          const v = (e && (e.verb || e.op)) || '';
+          return ({ cull: 'Culled', culled: 'Culled', absorb: 'Absorbed', absorbed: 'Absorbed', resolve: 'Resolved', resolved: 'Resolved', batch: 'Batched', pause: 'Paused', undo: 'Undone' })[v] || (v ? (v.charAt(0).toUpperCase() + v.slice(1)) : 'Acted');
+        },
+        meAiDirectorLegs() {
+          const pl = this.meai.pursuit.director.plan; const t = this.meai.pursuit.tree;
+          const by = {};
+          if (pl && Array.isArray(pl.per)) pl.per.forEach(x => {
+            const id = x.legId || '_spine';
+            if (!by[id]) by[id] = { legId: (x.legId || null), handled: 0, desk: 0 };
+            if (x.disposition && x.disposition !== 'ask') by[id].handled++; else by[id].desk++;
+          });
+          // Include every real leg the Director governs — a redirected or spun-off leg
+          // may carry no open stops yet but still belongs in the agents view.
+          if (t && t.legs) Object.keys(t.legs).forEach(lid => { if (!by[lid]) by[lid] = { legId: lid, handled: 0, desk: 0 }; });
+          return Object.keys(by).map(id => {
+            const row = by[id];
+            const leg = (row.legId && t && t.legs) ? t.legs[row.legId] : null;
+            row.title = (leg && leg.title) ? leg.title : (row.legId ? row.legId : 'Main thread');
+            row.goal = leg ? (leg.goal || '') : '';
+            row.status = leg ? (leg.status || '') : '';
+            row.redirected = !!(leg && leg.redirected);
+            row.priorGoal = leg ? (leg.priorGoal || '') : '';
+            row.drafted = !!(leg && leg.directorSpawn && (leg.status === 'planned'));
+            row.spawned = !!(leg && leg.directorSpawn);
+            return row;
+          }).sort((a, b) => (b.desk - a.desk) || (b.handled - a.handled));
+        },
+        // D1: redirect a leg whose premise went stale — the Director resets its goal and
+        // reroutes. Undoable from the ledger.
+        async meAiDirectorRedirect(legId) {
+          if (!legId) return;
+          const cur = ((this.meai.pursuit.tree && this.meai.pursuit.tree.legs) || {})[legId] || {};
+          const newGoal = window.prompt('Redirect this agent — what should it pursue instead?', cur.goal || '');
+          if (newGoal == null) return;
+          const g = String(newGoal).trim(); if (!g) return;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/redirect', { method: 'POST', body: JSON.stringify({ legId, newGoal: g }) });
+            this.toast && this.toast('Redirected — the agent is re-running on the new goal.');
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast && this.toast('Redirect failed: ' + (e.message || e)); }
+        },
+        // D2: spin off a bounded sub-agent to close a gap. Drafted by default (proposed ·
+        // not running); the confirm chooses whether to start it now.
+        async meAiDirectorSpawn(fromStopId) {
+          const goal = window.prompt('Spin off a bounded sub-agent inside this pursuit — what is its goal? (It runs here, max depth 1, and its findings return to this queue.)', '');
+          if (goal == null) return;
+          const g = String(goal).trim(); if (!g) return;
+          const run = window.confirm('Start it now?\n\nOK = start the sub-agent now.\nCancel = just draft it (proposed · not running).');
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal: g, fromStopId: fromStopId || null, run }) });
+            this.toast && this.toast(run ? 'Sub-agent started inside this pursuit.' : 'Sub-agent drafted — approve it in the ledger to run.');
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast && this.toast('Spin-off failed: ' + (e.message || e)); }
+        },
+        // Start an already-drafted sub-agent (its "Start now" affordance).
+        async meAiDirectorSpawnStart(legId) {
+          if (!legId) return;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ startLegId: legId }) });
+            this.toast && this.toast('Sub-agent started inside this pursuit.');
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast && this.toast('Start failed: ' + (e.message || e)); }
+        },
+        // Honesty (H1/H2): the single active state banner + the full catalogue.
+        meAiDirectorStateBanner() {
+          const d = this.meai.pursuit.director; if (!d.enabled) return null;
+          if (d.offline) return { h: 'Director is offline / stale', b: 'It can’t reach the pursuit right now, so nothing is auto-applied. You’re seeing the raw stops.' };
+          if (!d.leader) return { h: 'Running on another instance', b: 'Another synced instance is the leader and performs absorption. Here the Director is read-only.' };
+          if (d.paused) return { h: 'Director is paused', b: 'Nothing is auto-applied while paused. Resume it to let it absorb safe stops again.' };
+          if (!(d.grant && d.grant.id)) return { h: 'No standing grant', b: 'The Director is on but has no scope, so it plans without absorbing. Grant it a scope to reduce your desk.' };
+          const st = d.plan && d.plan.state;
+          if (st === 'unsure') return { h: 'Director is unsure', b: 'A few stops don’t fit a known safe class, so it left them for you rather than guess.' };
+          return null;
+        },
+        meAiDirectorStates() {
+          const d = this.meai.pursuit.director; const pl = d.plan || {};
+          const st = pl.state || (d.enabled ? 'active' : 'offline');
+          return [
+            { k: 'nothing-needs-you', active: (d.enabled && !d.paused && !d.offline && d.leader && (pl.deskCount === 0)), h: 'Nothing needs you', b: 'Every gated stop was safely absorbed or is still in flight; your desk is clear.' },
+            { k: 'unsure', active: st === 'unsure', h: 'Unsure — left for you', b: 'A stop didn’t match a provable-safe class, so the Director escalated instead of guessing.' },
+            { k: 'paused', active: !!d.paused, h: 'Paused', b: 'You paused autonomy; the Director plans but applies nothing.' },
+            { k: 'offline', active: !!d.offline, h: 'Offline / stale', b: 'The Director lost the pursuit; it falls back to raw stops until it reconnects.' },
+            { k: 'no-leader', active: !d.leader, h: 'Deferring to the leader', b: 'Another synced instance owns absorption; this view is read-only.' },
+            { k: 'partial-chain', active: false, h: 'Partial chain failure', b: 'A staged multi-step action failed midway; the Director compensates the applied steps and flags the rest.' },
+            { k: 'invalidated', active: false, h: 'Invalidated by later evidence', b: 'A newer finding contradicted an earlier absorption; the Director reopens it for review.' },
+            { k: 'spinoff-failed', active: false, h: 'Spun-off agent failed', b: 'A bounded sub-agent couldn’t converge; its work is escalated rather than merged.' },
+            { k: 'compensation-failed', active: false, h: 'Compensation failed', b: 'An undo couldn’t fully revert; the Director logs it as irreversible and flags dependents.' },
+          ];
+        },
+        meAiDirectorAutonomyHelp() {
+          return ({ cautious: 'Absorbs only exact duplicates and clearly reversible local edits. Everything else stays on your desk.', balanced: 'Also tie-breaks factual clashes with clear evidence and batches deliverables. Judgement calls stay yours.', full: 'Widest safe absorption within the grant. Never touches publish / send / spend / destructive — those are always yours.' })[this.meai.pursuit.director.autonomy] || '';
+        },
+        meAiDirectorGrantExpiry() {
+          const g = this.meai.pursuit.director.grant; const iso = g && g.expiresAt;
+          if (!iso) return ''; const dt = new Date(iso); if (isNaN(dt)) return '';
+          try { return dt.toLocaleDateString([], { month: 'short', day: 'numeric' }); } catch { return ''; }
+        },
+        // Rail directed-summary (A3): lazily fetch a per-task summary the first time a
+        // tree task with pending approvals renders, so the "Me agents at work" lane can
+        // show ONE directed line instead of the raw approval stream.
+        meAiDirectorRailSummary(tk) {
+          if (!tk || !tk.id) return null;
+          const cache = this.meai.directorSummary;
+          if (Object.prototype.hasOwnProperty.call(cache, tk.id)) return cache[tk.id];
+          cache[tk.id] = null;
+          this._meAiDirectorRailFetch(tk.id);
+          return null;
+        },
+        meAiDirectorRailActive(tk) {
+          const s = this.meAiDirectorRailSummary(tk);
+          return !!(s && s.active);
+        },
+        async _meAiDirectorRailFetch(tid) {
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(tid) + '/director');
+            const d = { enabled: !!r.enabled, paused: !!r.paused, offline: !!r.offline, leader: (r.leader !== false), grant: r.grant, plan: r.plan };
+            this.meai.directorSummary[tid] = this.meAiDirectorSummaryFor(d);
+          } catch (e) { this.meai.directorSummary[tid] = false; }
         },
         // Leg-chat: the per-leg transcript (main thread by default). Reuses the task's
         // event stream, filtered to the picked leg when the event carries a legId.
