@@ -209,6 +209,9 @@ function _gapTitle(s) {
   const first = (p.split(/[?.]\s/)[0] || p);
   return _clip(first, 52);
 }
+function _slug(str) {
+  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'x';
+}
 
 // Collapse the escalated stops into a handful of desk ITEMS (the whole point: turn a
 // stream of stops into a few decisions). Deliverables → one batch; held writes → one
@@ -229,12 +232,34 @@ function _groupDesk(deskNodes) {
       count: writeStops.length, stopIds: writeStops.map(s => s.stopId),
       detail: writeStops.length + ' write' + (writeStops.length === 1 ? '' : 's') + ' held for review (outside the grant or unverifiable).' });
   }
-  // A judgement clash carries its conflict subject as the row title (distinct, compact),
-  // a short one-line "why" meta, and the full prompt in `promptFull` for the detail pane.
-  clashStops.forEach((s, i) => items.push({ id: 'desk-clash-' + (s.stopId || i), kind: 'clash',
-    title: _clashTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId,
-    detail: 'Two legs reached opposite conclusions — not provable, so it stays your call.',
-    promptFull: s.prompt || 'A clash only you can settle.' }));
+  // Judgement clashes on the SAME subject are ONE decision: several legs independently
+  // reached opposing conclusions about the same thing. The user settles the subject once
+  // and the Director resolves every leg on it the same way (by STANCE, since A/B position
+  // can be flipped per conflict). Each grouped item carries `members` for stance-mapped
+  // resolution and `promptFull` for the detail pane.
+  const clashBySubject = new Map();
+  clashStops.forEach((s, i) => {
+    const key = (s.subject && String(s.subject).trim()) || ('_solo-' + (s.stopId || i));
+    if (!clashBySubject.has(key)) clashBySubject.set(key, []);
+    clashBySubject.get(key).push(s);
+  });
+  let ci = 0;
+  for (const group of clashBySubject.values()) {
+    const first = group[0];
+    const n = group.length;
+    const members = group.map(g => ({
+      stopId: g.stopId, legId: g.legId || null, conflictId: g.conflictId || null,
+      affirmSide: g.affirmSide || null, denySide: g.denySide || null,
+    }));
+    items.push({ id: 'desk-clash-' + (first.subject ? _slug(first.subject) : (first.stopId || ci)), kind: 'clash',
+      title: _clashTitle(first), count: n, legCount: n, subject: first.subject || null,
+      stopIds: group.map(g => g.stopId), legId: first.legId || null, members,
+      detail: n > 1
+        ? (n + ' legs reached opposite conclusions on this — settle it once and the Director closes all ' + n + '.')
+        : 'Two legs reached opposite conclusions — not provable, so it stays your call.',
+      promptFull: first.prompt || 'A clash only you can settle.' });
+    ci++;
+  }
   gapStops.forEach((s, i) => items.push({ id: 'desk-gap-' + (s.stopId || i), kind: 'gap',
     title: _gapTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId,
     detail: 'The leg needs information only you can supply.',
@@ -284,11 +309,18 @@ function planReduction(tree, policy) {
     // Paused / offline director never auto-applies: raw stops fall back to the desk.
     if ((paused || offline) && HANDLED.has(disp)) disp = 'ask';
     const _c = conflictById[s.conflictId];
+    // Map affirm/deny stance → A/B side so grouped resolution picks the right side per
+    // conflict even when the A/B positions are flipped between conflicts on one subject.
+    let affirmSide = null, denySide = null;
+    if (_c && _c.a && _c.b) {
+      if (_c.a.stance === 'affirm' || _c.b.stance === 'deny') { affirmSide = 'a'; denySide = 'b'; }
+      else if (_c.b.stance === 'affirm' || _c.a.stance === 'deny') { affirmSide = 'b'; denySide = 'a'; }
+    }
     return {
       stopId: s.id, cls, disposition: disp, reason: _reasonFor(cls, disp),
       legId: s.legId || null, target: _targetOf(s), prompt: s.prompt || '',
       conflictId: s.conflictId || null, risk: _riskOf(s) || null,
-      subject: (_c && _c.subject) || null,
+      subject: (_c && _c.subject) || null, affirmSide, denySide,
     };
   });
 

@@ -13400,6 +13400,8 @@
               .meai-dir-row-t { font-size:13px; font-weight:600; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-dir-row-w { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-dir-row-s { font-size:11px; margin-top:4px; color:var(--cp-text-soft,var(--cp-text-muted)); }
+              .meai-dir-clash-claim { font-size:13px; color:var(--cp-text); margin-top:6px; line-height:1.45; }
+              .meai-dir-clash-claim + .meai-dir-clash-claim { padding-top:6px; border-top:1px solid var(--cp-border,rgba(255,255,255,.06)); }
               .meai-dir-row-s.desk { color:#d97706; }
               .meai-dir-row-s.eff { color:#16a34a; }
               .meai-dir-row-go { color:var(--cp-text-muted); font-weight:700; align-self:center; }
@@ -16240,22 +16242,33 @@
                             <!-- DESK: clash (judgement call, subsumes the conflict panel) -->
                             <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='clash'">
                               <div>
-                                <div class="meai-dir-pane-h">This is a <b>judgement call</b>, not a fact the Director could verify — so it stays yours. Two legs reached opposite conclusions. Pick the one to keep and the Director closes the loop.</div>
-                                <template x-if="meAiDirectorClash(meai.pursuit.director.sel)">
+                                <div class="meai-dir-pane-h">
+                                  <template x-if="(meai.pursuit.director.sel.count||1) > 1">
+                                    <span><b x-text="meai.pursuit.director.sel.count"></b> legs independently reached opposite conclusions on <b x-text="meai.pursuit.director.sel.subject || meai.pursuit.director.sel.title"></b>. This is a <b>judgement call</b> the Director can't verify — pick a side once and it settles all <span x-text="meai.pursuit.director.sel.count"></span> the same way.</span>
+                                  </template>
+                                  <template x-if="(meai.pursuit.director.sel.count||1) <= 1">
+                                    <span>This is a <b>judgement call</b>, not a fact the Director could verify — so it stays yours. Two legs reached opposite conclusions. Pick the side to keep and the Director closes the loop.</span>
+                                  </template>
+                                </div>
+                                <template x-if="meAiDirectorClashGroup(meai.pursuit.director.sel)">
                                   <div>
                                     <div class="meai-dir-card">
-                                      <div class="meai-dir-kind">A · <span x-text="(meAiDirectorClash(meai.pursuit.director.sel).a||{}).stance || '—'"></span></div>
-                                      <div class="meai-dir-title" style="font-size:14px" x-text="(meAiDirectorClash(meai.pursuit.director.sel).a||{}).claim || ''"></div>
-                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy || !meAiDirectorClash(meai.pursuit.director.sel)._stopId" @click="meAiDirectorPickClash(meai.pursuit.director.sel,'a')">Keep A</button>
+                                      <div class="meai-dir-kind">Affirm the finding · <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).affirm.length"></span> <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).affirm.length===1?'leg':'legs'"></span></div>
+                                      <template x-for="e in meAiDirectorClashGroup(meai.pursuit.director.sel).affirm" :key="'af-'+e.stopId">
+                                        <div class="meai-dir-clash-claim" x-text="e.claim || '—'"></div>
+                                      </template>
+                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'affirm')" x-text="(meai.pursuit.director.sel.count||1) > 1 ? ('Keep affirm — all ' + meai.pursuit.director.sel.count) : 'Keep affirm'"></button>
                                     </div>
                                     <div class="meai-dir-card">
-                                      <div class="meai-dir-kind">B · <span x-text="(meAiDirectorClash(meai.pursuit.director.sel).b||{}).stance || '—'"></span></div>
-                                      <div class="meai-dir-title" style="font-size:14px" x-text="(meAiDirectorClash(meai.pursuit.director.sel).b||{}).claim || ''"></div>
-                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy || !meAiDirectorClash(meai.pursuit.director.sel)._stopId" @click="meAiDirectorPickClash(meai.pursuit.director.sel,'b')">Keep B</button>
+                                      <div class="meai-dir-kind">Deny · it's safe · <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).deny.length"></span> <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).deny.length===1?'leg':'legs'"></span></div>
+                                      <template x-for="e in meAiDirectorClashGroup(meai.pursuit.director.sel).deny" :key="'dn-'+e.stopId">
+                                        <div class="meai-dir-clash-claim" x-text="e.claim || '—'"></div>
+                                      </template>
+                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')" x-text="(meai.pursuit.director.sel.count||1) > 1 ? ('Keep deny — all ' + meai.pursuit.director.sel.count) : 'Keep deny'"></button>
                                     </div>
                                   </div>
                                 </template>
-                                <div x-show="!meAiDirectorClash(meai.pursuit.director.sel)" class="meai-pu-empty" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
+                                <div x-show="!meAiDirectorClashGroup(meai.pursuit.director.sel)" class="meai-pu-empty" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
                               </div>
                             </template>
 
@@ -41448,6 +41461,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return bits.join(' · ') || 'Nothing absorbed yet.';
         },
         meAiDirectorDeskKind(it) {
+          if (it && it.kind === 'clash' && it.count > 1) return 'Judgement call · ' + it.count + ' legs — one decision';
           return ({ clash: 'Judgement call — your decision', chain: 'Held writes — review', batch: 'Deliverables — approve once', gap: 'Needs your input' })[it && it.kind] || 'Needs you';
         },
         meAiDirectorDispLabel(disp) {
@@ -41486,6 +41500,49 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const d = this.meai.pursuit.director; d.busy = true;
           Promise.resolve(this.meAiPursuitResolvePick(c._stopId, pick, c.subject || ''))
             .finally(() => { d.busy = false; this.meAiDirectorAfterAction(); });
+        },
+        // Grouped judgement clash: several legs on ONE subject. Build the affirm/deny
+        // clusters (stance-mapped, so flipped A/B positions still land on the right side).
+        meAiDirectorClashGroup(item) {
+          if (!item) return null;
+          const members = (Array.isArray(item.members) && item.members.length)
+            ? item.members
+            : (Array.isArray(item.stopIds) ? item.stopIds.map(sid => ({ stopId: sid, conflictId: null, affirmSide: null, denySide: null })) : []);
+          if (!members.length) return null;
+          const conflicts = this.meAiPursuitConflicts();
+          const byId = {}; conflicts.forEach(c => { if (c && c.id) byId[c.id] = c; });
+          const affirm = [], deny = [];
+          members.forEach(m => {
+            let c = m.conflictId ? byId[m.conflictId] : null;
+            if (!c) { const s = this.meAiDirectorStop(m.stopId); c = s && s.conflictId ? byId[s.conflictId] : null; }
+            if (!c) return;
+            const aSide = m.affirmSide || (c.a && c.a.stance === 'affirm' ? 'a' : (c.b && c.b.stance === 'affirm' ? 'b' : 'a'));
+            const dSide = m.denySide || (aSide === 'a' ? 'b' : 'a');
+            const av = c[aSide] || {}, dv = c[dSide] || {};
+            affirm.push({ stopId: m.stopId, legId: av.legId || m.legId || null, claim: av.claim || '', conf: av.confidence });
+            deny.push({ stopId: m.stopId, legId: dv.legId || m.legId || null, claim: dv.claim || '', conf: dv.confidence });
+          });
+          if (!affirm.length && !deny.length) return null;
+          return { subject: item.subject || item.title || '', count: members.length, affirm, deny };
+        },
+        // Settle the whole subject in one click: resolve every member leg toward the
+        // chosen stance. The user picks once; the Director closes N stops (G5 burden cut).
+        async meAiDirectorPickClashGroup(item, stance) {
+          const p = this.meai.pursuit; const d = p.director;
+          const members = (item && Array.isArray(item.members) && item.members.length) ? item.members
+            : (item && Array.isArray(item.stopIds) ? item.stopIds.map(sid => ({ stopId: sid })) : []);
+          if (!p.tid || !members.length) return;
+          d.busy = true; let done = 0;
+          try {
+            for (const m of members) {
+              const pick = stance === 'affirm' ? (m.affirmSide || 'a') : (m.denySide || 'b');
+              const note = (pick === 'b' ? 'Pick option B' : 'Pick option A') + ' — ' + (item.subject || item.title || 'clash') + ' (' + stance + ')';
+              await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/answer', { method: 'POST', body: JSON.stringify({ stopId: m.stopId, text: note }) });
+              done++;
+            }
+            this.toast('Settled ' + done + ' leg' + (done === 1 ? '' : 's') + ' on "' + (item.subject || item.title || 'this') + '" as ' + stance + ' — Director is closing them', 'success');
+          } catch (e) { this.toast('Could not settle: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
         },
         async meAiDirectorApproveBatch(item) {
           const p = this.meai.pursuit; const d = p.director; if (!item || !Array.isArray(item.stopIds)) return;
