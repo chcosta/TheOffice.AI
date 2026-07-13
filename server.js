@@ -23568,8 +23568,8 @@ function _meAiDirectorPolicy(id, tree) {
   // classify with the model's verb-based judgement (not the noun regex). Absent a reasoning
   // pass this is null and the deterministic classifier runs unchanged — nothing breaks.
   try {
-    const ai = _meAiDirectorAiCache.get(id);
-    if (ai && ai.verdicts) { policy.aiVerdicts = ai.verdicts; policy.aiInsights = ai.insights || null; policy.aiReasonedAt = ai.ts || null; }
+    const ai = _meAiDirAiGet(id);
+    if (ai && ai.verdicts) { policy.aiVerdicts = ai.verdicts; policy.aiInsights = ai.insights || null; policy.aiReasonedAt = ai.ts || null; policy.aiSig = ai.sig || null; }
   } catch (_) {}
   return policy;
 }
@@ -23597,6 +23597,28 @@ function _meAiDirectorView(id) {
 // stops are re-reasoned. The pure planner (director.js) consumes these and STILL enforces
 // the rails (grant scope, deliverables never absorb, low-confidence never auto-applies).
 const _meAiDirectorAiCache = new Map(); // pursuitId -> { sig, verdicts, insights, ts }
+// The AI judgement is the Director's SOURCE OF TRUTH — the deterministic classifier is only a
+// last-resort fallback. So the verdicts must survive a server restart; otherwise every restart
+// drops the user back onto the noun-regex numbers until a fresh ~minutes-long pass reruns. We
+// mirror the in-memory cache to one small JSON per pursuit and rehydrate lazily on first access.
+const ME_AI_DIRECTOR_AI_DIR = path.join(dataPath('me-ai'), 'director-ai');
+function _meAiDirAiDiskPath(id) { return path.join(ME_AI_DIRECTOR_AI_DIR, String(id).replace(/[^a-z0-9._-]/gi, '_') + '.json'); }
+function _meAiDirAiGet(id) {
+  const m = _meAiDirectorAiCache.get(id);
+  if (m) return m;
+  try {
+    const p = _meAiDirAiDiskPath(id);
+    if (fs.existsSync(p)) {
+      const rec = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (rec && rec.verdicts) { _meAiDirectorAiCache.set(id, rec); return rec; }
+    }
+  } catch (_) {}
+  return null;
+}
+function _meAiDirAiSet(id, rec) {
+  _meAiDirectorAiCache.set(id, rec);
+  try { fs.mkdirSync(ME_AI_DIRECTOR_AI_DIR, { recursive: true }); fs.writeFileSync(_meAiDirAiDiskPath(id), JSON.stringify(rec)); } catch (_) {}
+}
 
 function _meAiDirClip(s, n) { s = String(s == null ? '' : s); return s.length > n ? (s.slice(0, n - 1) + '…') : s; }
 function _meAiDirSideBrief(v) {
@@ -23699,14 +23721,14 @@ async function _meAiDirectorReason(id, opts) {
   const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
   if (!tree) return { ok: false, error: 'no-pursuit' };
   const sig = _meAiDirOpenSig(tree);
-  const cached = _meAiDirectorAiCache.get(id);
+  const cached = _meAiDirAiGet(id);
   if (!opts.force && cached && cached.sig === sig && cached.verdicts) {
     return { ok: true, cached: true, sig, count: Object.keys(cached.verdicts).length, insights: cached.insights || null };
   }
   const brief = _meAiDirectorBrief(tree);
   if (!brief.stops.length) {
     const empty = { sig, verdicts: {}, insights: null, ts: new Date().toISOString() };
-    _meAiDirectorAiCache.set(id, empty);
+    _meAiDirAiSet(id, empty);
     return { ok: true, cached: false, sig, count: 0, insights: null };
   }
   const prompt = _meAiDirectorReasonPrompt(brief);
@@ -23741,7 +23763,7 @@ async function _meAiDirectorReason(id, opts) {
     newGoals: Array.isArray(parsed.insights.newGoals) ? parsed.insights.newGoals.slice(0, 12) : [],
   } : null;
   const rec = { sig, verdicts, insights, ts: new Date().toISOString(), model: out.model || model || null };
-  _meAiDirectorAiCache.set(id, rec);
+  _meAiDirAiSet(id, rec);
   return { ok: true, cached: false, sig, count: Object.keys(verdicts).length, insights };
 }
 

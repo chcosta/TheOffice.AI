@@ -467,6 +467,15 @@ function planReduction(tree, policy) {
   const deskNodes = per.filter(p => !HANDLED.has(p.disposition));
   const deskItems = _groupDesk(deskNodes);
 
+  // AI coverage of the CURRENT open set. `aiActive` merely means some verdicts exist (possibly
+  // stale from an earlier open set); `aiComplete` means every open stop has been judged by the
+  // model, so what the desk shows is the AI's verdict — not the deterministic fallback. When a
+  // stop lacks a verdict (new work parked since the last pass, or the pass never ran) we are
+  // `aiPending`: the surface should say "judging…" rather than present fallback counts as final.
+  const aiJudgedCount = per.filter(p => p.aiUsed).length;
+  const aiComplete = !!aiVerdicts && openStops.length > 0 && aiJudgedCount === openStops.length;
+  const aiPending = !!policy.enabled && openStops.length > 0 && !aiComplete;
+
   const countDisp = d => per.filter(p => p.disposition === d).length;
   const reconciliation = {
     total: openStops.length,
@@ -497,6 +506,7 @@ function planReduction(tree, policy) {
     // new goals). Null when the model has not run — the deterministic funnel is fully usable
     // without it, insights are additive judgement on top.
     aiActive: !!aiVerdicts,
+    aiJudgedCount, aiComplete, aiPending,
     insights: (policy.aiInsights && typeof policy.aiInsights === 'object') ? policy.aiInsights : null,
   };
 }

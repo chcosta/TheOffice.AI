@@ -15967,9 +15967,9 @@
                                 <div class="meai-dir-reduce-sub">The Director handled <b x-text="meAiDirectorHandledCount()"></b> of <b x-text="meAiDirectorTotal()"></b> gated stops. <b x-text="meAiDirectorDeskCount()"></b> <span x-text="meAiDirectorDeskCount()===1?'decision needs':'decisions need'"></span> you.
                                   <a @click="meAiPursuitDirectorLoad()">Re-check ↻</a></div>
                                 <div class="meai-dir-reduce-sub" style="margin-top:5px;display:flex;align-items:center;gap:8px">
-                                  <span x-show="meai.pursuit.director._reasoning" style="color:var(--cp-text-muted)">Director is judging each stop…</span>
-                                  <span x-show="!meai.pursuit.director._reasoning && meai.pursuit.director.reasonedAt" style="color:#16a34a">✓ AI-judged</span>
-                                  <span x-show="!meai.pursuit.director._reasoning && !meai.pursuit.director.reasonedAt && !meai.pursuit.director.reasonErr" style="color:var(--cp-text-muted)">Deterministic fallback</span>
+                                  <span x-show="meai.pursuit.director._reasoning || (meai.pursuit.director.plan && meai.pursuit.director.plan.aiPending && !meai.pursuit.director.reasonErr)" style="color:var(--cp-text-muted)">Director is judging each stop… <span x-show="!meai.pursuit.director._reasoning" style="opacity:.7">(this can take a few minutes)</span></span>
+                                  <span x-show="!meai.pursuit.director._reasoning && meai.pursuit.director.plan && meai.pursuit.director.plan.aiComplete" style="color:#16a34a">✓ AI-judged</span>
+                                  <span x-show="!meai.pursuit.director._reasoning && meai.pursuit.director.plan && !meai.pursuit.director.plan.aiPending && !meai.pursuit.director.plan.aiComplete && !meai.pursuit.director.reasonErr" style="color:var(--cp-text-muted)">Deterministic fallback</span>
                                   <span x-show="meai.pursuit.director.reasonErr" style="color:#d97706" x-text="'AI: '+meai.pursuit.director.reasonErr"></span>
                                   <a x-show="!meai.pursuit.director._reasoning" @click="meAiPursuitDirectorReason(true)" style="cursor:pointer">Re-judge with AI ↻</a></div>
                               </div>
@@ -41491,11 +41491,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               p._navDefaulted = true;
               if (this.meAiDirectorActive()) p.nav = 'director';
             }
-            // First time we open a governed pursuit with parked work and no verdicts yet,
-            // fire the AI judgement pass so the panes show the model's real reasoning
-            // (verb-based risk) instead of the deterministic fallback. Once per open.
-            if (this.meAiDirectorActive() && !d.reasonedAt && !d._reasoning && !p._reasonKicked
-                && d.plan && ((d.plan.total || 0) > 0)) {
+            // First time we open a governed pursuit whose current open set isn't fully judged,
+            // fire the AI judgement pass so the panes show the model's real reasoning (verb-based
+            // risk) instead of the deterministic fallback. `aiPending` also covers a stale disk
+            // cache (verdicts from an earlier open set) — not just a cold/never-run cache. Once
+            // per open so a manual switch or refresh poll won't re-fire it.
+            if (this.meAiDirectorActive() && !d._reasoning && !p._reasonKicked
+                && d.plan && ((d.plan.total || 0) > 0)
+                && (d.plan.aiPending || !d.reasonedAt)) {
               p._reasonKicked = true;
               this.meAiPursuitDirectorReason(false);
             }
