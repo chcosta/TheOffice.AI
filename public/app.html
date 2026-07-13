@@ -19526,7 +19526,7 @@
                           </div>
 
                           <div class="pc-strip" x-show="pulseComedyStrip()" x-data="{ c: pulseComedyStrip() }">
-                            <div class="pc-sec-h"><span class="i">🗞️</span><span class="t">Daily strip</span><span class="c" x-show="c &amp;&amp; c.premise" x-text="'· ' + c.premise"></span><button class="pc-share-btn" @click="pulseShareStrip()">Share</button></div>
+                            <div class="pc-sec-h"><span class="i">🗞️</span><span class="t">Daily strip</span><span class="c" x-show="c &amp;&amp; c.premise" x-text="'· ' + c.premise"></span><span class="c" x-show="pulse.gatheredAt" x-text="'· ' + pulseGenStamp(pulse.gatheredAt)"></span><button class="pc-share-btn" @click="pulseShareStrip()">Share</button></div>
                             <div class="pc-strip-art clickable" @click="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" title="View fullscreen">
                               <button class="pc-s-full" @click.stop="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                               <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? c.art.svg : ''"></div>
@@ -19535,7 +19535,7 @@
 
                           <!-- Today's bit -->
                           <div class="pc-sec" x-show="pulseActiveComedy().bit">
-                            <div class="pc-sec-h"><span class="i">🏆</span><span class="t">Today's bit</span><button class="pc-share-btn" @click="pulseShareBit()">Share</button></div>
+                            <div class="pc-sec-h"><span class="i">🏆</span><span class="t">Today's bit</span><span class="c" x-show="pulse.gatheredAt" x-text="pulseGenStamp(pulse.gatheredAt)"></span><button class="pc-share-btn" @click="pulseShareBit()">Share</button></div>
                             <div class="pc-bit" x-data="{ b: pulseActiveComedy().bit }">
                               <div class="pc-artrow">
                                 <div class="pc-artbody">
@@ -19554,7 +19554,7 @@
                                     <img x-show="b.art && b.art.img" :src="b.art ? b.art.img : ''" alt="" loading="lazy">
                                     <div x-show="b.art && !b.art.img" x-html="b.art ? b.art.svg : ''" style="width:100%;height:100%"></div>
                                   </div>
-                                  <div class="pc-lab" x-text="(b.art ? b.art.kind : 'meme') + (b.art && b.art.img ? '' : ' · generated')"></div>
+                                  <div class="pc-lab" x-text="(b.art ? b.art.kind : 'meme') + (b.art && b.art.img ? '' : ' · generated') + (b.art && b.art.vault && b.art.createdAt ? ' · from the vault · first made ' + pulseAgo(b.art.createdAt) : '')"></div>
                                 </div>
                               </div>
                             </div>
@@ -19562,7 +19562,7 @@
 
                           <!-- Running gags -->
                           <div class="pc-sec" x-show="pulseActiveComedy().gags && pulseActiveComedy().gags.length">
-                            <div class="pc-sec-h"><span class="i">🔁</span><span class="t">Running gags</span><span class="c" x-text="pulseActiveComedy().gags.length + ' recurring'"></span></div>
+                            <div class="pc-sec-h"><span class="i">🔁</span><span class="t">Running gags</span><span class="c" x-text="pulseActiveComedy().gags.length + ' recurring'"></span><span class="c" x-show="pulse.gatheredAt" x-text="'· ' + pulseGenStamp(pulse.gatheredAt)"></span></div>
                             <div class="pc-sec-sub">Bits the team keeps coming back to — tracked across messages, not one-offs.</div>
                             <div class="pc-list">
                               <template x-for="(g, gi) in pulseActiveComedy().gags" :key="gi">
@@ -19583,7 +19583,7 @@
                                         <img x-show="g.art && g.art.img" :src="g.art ? g.art.img : ''" alt="" loading="lazy">
                                         <div x-show="g.art && !g.art.img" x-html="g.art ? g.art.svg : ''" style="width:100%;height:100%"></div>
                                       </div>
-                                      <div class="pc-lab" x-text="(g.art ? g.art.kind : 'meme') + (g.art && g.art.img ? '' : ' · generated')"></div>
+                                      <div class="pc-lab" x-text="(g.art ? g.art.kind : 'meme') + (g.art && g.art.img ? '' : ' · generated') + (g.art && g.art.vault && g.art.createdAt ? ' · from the vault · first made ' + pulseAgo(g.art.createdAt) : '')"></div>
                                     </div>
                                   </div>
                                 </div>
@@ -19593,7 +19593,7 @@
 
                           <!-- Overheard -->
                           <div class="pc-sec" x-show="pulseActiveComedy().overheard && pulseActiveComedy().overheard.length">
-                            <div class="pc-sec-h"><span class="i">💬</span><span class="t">Overheard</span><span class="c">standalone lines that landed</span></div>
+                            <div class="pc-sec-h"><span class="i">💬</span><span class="t">Overheard</span><span class="c">standalone lines that landed</span><span class="c" x-show="pulse.gatheredAt" x-text="'· ' + pulseGenStamp(pulse.gatheredAt)"></span></div>
                             <div class="pc-list">
                               <template x-for="(o, oi) in pulseActiveComedy().overheard" :key="oi">
                                 <div class="pc-line">
@@ -21740,6 +21740,12 @@
                   <option value="done">Finished</option>
                   <option value="error">Errored</option>
                   <option value="deleted">Deleted</option>
+                </select>
+                <select class="mr-q" x-model="meAiRunSort" aria-label="Sort runs">
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="legs">Most legs</option>
+                  <option value="name">Name (A–Z)</option>
                 </select>
                 <input class="mr-q" type="search" x-model="meAiRunSearch" placeholder="Search runs…" aria-label="Search runs" />
                 <span class="mr-spacer"></span>
@@ -28647,7 +28653,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         autoView: (() => { try { const v = localStorage.getItem('automation-view'); return (v === 'flows' || v === 'meai') ? v : 'tasks'; } catch (_) { return 'tasks'; } })(),
         // Me.AI runs view (Automation → Me.AI tab)
         meAiRuns: [], meAiRunsLoading: false, meAiRunsBusy: '', meAiRunSel: null,
-        meAiRunDepth: 'all', meAiRunStatus: 'all', meAiRunSearch: '', meAiRunChecked: {},
+        meAiRunDepth: 'all', meAiRunStatus: 'all', meAiRunSort: 'newest', meAiRunSearch: '', meAiRunChecked: {},
         flowPaletteFilter: '',
         flowPaletteTab: 'agents',
         flowPaletteW: (() => { const v = parseInt(localStorage.getItem('flow-palette-w') || '', 10); return (v >= 190 && v <= 520) ? v : 230; })(),
@@ -28879,6 +28885,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // merged / materially-changed PRs and raise a dismissable banner.
           setTimeout(() => this.codeflowAutoRefresh(false), 20000);
           this._codeflowAutoTimer = setInterval(() => this.codeflowAutoRefresh(true), 900000);
+          // Pulse.AI truly-background auto-refresh: the page's own auto-refresh only
+          // fired when you navigated TO Pulse, so "Auto-refreshes hourly" was a lie
+          // when you were elsewhere (it'd read "updated 18h ago"). Tick every few
+          // minutes regardless of route so an overdue read regenerates on its own.
+          setTimeout(() => this._pulseBackgroundTick(), 30000);
+          this._pulseBgTimer = setInterval(() => this._pulseBackgroundTick(), 300000);
           // Keep the board canvas sized so it's the only scroller (no double scrollbars).
           window.addEventListener('resize', () => { if (this.route === 'boards') this._recalcBoardCanvasH(); });
           // Multi-client single-writer: when this tab becomes the visible client again, re-fit ONCE
@@ -29591,7 +29603,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiRunFiltered() {
           const depth = this.meAiRunDepth, st = this.meAiRunStatus, q = (this.meAiRunSearch || '').trim().toLowerCase();
-          return (this.meAiRuns || []).filter(r => {
+          const out = (this.meAiRuns || []).filter(r => {
             const key = this.meAiRunStatusKey(r);
             // Deleted runs stay hidden unless explicitly viewing All or Deleted.
             if (r.deleted && st !== 'all' && st !== 'deleted') return false;
@@ -29601,6 +29613,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (q) { const hay = ((r.title || '') + ' ' + (r.goal || '') + ' ' + (r.playbook || '')).toLowerCase(); if (!hay.includes(q)) return false; }
             return true;
           });
+          const ts = (r) => Date.parse((r && (r.finishedAt || r.updatedAt || r.startedAt || r.createdAt)) || '') || 0;
+          const legs = (r) => (r && r.fan && r.fan.legs) || 0;
+          const name = (r) => ((r && (r.title || r.goal)) || '').toLowerCase();
+          const sort = this.meAiRunSort || 'newest';
+          out.sort((a, b) => {
+            if (sort === 'oldest') return ts(a) - ts(b);
+            if (sort === 'legs') return legs(b) - legs(a) || ts(b) - ts(a);
+            if (sort === 'name') return name(a).localeCompare(name(b));
+            return ts(b) - ts(a); // newest
+          });
+          return out;
         },
         meAiRunGroups() {
           const list = this.meAiRunFiltered();
@@ -36705,6 +36728,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           (w.threads || []).forEach(t => { if (t && t.key) byKey[t.key] = t; });
           w._byKey = byKey;
           w.loaded = true;
+        },
+        // Background auto-refresh tick (runs on a global timer, any route). Keeps the
+        // "Auto-refreshes hourly / updated Xh ago" promise honest while the app is open
+        // instead of only refreshing when you happen to open the Pulse page. Cheap: a
+        // GET hydrates consent + last-read time; the expensive gather only runs when the
+        // read is actually overdue per the user's chosen cadence.
+        async _pulseBackgroundTick() {
+          const w = this.pulse;
+          if (!w || w.busy) return;
+          if (!this.pulseAutoMin()) return;           // auto-refresh disabled
+          // Hydrate consent + gatheredAt without navigating to the page. On the Pulse
+          // route loadPulse already handles this, so skip to avoid a double GET.
+          if (this.route !== 'pulse') {
+            try {
+              const r = await this.request('/api/me-ai/pulse');
+              this._pulseApply(r);
+            } catch { return; }
+          }
+          if (!w.consent || w.busy) return;
+          if (this._pulseAutoDue()) {
+            w._autoRefreshed = true;
+            this.pulseRefresh();
+          } else if (w.busy) {
+            this._pulseStartPoll();
+          }
         },
         async pulseRefresh() {
           if (this.pulse.busy) return;
@@ -45910,6 +45958,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               body: JSON.stringify({ org: rec.org, project: rec.project, repo: rec.repo, prId: rec.prId, provider: rec.provider })
             });
             if (r && r.dir) dir = r.dir;
+            if (r && r.recreated) {
+              rec.worktreePath = r.dir; rec.worktreeStatus = 'ready';
+              this.showToast('Worktree', 'Folder was missing — recreated it and reattached the agent.', 'success');
+            }
           } catch (e) { /* fall back to the review worktree path */ }
           try {
             await this.request('/api/fs/open', {
@@ -55883,6 +55935,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/codeflow/pr/worktree/open-dir', { method: 'POST', body: JSON.stringify(this._prReqBody(pr)) });
             if (r && r.dir) dir = r.dir;
+            if (r && r.recreated) {
+              rec.worktreePath = r.dir; rec.worktreeStatus = 'ready';
+              this.showToast('Pull request', 'Worktree folder was missing — recreated it and reattached the agent.', 'success');
+            }
           } catch (e) { /* fall back to the review worktree path */ }
           try {
             await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify({ path: dir, target: 'cli', agent: ag.slug || undefined }) });

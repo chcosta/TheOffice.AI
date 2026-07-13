@@ -3642,24 +3642,88 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
 // real branch worktree: an existing one (e.g. a dev card's Work worktree) if present,
 // otherwise the review worktree attached onto the branch when it's free. Falls back
 // to the review worktree path. Returns { dir, branch, reused, attached, detached }.
-app.post('/api/codeflow/pr/worktree/open-dir', (req, res) => {
+// Recreate a Code Flow PR worktree whose folder was deleted from disk, and
+// regenerate its steward/reviewer agent so Launch/CLI reattach to a live worktree
+// instead of dead-ending on "Folder not found". Fetches the PR fresh for grounded
+// agent context but falls back to the stored branches/title on the worktree record
+// when the forge is unreachable, so a purely-local recovery still works. The managed
+// clone still has the branch, so this is a fast `git worktree add`, not a fresh clone.
+// Returns the refreshed worktree record. Throws only if the worktree add fails.
+async function _cfRecreateWorktree(o, rec) {
+  const key = _cfWtKey(o);
+  const devId = _cfWtDevId(o);
+  let pr = null;
+  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); } catch { /* offline fallback below */ }
+  const sourceBranch = (pr && pr.sourceBranch) || (rec && rec.sourceBranch) || '';
+  const targetBranch = (pr && pr.targetBranch) || (rec && rec.targetBranch) || '';
+  if (!sourceBranch) throw new Error('the PR branch is unknown — re-scan the PR first');
+  const view = (rec && rec.view) || 'reviews';
+  _cfActiveWorktrees.add(key);   // mark live so the watchdog leaves it alone mid-recreate
+  try {
+    _saveCfWt(key, { worktreeStatus: 'creating', error: null, worktreeStartedAt: new Date().toISOString(), sourceBranch, targetBranch });
+    const wt = await devitems.createWorktreeAsync({
+      org: o.org, project: o.project, repo: o.repo, provider: o.provider,
+      baseBranch: targetBranch, branch: sourceBranch, devId, detach: true
+    });
+    let fresh = _saveCfWt(key, {
+      worktreePath: wt.worktreePath, branch: wt.branch,
+      worktreeStatus: 'ready', error: null, git: wt.git || null
+    });
+    // Regenerate the agent from scratch — the on-disk copy died with the folder, so
+    // _cfEnsureAgentFile (which copies a surviving sibling) has nothing to seed from.
+    try {
+      const prCtx = pr
+        ? { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy }
+        : { id: o.prId, org: o.org, project: o.project, repo: o.repo, title: (rec && rec.prTitle) || '', url: (rec && rec.prUrl) || '', sourceBranch, targetBranch };
+      let workItems = [];
+      try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+      let threads = [];
+      if (view === 'mine') { try { threads = await forge(o).getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
+      const agent = _writeCfReviewAgentFile(fresh, prCtx, workItems, { view, threads });
+      if (agent) fresh = _saveCfWt(key, agent);
+    } catch { /* agent regen is best-effort; the worktree itself is already usable */ }
+    return fresh;
+  } finally {
+    _cfActiveWorktrees.delete(key);
+  }
+}
+
+app.post('/api/codeflow/pr/worktree/open-dir', async (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
   if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
-  const rec = _getCfWt(_cfWtKey(o));
-  const current = rec && rec.worktreePath ? rec.worktreePath : '';
+  const key = _cfWtKey(o);
+  let rec = _getCfWt(key);
+  let current = rec && rec.worktreePath ? rec.worktreePath : '';
   if (!current) return res.json({ dir: '' });
+  const resolveDir = () => {
+    try {
+      return devitems.resolveUsableWorktree({
+        org: o.org, project: o.project, repo: o.repo,
+        sourceBranch: rec.sourceBranch, current
+      });
+    } catch { return { dir: current, branch: (rec && rec.sourceBranch) || '', reused: false, attached: false }; }
+  };
+  // Self-heal: if the worktree folder was deleted from disk (the #1 cause of "Folder
+  // not found" when Launch/CLI dead-ends), recreate it on the PR branch and reattach
+  // the steward/reviewer agent so the buttons just work instead of erroring out.
+  let recreated = false;
+  let r = resolveDir();
+  const dirGone = !(r && r.dir && fs.existsSync(r.dir));
+  if (dirGone) {
+    try {
+      rec = await _cfRecreateWorktree(o, rec);
+      current = rec && rec.worktreePath ? rec.worktreePath : current;
+      recreated = true;
+      r = resolveDir();
+    } catch (e) {
+      return res.status(500).json({ error: 'The worktree folder was missing and could not be recreated: ' + ((e && e.message) || e), missing: true });
+    }
+  }
   // Seed the agent file into every on-branch worktree before handing a dir to the
   // CLI, so the resolved dir always has the steward/reviewer .agent.md.
   try { _cfEnsureAgentFile(rec); } catch { /* best-effort */ }
-  let r;
-  try {
-    r = devitems.resolveUsableWorktree({
-      org: o.org, project: o.project, repo: o.repo,
-      sourceBranch: rec.sourceBranch, current
-    });
-  } catch { r = { dir: current, branch: rec.sourceBranch || '', reused: false, attached: false }; }
-  res.json({ dir: (r && r.dir) || current, branch: r && r.branch, reused: !!(r && r.reused), attached: !!(r && r.attached) });
+  res.json({ dir: (r && r.dir) || current, branch: r && r.branch, reused: !!(r && r.reused), attached: !!(r && r.attached), recreated });
 });
 
 // ---- Code Flow PR notes --------------------------------------------------
@@ -26870,7 +26934,7 @@ function _pulseComedyArt(sourceKey, kind, spec, opts) {
       bl.items.push(entry);
     }
     _pulseComedySaveBacklog(bl);
-    return { id: entry.id, kind: entry.kind, svg: entry.svg, img: entry.img || '', template: entry.template || '', title: entry.title || '', captions: entry.captions, vault: (entry.showCount || 1) > 1 };
+    return { id: entry.id, kind: entry.kind, svg: entry.svg, img: entry.img || '', template: entry.template || '', title: entry.title || '', captions: entry.captions, vault: (entry.showCount || 1) > 1, createdAt: entry.createdAt || '', at: entry.lastShownAt || entry.createdAt || '' };
   } catch { return null; }
 }
 // Assemble The Reel: recent generated art first, then a couple of "from the vault"
