@@ -20554,6 +20554,17 @@ function _meAiFoldJournal(id) {
           if (e) { e.state = 'undone'; e.undoneAt = r.at; }
         } else if (r.op === 'sweep') {
           state.director.lastSweepAt = r.at; if (r.grantId) state.director.grantId = r.grantId;
+        } else if (r.op === 'pr') {
+          // Durable PR-shepherd record. `pr:null` unbinds (stop shepherding); a partial
+          // object merges (headSha/attemptsBySha/state/pollCount/stuck/fixLeg…). Ownership
+          // is set once at bind time and never widened by a merge.
+          if (r.pr === null) { state.director.pr = null; }
+          else if (r.pr && typeof r.pr === 'object') {
+            const cur = state.director.pr || {};
+            const merged = Object.assign({}, cur, r.pr);
+            if (cur.ownership && !r.pr.ownership) merged.ownership = cur.ownership;
+            state.director.pr = merged;
+          }
         }
         break;
       }
@@ -23799,6 +23810,237 @@ async function _meAiDirectorReason(id, opts) {
   return { ok: true, cached: false, sig, count: Object.keys(verdicts).length, insights };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Director PR shepherding — self-healing CI on a PR the pursuit OWNS.
+//
+// Once a pursuit's PR exists, the Director watches its required checks and, on
+// failure, drives it back to green without a fresh user approval: observe → fix
+// legs → integrate+push → re-observe, or give up SAFELY (comment on the PR with
+// what it hit/tried/concluded, mark it stuck, and surface a one-click "Abandon"
+// on the desk — it NEVER silently closes a PR).
+//
+// SAFETY INVARIANTS:
+//  • observePr() is strictly READ-ONLY (GETs only; zero mutation / ledger /
+//    dispatch / comment). Every write happens only inside the leader+grant-gated
+//    tick below, which re-checks leader + grant + ownership immediately before
+//    each external write.
+//  • Authorization to touch its OWN bound PR (comment / self-push) is OWNERSHIP-
+//    gated, not an extra grant op — that honors "auth shouldn't be required to
+//    update its own PR". Actual close/abandon is a distinct one-click DESK action
+//    (or the `pr-block` grant op), never a silent standing default.
+//  • The auto-fix + self-push loop is behind a flag (default OFF) until the
+//    hardened push primitive is live-verified. With it OFF, a failing PR the
+//    Director can't hand-hold surfaces honestly on the desk instead of spinning
+//    fix legs whose commits it can't land.
+const _MEAI_PR_AUTOFIX = process.env.MEAI_PR_AUTOFIX === '1';
+const _meAiPrTickInflight = new Set(); // pursuitId — guards the async observe pass
+
+// Compact REQUIRED-check classifier — mirrors _enrichCodeflowPr's required/optional
+// split without its heavy enrichment. Required = a blocking build gate, a blocking
+// Status-type policy evaluation's named check, or (AzDO) a build. "Proof of presence"
+// is a merge-time human attestation, not a CI failure, so it's excluded.
+function _meAiDirClassifyRequired(statuses, policy) {
+  const isPoP = (n) => /proof\s*of\s*presence/i.test(n || '');
+  const rows = [];
+  for (const b of ((policy && policy.builds) || [])) {
+    const map = { approved: 'succeeded', rejected: 'failed', running: 'pending', queued: 'pending', canceled: 'error', partiallysucceeded: 'failed' };
+    rows.push({ name: b.name || ('build-' + (b.buildId || '')), state: map[(b.state || '').toLowerCase()] || 'notSet', required: !!b.blocking });
+  }
+  const requiredNames = new Set();
+  for (const e of ((policy && policy.evaluations) || [])) {
+    if (e && /status/i.test(e.type || '') && e.statusName && e.blocking) requiredNames.add(String(e.statusName).toLowerCase());
+  }
+  for (const s of (statuses || [])) {
+    rows.push({ name: s.name || '', state: s.state || 'notSet', required: requiredNames.has(String(s.name || '').toLowerCase()) });
+  }
+  const failed = [], pending = [], passed = [];
+  for (const c of rows) {
+    if (!c.required || isPoP(c.name)) continue;
+    if (c.state === 'failed' || c.state === 'error') failed.push(c.name);
+    else if (c.state === 'pending' || c.state === 'notSet') pending.push(c.name);
+    else passed.push(c.name);
+  }
+  return { failed, pending, passed };
+}
+
+// PURE read-only observation for the CURRENT head SHA. Fetches the PR (head sha/ref
+// + open/closed), its checks, and its policy; classifies required checks; and proves
+// ownership still holds (bound ref + head-repo identity unchanged AND PR still open).
+// NEVER mutates the tree, ledgers, comments, or dispatches. Returns null on hard fail.
+async function _meAiDirectorObservePr(rec) {
+  if (!rec || !rec.provider || !rec.repo || !rec.prId) return null;
+  const F = forge({ provider: rec.provider, org: rec.org });
+  const [pr, statuses, policy] = await Promise.all([
+    (typeof F.getPullRequest === 'function' ? F.getPullRequest(rec.org, rec.project, rec.repo, rec.prId).catch(() => null) : Promise.resolve(null)),
+    (typeof F.getPrStatuses === 'function' ? F.getPrStatuses(rec.org, rec.project, rec.repo, rec.prId).catch(() => []) : Promise.resolve([])),
+    (typeof F.getPrPolicyEvaluations === 'function' ? F.getPrPolicyEvaluations(rec.org, rec.project, rec.prId, rec.repo).catch(() => null) : Promise.resolve(null)),
+  ]);
+  if (!pr) return { headSha: rec.headSha || null, ownershipOk: false, prState: 'unknown', required: { failed: [], pending: [], passed: [] } };
+  const st = String(pr.status || '').toLowerCase();
+  const prOpen = st === 'open' || st === 'active';
+  const headRef = pr.headRef || pr.sourceBranch || '';
+  const headRepoFull = pr.headRepoFullName || '';
+  const own = rec.ownership || {};
+  // Ownership holds only if the immutable head identity we bound to still matches
+  // and the PR is still open. A moved ref or a swapped head-repo invalidates it.
+  const refOk = !own.headRef || own.headRef === headRef;
+  const repoOk = !own.headRepoFullName || own.headRepoFullName === headRepoFull;
+  const ownershipOk = prOpen && refOk && repoOk && !!own.boundBy;
+  return {
+    headSha: pr.headSha || '', headRef, headRepoFullName: headRepoFull,
+    ownershipOk, prState: prOpen ? 'open' : 'closed',
+    required: _meAiDirClassifyRequired(statuses, policy),
+    deadlineAt: rec.deadlineAt || null,
+  };
+}
+
+// Bind a PR the pursuit OWNS to the Director for shepherding. Captures the immutable
+// head identity (ref + head-repo) so a later ref/repo swap can't hijack the binding.
+// boundBy: 'user' (explicit "Shepherd this PR") or 'pursuit' (created-by-pursuit).
+async function _meAiDirectorBindPr(t, sel, boundBy) {
+  const id = t.id;
+  const provider = sel.provider, org = sel.org || '', project = sel.project || '', repo = sel.repo, prId = sel.prId;
+  if (!provider || !repo || !prId) return { ok: false, error: 'pr-identity-required' };
+  const F = forge({ provider, org });
+  const pr = typeof F.getPullRequest === 'function' ? await F.getPullRequest(org, project, repo, prId).catch(() => null) : null;
+  if (!pr) return { ok: false, error: 'pr-not-found' };
+  const now = Date.now();
+  const headRef = pr.headRef || pr.sourceBranch || '';
+  const rec = {
+    provider, org, project, repo, prId,
+    headRef, headSha: pr.headSha || '', headRepoFullName: pr.headRepoFullName || '', isCrossRepo: !!pr.isCrossRepo,
+    prTitle: pr.title || '', webUrl: pr.webUrl || pr.url || '',
+    ownership: { boundBy: boundBy || 'user', boundAt: new Date(now).toISOString(), headRef, headRepoFullName: pr.headRepoFullName || '' },
+    attemptsBySha: {}, totalAttempts: 0, pollCount: 0,
+    deadlineAt: new Date(now + director.PR_LIMITS.deadlineMs).toISOString(),
+    fixLegId: null, fixLegSha: null, stuck: false, stuckSha: null, needsUser: false, deskAsk: null,
+    nextPollAt: null, lastObs: null, ownershipOk: true, prState: 'open',
+  };
+  _meAiTreeEmit(id, 'director', { op: 'pr', pr: rec });
+  try { _meAiSchedule(async () => { try { await _meAiDirectorPrTick(t); } catch (_) {} }); } catch (_) {}
+  return { ok: true, rec };
+}
+
+// Compact PR-shepherd summary for the view payload (never mutates).
+function _meAiDirectorPrSummary(tree) {
+  const rec = tree && tree.director && tree.director.pr;
+  if (!rec || !rec.prId) return null;
+  const o = rec.lastObs || null;
+  return {
+    provider: rec.provider, org: rec.org, project: rec.project, repo: rec.repo, prId: rec.prId,
+    title: rec.prTitle || '', webUrl: rec.webUrl || '',
+    headRef: rec.headRef || '', headSha: (rec.headSha || '').slice(0, 10),
+    state: o ? o.state : 'binding', lastObsAt: o ? o.at : null,
+    failing: o ? (o.failing || []) : [], pending: o ? (o.pending || []) : [], passed: o ? (o.passed || []) : [],
+    ownershipOk: rec.ownershipOk !== false, prState: rec.prState || 'open',
+    stuck: !!rec.stuck, needsUser: !!rec.needsUser, deskAsk: rec.deskAsk || null,
+    attempts: rec.totalAttempts || 0, nextPollAt: rec.nextPollAt || null,
+    autoFix: _MEAI_PR_AUTOFIX,
+  };
+}
+
+// The shepherd tick: one leader+grant-gated pass over the bound PR. Observes
+// (read-only), asks director.planPrShepherd for the next move, and applies it —
+// poll (backoff), spawn-fix (flag-gated), or give up (comment + mark stuck + desk
+// abandon). Idempotent + in-flight guarded; re-checks leader/grant before writes.
+async function _meAiDirectorPrTick(t) {
+  const id = t.id;
+  if (_meAiPrTickInflight.has(id)) return { skipped: 'in-flight' };
+  let d = {};
+  try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
+  if (!d.enabled) return { skipped: 'disabled' };
+  if (!_meAiDirectorLeaderOk()) return { skipped: 'not-leader' };
+  let tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const rec0 = tree.director && tree.director.pr;
+  if (!rec0 || !rec0.prId) return { skipped: 'no-pr' };
+  const policy = _meAiDirectorPolicy(id, tree);
+  if (policy.paused) return { skipped: 'paused' };
+  const grant = policy.grant;
+  if (!grant || !grant.expiresAt) return { skipped: 'no-grant' };
+  if (rec0.nextPollAt && Date.parse(rec0.nextPollAt) > Date.now() && !rec0._forcePoll) return { skipped: 'backoff' };
+
+  _meAiPrTickInflight.add(id);
+  try {
+    const obs = await _meAiDirectorObservePr(rec0); // READ-ONLY — no mutation past here until re-checks
+    if (!obs) return { skipped: 'observe-failed' };
+    const now = Date.now();
+    const disp = director.planPrShepherd(rec0, obs, { now, grant });
+    const merge = {
+      headRef: obs.headRef || rec0.headRef, ownershipOk: obs.ownershipOk, prState: obs.prState,
+      _forcePoll: false,
+      lastObs: { at: new Date(now).toISOString(), state: disp.state, failing: obs.required.failed || [], pending: obs.required.pending || [], passed: obs.required.passed || [] },
+    };
+    if (disp.epochReset && obs.headSha) { merge.headSha = obs.headSha; merge.stuck = false; merge.stuckSha = null; merge.needsUser = false; merge.deskAsk = null; merge.fixLegId = null; merge.fixLegSha = null; }
+    else if (obs.headSha) merge.headSha = obs.headSha;
+
+    const sha = disp.sha || obs.headSha || rec0.headSha;
+
+    if (disp.action === 'poll') {
+      merge.nextPollAt = disp.nextPollAt ? new Date(disp.nextPollAt).toISOString() : new Date(now + 60000).toISOString();
+      merge.pollCount = (rec0.pollCount | 0) + 1;
+      merge.needsUser = false;
+    } else if (disp.state === 'passed') {
+      // Green for this head — terminal until it changes. Clear any prior "stuck".
+      merge.stuck = false; merge.needsUser = false; merge.deskAsk = null; merge.nextPollAt = null;
+    } else if (disp.action === 'give-up') {
+      // Re-validate leader + grant + ownership immediately before the external write.
+      if (!_meAiDirectorLeaderOk() || !obs.ownershipOk) { merge.nextPollAt = new Date(now + 300000).toISOString(); }
+      else {
+        const alreadyCommented = rec0.stuck && rec0.stuckSha === sha;
+        if (!alreadyCommented) {
+          const failing = (disp.giveUp && disp.giveUp.failing) || obs.required.failed || [];
+          const body = [
+            '🛠️ **Director — automatic CI repair gave up**',
+            '',
+            `I shepherded this PR through its checks but could not get it green: ${disp.reason}`,
+            failing.length ? ('\nStill failing: ' + failing.map(f => '`' + f + '`').join(', ')) : '',
+            `\nAttempts on the current commit: ${(rec0.attemptsBySha && rec0.attemptsBySha[sha]) | 0}. Total: ${rec0.totalAttempts | 0}.`,
+            '\nI\'ve stopped automatic repair and surfaced a one-click **Abandon this PR** on your Director desk. Nothing has been closed — that\'s your call.',
+            `\n<!-- director:pr-shepherd stuck sha=${(sha || '').slice(0, 12)} -->`,
+          ].filter(x => x !== '').join('\n');
+          try {
+            const F = forge({ provider: rec0.provider, org: rec0.org });
+            if (typeof F.createPrThread === 'function') await F.createPrThread(rec0.org, rec0.project, rec0.repo, rec0.prId, { content: body });
+          } catch (_) {}
+          _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+            verb: 'pr-stuck', cls: 'pr', target: rec0.repo + '#' + rec0.prId,
+            why: disp.reason, state: 'logged', reversible: false,
+          }) });
+        }
+        merge.stuck = true; merge.stuckSha = sha; merge.needsUser = true;
+        merge.deskAsk = { kind: 'pr-abandon', canBlock: !!(disp.deskAsk && disp.deskAsk.canBlock), why: disp.reason, failing: (disp.giveUp && disp.giveUp.failing) || [] };
+        merge.nextPollAt = null;
+      }
+    } else if (disp.action === 'spawn-fix') {
+      if (_MEAI_PR_AUTOFIX) {
+        // Auto-repair path (flag-gated). Spawn a bounded fix leg that stages a
+        // CANDIDATE commit; a serialized integrator fast-forward pushes it. NOTE:
+        // the hardened push primitive + integrator land in the next pass — until
+        // then this branch is unreachable by default.
+        const r = _meAiDirectorSpawn(t, { goal: disp.fixGoal, title: 'Fix failing PR checks · ' + rec0.repo + '#' + rec0.prId, run: true, why: 'PR checks failing — Director dispatched a bounded fix leg.' });
+        if (r && r.ok) {
+          merge.fixLegId = r.legId; merge.fixLegSha = sha;
+          const abs = Object.assign({}, rec0.attemptsBySha || {}); abs[sha] = disp.attemptsForSha || ((abs[sha] | 0) + 1);
+          merge.attemptsBySha = abs; merge.totalAttempts = (rec0.totalAttempts | 0) + 1;
+          merge.nextPollAt = new Date(now + 120000).toISOString();
+        }
+      } else {
+        // Auto-fix disabled — surface the failing PR honestly on the desk rather
+        // than spinning fix legs whose commits we can't yet land.
+        merge.needsUser = true;
+        merge.deskAsk = { kind: 'pr-checks-failing', why: disp.reason, failing: obs.required.failed || [] };
+        merge.nextPollAt = new Date(now + 300000).toISOString();
+      }
+    }
+    _meAiTreeEmit(id, 'director', { op: 'pr', pr: merge });
+    return { ok: true, action: disp.action, state: disp.state, sha, failing: (obs.required.failed || []).length, pending: (obs.required.pending || []).length };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    _meAiPrTickInflight.delete(id);
+  }
+}
+
 // Autonomously reduce the desk for one pursuit. STRICTLY GATED: enabled + not
 // paused + leader + an active grant covering the class/path. Performs ONLY
 // zero-side-effect folds (cull / resolve-with-clear-evidence / absorb-granted-write),
@@ -23870,6 +24112,10 @@ function _meAiDirectorSweep(t) {
   if (handled || probed) {
     _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
     const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
+  }
+  // Shepherd a bound PR alongside the desk sweep (async, backoff-guarded, non-blocking).
+  if (tree.director && tree.director.pr && tree.director.pr.prId) {
+    try { _meAiSchedule(async () => { try { await _meAiDirectorPrTick(t); } catch (_) {} }); } catch (_) {}
   }
   return { handled, probed, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
 }
@@ -24544,6 +24790,7 @@ app.get('/api/me-ai/task/:id/director', (req, res) => {
       reasonedAt: policy.aiReasonedAt || null,
       ledger: (tree.director && tree.director.ledger) || [],
       lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
+      pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -24563,6 +24810,7 @@ app.post('/api/me-ai/task/:id/director/reason', async (req, res) => {
       enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused, leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan, ledger: (tree.director && tree.director.ledger) || [], lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
+      pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -24677,6 +24925,70 @@ app.post('/api/me-ai/task/:id/director/spawn', (req, res) => {
     if (result.ok === false) return res.status(400).json(result);
     const { plan } = _meAiDirectorView(id);
     res.json(Object.assign({}, result, { plan }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PR shepherding ────────────────────────────────────────────────────────
+// Bind a PR the pursuit owns so the Director watches its CI and self-heals it.
+app.post('/api/me-ai/task/:id/director/pr/bind', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const t = meAiTasks.get(id) || { id };
+    const sel = { provider: b.provider, org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+    const result = await _meAiDirectorBindPr(t, sel, b.boundBy === 'pursuit' ? 'pursuit' : 'user');
+    if (result.ok === false) return res.status(400).json(result);
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    res.json({ ok: true, pr: _meAiDirectorPrSummary(tree) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Stop shepherding (forget the PR record). Does NOT touch the PR itself.
+app.post('/api/me-ai/task/:id/director/pr/unbind', (req, res) => {
+  try {
+    const id = req.params.id;
+    _meAiTreeEmit(id, 'director', { op: 'pr', pr: null });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Run one shepherd pass now (manual refresh; bypasses the backoff window).
+app.post('/api/me-ai/task/:id/director/pr/tick', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    if (tree.director && tree.director.pr) _meAiTreeEmit(id, 'director', { op: 'pr', pr: { _forcePoll: true } });
+    const t = meAiTasks.get(id) || { id };
+    const result = await _meAiDirectorPrTick(t);
+    const t2 = meAiTrees.get(id) || _meAiFoldJournal(id);
+    res.json({ ok: result && result.ok !== false, result, pr: _meAiDirectorPrSummary(t2) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Abandon the shepherded PR (the one-click desk action). Comments what happened,
+// asks the provider to close/abandon it when supported, and stops shepherding.
+// This is an explicit user action — the Director never closes a PR on its own.
+app.post('/api/me-ai/task/:id/director/pr/abandon', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const note = String((req.body && req.body.note) || '');
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const rec = tree.director && tree.director.pr;
+    if (!rec || !rec.prId) return res.status(400).json({ ok: false, error: 'no-pr' });
+    const F = forge({ provider: rec.provider, org: rec.org });
+    let closed = false;
+    const body = ['🚫 **PR abandoned by request** (via Director).', note ? '\n' + note : '', '\nAutomatic CI repair is stopped.'].filter(Boolean).join('\n');
+    try { if (typeof F.createPrThread === 'function') await F.createPrThread(rec.org, rec.project, rec.repo, rec.prId, { content: body }); } catch (_) {}
+    try {
+      if (typeof F.abandonPr === 'function') { await F.abandonPr(rec.org, rec.project, rec.repo, rec.prId); closed = true; }
+      else if (typeof F.closePr === 'function') { await F.closePr(rec.org, rec.project, rec.repo, rec.prId); closed = true; }
+    } catch (_) {}
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+      verb: 'pr-abandoned', cls: 'pr', target: rec.repo + '#' + rec.prId,
+      why: note || 'User abandoned the PR from the Director desk.', state: 'logged', reversible: false,
+    }) });
+    _meAiTreeEmit(id, 'director', { op: 'pr', pr: null });
+    res.json({ ok: true, closed, providerClose: closed ? 'requested' : 'manual' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

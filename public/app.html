@@ -15988,6 +15988,39 @@
                                 </div>
                               </template>
 
+                              <!-- PR shepherd: the Director watches its own PR's CI and self-heals it -->
+                              <template x-if="meAiDirectorPr()">
+                                <div style="margin-bottom:14px">
+                                  <div class="meai-dir-h"><span>Pull request</span> <span class="c" :class="meAiDirectorPrTone()" x-text="meAiDirectorPrLabel()"></span></div>
+                                  <div class="meai-dir-insight">
+                                    <div class="meai-dir-insight-t">
+                                      <span>⑃</span>
+                                      <a x-show="meAiDirectorPr().webUrl" :href="meAiDirectorPr().webUrl" target="_blank" rel="noopener" x-text="meAiDirectorPr().title || (meAiDirectorPr().repo + ' #' + meAiDirectorPr().prId)"></a>
+                                      <span x-show="!meAiDirectorPr().webUrl" x-text="meAiDirectorPr().title || (meAiDirectorPr().repo + ' #' + meAiDirectorPr().prId)"></span>
+                                    </div>
+                                    <div class="meai-dir-row-w" x-show="meAiDirectorPr().headRef" x-text="meAiDirectorPr().headRef + ' · ' + meAiDirectorPr().headSha"></div>
+                                    <template x-if="(meAiDirectorPr().failing || []).length">
+                                      <div class="meai-dir-row-w">Failing <span x-text="(meAiDirectorPr().failing || []).length"></span> · <span x-text="(meAiDirectorPr().failing || []).join(', ')"></span></div>
+                                    </template>
+                                    <template x-if="(meAiDirectorPr().pending || []).length">
+                                      <div class="meai-dir-row-w">Pending <span x-text="(meAiDirectorPr().pending || []).length"></span></div>
+                                    </template>
+                                    <div class="meai-dir-row-w" x-show="meAiDirectorPr().attempts">Repair attempts <span x-text="meAiDirectorPr().attempts"></span></div>
+                                    <template x-if="meAiDirectorPr().ownershipOk === false">
+                                      <div class="meai-dir-row-w warn">The PR's branch or head repo changed — the Director no longer recognizes it as its own and has stopped touching it.</div>
+                                    </template>
+                                    <template x-if="meAiDirectorPr().stuck">
+                                      <div class="meai-dir-row-w warn">The Director couldn't get this PR's build green. It commented on the PR with what it tried. You can abandon it or take it from here.</div>
+                                    </template>
+                                    <div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap">
+                                      <button type="button" class="meai-dir-linklike" @click="meAiDirectorPrTick()" :disabled="meai.pursuit.director.busy">Recheck now</button>
+                                      <button type="button" class="meai-dir-linklike" x-show="meAiDirectorPr().stuck || meAiDirectorPr().needsUser" @click="meAiDirectorPrAbandon()" :disabled="meai.pursuit.director.busy">Abandon this PR</button>
+                                      <button type="button" class="meai-dir-linklike muted" @click="meAiDirectorPrUnbind()" :disabled="meai.pursuit.director.busy">Stop watching</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </template>
+
                               <!-- Director is investigating (probe: taken off your desk) -->
                               <template x-if="meAiDirectorProbes().length">
                                 <div style="margin-bottom:14px">
@@ -41526,6 +41559,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             d.insights = (r.plan && r.plan.insights) || null;
             d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : [];
             d.lastSweepAt = r.lastSweepAt || null;
+            d.pr = r.pr || null;
             this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
             // Land on the Director tab by default when it's governing this pursuit —
             // once per open, so a manual tab switch or a refresh poll won't override it.
@@ -41562,6 +41596,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               d.reasonedAt = r.reasonedAt || d.reasonedAt;
               d.insights = (r.plan && r.plan.insights) || null;
               d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : d.ledger;
+              if (r.pr !== undefined) d.pr = r.pr || null;
               this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
               if (force) this.toast('Director re-judged ' + (r.verdictCount || 0) + ' stops', 'ok');
             } else if (r && r.error) {
@@ -41595,6 +41630,57 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!ins) return;
           if (ins.action === 'Redirect…' && ins.legId) return this.meAiDirectorRedirect(ins.legId);
           if (ins.action === 'Spin off effort') return this.meAiDirectorSpawn(null);
+        },
+        // ── PR shepherd (Director watches its own PR's CI and self-heals it) ──
+        meAiDirectorPr() { const d = this.meai.pursuit.director; return (d && d.pr) || null; },
+        meAiDirectorPrLabel() {
+          const pr = this.meAiDirectorPr(); if (!pr) return '';
+          const st = pr.state || 'binding';
+          if (pr.ownershipOk === false) return 'Ownership lost — no longer watching';
+          if (pr.stuck) return 'Stuck — needs you';
+          if (st === 'passed') return 'Checks green';
+          if (st === 'failing') return 'Checks failing';
+          if (st === 'pending' || st === 'watching') return 'Watching checks…';
+          return 'Watching…';
+        },
+        meAiDirectorPrTone() {
+          const pr = this.meAiDirectorPr(); if (!pr) return '';
+          if (pr.ownershipOk === false || pr.stuck) return 'warn';
+          if (pr.state === 'passed') return 'ok';
+          if (pr.state === 'failing') return 'warn';
+          return 'info';
+        },
+        async meAiDirectorPrTick() {
+          const p = this.meai.pursuit; const d = p.director; if (!d.pr) return;
+          d.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/pr/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            if (r && r.pr !== undefined) d.pr = r.pr || null;
+            this.toast('Rechecked the PR', 'info');
+          } catch (e) { this.toast('Recheck failed: ' + (e && e.message ? e.message : e), 'error'); }
+          finally { d.busy = false; }
+        },
+        async meAiDirectorPrAbandon() {
+          const p = this.meai.pursuit; const d = p.director; const pr = d && d.pr; if (!pr) return;
+          if (!confirm('Abandon this PR? The Director will comment on it, stop trying to fix its build, and (where the provider supports it) close it. This cannot be undone.')) return;
+          d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/pr/abandon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: '' }) });
+            d.pr = null;
+            this.toast('PR abandoned — the Director has stopped shepherding it', 'ok');
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast('Abandon failed: ' + (e && e.message ? e.message : e), 'error'); }
+          finally { d.busy = false; }
+        },
+        async meAiDirectorPrUnbind() {
+          const p = this.meai.pursuit; const d = p.director; if (!d.pr) return;
+          d.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/pr/unbind', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            d.pr = null;
+            this.toast('Stopped watching the PR', 'info');
+          } catch (e) { this.toast('Failed: ' + (e && e.message ? e.message : e), 'error'); }
+          finally { d.busy = false; }
         },
         // Active for the VIEW: enabled + granted + a plan loaded + not paused/offline.
         // NOT leader-gated — a read-only follower still subsumes the raw Approvals /
