@@ -593,9 +593,128 @@ function ledgerEntry(o) {
   };
 }
 
+// ---- PR shepherding (CI self-healing) ------------------------------------------
+// The Director can shepherd a pull request the pursuit OWNS through CI: watch the
+// build, on failure spawn bounded fix legs, push the fix to ITS OWN branch, and
+// re-watch until green — or give up (comment + mark stuck + a one-click desk ask
+// to abandon). This module is PURE: it computes the next disposition from a
+// read-only PR *observation*; server.js performs every side effect (fetch, push,
+// comment, spawn) through hardened, capability-gated primitives.
+//
+// Two DISTINCT grant ops gate the external writes (never bundled with the edit op):
+//   push-pr-branch — fast-forward push of a Director-prepared fix to the PR's own
+//                    head ref (CAS on the expected old SHA; server enforces the rest).
+//   pr-block       — externally-visible, ~irreversible close/abandon of the PR. NOT
+//                    a standing default: absent this op, give-up = comment + desk ask.
+const PR_GRANT_OPS = ['push-pr-branch', 'comment-pr', 'pr-block'];
+
+// Attempt bounds. Attempts are counted PER head-SHA epoch (a new commit resets the
+// per-SHA counter) with a pursuit-wide ceiling and a wall-clock deadline. Pending /
+// still-running checks NEVER consume an attempt.
+const PR_LIMITS = { maxAttemptsPerSha: 3, maxTotalAttempts: 8, deadlineMs: 24 * 60 * 60 * 1000 };
+
+// Poll backoff for a still-building PR (exponential w/ jitter, capped). The server
+// persists nextPollAt and honours a provider Retry-After when larger.
+function _prBackoffMs(pollCount) {
+  const base = 60 * 1000;            // 1 min
+  const cap = 30 * 60 * 1000;        // 30 min
+  const n = Math.max(0, pollCount | 0);
+  const grow = Math.min(cap, base * Math.pow(2, Math.min(n, 5)));
+  const jitter = Math.floor(grow * 0.2 * Math.random());
+  return grow + jitter;
+}
+
+function prGrantHas(grant, op, ctx) {
+  if (!_grantActive(grant, ctx)) return false;
+  return Array.isArray(grant.ops) && grant.ops.indexOf(op) !== -1;
+}
+
+// planPrShepherd(pr, obs, ctx) — decide the next action for a shepherded PR.
+//   pr  — durable Director PR record on the tree:
+//         { headSha, attemptsBySha:{<sha>:n}, totalAttempts, deadlineAt, pollCount,
+//           fixLegId, fixLegSha, stuck, ownership }
+//   obs — PURE read-only observation for the CURRENT head SHA:
+//         { headSha, ownershipOk, required:{ failed:[], pending:[], passed:[] },
+//           deadlineAt } (classified over REQUIRED checks only, bound to headSha)
+//   ctx — { now, grant, limits } (limits default to PR_LIMITS)
+// Returns a disposition (never performs I/O):
+//   { state, action, reason, epochReset, sha, attemptsForSha, giveUp, deskAsk,
+//     nextPollAt, fixGoal }
+// action ∈ 'none' | 'poll' | 'spawn-fix' | 'give-up'
+function planPrShepherd(pr, obs, ctx) {
+  ctx = ctx || {};
+  const now = ctx.now || Date.now();
+  const lim = ctx.limits || PR_LIMITS;
+  pr = pr || {};
+  obs = obs || {};
+
+  // Ownership must be proven every pass — a stale binding must never authorize action.
+  if (!obs.ownershipOk) {
+    return { state: 'unowned', action: 'none', reason: 'PR ownership not established or no longer matches — shepherding is inert.', sha: obs.headSha || pr.headSha || null };
+  }
+
+  const sha = obs.headSha || pr.headSha || null;
+  const req = obs.required || { failed: [], pending: [], passed: [] };
+  const failed = Array.isArray(req.failed) ? req.failed : [];
+  const pending = Array.isArray(req.pending) ? req.pending : [];
+
+  // Epoch: a new head SHA (Director's own fix or a human push) resets per-SHA attempts
+  // and revives shepherding even after a 'stuck'/'passed' terminal on an older SHA.
+  const epochReset = !!sha && pr.headSha !== sha;
+  const attemptsBySha = (pr.attemptsBySha && typeof pr.attemptsBySha === 'object') ? pr.attemptsBySha : {};
+  const attemptsForSha = epochReset ? 0 : (attemptsBySha[sha] | 0);
+  const totalAttempts = pr.totalAttempts | 0;
+  const deadlineAt = pr.deadlineAt || obs.deadlineAt || (now + lim.deadlineMs);
+
+  // A fix leg is already in flight for THIS SHA → wait for it (don't double-spawn).
+  if (pr.fixLegId && pr.fixLegSha === sha && !epochReset) {
+    return { state: 'fixing', action: 'none', reason: 'A Director fix leg is preparing a commit for this PR.', sha, attemptsForSha };
+  }
+
+  // Still building — poll only. Pending checks never consume an attempt.
+  if (pending.length > 0 && failed.length === 0) {
+    return { state: 'building', action: 'poll', reason: `${pending.length} required check(s) still running.`, sha, attemptsForSha, nextPollAt: now + _prBackoffMs(pr.pollCount) };
+  }
+
+  // Green (for this SHA) — terminal until the head changes again.
+  if (failed.length === 0 && pending.length === 0) {
+    return { state: 'passed', action: 'none', reason: 'All required checks passed for the current head.', sha, attemptsForSha };
+  }
+
+  // Failing. Have we exhausted the bounds?
+  const overPerSha = attemptsForSha >= lim.maxAttemptsPerSha;
+  const overTotal = totalAttempts >= lim.maxTotalAttempts;
+  const overDeadline = Date.parse(deadlineAt) < now;
+  if (overPerSha || overTotal || overDeadline) {
+    const why = overDeadline ? 'wall-clock deadline reached'
+      : overTotal ? `pursuit-wide attempt ceiling (${lim.maxTotalAttempts}) reached`
+      : `per-commit attempt limit (${lim.maxAttemptsPerSha}) reached`;
+    // Give up SAFELY: comment + mark stuck + a one-click desk ask to abandon. Actual
+    // close/abandon is only ever done from the desk (or a distinct pr-block op) — never
+    // as a silent standing default.
+    const canBlock = prGrantHas(ctx.grant, 'pr-block', ctx);
+    return {
+      state: 'stuck', action: 'give-up', sha, attemptsForSha,
+      reason: `Director gave up on this PR — ${why}. ${failed.length} required check(s) still failing.`,
+      giveUp: { comment: true, why, failing: failed.slice() },
+      deskAsk: { kind: 'pr-abandon', canBlock },
+    };
+  }
+
+  // Within bounds and failing → spawn a bounded fix leg (a CANDIDATE commit; the
+  // server serializes + fast-forward pushes it under a per-PR lease).
+  return {
+    state: 'failed', action: 'spawn-fix', sha, attemptsForSha: attemptsForSha + 1,
+    reason: `${failed.length} required check(s) failing — dispatching a bounded fix leg (attempt ${attemptsForSha + 1}/${lim.maxAttemptsPerSha} on this commit).`,
+    fixGoal: 'Investigate the failing PR checks, determine a fix, and prepare a commit on this PR\'s own branch. Do not push, deploy, or run pipelines — only edit files and stage a candidate commit; the Director integrates and pushes it.',
+  };
+}
+
 module.exports = {
   AUTONOMY_LEVELS, POLICY_MATRIX, HANDLED, CLASS_GRANT_OP,
   DEFAULT_GRANT, DEFAULT_POLICY, LEDGER_STATES,
+  PR_GRANT_OPS, PR_LIMITS,
   stopClass, grantCovers, planReduction, ledgerEntry,
-  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear },
+  planPrShepherd, prGrantHas,
+  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs },
 };
