@@ -13190,6 +13190,8 @@
                 radial-gradient(circle, var(--cp-border) 1px, transparent 1px) 0 0 / 28px 28px; cursor:grab; }
               .meai-pcanvas:active { cursor:grabbing; }
               .meai-pworld { position:absolute; top:0; left:0; transform-origin:0 0; }
+              .meai-plod-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; z-index:1; }
+              .meai-plod-canvas:active { cursor:grabbing; }
               .meai-pedges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
               .meai-pedges .pe { stroke:var(--cp-border); stroke-width:2; }
               .meai-pedges .pe-spine { stroke:var(--cp-accent); stroke-width:2.5; }
@@ -13202,7 +13204,12 @@
               .meai-pnode.puser { background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); border-color:color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); }
               .meai-pnode.puser .meai-pnode-role { color:color-mix(in srgb,var(--cp-accent) 78%, var(--cp-text)); opacity:1; }
               .meai-pnode.puser .meai-pnode-k { color:color-mix(in srgb,var(--cp-accent) 60%, var(--cp-text)); }
-              .meai-pnode.prun { box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
+              .meai-pnode.prun { animation:meaiPuNodePulse 1.9s ease-in-out infinite; }
+              @keyframes meaiPuNodePulse {
+                0%,100% { box-shadow:0 0 0 1px color-mix(in srgb,var(--cp-accent) 55%, transparent); }
+                50%     { box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-accent) 70%, transparent), 0 0 12px 3px color-mix(in srgb,var(--cp-accent) 22%, transparent); }
+              }
+              @media (prefers-reduced-motion: reduce) { .meai-pnode.prun { animation:none; box-shadow:0 0 0 2px color-mix(in srgb, var(--cp-accent) 45%, transparent); } }
               .meai-pnode.pauth { border-color:#d29922; background:color-mix(in srgb,#d29922 8%, var(--cp-surface)); }
               .meai-pnode.pstop { border-color:#d29922; }
               .meai-pnode.pdone { border-color:#2ea043; }
@@ -13233,6 +13240,42 @@
                 100% { box-shadow:0 1px 3px rgba(0,0,0,.12); }
               }
               @media (prefers-reduced-motion: reduce) { .meai-pnode.pflash { animation:none; border-color:var(--cp-accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--cp-accent) 45%, transparent); } }
+              /* ── LOD (level-of-detail) overview. Below 0.5 zoom a large map is too small
+                 to read card text, and painting every card's internals is the slow part.
+                 Collapse each node to a color-coded marker: pin the box to the 96px edge-
+                 anchor span (box top = incoming anchor n.y, box bottom = outgoing anchor
+                 n.y+96), make it transparent, hide the children, and draw a faint connector
+                 track (::before, full span → lines stay visually joined) plus a bright state
+                 dot (::after, box center). Pseudo-elements survive the `> *` hide. The
+                 separate .pe-live SVG flow overlay is untouched, so "where's active work"
+                 still reads at a glance. ── */
+              .meai-pworld.lod .meai-pnode { height:96px !important; padding:0 !important; overflow:visible; background:transparent !important; border:none !important; box-shadow:none !important; border-radius:0 !important; --pdot:var(--cp-text-muted); }
+              .meai-pworld.lod .meai-pnode > * { display:none !important; }
+              /* Connector track: solid + dim so it clearly reads as a LINE, distinct from the bright dot. */
+              .meai-pworld.lod .meai-pnode::before { content:''; position:absolute; left:50%; top:0; bottom:0; width:var(--lod-track,3px); transform:translateX(-50%); border-radius:999px; background:color-mix(in srgb, var(--pdot) 55%, transparent); }
+              /* Dot: zoom-compensated (--lod-dot) so it stays ~13px on screen at any zoom, bright/opaque, ringed. */
+              .meai-pworld.lod .meai-pnode::after { content:''; position:absolute; left:50%; top:50%; width:var(--lod-dot,20px); height:var(--lod-dot,20px); transform:translate(-50%,-50%); border-radius:999px; background:var(--pdot); box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 calc(var(--lod-dot,20px)*0.22) color-mix(in srgb, var(--pdot) 26%, transparent); transition:box-shadow .15s; }
+              .meai-pworld.lod .meai-pnode:hover::after { box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 calc(var(--lod-dot,20px)*0.34) color-mix(in srgb, var(--pdot) 40%, transparent); }
+              .meai-pworld.lod .meai-pnode.kind-spine,
+              .meai-pworld.lod .meai-pnode.pmain,
+              .meai-pworld.lod .meai-pnode.puser { --pdot:var(--cp-accent); }
+              .meai-pworld.lod .meai-pnode.pdone { --pdot:#3fb950; }
+              .meai-pworld.lod .meai-pnode.pauth,
+              .meai-pworld.lod .meai-pnode.pstop { --pdot:#d29922; }
+              .meai-pworld.lod .meai-pnode.prun { --pdot:var(--cp-accent); animation:none !important; }
+              .meai-pworld.lod .meai-pnode.pdead { --pdot:var(--cp-text-muted); }
+              .meai-pworld.lod .meai-pnode.pdead::after { background:transparent; border:2px dashed var(--pdot); box-shadow:none; }
+              /* Running work pulses the dot with a big expanding halo (uses --lod-halo, zoom-compensated). */
+              .meai-pworld.lod .meai-pnode.prun::after { animation:meaiPuLodPulse 1.6s ease-out infinite; }
+              @keyframes meaiPuLodPulse {
+                0%   { box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 0 color-mix(in srgb,var(--cp-accent) 55%, transparent); }
+                70%  { box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 var(--lod-halo,16px) color-mix(in srgb,var(--cp-accent) 0%, transparent); }
+                100% { box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 var(--lod-halo,16px) color-mix(in srgb,var(--cp-accent) 0%, transparent); }
+              }
+              @media (prefers-reduced-motion: reduce) { .meai-pworld.lod .meai-pnode.prun::after { animation:none; box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 calc(var(--lod-dot,20px)*0.4) color-mix(in srgb,var(--cp-accent) 45%, transparent); } }
+              /* Selected / focused marker ring (overrides the pulse box-shadow). */
+              .meai-pworld.lod .meai-pnode.psel::after,
+              .meai-pworld.lod .meai-pnode.pflash::after { box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 calc(var(--lod-dot,20px)*0.45) color-mix(in srgb,var(--cp-accent) 60%, transparent); }
               .meai-pu-legend-map { position:absolute; left:12px; bottom:12px; z-index:3; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); max-width:190px; }
               .meai-pu-legend-h { display:flex; align-items:center; gap:6px; width:100%; border:0; background:transparent; color:var(--cp-text-muted); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:7px 11px; cursor:pointer; }
               .meai-pu-legend-body { padding:0 11px 10px; display:flex; flex-direction:column; gap:10px; }
@@ -13251,6 +13294,37 @@
               .meai-pu-lg-dot.d-auth { background:#d29922; }
               .meai-pu-lg-dot.d-gate { background:transparent; border:1.5px dashed #d29922; }
               .meai-pu-lg-dot.d-dead { background:transparent; border:1.5px dashed #cf222e; }
+              /* Minimap: a live bird's-eye of the whole pursuit with a draggable
+                 viewport rect. On big maps you never lose your place even when the
+                 main view is zoomed way out. Bottom-right, mirrors the legend chrome. */
+              .meai-pu-minimap { position:absolute; right:12px; bottom:12px; z-index:3; width:206px; height:124px; background:color-mix(in srgb,var(--cp-surface) 90%, transparent); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); overflow:hidden; }
+              .meai-pu-minimap canvas { display:block; width:100%; height:100%; cursor:pointer; touch-action:none; }
+              /* Control panel: live render stats + LOD render toggles. Top-left, only
+                 while the canvas LOD is active. Ports the approved mock control panel;
+                 stats are written straight to the DOM each frame (no Alpine churn). */
+              .meai-pu-cpanel { position:absolute; top:12px; left:12px; z-index:3; padding:12px 14px; max-width:268px; background:color-mix(in srgb,var(--cp-surface) 90%, transparent); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); backdrop-filter:blur(8px); }
+              .meai-pu-cp-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:2px 0; }
+              .meai-pu-cp-k { color:var(--cp-text-muted); font-size:12px; }
+              .meai-pu-cp-v { font-variant-numeric:tabular-nums; font-weight:600; font-size:12.5px; color:var(--cp-text); }
+              .meai-pu-cp-v.good { color:#3fb950; }
+              .meai-pu-cp-hr { border:0; border-top:1px solid var(--cp-border); margin:9px 0; }
+              .meai-pu-cp-tgls { display:flex; flex-direction:column; gap:9px; }
+              .meai-pu-cp-tg { display:flex; align-items:flex-start; gap:9px; cursor:pointer; user-select:none; }
+              .meai-pu-cp-box { width:34px; height:20px; border-radius:999px; background:var(--cp-bg); border:1px solid var(--cp-border); position:relative; transition:background .16s,border-color .16s; flex:0 0 auto; margin-top:1px; }
+              .meai-pu-cp-box::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:var(--cp-text-muted); transition:transform .18s cubic-bezier(.2,.8,.2,1),background .16s; }
+              .meai-pu-cp-tg.on .meai-pu-cp-box { background:color-mix(in srgb,var(--cp-accent) 40%, transparent); border-color:var(--cp-accent); }
+              .meai-pu-cp-tg.on .meai-pu-cp-box::after { transform:translateX(14px); background:var(--cp-accent); }
+              .meai-pu-cp-lab { font-size:12.5px; color:var(--cp-text); line-height:1.3; }
+              .meai-pu-cp-hint { display:block; color:var(--cp-text-muted); font-size:11px; line-height:1.35; margin-top:1px; }
+              @media (prefers-reduced-motion: reduce) { .meai-pu-cp-box, .meai-pu-cp-box::after { transition:none; } }
+              /* Hover tooltip: node detail on the canvas LOD (ported from the mock). */
+              .meai-pu-tip { position:absolute; z-index:5; pointer-events:none; max-width:250px; padding:9px 11px; background:color-mix(in srgb,var(--cp-surface) 94%, transparent); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 4px 16px rgba(0,0,0,.22); backdrop-filter:blur(8px); opacity:0; transform:translateY(4px); transition:opacity .12s ease, transform .12s ease; }
+              .meai-pu-tip.on { opacity:1; transform:translateY(0); }
+              .meai-pu-tip .mpt-t { font-weight:650; font-size:12.5px; color:var(--cp-text); line-height:1.3; }
+              .meai-pu-tip .mpt-m { color:var(--cp-text-muted); font-size:11.5px; margin-top:2px; }
+              .meai-pu-tip .mpt-st { margin-top:6px; font-size:11.5px; color:var(--cp-text); display:inline-flex; align-items:center; gap:6px; }
+              .meai-pu-tip .mpt-d { width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+              @media (prefers-reduced-motion: reduce) { .meai-pu-tip { transition:none; } }
               .meai-pu-legchat { flex:1; min-height:0; display:flex; flex-direction:column; }
               .meai-pu-legpick { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--cp-border); overflow-x:auto; flex-wrap:nowrap; flex:0 0 auto; }
               .meai-pu-legpick > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:4px 10px; cursor:pointer; font-size:12px; white-space:nowrap; }
@@ -13522,6 +13596,9 @@
               .meai-pedges .pe-gate { stroke:#d29922; stroke-width:2; stroke-dasharray:4 4; opacity:.85; }
               .meai-pedges .pe-cull { stroke:#cf222e; stroke-width:2; stroke-dasharray:4 4; opacity:.7; }
               .meai-pedges .pe-reuse { stroke:var(--cp-accent); stroke-width:2; stroke-dasharray:1 5; opacity:.75; }
+              .meai-pedges .pe-live { stroke:var(--cp-accent); stroke-width:2.5; stroke-dasharray:5 9; opacity:.95; animation:meaiPuFlow .85s linear infinite; }
+              @keyframes meaiPuFlow { to { stroke-dashoffset:-14; } }
+              @media (prefers-reduced-motion: reduce) { .meai-pedges .pe-live { animation:none; opacity:0; } }
               /* Arrowheads share each edge type's color but must render as clean, solid
                  chevrons — override any inherited dash and keep joins round. Placed after
                  all .pe-* rules so equal-specificity source order wins on dash/width. */
@@ -14648,6 +14725,17 @@
                         <option value="prep">Prep</option>
                         <option value="admin">Admin</option>
                       </select>
+                    </div>
+                    <div class="meai-depth" role="group" aria-label="Intent">
+                      <span class="meai-depth-lbl">Intent</span>
+                      <div class="meai-depth-track">
+                        <button type="button" class="meai-depth-seg" :class="meai.launchIntent==='investigate' && 'is-on'" @click="meAiSetIntent('investigate')"
+                                title="Analyze and report only — no changes, no drafts, no PRs">Investigate</button>
+                        <button type="button" class="meai-depth-seg" :class="meai.launchIntent==='prepare' && 'is-on'" @click="meAiSetIntent('prepare')"
+                                title="Do the work and stage drafts (local commits, PR descriptions) — then stop for your approval before anything external">Prepare</button>
+                        <button type="button" class="meai-depth-seg" :class="meai.launchIntent==='execute' && 'is-on'" @click="meAiSetIntent('execute')"
+                                title="Pursue and carry the work all the way through, still gated on approval for external actions">Execute</button>
+                      </div>
                     </div>
                     <div class="meai-pursue-launch">
                       <input type="text" class="field-input meai-pursue-input" :placeholder="meai.launchDepth==='quick' ? 'Set a goal for a Me agent…' : 'Set a goal for a dogged pursuit…'"
@@ -16073,7 +16161,37 @@
                         <button type="button" @click="meAiPursuitZoom('in')" title="Zoom in">＋</button>
                         <button type="button" class="meai-pu-follow" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
                       </div>
-                      <div class="meai-pworld" :style="meAiPursuitWorldStyle()">
+                      <!-- Control panel: live render stats + LOD toggles. Only while the
+                           canvas LOD is active (zoomed out). Stats update per frame. -->
+                      <div class="meai-pu-cpanel" x-show="meAiPursuitLodActive() && (meai.pursuit._nodes||[]).length" x-transition.opacity>
+                        <div class="meai-pu-cp-row"><span class="meai-pu-cp-k">Legs</span><span class="meai-pu-cp-v cp-legs">—</span></div>
+                        <div class="meai-pu-cp-row"><span class="meai-pu-cp-k">Drawn this frame</span><span class="meai-pu-cp-v cp-drawn">—</span></div>
+                        <div class="meai-pu-cp-row"><span class="meai-pu-cp-k">Frame time</span><span class="meai-pu-cp-v good cp-ms">—</span></div>
+                        <div class="meai-pu-cp-row"><span class="meai-pu-cp-k">FPS</span><span class="meai-pu-cp-v good cp-fps">—</span></div>
+                        <hr class="meai-pu-cp-hr"/>
+                        <div class="meai-pu-cp-tgls">
+                          <label class="meai-pu-cp-tg" :class="{ on: meai.pursuit.lodCluster }" @click="meai.pursuit.lodCluster=!meai.pursuit.lodCluster">
+                            <span class="meai-pu-cp-box"></span>
+                            <span class="meai-pu-cp-lab">Cluster dense areas<span class="meai-pu-cp-hint">Merge overlapping dots into one marker with a count</span></span></label>
+                          <label class="meai-pu-cp-tg" :class="{ on: meai.pursuit.lodDim }" @click="meai.pursuit.lodDim=!meai.pursuit.lodDim">
+                            <span class="meai-pu-cp-box"></span>
+                            <span class="meai-pu-cp-lab">Dim everything but active<span class="meai-pu-cp-hint">Fade settled work so live flow reads instantly</span></span></label>
+                          <label class="meai-pu-cp-tg" :class="{ on: meai.pursuit.lodPulse }" @click="meai.pursuit.lodPulse=!meai.pursuit.lodPulse">
+                            <span class="meai-pu-cp-box"></span>
+                            <span class="meai-pu-cp-lab">Pulse running work</span></label>
+                        </div>
+                      </div>
+                      <!-- Canvas LOD: when zoomed out on a large map, a single canvas
+                           paint replaces the hundreds of DOM nodes + SVG paths. Dots stay a
+                           constant on-screen size, flow marches along the real elbow edges,
+                           dense areas cluster into count markers. Click-to-open hit-tests. -->
+                      <canvas class="meai-plod-canvas" x-show="meAiPursuitLodActive()"
+                              x-init="meAiPursuitLodInit($el)" @click="meAiPursuitLodClick($event)"
+                              @mousemove="meAiPursuitLodHover($event)" @mouseleave="meAiPursuitLodHoverOut($event)"></canvas>
+                      <!-- Hover tooltip: node detail while over the LOD canvas. Written
+                           straight to the DOM by the hover handler (no Alpine churn). -->
+                      <div class="meai-pu-tip" x-show="meAiPursuitLodActive()"><div class="mpt-t"></div><div class="mpt-m"></div><div class="mpt-st"><span class="mpt-d"></span><span class="mpt-l"></span></div></div>
+                      <div class="meai-pworld" x-show="!meAiPursuitLodActive()" :style="meAiPursuitWorldStyle()">
                         <svg class="meai-pedges" :width="meai.pursuit._w" :height="meai.pursuit._h">
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.converge) || ''" class="pe pe-converge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.reuse) || ''" class="pe pe-reuse" fill="none"></path>
@@ -16082,6 +16200,9 @@
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.branch) || ''" class="pe pe-branch" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.merge) || ''" class="pe pe-merge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spine) || ''" class="pe pe-spine" fill="none"></path>
+                          <!-- Live-flow overlay: marching dashes along any edge touching a running
+                               node, so the direction/location of active work reads at a glance. -->
+                          <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.live) || ''" class="pe pe-live" fill="none"></path>
                           <!-- Arrowheads: a separate SOLID layer per type. Each edge type is one path
                                concatenating many subpaths, so SVG marker-end would only draw ONE arrow
                                (at the last subpath). We bake a V-arrow subpath per edge into these
@@ -16094,7 +16215,7 @@
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.mergeA) || ''" class="pe pe-arrow pe-merge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spineA) || ''" class="pe pe-arrow pe-spine" fill="none"></path>
                         </svg>
-                        <template x-for="n in meai.pursuit._nodes" :key="n.id">
+                        <template x-for="n in (meAiPursuitLodActive() ? [] : (meai.pursuit._nodes||[]))" :key="n.id">
                           <div class="meai-pnode" :data-nid="n.id" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
                             <div class="meai-pnode-k">
                               <span x-show="n.shortId" class="meai-pnode-id" x-text="n.shortId"></span>
@@ -16143,6 +16264,14 @@
                             <div class="meai-pu-legend-r"><span class="meai-pu-lg-dot d-dead"></span> Dead end</div>
                           </div>
                         </div>
+                      </div>
+                      <!-- Minimap: bird's-eye of the whole tree with a draggable viewport
+                           rect. Always available on the map (both zoomed in and out) so a
+                           large pursuit is never lost off-screen. Click / drag to recenter. -->
+                      <div class="meai-pu-minimap" x-show="(meai.pursuit._nodes||[]).length" x-transition.opacity>
+                        <canvas class="meai-pu-mini-cv" x-init="meAiPursuitMiniInit($el)"
+                                @pointerdown.stop="meAiPursuitMiniNav($event)"
+                                @pointermove.stop="$event.buttons===1 && meAiPursuitMiniNav($event)"></canvas>
                       </div>
                     </div>
                   </main>
@@ -16232,6 +16361,14 @@
                     <option value="prep">Prep</option>
                     <option value="admin">Admin</option>
                   </select>
+                </div>
+                <div class="meai-depth" role="group" aria-label="Intent">
+                  <span class="meai-depth-lbl">Intent</span>
+                  <div class="meai-depth-track">
+                    <button type="button" class="meai-depth-seg" :class="meai.launchIntent==='investigate' && 'is-on'" @click="meAiSetIntent('investigate')" title="Analyze and report only — no changes, no drafts, no PRs">Investigate</button>
+                    <button type="button" class="meai-depth-seg" :class="meai.launchIntent==='prepare' && 'is-on'" @click="meAiSetIntent('prepare')" title="Do the work and stage drafts — then stop for your approval before anything external">Prepare</button>
+                    <button type="button" class="meai-depth-seg" :class="meai.launchIntent==='execute' && 'is-on'" @click="meAiSetIntent('execute')" title="Carry the work all the way through, still gated on approval for external actions">Execute</button>
+                  </div>
                 </div>
               </div>
               <div class="meai-asst-input">
@@ -27282,6 +27419,12 @@
           // otherwise force a specific playbook (review/implement/steward/comms/prep/admin)
           // so a free-form launch runs with the tuned prompt for that kind of work.
           launchPlaybook: (() => { try { const v = localStorage.getItem('meAiLaunchPlaybook'); return ['auto','review','implement','steward','comms','prep','admin'].includes(v) ? v : 'auto'; } catch (_) { return 'auto'; } })(),
+          // Launch-time INTENT / disposition — how far a free-form pursuit should go.
+          // 'investigate' = read-only analysis + recommendations (safest default for a
+          // free-form goal); 'prepare' = do hands-on work + stage drafts, stop at the
+          // approval line; 'execute' = carry the work all the way through (still auth-gated
+          // for external writes). Applies only to free-form composer launches.
+          launchIntent: (() => { try { const v = localStorage.getItem('meAiLaunchIntent'); return ['investigate','prepare','execute'].includes(v) ? v : 'investigate'; } catch (_) { return 'investigate'; } })(),
           launchMenuFor: null,   // per-block Quick/Deep chooser popover: block id|title or null
           console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
           consoleBusy: false,    // a dispatch/act request is in flight
@@ -27417,6 +27560,9 @@
             zoom: 1, panX: 0, panY: 0,   // canvas transform
             follow: true,                // auto-recenter on latest
             legendOpen: false,           // canvas legend visible
+            lodCluster: true,            // LOD: merge dense dots into count markers
+            lodDim: false,               // LOD: fade settled work so live flow reads
+            lodPulse: true,              // LOD: pulse running-work dots
             _drag: null, _navDrag: null, _fitted: false, _focusId: null,
             _nodes: [], _legShortId: {}, _artRaw: {}, _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
@@ -36613,14 +36759,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.asst.input = '';
             const title = raw.length > 80 ? raw.slice(0, 77) + '…' : raw;
             const pb = this.meAiLaunchPb();
+            const intent = this.meAiLaunchIntent();
             const deep = this.meai.launchDepth !== 'quick';
             const detail = convo ? (raw + '\n\n' + convo) : raw;
             if (deep) {
               // Auto/Deep → dogged fan-out pursuit on the live canvas.
-              this.meAiLaunchPursuit(raw, { playbook: pb, title, context: { goal: raw, detail, date: this.meai.date } });
+              this.meAiLaunchPursuit(raw, { playbook: pb, title, context: { goal: raw, detail, intent, date: this.meai.date } });
             } else {
               // Quick → one flat agent in the console.
-              const ctx = (pb === 'adhoc') ? { goal: raw, detail: convo || undefined, date: this.meai.date } : { goal: raw, detail, title, date: this.meai.date };
+              const ctx = (pb === 'adhoc') ? { goal: raw, detail: convo || undefined, intent, date: this.meai.date } : { goal: raw, detail, title, intent, date: this.meai.date };
               this.meAiDispatch(pb, title, ctx);
             }
             const how = deep ? 'a live pursuit (watch it on the canvas)' : 'a Me agent (opening the console)';
@@ -38673,6 +38820,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.launchPlaybook = p;
           try { localStorage.setItem('meAiLaunchPlaybook', p); } catch (_) {}
         },
+        // Persist the launch INTENT (disposition) choice. Governs how far a free-form
+        // pursuit goes: investigate (read-only), prepare (do work + stage drafts, stop at
+        // approval), execute (carry through). Default 'investigate'.
+        meAiSetIntent(i) {
+          if (!['investigate','prepare','execute'].includes(i)) return;
+          this.meai.launchIntent = i;
+          try { localStorage.setItem('meAiLaunchIntent', i); } catch (_) {}
+        },
+        // The effective launch intent for a free-form dispatch.
+        meAiLaunchIntent() {
+          const i = this.meai.launchIntent;
+          return ['investigate','prepare','execute'].includes(i) ? i : 'investigate';
+        },
         // Resolve the effective depth for a block: 'auto' defers to the block-type
         // heuristic (meAiBlockPursues); 'deep'/'quick' force the choice for any type.
         meAiEffectiveDeep(block) {
@@ -38693,7 +38853,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const goal = (this.meai.adhocGoal || '').trim();
           if (!goal) { this.toast('Set a goal first', 'info'); return; }
           if (this.meai.launchDepth === 'quick') this.meAiLaunchAdhoc();
-          else this.meAiLaunchPursuit();
+          else this.meAiLaunchPursuit(goal, { context: { intent: this.meAiLaunchIntent() } });
         },
         // The effective free-form launch playbook: 'auto' means adhoc (let the agent
         // work out its own steps); anything else forces a tuned playbook.
@@ -38710,7 +38870,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!goal || this.meai.consoleBusy) return;
           const title = goal.length > 80 ? goal.slice(0, 77) + '…' : goal;
           const pb = this.meAiLaunchPb();
-          const ctx = (pb === 'adhoc') ? { goal, date: this.meai.date } : { goal, detail: goal, title, date: this.meai.date };
+          const intent = this.meAiLaunchIntent();
+          const ctx = (pb === 'adhoc') ? { goal, intent, date: this.meai.date } : { goal, detail: goal, title, intent, date: this.meai.date };
           this.meAiDispatch(pb, title, ctx);
           this.meai.adhocGoal = '';
         },
@@ -39567,14 +39728,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // elements in the SVG (not x-for) so they live in the SVG namespace and
           // actually render — Alpine x-for inside <svg> creates HTML-namespaced
           // nodes that never paint.
-          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', reuse: '', spineA: '', branchA: '', mergeA: '', convergeA: '', gateA: '', cullA: '', reuseA: '' };
+          const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', reuse: '', live: '', spineA: '', branchA: '', mergeA: '', convergeA: '', gateA: '', cullA: '', reuseA: '' };
           order.forEach((id) => {
             const leg = legs[id]; if (!leg || !leg.parentId) return;
             const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
             const type = (leg.kind === 'reroute') ? 'merge' : ((leg.kind === 'spine' || onMain[id]) ? 'spine' : 'branch');
             const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y;
-            dByType[type] += ' ' + this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
+            const d = this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
+            dByType[type] += ' ' + d;
             dByType[type + 'A'] += ' ' + this._meAiArrow(x2, y2, Math.sign(y2 - y1) || 1);
+            // Live-flow overlay: any edge touching a currently-running node gets a copy on
+            // the animated `live` layer so the eye can follow where work is flowing, even
+            // on a large map. The base edge still paints underneath.
+            const par = legs[leg.parentId];
+            if (leg.status === 'running' || (par && par.status === 'running')) dByType.live += ' ' + d;
           });
           // Item 4: a concluded side leg (done result or culled dead-end) shouldn't
           // just trail off into empty space — draw a faint convergence edge back into
@@ -39731,10 +39898,316 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiPursuitWorldStyle() {
           const p = this.meai.pursuit;
-          return 'transform:translate(' + p.panX + 'px,' + p.panY + 'px) scale(' + p.zoom + ');transform-origin:0 0;width:' + (p._w || 1000) + 'px;height:' + (p._h || 600) + 'px';
+          const z = p.zoom || 1;
+          // In LOD (zoom < 0.5) the whole world is scaled by z, which would shrink
+          // the dot markers into the connector lines. Counter-scale them: pick a
+          // target ON-SCREEN size and divide by z so they read at a constant size
+          // no matter how far out you zoom. Clamp so they never get absurd.
+          const dotPx = Math.min(140, Math.max(18, Math.round(13 / z)));   // ~13px on screen
+          const trackPx = Math.min(24, Math.max(2, Math.round(2.2 / z)));   // ~2px on screen
+          const haloPx = Math.round(dotPx * 0.9);
+          return 'transform:translate(' + p.panX + 'px,' + p.panY + 'px) scale(' + z + ');transform-origin:0 0;width:' + (p._w || 1000) + 'px;height:' + (p._h || 600) + 'px'
+            + ';--lod-dot:' + dotPx + 'px;--lod-track:' + trackPx + 'px;--lod-halo:' + haloPx + 'px';
         },
-        meAiPursuitLegKind(k) {
-          return ({ spine: 'Main thread', branch: 'Pursuit leg', scout: 'Scout', reroute: 'Merged back', user: 'You' })[k] || k;
+        // ── Canvas LOD renderer ───────────────────────────────────────────────
+        // Zoomed-out large maps used to paint hundreds of DOM nodes + huge SVG paths
+        // every frame. Below 0.5x we instead render the same nodes/edges to ONE canvas:
+        // constant-size dots, flow marching the real elbow edges, dense areas clustered
+        // into count markers, running dots pulsing. Click hit-tests to open a node.
+        meAiPursuitLodActive() { return (this.meai.pursuit.zoom || 1) < 0.5; },
+        meAiPursuitLodInit(cv) {
+          const self = this;
+          const loop = () => {
+            if (!cv.isConnected) return;                 // modal closed → stop
+            const p = self.meai.pursuit;
+            if (self.meAiPursuitLodActive() && p.centerView === 'map' && (p._nodes || []).length) {
+              try { self._meAiPursuitLodDraw(cv); } catch (e) {}
+            }
+            p._lodRAF = requestAnimationFrame(loop);
+          };
+          cancelAnimationFrame(this.meai.pursuit._lodRAF || 0);
+          loop();
+        },
+        _meAiLodTokens() {
+          if (this._meAiLodTok) return this._meAiLodTok;
+          const g = getComputedStyle(document.documentElement);
+          const pick = (v, f) => { const s = (g.getPropertyValue(v) || '').trim(); return s || f; };
+          return (this._meAiLodTok = {
+            accent: pick('--cp-accent', '#7b8cff'), muted: pick('--cp-text-muted', '#8b949e'),
+            bg: pick('--cp-bg', '#0d1117'), done: '#3fb950', amber: '#d29922', dead: '#6e7681'
+          });
+        },
+        _meAiLodState(n) {
+          const c = n.cls || '';
+          if (/\bprun\b/.test(c)) return 'run';
+          if (/\bpauth\b|\bpstop\b/.test(c)) return 'auth';
+          if (/\bpdone\b/.test(c)) return 'done';
+          if (/\bpdead\b/.test(c)) return 'dead';
+          if (/\bpmain\b|\bpuser\b|kind-spine/.test(c)) return 'main';
+          return 'sub';
+        },
+        _meAiPursuitLodDraw(cv) {
+          const p = this.meai.pursuit;
+          const t0 = performance.now();
+          const doCluster = p.lodCluster !== false;
+          const doPulse = p.lodPulse !== false;
+          const doDim = !!p.lodDim;
+          const ctx = cv.getContext('2d');
+          const host = cv.parentElement;                 // .meai-pcanvas
+          const rect = host.getBoundingClientRect();
+          const VW = rect.width, VH = rect.height;
+          if (!VW || !VH) return;
+          const DPR = Math.min(2, window.devicePixelRatio || 1);
+          if (cv.width !== Math.round(VW * DPR)) cv.width = Math.round(VW * DPR);
+          if (cv.height !== Math.round(VH * DPR)) cv.height = Math.round(VH * DPR);
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+          ctx.clearRect(0, 0, VW, VH);
+
+          const z = p.zoom || 1, panX = p.panX || 0, panY = p.panY || 0;
+          const W = 268, NODEH = 96;
+          const toX = wx => panX + wx * z, toY = wy => panY + wy * z;
+          const tok = this._meAiLodTokens();
+          const colOf = st => ({ run: tok.accent, main: tok.accent, auth: tok.amber, done: tok.done, dead: tok.dead, sub: tok.muted }[st] || tok.muted);
+          const prio = { run: 5, auth: 4, done: 3, main: 2, sub: 1, dead: 0 };
+          const nodes = p._nodes || [];
+          const byId = {}; nodes.forEach(n => byId[n.id] = n);
+          // screen center per node
+          const scr = n => [toX(n.x + W / 2), toY(n.y + NODEH / 2)];
+
+          // Edges (parent→child), elbow: down / across / down. Cull to viewport.
+          const edges = [];
+          for (const n of nodes) {
+            const pid = n.leg && n.leg.parentId; if (pid == null) continue;
+            const par = byId[pid]; if (!par) continue;
+            edges.push([par, n]);
+          }
+          ctx.lineWidth = 1.1;
+          for (const [a, b] of edges) {
+            const [ax, ay] = scr(a), [bx, by] = scr(b);
+            if ((ax < -60 && bx < -60) || (ax > VW + 60 && bx > VW + 60) || (ay < -60 && by < -60) || (ay > VH + 60 && by > VH + 60)) continue;
+            const live = this._meAiLodState(a) === 'run' || this._meAiLodState(b) === 'run';
+            ctx.strokeStyle = live ? 'rgba(123,140,255,0.55)' : (doDim ? 'rgba(139,148,158,0.10)' : 'rgba(139,148,158,0.26)');
+            const midy = (ay + by) / 2;
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, midy); ctx.lineTo(bx, midy); ctx.lineTo(bx, by); ctx.stroke();
+          }
+
+          // Flow dots march the SAME elbow polyline as the edge.
+          const t = performance.now() / 1000;
+          const along = (pts, q) => {
+            let total = 0; const segs = [];
+            for (let i = 0; i < pts.length - 1; i++) { const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); segs.push(l); total += l; }
+            let d = (q % 1) * total;
+            for (let i = 0; i < segs.length; i++) { if (d <= segs[i] || i === segs.length - 1) { const f = segs[i] ? d / segs[i] : 0; return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f]; } d -= segs[i]; }
+            return pts[pts.length - 1];
+          };
+          ctx.fillStyle = 'rgba(123,140,255,0.95)';
+          for (const [a, b] of edges) {
+            if (!(this._meAiLodState(a) === 'run' || this._meAiLodState(b) === 'run')) continue;
+            const [ax, ay] = scr(a), [bx, by] = scr(b);
+            if ((ax < -60 && bx < -60) || (ax > VW + 60 && bx > VW + 60)) continue;
+            const midy = (ay + by) / 2, pts = [[ax, ay], [ax, midy], [bx, midy], [bx, by]];
+            for (const off of [0, 0.5]) { const [mx, my] = along(pts, t * 0.55 + off); ctx.beginPath(); ctx.arc(mx, my, 1.9, 0, 7); ctx.fill(); }
+          }
+
+          // Cluster: grid buckets in screen space. >1 node collapses to a count marker.
+          const DOT = 13, cell = DOT * 2.4;
+          const buckets = {};
+          for (const n of nodes) {
+            const [sx, sy] = scr(n);
+            if (sx < -40 || sx > VW + 40 || sy < -40 || sy > VH + 40) continue;
+            const k = Math.floor(sx / cell) + ':' + Math.floor(sy / cell);
+            (buckets[k] = buckets[k] || []).push({ n, sx, sy });
+          }
+          const singles = [], clusters = [];
+          for (const k in buckets) {
+            const arr = buckets[k];
+            if (arr.length === 1 || !doCluster) { arr.forEach(o => singles.push(o)); }
+            else {
+              let cx = 0, cy = 0, top = 'sub';
+              arr.forEach(o => { cx += o.sx; cy += o.sy; const st = this._meAiLodState(o.n); if (prio[st] > prio[top]) top = st; });
+              clusters.push({ x: cx / arr.length, y: cy / arr.length, n: arr.length, st: top, ids: arr.map(o => o.n.id) });
+            }
+          }
+
+          const hit = { singles: [], clusters: [] };
+          const selId = (p.nodeView && p.nodeView.id) || p._focusId;
+          for (const o of singles) {
+            const st = this._meAiLodState(o.n), col = colOf(st), r = DOT / 2;
+            if (st === 'dead') {
+              ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([3, 3]);
+              ctx.beginPath(); ctx.arc(o.sx, o.sy, r, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+            } else {
+              if (st === 'run' && doPulse) {
+                const ph = (t * 0.9 + (o.n.id || 0) * 0.13) % 1;
+                ctx.beginPath(); ctx.arc(o.sx, o.sy, r + ph * r * 2.4, 0, 7);
+                ctx.fillStyle = 'rgba(123,140,255,' + (0.34 * (1 - ph)).toFixed(3) + ')'; ctx.fill();
+              }
+              const dimIt = doDim && st !== 'run';
+              if (dimIt) ctx.globalAlpha = 0.22;
+              ctx.beginPath(); ctx.arc(o.sx, o.sy, r + 2, 0, 7); ctx.fillStyle = tok.bg; ctx.fill(); // gap ring
+              ctx.beginPath(); ctx.arc(o.sx, o.sy, r, 0, 7); ctx.fillStyle = col; ctx.fill();
+              if (dimIt) ctx.globalAlpha = 1;
+            }
+            if (o.n.id === selId) { ctx.strokeStyle = tok.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(o.sx, o.sy, r + 5, 0, 7); ctx.stroke(); }
+            hit.singles.push({ x: o.sx, y: o.sy, r: r + 4, id: o.n.id });
+          }
+          for (const cl of clusters) {
+            const col = colOf(cl.st), r = DOT / 2 + 3;
+            ctx.beginPath(); ctx.arc(cl.x, cl.y, r + 2, 0, 7); ctx.fillStyle = tok.bg; ctx.fill();
+            ctx.beginPath(); ctx.arc(cl.x, cl.y, r, 0, 7);
+            ctx.fillStyle = 'color-mix(in srgb,' + col + ' 30%, ' + tok.bg + ')'; ctx.fill();
+            ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+            ctx.fillStyle = tok.muted; ctx.font = '600 9px -apple-system,Segoe UI,sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(cl.n > 99 ? '99+' : String(cl.n), cl.x, cl.y + 0.5);
+            ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+            hit.clusters.push({ x: cl.x, y: cl.y, r: r + 4, ids: cl.ids });
+          }
+          p._lodHit = hit;
+
+          // ---- Live render stats → control panel (write DOM directly, no Alpine churn) ----
+          const drawn = hit.singles.length + hit.clusters.length;
+          const now = performance.now();
+          const ms = now - t0;
+          const dt = p._lodLast ? (now - p._lodLast) : 16.7;
+          p._lodLast = now;
+          const inst = dt > 0 ? 1000 / dt : 60;
+          p._lodFps = p._lodFps ? (p._lodFps * 0.9 + inst * 0.1) : inst;
+          const panel = host.querySelector('.meai-pu-cpanel');
+          if (panel) {
+            const set = (sel, txt) => { const el = panel.querySelector(sel); if (el && el.textContent !== txt) el.textContent = txt; };
+            set('.cp-legs', String((p._nodes || []).length));
+            set('.cp-drawn', String(drawn));
+            set('.cp-ms', ms.toFixed(1) + ' ms');
+            set('.cp-fps', String(Math.round(p._lodFps)));
+          }
+        },
+        meAiPursuitLodClick(ev) {
+          const p = this.meai.pursuit;
+          if (p._dragMoved) return;                      // it was a pan, not a click
+          const cv = ev.currentTarget; const rect = cv.getBoundingClientRect();
+          const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+          const hit = p._lodHit; if (!hit) return;
+          let best = null, bestD = 1e9;
+          for (const s of hit.singles) { const d = Math.hypot(cx - s.x, cy - s.y); if (d < s.r && d < bestD) { bestD = d; best = { kind: 'node', id: s.id }; } }
+          for (const c of hit.clusters) { const d = Math.hypot(cx - c.x, cy - c.y); if (d < c.r && d < bestD) { bestD = d; best = { kind: 'cluster', c }; } }
+          if (!best) return;
+          if (best.kind === 'node') {
+            const n = (p._nodes || []).find(x => x.id === best.id); if (n) this.meAiPursuitOpenNode(n);
+          } else {
+            // zoom toward the cluster so its members separate
+            const wx = (best.c.x - (p.panX || 0)) / (p.zoom || 1), wy = (best.c.y - (p.panY || 0)) / (p.zoom || 1);
+            const nz = Math.min(2, (p.zoom || 1) * 1.8);
+            p.zoom = nz; p.panX = best.c.x - wx * nz; p.panY = best.c.y - wy * nz; p.follow = false;
+          }
+        },
+        meAiPursuitLodHoverOut(ev) {
+          const cv = ev.currentTarget; if (!cv) return;
+          const tip = cv.parentElement && cv.parentElement.querySelector('.meai-pu-tip');
+          if (tip) tip.classList.remove('on');
+          cv.style.cursor = '';
+        },
+        meAiPursuitLodHover(ev) {
+          const p = this.meai.pursuit;
+          const cv = ev.currentTarget;
+          const tip = cv.parentElement && cv.parentElement.querySelector('.meai-pu-tip');
+          if (!tip) return;
+          if (p._drag || !p._lodHit) { tip.classList.remove('on'); return; }
+          const rect = cv.getBoundingClientRect();
+          const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+          let best = null, bestD = 1e9;
+          for (const s of (p._lodHit.singles || [])) { const d = Math.hypot(cx - s.x, cy - s.y); if (d < s.r && d < bestD) { bestD = d; best = s; } }
+          if (!best) { tip.classList.remove('on'); cv.style.cursor = ''; return; }
+          const n = (p._nodes || []).find(x => x.id === best.id);
+          if (!n) { tip.classList.remove('on'); cv.style.cursor = ''; return; }
+          const tok = this._meAiLodTokens();
+          const st = this._meAiLodState(n);
+          const colOf = { run: tok.accent, main: tok.accent, auth: tok.amber, done: tok.done, dead: tok.dead, sub: tok.muted };
+          const stObj = (this.meAiPursuitNodeState ? this.meAiPursuitNodeState(n) : null);
+          const label = (stObj && stObj.label) || ({ run: 'Running', auth: 'Awaiting you', done: 'Done', dead: 'Dead end', main: 'Main', sub: 'Sub-agent' }[st] || 'Working');
+          const roleTxt = n.role === 'main' ? 'main agent' : (n.role === 'you' ? 'you' : 'sub-agent');
+          const meta = [n.shortId ? ('#' + n.shortId) : '', roleTxt].filter(Boolean).join(' · ');
+          const set = (sel, txt) => { const el = tip.querySelector(sel); if (el) el.textContent = txt; };
+          set('.mpt-t', (n.leg && n.leg.title) || 'Untitled');
+          set('.mpt-m', meta);
+          set('.mpt-l', label);
+          const dot = tip.querySelector('.mpt-d'); if (dot) dot.style.background = colOf[st] || tok.muted;
+          tip.style.left = Math.min(rect.width - 250, cx + 14) + 'px';
+          tip.style.top = (cy + 14) + 'px';
+          tip.classList.add('on');
+          cv.style.cursor = 'pointer';
+        },
+        // ---- Minimap: bird's-eye of the whole tree + draggable viewport rect. ----
+        meAiPursuitMiniInit(cv) {
+          const self = this;
+          const loop = () => {
+            if (!cv.isConnected) return;               // modal closed → stop
+            const p = self.meai.pursuit;
+            if (p.centerView === 'map' && (p._nodes || []).length) {
+              try { self._meAiPursuitMiniDraw(cv); } catch (e) {}
+            }
+            p._miniRAF = requestAnimationFrame(loop);
+          };
+          cancelAnimationFrame(this.meai.pursuit._miniRAF || 0);
+          loop();
+        },
+        _meAiPursuitMiniDraw(cv) {
+          const p = this.meai.pursuit;
+          const ctx = cv.getContext('2d');
+          const host = cv.parentElement;               // .meai-pu-minimap
+          const rect = host.getBoundingClientRect();
+          const mw = rect.width, mh = rect.height;
+          if (!mw || !mh) return;
+          const DPR = Math.min(2, window.devicePixelRatio || 1);
+          if (cv.width !== Math.round(mw * DPR)) cv.width = Math.round(mw * DPR);
+          if (cv.height !== Math.round(mh * DPR)) cv.height = Math.round(mh * DPR);
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+          ctx.clearRect(0, 0, mw, mh);
+          const W = 268, NODEH = 96, pad = 9;
+          const nodes = p._nodes || [];
+          let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+          for (const n of nodes) { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + W); maxY = Math.max(maxY, n.y + NODEH); }
+          if (!isFinite(minX)) return;
+          const worldW = (maxX - minX) || 1, worldH = (maxY - minY) || 1;
+          const scale = Math.min((mw - pad * 2) / worldW, (mh - pad * 2) / worldH);
+          const ox = (mw - worldW * scale) / 2, oy = (mh - worldH * scale) / 2;
+          const mx = wx => ox + (wx - minX) * scale, my = wy => oy + (wy - minY) * scale;
+          const tok = this._meAiLodTokens();
+          const colOf = st => ({ run: tok.accent, main: tok.accent, auth: tok.amber, done: tok.done, dead: tok.dead, sub: tok.muted }[st] || tok.muted);
+          const byId = {}; nodes.forEach(n => byId[n.id] = n);
+          // faint edges
+          ctx.strokeStyle = 'rgba(139,148,158,0.16)'; ctx.lineWidth = 0.5;
+          for (const n of nodes) {
+            const pid = n.leg && n.leg.parentId; if (pid == null) continue;
+            const par = byId[pid]; if (!par) continue;
+            ctx.beginPath(); ctx.moveTo(mx(par.x + W / 2), my(par.y + NODEH / 2)); ctx.lineTo(mx(n.x + W / 2), my(n.y + NODEH / 2)); ctx.stroke();
+          }
+          // node dots
+          for (const n of nodes) {
+            const st = this._meAiLodState(n); ctx.fillStyle = colOf(st);
+            ctx.beginPath(); ctx.arc(mx(n.x + W / 2), my(n.y + NODEH / 2), 1.6, 0, 7); ctx.fill();
+          }
+          // viewport rect (what the main view currently shows, in world space)
+          const cvsHost = document.querySelector('.meai-pcanvas');
+          if (cvsHost) {
+            const vr = cvsHost.getBoundingClientRect(); const z = p.zoom || 1;
+            const rx = mx((-(p.panX || 0)) / z), ry = my((-(p.panY || 0)) / z);
+            const rw = (vr.width / z) * scale, rh = (vr.height / z) * scale;
+            ctx.fillStyle = 'color-mix(in srgb,' + tok.accent + ' 12%, transparent)';
+            ctx.fillRect(rx, ry, rw, rh);
+            ctx.strokeStyle = tok.accent; ctx.lineWidth = 1.2; ctx.strokeRect(rx, ry, rw, rh);
+          }
+          cv._mini = { ox, oy, scale, minX, minY };
+        },
+        meAiPursuitMiniNav(ev) {
+          const p = this.meai.pursuit;
+          const cv = ev.currentTarget; const m = cv._mini; if (!m) return;
+          const rect = cv.getBoundingClientRect();
+          const wx = m.minX + ((ev.clientX - rect.left) - m.ox) / m.scale;
+          const wy = m.minY + ((ev.clientY - rect.top) - m.oy) / m.scale;
+          const host = document.querySelector('.meai-pcanvas'); if (!host) return;
+          const vr = host.getBoundingClientRect(); const z = p.zoom || 1;
+          p.panX = vr.width / 2 - wx * z; p.panY = vr.height / 2 - wy * z; p.follow = false;
         },
         // Depth of a leg = how far it forked from the spine root. Spine (parentId
         // null) is L1; a branch/scout off the spine is L2; its children L3; etc.
@@ -39824,7 +40297,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!r.width || !r.height) return;
           const w = p._w || 1000, h = p._h || 600, pad = 40;
           let z = Math.min((r.width - pad * 2) / w, (r.height - pad * 2) / h, 1);
-          z = Math.min(2, Math.max(0.35, z));
+          z = Math.min(2, Math.max(0.05, z));
           p.zoom = z;
           p.panX = Math.max(pad, (r.width - w * z) / 2);
           p.panY = 24;
@@ -40483,15 +40956,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = this.meai.pursuit;
           if (dir === 'reset') { this.meAiPursuitFit(); return; }
           const z = dir === 'in' ? p.zoom * 1.15 : p.zoom / 1.15;
-          p.zoom = Math.min(2, Math.max(0.35, z));
+          p.zoom = Math.min(2, Math.max(0.05, z));
         },
         meAiPursuitPanStart(ev) {
           const p = this.meai.pursuit;
           p._drag = { x: ev.clientX, y: ev.clientY, px: p.panX, py: p.panY };
+          p._dragMoved = false;
           p.follow = false;
         },
         meAiPursuitPanMove(ev) {
           const p = this.meai.pursuit; if (!p._drag) return;
+          if (Math.abs(ev.clientX - p._drag.x) > 4 || Math.abs(ev.clientY - p._drag.y) > 4) p._dragMoved = true;
           p.panX = p._drag.px + (ev.clientX - p._drag.x);
           p.panY = p._drag.py + (ev.clientY - p._drag.y);
         },
@@ -40525,7 +41000,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = this.meai.pursuit;
           const host = (ev.currentTarget && ev.currentTarget.getBoundingClientRect) ? ev.currentTarget.getBoundingClientRect() : null;
           const factor = ev.deltaY < 0 ? 1.1 : (1 / 1.1);
-          const nz = Math.min(2, Math.max(0.35, p.zoom * factor));
+          const nz = Math.min(2, Math.max(0.05, p.zoom * factor));
           if (nz === p.zoom) return;
           const cx = host ? (ev.clientX - host.left) : 0;
           const cy = host ? (ev.clientY - host.top) : 0;

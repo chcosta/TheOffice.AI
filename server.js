@@ -20933,9 +20933,16 @@ function _meAiGoalFor(t) {
   // 120-char label for the lane, not the instruction the agent should act on.
   const explicit = String((t && t.context && t.context.goal) || '').trim();
   if (explicit) {
-    return t && t.playbook === 'adhoc'
-      ? `Accomplish this end-to-end: ${explicit} — work out the steps, do the work with your tools, pursue every promising angle, and report what's done and what's left.`
-      : explicit;
+    if (t && t.playbook === 'adhoc') {
+      const intent = _meAiIntentOf(t);
+      const suffix = intent === 'investigate'
+        ? ` — investigate this thoroughly: work out what's going on, pursue every promising angle with your tools, and report your findings with concrete, prioritized recommendations. This is an ANALYSIS — do NOT edit code, open pull requests, or send/post anything; if acting on a finding would help, recommend it rather than doing it.`
+        : intent === 'prepare'
+        ? ` — work out the steps and do the hands-on work with your tools, preparing concrete changes and drafts (local edits, a staged commit, a PR description, draft replies) for my review. STOP at the approval line: do NOT push, open PRs, or send/post anything without my approval. Report what's ready and what's left.`
+        : ` — work out the steps, do the work with your tools, pursue every promising angle, and report what's done and what's left.`;
+      return `Accomplish this end-to-end: ${explicit}${suffix}`;
+    }
+    return explicit;
   }
   const map = {
     review: `Review ${title || 'the changes'} at a senior level — surface bugs, risks, and what's good so you can decide how to act.`,
@@ -22239,10 +22246,54 @@ function _meAiBuildMemo(t, excludeIds) {
 
 // Is this a delivery-class pursuit (should actually EXECUTE a fix, not just
 // investigate)? Implement playbook, or a goal that reads like build/fix work.
+// Pursuit INTENT (disposition) — how far a free-form pursuit should go on the
+// commitment axis. Distinct from the ME_AI_INTENTS act-vocabulary above.
+//   investigate = read-only analysis + prioritized recommendations; never edits,
+//                 opens PRs, or sends. (Default for free-form/ad-hoc goals — the
+//                 safest reading, and the fix for pursuits that "wanted to make PRs"
+//                 when the user only asked for an analysis.)
+//   prepare     = do the hands-on work and PREPARE concrete changes/drafts (local
+//                 edits, a staged commit, a PR description, draft replies) but STOP
+//                 at the approval line — never push/open/send without approval.
+//   execute     = actively pursue AND fix, driving toward opening a PR (external
+//                 actions still require one-click approval at the SDK gate).
+const _MEAI_INTENT_LEVELS = ['investigate', 'prepare', 'execute'];
+function _meAiIntentOf(t) {
+  try {
+    const raw = String((t && t.context && t.context.intent) || (t && t.intent) || '').trim().toLowerCase();
+    if (_MEAI_INTENT_LEVELS.includes(raw)) return raw;
+    // Backward-compat for tasks launched before Intent existed: the explicit
+    // "implement" playbook is unambiguously execute; every other unset task
+    // (including legacy ad-hoc) defaults to investigate — the safe reading the
+    // owner approved, and the new launcher always sends an explicit intent.
+    if (t && t.playbook === 'implement') return 'execute';
+    return 'investigate';
+  } catch (_) { return 'investigate'; }
+}
+// One-line disposition directive spliced into the planner + every leg prompt so
+// the agent knows how far it may go. Investigate legs recommend (don't propose
+// fixes); prepare/execute legs may propose gated actions.
+function _meAiIntentDirective(t) {
+  const intent = _meAiIntentOf(t);
+  if (intent === 'investigate') {
+    return 'INTENT — INVESTIGATE (read-only analysis): your job is to understand, explain, and RECOMMEND. Do NOT edit code, open pull requests, or send/post anything, and do NOT propose write/external actions as next steps — the ONE exception is a gated read-access unblock you genuinely need to keep investigating. Deliver findings + prioritized recommendations, not changes.';
+  }
+  if (intent === 'prepare') {
+    return 'INTENT — PREPARE (hands-on, stop at approval): do the real work and PREPARE concrete changes and drafts (local edits, a staged commit, a PR description, draft replies), but STOP at the approval line — never push, open a PR, or send/post without my approval. Surface those as gated proposedActions.';
+  }
+  return 'INTENT — EXECUTE (pursue & fix): actively make the changes needed to reach the goal and drive toward opening a PR. External actions (push, open PR, post, send) still require my one-click approval at the gate.';
+}
 function _meAiDeliveryCapable(t) {
   try {
     if (!t) return false;
     if (t._noDeliver) return false;
+    // Intent is authoritative: investigation never runs the write-capable delivery
+    // pipeline (this is what suppresses the converged "want me to implement + prep a
+    // PR?" offer for analysis-only pursuits). Prepare + execute both prepare a PR
+    // (the push itself stays gated), so both are delivery-capable.
+    const intent = _meAiIntentOf(t);
+    if (intent === 'investigate') return false;
+    if (intent === 'prepare' || intent === 'execute') return true;
     if (t.playbook === 'implement') return true;
     if (t.context && t.context.deliver) return true;
     const g = String((t.goal || '') + ' ' + (t.title || '')).toLowerCase();
@@ -22372,6 +22423,7 @@ async function _meAiTreePlan(t, spine) {
     `TASK GOAL: ${t.goal || _meAiGoalFor(t)}`,
     ref ? `SUBJECT: ${ref}` : '',
     _meAiSteerBlock(t),
+    _meAiIntentDirective(t),
     ``,
     `Break this into 2-6 INDEPENDENT angles that separate agents can investigate IN`,
     `PARALLEL. Each angle is a distinct hypothesis, sub-question, or workstream that`,
@@ -22437,6 +22489,7 @@ function _meAiTreeLegPrompt(t, leg) {
     ``,
     `YOUR LEG — "${leg.title}": ${leg.goal}`,
     _meAiSteerBlock(t),
+    _meAiIntentDirective(t),
     ``,
     `Rules for this leg:`,
     `- Pursue ONLY this hypothesis. Be cheap and decisive; if it is a dead end, say so — a killed path is a recorded result, not a failure.`,
