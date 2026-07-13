@@ -16185,7 +16185,7 @@
                            paint replaces the hundreds of DOM nodes + SVG paths. Dots stay a
                            constant on-screen size, flow marches along the real elbow edges,
                            dense areas cluster into count markers. Click-to-open hit-tests. -->
-                      <canvas class="meai-plod-canvas" x-show="meAiPursuitLodActive()"
+                      <canvas class="meai-plod-canvas" x-show="meAiPursuitLodActive() || meAiPursuitHybrid()"
                               x-init="meAiPursuitLodInit($el)" @click="meAiPursuitLodClick($event)"
                               @mousemove="meAiPursuitLodHover($event)" @mouseleave="meAiPursuitLodHoverOut($event)"></canvas>
                       <!-- Hover tooltip: node detail while over the LOD canvas. Written
@@ -16215,7 +16215,7 @@
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.mergeA) || ''" class="pe pe-arrow pe-merge" fill="none"></path>
                           <path :d="(meai.pursuit._edgeD && meai.pursuit._edgeD.spineA) || ''" class="pe pe-arrow pe-spine" fill="none"></path>
                         </svg>
-                        <template x-for="n in (meAiPursuitLodActive() ? [] : (meai.pursuit._nodes||[]))" :key="n.id">
+                        <template x-for="n in meAiPursuitCardNodes()" :key="n.id">
                           <div class="meai-pnode" :data-nid="n.id" :class="[n.cls, meai.pursuit._focusId===n.id ? 'pflash' : '', (meai.pursuit.nodeView && meai.pursuit.nodeView.id===n.id) ? 'psel' : '']" :style="meAiPursuitNodeStyle(n)" @click.stop="meAiPursuitOpenNode(n)">
                             <div class="meai-pnode-k">
                               <span x-show="n.shortId" class="meai-pnode-id" x-text="n.shortId"></span>
@@ -39831,7 +39831,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Measured heights are cached (p._realH) so reloading the SAME tree is
           // correct on the first pass; the measure/reflow only fires for new/changed
           // cards, and self-terminates (the follow-up measure matches the cache).
-          try { this.$nextTick(() => this._meAiPursuitReflow()); } catch (e) {}
+          try { this.$nextTick(() => { this._meAiPursuitReflow(); this._meAiPursuitWindow(); }); } catch (e) {}
         },
         // Measure the painted pursuit cards and reflow if the real heights differ from
         // the estimate the last layout used. Keeps tall (waiting/thinking/artifact)
@@ -39915,12 +39915,53 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // constant-size dots, flow marching the real elbow edges, dense areas clustered
         // into count markers, running dots pulsing. Click hit-tests to open a node.
         meAiPursuitLodActive() { return (this.meai.pursuit.zoom || 1) < 0.5; },
+        // ── Hybrid viewport windowing ─────────────────────────────────────────
+        // Zooming IN past the LOD threshold on a LARGE map used to revive EVERY node
+        // as a DOM card at once, which tanks performance. Instead, above a node-count
+        // threshold we stay "hybrid": the canvas keeps painting off-window nodes as
+        // dots, and only the nodes inside a padded viewport window are mounted as real
+        // DOM cards. The window is recomputed only when a gesture SETTLES (pan end /
+        // zoom / layout) — NEVER mid-drag — so panning a huge map stays a cheap CSS
+        // transform with no card churn.
+        meAiPursuitHybrid() {
+          const p = this.meai.pursuit;
+          if (this.meAiPursuitLodActive()) return false;
+          return ((p._nodes || []).length) > 60;
+        },
+        // Node set the DOM x-for mounts: none in LOD, the window in hybrid, all else.
+        meAiPursuitCardNodes() {
+          const p = this.meai.pursuit;
+          if (this.meAiPursuitLodActive()) return [];
+          if (this.meAiPursuitHybrid()) return p._winNodes || p._nodes || [];
+          return p._nodes || [];
+        },
+        // Recompute the windowed card set: nodes whose world rect intersects the
+        // viewport padded ~40% each side (so a short pan reveals already-mounted
+        // cards). O(n) and cheap — safe to call synchronously on every settle/zoom.
+        _meAiPursuitWindow() {
+          const p = this.meai.pursuit;
+          const nodes = p._nodes || [];
+          if (!this.meAiPursuitHybrid()) { p._winNodes = nodes; p._winSet = null; return; }
+          const host = document.querySelector('.meai-pcanvas');
+          const rect = host ? host.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+          const VW = rect.width || 1000, VH = rect.height || 600;
+          const z = p.zoom || 1, panX = p.panX || 0, panY = p.panY || 0;
+          const padX = VW * 0.4, padY = VH * 0.4, NODEH = 96;
+          const wx0 = (-padX - panX) / z, wx1 = (VW + padX - panX) / z;
+          const wy0 = (-padY - panY) / z, wy1 = (VH + padY - panY) / z;
+          const vis = [], set = new Set();
+          for (const n of nodes) {
+            const w = n.w || 268;
+            if (n.x < wx1 && (n.x + w) > wx0 && n.y < wy1 && (n.y + NODEH) > wy0) { vis.push(n); set.add(n.id); }
+          }
+          p._winNodes = vis; p._winSet = set;
+        },
         meAiPursuitLodInit(cv) {
           const self = this;
           const loop = () => {
             if (!cv.isConnected) return;                 // modal closed → stop
             const p = self.meai.pursuit;
-            if (self.meAiPursuitLodActive() && p.centerView === 'map' && (p._nodes || []).length) {
+            if ((self.meAiPursuitLodActive() || self.meAiPursuitHybrid()) && p.centerView === 'map' && (p._nodes || []).length) {
               try { self._meAiPursuitLodDraw(cv); } catch (e) {}
             }
             p._lodRAF = requestAnimationFrame(loop);
@@ -39973,7 +40014,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const byId = {}; nodes.forEach(n => byId[n.id] = n);
           // screen center per node
           const scr = n => [toX(n.x + W / 2), toY(n.y + NODEH / 2)];
+          // Hybrid (zoomed-in big map): the SVG layer draws edges + live flow for the
+          // windowed cards, so the canvas paints ONLY off-window dots. Skip the canvas
+          // edge/flow pass and skip dots for windowed nodes (a card covers them).
+          const hybrid = this.meAiPursuitHybrid();
+          const winSet = hybrid ? (p._winSet || null) : null;
+          const t = performance.now() / 1000;           // shared clock (flow + pulse)
 
+          if (!hybrid) {
           // Edges (parent→child), elbow: down / across / down. Cull to viewport.
           const edges = [];
           for (const n of nodes) {
@@ -39992,7 +40040,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
 
           // Flow dots march the SAME elbow polyline as the edge.
-          const t = performance.now() / 1000;
           const along = (pts, q) => {
             let total = 0; const segs = [];
             for (let i = 0; i < pts.length - 1; i++) { const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); segs.push(l); total += l; }
@@ -40008,11 +40055,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const midy = (ay + by) / 2, pts = [[ax, ay], [ax, midy], [bx, midy], [bx, by]];
             for (const off of [0, 0.5]) { const [mx, my] = along(pts, t * 0.55 + off); ctx.beginPath(); ctx.arc(mx, my, 1.9, 0, 7); ctx.fill(); }
           }
+          } // end if(!hybrid): canvas edge + flow pass
 
           // Cluster: grid buckets in screen space. >1 node collapses to a count marker.
           const DOT = 13, cell = DOT * 2.4;
           const buckets = {};
           for (const n of nodes) {
+            if (winSet && winSet.has(n.id)) continue;    // windowed → drawn as a DOM card
             const [sx, sy] = scr(n);
             if (sx < -40 || sx > VW + 40 || sy < -40 || sy > VH + 40) continue;
             const k = Math.floor(sx / cell) + ':' + Math.floor(sy / cell);
@@ -40302,6 +40351,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.panX = Math.max(pad, (r.width - w * z) / 2);
           p.panY = 24;
           p.follow = false;
+          try { this._meAiPursuitWindow(); } catch (e) {}
         },
         // Legacy alias — clicking a node now opens the full center node-view.
         meAiPursuitOpenLeg(id) {
@@ -40957,6 +41007,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (dir === 'reset') { this.meAiPursuitFit(); return; }
           const z = dir === 'in' ? p.zoom * 1.15 : p.zoom / 1.15;
           p.zoom = Math.min(2, Math.max(0.05, z));
+          try { this._meAiPursuitWindow(); } catch (e) {}
         },
         meAiPursuitPanStart(ev) {
           const p = this.meai.pursuit;
@@ -40970,7 +41021,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.panX = p._drag.px + (ev.clientX - p._drag.x);
           p.panY = p._drag.py + (ev.clientY - p._drag.y);
         },
-        meAiPursuitPanEnd() { this.meai.pursuit._drag = null; },
+        meAiPursuitPanEnd() { this.meai.pursuit._drag = null; try { this._meAiPursuitWindow(); } catch (e) {} },
         meAiPursuitStageLabel() {
           const t = this.meai.pursuit.tree; if (!t) return 'Loading…';
           const n = (t.order || []).length;
@@ -41010,6 +41061,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.panX = cx - wx * nz;
           p.panY = cy - wy * nz;
           p.follow = false;
+          try { this._meAiPursuitWindow(); } catch (e) {}
         },
         // Item 5 — compact relative timestamp for a node (mirrors meAiWaitedLabel; ties
         // to the reactive this.now clock so it ticks live).
