@@ -6928,7 +6928,7 @@
       <button class="mobile-nav-toggle" type="button" @click="mobileNavOpen = !mobileNavOpen" :aria-label="mobileNavOpen ? 'Close menu' : 'Open menu'">
         <span x-text="mobileNavOpen ? '✕' : '☰'"></span>
       </button>
-      <aside class="sidebar" :class="{ 'mobile-open': mobileNavOpen }" @click="mobileNavOpen = false">
+      <aside class="sidebar" :class="{ 'mobile-open': mobileNavOpen }" @click="if ($event.target.closest('a[href]')) mobileNavOpen = false">
         <div class="sidebar-topbar" @click.stop>
           <button class="nav-lock-btn" type="button" @click="toggleMainNav()" :class="{ locked: !navCollapsed }" :aria-label="navCollapsed ? 'Lock sidebar open' : 'Unlock — collapse sidebar'" :title="navCollapsed ? 'Locked closed — click to lock the sidebar open' : 'Locked open — click to collapse the sidebar'"><span x-text="navCollapsed ? '🔓' : '🔒'"></span></button>
           <span class="sidebar-topbar-title">Menu</span>
@@ -14171,6 +14171,38 @@
               .mr-brand-name .mr-word { color:var(--cp-text-soft); font-weight:600; font-size:14px; }
               .mr-brand-tag { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
               .mr-brand-tag b { color:var(--cp-text-muted); font-weight:700; }
+
+              /* Launch-now composer */
+              .mr-compose { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*12px);
+                    background:var(--cp-surface); padding:16px 18px; margin-bottom:18px;
+                    box-shadow:0 1px 2px color-mix(in srgb,var(--cp-text) 4%, transparent); }
+              .mr-compose-head { display:flex; align-items:center; gap:9px; margin-bottom:12px; }
+              .mr-compose-head .t { font-size:13.5px; font-weight:700; letter-spacing:-.01em; }
+              .mr-compose-head .s { font-size:11.5px; color:var(--cp-text-muted); }
+              .mr-compose-goal { width:100%; box-sizing:border-box; font:inherit; font-size:14px; line-height:1.5;
+                    padding:11px 13px; border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-bg);
+                    color:var(--cp-text); resize:vertical; min-height:52px; }
+              .mr-compose-goal:focus { outline:none; border-color:var(--cp-accent);
+                    box-shadow:0 0 0 3px color-mix(in srgb,var(--cp-accent) 18%, transparent); }
+              .mr-compose-depth { display:flex; gap:10px; margin-top:12px; }
+              .mr-depth-card { flex:1; text-align:left; appearance:none; cursor:pointer; font:inherit;
+                    border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-bg); padding:10px 12px; }
+              .mr-depth-card:hover { border-color:color-mix(in srgb,var(--cp-accent) 45%, var(--cp-border)); }
+              .mr-depth-card.on { border-color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 6%, var(--cp-surface));
+                    box-shadow:inset 0 0 0 1px var(--cp-accent); }
+              .mr-depth-card .dt { font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:7px; }
+              .mr-depth-card.deep .dt { color:var(--mr-dev); }
+              .mr-depth-card .de { font-size:11px; color:var(--cp-text-muted); margin-top:3px; line-height:1.4; }
+              .mr-compose-adv-t { appearance:none; border:0; background:transparent; cursor:pointer; font:inherit;
+                    font-size:11.5px; font-weight:600; color:var(--cp-text-soft); padding:0; margin-top:12px; display:inline-flex; align-items:center; gap:5px; }
+              .mr-compose-adv-t:hover { color:var(--cp-text); }
+              .mr-compose-adv { display:flex; flex-wrap:wrap; gap:14px; margin-top:11px; padding-top:12px;
+                    border-top:1px solid color-mix(in srgb,var(--cp-border) 60%, transparent); }
+              .mr-field { display:flex; flex-direction:column; gap:4px; }
+              .mr-field label { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-soft); }
+              .mr-compose-actions { display:flex; align-items:center; gap:10px; margin-top:14px; }
+              .mr-compose-actions .mr-spacer { flex:1; }
+              .mr-compose-actions .hint { font-size:11px; color:var(--cp-text-soft); }
 
               .mr-metrics { display:flex; flex-wrap:wrap; gap:26px; padding:14px 16px; border:1px solid var(--cp-border);
                     border-radius:calc(var(--cp-radius-scale,1)*10px); background:var(--cp-surface); margin-bottom:16px; }
@@ -21442,6 +21474,7 @@
                 <button class="btn ghost" type="button" @click="goTo('#/design')">✨ Design with AI</button>
                 <button class="btn ghost primary" type="button" x-show="autoTab() === 'tasks'" @click="openTaskModal()">＋ New Task</button>
                 <button class="btn ghost primary" type="button" x-show="autoTab() === 'flows'" @click="newChain()">＋ New Flow</button>
+                <button class="btn ghost primary" type="button" x-show="autoTab() === 'meai'" @click="$refs.meAiComposeGoal?.focus(); $refs.meAiComposeGoal?.scrollIntoView({ behavior: 'smooth', block: 'center' })">＋ Start a run</button>
               </div>
             </div>
 
@@ -21720,7 +21753,75 @@
                 </div>
               </div>
 
-              <div class="mr-metrics">
+              <!-- Launch-now composer -->
+              <div class="mr-compose">
+                <div class="mr-compose-head">
+                  <span class="t">Start a Me.AI run</span>
+                  <span class="s">— tell your agent what to work on and go</span>
+                </div>
+                <textarea class="mr-compose-goal" x-model="meAiCompose.goal" x-ref="meAiComposeGoal"
+                    placeholder="e.g. Look into the failing PR build on dotnet-helix-machines and get it green"
+                    @keydown.meta.enter="meAiComposeLaunch(true)" @keydown.ctrl.enter="meAiComposeLaunch(true)"></textarea>
+
+                <div class="mr-compose-depth" role="group" aria-label="Depth">
+                  <button type="button" class="mr-depth-card quick" :class="meAiCompose.depth === 'quick' ? 'on' : ''"
+                      @click="meAiComposeDepth('quick')">
+                    <div class="dt">⚡ Quick</div>
+                    <div class="de">One focused agent, single pass. Best for a contained task or a fast look.</div>
+                  </button>
+                  <button type="button" class="mr-depth-card deep" :class="meAiCompose.depth === 'deep' ? 'on' : ''"
+                      @click="meAiComposeDepth('deep')">
+                    <div class="dt">🌳 Deep</div>
+                    <div class="de">Fans out into a pursuit of coordinated legs. Best for open-ended or multi-step work.</div>
+                  </button>
+                </div>
+
+                <button type="button" class="mr-compose-adv-t" @click="meAiCompose.adv = !meAiCompose.adv">
+                  <span x-text="meAiCompose.adv ? '▾' : '▸'"></span> Options
+                </button>
+                <div class="mr-compose-adv" x-show="meAiCompose.adv" x-cloak>
+                  <div class="mr-field">
+                    <label>Playbook</label>
+                    <select class="mr-q" x-model="meAiCompose.playbook">
+                      <option value="auto">Auto — let the agent decide</option>
+                      <option value="review">Review / investigate</option>
+                      <option value="implement">Implement</option>
+                      <option value="steward">Steward / shepherd</option>
+                      <option value="comms">Comms</option>
+                      <option value="prep">Prep</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <div class="mr-field" x-show="meAiCompose.depth === 'deep'">
+                    <label>How far should it go?</label>
+                    <select class="mr-q" x-model="meAiCompose.intent">
+                      <option value="investigate">Investigate — read-only, report back</option>
+                      <option value="prepare">Prepare — stage drafts, stop for approval</option>
+                      <option value="execute">Execute — carry work through</option>
+                    </select>
+                  </div>
+                  <div class="mr-field">
+                    <label>Scope</label>
+                    <select class="mr-q" x-model="meAiCompose.scope">
+                      <option value="work">Work</option>
+                      <option value="personal">Personal</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="mr-compose-actions">
+                  <button type="button" class="mr-btn primary" :disabled="meAiCompose.busy || !meAiCompose.goal.trim()"
+                      @click="meAiComposeLaunch(true)">
+                    <span x-show="!meAiCompose.busy" x-text="meAiCompose.depth === 'deep' ? 'Launch & monitor' : 'Launch & watch'"></span>
+                    <span x-show="meAiCompose.busy">Launching…</span>
+                  </button>
+                  <button type="button" class="mr-btn" :disabled="meAiCompose.busy || !meAiCompose.goal.trim()"
+                      @click="meAiComposeLaunch(false)">Launch in background</button>
+                  <span class="mr-spacer"></span>
+                  <span class="hint">⌘↵ to launch &amp; monitor</span>
+                </div>
+              </div>
+
                 <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().total"></span><span class="l">Runs</span></div>
                 <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().deep"></span><span class="l">Deep</span></div>
                 <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().quick"></span><span class="l">Quick</span></div>
@@ -21817,7 +21918,7 @@
                           </div>
                         </div>
                         <div class="mr-dactions">
-                          <button class="mr-btn primary" type="button" x-show="!meAiSelectedRun().deleted" @click="meAiOpenRun(meAiSelectedRun())">Open run →</button>
+                          <button class="mr-btn primary" type="button" x-show="!meAiSelectedRun().deleted" @click="meAiOpenRun(meAiSelectedRun())"><span x-text="(meAiRunStatusKey(meAiSelectedRun()) === 'running' || meAiRunStatusKey(meAiSelectedRun()) === 'awaiting') ? 'Monitor live →' : 'Open run →'"></span></button>
                           <button class="mr-btn danger" type="button" x-show="!meAiSelectedRun().deleted && meAiSelectedRun().status !== 'running'" @click="meAiDeleteRun(meAiSelectedRun().id)" :disabled="meAiRunsBusy === 'del'" x-text="meAiRunsBusy === 'del' ? 'Deleting…' : 'Delete run'"></button>
                         </div>
                       </div>
@@ -28657,6 +28758,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Me.AI runs view (Automation → Me.AI tab)
         meAiRuns: [], meAiRunsLoading: false, meAiRunsBusy: '', meAiRunSel: null,
         meAiRunDepth: 'all', meAiRunStatus: 'all', meAiRunSort: 'newest', meAiRunSearch: '', meAiRunChecked: {},
+        // Launch-now composer (Automation → Me.AI tab) — a distinct entry point from Agenda.AI
+        meAiCompose: (() => {
+          const pick = (k, d, allow) => { try { const v = localStorage.getItem(k); return (v && (!allow || allow.includes(v))) ? v : d; } catch (_) { return d; } };
+          return {
+            goal: '',
+            depth: pick('meAiComposeDepth', 'deep', ['quick', 'deep']),
+            playbook: pick('meAiComposePlaybook', 'auto', ['auto', 'review', 'implement', 'steward', 'comms', 'prep', 'admin']),
+            intent: pick('meAiComposeIntent', 'investigate', ['investigate', 'prepare', 'execute']),
+            scope: pick('meAiComposeScope', 'work', ['work', 'personal']),
+            adv: false, busy: false,
+          };
+        })(),
         flowPaletteFilter: '',
         flowPaletteTab: 'agents',
         flowPaletteW: (() => { const v = parseInt(localStorage.getItem('flow-palette-w') || '', 10); return (v >= 190 && v <= 520) ? v : 230; })(),
@@ -29705,7 +29818,69 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const rep = r && r.report; if (!rep || typeof rep === 'string') return [];
           return (rep.findings || []).map(f => (typeof f === 'string' ? f : (f.text || f.title || ''))).filter(Boolean);
         },
-        meAiOpenRun(r) { if (r) this.meAiOpenTask(r.id); },
+        meAiOpenRun(r) { if (r) this.meAiMonitorRun(r); },
+        // ---- Launch-now composer (Automation → Me.AI tab) ----
+        meAiComposeDepth(d) {
+          this.meAiCompose.depth = (d === 'quick') ? 'quick' : 'deep';
+          try { localStorage.setItem('meAiComposeDepth', this.meAiCompose.depth); } catch (_) {}
+        },
+        async meAiComposeLaunch(monitor) {
+          const c = this.meAiCompose;
+          const goal = (c.goal || '').trim();
+          if (!goal || c.busy) { if (!goal) { try { this.$refs.meAiComposeGoal?.focus(); } catch (_) {} } return; }
+          // Persist the choices so the composer remembers how you like to launch.
+          try {
+            localStorage.setItem('meAiComposeDepth', c.depth);
+            localStorage.setItem('meAiComposePlaybook', c.playbook);
+            localStorage.setItem('meAiComposeIntent', c.intent);
+            localStorage.setItem('meAiComposeScope', c.scope);
+          } catch (_) {}
+          const deep = c.depth === 'deep';
+          const playbook = (c.playbook && c.playbook !== 'auto') ? c.playbook : 'adhoc';
+          const scope = c.scope === 'personal' ? 'personal' : 'work';
+          const date = (this.meai && this.meai.date) || new Date().toISOString().slice(0, 10);
+          const title = goal.length > 90 ? (goal.slice(0, 87) + '…') : goal;
+          const context = { goal, detail: goal, intent: deep ? c.intent : 'investigate', date, source: 'automation' };
+          c.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/dispatch', {
+              method: 'POST',
+              body: JSON.stringify({ playbook, title, context, date, scope, tree: deep }),
+            });
+            const task = r && r.task;
+            if (!task || !task.id) { this.toast('Could not start the run', 'error'); return; }
+            this.meai._taskById[task.id] = task;
+            c.goal = '';
+            try { this.meAiLoadTasks(); } catch (_) {}
+            try { await this.loadMeAiRuns(); } catch (_) {}
+            this.meAiRunSel = task.id;
+            if (monitor) {
+              this.meAiMonitorRun(task);
+            } else {
+              this.toast(deep ? 'Deep pursuit launched — tracking it below' : 'Quick run launched — tracking it below', 'success');
+            }
+          } catch (e) {
+            this.toast('Could not launch run: ' + (e && (e.message || e)), 'error');
+          } finally {
+            c.busy = false;
+          }
+        },
+        // Open the live monitor for a run. The pursuit canvas + console drawer only
+        // render on the me-ai route, so hop there, remember where we came from, and
+        // come straight back to Automation when the monitor is closed.
+        meAiMonitorRun(r) {
+          if (!r || !r.id) return;
+          const id = r.id;
+          try { this.setAutoView('meai'); } catch (_) {}
+          // Remember where to hop back to on close, and persist it so a page refresh —
+          // which re-enters via the #/me-ai/<id> deep link below — still knows to return
+          // to Automation rather than stranding the user on the bare Agenda.AI page.
+          this.meai._monitorReturn = '#/autonomous';
+          try { localStorage.setItem('meAiMonitorReturn', JSON.stringify({ id, ret: '#/autonomous' })); } catch (_) {}
+          // Deep-link the monitored run into the URL so a refresh restores this exact
+          // monitor. The me-ai route entry (below) opens the task from routeParam.
+          this.goTo('#/me-ai/' + encodeURIComponent(id));
+        },
         async meAiDeleteRun(id) {
           const r = this.meAiSelectedRun() || (this.meAiRuns || []).find(x => x.id === id);
           if (!r) return;
@@ -29860,6 +30035,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
             await this.loadMeAi();
+            // Deep-linked run monitor (#/me-ai/<taskId>) — launched from Automation or
+            // restored after a page refresh. Open its live monitor and restore the
+            // "return to where I came from" target so closing hops back correctly.
+            const monId = this.app.routeParam;
+            if (monId) {
+              try {
+                const saved = JSON.parse(localStorage.getItem('meAiMonitorReturn') || 'null');
+                if (saved && saved.id === monId && saved.ret) this.meai._monitorReturn = saved.ret;
+              } catch (_) {}
+              this.$nextTick(() => { try { this.meAiOpenTask(monId); } catch (_) {} });
+            }
           } else if (this.route === 'pulse') {
             await this.loadPulse();
           } else if (this.route === 'backlog') {
@@ -40626,6 +40812,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.open = false; p.artView = null;
           try { if (p._ro) { p._ro.disconnect(); p._ro = null; } } catch (_) {}
           try { window.removeEventListener('resize', this._meAiPursuitFrameBound || (() => {})); } catch (_) {}
+          // If we opened this monitor from the Automation page, hop back there. Otherwise
+          // drop the #/me-ai/<id> deep-link param so a later refresh won't re-open it.
+          const ret = this.meai._monitorReturn;
+          this.meai._monitorReturn = null;
+          try { localStorage.removeItem('meAiMonitorReturn'); } catch (_) {}
+          if (ret) { this.goTo(ret); }
+          else if (this.route === 'me-ai' && this.app.routeParam) { this.goTo('#/me-ai'); }
         },
         // Frame the pursuit surface to the live content area so it never covers the
         // sidebar/topbar — it should feel like we're still inside the app shell. Clamp the
@@ -42945,6 +43138,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meAiLoadTasks();
           }
           this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false; this.meai.consoleTab = 'chat'; this.meai.mdOpen = false; this.meai._evMdOpen = {};
+          // If we opened this monitor from the Automation page, hop back there. Otherwise
+          // drop the #/me-ai/<id> deep-link param so a later refresh won't re-open it.
+          const ret = this.meai._monitorReturn;
+          this.meai._monitorReturn = null;
+          try { localStorage.removeItem('meAiMonitorReturn'); } catch (_) {}
+          if (ret) { this.goTo(ret); }
+          else if (this.route === 'me-ai' && this.app.routeParam) { this.goTo('#/me-ai'); }
         },
         // #9 count of collapsible process events (thinking/tools/agent) in the open console.
         meAiTraceCount() {
