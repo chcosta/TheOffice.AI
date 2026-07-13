@@ -16185,7 +16185,13 @@
                                   <div class="meai-dir-state-b" x-text="meAiDirectorStateBanner().b"></div>
                                   <template x-if="meAiDirectorStateBanner().act === 'take-leadership'">
                                     <div class="meai-dir-foot-acts" style="margin-top:8px">
-                                      <button type="button" class="btn primary" @click.stop="meAiDirectorTakeLeadership()" :disabled="meai.pursuit.director._claiming" x-text="meai.pursuit.director._claiming ? 'Taking over…' : 'Take leadership on this machine'"></button>
+                                      <button type="button" class="btn primary" @click.stop="meAiDirectorPauseSync()" :disabled="meai.pursuit.director._claiming" x-text="meai.pursuit.director._claiming ? 'Pausing…' : 'Pause sync on this machine'"></button>
+                                      <button type="button" class="btn" @click.stop="meAiDirectorTakeLeadership()" :disabled="meai.pursuit.director._claiming" x-text="meai.pursuit.director._claiming ? 'Taking over…' : 'Take leadership anyway'"></button>
+                                    </div>
+                                  </template>
+                                  <template x-if="meAiDirectorStateBanner().act === 'resume-sync'">
+                                    <div class="meai-dir-foot-acts" style="margin-top:8px">
+                                      <button type="button" class="btn" @click.stop="meAiDirectorResumeSync()" :disabled="meai.pursuit.director._claiming" x-text="meai.pursuit.director._claiming ? 'Resuming…' : 'Resume sync'"></button>
                                     </div>
                                   </template>
                                 </div>
@@ -28626,7 +28632,7 @@
             director: {
               loaded: false, busy: false, err: '',
               enabled: false, autonomy: 'balanced', paused: false, offline: false, leader: true,
-              leaderInfo: null, _claiming: false,
+              leaderInfo: null, _claiming: false, syncPaused: false,
               grant: null, plan: null, ledger: [], lastSweepAt: null,
               sel: null, selKind: null,          // current detail selection
               showHandled: false, note: '',
@@ -42478,6 +42484,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const d = this.meai.pursuit.director;
           try {
             const s = await this.request('/api/sync/status');
+            d.syncPaused = !!(s && s.paused);
             const li = s && s.leaderInfo;
             d.leaderInfo = {
               hostname: (li && li.hostname) || null,
@@ -42498,7 +42505,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let when = '';
           if (li.since) { const t = new Date(li.since); if (!isNaN(t)) when = ' since ' + t.toLocaleString(); }
           else if (li.lastHeartbeat) { const t = new Date(li.lastHeartbeat); if (!isNaN(t)) when = ' (last active ' + t.toLocaleString() + ')'; }
-          return host + ' currently holds leadership' + when + ' and performs absorption. This machine (' + (li.selfHostname || 'here') + ') is read-only until it takes over.';
+          return host + ' currently holds leadership' + when + ' and performs absorption. If that machine stays online it will keep reclaiming leadership — to run the Director here reliably, pause sync on this machine instead.';
+        },
+        // Pause cloud sync on THIS machine (reversible). The always-on peer stops
+        // stealing leadership back, so the Director runs locally here. Config is kept.
+        async meAiDirectorPauseSync() {
+          const d = this.meai.pursuit.director;
+          if (d._claiming) return;
+          d._claiming = true; d.err = '';
+          try {
+            const r = await this.request('/api/sync/pause', { method: 'POST' });
+            if (r && r.error) throw new Error(r.error);
+            d.syncPaused = true; d.leader = true; d.leaderInfo = null;
+            this.showToast('Sync', '⏸ Paused on this machine — the Director now runs here. Resume anytime from this banner.', 'success');
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) {
+            d.err = 'Could not pause sync: ' + (e.message || String(e));
+            this.showToast('Sync', d.err, 'error');
+          } finally { d._claiming = false; }
+        },
+        // Resume cloud sync on this machine (rejoin the fleet, compete for leadership again).
+        async meAiDirectorResumeSync() {
+          const d = this.meai.pursuit.director;
+          if (d._claiming) return;
+          d._claiming = true; d.err = '';
+          try {
+            const r = await this.request('/api/sync/resume', { method: 'POST' });
+            if (r && r.error) throw new Error(r.error);
+            d.syncPaused = false;
+            this.showToast('Sync', '▶ Resumed — this machine rejoined your fleet.', 'success');
+            await this.meAiDirectorLoadLeaderInfo();
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) {
+            d.err = 'Could not resume sync: ' + (e.message || String(e));
+            this.showToast('Sync', d.err, 'error');
+          } finally { d._claiming = false; }
         },
         // Claim leadership for THIS instance (breaks the current lease, bumps the epoch) so
         // the Director can absorb here. Then reload the pursuit so the banner clears.
@@ -42939,6 +42980,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorStateBanner() {
           const d = this.meai.pursuit.director; if (!d.enabled) return null;
           if (d.offline) return { h: 'Director is offline / stale', b: 'It can’t reach the pursuit right now, so nothing is auto-applied. You’re seeing the raw stops.' };
+          if (d.syncPaused) return { h: 'Sync paused on this machine', b: 'This machine isn’t competing for leadership, so the Director runs here locally. Nothing syncs to or from your other machines until you resume.', act: 'resume-sync' };
           if (!d.leader) return { h: 'Running on another instance', b: this.meAiDirectorLeaderWho(), act: 'take-leadership' };
           if (d.paused) return { h: 'Director is paused', b: 'Nothing is auto-applied while paused. Resume it to let it absorb safe stops again.' };
           if (!(d.grant && d.grant.id)) return { h: 'No standing grant', b: 'The Director is on but has no scope, so it plans without absorbing. Grant it a scope to reduce your desk.' };

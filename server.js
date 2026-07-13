@@ -27826,6 +27826,7 @@ app.get('/api/sync/status', async (req, res) => {
     const leaderInfo = configSync.enabled ? await configSync.getLeaderInfo() : null;
     res.json({
       enabled: configSync.enabled,
+      paused: configSync.paused,
       isLeader: configSync.isLeader,
       epoch: configSync.epoch,
       machineId: configSync.machineId,
@@ -27833,7 +27834,7 @@ app.get('/api/sync/status', async (req, res) => {
       leaderInfo
     });
   } catch (err) {
-    res.json({ enabled: configSync.enabled, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, error: err.message });
+    res.json({ enabled: configSync.enabled, paused: configSync.paused, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, error: err.message });
   }
 });
 
@@ -27862,6 +27863,27 @@ app.post('/api/sync/force-leader', async (req, res) => {
   try {
     const result = await configSync.forceLeader();
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pause sync on THIS machine (reversible). Stops competing for leadership and
+// syncing, but keeps the storageAccount config so it can be resumed. Useful when
+// an always-on peer (e.g. a Cloud PC) permanently holds the lease and you want the
+// Director to run on the machine you're actually using.
+app.post('/api/sync/pause', async (req, res) => {
+  try {
+    res.json(await configSync.pause());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resume sync on this machine (rejoin the fleet, compete for leadership again).
+app.post('/api/sync/resume', async (req, res) => {
+  try {
+    res.json(await configSync.resume());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

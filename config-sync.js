@@ -71,7 +71,10 @@ class ConfigSync {
 
   // --- Public API ---
 
-  get enabled() { return this._enabled && !!this._config.storageAccount; }
+  get enabled() { return this._enabled && !!this._config.storageAccount && !this._config.paused; }
+  // Paused = this machine has a storageAccount configured but the user chose to stop
+  // it competing for leadership / syncing. Reversible; config is preserved.
+  get paused() { return !!this._config.paused; }
   get isLeader() { return this._isLeader; }
   get epoch() { return this._epoch; }
   get machineId() { return this._machineId; }
@@ -80,6 +83,10 @@ class ConfigSync {
   async start() {
     if (!this._config.storageAccount) {
       console.log('[config-sync] No storage account configured, sync disabled');
+      return;
+    }
+    if (this._config.paused) {
+      console.log('[config-sync] Sync is paused on this machine; not joining the fleet or competing for leadership.');
       return;
     }
     this._enabled = true;
@@ -144,6 +151,29 @@ class ConfigSync {
       console.error('[config-sync] Force-leader failed:', err.message);
       throw err;
     }
+  }
+
+  /**
+   * Pause sync on THIS machine (reversible). Releases any leadership lease, stops
+   * the renew/poll timers, drops this instance's presence, and persists `paused:true`
+   * so it stays paused across restarts. The storageAccount config is kept intact so
+   * `resume()` can rejoin the fleet later. While paused, `enabled` is false, so this
+   * machine always acts as its own leader locally (e.g. the Me.AI Director narrates
+   * here instead of deferring to a remote lease-holder).
+   */
+  async pause() {
+    this.saveSyncConfig({ paused: true });
+    this.stop(); // releases lease, clears timers, drops presence, sets _enabled=false
+    console.log('[config-sync] Sync paused on this machine.');
+    return { paused: true, enabled: this.enabled, isLeader: this._isLeader };
+  }
+
+  /** Resume sync on this machine: clear the paused flag and rejoin the fleet. */
+  async resume() {
+    this.saveSyncConfig({ paused: false });
+    await this.start();
+    console.log(`[config-sync] Sync resumed on this machine. Leader: ${this._isLeader}`);
+    return { paused: false, enabled: this.enabled, isLeader: this._isLeader };
   }
 
   /**
