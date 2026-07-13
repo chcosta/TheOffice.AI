@@ -691,7 +691,12 @@ function _ensureGitIdentity(wt) {
 // 2-char git porcelain status (e.g. " M", "??", "A "). Never throws.
 function worktreeChanges(wt) {
   if (!wt || !_isRepo(wt)) return { dirty: false, changed: [], ignored: [] };
-  const out = _gitTry(['status', '--porcelain', '-uall'], wt).out || '';
+  // NB: parse the UNTRIMMED porcelain output. `git status --porcelain` is
+  // column-aligned (2 status chars + space + path); a worktree-only change like
+  // " M path" starts with a space, and _gitTry's global .trim() would eat that
+  // leading space, shifting every slice by one and corrupting the first path.
+  let out = '';
+  try { out = _git(['status', '--porcelain', '-uall'], wt); } catch (_) { return { dirty: false, changed: [], ignored: [] }; }
   const changed = [], ignored = [];
   for (const raw of out.split('\n')) {
     if (!raw.trim()) continue;
