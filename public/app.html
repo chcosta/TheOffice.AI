@@ -15988,6 +15988,24 @@
                                 </div>
                               </template>
 
+                              <!-- Director is investigating (probe: taken off your desk) -->
+                              <template x-if="meAiDirectorProbes().length">
+                                <div style="margin-bottom:14px">
+                                  <div class="meai-dir-h"><span>Director is investigating</span> <span class="c" x-text="meAiDirectorProbes().length"></span></div>
+                                  <template x-for="it in meAiDirectorProbes()" :key="it.id">
+                                    <button type="button" class="meai-dir-row k-gap" :class="[meai.pursuit.director.sel && meai.pursuit.director.selKind==='probe' && meai.pursuit.director.sel.id===it.id ? 'sel' : '']" @click="meAiDirectorSel('probe', it)">
+                                      <div class="meai-dir-row-b">
+                                        <div class="meai-dir-row-t" x-text="it.title"></div>
+                                        <div class="meai-dir-row-w" x-text="it.question"></div>
+                                        <div class="meai-dir-row-s desk" x-text="it.status"></div>
+                                      </div>
+                                      <span class="meai-dir-row-go">→</span>
+                                    </button>
+                                  </template>
+                                  <div class="meai-dir-reduce-sub" style="margin-top:4px">These are hard calls the Director took <b>off your desk</b> — it runs a bounded investigation on each before deciding, and only brings you what's genuinely yours to settle.</div>
+                                </div>
+                              </template>
+
                               <!-- On your desk -->
                               <div class="meai-dir-h"><span>On your desk</span> <span class="c" x-text="meAiDirectorDeskCount()"></span></div>
                               <template x-for="it in meAiDirectorDesk()" :key="it.id">
@@ -16306,14 +16324,14 @@
                                   <div class="meai-dir-kind">Judgement clash · your call<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' · '+meai.pursuit.director.sel.count+' legs → one decision'"></span></div>
                                   <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
                                   <div class="meai-dir-target" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.target"><span x-show="meai.pursuit.director.sel.nodeId" x-text="'node '+meai.pursuit.director.sel.nodeId"></span><span x-show="meai.pursuit.director.sel.nodeId && meai.pursuit.director.sel.target"> · </span><span x-show="meai.pursuit.director.sel.target" x-text="'target '+meai.pursuit.director.sel.target"></span></div>
-                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span><span x-show="meai.pursuit.director.sel.aiUsed && meai.pursuit.director.sel.aiConfidencePct!=null" style="display:block;margin-top:6px;color:var(--cp-text-muted);font-size:12px">Director's confidence in calling this a genuine judgement call: <b x-text="meai.pursuit.director.sel.aiConfidencePct+'%'"></b> — not provable either way, so it stays your decision.</span></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span><span x-show="meai.pursuit.director.sel.aiUsed && meai.pursuit.director.sel.aiConfidencePct!=null && !meai.pursuit.director.sel.aiSided" style="display:block;margin-top:6px;color:var(--cp-text-muted);font-size:12px">Director's confidence in calling this a genuine judgement call: <b x-text="meai.pursuit.director.sel.aiConfidencePct+'%'"></b> — not provable either way, so it stays your decision.</span></div>
                                   <template x-if="(meai.pursuit.director.sel.sides||[]).length">
                                     <div>
-                                      <div style="color:var(--cp-text-muted);font-size:11.5px;margin:10px 0 -2px" x-show="(meai.pursuit.director.sel.sides||[]).some(s=>s.confidencePct!=null)">Percentages below are each leg's own self-assessment — not the Director's verdict.</div>
+                                      <div style="color:var(--cp-text-muted);font-size:11.5px;margin:10px 0 -2px" x-show="(meai.pursuit.director.sel.sides||[]).some(s=>s.confidencePct!=null)"><span x-show="meai.pursuit.director.sel.aiSided">The split below is the <b>Director's read</b> — its confidence each side is the right call, given the clash (out of 100).</span><span x-show="!meai.pursuit.director.sel.aiSided">Percentages below are each leg's own self-assessment — not the Director's verdict.</span></div>
                                     <div class="meai-dir-sides">
                                       <template x-for="sd in meai.pursuit.director.sel.sides" :key="sd.key">
                                         <div class="meai-dir-side" :class="sd.key==='deny'?'b':'a'">
-                                          <div class="meai-dir-side-h"><span x-text="sd.label"></span><span class="meai-dir-conf" x-show="sd.confidencePct!=null" x-text="sd.confidencePct+'%'" title="This leg's own confidence in its conclusion"></span></div>
+                                          <div class="meai-dir-side-h"><span x-text="sd.label"></span><span class="meai-dir-conf" x-show="sd.confidencePct!=null" x-text="sd.confidencePct+'%'" :title="meai.pursuit.director.sel.aiSided ? 'The Director\'s confidence this side is the right call, given the clash' : 'This leg\'s own confidence in its conclusion'"></span></div>
                                           <div class="meai-dir-side-claim" x-text="sd.claim"></div>
                                           <div class="meai-dir-side-leg" x-show="sd.legId" x-text="'leg '+sd.legId"></div>
                                         </div>
@@ -16327,6 +16345,27 @@
                                     <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'affirm')">Choose Side A<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
                                     <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')">Choose Side B<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
                                     <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId)">Ask a clarifying question →</button>
+                                  </div>
+                                </div>
+                              </div>
+                            </template>
+
+                            <!-- PROBE: the Director is investigating before deciding -->
+                            <template x-if="meai.pursuit.director.selKind==='probe' && meai.pursuit.director.sel">
+                              <div>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-kind">Investigating · off your desk</div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
+                                  <div class="meai-dir-target" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.target"><span x-show="meai.pursuit.director.sel.nodeId" x-text="'node '+meai.pursuit.director.sel.nodeId"></span><span x-show="meai.pursuit.director.sel.nodeId && meai.pursuit.director.sel.target"> · </span><span x-show="meai.pursuit.director.sel.target" x-text="'target '+meai.pursuit.director.sel.target"></span></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <div style="color:var(--cp-text-muted);font-size:11.5px;margin:10px 0 -2px">What it's settling</div>
+                                  <div class="meai-dir-side-claim" x-text="meai.pursuit.director.sel.question"></div>
+                                  <div style="color:var(--cp-text-muted);font-size:11.5px;margin:10px 0 -2px">The bounded plan</div>
+                                  <div class="meai-dir-side-claim" x-text="meai.pursuit.director.sel.plan"></div>
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> <span x-text="meai.pursuit.director.sel.status || 'Investigating — off your desk'"></span></div>
+                                  <div class="meai-dir-foot-acts">
+                                    <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorProbeDispatch(meai.pursuit.director.sel)">Dispatch the investigation →</button>
+                                    <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.legId)">Open the leg →</button>
                                   </div>
                                 </div>
                               </div>
@@ -41570,6 +41609,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorDeskCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.deskCount || 0) : 0; },
         meAiDirectorDeskStops() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; return (r && typeof r.deskStops === 'number') ? r.deskStops : this.meAiDirectorDeskCount(); },
         meAiDirectorDesk() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : []; },
+        meAiDirectorProbes() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.probeItems)) ? pl.probeItems : []; },
+        meAiDirectorProbing() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; if (r && typeof r.probing === 'number') return r.probing; return this.meAiDirectorProbes().length; },
+        async meAiDirectorProbeDispatch(it) {
+          if (!it) return; const p = this.meai.pursuit;
+          const sid = it.stopId || (Array.isArray(it.stopIds) && it.stopIds[0]) || null;
+          const goal = String(it.plan || it.question || '').trim(); if (!goal) return;
+          p.director.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal, title: it.title || it.question, fromStopId: sid, run: true, why: it.directorRationale || 'Director investigation' }) });
+            this.toast('Investigation dispatched — a bounded sub-agent is looking into it', 'info');
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast('Dispatch failed: ' + (e && e.message ? e.message : e), 'error'); }
+          finally { p.director.busy = false; }
+        },
         meAiDirectorHandled() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.handled)) ? pl.handled : []; },
         meAiDirectorHandledSummary() {
           const pl = this.meai.pursuit.director.plan; if (!pl || !pl.reconciliation) return '';
@@ -41604,6 +41657,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorDetailTitle() {
           const d = this.meai.pursuit.director; const k = d.selKind;
           if (k === 'desk' && d.sel) return d.sel.title;
+          if (k === 'probe' && d.sel) return d.sel.title;
           if (k === 'handled' && d.sel) return this.meAiDirectorDispLabel(d.sel.disposition);
           return ({ ledger: 'Ledger', agents: 'Agents & legs', states: 'Director state & health', policy: 'Autonomy & grant' })[k] || 'Director';
         },

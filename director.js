@@ -27,7 +27,7 @@ const HANDLED = new Set(['cull', 'absorb', 'resolve']);
 // Map an AI verdict's recommended action → a director disposition. The reasoning pass
 // speaks in verbs it understands ("absorb this reversible edit", "ask the user"); this
 // is the only place that vocabulary crosses into the deterministic disposition set.
-const _AI_ACTION_DISP = { cull: 'cull', absorb: 'absorb', resolve: 'resolve', batch: 'batch', ask: 'ask', escalate: 'ask', hold: 'ask' };
+const _AI_ACTION_DISP = { cull: 'cull', absorb: 'absorb', resolve: 'resolve', batch: 'batch', ask: 'ask', escalate: 'ask', hold: 'ask', probe: 'probe' };
 
 // §4 Policy matrix — node class → disposition per autonomy level. This replaces vague
 // autonomy presets with a concrete map onto the engine's real stop/risk classes.
@@ -317,18 +317,24 @@ function _groupDesk(deskNodes) {
     }));
     // Build the two sides from the representative conflict's stance-mapped evidence.
     const cs = first.clashSides;
-    let sides = [], confidenceSplit = null, belowBar = true;
+    let sides = [], confidenceSplit = null, belowBar = true, aiSided = false;
     if (cs) {
       const aKey = first.affirmSide || (cs.a && cs.a.stance === 'affirm' ? 'a' : (cs.b && cs.b.stance === 'affirm' ? 'b' : 'a'));
       const bKey = first.denySide || (aKey === 'a' ? 'b' : 'a');
       const av = cs[aKey] || {}, bv = cs[bKey] || {};
-      const ap = _pct(av.confidence), bp = _pct(bv.confidence);
+      // Prefer the Director's OWN adjudication split — its confidence that each side is the
+      // right call GIVEN the clash, summing to 100 (e.g. 75/25) — over each leg's self-reported
+      // confidence (which is a leg's faith in its own work, not a verdict on the standoff).
+      const aiSC = first.aiSideConfidence;
+      aiSided = !!(aiSC && typeof aiSC[aKey] === 'number' && typeof aiSC[bKey] === 'number');
+      const ap = aiSided ? aiSC[aKey] : _pct(av.confidence);
+      const bp = aiSided ? aiSC[bKey] : _pct(bv.confidence);
       sides = [
         { key: 'affirm', label: 'Side A · Affirms the finding', claim: av.claim || '—', confidencePct: ap, legId: av.legId || null },
         { key: 'deny', label: "Side B · Argues it's safe", claim: bv.claim || '—', confidencePct: bp, legId: bv.legId || null },
       ];
       if (ap != null && bp != null) confidenceSplit = ap + ' / ' + bp;
-      belowBar = Math.max(av.confidence || 0, bv.confidence || 0) < 0.85;
+      belowBar = aiSided ? (Math.max(ap || 0, bp || 0) < 85) : (Math.max(av.confidence || 0, bv.confidence || 0) < 0.85);
     }
     const rationale = first.aiReason
       ? ((n > 1 ? (n + ' legs independently reached this same standoff. ') : '') + first.aiReason)
@@ -342,7 +348,7 @@ function _groupDesk(deskNodes) {
       title: _clashTitle(first), count: n, legCount: n, subject: first.subject || null,
       stopIds: group.map(g => g.stopId), legId: first.legId || null, members,
       nodeId: first.legId || null, target: first.target || null,
-      sides, confidenceSplit, belowBar, directorRationale: rationale,
+      sides, confidenceSplit, belowBar, aiSided, directorRationale: rationale,
       aiUsed: !!first.aiReason,
       aiConfidencePct: (first.aiConfidence != null ? _pct(first.aiConfidence) : null),
       status: 'Open — awaiting your decision',
@@ -366,6 +372,28 @@ function _groupDesk(deskNodes) {
   return items;
 }
 
+// §Probe — the Director's "investigate before I decide" bucket. A hard stop the model
+// judged worth a bounded investigation (read code/history, run a check, draft an option)
+// BEFORE it lands on the human's desk. These are OFF the desk (they don't count as "need
+// you") and NOT handled — a third state. Each item carries the AI's question + plan so the
+// UI can show what's being looked into and dispatch a real sub-agent to close it (D2).
+function _groupProbes(probeNodes) {
+  return probeNodes.map((s, i) => {
+    const p = s.aiProbe || {};
+    const question = (p.question && String(p.question).trim()) || (s.subject ? ('What is the right call on ' + s.subject + '?') : 'What is the right call here?');
+    const plan = (p.plan && String(p.plan).trim()) || 'Investigate the repo, history and both sides, then report back so this can resolve without your input.';
+    return {
+      id: 'probe-' + (s.stopId || i), kind: 'probe',
+      title: _clashTitle(s) || _gapTitle(s) || (s.subject || 'A decision worth investigating'),
+      stopIds: [s.stopId], stopId: s.stopId, legId: s.legId || null, nodeId: s.legId || null,
+      subject: s.subject || null, target: s.target || null,
+      question, plan,
+      directorRationale: s.aiReason || ("This is a hard call, but I don't think it's yours yet — a bounded investigation should resolve or sharpen it first. I'll look into it and only bring it to you if it's a genuine judgement call after."),
+      status: 'Investigating — off your desk',
+      promptFull: s.prompt || '',
+    };
+  });
+}
 // planReduction(tree, policy) → the reduced view. Pure. `handled` reconciles with
 // `deskStops` to the total open-stop count exactly (no node lost or double-counted).
 function planReduction(tree, policy) {
@@ -442,8 +470,11 @@ function planReduction(tree, policy) {
     } else if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) { disp = 'ask'; }
     // Rail: a low-confidence verdict never auto-applies — the director declines to guess.
     if (HANDLED.has(disp) && av && typeof av.confidence === 'number' && av.confidence < 0.5) { disp = 'ask'; unsure++; }
-    // Paused / offline director never auto-applies: raw stops fall back to the desk.
+    // Paused / offline director never auto-applies: raw stops fall back to the desk. A probe
+    // is a plan to DISPATCH a sub-agent, so a paused/offline Director can't run it either —
+    // it becomes an honest desk item rather than a promise it can't keep.
     if ((paused || offline) && HANDLED.has(disp)) disp = 'ask';
+    if ((paused || offline) && disp === 'probe') disp = 'ask';
     const _c = conflictById[s.conflictId];
     // Map affirm/deny stance → A/B side so grouped resolution picks the right side per
     // conflict even when the A/B positions are flipped between conflicts on one subject.
@@ -473,12 +504,22 @@ function planReduction(tree, policy) {
       aiCompensate: (av && av.compensation) || null,
       aiGroup: (av && av.group) || null,
       aiExternal: av ? (av.external === true) : null,
+      // The Director's adjudication split for a clash — confidence each side is right GIVEN
+      // the standoff, summing to 100 (e.g. 75/25). Distinct from a leg's self-confidence.
+      aiSideConfidence: (av && av.sideConfidence && typeof av.sideConfidence === 'object'
+        && typeof av.sideConfidence.a === 'number' && typeof av.sideConfidence.b === 'number') ? av.sideConfidence : null,
+      // A bounded investigation the Director wants to run before deciding (probe disposition).
+      aiProbe: (av && av.probe && typeof av.probe === 'object' && (av.probe.question || av.probe.plan)) ? av.probe : null,
     };
   });
 
   const handled = per.filter(p => HANDLED.has(p.disposition));
-  const deskNodes = per.filter(p => !HANDLED.has(p.disposition));
+  // A probe is a THIRD bucket: not handled (nothing was absorbed) and NOT on the desk (the
+  // whole point — the Director takes it off your desk to investigate first). Desk excludes it.
+  const probeNodes = per.filter(p => p.disposition === 'probe');
+  const deskNodes = per.filter(p => !HANDLED.has(p.disposition) && p.disposition !== 'probe');
   const deskItems = _groupDesk(deskNodes);
+  const probeItems = _groupProbes(probeNodes);
 
   // AI coverage of the CURRENT open set. `aiActive` merely means some verdicts exist (possibly
   // stale from an earlier open set); `aiComplete` means every open stop has been judged by the
@@ -498,10 +539,11 @@ function planReduction(tree, policy) {
     batched: countDisp('batch'),
     asked: countDisp('ask'),
     handled: handled.length,
+    probing: probeNodes.length,
     deskStops: deskNodes.length,
   };
-  // Invariant: every open stop is accounted for exactly once.
-  reconciliation.reconciles = (reconciliation.handled + reconciliation.deskStops === reconciliation.total);
+  // Invariant: every open stop is accounted for exactly once (handled + probing + desk = total).
+  reconciliation.reconciles = (reconciliation.handled + reconciliation.probing + reconciliation.deskStops === reconciliation.total);
 
   let state = 'active';
   if (offline) state = 'offline';
@@ -514,6 +556,7 @@ function planReduction(tree, policy) {
     autonomy, enabled: !!policy.enabled, grantId: grant.id, policyVersion: grant.policyVersion,
     total: openStops.length, handled, handledCount: handled.length,
     deskItems, deskCount: deskItems.length, unsure,
+    probeItems, probeCount: probeItems.length,
     reconciliation, state, per,
     // Cross-node intelligence from the reasoning pass (redundancies / opportunities / merges /
     // new goals). Null when the model has not run — the deterministic funnel is fully usable

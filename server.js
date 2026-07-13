@@ -23678,7 +23678,23 @@ function _meAiDirectorReasonPrompt(brief) {
     '- A stop whose action duplicates another open stop = cls "duplicate", action "cull".',
     '- A CONFLICT between two legs: if one side is corroborated by authoritative, checkable evidence, cls',
     '  "factual-clash", action "resolve", and say which side. If it is a genuine trade-off with no provable answer,',
-    '  cls "judgement-clash", action "ask". A fact only the human holds = cls "missing-info", action "ask".',
+    '  cls "judgement-clash". A fact only the human holds = cls "missing-info".',
+    '',
+    'PROBE BEFORE YOU PUNT (the point — keep the human off the hook):',
+    '- Before you hand a judgement-clash or missing-info stop to the human, ASK YOURSELF whether a bounded,',
+    '  read-only investigation would resolve or sharpen it: reading the code/tests/history, checking a fact, running',
+    '  a lookup, or drafting the option so the trade-off becomes clear. If yes → action "probe" with a "probe" object',
+    '  {"question": what you need to settle, "plan": the concrete bounded steps a sub-agent would take}. The Director',
+    '  will dispatch a capped sub-agent to do it; its findings return here and the stop re-resolves — WITHOUT bothering',
+    '  the human. Only use action "ask" for a genuine values/taste call that is truly the human\'s to make, or when a',
+    '  probe already ran and the decision is still theirs. Default to probing hard calls; reserve "ask" for real',
+    '  judgement. A probe is NOT external and needs no confidence bar — investigating is always safe.',
+    '',
+    'CLASH CONFIDENCE (sideConfidence — the honest split, out of 100): for ANY conflict/clash stop, return',
+    '"sideConfidence": {"a": N, "b": N} where a+b = 100. This is YOUR confidence that each side (a = conflict side a,',
+    '  b = side b) is the correct call GIVEN the standoff — e.g. 75/25 when one side is clearly stronger, 55/45 when',
+    '  it is nearly even. This is the Director\'s adjudication, NOT either leg\'s self-reported confidence. Always',
+    '  provide it for clashes; omit it (null) for non-clash stops.',
     '',
     'CONFIDENCE: 0..1, your certainty in the classification. Below 0.5 the system will refuse to auto-apply, so only',
     'go high when you are sure. REASONING: one or two plain sentences, first person, that will be shown to the human',
@@ -23692,8 +23708,9 @@ function _meAiDirectorReasonPrompt(brief) {
     'Return ONE JSON object and NOTHING else (no prose, no markdown fences):',
     '{',
     '  "stops": { "<stopId>": {"cls": "reversible-local|deliverable|duplicate|factual-clash|judgement-clash|missing-info|external-spend-destructive|read-only",',
-    '    "action": "absorb|cull|resolve|batch|ask", "external": true|false, "confidence": 0.0,',
-    '    "reasoning": "...", "compensation": "...", "group": "...", "side": "a|b|null"} },',
+    '    "action": "absorb|cull|resolve|batch|probe|ask", "external": true|false, "confidence": 0.0,',
+    '    "reasoning": "...", "compensation": "...", "group": "...", "side": "a|b|null",',
+    '    "sideConfidence": {"a": 0, "b": 0}, "probe": {"question": "...", "plan": "..."}} },',
     '  "insights": { "redundancies": [{"stopIds": [], "legIds": [], "why": ""}], "opportunities": [{"title": "", "why": ""}],',
     '    "merges": [{"legIds": [], "into": "", "why": ""}], "newGoals": [{"title": "", "why": ""}] }',
     '}',
@@ -23743,6 +23760,16 @@ async function _meAiDirectorReason(id, opts) {
   // Normalize into the verdict shape director.js expects, keyed by stopId.
   const okClasses = new Set(['reversible-local', 'deliverable', 'duplicate', 'factual-clash', 'judgement-clash', 'missing-info', 'external-spend-destructive', 'read-only']);
   const verdicts = {};
+  const _normSide = sc => {
+    if (!sc || typeof sc !== 'object') return null;
+    let a = Number(sc.a), b = Number(sc.b);
+    if (!isFinite(a) || !isFinite(b)) return null;
+    a = Math.max(0, a); b = Math.max(0, b);
+    const sum = a + b;
+    if (sum <= 0) return null;
+    const A = Math.round((a / sum) * 100);
+    return { a: A, b: 100 - A };
+  };
   for (const sid of Object.keys(parsed.stops || {})) {
     const v = parsed.stops[sid] || {};
     verdicts[sid] = {
@@ -23754,6 +23781,11 @@ async function _meAiDirectorReason(id, opts) {
       compensation: _meAiDirClip(v.compensation || '', 200) || null,
       group: v.group ? String(v.group).trim().slice(0, 80) : null,
       side: (v.side === 'a' || v.side === 'b') ? v.side : null,
+      sideConfidence: _normSide(v.sideConfidence),
+      probe: (v.probe && typeof v.probe === 'object' && (v.probe.question || v.probe.plan)) ? {
+        question: _meAiDirClip(v.probe.question || '', 240) || null,
+        plan: _meAiDirClip(v.probe.plan || '', 400) || null,
+      } : null,
     };
   }
   const insights = (parsed.insights && typeof parsed.insights === 'object') ? {
@@ -23811,11 +23843,35 @@ function _meAiDirectorSweep(t) {
       handled++;
     }
   }
-  if (handled) {
+  // Probe dispatch (the "just handle it" path): for every stop the AI judged worth a bounded
+  // investigation, spin off a capped sub-agent to do it — instead of parking it on the human's
+  // desk. Idempotent: skip a stop that already has a live director-spawned probe leg pointing at
+  // it. Leader/grant-gated by virtue of running inside this sweep. Findings return via the leg's
+  // fromStopId (converge-or-escalate in _meAiDirectorSpawn), and the next reason pass reclassifies.
+  let probed = 0;
+  const probeItems = plan.probeItems || [];
+  if (probeItems.length) {
+    const liveProbe = new Set();
+    for (const lid of Object.keys(tree.legs || {})) {
+      const lg = tree.legs[lid];
+      if (lg && lg.directorSpawn && lg.fromStopId && lg.status !== 'cancelled' && lg.status !== 'error' && lg.status !== 'invalidated') liveProbe.add(lg.fromStopId);
+    }
+    for (const it of probeItems) {
+      const sid = it.stopId || (it.stopIds && it.stopIds[0]);
+      if (!sid || liveProbe.has(sid)) continue;
+      const stop = (tree.stops || []).find(s => s.id === sid && s.status === 'open');
+      if (!stop) continue;
+      const goal = String(it.plan || it.question || '').slice(0, 400);
+      if (!goal) continue;
+      const r = _meAiDirectorSpawn(t, { goal, title: it.title || it.question, fromStopId: sid, run: true, why: 'A hard call the Director is investigating before deciding — ' + (it.question || goal).slice(0, 120) });
+      if (r && r.ok) probed++;
+    }
+  }
+  if (handled || probed) {
     _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
     const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
   }
-  return { handled, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
+  return { handled, probed, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
 }
 
 // Undo a prior director action (state-aware): reopen the folded stop / conflict so
