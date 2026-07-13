@@ -343,6 +343,8 @@ function _groupDesk(deskNodes) {
       stopIds: group.map(g => g.stopId), legId: first.legId || null, members,
       nodeId: first.legId || null, target: first.target || null,
       sides, confidenceSplit, belowBar, directorRationale: rationale,
+      aiUsed: !!first.aiReason,
+      aiConfidencePct: (first.aiConfidence != null ? _pct(first.aiConfidence) : null),
       status: 'Open — awaiting your decision',
       detail: n > 1
         ? (n + ' legs reached opposite conclusions on this — settle it once and the Director closes all ' + n + '.')
@@ -426,6 +428,17 @@ function planReduction(tree, policy) {
     // coverage — otherwise redundant gates outside the granted path pile up needlessly.
     if (disp === 'cull') {
       if (!_grantActive(grant, ctx)) disp = 'ask';
+    } else if (cls === 'reversible-local' && av && av.external === false && HANDLED.has(disp)) {
+      // A reversible-local edit the model judged non-external is undoable from the ledger — it
+      // never touches a remote, runs a pipeline, or alters an already-pushed branch. So (like a
+      // cull) it needs only an ACTIVE grant that ALLOWS this class+op, NOT path coverage: a safe
+      // local edit shouldn't demand a click merely for landing outside the granted path. This is
+      // the difference the user cares about — remote/observable vs. reversible-local — made real.
+      const op = CLASS_GRANT_OP[cls];
+      const allowed = _grantActive(grant, ctx)
+        && (!Array.isArray(grant.classes) || grant.classes.indexOf(cls) !== -1)
+        && (!Array.isArray(grant.ops) || grant.ops.indexOf(op) !== -1);
+      if (!allowed) disp = 'ask';
     } else if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) { disp = 'ask'; }
     // Rail: a low-confidence verdict never auto-applies — the director declines to guess.
     if (HANDLED.has(disp) && av && typeof av.confidence === 'number' && av.confidence < 0.5) { disp = 'ask'; unsure++; }

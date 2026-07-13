@@ -15746,7 +15746,7 @@
                 <div class="meai-pu-approvebar" x-show="meAiPursuitStops().length && meai.pursuit.nav!=='approvals' && meai.pursuit.nav!=='director'" @click="meAiDirectorActive() ? (meai.pursuit.nav='director', meAiPursuitDirectorLoad()) : (meai.pursuit.nav='approvals')" role="button" tabindex="0" @keydown.enter="meAiDirectorActive() ? (meai.pursuit.nav='director') : (meai.pursuit.nav='approvals')">
                   <span class="meai-pu-approvebar-ico">✋</span>
                   <span class="meai-pu-approvebar-txt" x-show="!meAiDirectorActive()"><strong x-text="meAiPursuitStops().length"></strong> <span x-text="meAiPursuitStops().length===1 ? 'action needs your approval' : 'actions need your approval'"></span> — a leg is paused waiting on you.</span>
-                  <span class="meai-pu-approvebar-txt" x-show="meAiDirectorActive()">Director handled <strong x-text="meAiDirectorHandledCount()"></strong> — <strong x-text="meAiDirectorDeskCount()"></strong> <span x-text="meAiDirectorDeskCount()===1 ? 'needs you' : 'need you'"></span>.</span>
+                  <span class="meai-pu-approvebar-txt" x-show="meAiDirectorActive()">Director handled <strong x-text="meAiDirectorHandledCount()"></strong> — <strong x-text="meAiDirectorDeskStops()"></strong> <span x-text="meAiDirectorDeskStops()===1 ? 'still needs you' : 'still need you'"></span>.</span>
                   <span style="flex:1"></span>
                   <span class="meai-pu-approvebar-go">Review →</span>
                 </div>
@@ -15757,7 +15757,7 @@
                     <div class="meai-pu-navtabs">
                       <button type="button" :class="{ on: meai.pursuit.nav==='chat' }" @click="meai.pursuit.nav='chat'">Chat</button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='index' }" @click="meai.pursuit.nav='index'">Index</button>
-                      <button type="button" :class="{ on: meai.pursuit.nav==='director' }" @click="meai.pursuit.nav='director'; meAiPursuitDirectorLoad()">Director<span class="meai-pu-nc" x-show="meAiDirectorActive() && meAiDirectorDeskCount()" x-text="meAiDirectorDeskCount()"></span></button>
+                      <button type="button" :class="{ on: meai.pursuit.nav==='director' }" @click="meai.pursuit.nav='director'; meAiPursuitDirectorLoad()">Director<span class="meai-pu-nc" x-show="meAiDirectorActive() && meAiDirectorDeskStops()" x-text="meAiDirectorDeskStops()"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='approvals' }" @click="meai.pursuit.nav='approvals'" x-show="!meAiDirectorActive()">Approvals<span class="meai-pu-nc" x-show="meAiPursuitStops().length" x-text="meAiPursuitStops().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='conflicts' }" @click="meai.pursuit.nav='conflicts'" x-show="meAiPursuitConflicts().length && !meAiDirectorActive()">Conflicts<span class="meai-pu-nc" x-text="meAiPursuitConflicts().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='workspace' }" @click="meai.pursuit.nav='workspace'; meAiPursuitLoadWorkspace()">Workspace<span class="meai-pu-nc" x-show="meai.pursuit.ws.files.length" x-text="meai.pursuit.ws.files.length"></span></button>
@@ -15963,8 +15963,8 @@
 
                               <!-- reduction header N → M -->
                               <div class="meai-dir-reduce">
-                                <div class="meai-dir-reduce-big"><span class="raw" x-text="meAiDirectorTotal()"></span><span class="arw">→</span><span x-text="meAiDirectorDeskCount()"></span></div>
-                                <div class="meai-dir-reduce-sub">The Director handled <b x-text="meAiDirectorHandledCount()"></b> of <b x-text="meAiDirectorTotal()"></b> gated stops. <b x-text="meAiDirectorDeskCount()"></b> <span x-text="meAiDirectorDeskCount()===1?'decision needs':'decisions need'"></span> you.
+                                <div class="meai-dir-reduce-big"><span class="raw" x-text="meAiDirectorTotal()"></span><span class="arw">→</span><span x-text="meAiDirectorDeskStops()"></span></div>
+                                <div class="meai-dir-reduce-sub">The Director handled <b x-text="meAiDirectorHandledCount()"></b> of <b x-text="meAiDirectorTotal()"></b> gated stops automatically. <b x-text="meAiDirectorDeskStops()"></b> <span x-text="meAiDirectorDeskStops()===1?'action still needs':'actions still need'"></span> your approval<template x-if="meAiDirectorDeskCount() && meAiDirectorDeskCount() < meAiDirectorDeskStops()"><span>, grouped into <b x-text="meAiDirectorDeskCount()"></b> <span x-text="meAiDirectorDeskCount()===1?'item':'items'"></span> below</span></template>.
                                   <a @click="meAiPursuitDirectorLoad()">Re-check ↻</a></div>
                                 <div class="meai-dir-reduce-sub" style="margin-top:5px;display:flex;align-items:center;gap:8px">
                                   <span x-show="meai.pursuit.director._reasoning || (meai.pursuit.director.plan && meai.pursuit.director.plan.aiPending && !meai.pursuit.director.reasonErr)" style="color:var(--cp-text-muted)">Director is judging each stop… <span x-show="!meai.pursuit.director._reasoning" style="opacity:.7">(this can take a few minutes)</span></span>
@@ -16306,16 +16306,19 @@
                                   <div class="meai-dir-kind">Judgement clash · your call<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' · '+meai.pursuit.director.sel.count+' legs → one decision'"></span></div>
                                   <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
                                   <div class="meai-dir-target" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.target"><span x-show="meai.pursuit.director.sel.nodeId" x-text="'node '+meai.pursuit.director.sel.nodeId"></span><span x-show="meai.pursuit.director.sel.nodeId && meai.pursuit.director.sel.target"> · </span><span x-show="meai.pursuit.director.sel.target" x-text="'target '+meai.pursuit.director.sel.target"></span></div>
-                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span><span x-show="meai.pursuit.director.sel.aiUsed && meai.pursuit.director.sel.aiConfidencePct!=null" style="display:block;margin-top:6px;color:var(--cp-text-muted);font-size:12px">Director's confidence in calling this a genuine judgement call: <b x-text="meai.pursuit.director.sel.aiConfidencePct+'%'"></b> — not provable either way, so it stays your decision.</span></div>
                                   <template x-if="(meai.pursuit.director.sel.sides||[]).length">
+                                    <div>
+                                      <div style="color:var(--cp-text-muted);font-size:11.5px;margin:10px 0 -2px" x-show="(meai.pursuit.director.sel.sides||[]).some(s=>s.confidencePct!=null)">Percentages below are each leg's own self-assessment — not the Director's verdict.</div>
                                     <div class="meai-dir-sides">
                                       <template x-for="sd in meai.pursuit.director.sel.sides" :key="sd.key">
                                         <div class="meai-dir-side" :class="sd.key==='deny'?'b':'a'">
-                                          <div class="meai-dir-side-h"><span x-text="sd.label"></span><span class="meai-dir-conf" x-show="sd.confidencePct!=null" x-text="sd.confidencePct+'%'"></span></div>
+                                          <div class="meai-dir-side-h"><span x-text="sd.label"></span><span class="meai-dir-conf" x-show="sd.confidencePct!=null" x-text="sd.confidencePct+'%'" title="This leg's own confidence in its conclusion"></span></div>
                                           <div class="meai-dir-side-claim" x-text="sd.claim"></div>
                                           <div class="meai-dir-side-leg" x-show="sd.legId" x-text="'leg '+sd.legId"></div>
                                         </div>
                                       </template>
+                                    </div>
                                     </div>
                                   </template>
                                   <div x-show="!(meai.pursuit.director.sel.sides||[]).length" class="meai-pu-empty" style="margin:10px 0" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
@@ -41565,6 +41568,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorTotal() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.total || 0) : this.meAiPursuitStops().length; },
         meAiDirectorHandledCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.handledCount || 0) : 0; },
         meAiDirectorDeskCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.deskCount || 0) : 0; },
+        meAiDirectorDeskStops() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; return (r && typeof r.deskStops === 'number') ? r.deskStops : this.meAiDirectorDeskCount(); },
         meAiDirectorDesk() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : []; },
         meAiDirectorHandled() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.handled)) ? pl.handled : []; },
         meAiDirectorHandledSummary() {
