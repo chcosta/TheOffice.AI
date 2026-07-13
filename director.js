@@ -191,6 +191,25 @@ function _reasonFor(cls, disp) {
 
 const _DESK_ORDER = { clash: 0, gap: 1, chain: 2, batch: 3 };
 
+// Compact, distinct row titles. A clash prefers its conflict subject (e.g. "arm64-branch-bug");
+// otherwise it pulls the quoted subject out of the prompt. A gap uses a short lead of the ask.
+function _clip(str, n) {
+  const s = String(str || '').replace(/\s+/g, ' ').trim();
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
+}
+function _clashTitle(s) {
+  if (s && s.subject) return _clip(s.subject, 52);
+  const m = String((s && s.prompt) || '').match(/\bon\s+["“]([^"”]{1,60})["”]/i);
+  if (m) return _clip(m[1], 52);
+  return 'Judgement call';
+}
+function _gapTitle(s) {
+  const p = String((s && s.prompt) || '').replace(/\s+/g, ' ').trim();
+  if (!p) return 'Needs your input';
+  const first = (p.split(/[?.]\s/)[0] || p);
+  return _clip(first, 52);
+}
+
 // Collapse the escalated stops into a handful of desk ITEMS (the whole point: turn a
 // stream of stops into a few decisions). Deliverables → one batch; held writes → one
 // chain; each judgement clash and each missing-info gap is its own item.
@@ -210,10 +229,16 @@ function _groupDesk(deskNodes) {
       count: writeStops.length, stopIds: writeStops.map(s => s.stopId),
       detail: writeStops.length + ' write' + (writeStops.length === 1 ? '' : 's') + ' held for review (outside the grant or unverifiable).' });
   }
-  clashStops.forEach((s, i) => items.push({ id: 'desk-clash-' + (s.stopId || i), kind: 'clash', title: 'Judgement call',
-    count: 1, stopIds: [s.stopId], legId: s.legId, detail: s.prompt || 'A clash only you can settle.' }));
-  gapStops.forEach((s, i) => items.push({ id: 'desk-gap-' + (s.stopId || i), kind: 'gap', title: 'Needs your input',
-    count: 1, stopIds: [s.stopId], legId: s.legId, detail: s.prompt || 'Information the director cannot supply.' }));
+  // A judgement clash carries its conflict subject as the row title (distinct, compact),
+  // a short one-line "why" meta, and the full prompt in `promptFull` for the detail pane.
+  clashStops.forEach((s, i) => items.push({ id: 'desk-clash-' + (s.stopId || i), kind: 'clash',
+    title: _clashTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId,
+    detail: 'Two legs reached opposite conclusions — not provable, so it stays your call.',
+    promptFull: s.prompt || 'A clash only you can settle.' }));
+  gapStops.forEach((s, i) => items.push({ id: 'desk-gap-' + (s.stopId || i), kind: 'gap',
+    title: _gapTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId,
+    detail: 'The leg needs information only you can supply.',
+    promptFull: s.prompt || 'Information the director cannot supply.' }));
   items.sort((a, b) => (_DESK_ORDER[a.kind] - _DESK_ORDER[b.kind]));
   return items;
 }
@@ -258,10 +283,12 @@ function planReduction(tree, policy) {
     if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) disp = 'ask';
     // Paused / offline director never auto-applies: raw stops fall back to the desk.
     if ((paused || offline) && HANDLED.has(disp)) disp = 'ask';
+    const _c = conflictById[s.conflictId];
     return {
       stopId: s.id, cls, disposition: disp, reason: _reasonFor(cls, disp),
       legId: s.legId || null, target: _targetOf(s), prompt: s.prompt || '',
       conflictId: s.conflictId || null, risk: _riskOf(s) || null,
+      subject: (_c && _c.subject) || null,
     };
   });
 

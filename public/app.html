@@ -13397,8 +13397,8 @@
               .meai-dir-row.k-absorb{ border-left-color:#16a34a; }
               .meai-dir-row.k-resolve{ border-left-color:#16a34a; }
               .meai-dir-row-b { min-width:0; flex:1; }
-              .meai-dir-row-t { font-size:13px; font-weight:600; color:var(--cp-text); }
-              .meai-dir-row-w { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; line-height:1.4; }
+              .meai-dir-row-t { font-size:13px; font-weight:600; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-dir-row-w { font-size:11.5px; color:var(--cp-text-muted); margin-top:2px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-dir-row-s { font-size:11px; margin-top:4px; color:var(--cp-text-soft,var(--cp-text-muted)); }
               .meai-dir-row-s.desk { color:#d97706; }
               .meai-dir-row-s.eff { color:#16a34a; }
@@ -16255,7 +16255,7 @@
                                     </div>
                                   </div>
                                 </template>
-                                <div x-show="!meAiDirectorClash(meai.pursuit.director.sel)" class="meai-pu-empty" x-text="meai.pursuit.director.sel.detail"></div>
+                                <div x-show="!meAiDirectorClash(meai.pursuit.director.sel)" class="meai-pu-empty" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
                               </div>
                             </template>
 
@@ -16264,7 +16264,7 @@
                               <div>
                                 <div class="meai-dir-pane-h">The Director can't invent facts. This needs information only you have.</div>
                                 <div class="meai-dir-card">
-                                  <div class="meai-dir-title" style="font-size:14px" x-text="meai.pursuit.director.sel.detail"></div>
+                                  <div class="meai-dir-title" style="font-size:14px" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
                                   <button type="button" x-show="meai.pursuit.director.sel.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.legId)">Show the leg →</button>
                                   <input type="text" class="field-input meai-dir-note" style="margin-top:10px; width:100%" placeholder="Your answer…" x-model="meai.pursuit.director.note">
                                   <div class="meai-dir-foot-acts">
@@ -39882,6 +39882,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p._fitted = false; p._focusId = null; p.legPick = 'spine';
           p.artView = null; p.evOpen = {}; p.nodeDetail = null; p.centerView = 'map';
           p._intent = (opts && opts.intent) || null;
+          // One-time default-tab decision for this open: when the Director is active
+          // for this pursuit, land on the Director tab instead of Chat. Applied after
+          // the director view loads (plan is fetched async), and only once — so it
+          // never fights the user's manual tab choice or re-fires on refresh polls.
+          p._navDefaulted = false;
           this.$nextTick(() => { this.meAiPursuitFrame(); this._meAiPursuitObserve(); });
           this.meAiPursuitLoad();
         },
@@ -41405,6 +41410,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : [];
             d.lastSweepAt = r.lastSweepAt || null;
             this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
+            // Land on the Director tab by default when it's governing this pursuit —
+            // once per open, so a manual tab switch or a refresh poll won't override it.
+            if (!p._navDefaulted) {
+              p._navDefaulted = true;
+              if (this.meAiDirectorActive()) p.nav = 'director';
+            }
           } catch (e) { d.err = e.message || String(e); }
           finally { d.busy = false; }
         },
