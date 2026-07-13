@@ -40691,11 +40691,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // a synthetic artifact (HTML → iframe, markdown → md-output, else raw).
         async meAiPursuitWsOpen(f) {
           const p = this.meai.pursuit; const id = p.tid; if (!id || !f) return;
-          p.ws.sel = f.path; p.ws.busy = true;
+          p.ws.sel = f.artifactId ? ('art:' + f.artifactId) : f.path; p.ws.busy = true;
           try {
-            const r = await this.request('/api/me-ai/task/' + id + '/workspace/file?path=' + encodeURIComponent(f.path));
+            const q = f.artifactId ? ('artifactId=' + encodeURIComponent(f.artifactId)) : ('path=' + encodeURIComponent(f.path));
+            const r = await this.request('/api/me-ai/task/' + id + '/workspace/file?' + q);
             this.meAiPursuitOpenArt({
-              id: 'ws:' + f.path, kind: f.surfaced ? (f.kind || 'analysis') : 'file',
+              id: 'ws:' + (f.artifactId || f.path), kind: f.surfaced ? (f.kind || 'analysis') : 'file',
               title: f.name, body: (r && r.content) || '', format: (r && r.format) || f.format || '',
               legId: f.legId, link: null, at: f.mtime,
             });
@@ -40718,7 +40719,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitWsDownload(f, ev) {
           if (ev) ev.stopPropagation();
           const id = this.meai.pursuit.tid; if (!id || !f) return;
-          const url = '/api/me-ai/task/' + id + '/workspace/file?path=' + encodeURIComponent(f.path) + '&raw=1';
+          const q = f.artifactId ? ('artifactId=' + encodeURIComponent(f.artifactId)) : ('path=' + encodeURIComponent(f.path));
+          const url = '/api/me-ai/task/' + id + '/workspace/file?' + q + '&raw=1';
           window.open(url, '_blank', 'noopener');
         },
 

@@ -20237,13 +20237,25 @@ function _meAiOutboxDir(id) { return path.join(_meAiTreeDir(id), 'outbox'); }
 function _meAiWorkspaceDir(id) { return path.join(_meAiTreeDir(id), 'workspace'); }
 function _meAiWorkspaceManifestPath(id) { return path.join(_meAiTreeDir(id), 'workspace-manifest.json'); }
 const _MEAI_WS_SKIP_DIR = /^(node_modules|\.git|\.cache|\.venv|__pycache__)$/i;
+// A cloned repo working tree is scratch (agents clone repos here to investigate
+// them), NOT an agent-produced artifact. Detect a repo root by the presence of a
+// `.git` entry (dir for a normal clone, file for a worktree/submodule) and do not
+// descend into it — otherwise thousands of source files flood the explorer as
+// bogus "intermediates" and bury the real surfaced artifacts.
+function _meAiIsRepoRoot(abs) {
+  try { return fs.existsSync(path.join(abs, '.git')); } catch (_) { return false; }
+}
 function _meAiWsWalk(dir, base, out, depth) {
   if (depth > 12) return out;
   let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return out; }
   for (const e of ents) {
     const rel = base ? base + '/' + e.name : e.name;
     const abs = path.join(dir, e.name);
-    if (e.isDirectory()) { if (_MEAI_WS_SKIP_DIR.test(e.name)) continue; _meAiWsWalk(abs, rel, out, depth + 1); }
+    if (e.isDirectory()) {
+      if (_MEAI_WS_SKIP_DIR.test(e.name)) continue;
+      if (_meAiIsRepoRoot(abs)) continue; // scratch clone — not an artifact
+      _meAiWsWalk(abs, rel, out, depth + 1);
+    }
     else if (e.isFile()) { try { const st = fs.statSync(abs); out[rel] = { size: st.size, mtime: st.mtimeMs }; } catch (_) {} }
   }
   return out;
@@ -24007,25 +24019,65 @@ app.get('/api/me-ai/task/:id/workspace', (req, res) => {
     const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
     const wsDir = _meAiWorkspaceDir(id);
     const man = _meAiWsLoadManifest(id);
-    // Which relPaths were promoted into the chat (surfaced artifacts that carry a path).
-    const surfacedByPath = new Map();
-    try {
-      const arts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts : [];
-      for (const a of arts) {
-        const p = a && (a.path || a.link);
-        if (!p) continue;
+    // The file list is MANIFEST-DRIVEN, not a raw filesystem walk. Each agent that
+    // surfaces work contributes an entry to tree.artifacts (id, author leg, kind,
+    // title/reason, on-disk path, format) — that IS the manifest of what was
+    // produced. Walking the workspace dir instead flooded the explorer with cloned
+    // repo source files (thousands of "intermediates") while the real artifacts —
+    // which live in the tree's artifacts/ store or a leg's session-state dir, NOT
+    // in the workspace dir — never showed up. So: build SURFACED entries from the
+    // manifest (wherever the file physically lives), and add genuine scratch
+    // intermediates from the workspace dir (clones already excluded by the walk).
+    const files = [];
+    const wsSurfacedRel = new Set(); // rel paths inside wsDir already listed as surfaced (dedupe)
+    const seenArt = new Set();
+    const arts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts : [];
+    for (const a of arts) {
+      if (!a || !a.id || seenArt.has(a.id)) continue;
+      seenArt.add(a.id);
+      let abs = a.path || a.link || null;
+      let insideRel = null, size = 0, mtime = a.at || null;
+      if (abs) {
+        try { if (!path.isAbsolute(abs)) abs = path.resolve(wsDir, abs); } catch (_) {}
+        try { const st = fs.statSync(abs); if (st.isFile()) { size = st.size; mtime = new Date(st.mtimeMs).toISOString(); } } catch (_) {}
         try {
-          let ap = String(p); if (!path.isAbsolute(ap)) ap = path.resolve(wsDir, ap);
-          const rel = path.relative(wsDir, ap);
-          if (rel && !rel.startsWith('..')) surfacedByPath.set(rel.replace(/\\/g, '/'), a);
+          const rel = path.relative(wsDir, abs).replace(/\\/g, '/');
+          if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+            // Only nest a surfaced artifact under a workspace folder when that folder
+            // is a real workspace subdir — never resurrect a cloned repo tree for one file.
+            const top = rel.split('/')[0];
+            if (!(top && _meAiIsRepoRoot(path.join(wsDir, top)))) { insideRel = rel; wsSurfacedRel.add(rel); }
+          }
         } catch (_) {}
       }
-    } catch (_) {}
+      if (!size && a.body) { try { size = Buffer.byteLength(String(a.body), 'utf8'); } catch (_) {} }
+      const fmt = a.format || _meAiFormatFromExt(abs || '');
+      // Artifacts that live outside the workspace dir get a synthetic root-level path
+      // (id + ext) so they key uniquely and sit at the top of the explorer.
+      const displayPath = insideRel || (a.id + (_meAiArtExt(a.kind, fmt) || ''));
+      const base = displayPath.split('/').pop();
+      const { legId, author } = _meAiWsLegLabel(tree, a.legId);
+      files.push({
+        path: displayPath,
+        artifactId: a.id,
+        name: a.title || base,
+        dir: displayPath.includes('/') ? displayPath.slice(0, displayPath.lastIndexOf('/')) : '',
+        size,
+        mtime: mtime || new Date().toISOString(),
+        format: fmt,
+        legId, author,
+        updated: false,
+        surfaced: true,
+        kind: a.kind || 'analysis',
+      });
+    }
+    // Genuine scratch intermediates: workspace-dir files (clones already skipped by
+    // the walk) that aren't already surfaced as an artifact.
     const snap = _meAiWsSnapshot(id);
-    const files = [];
     for (const rel of Object.keys(snap)) {
       const base = rel.split('/').pop();
       if (_MEAI_WS_HIDE.test(base) || /(^|\/)outbox\//.test(rel)) continue;
+      if (wsSurfacedRel.has(rel)) continue;
       const meta = man[rel] || {};
       const { legId, author } = _meAiWsLegLabel(tree, meta.legId);
       files.push({
@@ -24037,8 +24089,8 @@ app.get('/api/me-ai/task/:id/workspace', (req, res) => {
         format: _meAiFormatFromExt(rel),
         legId, author,
         updated: !!meta.updated,
-        surfaced: surfacedByPath.has(rel),
-        kind: surfacedByPath.has(rel) ? (surfacedByPath.get(rel).kind || 'analysis') : 'intermediate',
+        surfaced: false,
+        kind: 'intermediate',
       });
     }
     files.sort((a, b) => String(b.mtime).localeCompare(String(a.mtime)));
@@ -24049,6 +24101,32 @@ app.get('/api/me-ai/task/:id/workspace/file', (req, res) => {
   try {
     const id = req.params.id;
     const wsDir = _meAiWorkspaceDir(id);
+    // Surfaced artifacts live in the tree's artifacts/ store or a leg's session-state
+    // dir — OUTSIDE the workspace dir — so they can't be read by a wsDir-relative path.
+    // An id-based lookup reads them safely (no path traversal): the id must match an
+    // artifact recorded in this task's manifest.
+    const artifactId = String(req.query.artifactId || '');
+    if (artifactId) {
+      const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+      const arts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts : [];
+      const a = arts.find(x => x && x.id === artifactId);
+      if (!a) return res.status(404).json({ error: 'Artifact not found' });
+      let abs = a.path || a.link || null;
+      try { if (abs && !path.isAbsolute(abs)) abs = path.resolve(wsDir, abs); } catch (_) {}
+      let onDisk = null;
+      if (abs) { try { const st = fs.statSync(abs); if (st.isFile() && st.size <= 4 * 1024 * 1024) onDisk = st; } catch (_) {} }
+      const fmt = a.format || _meAiFormatFromExt(abs || '');
+      if (String(req.query.raw || '') === '1') {
+        const name = (a.title || a.id).replace(/[\\/:*?"<>|]/g, '_') + (_meAiArtExt(a.kind, fmt) || '');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + name.replace(/"/g, '') + '"');
+        res.setHeader('Content-Type', 'application/octet-stream');
+        if (onDisk) return fs.createReadStream(abs).pipe(res);
+        return res.end(String(a.body || ''));
+      }
+      let content = a.body || '';
+      if (onDisk) { try { content = fs.readFileSync(abs, 'utf8'); } catch (_) {} }
+      return res.json({ ok: true, path: 'art:' + a.id, name: a.title || a.id, size: Buffer.byteLength(String(content), 'utf8'), format: fmt, content });
+    }
     const rel = String(req.query.path || '');
     if (!rel) return res.status(400).json({ error: 'path required' });
     const abs = path.resolve(wsDir, rel);
