@@ -13383,6 +13383,9 @@
               .meai-dir-reduce-sub { font-size:12px; color:var(--cp-text-muted); margin-top:7px; line-height:1.5; }
               .meai-dir-reduce-sub b { color:var(--cp-text); }
               .meai-dir-reduce-sub a { color:var(--cp-link); cursor:pointer; font-weight:600; }
+              .meai-dir-insight { border:1px solid var(--cp-border); border-left:3px solid #0ea5e9; border-radius:calc(var(--cp-radius-scale,1)*9px); padding:9px 11px; margin-bottom:7px; background:var(--cp-bg); }
+              .meai-dir-insight-t { font-size:12.5px; font-weight:700; color:var(--cp-text); display:flex; gap:7px; align-items:baseline; }
+              .meai-dir-insight .meai-dir-linklike { margin-top:6px; }
               .meai-dir-h { display:flex; align-items:baseline; gap:8px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin:0 0 8px; }
               .meai-dir-h .c { color:var(--cp-text); font-weight:800; }
               .meai-dir-h .tgl { margin-left:auto; text-transform:none; letter-spacing:0; color:var(--cp-link); cursor:pointer; font-weight:600; }
@@ -15963,7 +15966,27 @@
                                 <div class="meai-dir-reduce-big"><span class="raw" x-text="meAiDirectorTotal()"></span><span class="arw">→</span><span x-text="meAiDirectorDeskCount()"></span></div>
                                 <div class="meai-dir-reduce-sub">The Director handled <b x-text="meAiDirectorHandledCount()"></b> of <b x-text="meAiDirectorTotal()"></b> gated stops. <b x-text="meAiDirectorDeskCount()"></b> <span x-text="meAiDirectorDeskCount()===1?'decision needs':'decisions need'"></span> you.
                                   <a @click="meAiPursuitDirectorLoad()">Re-check ↻</a></div>
+                                <div class="meai-dir-reduce-sub" style="margin-top:5px;display:flex;align-items:center;gap:8px">
+                                  <span x-show="meai.pursuit.director._reasoning" style="color:var(--cp-text-muted)">Director is judging each stop…</span>
+                                  <span x-show="!meai.pursuit.director._reasoning && meai.pursuit.director.reasonedAt" style="color:#16a34a">✓ AI-judged</span>
+                                  <span x-show="!meai.pursuit.director._reasoning && !meai.pursuit.director.reasonedAt && !meai.pursuit.director.reasonErr" style="color:var(--cp-text-muted)">Deterministic fallback</span>
+                                  <span x-show="meai.pursuit.director.reasonErr" style="color:#d97706" x-text="'AI: '+meai.pursuit.director.reasonErr"></span>
+                                  <a x-show="!meai.pursuit.director._reasoning" @click="meAiPursuitDirectorReason(true)" style="cursor:pointer">Re-judge with AI ↻</a></div>
                               </div>
+
+                              <!-- Director insights (cross-node judgement) -->
+                              <template x-if="meAiDirectorInsightCount() > 0">
+                                <div style="margin-bottom:14px">
+                                  <div class="meai-dir-h"><span>Director insights</span> <span class="c" x-text="meAiDirectorInsightCount()"></span></div>
+                                  <template x-for="ins in meAiDirectorInsightList()" :key="ins.key">
+                                    <div class="meai-dir-insight">
+                                      <div class="meai-dir-insight-t"><span x-text="ins.icon"></span> <span x-text="ins.title"></span></div>
+                                      <div class="meai-dir-row-w" x-text="ins.why"></div>
+                                      <button type="button" x-show="ins.action" class="meai-dir-linklike" @click="meAiDirectorInsightAct(ins)" x-text="ins.action"></button>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
 
                               <!-- On your desk -->
                               <div class="meai-dir-h"><span>On your desk</span> <span class="c" x-text="meAiDirectorDeskCount()"></span></div>
@@ -41457,6 +41480,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             d.leader = (r.leader !== false);
             d.grant = r.grant || null;
             d.plan = r.plan || null;
+            d.reasonedAt = r.reasonedAt || null;
+            d.insights = (r.plan && r.plan.insights) || null;
             d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : [];
             d.lastSweepAt = r.lastSweepAt || null;
             this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
@@ -41466,14 +41491,65 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               p._navDefaulted = true;
               if (this.meAiDirectorActive()) p.nav = 'director';
             }
+            // First time we open a governed pursuit with parked work and no verdicts yet,
+            // fire the AI judgement pass so the panes show the model's real reasoning
+            // (verb-based risk) instead of the deterministic fallback. Once per open.
+            if (this.meAiDirectorActive() && !d.reasonedAt && !d._reasoning && !p._reasonKicked
+                && d.plan && ((d.plan.total || 0) > 0)) {
+              p._reasonKicked = true;
+              this.meAiPursuitDirectorReason(false);
+            }
           } catch (e) { d.err = e.message || String(e); }
           finally { d.busy = false; }
+        },
+        // Run (or refresh) the model's judgement pass, then re-apply the reduced view so
+        // the desk reflects verb-based risk + real Director commentary + cross-node insights.
+        async meAiPursuitDirectorReason(force) {
+          const p = this.meai.pursuit; if (!p.tid) return;
+          const d = p.director; if (d._reasoning) return;
+          d._reasoning = true; d.reasonErr = '';
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/reason', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: !!force }),
+            });
+            if (r && r.ok) {
+              d.plan = r.plan || d.plan;
+              d.reasonedAt = r.reasonedAt || d.reasonedAt;
+              d.insights = (r.plan && r.plan.insights) || null;
+              d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : d.ledger;
+              this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
+              if (force) this.toast('Director re-judged ' + (r.verdictCount || 0) + ' stops', 'ok');
+            } else if (r && r.error) {
+              d.reasonErr = r.error;
+              if (force) this.toast('Director reasoning: ' + r.error, 'error');
+            }
+          } catch (e) { d.reasonErr = e.message || String(e); if (force) this.toast('Reasoning failed: ' + (e.message || e), 'error'); }
+          finally { d._reasoning = false; }
         },
         meAiDirectorSummaryFor(d) {
           const pl = d.plan || {};
           const active = !!(d.enabled && d.grant && d.grant.id && !d.paused && !d.offline);
           return { enabled: !!d.enabled, active, handled: (pl.handledCount || 0), desk: (pl.deskCount || 0),
             total: (pl.total || 0), state: pl.state || (d.enabled ? 'active' : 'offline') };
+        },
+        // Cross-node insights from the AI pass, flattened into calm index rows (no pills).
+        // Each carries an action where a real route exists: opportunities/new goals spin off
+        // a bounded sub-agent; merges point at a redirect. Redundancies are observational.
+        meAiDirectorInsightList() {
+          const ins = (this.meai.pursuit.director && this.meai.pursuit.director.insights) || null;
+          if (!ins) return [];
+          const out = [];
+          (ins.redundancies || []).forEach((r, i) => out.push({ key: 'red-' + i, icon: '⇄', title: 'Redundant work', why: r.why || 'Two legs are covering the same ground.', action: '' }));
+          (ins.merges || []).forEach((m, i) => out.push({ key: 'mrg-' + i, icon: '⌥', title: 'Legs worth merging', why: m.why || 'These legs overlap and should fold together.', action: (m.into || (m.legIds && m.legIds[0])) ? 'Redirect…' : '', legId: m.into || (m.legIds && m.legIds[0]) || null }));
+          (ins.opportunities || []).forEach((o, i) => out.push({ key: 'opp-' + i, icon: '✦', title: o.title || 'New opportunity', why: o.why || '', action: 'Spin off effort', goal: o.title || '' }));
+          (ins.newGoals || []).forEach((g, i) => out.push({ key: 'goal-' + i, icon: '◎', title: g.title || 'Proposed goal', why: g.why || '', action: 'Spin off effort', goal: g.title || '' }));
+          return out;
+        },
+        meAiDirectorInsightCount() { return this.meAiDirectorInsightList().length; },
+        meAiDirectorInsightAct(ins) {
+          if (!ins) return;
+          if (ins.action === 'Redirect…' && ins.legId) return this.meAiDirectorRedirect(ins.legId);
+          if (ins.action === 'Spin off effort') return this.meAiDirectorSpawn(null);
         },
         // Active for the VIEW: enabled + granted + a plan loaded + not paused/offline.
         // NOT leader-gated — a read-only follower still subsumes the raw Approvals /

@@ -24,6 +24,11 @@ const AUTONOMY_LEVELS = ['cautious', 'balanced', 'full'];
 //             destructive / out-of-grant / director-unsure)
 const HANDLED = new Set(['cull', 'absorb', 'resolve']);
 
+// Map an AI verdict's recommended action → a director disposition. The reasoning pass
+// speaks in verbs it understands ("absorb this reversible edit", "ask the user"); this
+// is the only place that vocabulary crosses into the deterministic disposition set.
+const _AI_ACTION_DISP = { cull: 'cull', absorb: 'absorb', resolve: 'resolve', batch: 'batch', ask: 'ask', escalate: 'ask', hold: 'ask' };
+
 // §4 Policy matrix — node class → disposition per autonomy level. This replaces vague
 // autonomy presets with a concrete map onto the engine's real stop/risk classes.
 const POLICY_MATRIX = {
@@ -166,7 +171,10 @@ function stopClass(stop, ctx) {
 }
 
 // Does the active standing grant cover auto-handling this node's class?
-function grantCovers(grant, stop, cls, ctx) {
+// A grant is "active" when it exists, is unexpired, and is scoped to THIS pursuit.
+// This is the ONLY bar a side-effect-free cull must clear — a cull drops a redundant
+// gate while the surviving twin still gates on its own class/path.
+function _grantActive(grant, ctx) {
   if (!grant) return false;
   if (grant.expiresAt) {
     const exp = Date.parse(grant.expiresAt);
@@ -175,8 +183,12 @@ function grantCovers(grant, stop, cls, ctx) {
   } else {
     return false; // no expiry set → no active grant
   }
-  // Scope to THIS pursuit only.
   if (grant.pursuitId && ctx && ctx.pursuitId && grant.pursuitId !== ctx.pursuitId) return false;
+  return true;
+}
+
+function grantCovers(grant, stop, cls, ctx) {
+  if (!_grantActive(grant, ctx)) return false;
   const op = CLASS_GRANT_OP[cls];
   if (!op) return false;
   if (Array.isArray(grant.classes) && grant.classes.indexOf(cls) === -1) return false;
@@ -261,21 +273,25 @@ function _groupDesk(deskNodes) {
       const dup = s.cls === 'duplicate';
       return {
         stopId: s.stopId, title: _clip(s.prompt || 'Write', 90), target: s.target || null,
-        agent: s.legId || null, risk: s.risk || 'write', cls: s.cls, external,
-        compensate: external
+        agent: s.legId || null, risk: s.risk || 'write', cls: s.cls, external: (s.aiExternal != null ? s.aiExternal : external),
+        confidencePct: _pct(s.aiConfidence),
+        compensate: s.aiCompensate || (external
           ? 'externally observable — compensate/revert after review, not silently erasable'
-          : (dup ? 'duplicate of an earlier write — safe to drop' : 'reversible in-repo edit — one-click undo'),
+          : (dup ? 'duplicate of an earlier write — safe to drop' : 'reversible in-repo edit — one-click undo')),
       };
     });
     const extN = heldWrites.filter(w => w.external).length;
     const locN = heldWrites.length - extN;
     const bits = [];
-    if (extN) bits.push(extN + ' ' + (extN === 1 ? 'is' : 'are') + ' externally observable (pipelines, branches, remotes, commits) — compensatable but not silently erasable, so I will not touch them without you');
+    if (extN) bits.push(extN + ' ' + (extN === 1 ? 'is' : 'are') + ' externally observable (running a pipeline, pushing, or modifying a pre-existing branch) — compensatable but not silently erasable, so I will not touch them without you');
     if (locN) bits.push(locN + ' fell outside the scope you granted me (or I could not verify), so I held ' + (locN === 1 ? 'it' : 'them') + ' rather than guess');
+    const chainAiReasons = writeStops.map(w => w.aiReason).filter(Boolean);
     items.push({
       id: 'desk-chain', kind: 'chain', title: 'Held writes to review',
       count: writeStops.length, stopIds: writeStops.map(s => s.stopId), heldWrites,
-      directorRationale: 'I prepared these ' + writeStops.length + ' writes but stopped short of applying them: ' + bits.join('; ') + '. Nothing has left the machine — approve the reversible ones together, or step through each.',
+      directorRationale: chainAiReasons.length
+        ? ('I judged each of these ' + writeStops.length + ' writes on what it actually does, not its filename — ' + _clip(chainAiReasons[0], 200) + (bits.length ? (' Of the set, ' + bits.join('; ') + '.') : '') + ' Nothing has left the machine — approve the reversible ones together, or step through each.')
+        : ('I prepared these ' + writeStops.length + ' writes but stopped short of applying them: ' + bits.join('; ') + '. Nothing has left the machine — approve the reversible ones together, or step through each.'),
       detail: writeStops.length + ' write' + (writeStops.length === 1 ? '' : 's') + ' held for review (outside the grant or unverifiable).',
     });
   }
@@ -314,11 +330,13 @@ function _groupDesk(deskNodes) {
       if (ap != null && bp != null) confidenceSplit = ap + ' / ' + bp;
       belowBar = Math.max(av.confidence || 0, bv.confidence || 0) < 0.85;
     }
-    const rationale = (n > 1 ? (n + ' legs independently reached this same standoff. ') : '')
-      + "I won't call this one — both sides are competent and neither is provable from the repo or history, so it's a genuine trade-off rather than a fact I can verify."
-      + (confidenceSplit ? (' Confidence is split ' + confidenceSplit + (belowBar ? ', below my 85% bar,' : ',')) : ' Neither side clears my 85% confidence bar,')
-      + ' with no authoritative source to corroborate either. A tie-break here would be me guessing with your name on it'
-      + (n > 1 ? (', so it stays with you — settle it once and I close all ' + n + ' the same way.') : ', so it stays with you.');
+    const rationale = first.aiReason
+      ? ((n > 1 ? (n + ' legs independently reached this same standoff. ') : '') + first.aiReason)
+      : ((n > 1 ? (n + ' legs independently reached this same standoff. ') : '')
+        + "I won't call this one — both sides are competent and neither is provable from the repo or history, so it's a genuine trade-off rather than a fact I can verify."
+        + (confidenceSplit ? (' Confidence is split ' + confidenceSplit + (belowBar ? ', below my 85% bar,' : ',')) : ' Neither side clears my 85% confidence bar,')
+        + ' with no authoritative source to corroborate either. A tie-break here would be me guessing with your name on it'
+        + (n > 1 ? (', so it stays with you — settle it once and I close all ' + n + ' the same way.') : ', so it stays with you.'));
     items.push({
       id: 'desk-clash-' + (first.subject ? _slug(first.subject) : (first.stopId || ci)), kind: 'clash',
       title: _clashTitle(first), count: n, legCount: n, subject: first.subject || null,
@@ -337,7 +355,7 @@ function _groupDesk(deskNodes) {
   gapStops.forEach((s, i) => items.push({
     id: 'desk-gap-' + (s.stopId || i), kind: 'gap',
     title: _gapTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId, nodeId: s.legId || null,
-    directorRationale: 'This leg hit a fact only you hold — something not in the repo, the history, or any source I can reach. I will not invent it or guess. Answer once and the leg picks up exactly where it paused; drafting a bounded sub-agent instead is also an option.',
+    directorRationale: s.aiReason || 'This leg hit a fact only you hold — something not in the repo, the history, or any source I can reach. I will not invent it or guess. Answer once and the leg picks up exactly where it paused; drafting a bounded sub-agent instead is also an option.',
     detail: 'The leg needs information only you can supply.',
     promptFull: s.prompt || 'Information the director cannot supply.',
   }));
@@ -372,18 +390,45 @@ function planReduction(tree, policy) {
   }
   const ctx = { conflictById, duplicateStopIds: dup, grant, now, pursuitId: (tree && tree.id) || null };
 
+  const aiVerdicts = (policy.aiVerdicts && typeof policy.aiVerdicts === 'object') ? policy.aiVerdicts : null;
   let unsure = 0;
   const per = openStops.map(s => {
-    const cls = stopClass(s, ctx);
+    // Classification is AI-first. When the reasoning pass has judged this stop we trust its
+    // verb-based verdict — editing/creating a file (even azure-pipelines.yml or a *.cs) is a
+    // reversible local edit; *running* a pipeline, pushing, or modifying a pre-existing branch
+    // is externally observable and stays with the user. We fall back to the deterministic
+    // classifier only when the model has not (yet) weighed in. The rails below apply regardless.
+    const av = aiVerdicts ? aiVerdicts[s.id] : null;
+    let cls = (av && av.cls && POLICY_MATRIX[av.cls]) ? av.cls : stopClass(s, ctx);
     let disp = (POLICY_MATRIX[cls] && POLICY_MATRIX[cls][autonomy]) || 'ask';
-    // A factual clash only auto-resolves with clear evidence; otherwise the director
-    // declines to guess and escalates it as a judgement call (director-unsure).
-    if (disp === 'resolve') {
-      const c = conflictById[s.conflictId];
-      if (!_clashEvidenceClear(c, grant)) { disp = 'ask'; unsure++; }
+    if (av && av.action) {
+      const rec = _AI_ACTION_DISP[String(av.action).toLowerCase()];
+      if (rec) disp = rec;
     }
-    // Handled dispositions require an active grant covering the class/path.
-    if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) disp = 'ask';
+    // Rail (C1): a deliverable is ALWAYS batched to the desk, never silently absorbed —
+    // even if the model over-reaches and recommends absorbing it.
+    if (cls === 'deliverable' && HANDLED.has(disp)) disp = 'batch';
+    // A factual clash only auto-resolves when the judge is confident. With an AI verdict the
+    // model's confidence IS the evidence bar (it reasoned over both sides); without one we fall
+    // back to the deterministic evidence check. Otherwise it stays a human judgement call.
+    if (disp === 'resolve') {
+      const conf = (av && typeof av.confidence === 'number') ? av.confidence : null;
+      const clearAI = conf != null ? (conf >= 0.66) : null;
+      const clearDet = _clashEvidenceClear(conflictById[s.conflictId], grant);
+      if (!(clearAI === null ? clearDet : clearAI)) { disp = 'ask'; unsure++; }
+    }
+    // Rail: an externally-observable action (per the model's verb judgement) is the user's
+    // call — EXCEPT a pure cull, which performs nothing (it only drops a redundant gate; the
+    // surviving twin still gates on its own merits).
+    if (av && av.external === true && HANDLED.has(disp) && disp !== 'cull') disp = 'ask';
+    // Rail: absorb/resolve require an active grant COVERING the class/path. A cull is
+    // side-effect-free, so it needs only an active grant for this pursuit — not path/op
+    // coverage — otherwise redundant gates outside the granted path pile up needlessly.
+    if (disp === 'cull') {
+      if (!_grantActive(grant, ctx)) disp = 'ask';
+    } else if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) { disp = 'ask'; }
+    // Rail: a low-confidence verdict never auto-applies — the director declines to guess.
+    if (HANDLED.has(disp) && av && typeof av.confidence === 'number' && av.confidence < 0.5) { disp = 'ask'; unsure++; }
     // Paused / offline director never auto-applies: raw stops fall back to the desk.
     if ((paused || offline) && HANDLED.has(disp)) disp = 'ask';
     const _c = conflictById[s.conflictId];
@@ -403,10 +448,18 @@ function planReduction(tree, policy) {
     } : null;
     const clashSides = (_c && (_c.a || _c.b)) ? { a: _sideOf(_c.a), b: _sideOf(_c.b) } : null;
     return {
-      stopId: s.id, cls, disposition: disp, reason: _reasonFor(cls, disp),
+      stopId: s.id, cls, disposition: disp, reason: (av && av.reasoning) || _reasonFor(cls, disp),
       legId: s.legId || null, target: _targetOf(s), prompt: s.prompt || '',
       conflictId: s.conflictId || null, risk: _riskOf(s) || null,
-      subject: (_c && _c.subject) || null, affirmSide, denySide, clashSides,
+      subject: (av && av.group) || (_c && _c.subject) || null, affirmSide, denySide, clashSides,
+      // AI provenance — carried through so the desk panes render the model's real judgement
+      // (commentary, confidence, reversibility note, semantic grouping) instead of templates.
+      aiUsed: !!av,
+      aiReason: (av && av.reasoning) || null,
+      aiConfidence: (av && typeof av.confidence === 'number') ? av.confidence : null,
+      aiCompensate: (av && av.compensation) || null,
+      aiGroup: (av && av.group) || null,
+      aiExternal: av ? (av.external === true) : null,
     };
   });
 
@@ -440,6 +493,11 @@ function planReduction(tree, policy) {
     total: openStops.length, handled, handledCount: handled.length,
     deskItems, deskCount: deskItems.length, unsure,
     reconciliation, state, per,
+    // Cross-node intelligence from the reasoning pass (redundancies / opportunities / merges /
+    // new goals). Null when the model has not run — the deterministic funnel is fully usable
+    // without it, insights are additive judgement on top.
+    aiActive: !!aiVerdicts,
+    insights: (policy.aiInsights && typeof policy.aiInsights === 'object') ? policy.aiInsights : null,
   };
 }
 

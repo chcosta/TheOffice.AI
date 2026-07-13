@@ -23557,13 +23557,21 @@ function _meAiDirectorPolicy(id, tree) {
   const grant = g
     ? Object.assign({}, director.DEFAULT_GRANT, g, { pursuitId: id })
     : Object.assign({}, director.DEFAULT_GRANT, { pursuitId: id, expiresAt: null });
-  return {
+  const policy = {
     enabled: !!d.enabled,
     autonomy: d.autonomy || 'balanced',
     paused: !!(tree && tree.director && tree.director.paused),
     offline: false,
     grant,
   };
+  // Attach any cached AI verdicts/insights so BOTH the read-only view and the gated sweep
+  // classify with the model's verb-based judgement (not the noun regex). Absent a reasoning
+  // pass this is null and the deterministic classifier runs unchanged — nothing breaks.
+  try {
+    const ai = _meAiDirectorAiCache.get(id);
+    if (ai && ai.verdicts) { policy.aiVerdicts = ai.verdicts; policy.aiInsights = ai.insights || null; policy.aiReasonedAt = ai.ts || null; }
+  } catch (_) {}
+  return policy;
 }
 
 // True when this instance may take autonomous director action: config-sync off
@@ -23579,6 +23587,162 @@ function _meAiDirectorView(id) {
   const policy = _meAiDirectorPolicy(id, tree);
   const plan = director.planReduction(tree, policy);
   return { policy, plan, tree };
+}
+
+// ---- AI reasoning pass ----------------------------------------------------
+// The Director's judgement is model-driven, not regex. This pass hands the open stops
+// (with what each ACTION actually does — the verb, not the filename) plus the leg roster
+// and conflict evidence to the model, and asks for a per-stop verdict + cross-node insights.
+// Verdicts are cached per stop-signature so a director load is fast and stable; only new
+// stops are re-reasoned. The pure planner (director.js) consumes these and STILL enforces
+// the rails (grant scope, deliverables never absorb, low-confidence never auto-applies).
+const _meAiDirectorAiCache = new Map(); // pursuitId -> { sig, verdicts, insights, ts }
+
+function _meAiDirClip(s, n) { s = String(s == null ? '' : s); return s.length > n ? (s.slice(0, n - 1) + '…') : s; }
+function _meAiDirSideBrief(v) {
+  if (!v || typeof v !== 'object') return null;
+  return { stance: v.stance || null, claim: _meAiDirClip(v.claim || '', 180), confidence: (typeof v.confidence === 'number') ? v.confidence : null, leg: v.legId || null };
+}
+function _meAiDirStopSig(s) {
+  const a = (s && s.action) || {};
+  return [s && s.id, a.op || '', a.target || a.path || '', s && s.type || '', s && s.conflictId || ''].join('|');
+}
+function _meAiDirOpenSig(tree) {
+  const open = ((tree && tree.stops) || []).filter(s => s && s.status === 'open').map(_meAiDirStopSig).sort();
+  return require('crypto').createHash('sha1').update(open.join('\n')).digest('hex').slice(0, 16);
+}
+
+// Compact structured brief for the model — small enough to stay cheap, rich enough to judge.
+function _meAiDirectorBrief(tree) {
+  const legs = (tree && tree.legs) || {};
+  const openStops = ((tree && tree.stops) || []).filter(s => s && s.status === 'open');
+  const conflicts = (tree && tree.rootState && tree.rootState.openConflicts) || [];
+  const cById = {}; conflicts.forEach(c => { if (c && c.id) cById[c.id] = c; });
+  const stops = openStops.map(s => {
+    const a = s.action || {};
+    const leg = legs[s.legId] || {};
+    const c = s.conflictId ? cById[s.conflictId] : null;
+    return {
+      id: s.id, type: s.type || null, risk: a.risk || s.risk || null,
+      op: a.op || null, target: a.target || a.path || null, delivery: s.delivery === true,
+      summary: _meAiDirClip(a.summary || '', 220), prompt: _meAiDirClip(s.prompt || '', 220),
+      leg: s.legId ? { id: s.legId, title: _meAiDirClip(leg.title || '', 120), goal: _meAiDirClip(leg.goal || '', 160) } : null,
+      conflict: c ? { subject: c.subject || null, a: _meAiDirSideBrief(c.a), b: _meAiDirSideBrief(c.b), verdict: c.verdict ? (c.verdict.claim || c.verdict.stance || null) : null } : null,
+    };
+  });
+  const legRoster = Object.keys(legs).map(k => {
+    const l = legs[k] || {};
+    return { id: k, title: _meAiDirClip(l.title || '', 120), goal: _meAiDirClip(l.goal || '', 160), status: l.status || null };
+  });
+  return { goal: _meAiDirClip((tree && (tree.goal || tree.title)) || '', 260), legs: legRoster, stops };
+}
+
+function _meAiDirectorReasonPrompt(brief) {
+  return [
+    'You are the Pursuit Director — the governing intelligence over the legs (sub-agents) inside ONE pursuit.',
+    'Your job is to DRAMATICALLY reduce how many approval gates reach the human, by judging each parked stop on',
+    'what its ACTION ACTUALLY DOES — the verb — not on the noun/filename. You also spot cross-node opportunities.',
+    '',
+    'RISK DOCTRINE (judge by verb, be decisive):',
+    '- Editing, creating, or rewriting a FILE in the working tree is a REVERSIBLE LOCAL edit — cls "reversible-local",',
+    '  external=false. This is true even for azure-pipelines.yml, *.cs, Dockerfiles, configs, tests: editing the file',
+    '  is not the same as running it. Absorb these when confident.',
+    '- Creating a NEW branch = local, safe, external=false. A local commit that is NOT pushed = local, external=false.',
+    '- EXTERNAL (external=true, action "ask" — the human decides): RUNNING/queuing/triggering a pipeline or build;',
+    '  deploying/releasing/shipping/publishing/sending; PUSHING to a remote; committing to or modifying a PRE-EXISTING',
+    '  branch; opening or merging a PR; spend/purchase/charge; destructive or irreversible ops (deleting remote data,',
+    '  dropping resources). These are observable outside the machine — never absorb them.',
+    '- A user-facing DELIVERABLE to read (report/summary/artifact) = cls "deliverable", action "batch" (never absorb).',
+    '- A stop whose action duplicates another open stop = cls "duplicate", action "cull".',
+    '- A CONFLICT between two legs: if one side is corroborated by authoritative, checkable evidence, cls',
+    '  "factual-clash", action "resolve", and say which side. If it is a genuine trade-off with no provable answer,',
+    '  cls "judgement-clash", action "ask". A fact only the human holds = cls "missing-info", action "ask".',
+    '',
+    'CONFIDENCE: 0..1, your certainty in the classification. Below 0.5 the system will refuse to auto-apply, so only',
+    'go high when you are sure. REASONING: one or two plain sentences, first person, that will be shown to the human',
+    'as your commentary (why you handled or held it). COMPENSATION: a short reversibility note. GROUP: a short shared',
+    'subject key so related stops (same clash, same batch, same chain) collapse into ONE desk item.',
+    '',
+    'CROSS-NODE INSIGHTS: across all legs, identify redundancies (legs doing the same work), opportunities (worthwhile',
+    'new efforts the pursuit is missing), merges (legs that should fold together), and newGoals (goals worth proposing).',
+    'Only include items you are genuinely confident about; empty arrays are fine.',
+    '',
+    'Return ONE JSON object and NOTHING else (no prose, no markdown fences):',
+    '{',
+    '  "stops": { "<stopId>": {"cls": "reversible-local|deliverable|duplicate|factual-clash|judgement-clash|missing-info|external-spend-destructive|read-only",',
+    '    "action": "absorb|cull|resolve|batch|ask", "external": true|false, "confidence": 0.0,',
+    '    "reasoning": "...", "compensation": "...", "group": "...", "side": "a|b|null"} },',
+    '  "insights": { "redundancies": [{"stopIds": [], "legIds": [], "why": ""}], "opportunities": [{"title": "", "why": ""}],',
+    '    "merges": [{"legIds": [], "into": "", "why": ""}], "newGoals": [{"title": "", "why": ""}] }',
+    '}',
+    'Every open stop id MUST appear as a key in "stops".',
+    '',
+    'PURSUIT BRIEF:',
+    JSON.stringify(brief),
+  ].join('\n');
+}
+
+function _meAiDirExtractJson(text) {
+  if (!text) return null;
+  let t = String(text).trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const i = t.indexOf('{'), j = t.lastIndexOf('}');
+  if (i === -1 || j === -1 || j < i) return null;
+  try { return JSON.parse(t.slice(i, j + 1)); } catch (_) { return null; }
+}
+
+// Run (or reuse cached) the AI judgement pass for one pursuit. Read-only: it never emits
+// tree events or triggers the sweep — it only fills the verdict cache the planner reads.
+async function _meAiDirectorReason(id, opts) {
+  opts = opts || {};
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  if (!tree) return { ok: false, error: 'no-pursuit' };
+  const sig = _meAiDirOpenSig(tree);
+  const cached = _meAiDirectorAiCache.get(id);
+  if (!opts.force && cached && cached.sig === sig && cached.verdicts) {
+    return { ok: true, cached: true, sig, count: Object.keys(cached.verdicts).length, insights: cached.insights || null };
+  }
+  const brief = _meAiDirectorBrief(tree);
+  if (!brief.stops.length) {
+    const empty = { sig, verdicts: {}, insights: null, ts: new Date().toISOString() };
+    _meAiDirectorAiCache.set(id, empty);
+    return { ok: true, cached: false, sig, count: 0, insights: null };
+  }
+  const prompt = _meAiDirectorReasonPrompt(brief);
+  let model; try { model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined; } catch (_) {}
+  let out;
+  try {
+    out = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, meta: { record: false, source: 'pursuit-director', pursuit: id } });
+  } catch (e) { return { ok: false, error: 'sdk: ' + String(e && e.message || e) }; }
+  if (!out || out.ok === false) return { ok: false, error: (out && out.error) || 'sdk-failed' };
+  const parsed = _meAiDirExtractJson(out.output);
+  if (!parsed || typeof parsed !== 'object' || !parsed.stops) return { ok: false, error: 'unparseable', raw: _meAiDirClip(out.output || '', 400) };
+  // Normalize into the verdict shape director.js expects, keyed by stopId.
+  const okClasses = new Set(['reversible-local', 'deliverable', 'duplicate', 'factual-clash', 'judgement-clash', 'missing-info', 'external-spend-destructive', 'read-only']);
+  const verdicts = {};
+  for (const sid of Object.keys(parsed.stops || {})) {
+    const v = parsed.stops[sid] || {};
+    verdicts[sid] = {
+      cls: okClasses.has(v.cls) ? v.cls : null,
+      action: v.action || null,
+      external: v.external === true,
+      confidence: (typeof v.confidence === 'number') ? Math.max(0, Math.min(1, v.confidence)) : null,
+      reasoning: _meAiDirClip(v.reasoning || '', 400) || null,
+      compensation: _meAiDirClip(v.compensation || '', 200) || null,
+      group: v.group ? String(v.group).trim().slice(0, 80) : null,
+      side: (v.side === 'a' || v.side === 'b') ? v.side : null,
+    };
+  }
+  const insights = (parsed.insights && typeof parsed.insights === 'object') ? {
+    redundancies: Array.isArray(parsed.insights.redundancies) ? parsed.insights.redundancies.slice(0, 12) : [],
+    opportunities: Array.isArray(parsed.insights.opportunities) ? parsed.insights.opportunities.slice(0, 12) : [],
+    merges: Array.isArray(parsed.insights.merges) ? parsed.insights.merges.slice(0, 12) : [],
+    newGoals: Array.isArray(parsed.insights.newGoals) ? parsed.insights.newGoals.slice(0, 12) : [],
+  } : null;
+  const rec = { sig, verdicts, insights, ts: new Date().toISOString(), model: out.model || model || null };
+  _meAiDirectorAiCache.set(id, rec);
+  return { ok: true, cached: false, sig, count: Object.keys(verdicts).length, insights };
 }
 
 // Autonomously reduce the desk for one pursuit. STRICTLY GATED: enabled + not
@@ -24299,13 +24463,31 @@ app.get('/api/me-ai/task/:id/director', (req, res) => {
       leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan,
+      reasonedAt: policy.aiReasonedAt || null,
       ledger: (tree.director && tree.director.ledger) || [],
       lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET/PUT the global director toggle + autonomy level.
+// Run (or refresh) the AI judgement pass for this pursuit, then return the reduced view.
+// Read-only w.r.t. the tree — it fills the verdict cache the planner reads; it does NOT
+// resolve/absorb anything itself (the gated sweep does that on the next engine event).
+app.post('/api/me-ai/task/:id/director/reason', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const r = await _meAiDirectorReason(id, { force: !!(req.body && req.body.force) });
+    if (!r.ok) return res.status(200).json({ ok: false, error: r.error || 'reason-failed', raw: r.raw || null });
+    const { policy, plan, tree } = _meAiDirectorView(id);
+    const grant = policy.grant || {};
+    res.json({
+      ok: true, reasoned: !r.cached, cached: !!r.cached, verdictCount: r.count, reasonedAt: policy.aiReasonedAt || null,
+      enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused, leader: _meAiDirectorLeaderOk(),
+      grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
+      plan, ledger: (tree.director && tree.director.ledger) || [], lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
+    });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 app.get('/api/me-ai/director/policy', (req, res) => {
   try {
     const d = (settings.getSettings() || {}).director || {};
