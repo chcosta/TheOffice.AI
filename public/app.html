@@ -14160,6 +14160,154 @@
               .meai-dr-foot-bar { display:flex; gap:8px; align-items:center; margin-top:10px; }
               .meai-dr-foot-hint { font-size:12px; color:var(--cp-text-muted); line-height:1.4; }
               .meai-working { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text-muted); padding:6px 0; }
+
+              /* ===== Me.AI runs view (Automation → Me.AI tab) ===== */
+              .meai-runs { --mr-dev: var(--cp-dev, #7c3aed); }
+              .mr-brand { display:flex; align-items:center; gap:12px; margin:2px 0 16px; }
+              .mr-brand-mark { width:36px; height:36px; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;
+                    font-weight:800; font-size:14px; letter-spacing:-.02em; color:var(--cp-accent-fg,#fff);
+                    background:linear-gradient(135deg, var(--cp-accent), color-mix(in srgb,var(--mr-dev) 55%, var(--cp-accent))); }
+              .mr-brand-name { font-size:18px; font-weight:800; letter-spacing:-.01em; display:flex; align-items:baseline; gap:7px; }
+              .mr-brand-name .mr-word { color:var(--cp-text-soft); font-weight:600; font-size:14px; }
+              .mr-brand-tag { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
+              .mr-brand-tag b { color:var(--cp-text-muted); font-weight:700; }
+
+              .mr-metrics { display:flex; flex-wrap:wrap; gap:26px; padding:14px 16px; border:1px solid var(--cp-border);
+                    border-radius:calc(var(--cp-radius-scale,1)*10px); background:var(--cp-surface); margin-bottom:16px; }
+              .mr-metric { display:flex; flex-direction:column; gap:2px; }
+              .mr-metric .n { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+              .mr-metric .l { font-size:11px; color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+              .mr-metric.warn .n { color:var(--cp-warning); }
+              .mr-metric.bad .n { color:var(--cp-danger); }
+              .mr-metric.live .n { color:var(--cp-success); }
+
+              .mr-controls { display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+              .mr-seg { display:inline-flex; padding:2px; gap:2px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); }
+              .mr-seg button { appearance:none; border:0; cursor:pointer; font:inherit; font-size:11.5px; font-weight:600;
+                    padding:5px 12px; border-radius:6px; background:transparent; color:var(--cp-text-muted); }
+              .mr-seg button.on { background:var(--cp-accent); color:var(--cp-accent-fg,#fff); }
+              select.mr-q, input.mr-q { font:inherit; font-size:12.5px; padding:6px 10px; border:1px solid var(--cp-border);
+                    border-radius:8px; background:var(--cp-surface); color:var(--cp-text); }
+              input.mr-q { min-width:190px; }
+              .mr-controls .mr-spacer { flex:1; }
+              .mr-controls .mr-hint { font-size:11.5px; color:var(--cp-text-soft); }
+
+              .mr-bulkbar { display:flex; align-items:center; gap:10px; padding:9px 14px; margin-bottom:12px;
+                    border:1px solid color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); border-radius:9px;
+                    background:color-mix(in srgb,var(--cp-accent) 5%, var(--cp-surface)); font-size:12.5px; }
+              .mr-bulkbar .n { font-weight:700; }
+              .mr-bulkbar .mr-spacer { flex:1; }
+              .mr-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text);
+                    font:inherit; font-size:12px; font-weight:600; padding:7px 13px; border-radius:8px; cursor:pointer; }
+              .mr-btn:hover { border-color:var(--cp-accent); }
+              .mr-btn.primary { background:var(--cp-accent); color:var(--cp-accent-fg,#fff); border-color:var(--cp-accent); }
+              .mr-btn.danger { color:var(--cp-danger); border-color:color-mix(in srgb,var(--cp-danger) 40%, var(--cp-border)); }
+              .mr-btn.danger:hover { background:var(--cp-danger); color:#fff; border-color:var(--cp-danger); }
+
+              .mr-studio { display:grid; grid-template-columns: minmax(360px, 460px) 1fr; gap:16px; align-items:start; }
+              @media (max-width:900px) { .mr-studio { grid-template-columns:1fr; } }
+              .mr-index { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px);
+                    background:var(--cp-surface); overflow:hidden; }
+              .mr-grp { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+                    color:var(--cp-text-soft); padding:11px 14px 5px; }
+              .mr-run { display:flex; align-items:flex-start; gap:9px; width:100%; text-align:left; padding:11px 14px;
+                    border-top:1px solid color-mix(in srgb,var(--cp-border) 60%, transparent); font:inherit; }
+              .mr-run.first { border-top:0; }
+              .mr-run:hover { background:color-mix(in srgb,var(--cp-accent) 4%, var(--cp-surface)); }
+              .mr-run.on { background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); box-shadow: inset 3px 0 0 var(--cp-accent); }
+              .mr-run.deleted { opacity:.72; }
+              .mr-run.deleted .mr-run-t { color:var(--cp-text-soft); text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--cp-text-soft) 40%, transparent); }
+              .mr-cbx { margin-top:2px; flex:0 0 auto; width:15px; height:15px; accent-color:var(--cp-accent); cursor:pointer; }
+              .mr-run-body { min-width:0; flex:1; cursor:pointer; }
+              .mr-run-top { display:flex; align-items:center; gap:8px; }
+              .mr-dot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; background:var(--cp-text-muted); }
+              .mr-dot.running { background:var(--cp-success); box-shadow:0 0 0 3px color-mix(in srgb,var(--cp-success) 20%, transparent); }
+              .mr-dot.awaiting { background:var(--cp-warning); box-shadow:0 0 0 3px color-mix(in srgb,var(--cp-warning) 22%, transparent); }
+              .mr-dot.done { background:var(--cp-success); }
+              .mr-dot.error { background:var(--cp-danger); }
+              .mr-dot.deleted { background:var(--cp-border-strong); box-shadow:none; }
+              .mr-run-t { font-weight:600; font-size:13px; color:var(--cp-text); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+              .mr-mode { font-size:10px; font-weight:700; letter-spacing:.03em; flex:0 0 auto; }
+              .mr-mode.deep { color:var(--mr-dev); }
+              .mr-mode.quick { color:var(--cp-text-soft); }
+              .mr-run-m { font-size:11.5px; color:var(--cp-text-muted); margin-top:4px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+              .mr-midot { color:var(--cp-border-strong); }
+              .mr-run-fan { font-size:11px; color:var(--cp-text-soft); margin-top:5px; font-variant-numeric:tabular-nums; }
+              .mr-run-fan b { color:var(--cp-text-muted); font-weight:600; }
+              .mr-stage { font-size:11px; font-weight:600; flex:0 0 auto; }
+              .mr-stage.running { color:var(--cp-accent); }
+              .mr-stage.awaiting { color:var(--cp-warning); }
+              .mr-stage.done { color:var(--cp-success); }
+              .mr-stage.error { color:var(--cp-danger); }
+              .mr-stage.deleted { color:var(--cp-text-soft); }
+              .mr-spin { display:inline-block; width:8px; height:8px; border:2px solid var(--cp-border); border-top-color:var(--cp-accent);
+                    border-radius:999px; animation:mrspin .7s linear infinite; vertical-align:-1px; margin-right:4px; }
+              @keyframes mrspin { to { transform:rotate(360deg); } }
+
+              .mr-detail { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px);
+                    background:var(--cp-surface); padding:20px 22px; min-height:520px; }
+              .mr-dh { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+              .mr-dtitle { font-size:17px; font-weight:700; margin:0 0 4px; }
+              .mr-dgoal { color:var(--cp-text-muted); font-size:13px; max-width:62ch; }
+              .mr-dmeta { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--cp-text-muted); margin-top:9px; }
+              .mr-dstage { font-weight:700; }
+              .mr-dstage.running { color:var(--cp-accent); }
+              .mr-dstage.awaiting { color:var(--cp-warning); }
+              .mr-dstage.done { color:var(--cp-success); }
+              .mr-dstage.error { color:var(--cp-danger); }
+              .mr-dactions { display:flex; gap:8px; flex:0 0 auto; }
+              .mr-sect { margin-top:22px; }
+              .mr-sect-h { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-soft); margin-bottom:9px; }
+
+              .mr-leg { display:flex; align-items:baseline; gap:9px; padding:7px 0; border-top:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
+              .mr-leg.first { border-top:0; }
+              .mr-leg .mr-lk { font-size:11px; font-weight:700; width:78px; flex:0 0 auto; text-transform:uppercase; letter-spacing:.03em; }
+              .mr-leg .mr-lk.merged { color:var(--cp-success); }
+              .mr-leg .mr-lk.running { color:var(--cp-accent); }
+              .mr-leg .mr-lk.dead { color:var(--cp-text-soft); }
+              .mr-leg .mr-lk.blocked, .mr-leg .mr-lk.planned { color:var(--cp-warning); }
+              .mr-leg .mr-names { font-size:12.5px; color:var(--cp-text); min-width:0; }
+
+              .mr-deskgrid { display:flex; gap:22px; flex-wrap:wrap; }
+              .mr-deskcol .mr-colh { font-size:12px; font-weight:700; margin-bottom:5px; }
+              .mr-deskcol.handled .mr-colh { color:var(--cp-success); }
+              .mr-deskcol.needs .mr-colh { color:var(--cp-warning); }
+              .mr-desknum { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
+
+              .mr-report { border:1px solid var(--cp-border); border-radius:8px; padding:13px 15px; background:var(--cp-bg-elevated,var(--cp-surface-soft)); }
+              .mr-report .mr-rsum { font-size:13px; color:var(--cp-text); white-space:pre-wrap; }
+              .mr-report ul { margin:9px 0 0; padding-left:18px; }
+              .mr-report li { font-size:12.5px; color:var(--cp-text-muted); margin:3px 0; }
+
+              .mr-empty { color:var(--cp-text-soft); font-size:13px; padding:60px 0; text-align:center; }
+
+              .mr-wtsum { font-size:11.5px; color:var(--cp-text-muted); margin-bottom:9px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+              .mr-wtsum b { color:var(--cp-text); font-weight:700; }
+              .mr-wtsum .reclaim { color:var(--cp-warning); font-weight:700; }
+              .mr-lnk { appearance:none; border:0; background:none; font:inherit; font-size:11.5px; font-weight:700;
+                    color:var(--cp-accent); cursor:pointer; padding:0; text-decoration:underline; text-underline-offset:2px; }
+              .mr-wt { border:1px solid var(--cp-border); border-radius:8px; overflow:hidden; }
+              .mr-wtrow { display:flex; align-items:center; gap:12px; padding:9px 12px;
+                    border-top:1px solid color-mix(in srgb,var(--cp-border) 55%, transparent); }
+              .mr-wtrow.first { border-top:0; }
+              .mr-wtrow .info { min-width:0; flex:1; }
+              .mr-wtbranch { font-family:var(--cp-mono,ui-monospace,SFMono-Regular,Menlo,monospace); font-size:12px; color:var(--cp-text); }
+              .mr-wtpath { font-family:var(--cp-mono,ui-monospace,SFMono-Regular,Menlo,monospace); font-size:11px; color:var(--cp-text-soft);
+                    margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .mr-wtpath .leg { font-family:inherit; color:var(--cp-text-muted); }
+              .mr-wtstate { font-size:11px; font-weight:700; flex:0 0 auto; display:flex; align-items:center; gap:5px; }
+              .mr-wtstate.live { color:var(--cp-success); }
+              .mr-wtstate.purged, .mr-wtstate.borrowed { color:var(--cp-text-soft); }
+              .mr-wtpurge { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); font:inherit;
+                    font-size:11px; font-weight:600; padding:4px 10px; border-radius:7px; cursor:pointer; color:var(--cp-text-muted); flex:0 0 auto; }
+              .mr-wtpurge:hover { border-color:var(--cp-danger); color:var(--cp-danger); }
+              .mr-wtwhen { font-size:11px; color:var(--cp-text-soft); flex:0 0 auto; }
+
+              .mr-tomb { border:1px solid var(--cp-border); border-left:3px solid var(--cp-border-strong); border-radius:9px;
+                    padding:14px 16px; background:var(--cp-bg-elevated,var(--cp-surface-soft)); }
+              .mr-tomb .th { font-size:12.5px; font-weight:700; color:var(--cp-text-muted); display:flex; align-items:center; gap:7px; }
+              .mr-tomb .tb { font-size:12.5px; color:var(--cp-text-muted); margin-top:6px; }
+              .mr-tomb .tb b { color:var(--cp-text); }
             </style>
 
             <div class="meai-wrap" :class="{ 'goals-float': route==='me-ai' && !meai.checklistDocked && meai.checklistOpen && !meai.console && !meai.pursuit.open }">
@@ -21276,6 +21424,7 @@
                 <h1>Automation</h1>
                 <p x-show="autoTab() === 'tasks'">Single-agent jobs — a saved prompt plus an optional schedule. Run on demand, watch run health, and keep what's coming up in view.</p>
                 <p x-show="autoTab() === 'flows'">Wire tasks into a conditional pipeline. When a task finishes, each outgoing rule (status, output expression, or AI judgment) decides which downstream tasks run next.</p>
+                <p x-show="autoTab() === 'meai'">Every <b>Me.AI</b> run — quick single-agent jobs and deep fan-out pursuits. Review outcomes, clean up the worktrees a run used, and delete runs you no longer need.</p>
               </div>
               <div class="nlx-actions">
                 <span class="nlx-status" x-show="autoTab() === 'tasks'" :class="{ off: !execTaskRunning() }">
@@ -21297,9 +21446,10 @@
             <div class="ag-tabs" role="tablist" aria-label="Automation section" style="margin:10px 0 18px">
               <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'tasks'" :class="autoTab() === 'tasks' ? 'on' : ''" @click="setAutoView('tasks')">⚡ Tasks<span class="n" x-show="execTaskMetrics().total" x-text="execTaskMetrics().total"></span></button>
               <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'flows'" :class="autoTab() === 'flows' ? 'on' : ''" @click="setAutoView('flows'); $nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))">🔗 Flows<span class="n" x-show="execFlowMetrics().total" x-text="execFlowMetrics().total"></span></button>
+              <button type="button" class="ag-tab" role="tab" :aria-selected="autoTab() === 'meai'" :class="autoTab() === 'meai' ? 'on' : ''" @click="setAutoView('meai')">🧠 Me.AI<span class="n" x-show="meAiRuns.length" x-text="meAiRuns.length"></span></button>
             </div>
 
-            <div class="nlx-studio">
+            <div class="nlx-studio" x-show="autoTab() !== 'meai'">
               <!-- Left rail: scoped cards for the active tab -->
               <div class="nlx-rail">
                 <div style="display:contents" x-show="autoTab() === 'tasks'">
@@ -21554,6 +21704,190 @@
                   </div>
                 </div>
               </div>
+              </div>
+            </div>
+
+            <!-- ===================== Me.AI runs ===================== -->
+            <div class="meai-runs" x-show="autoTab() === 'meai'">
+              <div class="mr-brand">
+                <div class="mr-brand-mark">Me</div>
+                <div>
+                  <div class="mr-brand-name">Me.AI <span class="mr-word">runs</span></div>
+                  <div class="mr-brand-tag">Your agent worked across <b x-text="meAiRunMetrics().deep"></b> deep pursuit<span x-show="meAiRunMetrics().deep !== 1">s</span> and <b x-text="meAiRunMetrics().quick"></b> quick job<span x-show="meAiRunMetrics().quick !== 1">s</span></div>
+                </div>
+              </div>
+
+              <div class="mr-metrics">
+                <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().total"></span><span class="l">Runs</span></div>
+                <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().deep"></span><span class="l">Deep</span></div>
+                <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().quick"></span><span class="l">Quick</span></div>
+                <div class="mr-metric live" x-show="meAiRunMetrics().running"><span class="n" x-text="meAiRunMetrics().running"></span><span class="l">Running</span></div>
+                <div class="mr-metric warn" x-show="meAiRunMetrics().needs"><span class="n" x-text="meAiRunMetrics().needs"></span><span class="l">Need you</span></div>
+                <div class="mr-metric" x-show="meAiRunMetrics().liveWt"><span class="n" x-text="meAiRunMetrics().liveWt"></span><span class="l">Live worktrees</span></div>
+                <div class="mr-metric warn" x-show="meAiRunMetrics().reclaim"><span class="n" x-text="meAiFmtBytes(meAiRunMetrics().reclaim)"></span><span class="l">Reclaimable</span></div>
+              </div>
+
+              <div class="mr-controls">
+                <div class="mr-seg" role="group" aria-label="Depth">
+                  <button type="button" :class="meAiRunDepth === 'all' ? 'on' : ''" @click="meAiRunDepth = 'all'">All</button>
+                  <button type="button" :class="meAiRunDepth === 'deep' ? 'on' : ''" @click="meAiRunDepth = 'deep'">Deep</button>
+                  <button type="button" :class="meAiRunDepth === 'quick' ? 'on' : ''" @click="meAiRunDepth = 'quick'">Quick</button>
+                </div>
+                <select class="mr-q" x-model="meAiRunStatus" aria-label="Status filter">
+                  <option value="all">All statuses</option>
+                  <option value="running">Running</option>
+                  <option value="awaiting">Needs you</option>
+                  <option value="done">Finished</option>
+                  <option value="error">Errored</option>
+                  <option value="deleted">Deleted</option>
+                </select>
+                <input class="mr-q" type="search" x-model="meAiRunSearch" placeholder="Search runs…" aria-label="Search runs" />
+                <span class="mr-spacer"></span>
+                <span class="mr-hint" x-show="meAiRunsLoading">Refreshing…</span>
+                <button class="mr-btn" type="button" @click="loadMeAiRuns()">↻ Refresh</button>
+              </div>
+
+              <div class="mr-bulkbar" x-show="meAiRunChkIds().length">
+                <span class="n" x-text="meAiRunChkIds().length + ' selected'"></span>
+                <span class="mr-spacer"></span>
+                <button class="mr-btn" type="button" @click="meAiRunChecked = {}">Clear</button>
+                <button class="mr-btn danger" type="button" @click="meAiDeleteRunsBulk()" :disabled="meAiRunsBusy === 'bulk'" x-text="meAiRunsBusy === 'bulk' ? 'Deleting…' : 'Delete selected · reclaim worktrees'"></button>
+              </div>
+
+              <div class="mr-empty" x-show="meAiRunsLoading && !meAiRuns.length">Loading runs…</div>
+              <div class="mr-empty" x-show="!meAiRunsLoading && !meAiRunFiltered().length" x-text="meAiRuns.length ? 'No runs match your filters.' : 'No Me.AI runs yet. Runs appear here after you ask Me.AI to do something.'"></div>
+
+              <div class="mr-studio" x-show="meAiRunFiltered().length">
+                <!-- Left index -->
+                <div class="mr-index">
+                  <template x-for="grp in meAiRunGroups()" :key="grp.key">
+                    <div>
+                      <div class="mr-grp" x-text="grp.label"></div>
+                      <template x-for="(r, ri) in grp.runs" :key="r.id">
+                        <div class="mr-run" :class="{ on: meAiRunSel === r.id, deleted: r.deleted, first: ri === 0 }">
+                          <input type="checkbox" class="mr-cbx" :checked="!!meAiRunChecked[r.id]" @click.stop="meAiRunToggleChk(r.id)" aria-label="Select run" />
+                          <div class="mr-run-body" @click="meAiSelectRun(r.id)">
+                            <div class="mr-run-top">
+                              <span class="mr-dot" :class="meAiRunDotClass(r)"></span>
+                              <span class="mr-run-t" x-text="r.title || r.goal || 'Untitled run'"></span>
+                              <span class="mr-mode" :class="meAiRunIsDeep(r) ? 'deep' : 'quick'" x-text="meAiRunIsDeep(r) ? 'DEEP' : 'QUICK'"></span>
+                            </div>
+                            <div class="mr-run-m">
+                              <span x-text="r.playbook || 'general'"></span>
+                              <span class="mr-midot">·</span>
+                              <span x-text="meAiRunWhen(r)"></span>
+                              <template x-if="r.worktreeSummary && r.worktreeSummary.ownedLive">
+                                <span><span class="mr-midot">·</span> <span x-text="r.worktreeSummary.ownedLive + ' live worktree' + (r.worktreeSummary.ownedLive === 1 ? '' : 's')"></span></span>
+                              </template>
+                            </div>
+                            <div class="mr-run-fan" x-show="meAiRunIsDeep(r) && r.fan">
+                              <b x-text="(r.fan ? r.fan.legs : 0) + ' legs'"></b> · <span x-text="meAiRunFanDesc(r)"></span>
+                            </div>
+                          </div>
+                          <span class="mr-stage" :class="meAiRunStageClass(r)"><span class="mr-spin" x-show="meAiRunStatusKey(r) === 'running'"></span><span x-text="meAiRunStageText(r)"></span></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Right detail -->
+                <div class="mr-detail">
+                  <template x-if="meAiSelectedRun()">
+                    <div>
+                      <div class="mr-dh">
+                        <div style="min-width:0">
+                          <h3 class="mr-dtitle" x-text="meAiSelectedRun().title || meAiSelectedRun().goal || 'Run'"></h3>
+                          <div class="mr-dgoal" x-show="meAiSelectedRun().goal && meAiSelectedRun().goal !== meAiSelectedRun().title" x-text="meAiSelectedRun().goal"></div>
+                          <div class="mr-dmeta">
+                            <span class="mr-mode" :class="meAiRunIsDeep(meAiSelectedRun()) ? 'deep' : 'quick'" x-text="meAiRunIsDeep(meAiSelectedRun()) ? 'DEEP · fan-out pursuit' : 'QUICK · single agent'"></span>
+                            <span class="mr-midot">·</span>
+                            <span class="mr-dstage" :class="meAiRunStageClass(meAiSelectedRun())" x-text="meAiRunStageText(meAiSelectedRun())"></span>
+                            <span class="mr-midot">·</span>
+                            <span x-text="meAiRunWhen(meAiSelectedRun())"></span>
+                          </div>
+                        </div>
+                        <div class="mr-dactions">
+                          <button class="mr-btn primary" type="button" x-show="!meAiSelectedRun().deleted" @click="meAiOpenRun(meAiSelectedRun())">Open run →</button>
+                          <button class="mr-btn danger" type="button" x-show="!meAiSelectedRun().deleted && meAiSelectedRun().status !== 'running'" @click="meAiDeleteRun(meAiSelectedRun().id)" :disabled="meAiRunsBusy === 'del'" x-text="meAiRunsBusy === 'del' ? 'Deleting…' : 'Delete run'"></button>
+                        </div>
+                      </div>
+
+                      <template x-if="meAiSelectedRun().deleted">
+                        <div class="mr-tomb" style="margin-top:18px">
+                          <div class="th">🗑 Deleted run</div>
+                          <div class="tb">Removed <b x-text="meAiRunWhen2(meAiSelectedRun().deletedAt)"></b>. Its owned worktrees were cleaned up and the disk reclaimed. This record is kept so you have a history of the run.</div>
+                        </div>
+                      </template>
+
+                      <template x-if="!meAiSelectedRun().deleted && meAiRunIsDeep(meAiSelectedRun()) && meAiSelectedRun().fan">
+                        <div class="mr-sect">
+                          <div class="mr-sect-h">Fan-out</div>
+                          <div class="mr-deskgrid">
+                            <div class="mr-deskcol"><div class="mr-colh">Legs</div><div class="mr-desknum" x-text="meAiSelectedRun().fan.legs"></div></div>
+                            <div class="mr-deskcol needs" x-show="meAiSelectedRun().fan.desk"><div class="mr-colh">On your desk</div><div class="mr-desknum" x-text="meAiSelectedRun().fan.desk"></div></div>
+                            <div class="mr-deskcol handled" x-show="meAiSelectedRun().fan.ledger"><div class="mr-colh">Director actions</div><div class="mr-desknum" x-text="meAiSelectedRun().fan.ledger"></div></div>
+                          </div>
+                          <div style="margin-top:10px" x-show="meAiRunLegRows(meAiSelectedRun()).length">
+                            <template x-for="row in meAiRunLegRows(meAiSelectedRun())" :key="row.k">
+                              <div class="mr-leg" :class="{ first: row.first }"><span class="mr-lk" :class="row.cls" x-text="row.k"></span><span class="mr-names" x-text="row.n + (row.n === 1 ? ' leg' : ' legs')"></span></div>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+
+                      <template x-if="!meAiSelectedRun().deleted && meAiRunReportSum(meAiSelectedRun())">
+                        <div class="mr-sect">
+                          <div class="mr-sect-h">Outcome</div>
+                          <div class="mr-report">
+                            <div class="mr-rsum" x-text="meAiRunReportSum(meAiSelectedRun())"></div>
+                            <ul x-show="meAiRunReportFindings(meAiSelectedRun()).length">
+                              <template x-for="(f, fi) in meAiRunReportFindings(meAiSelectedRun())" :key="fi"><li x-text="f"></li></template>
+                            </ul>
+                          </div>
+                        </div>
+                      </template>
+
+                      <template x-if="!meAiSelectedRun().deleted && meAiSelectedRun().error">
+                        <div class="mr-sect">
+                          <div class="mr-sect-h">Error</div>
+                          <div class="mr-report" style="border-color:color-mix(in srgb, var(--cp-danger) 40%, var(--cp-border))"><div class="mr-rsum" x-text="meAiSelectedRun().error"></div></div>
+                        </div>
+                      </template>
+
+                      <template x-if="!meAiSelectedRun().deleted">
+                        <div class="mr-sect">
+                          <div class="mr-sect-h">Worktrees this run used</div>
+                          <div class="mr-wtsum">
+                            <span><b x-text="(meAiSelectedRun().worktrees || []).length"></b> total</span>
+                            <template x-if="meAiSelectedRun().worktreeSummary">
+                              <span><span class="mr-midot">·</span> <b x-text="meAiSelectedRun().worktreeSummary.ownedLive"></b> live</span>
+                            </template>
+                            <template x-if="meAiSelectedRun().worktreeSummary && meAiSelectedRun().worktreeSummary.reclaimBytes">
+                              <span><span class="mr-midot">·</span> <span class="reclaim" x-text="meAiFmtBytes(meAiSelectedRun().worktreeSummary.reclaimBytes) + ' reclaimable'"></span></span>
+                            </template>
+                            <span class="mr-spacer" style="flex:1"></span>
+                            <button class="mr-lnk" type="button" x-show="meAiSelectedRun().worktreeSummary && meAiSelectedRun().worktreeSummary.ownedLive > 1" @click="meAiPurgeAllLive(meAiSelectedRun().id)" :disabled="meAiRunsBusy === 'wtall'">Purge all live</button>
+                          </div>
+                          <div class="mr-wt" x-show="(meAiSelectedRun().worktrees || []).length">
+                            <template x-for="(w, wi) in (meAiSelectedRun().worktrees || [])" :key="w.path">
+                              <div class="mr-wtrow" :class="{ first: wi === 0 }">
+                                <div class="info">
+                                  <div class="mr-wtbranch" x-text="w.branch || '(detached)'"></div>
+                                  <div class="mr-wtpath"><span x-text="w.path"></span><template x-if="!w.owned && w.ownerLabel"><span class="leg"> · borrowed from <span x-text="w.ownerLabel"></span></span></template></div>
+                                </div>
+                                <span class="mr-wtstate" :class="w.owned ? (w.exists ? 'live' : 'purged') : 'borrowed'" x-text="w.owned ? (w.exists ? '● live' : 'purged') : 'borrowed'"></span>
+                                <button class="mr-wtpurge" type="button" x-show="w.owned && w.exists" @click="meAiPurgeWt(meAiSelectedRun().id, w.path)" :disabled="meAiRunsBusy === ('wt:' + w.path)" x-text="meAiRunsBusy === ('wt:' + w.path) ? 'Purging…' : 'Purge'"></button>
+                              </div>
+                            </template>
+                          </div>
+                          <div class="mr-wtsum" x-show="!(meAiSelectedRun().worktrees || []).length" style="color:var(--cp-text-soft)">This run didn't use any tracked worktrees.</div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div class="mr-empty" x-show="!meAiSelectedRun()" style="padding:120px 0">Select a run to see its outcome and worktrees.</div>
+                </div>
               </div>
             </div>
           </section>
@@ -28310,7 +28644,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         newTaskOpen: false,
         chainModalOpen: false,
         chainSearch: '',
-        autoView: (() => { try { return localStorage.getItem('automation-view') === 'flows' ? 'flows' : 'tasks'; } catch (_) { return 'tasks'; } })(),
+        autoView: (() => { try { const v = localStorage.getItem('automation-view'); return (v === 'flows' || v === 'meai') ? v : 'tasks'; } catch (_) { return 'tasks'; } })(),
+        // Me.AI runs view (Automation → Me.AI tab)
+        meAiRuns: [], meAiRunsLoading: false, meAiRunsBusy: '', meAiRunSel: null,
+        meAiRunDepth: 'all', meAiRunStatus: 'all', meAiRunSearch: '', meAiRunChecked: {},
         flowPaletteFilter: '',
         flowPaletteTab: 'agents',
         flowPaletteW: (() => { const v = parseInt(localStorage.getItem('flow-palette-w') || '', 10); return (v >= 190 && v <= 520) ? v : 230; })(),
@@ -29218,13 +29555,181 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Which sub-tab the merged "Autonomous" page shows. Flows when the route is
         // the legacy #/chains, or #/autonomous/flows; Tasks otherwise (incl. #/tasks).
         autoTab() {
-          return this.autoView === 'flows' ? 'flows' : 'tasks';
+          if (this.autoView === 'flows') return 'flows';
+          if (this.autoView === 'meai') return 'meai';
+          return 'tasks';
         },
         // Switch the Automation sub-view and remember it, so navigating away and back
         // (e.g. via the sidebar, which lands on #/tasks with no param) resumes here.
         setAutoView(v) {
-          this.autoView = (v === 'flows') ? 'flows' : 'tasks';
+          this.autoView = (v === 'flows') ? 'flows' : (v === 'meai' ? 'meai' : 'tasks');
           try { localStorage.setItem('automation-view', this.autoView); } catch (_) {}
+          if (this.autoView === 'meai' && !this.meAiRuns.length && !this.meAiRunsLoading) this.loadMeAiRuns();
+        },
+
+        // ===== Me.AI runs view =====
+        async loadMeAiRuns() {
+          this.meAiRunsLoading = true;
+          try {
+            const r = await this.request('/api/me-ai/runs');
+            const runs = (r && r.runs) || [];
+            // Preserve any per-run worktree detail we already fetched on select.
+            const prev = {}; for (const x of this.meAiRuns) prev[x.id] = x;
+            this.meAiRuns = runs.map(x => (prev[x.id] && prev[x.id]._detail) ? Object.assign({}, x, { worktrees: prev[x.id].worktrees, worktreeSummary: prev[x.id].worktreeSummary, _detail: true }) : x);
+            if (this.meAiRunSel && !this.meAiRuns.some(x => x.id === this.meAiRunSel)) this.meAiRunSel = null;
+          } catch (_) { this.meAiRuns = this.meAiRuns || []; }
+          this.meAiRunsLoading = false;
+        },
+        meAiRunIsDeep(r) { return !!(r && r.mode === 'tree'); },
+        meAiRunStatusKey(r) {
+          if (!r) return 'done';
+          if (r.deleted) return 'deleted';
+          if (r.status === 'running') return 'running';
+          if (r.status === 'awaiting' || r.stage === 'awaiting' || r.status === 'blocked') return 'awaiting';
+          if (r.status === 'error' || r.stage === 'error') return 'error';
+          return 'done';
+        },
+        meAiRunFiltered() {
+          const depth = this.meAiRunDepth, st = this.meAiRunStatus, q = (this.meAiRunSearch || '').trim().toLowerCase();
+          return (this.meAiRuns || []).filter(r => {
+            const key = this.meAiRunStatusKey(r);
+            // Deleted runs stay hidden unless explicitly viewing All or Deleted.
+            if (r.deleted && st !== 'all' && st !== 'deleted') return false;
+            if (depth === 'deep' && !this.meAiRunIsDeep(r)) return false;
+            if (depth === 'quick' && this.meAiRunIsDeep(r)) return false;
+            if (st !== 'all' && key !== st) return false;
+            if (q) { const hay = ((r.title || '') + ' ' + (r.goal || '') + ' ' + (r.playbook || '')).toLowerCase(); if (!hay.includes(q)) return false; }
+            return true;
+          });
+        },
+        meAiRunGroups() {
+          const list = this.meAiRunFiltered();
+          const g = { waiting: [], running: [], recent: [], deleted: [] };
+          for (const r of list) {
+            const k = this.meAiRunStatusKey(r);
+            if (k === 'deleted') g.deleted.push(r);
+            else if (k === 'awaiting') g.waiting.push(r);
+            else if (k === 'running') g.running.push(r);
+            else g.recent.push(r);
+          }
+          return [
+            { key: 'waiting', label: 'Waiting on you', runs: g.waiting },
+            { key: 'running', label: 'Running now', runs: g.running },
+            { key: 'recent', label: 'Recently finished', runs: g.recent },
+            { key: 'deleted', label: 'Deleted', runs: g.deleted },
+          ].filter(x => x.runs.length);
+        },
+        meAiRunMetrics() {
+          const list = (this.meAiRuns || []).filter(r => !r.deleted);
+          let deep = 0, quick = 0, running = 0, needs = 0, liveWt = 0, reclaim = 0;
+          for (const r of list) {
+            if (this.meAiRunIsDeep(r)) deep++; else quick++;
+            const k = this.meAiRunStatusKey(r);
+            if (k === 'running') running++;
+            if (k === 'awaiting') needs++;
+            const ws = r.worktreeSummary; if (ws) { liveWt += (ws.ownedLive || 0); reclaim += (ws.reclaimBytes || 0); }
+          }
+          return { total: list.length, deep, quick, running, needs, liveWt, reclaim };
+        },
+        meAiSelectedRun() { return (this.meAiRuns || []).find(r => r.id === this.meAiRunSel) || null; },
+        async meAiSelectRun(id) {
+          this.meAiRunSel = id;
+          // Lazily fetch the full detail (with a disk worktree scan) once per run.
+          const cur = (this.meAiRuns || []).find(r => r.id === id);
+          if (cur && cur._detail) return;
+          try {
+            const r = await this.request('/api/me-ai/run/' + encodeURIComponent(id));
+            if (r && r.run) {
+              const i = this.meAiRuns.findIndex(x => x.id === id);
+              if (i >= 0) this.meAiRuns[i] = Object.assign({}, this.meAiRuns[i], r.run, { _detail: true });
+            }
+          } catch (_) {}
+        },
+        meAiRunChkIds() { return Object.keys(this.meAiRunChecked || {}).filter(k => this.meAiRunChecked[k]); },
+        meAiRunToggleChk(id) { if (this.meAiRunChecked[id]) delete this.meAiRunChecked[id]; else this.meAiRunChecked[id] = true; },
+        meAiRunDotClass(r) { return this.meAiRunStatusKey(r); },
+        meAiRunStageClass(r) { return this.meAiRunStatusKey(r); },
+        meAiRunStageText(r) {
+          const k = this.meAiRunStatusKey(r);
+          if (k === 'running') return 'Running';
+          if (k === 'awaiting') return 'Needs you';
+          if (k === 'error') return 'Errored';
+          if (k === 'deleted') return 'Deleted';
+          return this.meAiTaskStageLabel(r.stage) || 'Finished';
+        },
+        meAiRunWhen(r) { const t = r && (r.finishedAt || r.updatedAt || r.startedAt || r.createdAt); return t ? this.formatRelative(t) : ''; },
+        meAiRunWhen2(t) { return t ? this.formatRelative(t) : 'recently'; },
+        meAiRunFanDesc(r) {
+          const by = (r.fan && r.fan.byStatus) || {}; const parts = [];
+          const m = { merged: 'merged', running: 'running', dead: 'dead', blocked: 'blocked', planned: 'planned', done: 'done', failed: 'failed' };
+          for (const k of Object.keys(by)) parts.push(by[k] + ' ' + (m[k] || k));
+          if (r.fan && r.fan.desk) parts.push(r.fan.desk + ' on your desk');
+          return parts.join(' · ') || 'no legs yet';
+        },
+        meAiRunLegRows(r) {
+          const by = (r.fan && r.fan.byStatus) || {}; const keys = Object.keys(by);
+          return keys.map((k, i) => ({ k, n: by[k], cls: k, first: i === 0 }));
+        },
+        meAiRunReportSum(r) {
+          const rep = r && r.report; if (!rep) return '';
+          if (typeof rep === 'string') return rep;
+          return rep.summary || rep.title || rep.sum || '';
+        },
+        meAiRunReportFindings(r) {
+          const rep = r && r.report; if (!rep || typeof rep === 'string') return [];
+          return (rep.findings || []).map(f => (typeof f === 'string' ? f : (f.text || f.title || ''))).filter(Boolean);
+        },
+        meAiOpenRun(r) { if (r) this.meAiOpenTask(r.id); },
+        async meAiDeleteRun(id) {
+          const r = this.meAiSelectedRun() || (this.meAiRuns || []).find(x => x.id === id);
+          if (!r) return;
+          if (!confirm('Delete this run?\n\nIts owned worktrees will be purged and disk reclaimed. A deleted record stays on this page for your history.')) return;
+          this.meAiRunsBusy = 'del';
+          try {
+            await this.request('/api/me-ai/run/' + encodeURIComponent(id), { method: 'DELETE' });
+            delete this.meAiRunChecked[id];
+            await this.loadMeAiRuns();
+          } catch (e) { alert('Delete failed: ' + ((e && e.message) || e)); }
+          this.meAiRunsBusy = '';
+        },
+        async meAiDeleteRunsBulk() {
+          const ids = this.meAiRunChkIds(); if (!ids.length) return;
+          if (!confirm('Delete ' + ids.length + ' run' + (ids.length === 1 ? '' : 's') + '?\n\nOwned worktrees will be purged and disk reclaimed. Running runs are skipped.')) return;
+          this.meAiRunsBusy = 'bulk';
+          try {
+            await this.request('/api/me-ai/runs/delete', { method: 'POST', body: JSON.stringify({ ids }) });
+            this.meAiRunChecked = {};
+            await this.loadMeAiRuns();
+          } catch (e) { alert('Bulk delete failed: ' + ((e && e.message) || e)); }
+          this.meAiRunsBusy = '';
+        },
+        async meAiPurgeWt(runId, wtPath) {
+          if (!confirm('Purge this worktree?\n\n' + wtPath + '\n\nThe folder is deleted from disk; the run record stays.')) return;
+          this.meAiRunsBusy = 'wt:' + wtPath;
+          try {
+            await this.request('/api/me-ai/run/' + encodeURIComponent(runId) + '/worktree/purge', { method: 'POST', body: JSON.stringify({ path: wtPath }) });
+            const r = await this.request('/api/me-ai/run/' + encodeURIComponent(runId));
+            if (r && r.run) { const i = this.meAiRuns.findIndex(x => x.id === runId); if (i >= 0) this.meAiRuns[i] = Object.assign({}, this.meAiRuns[i], r.run, { _detail: true }); }
+          } catch (e) { alert('Purge failed: ' + ((e && e.message) || e)); }
+          this.meAiRunsBusy = '';
+        },
+        async meAiPurgeAllLive(runId) {
+          const r = (this.meAiRuns || []).find(x => x.id === runId); if (!r) return;
+          const live = (r.worktrees || []).filter(w => w.owned && w.exists);
+          if (!live.length) return;
+          if (!confirm('Purge all ' + live.length + ' live worktrees for this run?')) return;
+          this.meAiRunsBusy = 'wtall';
+          for (const w of live) {
+            try { await this.request('/api/me-ai/run/' + encodeURIComponent(runId) + '/worktree/purge', { method: 'POST', body: JSON.stringify({ path: w.path }) }); } catch (_) {}
+          }
+          try { const rr = await this.request('/api/me-ai/run/' + encodeURIComponent(runId)); if (rr && rr.run) { const i = this.meAiRuns.findIndex(x => x.id === runId); if (i >= 0) this.meAiRuns[i] = Object.assign({}, this.meAiRuns[i], rr.run, { _detail: true }); } } catch (_) {}
+          this.meAiRunsBusy = '';
+        },
+        meAiFmtBytes(n) {
+          n = Number(n) || 0; if (n < 1024) return n + ' B';
+          const kb = n / 1024; if (kb < 1024) return kb.toFixed(0) + ' KB';
+          const mb = kb / 1024; if (mb < 1024) return mb.toFixed(mb < 10 ? 1 : 0) + ' MB';
+          return (mb / 1024).toFixed(1) + ' GB';
         },
 
         async handleRouteChange(opts = {}) {
@@ -29287,8 +29792,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // An explicit route/param signal wins; otherwise resume the last view
             // (persisted) so sidebar nav to #/tasks doesn't always reset to Tasks.
             if (this.route === 'chains' || this.app.routeParam === 'flows') this.setAutoView('flows');
+            else if (this.app.routeParam === 'meai') this.setAutoView('meai');
             else if (this.app.routeParam === 'tasks') this.setAutoView('tasks');
             await Promise.all([this.loadActivity(), this.loadSchedules()]);
+            if (this.autoTab() === 'meai') this.loadMeAiRuns();
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
             await this.loadExecAi();

@@ -21134,6 +21134,146 @@ function _meAiScratchDir() {
   try { fs.mkdirSync(d, { recursive: true }); } catch (_) {}
   return d;
 }
+// ── Me.AI run directories + OWNED worktrees ────────────────────────────────
+// Every Me.AI run gets its own directory tree under dataPath('me-ai/runs/<id>/).
+// Legs (including fanned-out sub-agents, quick or deep) are CORRALLED to create any
+// clone / git worktree under <run>/worktrees, so even an agent-improvised worktree
+// is OWNED by the run, visible from disk, and reclaimable when the run is deleted.
+// The filesystem — not a registry the raw-shell agents never update — is the source
+// of truth for the runs view. Borrowed dev-card worktrees are listed read-only and
+// NEVER purged from here (the dev card owns them).
+const ME_AI_RUNS_DIR = path.join(dataPath('me-ai'), 'runs');
+function _meAiRunDir(id) {
+  const d = path.join(ME_AI_RUNS_DIR, String(id || '').replace(/[^a-z0-9_-]/gi, ''));
+  try { fs.mkdirSync(d, { recursive: true }); } catch (_) {}
+  return d;
+}
+function _meAiRunWorktreeRoot(t) {
+  const root = path.join(_meAiRunDir((t && t.id) || ''), 'worktrees');
+  try { fs.mkdirSync(root, { recursive: true }); } catch (_) {}
+  if (t && typeof t === 'object') { t.context = (t.context && typeof t.context === 'object') ? t.context : {}; t.context.worktreeRoot = root; }
+  return root;
+}
+function _meAiRunScratchDir(t) {
+  const d = path.join(_meAiRunDir((t && t.id) || ''), 'scratch');
+  try { fs.mkdirSync(d, { recursive: true }); } catch (_) {}
+  return d;
+}
+// A directive appended to leg/build prompts telling the agent WHERE to put any clone
+// or worktree it stands up, so the run owns it (and can reclaim it) instead of it
+// scattering across disk untracked.
+function _meAiWorktreeCorralLine(t) {
+  try {
+    const root = _meAiRunWorktreeRoot(t);
+    return `WORKTREE LOCATION — if you need to clone a repository or create a git worktree for this work, create it UNDER: ${root} (e.g. ${path.join(root, '<repo-name>')}). Do NOT scatter clones elsewhere on disk — keeping them here lets this run own and later reclaim them.`;
+  } catch (_) { return ''; }
+}
+// Bounded recursive byte size. Caps entries visited so a full repo (.git, node_modules)
+// can't hang the runs list; returns { bytes, capped }.
+function _meAiDirSize(dir, cap) {
+  cap = cap || 80000; let bytes = 0, n = 0, capped = false; const stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop();
+    let ents; try { ents = fs.readdirSync(cur, { withFileTypes: true }); } catch (_) { continue; }
+    for (const e of ents) {
+      if (++n > cap) { capped = true; stack.length = 0; break; }
+      if (e.isSymbolicLink && e.isSymbolicLink()) continue;
+      const p = path.join(cur, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else { try { bytes += fs.statSync(p).size; } catch (_) {} }
+    }
+  }
+  return { bytes, capped };
+}
+function _meAiGitBranch(dir) {
+  try {
+    return require('child_process').execSync('git rev-parse --abbrev-ref HEAD', { cwd: dir, encoding: 'utf-8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch (_) { return null; }
+}
+function _meAiExists(p) { try { return !!p && fs.existsSync(p); } catch (_) { return false; } }
+// Owned worktrees: every immediate subdir of the run's worktree root.
+function _meAiOwnedWorktrees(t) {
+  const out = []; if (!t || !t.id) return out;
+  const root = path.join(_meAiRunDir(t.id), 'worktrees');
+  let ents; try { ents = fs.readdirSync(root, { withFileTypes: true }); } catch (_) { return out; }
+  for (const e of ents) {
+    if (!e.isDirectory()) continue;
+    const p = path.join(root, e.name);
+    const sz = _meAiDirSize(p);
+    out.push({ path: p, name: e.name, branch: _meAiGitBranch(p), owned: true, source: 'run', exists: true, size: sz.bytes, sizeApprox: sz.capped });
+  }
+  return out;
+}
+// Borrowed worktrees the run merely USED — listed read-only, never purged here.
+function _meAiBorrowedWorktrees(t) {
+  const out = []; const cwd = t && t.context && t.context.cwd; if (!cwd) return out;
+  try { if (String(path.resolve(cwd)).startsWith(path.resolve(_meAiRunDir(t.id)))) return out; } catch (_) {}
+  try {
+    const card = (devStore.all() || []).find(d => d && d.worktreePath && path.resolve(d.worktreePath) === path.resolve(cwd));
+    if (card) {
+      out.push({ path: card.worktreePath, branch: card.branch || _meAiGitBranch(card.worktreePath), owned: false, source: 'dev-card', ownerId: card.id, ownerLabel: card.title || card.repo || card.id, exists: _meAiExists(card.worktreePath) });
+    }
+  } catch (_) {}
+  return out;
+}
+function _meAiRunWorktrees(t) { return [].concat(_meAiOwnedWorktrees(t), _meAiBorrowedWorktrees(t)); }
+// Purge ONE owned worktree dir (must live under this run's worktree root). Best-effort
+// unlink from any parent clone, then rm -rf. Refuses anything outside the run root.
+function _meAiPurgeWorktreeDir(t, wtPath) {
+  const root = path.resolve(path.join(_meAiRunDir(t.id), 'worktrees'));
+  const abs = path.resolve(wtPath || '');
+  if (!abs.startsWith(root + path.sep) && abs !== root) return { ok: false, error: 'not an owned worktree of this run' };
+  if (abs === root) return { ok: false, error: 'refusing to purge the worktree root itself' };
+  try {
+    let common = '';
+    try { common = require('child_process').execSync('git rev-parse --git-common-dir', { cwd: abs, encoding: 'utf-8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch (_) {}
+    fs.rmSync(abs, { recursive: true, force: true });
+    if (common) {
+      try {
+        const gitDir = path.isAbsolute(common) ? common : path.resolve(abs, common);
+        const repoRoot = path.basename(gitDir) === '.git' ? path.dirname(gitDir) : gitDir;
+        require('child_process').execSync('git worktree prune', { cwd: repoRoot, encoding: 'utf-8', timeout: 5000, stdio: 'ignore' });
+      } catch (_) {}
+    }
+    return { ok: true };
+  } catch (e) { return { ok: false, error: (e && e.message) || 'purge failed' }; }
+}
+// Purge ALL owned worktrees + the whole run dir. Returns { purged, freed }.
+function _meAiPurgeRunWorktrees(t) {
+  const owned = _meAiOwnedWorktrees(t); let purged = 0, freed = 0;
+  for (const w of owned) { const r = _meAiPurgeWorktreeDir(t, w.path); if (r.ok) { purged++; freed += (w.size || 0); } }
+  try { fs.rmSync(_meAiRunDir(t.id), { recursive: true, force: true }); } catch (_) {}
+  return { purged, freed };
+}
+// The run-shaped public projection used by the Me.AI runs view: task facts + a fan-out
+// summary (deep runs) + the run's worktrees (owned + borrowed) and a reclaim summary.
+function _meAiRunPublic(t, opts) {
+  opts = opts || {};
+  const wts = Object.prototype.hasOwnProperty.call(opts, 'worktrees') ? (opts.worktrees || []) : (opts.withWorktrees ? _meAiRunWorktrees(t) : []);
+  const live = wts.filter(w => w.owned && w.exists);
+  const reclaim = live.reduce((a, w) => a + (w.size || 0), 0);
+  let fan = null;
+  if ((t.mode || 'single') === 'tree') {
+    try {
+      const tree = meAiTrees.get(t.id) || _meAiFoldJournal(t.id);
+      const legs = Object.values(tree.legs || {});
+      const by = {}; for (const l of legs) { const s = l.status || 'planned'; by[s] = (by[s] || 0) + 1; }
+      const openStops = (tree.stops || []).filter(s => s && !s.resolved);
+      fan = { legs: legs.length, byStatus: by, desk: openStops.length, ledger: ((tree.director && tree.director.ledger) || []).length };
+    } catch (_) {}
+  }
+  return {
+    id: t.id, date: t.date, playbook: t.playbook, title: t.title, scope: t.scope || 'work',
+    goal: t.goal || _meAiGoalFor(t), mode: t.mode || 'single',
+    stage: t.stage, status: t.status, background: !!t.background, archived: !!t.archived,
+    deleted: !!t.deleted, deletedAt: t.deletedAt || null, wasStage: t.wasStage || null,
+    report: t.report || null, nextActions: t.nextActions || [], question: t.question || null, error: t.error || null,
+    createdAt: t.createdAt, updatedAt: t.updatedAt, startedAt: t.startedAt, finishedAt: t.finishedAt,
+    awaitingSince: t.awaitingSince || null,
+    fan, worktrees: wts,
+    worktreeSummary: { total: wts.length, ownedLive: live.length, borrowed: wts.filter(w => !w.owned).length, reclaimBytes: reclaim },
+  };
+}
 // Parse a work-item / issue number out of free text ("#11247", "Task 11247", "WI #7880").
 function _meAiParseWorkItemNum(s) {
   const str = String(s || '');
@@ -21187,6 +21327,9 @@ function _meAiResolveRepoContext(t) {
   try {
     if (!_meAiNeedsRepo(t)) return;
     const ctx = t.context = (t.context && typeof t.context === 'object') ? t.context : {};
+    // Give this run its OWN worktree root up front so any clone/worktree a leg stands
+    // up is corralled here (owned by the run, reclaimable on delete).
+    _meAiRunWorktreeRoot(t);
     if (ctx.cwd) return; // an explicit cwd always wins
     const card = _meAiFindDevCardForTask(t);
     if (card) {
@@ -21198,12 +21341,12 @@ function _meAiResolveRepoContext(t) {
         return;
       }
       ctx.devNoWorktree = { id: card.id, title: card.title || card.repo || card.id, org: card.org || '', project: card.project || '', repo: card.repo || '' };
-      ctx.cwd = _meAiScratchDir();
+      ctx.cwd = _meAiRunScratchDir(t);
       _meAiEmit(t, { kind: 'note', text: `Matched dev card "${card.title || card.repo || card.id}" but it has no git worktree yet — I'll ask before creating one instead of editing this app's repo.` });
       return;
     }
     ctx.noRepo = true;
-    ctx.cwd = _meAiScratchDir();
+    ctx.cwd = _meAiRunScratchDir(t);
     _meAiEmit(t, { kind: 'note', text: 'No dev card matches this task — I\'ll confirm the repository before doing any code work (I will not touch this app\'s own source).' });
   } catch (_) { /* best-effort; falls through to normal prompt */ }
 }
@@ -22572,6 +22715,7 @@ function _meAiTreeLegPrompt(t, leg) {
     `delegate to / stand up a specialist agent with the access or skill you're missing`,
     `and run it). Only after those alternates are genuinely exhausted do you record a`,
     `dead-end or propose a needs-auth unblock — and then name the exact one-click fix.`,
+    _meAiWorktreeCorralLine(t),
     ``,
     `  "confidence": "low|medium|high",`,
     `  "outcome": "done|dead-end|needs-auth|needs-info|needs-decision",`,
@@ -22729,6 +22873,7 @@ function _meAiBuildLegPrompt(t, phase, priorSummary) {
     'PHASE OBJECTIVE: ' + phase.ask,
     priorSummary ? ('WHAT THE PRIOR PHASE ESTABLISHED:\n' + String(priorSummary).slice(0, 1500)) : '',
     'You MAY read and EDIT local files and run local tests/build/git in your working directory.',
+    _meAiWorktreeCorralLine(t),
     'You MUST NOT push, open a PR, post comments, send mail, or take ANY external action — those are gated and require the user\u2019s explicit approval.',
     _meAiSteerBlock(t),
     _meAiDoggedClause().join('\n'),
@@ -25493,6 +25638,7 @@ app.get('/api/me-ai/tasks', (req, res) => {
     const items = [];
     for (const t of meAiTasks.values()) {
       if (date && t.date !== date) continue;
+      if (t.deleted) continue; // tombstoned in the Me.AI runs view
       if (t.archived) continue; // dismissed/finished off the active lane
       // Carry the pending ask (question + proposed nextActions) onto the lane row so
       // the "Me agents at work" list can show WHAT the agent is trying to do and let
@@ -25624,6 +25770,7 @@ app.get('/api/me-ai/tasks/archived', (req, res) => {
     let hiddenCount = 0;
     for (const t of meAiTasks.values()) {
       if (!t || !t.archived) continue;
+      if (t.deleted) continue; // tombstoned runs live only in the Me.AI runs view
       const touch = lastTouch(t);
       const stale = touch > 0 && (now - touch) > staleMs;
       if (stale && !includeStale) { hiddenCount++; continue; }
@@ -25655,6 +25802,86 @@ app.post('/api/me-ai/task/:id/restore', (req, res) => {
     res.json({ ok: true, task: _meAiTaskPublic(t) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── Me.AI runs view ─────────────────────────────────────────────────────────
+// GET /api/me-ai/runs → the branded "Me.AI runs" history: EVERY run (quick single
+// + deep tree), active, archived, and deleted tombstones — each with its own
+// worktrees (owned + borrowed) scanned live from disk and a reclaim summary. This
+// single payload powers the whole runs studio (like the mock's RUNS array).
+app.get('/api/me-ai/runs', (req, res) => {
+  try {
+    const runs = [];
+    for (const t of meAiTasks.values()) {
+      if (!t) continue;
+      runs.push(_meAiRunPublic(t, { withWorktrees: true }));
+    }
+    runs.sort((a, b) => String(b.deletedAt || b.finishedAt || b.updatedAt || '').localeCompare(String(a.deletedAt || a.finishedAt || a.updatedAt || '')));
+    const totalReclaim = runs.reduce((a, r) => a + ((r.worktreeSummary && r.worktreeSummary.reclaimBytes) || 0), 0);
+    res.json({ ok: true, runs, reclaimBytes: totalReclaim });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/run/:id → one run, freshly re-scanned worktrees (detail refresh).
+app.get('/api/me-ai/run/:id', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Run not found' });
+    res.json({ ok: true, run: _meAiRunPublic(t, { withWorktrees: true }) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/me-ai/run/:id → tombstone the run: purge its OWNED worktrees (never the
+// borrowed dev-card ones) and leave a durable tombstone with its prior stage/status so
+// the runs view still shows it happened. No auth needed to clean the run's own worktrees.
+app.delete('/api/me-ai/run/:id', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Run not found' });
+    if (t.status === 'running') return res.status(409).json({ error: 'Run is still working — background or hand it back before deleting.' });
+    const reclaim = _meAiPurgeRunWorktrees(t);
+    t.deleted = true;
+    t.deletedAt = new Date().toISOString();
+    t.wasStage = t.wasStage || t.stage || null;
+    t.background = false;
+    if (meAiTasks.has(t.id)) meAiTasks.set(t.id, t);
+    _meAiSaveTask(t);
+    res.json({ ok: true, run: _meAiRunPublic(t, { withWorktrees: true }), reclaim });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/runs/delete { ids:[] } → bulk tombstone + worktree reclaim.
+app.post('/api/me-ai/runs/delete', (req, res) => {
+  try {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String) : [];
+    let deleted = 0, purged = 0, freed = 0, skipped = 0;
+    for (const id of ids) {
+      const t = meAiTasks.get(id) || _meAiLoadTask(id);
+      if (!t) { skipped++; continue; }
+      if (t.status === 'running') { skipped++; continue; }
+      const r = _meAiPurgeRunWorktrees(t);
+      purged += r.purged; freed += r.freed;
+      t.deleted = true; t.deletedAt = new Date().toISOString(); t.wasStage = t.wasStage || t.stage || null; t.background = false;
+      if (meAiTasks.has(t.id)) meAiTasks.set(t.id, t);
+      _meAiSaveTask(t); deleted++;
+    }
+    res.json({ ok: true, deleted, skipped, reclaim: { purged, freed } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/run/:id/worktree/purge { path } → reclaim ONE owned worktree, leaving
+// the run itself intact. Owned worktrees only; borrowed dev-card worktrees are refused.
+app.post('/api/me-ai/run/:id/worktree/purge', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Run not found' });
+    const p = String((req.body && req.body.path) || '');
+    if (!p) return res.status(400).json({ error: 'path required' });
+    const r = _meAiPurgeWorktreeDir(t, p);
+    if (!r.ok) return res.status(400).json({ error: r.error || 'Could not purge that worktree' });
+    res.json({ ok: true, run: _meAiRunPublic(t, { withWorktrees: true }) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // POST /api/me-ai/task/:id/complete → gated finish + dedup-aware diary write (§7.1/§9.1).
 app.post('/api/me-ai/task/:id/complete', (req, res) => {
