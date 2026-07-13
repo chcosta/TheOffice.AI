@@ -80,13 +80,14 @@ const DEFAULTS = {
   // provably-safe gated stops (duplicate / reversible-local / factual+verified),
   // batches deliverables into one approval, and escalates only the genuine human
   // decisions — collapsing a stream of approvals into a handful of desk items.
-  // Default OFF: the live pursuit flow is unchanged until the user opts in AND
-  // mints a standing grant for a specific pursuit. `autonomy` is global
+  // Default ON for the view + chat narration, but SAFE: nothing is auto-applied
+  // until the user mints a standing grant for a specific pursuit, and autonomous
+  // absorption is additionally leader-gated. `autonomy` is global
   // (cautious|balanced|full); `grants` are per-pursuit (pursuitId → grant); each
-  // grant is scoped, path-limited, expiring and revocable. Nothing is auto-applied
-  // without an active grant, and autonomous absorption is leader-gated.
+  // grant is scoped, path-limited, expiring and revocable. Set enabled:false to
+  // fully hide the Director and restore the raw per-stop approval flow.
   director: {
-    enabled: false,
+    enabled: true,
     autonomy: 'balanced',
     defaultPaths: ['/src'],
     grantTtlDays: 7,

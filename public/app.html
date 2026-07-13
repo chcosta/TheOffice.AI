@@ -13184,6 +13184,7 @@
               .meai-pu-zoom > button { border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); min-width:32px; height:28px; cursor:pointer; }
               .meai-pu-zoom > button:first-child { border-radius:calc(var(--cp-radius-scale,1)*8px) 0 0 calc(var(--cp-radius-scale,1)*8px); }
               .meai-pu-zoom > button:nth-child(3) { border-radius:0 calc(var(--cp-radius-scale,1)*8px) calc(var(--cp-radius-scale,1)*8px) 0; }
+              .meai-pu-zoom > button.meai-pu-txtbtn { min-width:auto; padding:0 10px; border-radius:calc(var(--cp-radius-scale,1)*8px); font-size:12px; font-weight:600; }
               .meai-pu-follow { margin-left:6px; border-radius:calc(var(--cp-radius-scale,1)*8px) !important; font-size:12px; padding:0 10px; color:var(--cp-text-muted) !important; }
               .meai-pu-follow.on { color:var(--cp-accent) !important; border-color:var(--cp-accent) !important; }
               .meai-pcanvas { flex:1; min-height:0; position:relative; overflow:hidden; background:
@@ -13278,6 +13279,9 @@
               .meai-pworld.lod .meai-pnode.pflash::after { box-shadow:0 0 0 2px var(--cp-bg,#0d1117), 0 0 0 calc(var(--lod-dot,20px)*0.45) color-mix(in srgb,var(--cp-accent) 60%, transparent); }
               .meai-pu-legend-map { position:absolute; left:12px; bottom:12px; z-index:3; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); max-width:190px; }
               .meai-pu-legend-h { display:flex; align-items:center; gap:6px; width:100%; border:0; background:transparent; color:var(--cp-text-muted); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:7px 11px; cursor:pointer; }
+              .meai-pu-legend-hbar { display:flex; align-items:center; }
+              .meai-pu-legend-lock { flex:0 0 auto; border:0; background:transparent; cursor:pointer; font-size:12px; line-height:1; padding:7px 9px 7px 0; opacity:.5; transition:opacity .14s ease; }
+              .meai-pu-legend-lock:hover, .meai-pu-legend-lock.on { opacity:1; }
               .meai-pu-legend-body { padding:0 11px 10px; display:flex; flex-direction:column; gap:10px; }
               .meai-pu-legend-grp { display:flex; flex-direction:column; gap:3px; }
               .meai-pu-legend-cap { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; opacity:.8; margin-bottom:3px; }
@@ -13302,7 +13306,8 @@
               /* Control panel: live render stats + LOD render toggles. Top-left, only
                  while the canvas LOD is active. Ports the approved mock control panel;
                  stats are written straight to the DOM each frame (no Alpine churn). */
-              .meai-pu-cpanel { position:absolute; top:12px; left:12px; z-index:3; padding:12px 14px; max-width:268px; background:color-mix(in srgb,var(--cp-surface) 90%, transparent); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); backdrop-filter:blur(8px); }
+              .meai-pu-cpanel { position:absolute; top:12px; left:12px; z-index:3; padding:12px 14px; max-width:268px; background:color-mix(in srgb,var(--cp-surface) 90%, transparent); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); box-shadow:0 2px 12px rgba(0,0,0,.14); backdrop-filter:blur(8px); opacity:.1; transition:opacity .16s ease; }
+              .meai-pu-cpanel:hover { opacity:1; }
               .meai-pu-cp-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:2px 0; }
               .meai-pu-cp-k { color:var(--cp-text-muted); font-size:12px; }
               .meai-pu-cp-v { font-variant-numeric:tabular-nums; font-weight:600; font-size:12.5px; color:var(--cp-text); }
@@ -13543,11 +13548,11 @@
               .meai-pu-livedot.wait { background:#d29922; }
               .meai-pu-livedot.done { background:#2ea043; }
               .meai-pu-livedot.err  { background:#cf222e; }
-              @keyframes meaiPuPulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb,#2ea043 55%, transparent); } 70% { box-shadow:0 0 0 6px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+              @keyframes meaiPuPulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb,var(--cp-accent) 55%, transparent); } 70% { box-shadow:0 0 0 6px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
               @media (prefers-reduced-motion: reduce) { .meai-pu-livedot.live { animation:none; } }
               /* Node activity dot + timestamp (foot) */
               .meai-pnode-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-text-muted); flex:0 0 auto; }
-              .meai-pnode-dot.run { background:#2ea043; box-shadow:0 0 0 0 color-mix(in srgb,#2ea043 55%, transparent); animation:meaiPuPulse 1.6s ease-out infinite; }
+              .meai-pnode-dot.run { background:var(--cp-accent); box-shadow:0 0 0 0 color-mix(in srgb,var(--cp-accent) 55%, transparent); animation:meaiPuPulse 1.6s ease-out infinite; }
               .meai-pnode-dot.wait { background:#d29922; }
               .meai-pnode-dot.done { background:#2ea043; }
               .meai-pnode-dot.dead { background:#cf222e; }
@@ -13575,6 +13580,12 @@
                  inherit that class's 300px max-height cap or modal chrome (bg/border/radius) —
                  it fills the center panel and scrolls only when content actually overflows. */
               .meai-pu-report-body.md-output { max-height:none; background:transparent; border:0; border-radius:0; }
+              /* Mermaid diagram artifacts render as a centered, naturally-sized picture. The
+                 SVG scales down to fit width; the body scrolls only if the diagram is taller
+                 than the panel (single scrollbar, no fixed inner cap). */
+              .meai-pu-mermaid { display:flex; justify-content:center; align-items:flex-start; }
+              .meai-pu-mermaid svg { max-width:100%; height:auto; }
+              .meai-pu-mermaid-err { width:100%; color:var(--cp-text-muted); font-size:12px; margin-bottom:10px; }
               /* Outcome next-action buttons */
               .meai-pu-outcome-next { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
               .meai-pu-outcome-nexth { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; }
@@ -13663,6 +13674,9 @@
               .meai-pu-fold-leg { font-weight:700; font-size:13px; color:var(--cp-text); min-width:0; }
               .meai-pu-fold-oc { font-size:11px; color:var(--cp-text-muted); font-weight:600; text-transform:lowercase; margin-left:auto; flex:0 0 auto; }
               .meai-pu-fold-attr { font-size:11px; color:var(--cp-text-muted); font-weight:600; letter-spacing:.01em; margin-top:2px; }
+              .meai-pu-fold-agent { display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; }
+              .meai-pu-fold-sid { font-size:10px; font-weight:800; line-height:1; letter-spacing:.02em; color:var(--cp-accent); background:color-mix(in srgb,var(--cp-accent) 14%, transparent); border:1px solid color-mix(in srgb,var(--cp-accent) 32%, transparent); border-radius:calc(var(--cp-radius-scale,1)*6px); padding:2px 5px; }
+              .meai-pu-fold-rl { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); }
               .meai-pu-fold.is-click { cursor:pointer; transition:border-color .12s ease, background .12s ease; }
               .meai-pu-fold.is-click:hover { border-color:color-mix(in srgb,var(--cp-accent) 55%, var(--cp-border)); background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); }
               .meai-pu-fold-open { margin-top:8px; font-size:11.5px; font-weight:600; color:var(--cp-accent); opacity:0; transition:opacity .12s ease; }
@@ -15992,6 +16006,12 @@
                                     :title="ev.legRef ? 'See how this agent worked' : ''">
                                     <div class="meai-pu-fold-h">
                                       <span class="meai-pu-fold-ic" x-text="ev.icon || '✔'"></span>
+                                      <template x-if="meAiPursuitFoldAgent(ev)">
+                                        <span class="meai-pu-fold-agent">
+                                          <span class="meai-pu-fold-sid" x-show="meAiPursuitFoldAgent(ev).sid" x-text="meAiPursuitFoldAgent(ev).sid"></span>
+                                          <span class="meai-pu-fold-rl" x-text="meAiPursuitFoldAgent(ev).role"></span>
+                                        </span>
+                                      </template>
                                       <span class="meai-pu-fold-leg" x-text="ev.leg || 'A pursuit leg'"></span>
                                       <span class="meai-pu-fold-oc" x-text="meAiPursuitFoldOutcome(ev)"></span>
                                     </div>
@@ -16163,6 +16183,11 @@
                                 <div class="meai-dir-state on" @click="meAiDirectorSel('states', null)" role="button" tabindex="0" style="cursor:pointer">
                                   <div class="meai-dir-state-h" x-text="meAiDirectorStateBanner().h"></div>
                                   <div class="meai-dir-state-b" x-text="meAiDirectorStateBanner().b"></div>
+                                  <template x-if="meAiDirectorStateBanner().act === 'take-leadership'">
+                                    <div class="meai-dir-foot-acts" style="margin-top:8px">
+                                      <button type="button" class="btn primary" @click.stop="meAiDirectorTakeLeadership()" :disabled="meai.pursuit.director._claiming" x-text="meai.pursuit.director._claiming ? 'Taking over…' : 'Take leadership on this machine'"></button>
+                                    </div>
+                                  </template>
                                 </div>
                               </template>
 
@@ -16758,7 +16783,7 @@
                             </span>
                           </div>
                           <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
-                          <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meAiPursuitReport())" @click="meAiPursuitToggleArtRaw(meAiPursuitReport())" x-text="meAiPursuitArtRaw(meAiPursuitReport()) ? 'Rendered' : 'View source'"></button>
+                          <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meAiPursuitReport()) || meAiPursuitArtIsMermaid(meAiPursuitReport())" @click="meAiPursuitToggleArtRaw(meAiPursuitReport())" x-text="meAiPursuitArtRaw(meAiPursuitReport()) ? 'Rendered' : 'View source'"></button>
                         </div>
                         <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && !meAiPursuitArtRaw(meAiPursuitReport())">
                           <iframe class="meai-pu-report-frame" :srcdoc="(meAiPursuitReport()||{}).body||''" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
@@ -16766,7 +16791,13 @@
                         <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && meAiPursuitArtRaw(meAiPursuitReport())">
                           <pre class="meai-pu-report-src" x-text="(meAiPursuitReport()||{}).body||''"></pre>
                         </template>
-                        <div x-show="!meAiPursuitArtIsHtml(meAiPursuitReport())" class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
+                        <template x-if="meAiPursuitArtIsMermaid(meAiPursuitReport()) && !meAiPursuitArtRaw(meAiPursuitReport())">
+                          <div class="meai-pu-report-body meai-pu-mermaid" x-init="$nextTick(() => meAiRenderMermaid($el, (meAiPursuitReport()||{}).body||''))"></div>
+                        </template>
+                        <template x-if="meAiPursuitArtIsMermaid(meAiPursuitReport()) && meAiPursuitArtRaw(meAiPursuitReport())">
+                          <pre class="meai-pu-report-src" x-text="(meAiPursuitReport()||{}).body||''"></pre>
+                        </template>
+                        <div x-show="!meAiPursuitArtIsHtml(meAiPursuitReport()) && !meAiPursuitArtIsMermaid(meAiPursuitReport())" class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meAiPursuitReport())"></div>
                       </div>
                     </template>
 
@@ -16785,7 +16816,7 @@
                             </span>
                           </div>
                           <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
-                          <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meai.pursuit.artView)" @click="meAiPursuitToggleArtRaw(meai.pursuit.artView)" x-text="meAiPursuitArtRaw(meai.pursuit.artView) ? 'Rendered' : 'View source'"></button>
+                          <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meai.pursuit.artView) || meAiPursuitArtIsMermaid(meai.pursuit.artView)" @click="meAiPursuitToggleArtRaw(meai.pursuit.artView)" x-text="meAiPursuitArtRaw(meai.pursuit.artView) ? 'Rendered' : 'View source'"></button>
                           <button type="button" class="meai-pu-report-back" x-show="meai.pursuit.artView.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.artView.legId)">Show the leg →</button>
                         </div>
                         <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && !meAiPursuitArtRaw(meai.pursuit.artView)">
@@ -16794,7 +16825,13 @@
                         <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && meAiPursuitArtRaw(meai.pursuit.artView)">
                           <pre class="meai-pu-report-src" x-text="(meai.pursuit.artView||{}).body||''"></pre>
                         </template>
-                        <div x-show="!meAiPursuitArtIsHtml(meai.pursuit.artView)" class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
+                        <template x-if="meAiPursuitArtIsMermaid(meai.pursuit.artView) && !meAiPursuitArtRaw(meai.pursuit.artView)">
+                          <div class="meai-pu-report-body meai-pu-mermaid" x-init="$nextTick(() => meAiRenderMermaid($el, (meai.pursuit.artView||{}).body||''))"></div>
+                        </template>
+                        <template x-if="meAiPursuitArtIsMermaid(meai.pursuit.artView) && meAiPursuitArtRaw(meai.pursuit.artView)">
+                          <pre class="meai-pu-report-src" x-text="(meai.pursuit.artView||{}).body||''"></pre>
+                        </template>
+                        <div x-show="!meAiPursuitArtIsHtml(meai.pursuit.artView) && !meAiPursuitArtIsMermaid(meai.pursuit.artView)" class="meai-pu-report-body md-output" x-html="meAiPursuitArtMd(meai.pursuit.artView)"></div>
                       </div>
                     </template>
 
@@ -16892,9 +16929,10 @@
                       <!-- Floating zoom toolbar -->
                       <div class="meai-pu-zoom">
                         <button type="button" @click="meAiPursuitZoom('out')" title="Zoom out">−</button>
-                        <button type="button" @click="meAiPursuitZoom('reset')" title="Fit" x-text="Math.round(meai.pursuit.zoom*100)+'%'"></button>
+                        <button type="button" @click="meAiPursuitZoom('reset')" title="Fit the whole map in view" x-text="Math.round(meai.pursuit.zoom*100)+'%'"></button>
                         <button type="button" @click="meAiPursuitZoom('in')" title="Zoom in">＋</button>
-                        <button type="button" class="meai-pu-follow" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
+                        <button type="button" class="meai-pu-txtbtn" @click="meAiPursuitFit()" title="Fit the whole map in view">⤢ Fit</button>
+                        <button type="button" class="meai-pu-follow meai-pu-txtbtn" :class="{ on: meai.pursuit.follow }" @click="meai.pursuit.follow=!meai.pursuit.follow" title="Keep the newest work in view">Follow</button>
                       </div>
                       <!-- Control panel: live render stats + LOD toggles. Only while the
                            canvas LOD is active (zoomed out). Stats update per frame. -->
@@ -16976,10 +17014,16 @@
                         <div>Spinning up the pursuit… the map fills in as the agent forks legs.</div>
                       </div>
                       <div class="meai-pu-legend-map" x-show="(meai.pursuit._nodes||[]).length"
-                           @mouseenter="meai.pursuit.legendOpen=true" @mouseleave="meai.pursuit.legendOpen=false">
-                        <button type="button" class="meai-pu-legend-h" @click="meai.pursuit.legendOpen=!meai.pursuit.legendOpen">
-                          <span x-text="meai.pursuit.legendOpen ? '▾' : '▸'"></span> Legend
-                        </button>
+                           @mouseenter="meai.pursuit.legendOpen=true" @mouseleave="if(!meai.pursuit.legendLocked) meai.pursuit.legendOpen=false">
+                        <div class="meai-pu-legend-hbar">
+                          <button type="button" class="meai-pu-legend-h" @click="meai.pursuit.legendOpen=!meai.pursuit.legendOpen">
+                            <span x-text="meai.pursuit.legendOpen ? '▾' : '▸'"></span> Legend
+                          </button>
+                          <button type="button" class="meai-pu-legend-lock" :class="{ on: meai.pursuit.legendLocked }"
+                            @click.stop="meAiPursuitToggleLegendLock()"
+                            :title="meai.pursuit.legendLocked ? 'Legend pinned open — click to unpin' : 'Pin the legend open'"
+                            x-text="meai.pursuit.legendLocked ? '📌' : '📍'"></button>
+                        </div>
                         <div class="meai-pu-legend-body" x-show="meai.pursuit.legendOpen" x-transition.opacity>
                           <div class="meai-pu-legend-grp">
                             <div class="meai-pu-legend-cap">Connections</div>
@@ -28558,7 +28602,8 @@
             answering: null,             // stopId being answered inline
             zoom: 1, panX: 0, panY: 0,   // canvas transform
             follow: true,                // auto-recenter on latest
-            legendOpen: false,           // canvas legend visible
+            legendOpen: (() => { try { return localStorage.getItem('meai-pu-legend-lock') === '1'; } catch { return false; } })(),           // canvas legend visible
+            legendLocked: (() => { try { return localStorage.getItem('meai-pu-legend-lock') === '1'; } catch { return false; } })(), // legend pinned open (persisted)
             lodCluster: true,            // LOD: merge dense dots into count markers
             lodDim: false,               // LOD: fade settled work so live flow reads
             lodPulse: true,              // LOD: pulse running-work dots
@@ -28581,6 +28626,7 @@
             director: {
               loaded: false, busy: false, err: '',
               enabled: false, autonomy: 'balanced', paused: false, offline: false, leader: true,
+              leaderInfo: null, _claiming: false,
               grant: null, plan: null, ledger: [], lastSweepAt: null,
               sel: null, selKind: null,          // current detail selection
               showHandled: false, note: '',
@@ -41300,7 +41346,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const pick = (v, f) => { const s = (g.getPropertyValue(v) || '').trim(); return s || f; };
           return (this._meAiLodTok = {
             accent: pick('--cp-accent', '#7b8cff'), muted: pick('--cp-text-muted', '#8b949e'),
-            bg: pick('--cp-bg', '#0d1117'), done: '#3fb950', amber: '#d29922', dead: '#6e7681'
+            bg: pick('--cp-bg', '#0d1117'), done: '#2ea043', amber: '#d29922', dead: '#cf222e'
           });
         },
         _meAiLodState(n) {
@@ -41358,7 +41404,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const [a, b] of edges) {
             const [ax, ay] = scr(a), [bx, by] = scr(b);
             if ((ax < -60 && bx < -60) || (ax > VW + 60 && bx > VW + 60) || (ay < -60 && by < -60) || (ay > VH + 60 && by > VH + 60)) continue;
-            const live = this._meAiLodState(a) === 'run' || this._meAiLodState(b) === 'run';
+            const live = this._meAiLodState(b) === 'run';
             ctx.strokeStyle = live ? 'rgba(123,140,255,0.55)' : (doDim ? 'rgba(139,148,158,0.10)' : 'rgba(139,148,158,0.26)');
             const midy = (ay + by) / 2;
             ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, midy); ctx.lineTo(bx, midy); ctx.lineTo(bx, by); ctx.stroke();
@@ -41374,7 +41420,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
           ctx.fillStyle = 'rgba(123,140,255,0.95)';
           for (const [a, b] of edges) {
-            if (!(this._meAiLodState(a) === 'run' || this._meAiLodState(b) === 'run')) continue;
+            if (this._meAiLodState(b) !== 'run') continue;
             const [ax, ay] = scr(a), [bx, by] = scr(b);
             if ((ax < -60 && bx < -60) || (ax > VW + 60 && bx > VW + 60)) continue;
             const midy = (ay + by) / 2, pts = [[ax, ay], [ax, midy], [bx, midy], [bx, by]];
@@ -41427,6 +41473,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           for (const cl of clusters) {
             const col = colOf(cl.st), r = DOT / 2 + 3;
+            if (cl.st === 'run' && doPulse) {
+              const ph = (t * 0.9 + (cl.x + cl.y) * 0.011) % 1;
+              ctx.beginPath(); ctx.arc(cl.x, cl.y, r + ph * r * 2.2, 0, 7);
+              ctx.fillStyle = 'rgba(123,140,255,' + (0.34 * (1 - ph)).toFixed(3) + ')'; ctx.fill();
+            }
             ctx.beginPath(); ctx.arc(cl.x, cl.y, r + 2, 0, 7); ctx.fillStyle = tok.bg; ctx.fill();
             ctx.beginPath(); ctx.arc(cl.x, cl.y, r, 0, 7);
             ctx.fillStyle = 'color-mix(in srgb,' + col + ' 30%, ' + tok.bg + ')'; ctx.fill();
@@ -41626,6 +41677,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const leg = tree && tree.legs && ev && ev.legRef && tree.legs[ev.legRef];
           return leg ? this.meAiPursuitAttrFor(ev.legRef, leg) : '';
         },
+        // Compact agent identity for a fold header: a short-id badge (S1/L2) + a role
+        // word, so each rejoined message clearly names WHICH agent it came from.
+        meAiPursuitFoldAgent(ev) {
+          const tree = this.meai.pursuit.tree;
+          const leg = tree && tree.legs && ev && ev.legRef && tree.legs[ev.legRef];
+          if (!leg) return null;
+          if (leg.kind === 'user') return { sid: '', role: 'You' };
+          const isMain = leg.kind === 'spine' || leg.kind === 'reroute';
+          const map = (this.meai.pursuit && this.meai.pursuit._legShortId) || {};
+          let sid = (ev.legRef != null) ? (map[ev.legRef] || '') : '';
+          if (!sid && !isMain) { const d = this.meAiPursuitLegDepth(leg); sid = 'L' + d; }
+          return { sid, role: isMain ? 'Main agent' : 'Sub-agent' };
+        },
         // Interesting index (left panel): the vertices worth jumping to — merge-backs,
         // done results, dead-ends, and artifact-bearing legs.
         meAiPursuitInteresting() {
@@ -41760,6 +41824,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.hideThinking = !p.hideThinking;
           try { localStorage.setItem('meai-pu-hide-thinking', p.hideThinking ? '1' : '0'); } catch (e) {}
         },
+        // Pin the canvas legend open so it stops auto-collapsing on mouseleave (persisted).
+        meAiPursuitToggleLegendLock() {
+          const p = this.meai.pursuit;
+          p.legendLocked = !p.legendLocked;
+          if (p.legendLocked) p.legendOpen = true;
+          try { localStorage.setItem('meai-pu-legend-lock', p.legendLocked ? '1' : '0'); } catch (e) {}
+        },
         // Follow-up Q&A (Ask/Revise) after the pursuit concluded — rendered AFTER the
         // recommendation card so it reads as a conversation about a settled result.
         meAiPursuitConverseEvents() {
@@ -41842,6 +41913,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.format === 'html') return true;
           const b = String(a.body || '').trimStart().slice(0, 200).toLowerCase();
           return b.startsWith('<!doctype') || b.startsWith('<html') || /^<html[\s>]/.test(b);
+        },
+        // Extract Mermaid diagram source from an artifact body — handles a bare diagram
+        // (body opens with a directive) or a single ```mermaid fenced block. Returns the
+        // diagram code, or '' when the body isn't a Mermaid diagram.
+        _meAiMermaidCode(body) {
+          let b = String(body || '').replace(/\r\n?/g, '\n').trim();
+          if (!b) return '';
+          const fence = b.match(/^```(?:mermaid|mmd)\s*\n([\s\S]*?)\n?```$/i);
+          if (fence) b = fence[1].trim();
+          const directive = /^(?:%%\{[\s\S]*?\}%%\s*)?(graph\s+(?:TB|TD|BT|RL|LR)\b|flowchart\s+(?:TB|TD|BT|RL|LR)\b|sequenceDiagram\b|classDiagram\b|stateDiagram(?:-v2)?\b|erDiagram\b|gantt\b|pie\b|journey\b|gitGraph\b|mindmap\b|timeline\b|quadrantChart\b|xychart-beta\b)/;
+          return directive.test(b) ? b : '';
+        },
+        // Detect a Mermaid diagram artifact (explicit format:'mermaid', or a body that is a
+        // bare/fenced Mermaid diagram) so we can render it as a picture, not raw source.
+        meAiPursuitArtIsMermaid(a) {
+          if (!a) return false;
+          if (this.meAiPursuitArtIsHtml(a)) return false;
+          if (a.format === 'mermaid') return true;
+          return !!this._meAiMermaidCode(a.body);
+        },
+        // Render Mermaid source into `el` as SVG (async). Falls back to showing the source
+        // in a <pre> with a note if the library is missing or the diagram fails to parse.
+        async meAiRenderMermaid(el, body) {
+          if (!el) return;
+          const code = this._meAiMermaidCode(body) || String(body || '').replace(/\r\n?/g, '\n').trim();
+          const showSource = (msg) => {
+            el.innerHTML = '';
+            if (msg) { const n = document.createElement('div'); n.className = 'meai-pu-mermaid-err'; n.textContent = msg; el.appendChild(n); }
+            const pre = document.createElement('pre'); pre.className = 'meai-pu-report-src'; pre.textContent = code; el.appendChild(pre);
+          };
+          try {
+            if (typeof mermaid === 'undefined') { showSource('Diagram renderer is unavailable — showing source.'); return; }
+            const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+            try { mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'loose' }); } catch (e) {}
+            const id = 'mmd-' + Math.random().toString(36).slice(2);
+            const out = await mermaid.render(id, code);
+            el.innerHTML = (out && out.svg) || '';
+          } catch (e) {
+            showSource('Could not render this diagram — showing its source.');
+          }
         },
         meAiPursuitArtRaw(a) {
           const k = (a && (a.id || a.title)) || '';
@@ -42329,6 +42440,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             d.paused = !!r.paused;
             d.offline = !!r.offline;
             d.leader = (r.leader !== false);
+            // When another synced instance holds leadership, find out WHICH host and since
+            // when, so the read-only banner can name it (not a mystery "another instance")
+            // and offer a one-click claim.
+            if (!d.leader) { this.meAiDirectorLoadLeaderInfo(); } else { d.leaderInfo = null; }
             d.grant = r.grant || null;
             d.plan = r.plan || null;
             d.reasonedAt = r.reasonedAt || null;
@@ -42357,7 +42472,51 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) { d.err = e.message || String(e); }
           finally { d.busy = false; }
         },
-        // Run (or refresh) the model's judgement pass, then re-apply the reduced view so
+        // Fetch which synced instance currently holds leadership (host + since when) so the
+        // read-only banner can name it. Best-effort; failure just leaves the generic text.
+        async meAiDirectorLoadLeaderInfo() {
+          const d = this.meai.pursuit.director;
+          try {
+            const s = await this.request('/api/sync/status');
+            const li = s && s.leaderInfo;
+            d.leaderInfo = {
+              hostname: (li && li.hostname) || null,
+              machineId: (li && li.machineId) || null,
+              since: (li && li.startedAt) || null,
+              lastHeartbeat: (li && li.lastHeartbeat) || null,
+              selfMachineId: (s && s.machineId) || null,
+              selfHostname: (s && s.hostname) || null,
+            };
+          } catch (e) { /* keep generic banner */ }
+        },
+        // Human sentence naming the leader host, e.g. "DESKTOP-ABC has been the leader since
+        // 3:40 PM". Falls back to a generic line when the leader blob couldn't be read.
+        meAiDirectorLeaderWho() {
+          const li = this.meai.pursuit.director.leaderInfo;
+          if (!li) return 'Another synced instance is the leader and performs absorption. Here the Director is read-only.';
+          const host = li.hostname || (li.machineId ? li.machineId.slice(0, 8) : 'another machine');
+          let when = '';
+          if (li.since) { const t = new Date(li.since); if (!isNaN(t)) when = ' since ' + t.toLocaleString(); }
+          else if (li.lastHeartbeat) { const t = new Date(li.lastHeartbeat); if (!isNaN(t)) when = ' (last active ' + t.toLocaleString() + ')'; }
+          return host + ' currently holds leadership' + when + ' and performs absorption. This machine (' + (li.selfHostname || 'here') + ') is read-only until it takes over.';
+        },
+        // Claim leadership for THIS instance (breaks the current lease, bumps the epoch) so
+        // the Director can absorb here. Then reload the pursuit so the banner clears.
+        async meAiDirectorTakeLeadership() {
+          const d = this.meai.pursuit.director;
+          if (d._claiming) return;
+          d._claiming = true; d.err = '';
+          try {
+            const r = await this.request('/api/sync/force-leader', { method: 'POST' });
+            if (r && r.error) throw new Error(r.error);
+            this.showToast('Director', '🗝 This machine is now the leader — absorption runs here.', 'success');
+            d.leader = true; d.leaderInfo = null;
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) {
+            d.err = 'Could not take leadership: ' + (e.message || String(e));
+            this.showToast('Director', d.err, 'error');
+          } finally { d._claiming = false; }
+        },
         // the desk reflects verb-based risk + real Director commentary + cross-node insights.
         async meAiPursuitDirectorReason(force) {
           const p = this.meai.pursuit; if (!p.tid) return;
@@ -42780,7 +42939,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorStateBanner() {
           const d = this.meai.pursuit.director; if (!d.enabled) return null;
           if (d.offline) return { h: 'Director is offline / stale', b: 'It can’t reach the pursuit right now, so nothing is auto-applied. You’re seeing the raw stops.' };
-          if (!d.leader) return { h: 'Running on another instance', b: 'Another synced instance is the leader and performs absorption. Here the Director is read-only.' };
+          if (!d.leader) return { h: 'Running on another instance', b: this.meAiDirectorLeaderWho(), act: 'take-leadership' };
           if (d.paused) return { h: 'Director is paused', b: 'Nothing is auto-applied while paused. Resume it to let it absorb safe stops again.' };
           if (!(d.grant && d.grant.id)) return { h: 'No standing grant', b: 'The Director is on but has no scope, so it plans without absorbing. Grant it a scope to reduce your desk.' };
           const st = d.plan && d.plan.state;
@@ -57913,6 +58072,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         renderMarkdown(src) {
           src = src == null ? '' : String(src);
+          src = src.replace(/\r\n?/g, '\n');   // normalize CRLF/CR so $-anchored table/hr rules match
           // Lightweight markdown → HTML renderer
           const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const lines = src.split('\n');
