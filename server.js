@@ -23834,6 +23834,7 @@ async function _meAiDirectorReason(id, opts) {
 //    fix legs whose commits it can't land.
 const _MEAI_PR_AUTOFIX = process.env.MEAI_PR_AUTOFIX === '1';
 const _meAiPrTickInflight = new Set(); // pursuitId — guards the async observe pass
+const _meAiPrIntegrateInflight = new Set(); // pursuitId — per-PR integrator lease (one serialized push)
 
 // Compact REQUIRED-check classifier — mirrors _enrichCodeflowPr's required/optional
 // split without its heavy enrichment. Required = a blocking build gate, a blocking
@@ -23908,7 +23909,7 @@ async function _meAiDirectorBindPr(t, sel, boundBy) {
   const headRef = pr.headRef || pr.sourceBranch || '';
   const rec = {
     provider, org, project, repo, prId,
-    headRef, headSha: pr.headSha || '', headRepoFullName: pr.headRepoFullName || '', isCrossRepo: !!pr.isCrossRepo,
+    headRef, targetBranch: pr.targetBranch || pr.baseRef || '', headSha: pr.headSha || '', headRepoFullName: pr.headRepoFullName || '', isCrossRepo: !!pr.isCrossRepo,
     prTitle: pr.title || '', webUrl: pr.webUrl || pr.url || '',
     ownership: { boundBy: boundBy || 'user', boundAt: new Date(now).toISOString(), headRef, headRepoFullName: pr.headRepoFullName || '' },
     attemptsBySha: {}, totalAttempts: 0, pollCount: 0,
@@ -23939,7 +23940,114 @@ function _meAiDirectorPrSummary(tree) {
   };
 }
 
-// The shepherd tick: one leader+grant-gated pass over the bound PR. Observes
+// Ensure a local codeflow worktree checked out to the PR's source branch exists
+// and is synced to the current tip, so a fix leg can edit + commit ON the PR
+// branch. Reuses the codeflow worktree record for this PR if one is ready
+// (force-syncing it to the tip — a review worktree carries no local work to
+// keep); otherwise creates one. Returns { key, dir, sourceBranch } or null.
+async function _meAiDirEnsurePrWorktree(rec) {
+  const o = { org: rec.org, project: rec.project, repo: rec.repo, prId: rec.prId, provider: rec.provider };
+  const src = String(rec.headRef || '').replace(/^refs\/heads\//, '').trim();
+  if (!src) return null;
+  const key = _cfWtKey(o);
+  const cfrec = _getCfWt(key);
+  const haveWt = !!(cfrec && cfrec.worktreeStatus === 'ready' && cfrec.worktreePath && fs.existsSync(cfrec.worktreePath));
+  if (haveWt) {
+    const dir = _cfUsableDir(cfrec);
+    try { devitems.syncToPrBranch(dir, { sourceBranch: src, force: true, desc: _devDesc(o) }); } catch (_) {}
+    return { key, dir, sourceBranch: src };
+  }
+  const devId = _cfWtDevId(o);
+  _saveCfWt(key, { org: o.org, project: o.project, repo: o.repo, prId: o.prId, provider: o.provider || 'azdo', sourceBranch: src, targetBranch: rec.targetBranch || '', worktreeStatus: 'creating', error: null, worktreeStartedAt: new Date().toISOString() });
+  try {
+    const r = await devitems.createWorktreeAsync({ org: o.org, project: o.project, repo: o.repo, provider: o.provider, baseBranch: rec.targetBranch || '', branch: src, devId, detach: true });
+    const saved = _saveCfWt(key, { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', error: null, git: r.git || null });
+    return { key, dir: _cfUsableDir(saved), sourceBranch: src };
+  } catch (e) {
+    _saveCfWt(key, { worktreeStatus: 'error', error: (e && e.message) || 'Worktree failed' });
+    return null;
+  }
+}
+
+// The serialized fix integrator. When a fix leg has finished, this is the ONLY
+// path that lands its work on the PR — under a per-PR lease, via the hardened
+// compare-and-swap push (fast-forward only, diff validated against grant paths,
+// re-checking leader + ownership immediately before the push). Concurrent fix
+// legs therefore produce candidate commits in the worktree; exactly one push
+// happens here. Returns { handled, action, merge } — handled=false means the leg
+// is not yet done (caller keeps polling).
+async function _meAiDirectorIntegrateFix(t, rec, grant, obs) {
+  const id = t.id;
+  if (!rec.fixLegId) return { handled: false };
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const leg = (tree.legs || {})[rec.fixLegId];
+  // Leg vanished (folded away) — drop the reference so we re-plan.
+  if (!leg) return { handled: true, action: 'fix-lost', merge: { fixLegId: null, fixLegSha: null, nextPollAt: new Date(Date.now() + 60000).toISOString() } };
+  const status = leg.status || '';
+  if (status === 'planned' || status === 'running' || status === 'needs-auth' || status === 'needs-info' || status === 'needs-decision') {
+    return { handled: false };   // still working — caller polls
+  }
+  const now = Date.now();
+  // The leg errored / dead-ended: this attempt produced nothing landable. The
+  // attempt was already counted at spawn; clear the ref so planPrShepherd can
+  // spawn again (if under bounds) or give up.
+  if (status === 'error' || status === 'invalidated') {
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+      verb: 'pr-fix-failed', cls: 'pr', target: rec.repo + '#' + rec.prId,
+      why: 'The fix leg errored or dead-ended without a landable change.', state: 'logged', reversible: false,
+    }) });
+    return { handled: true, action: 'fix-failed', merge: { fixLegId: null, fixLegSha: null, nextPollAt: new Date(now + Math.min(director._internal._prBackoffMs(rec.pollCount | 0), 300000)).toISOString() } };
+  }
+  // status === 'done' → integrate under the per-PR lease.
+  if (_meAiPrIntegrateInflight.has(id)) return { handled: false };
+  _meAiPrIntegrateInflight.add(id);
+  try {
+    // Re-check leader + ownership right before we touch the remote.
+    if (!_meAiDirectorLeaderOk() || !obs || !obs.ownershipOk) {
+      return { handled: true, action: 'integrate-deferred', merge: { nextPollAt: new Date(now + 120000).toISOString() } };
+    }
+    const wt = _getCfWt(_cfWtKey({ org: rec.org, project: rec.project, repo: rec.repo, prId: rec.prId, provider: rec.provider }));
+    const dir = wt && wt.worktreePath && fs.existsSync(wt.worktreePath) ? _cfUsableDir(wt) : null;
+    if (!dir) {
+      // No worktree to push from — treat as a failed attempt, re-plan.
+      return { handled: true, action: 'no-worktree', merge: { fixLegId: null, fixLegSha: null, nextPollAt: new Date(now + 120000).toISOString() } };
+    }
+    // Commit any changes the leg staged/left, so the pushed HEAD is deterministic.
+    try {
+      if (devitems.worktreeChanges(dir).dirty) devitems.commitAll(dir, { message: 'Director CI fix · ' + rec.repo + '#' + rec.prId });
+    } catch (_) {}
+    const paths = (grant && grant.paths) || ['/'];
+    const push = devitems.pushPrBranchSafe(dir, {
+      sourceBranch: rec.headRef,
+      expectedOldSha: rec.fixLegSha || rec.headSha || null,
+      isCovered: (p) => director._internal._pathCovered(p, paths),
+      desc: _devDesc({ provider: rec.provider, org: rec.org, project: rec.project, repo: rec.repo }),
+    });
+    if (push && push.ok) {
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+        verb: 'pr-fixed', cls: 'pr', target: rec.repo + '#' + rec.prId,
+        why: 'Fast-forward pushed the fix commit (' + (push.newHead || '').slice(0, 10) + ') to the PR — re-monitoring its checks.',
+        state: 'applied', reversible: false, grantId: grant && grant.id, policyVersion: grant && grant.policyVersion,
+      }) });
+      // Clear the fix ref + poll soon; the next observe sees the new head → epoch
+      // reset → attempts restart for the new SHA.
+      return { handled: true, action: 'fix-pushed', merge: { fixLegId: null, fixLegSha: null, headSha: push.newHead || rec.headSha, nextPollAt: new Date(now + 45000).toISOString(), needsUser: false, deskAsk: null } };
+    }
+    // Push refused (branch moved, non-ff, path outside grant, dirty, etc.). This is
+    // safe (nothing landed) — log it and re-plan; don't silently retry-storm.
+    const reason = (push && push.reason) || 'push-failed';
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+      verb: 'pr-fix-failed', cls: 'pr', target: rec.repo + '#' + rec.prId,
+      why: 'Could not land the fix (' + reason + (push && push.rejectedPaths ? ': ' + push.rejectedPaths.join(', ') : '') + ').',
+      state: 'logged', reversible: false,
+    }) });
+    return { handled: true, action: 'integrate-failed', merge: { fixLegId: null, fixLegSha: null, nextPollAt: new Date(now + Math.min(director._internal._prBackoffMs(rec.pollCount | 0), 300000)).toISOString() } };
+  } finally {
+    _meAiPrIntegrateInflight.delete(id);
+  }
+}
+
+
 // (read-only), asks director.planPrShepherd for the next move, and applies it —
 // poll (backoff), spawn-fix (flag-gated), or give up (comment + mark stuck + desk
 // abandon). Idempotent + in-flight guarded; re-checks leader/grant before writes.
@@ -23964,6 +24072,17 @@ async function _meAiDirectorPrTick(t) {
     const obs = await _meAiDirectorObservePr(rec0); // READ-ONLY — no mutation past here until re-checks
     if (!obs) return { skipped: 'observe-failed' };
     const now = Date.now();
+    // If a fix leg is in flight, try to integrate its result FIRST (its push moves
+    // the head → next observe epoch-resets). While it's still running, fall through
+    // to planPrShepherd, which returns 'fixing'/none and we simply poll.
+    if (rec0.fixLegId) {
+      const integ = await _meAiDirectorIntegrateFix(t, rec0, grant, obs);
+      if (integ && integ.handled) {
+        const m = Object.assign({ _forcePoll: false, lastObs: { at: new Date(now).toISOString(), state: 'fixing', failing: obs.required.failed || [], pending: obs.required.pending || [], passed: obs.required.passed || [] } }, integ.merge || {});
+        _meAiTreeEmit(id, 'director', { op: 'pr', pr: m });
+        return { ok: true, action: integ.action, integrated: true };
+      }
+    }
     const disp = director.planPrShepherd(rec0, obs, { now, grant });
     const merge = {
       headRef: obs.headRef || rec0.headRef, ownershipOk: obs.ownershipOk, prState: obs.prState,
@@ -24013,16 +24132,28 @@ async function _meAiDirectorPrTick(t) {
       }
     } else if (disp.action === 'spawn-fix') {
       if (_MEAI_PR_AUTOFIX) {
-        // Auto-repair path (flag-gated). Spawn a bounded fix leg that stages a
-        // CANDIDATE commit; a serialized integrator fast-forward pushes it. NOTE:
-        // the hardened push primitive + integrator land in the next pass — until
-        // then this branch is unreachable by default.
-        const r = _meAiDirectorSpawn(t, { goal: disp.fixGoal, title: 'Fix failing PR checks · ' + rec0.repo + '#' + rec0.prId, run: true, why: 'PR checks failing — Director dispatched a bounded fix leg.' });
-        if (r && r.ok) {
-          merge.fixLegId = r.legId; merge.fixLegSha = sha;
-          const abs = Object.assign({}, rec0.attemptsBySha || {}); abs[sha] = disp.attemptsForSha || ((abs[sha] | 0) + 1);
-          merge.attemptsBySha = abs; merge.totalAttempts = (rec0.totalAttempts | 0) + 1;
-          merge.nextPollAt = new Date(now + 120000).toISOString();
+        // Auto-repair path (flag-gated). Ensure a worktree checked out to the PR
+        // branch exists, spawn a bounded fix leg that runs IN that worktree and
+        // stages a CANDIDATE commit; the serialized integrator fast-forward pushes
+        // it on a later tick. If we can't get a worktree, fall to the desk instead
+        // of spinning a leg whose commit we can't land.
+        const wt = await _meAiDirEnsurePrWorktree(rec0);
+        if (!wt || !wt.dir) {
+          merge.needsUser = true;
+          merge.deskAsk = { kind: 'pr-checks-failing', why: 'Could not prepare a worktree to repair the PR — ' + disp.reason, failing: obs.required.failed || [] };
+          merge.nextPollAt = new Date(now + 300000).toISOString();
+        } else {
+          const r = _meAiDirectorSpawn(t, { goal: disp.fixGoal, title: 'Fix failing PR checks · ' + rec0.repo + '#' + rec0.prId, run: true, cwd: wt.dir, why: 'PR checks failing — Director dispatched a bounded fix leg on the PR branch.' });
+          if (r && r.ok) {
+            merge.fixLegId = r.legId; merge.fixLegSha = sha; merge.fixWtKey = wt.key;
+            const abs = Object.assign({}, rec0.attemptsBySha || {}); abs[sha] = disp.attemptsForSha || ((abs[sha] | 0) + 1);
+            merge.attemptsBySha = abs; merge.totalAttempts = (rec0.totalAttempts | 0) + 1;
+            merge.nextPollAt = new Date(now + 120000).toISOString();
+          } else {
+            merge.needsUser = true;
+            merge.deskAsk = { kind: 'pr-checks-failing', why: disp.reason, failing: obs.required.failed || [] };
+            merge.nextPollAt = new Date(now + 300000).toISOString();
+          }
         }
       } else {
         // Auto-fix disabled — surface the failing PR honestly on the desk rather
@@ -24223,6 +24354,7 @@ function _meAiDirectorSpawn(t, o) {
   const leg = _meAiNewLeg({ kind: 'director-spawn', parentId: spineId, lane: 'spine', baseEpoch: curEpoch, status: 'planned', title, goal, sessionId: _meAiUuid() });
   leg.directorSpawn = true;         // provenance for the canvas/ledger
   leg.depth = 1; leg.maxDepth = 1;  // bounded: it may not spin off further agents
+  if (o.cwd) leg._cwd = o.cwd;      // run this leg IN a specific worktree (PR self-heal)
   leg.budget = (o.budget != null ? o.budget : 1);
   leg.fromStopId = o.fromStopId || null;   // the gap it was drafted to close
   _meAiTreeEmit(id, 'leg_spawn', { leg });
@@ -24238,7 +24370,11 @@ function _meAiDirectorSpawn(t, o) {
   if (!_meAiDirectorLeaderOk()) return { ok: true, legId: leg.id, status: 'drafted', note: 'not-leader' };
   _meAiSchedule(async () => {
     try {
-      await _meAiRunLeg(t, leg);
+      // If a cwd was supplied (PR self-heal), run against a task clone whose
+      // context.cwd points at the PR worktree — localized, so the pursuit's shared
+      // context is untouched.
+      const tRun = o.cwd ? Object.assign({}, t, { context: Object.assign({}, t.context, { cwd: o.cwd }) }) : t;
+      await _meAiRunLeg(tRun, leg);
       const rt = meAiTrees.get(id) || _meAiFoldJournal(id);
       const fresh = (rt.legs || {})[leg.id] || leg;
       // Converge-or-escalate: a failed / dead-ended sub-agent surfaces the original

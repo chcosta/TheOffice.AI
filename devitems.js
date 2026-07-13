@@ -796,6 +796,85 @@ function pushPrBranch(wt, { sourceBranch, message, desc = null } = {}) {
   };
 }
 
+// ── Hardened self-push (Director PR shepherd) ──────────────────────────────
+// Advance a PR's OWN head ref by a compare-and-swap fast-forward, with every
+// guard the shepherd needs to touch a PR safely and unattended:
+//   • CAS: the remote ref must EXACTLY equal `expectedOldSha` at push time
+//     (--force-with-lease=<ref>:<oldSha>) — a branch that moved is rejected, not
+//     clobbered.
+//   • Fast-forward ONLY: local HEAD must descend from the remote head
+//     (merge-base --is-ancestor) — history is advanced, never rewritten.
+//   • Exact refspec HEAD:refs/heads/<src>; no tags, no deletes, no wildcards.
+//   • The branch name is validated (no refs/, no '..', no leading '-', no ctl).
+//   • Every changed path (remoteHead..HEAD) must be covered by the caller's grant
+//     via isCovered() — a diff that strays outside the grant is refused.
+//   • The tree must be clean of committable changes (the caller commits first),
+//     so exactly the committed HEAD is what lands.
+// It performs NO commit and NO merge — purely the push. Returns a rich result;
+// never throws.
+function _safeBranchName(src) {
+  if (!src || typeof src !== 'string') return false;
+  if (src.length > 255) return false;
+  if (/^refs\//i.test(src)) return false;
+  if (src.startsWith('-') || src.startsWith('/') || src.endsWith('/')) return false;
+  if (src.includes('..') || src.includes('//')) return false;
+  if (/[\s~^:?*\[\\\x00-\x1f]/.test(src)) return false;   // git ref-format illegals + whitespace/control
+  if (/@\{/.test(src) || src === '@') return false;
+  return /^[\w][\w.\-\/]*$/.test(src);
+}
+function pushPrBranchSafe(wt, { sourceBranch, expectedOldSha, isCovered = null, desc = null } = {}) {
+  const fail = (reason, extra) => Object.assign({ ok: false, pushed: false, reason }, extra || {});
+  if (!wt || !_isRepo(wt)) return fail('no-worktree');
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!_safeBranchName(src)) return fail('bad-branch-name', { branch: src });
+
+  const localHead = _gitTry(['rev-parse', 'HEAD'], wt).out.trim();
+  if (!/^[0-9a-f]{40}$/i.test(localHead)) return fail('no-local-head');
+
+  // Committable tree must be clean — the caller stages+commits before pushing so
+  // the pushed content is exactly this HEAD (ignorable agent reports don't count).
+  if (worktreeChanges(wt).dirty) return fail('dirty-tree');
+
+  // Truth from the server, not a stale tracking ref.
+  const f = _gitTry(['fetch', '--prune', 'origin', src], wt, { auth: desc || true });
+  if (!f.ok) return fail('fetch-failed', { detail: f.err.split('\n').slice(-2).join(' ').slice(0, 300) });
+  const remoteHead = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/' + src], wt).out.trim();
+  if (!/^[0-9a-f]{40}$/i.test(remoteHead)) return fail('remote-branch-missing', { branch: src });
+
+  // Compare-and-swap precondition: the branch must not have moved since we observed it.
+  if (expectedOldSha && String(expectedOldSha).toLowerCase() !== remoteHead.toLowerCase()) {
+    return fail('remote-moved', { expectedOldSha, remoteHead });
+  }
+  if (localHead.toLowerCase() === remoteHead.toLowerCase()) return fail('no-change', { remoteHead });
+
+  // Fast-forward only — local HEAD must be a descendant of the remote head.
+  const anc = _gitTry(['merge-base', '--is-ancestor', remoteHead, 'HEAD'], wt);
+  if (!anc.ok) return fail('not-fast-forward', { remoteHead, localHead });
+
+  // Diff must stay inside the grant. Every changed path is checked; a single
+  // stray path aborts the whole push.
+  const diff = _gitTry(['diff', '--name-only', remoteHead + '..HEAD'], wt);
+  if (!diff.ok) return fail('diff-failed', { detail: diff.err.slice(0, 200) });
+  const changed = diff.out.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!changed.length) return fail('no-diff');   // shouldn't happen given the SHAs differ, but be defensive
+  if (typeof isCovered === 'function') {
+    const rejected = changed.filter(p => !isCovered(p));
+    if (rejected.length) return fail('path-outside-grant', { rejectedPaths: rejected.slice(0, 20), changed: changed.length });
+  }
+
+  // The push: exact refspec, CAS lease on the observed remote head, no force, no tags.
+  const res = _gitTry([
+    'push',
+    '--force-with-lease=refs/heads/' + src + ':' + remoteHead,
+    'origin', 'HEAD:refs/heads/' + src,
+  ], wt, { auth: desc || true });
+  if (!res.ok) {
+    const stale = /stale info|force-with-lease|non-fast-forward|fetch first|rejected/i.test(res.err);
+    return fail(stale ? 'push-rejected-moved' : 'push-failed', { detail: res.err.split('\n').slice(-2).join(' ').slice(0, 300) });
+  }
+  return { ok: true, pushed: true, reason: 'pushed', branch: src, oldHead: remoteHead, newHead: localHead, changed: changed.length };
+}
+
 // Bring the worktree in line with the PR's source branch tip on origin by a hard
 // reset. Intended for read-only review worktrees (no local work to preserve).
 // Refuses when the local checkout has its own unpushed commits or uncommitted
@@ -1554,6 +1633,7 @@ module.exports = {
   commitAll,
   prDrift,
   pushPrBranch,
+  pushPrBranchSafe,
   syncToPrBranch,
   updateFromTargetBranch,
   pullPrBranch,
