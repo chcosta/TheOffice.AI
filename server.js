@@ -20554,6 +20554,12 @@ function _meAiFoldJournal(id) {
           if (e) { e.state = 'undone'; e.undoneAt = r.at; }
         } else if (r.op === 'sweep') {
           state.director.lastSweepAt = r.at; if (r.grantId) state.director.grantId = r.grantId;
+        } else if (r.op === 'say') {
+          // The Director's authoritative running commentary in the main chat. We keep the
+          // LATEST word on the director state (durable, follower-visible) so the console can
+          // headline it even before the flat transcript loads; every note also lives in the
+          // flat spine transcript (kind:'director_note') for the in-thread record.
+          state.director.lastSay = { text: r.text || '', trigger: r.trigger || null, at: r.at || null };
         } else if (r.op === 'pr') {
           // Durable PR-shepherd record. `pr:null` unbinds (stop shepherding); a partial
           // object merges (headSha/attemptsBySha/state/pollCount/stuck/fixLeg…). Ownership
@@ -22832,6 +22838,7 @@ async function _meAiRunDelivery(t, stop) {
   try { _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings }); } catch (_) {}
   _meAiTreeEmit(id, 'stage', { stage: 'awaiting' });
   _meAiSetStage(t, 'awaiting', 'awaiting');
+  _meAiDirectorNarrateConcl(t);
 }
 
 // report" — that header was hardcoded regardless of what the pursuit was doing.
@@ -23093,6 +23100,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   try { _meAiDirectorSweep(t); } catch (e) { try { console.error('[director] sweep failed:', e && e.message); } catch (_) {} }
 
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
+  _meAiDirectorNarrateConcl(t);
 
   // Exhausted the avenues on an autonomous pass → the goal is as met as it's going
   // to get. Conclude cleanly rather than loop or park with an empty ask.
@@ -23546,6 +23554,7 @@ function _meAiReconcileAsks(t, tree) {
       }
     }
     try { _meAiEmit(t, { kind: 'report', summary: (t.report && t.report.summary) || '', findings: (t.report && t.report.findings) || [] }); } catch (_) {}
+    _meAiDirectorNarrateConcl(t);
   } catch (_) { /* best-effort */ }
 }
 
@@ -23811,7 +23820,151 @@ async function _meAiDirectorReason(id, opts) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Director PR shepherding — self-healing CI on a PR the pursuit OWNS.
+// Director chat narration — the Director is the AUTHORITATIVE voice in the main
+// pursuit chat.
+//
+// Today the Chief of Staff (the spine leg) posts the final "report" as if it were
+// the authoritative conclusion — but the spine has no awareness of the parallel
+// legs, so its word is often confusing (it doesn't know what merged, what died,
+// what's still running, or what still needs the human). The Director DOES have
+// that cross-cutting view. So when directing is enabled it synthesizes the tree
+// state into short first-person commentary posted into the main chat; the
+// Chief of Staff is demoted (in the UI) to just-another status update.
+//
+// Gated: Director enabled (opt-in, default OFF) + leader for the AI generation.
+// When disabled, nothing is posted and the existing Chief-of-Staff conclusion
+// stands (no regression). De-duped by brief signature so it is never chatty; it
+// fires only at meaningful cadence points (conclusion, post-sweep), never per
+// leg event. Persisted to BOTH the flat spine transcript (kind:'director_note',
+// the in-thread record) and the tree director state (lastSay, follower-visible).
+// ═══════════════════════════════════════════════════════════════════════════
+function _meAiDirectorNarrateBrief(tree, plan) {
+  const legs = Object.values((tree && tree.legs) || {});
+  const now = Date.now();
+  const LONG_MS = 8 * 60 * 1000;
+  const grp = { running: [], merged: [], dead: [], blocked: [], long: [] };
+  for (const l of legs) {
+    if (!l || l.kind === 'spine') continue;
+    const st = String(l.status || '');
+    const label = String(l.title || l.goal || l.id || 'leg').slice(0, 80);
+    if (l.invalidated || st === 'invalidated' || st === 'cancelled' || st === 'error') grp.dead.push(label);
+    else if (l.merged || l.kind === 'reroute' || st === 'done') grp.merged.push(label);
+    else if (st === 'blocked' || st === 'needs-auth' || st === 'needs-info' || st === 'needs-decision') grp.blocked.push(label);
+    else if (st === 'running' || st === 'planned' || st === 'merging') {
+      grp.running.push(label);
+      const started = Date.parse(l.createdAt || '') || 0;
+      if (started && (now - started) > LONG_MS) grp.long.push(label);
+    }
+  }
+  const openStops = (tree.stops || []).filter(s => s.status === 'open').length;
+  const rec = (plan && plan.reconciliation) || null;
+  const t = meAiTasks.get(tree.id) || {};
+  return {
+    goal: String(tree.question || (t && (t.goal || t.title)) || '').slice(0, 300),
+    stage: tree.stage || '',
+    running: grp.running.slice(0, 12),
+    merged: grp.merged.slice(0, 12),
+    dead: grp.dead.slice(0, 12),
+    blocked: grp.blocked.slice(0, 12),
+    long: grp.long.slice(0, 8),
+    openStops,
+    deskStops: rec ? (rec.deskStops || 0) : openStops,
+    deskItems: plan ? (plan.deskItems || []).length : 0,
+    handled: rec ? (rec.handled || 0) : 0,
+    conclusion: (t && t.report && t.report.summary) ? String(t.report.summary).slice(0, 400) : null,
+    pr: (tree.director && tree.director.pr) ? { state: tree.director.pr.state || null, stuck: !!tree.director.pr.stuck } : null,
+  };
+}
+function _meAiDirectorNarrateSig(brief, trigger) {
+  try {
+    return JSON.stringify([
+      trigger || '', brief.stage, brief.running, brief.merged, brief.dead, brief.blocked,
+      brief.openStops, brief.deskStops, brief.handled, brief.conclusion ? 1 : 0, brief.pr && brief.pr.state, brief.pr && brief.pr.stuck,
+    ]);
+  } catch (_) { return 'sig-' + Math.random(); }
+}
+function _meAiDirectorNarratePrompt(brief, trigger) {
+  return [
+    'You are the DIRECTOR of a multi-agent "pursuit": several AI legs working in parallel toward one goal.',
+    'Unlike any individual leg, you can see the WHOLE tree. Write a SHORT, authoritative first-person status note for the human — a calm senior-operator voice.',
+    'Hard rules: 2–4 sentences. No preamble, no greeting, no headings, no bullet lists, no markdown. State only what is true from the STATE below. Do not invent detail. Do not restate the goal verbatim. Never use pill/badge phrasing.',
+    'Cover what matters right now: what is in progress, what merged back, what became a dead path, what is running long, and — most importantly — what (if anything) actually needs the human. If nothing needs them, say so plainly and confidently.',
+    trigger === 'conclusion'
+      ? 'This is your CLOSING word on the pursuit: be conclusive about where it landed and name the single most important next thing.'
+      : 'This is a mid-pursuit update: keep it to what has changed since — brief.',
+    '',
+    'STATE (JSON):',
+    JSON.stringify(brief),
+  ].join('\n');
+}
+function _meAiDirectorNarrateFallback(brief) {
+  const bits = [];
+  if (brief.running.length) bits.push(brief.running.length + ' leg' + (brief.running.length === 1 ? '' : 's') + ' still working');
+  if (brief.merged.length) bits.push(brief.merged.length + ' merged back');
+  if (brief.dead.length) bits.push(brief.dead.length + ' dead-ended');
+  let s = bits.length ? (bits.join(', ') + '. ') : '';
+  if (brief.deskStops > 0) {
+    s += brief.deskStops + ' thing' + (brief.deskStops === 1 ? '' : 's') + ' still need' + (brief.deskStops === 1 ? 's' : '') + ' your approval'
+      + (brief.deskItems ? (', grouped into ' + brief.deskItems + ' item' + (brief.deskItems === 1 ? '' : 's')) : '') + '.';
+  } else if (brief.handled) {
+    s += 'I handled ' + brief.handled + ' automatically — nothing needs you right now.';
+  } else {
+    s += 'Nothing needs you right now.';
+  }
+  return s.trim();
+}
+async function _meAiDirectorNarrate(t, opts) {
+  opts = opts || {};
+  if (!t || !t.id) return { skipped: 'no-task' };
+  const id = t.id;
+  let d = {};
+  try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
+  if (!d.enabled) return { skipped: 'disabled' };
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  if (!tree) return { skipped: 'no-tree' };
+  let plan = null;
+  try { plan = director.planReduction(tree, _meAiDirectorPolicy(id, tree)); } catch (_) {}
+  const brief = _meAiDirectorNarrateBrief(tree, plan);
+  const trig = opts.trigger || 'update';
+  const sig = _meAiDirectorNarrateSig(brief, trig);
+  if (!opts.force && t._dirNarrateSig === sig) return { skipped: 'dedupe' };
+  const leader = _meAiDirectorLeaderOk();
+  let text = '';
+  if (leader) {
+    const prompt = _meAiDirectorNarratePrompt(brief, trig);
+    let model; try { model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined; } catch (_) {}
+    try {
+      const out = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, meta: { record: false, source: 'pursuit-director-narrate', pursuit: id } });
+      if (out && out.ok !== false) text = _meAiDirClip(String(out.output || '').trim().replace(/^["'\s]+|["'\s]+$/g, ''), 900);
+    } catch (_) { /* fall through to degrade */ }
+  }
+  // Degrade: at conclusion we ALWAYS want an authoritative closing word, so fall
+  // back to a deterministic synthesis. Mid-pursuit we stay quiet on failure rather
+  // than post filler.
+  if (!text) {
+    if (trig === 'conclusion') text = _meAiDirectorNarrateFallback(brief);
+    else return { skipped: leader ? 'ai-empty' : 'not-leader' };
+  }
+  if (!text) return { skipped: 'empty' };
+  t._dirNarrateSig = sig;
+  const at = new Date().toISOString();
+  try { _meAiEmit(t, { kind: 'director_note', text, trigger: trig }); } catch (_) {}
+  try { _meAiTreeEmit(id, 'director', { op: 'say', text, trigger: trig, at }); } catch (_) {}
+  return { ok: true, text, trigger: trig };
+}
+// Schedule an authoritative Director closing note for a concluded pursuit. Cheap
+// on the hot path: no-op unless directing is enabled AND this is a tree pursuit;
+// the actual AI call runs off the request via _meAiSchedule.
+function _meAiDirectorNarrateConcl(t) {
+  try {
+    if (!t || t.mode !== 'tree') return;
+    let d = {}; try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
+    if (!d.enabled) return;
+    _meAiSchedule(async () => { try { await _meAiDirectorNarrate(t, { trigger: 'conclusion', force: true }); } catch (_) {} });
+  } catch (_) {}
+}
+
+
 //
 // Once a pursuit's PR exists, the Director watches its required checks and, on
 // failure, drives it back to green without a fresh user approval: observe → fix
@@ -24243,6 +24396,9 @@ function _meAiDirectorSweep(t) {
   if (handled || probed) {
     _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
     const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
+    // The desk just changed — let the Director narrate the update into the main chat
+    // (de-duped; async so it never blocks the sweep). Only when it still has a live task.
+    if (lt) { try { _meAiSchedule(async () => { try { await _meAiDirectorNarrate(lt, { trigger: 'sweep' }); } catch (_) {} }); } catch (_) {} }
   }
   // Shepherd a bound PR alongside the desk sweep (async, backoff-guarded, non-blocking).
   if (tree.director && tree.director.pr && tree.director.pr.prId) {

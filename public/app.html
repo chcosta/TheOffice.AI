@@ -13640,6 +13640,19 @@
               .meai-pu-turn.agent .meai-pu-bubble { max-width:100%; background:var(--cp-surface); border:1px solid var(--cp-border); color:var(--cp-text); }
               .meai-pu-turn.agent .meai-pu-bubble.md-output > :first-child { margin-top:0; }
               .meai-pu-turn.agent .meai-pu-bubble.md-output > :last-child { margin-bottom:0; }
+              /* Director turn — the authoritative cross-cutting voice. Accent-led so it reads as
+                 the primary narration; the spine's Chief-of-Staff card is demoted beneath it. */
+              .meai-pu-turn.director { align-items:stretch; }
+              .meai-pu-turn.director .meai-pu-turn-who { color:var(--cp-accent); }
+              .meai-pu-turn.director .meai-pu-bubble { max-width:100%; background:color-mix(in srgb,var(--cp-accent) 6%, var(--cp-surface)); border:1px solid color-mix(in srgb,var(--cp-accent) 32%, var(--cp-border)); border-left:3px solid var(--cp-accent); color:var(--cp-text); font-weight:500; }
+              .meai-pu-turn.director .meai-pu-bubble.md-output > :first-child { margin-top:0; }
+              .meai-pu-turn.director .meai-pu-bubble.md-output > :last-child { margin-bottom:0; }
+              /* Demoted Chief-of-Staff conclusion — when the Director narrates, the spine's own
+                 wrap-up steps back to a quiet, muted update rather than the headline. */
+              .meai-pu-turn.agent.demoted { opacity:.82; }
+              .meai-pu-turn.agent.demoted .meai-pu-turn-who { color:var(--cp-text-muted); font-weight:600; }
+              .meai-pu-outcome.demoted { background:var(--cp-bg); border-color:color-mix(in srgb,var(--cp-border) 70%, transparent); }
+              .meai-pu-outcome.demoted .meai-pu-outcome-h { color:var(--cp-text-muted); font-weight:600; }
               .meai-pu-ev.side-you { flex-direction:row-reverse; }
               .meai-pu-ev.side-you .meai-pu-ev-b { align-items:flex-end; text-align:right; }
               /* Folded leg conclusion — a calm agent message summarising a leg that rejoined
@@ -15814,8 +15827,17 @@
                                     <div class="meai-pu-fold-open" x-show="ev.legRef">See how this agent worked →</div>
                                   </div>
                                 </template>
+                                <!-- The Director's authoritative cross-cutting commentary → a prominent
+                                     first-person turn. This is the voice the user reads to know where the
+                                     whole pursuit stands (in-progress / dead paths / merged / needs-you). -->
+                                <template x-if="ev.kind==='director_note'">
+                                  <div class="meai-pu-turn director">
+                                    <div class="meai-pu-turn-who">Director</div>
+                                    <div class="meai-pu-bubble md-output" x-html="renderMarkdown(ev.text||'')"></div>
+                                  </div>
+                                </template>
                                 <!-- Every other spine event → the existing collapsible substep row. -->
-                                <template x-if="ev.kind!=='fold' && !(meai.pursuit.hideThinking && meAiPursuitIsThinking(ev))">
+                                <template x-if="ev.kind!=='fold' && ev.kind!=='director_note' && !(meai.pursuit.hideThinking && meAiPursuitIsThinking(ev))">
                                   <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
                                     <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
                                     <div class="meai-pu-ev-b">
@@ -15836,14 +15858,17 @@
                               </div>
                             </template>
 
-                            <!-- Conclusion / recommendation — the latest message from your Chief of Staff -->
+                            <!-- Conclusion / recommendation. Normally this is the authoritative word
+                                 from your Chief of Staff. When the Director is running it, the Director's
+                                 in-thread commentary above is the authority, so this is demoted to a
+                                 quieter "Chief of Staff update" — the spine becomes just-another contributor. -->
                             <template x-if="meAiPursuitConcluded()">
-                              <div class="meai-pu-turn agent">
-                                <div class="meai-pu-turn-who">Chief of Staff</div>
-                                <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done') }">
+                              <div class="meai-pu-turn agent" :class="{ demoted: meAiDirectorNarrated() }">
+                                <div class="meai-pu-turn-who" x-text="meAiDirectorNarrated() ? 'Chief of Staff · update' : 'Chief of Staff'"></div>
+                                <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done'), demoted: meAiDirectorNarrated() }">
                                   <div class="meai-pu-outcome-h">
                                     <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
-                                    <span x-text="meAiPursuitOutcome().title"></span>
+                                    <span x-text="meAiDirectorNarrated() ? (meAiPursuitOutcome().summary ? 'Chief of Staff’s summary' : meAiPursuitOutcome().title) : meAiPursuitOutcome().title"></span>
                                   </div>
                                   <div class="meai-pu-outcome-sum md-output" x-show="meAiPursuitOutcome().summary" x-html="renderMarkdown(meAiPursuitOutcome().summary)"></div>
                                   <div class="meai-pu-outcome-meta">
@@ -41690,6 +41715,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const d = this.meai.pursuit.director;
           return !!(d && d.enabled && d.grant && d.grant.id && !d.paused && !d.offline && d.plan);
         },
+        // True once the Director has taken over narration for this pursuit: it's enabled and has
+        // spoken at least once in the transcript. Used to demote the Chief-of-Staff conclusion card
+        // to a quiet "update" so the Director's cross-cutting voice reads as the authority.
+        meAiDirectorNarrated() {
+          const d = this.meai.pursuit.director;
+          if (!d || !d.enabled) return false;
+          const evs = this.meAiPursuitWorkEvents();
+          return Array.isArray(evs) && evs.some(e => e && e.kind === 'director_note');
+        },
         meAiDirectorTotal() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.total || 0) : this.meAiPursuitStops().length; },
         meAiDirectorHandledCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.handledCount || 0) : 0; },
         meAiDirectorDeskCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.deskCount || 0) : 0; },
@@ -42567,7 +42601,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return rh ? (d + 'd ' + rh + 'h') : (d + 'd');
         },
         meAiEventIcon(kind) {
-          return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', question: '❓', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
+          return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', question: '❓', note: '•', error: '⚠️', stage: '▸', delta: '💬', director_note: '🎬' }[kind] || '•';
         },
         // §7.4 — classify unified-diff lines for coloring.
         meAiDiffLines(diff) {
