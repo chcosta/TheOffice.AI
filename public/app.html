@@ -13408,6 +13408,8 @@
               .meai-dir-foot { font-size:11.5px; color:var(--cp-text-soft,var(--cp-text-muted)); margin-top:2px; line-height:1.5; }
               .meai-dir-more a { display:block; font-size:12.5px; color:var(--cp-link); cursor:pointer; padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 45%, transparent); font-weight:600; }
               .meai-dir-hsum { font-size:12px; color:var(--cp-text-muted); margin-bottom:8px; line-height:1.5; }
+              .meai-dir-hgroup { font-size:11px; text-transform:uppercase; letter-spacing:.03em; font-weight:800; color:var(--cp-text-muted); margin:8px 0 3px; display:flex; align-items:baseline; gap:6px; }
+              .meai-dir-hgroup .c { font-weight:700; color:var(--cp-text-soft,var(--cp-text-muted)); }
               /* detail (center) */
               .meai-dir-detail { max-width:760px; }
               .meai-dir-pane-h { font-size:13px; color:var(--cp-text-muted); line-height:1.55; margin-bottom:14px; }
@@ -13426,6 +13428,17 @@
               .meai-dir-mem-ord { flex:0 0 20px; height:20px; border-radius:50%; background:color-mix(in srgb,var(--cp-accent) 14%, transparent); color:var(--cp-accent); font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
               .meai-dir-mem-sum { font-size:12.5px; color:var(--cp-text); }
               .meai-dir-mem-leg { font-size:11px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-dir-mem-comp { font-size:11px; color:var(--cp-text-muted); margin-top:3px; }
+              .meai-dir-mem-comp::before { content:'↩ '; opacity:.7; }
+              .meai-dir-sides { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0; }
+              @media (max-width:640px){ .meai-dir-sides { grid-template-columns:1fr; } }
+              .meai-dir-side { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:11px 12px; background:var(--cp-bg); }
+              .meai-dir-side.a { border-color:color-mix(in srgb,var(--cp-accent) 40%, var(--cp-border)); }
+              .meai-dir-side-h { display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:11.5px; font-weight:700; color:var(--cp-text); }
+              .meai-dir-conf { font-size:12.5px; font-weight:800; color:#16a34a; font-variant-numeric:tabular-nums; white-space:nowrap; }
+              .meai-dir-side.b .meai-dir-conf { color:var(--cp-text-muted); }
+              .meai-dir-side-claim { font-size:13px; color:var(--cp-text); margin-top:6px; line-height:1.45; }
+              .meai-dir-side-leg { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px; color:var(--cp-text-muted); margin-top:5px; }
               .meai-dir-foot-acts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
               .meai-dir-foot-lead { font-size:12px; color:var(--cp-text-muted); margin-right:2px; }
               .meai-dir-note { flex:1; min-width:160px; }
@@ -15974,14 +15987,19 @@
                               <div class="meai-dir-hsum" x-text="meAiDirectorHandledSummary()"></div>
                               <template x-if="meai.pursuit.director.showHandled">
                                 <div>
-                                  <template x-for="h in meAiDirectorHandled()" :key="h.stopId">
-                                    <button type="button" class="meai-dir-row" :class="'k-'+h.disposition" @click="meAiDirectorSel('handled', h)">
-                                      <div class="meai-dir-row-b">
-                                        <div class="meai-dir-row-t" x-text="(h.prompt || h.target || h.cls)"></div>
-                                        <div class="meai-dir-row-s eff" x-text="meAiDirectorDispLabel(h.disposition)"></div>
-                                      </div>
-                                      <span class="meai-dir-row-go">→</span>
-                                    </button>
+                                  <template x-for="g in meAiDirectorHandledGroups()" :key="g.disposition">
+                                    <div style="margin-bottom:6px">
+                                      <div class="meai-dir-hgroup"><span x-text="g.label"></span> <span class="c" x-text="g.count"></span></div>
+                                      <template x-for="h in g.items" :key="h.stopId">
+                                        <button type="button" class="meai-dir-row" :class="'k-'+h.disposition" @click="meAiDirectorSel('handled', h)">
+                                          <div class="meai-dir-row-b">
+                                            <div class="meai-dir-row-t" x-text="(h.prompt || h.target || h.cls)"></div>
+                                            <div class="meai-dir-row-s eff" x-text="meAiDirectorDispLabel(h.disposition)"></div>
+                                          </div>
+                                          <span class="meai-dir-row-go">→</span>
+                                        </button>
+                                      </template>
+                                    </div>
                                   </template>
                                 </div>
                               </template>
@@ -16205,81 +16223,100 @@
                         <div class="meai-pu-report-body" style="padding:18px 20px; overflow:auto">
                           <div class="meai-dir-detail">
 
-                            <!-- DESK: batch -->
+                            <!-- DESK: batch — deliverables folded into one approval -->
                             <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='batch'">
                               <div>
-                                <div class="meai-dir-pane-h">The Director folded <b x-text="meai.pursuit.director.sel.count"></b> user-facing <span x-text="meai.pursuit.director.sel.count===1?'deliverable':'deliverables'"></span> into one approval. It never publishes or sends on your behalf — approve once and every held deliverable ships together.</div>
-                                <template x-for="sid in meai.pursuit.director.sel.stopIds" :key="sid">
-                                  <div class="meai-dir-card" style="padding:11px 13px; margin-bottom:8px">
-                                    <div class="meai-dir-title" style="font-size:13px; margin:0" x-text="(meAiDirectorStop(sid)||{}).prompt || ('Deliverable '+sid)"></div>
-                                    <div class="meai-dir-target" x-show="(meAiDirectorStop(sid)||{}).risk" x-text="'↗ '+((meAiDirectorStop(sid)||{}).risk||'')"></div>
-                                  </div>
-                                </template>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-kind">Batched · <span x-text="meai.pursuit.director.sel.count"></span> deliverable <span x-text="meai.pursuit.director.sel.count===1?'write':'writes'"></span> → 1 approval</div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <template x-for="w in (meai.pursuit.director.sel.writes||[])" :key="w.stopId">
+                                    <div class="meai-dir-mem">
+                                      <span class="meai-dir-mem-ord">✎</span>
+                                      <div style="flex:1; min-width:0">
+                                        <div class="meai-dir-mem-sum" x-text="w.title"></div>
+                                        <div class="meai-dir-mem-leg"><span x-show="w.agent" x-text="'from “'+w.agent+'” agent · '"></span>write · reversible<span x-show="w.target" x-text="' · '+w.target"></span></div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> Proposed · nothing has shipped — publishing or sending is always a separate step that asks again</div>
+                                </div>
+                                <input type="text" class="field-input meai-dir-note" style="width:100%; margin-bottom:10px" placeholder="Optional note for the batch…" x-model="meai.pursuit.director.note">
                                 <div class="meai-dir-foot-acts">
                                   <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorApproveBatch(meai.pursuit.director.sel)">Approve all <span x-text="meai.pursuit.director.sel.count"></span> →</button>
-                                  <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorDeclineBatch(meai.pursuit.director.sel)">Decline</button>
+                                  <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorDeclineBatch(meai.pursuit.director.sel)">Decline all</button>
                                 </div>
                               </div>
                             </template>
 
-                            <!-- DESK: chain (held writes) -->
+                            <!-- DESK: chain — held writes, each with its compensation -->
                             <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='chain'">
                               <div>
-                                <div class="meai-dir-pane-h">These writes fell outside the granted scope, or the Director couldn't verify them, so it held them for you rather than absorbing them.</div>
-                                <template x-for="sid in meai.pursuit.director.sel.stopIds" :key="sid">
-                                  <div class="meai-dir-card" style="padding:11px 13px; margin-bottom:8px">
-                                    <div class="meai-dir-title" style="font-size:13px; margin:0 0 2px" x-text="(meAiDirectorStop(sid)||{}).prompt || ('Write '+sid)"></div>
-                                    <div class="meai-dir-target" x-text="(meAiDirectorStop(sid)||{}).risk || ''"></div>
-                                    <div class="meai-dir-foot-acts" style="margin-top:8px">
-                                      <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(sid,'approve')">Approve</button>
-                                      <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(sid,'deny')">Decline</button>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-kind">Held writes · <span x-text="meai.pursuit.director.sel.count"></span> need your review</div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <template x-for="(w, wi) in (meai.pursuit.director.sel.heldWrites||[])" :key="w.stopId">
+                                    <div class="meai-dir-mem">
+                                      <span class="meai-dir-mem-ord" x-text="wi+1"></span>
+                                      <div style="flex:1; min-width:0">
+                                        <div class="meai-dir-mem-sum" x-text="w.title"></div>
+                                        <div class="meai-dir-mem-leg" x-show="w.target" x-text="w.target"></div>
+                                        <div class="meai-dir-mem-comp" x-text="w.compensate"></div>
+                                        <div class="meai-dir-foot-acts" style="margin-top:6px">
+                                          <button type="button" class="btn primary sm" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(w.stopId,'approve')">Approve</button>
+                                          <button type="button" class="btn ghost sm" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(w.stopId,'deny')">Decline</button>
+                                          <button type="button" class="meai-dir-linklike" x-show="w.agent" @click="meAiPursuitOpenNodeById(w.agent)">Show the leg →</button>
+                                        </div>
+                                      </div>
                                     </div>
-                                  </div>
-                                </template>
+                                  </template>
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> Proposed · nothing has left the machine yet</div>
+                                </div>
                               </div>
                             </template>
 
-                            <!-- DESK: clash (judgement call, subsumes the conflict panel) -->
+                            <!-- DESK: clash — judgement call, two sides w/ confidence (subsumes the conflict panel) -->
                             <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='clash'">
                               <div>
-                                <div class="meai-dir-pane-h">
-                                  <template x-if="(meai.pursuit.director.sel.count||1) > 1">
-                                    <span><b x-text="meai.pursuit.director.sel.count"></b> legs independently reached opposite conclusions on <b x-text="meai.pursuit.director.sel.subject || meai.pursuit.director.sel.title"></b>. This is a <b>judgement call</b> the Director can't verify — pick a side once and it settles all <span x-text="meai.pursuit.director.sel.count"></span> the same way.</span>
-                                  </template>
-                                  <template x-if="(meai.pursuit.director.sel.count||1) <= 1">
-                                    <span>This is a <b>judgement call</b>, not a fact the Director could verify — so it stays yours. Two legs reached opposite conclusions. Pick the side to keep and the Director closes the loop.</span>
-                                  </template>
-                                </div>
-                                <template x-if="meAiDirectorClashGroup(meai.pursuit.director.sel)">
-                                  <div>
-                                    <div class="meai-dir-card">
-                                      <div class="meai-dir-kind">Affirm the finding · <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).affirm.length"></span> <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).affirm.length===1?'leg':'legs'"></span></div>
-                                      <template x-for="e in meAiDirectorClashGroup(meai.pursuit.director.sel).affirm" :key="'af-'+e.stopId">
-                                        <div class="meai-dir-clash-claim" x-text="e.claim || '—'"></div>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-kind">Judgement clash · your call<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' · '+meai.pursuit.director.sel.count+' legs → one decision'"></span></div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
+                                  <div class="meai-dir-target" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.target"><span x-show="meai.pursuit.director.sel.nodeId" x-text="'node '+meai.pursuit.director.sel.nodeId"></span><span x-show="meai.pursuit.director.sel.nodeId && meai.pursuit.director.sel.target"> · </span><span x-show="meai.pursuit.director.sel.target" x-text="'target '+meai.pursuit.director.sel.target"></span></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <template x-if="(meai.pursuit.director.sel.sides||[]).length">
+                                    <div class="meai-dir-sides">
+                                      <template x-for="sd in meai.pursuit.director.sel.sides" :key="sd.key">
+                                        <div class="meai-dir-side" :class="sd.key==='deny'?'b':'a'">
+                                          <div class="meai-dir-side-h"><span x-text="sd.label"></span><span class="meai-dir-conf" x-show="sd.confidencePct!=null" x-text="sd.confidencePct+'%'"></span></div>
+                                          <div class="meai-dir-side-claim" x-text="sd.claim"></div>
+                                          <div class="meai-dir-side-leg" x-show="sd.legId" x-text="'leg '+sd.legId"></div>
+                                        </div>
                                       </template>
-                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'affirm')" x-text="(meai.pursuit.director.sel.count||1) > 1 ? ('Keep affirm — all ' + meai.pursuit.director.sel.count) : 'Keep affirm'"></button>
                                     </div>
-                                    <div class="meai-dir-card">
-                                      <div class="meai-dir-kind">Deny · it's safe · <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).deny.length"></span> <span x-text="meAiDirectorClashGroup(meai.pursuit.director.sel).deny.length===1?'leg':'legs'"></span></div>
-                                      <template x-for="e in meAiDirectorClashGroup(meai.pursuit.director.sel).deny" :key="'dn-'+e.stopId">
-                                        <div class="meai-dir-clash-claim" x-text="e.claim || '—'"></div>
-                                      </template>
-                                      <button type="button" class="btn ghost" style="margin-top:8px" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')" x-text="(meai.pursuit.director.sel.count||1) > 1 ? ('Keep deny — all ' + meai.pursuit.director.sel.count) : 'Keep deny'"></button>
-                                    </div>
+                                  </template>
+                                  <div x-show="!(meai.pursuit.director.sel.sides||[]).length" class="meai-pu-empty" style="margin:10px 0" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> <span x-text="meai.pursuit.director.sel.status || 'Open — awaiting your decision'"></span></div>
+                                  <div class="meai-dir-foot-acts">
+                                    <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'affirm')">Choose Side A<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
+                                    <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')">Choose Side B<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
+                                    <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId)">Ask a clarifying question →</button>
                                   </div>
-                                </template>
-                                <div x-show="!meAiDirectorClashGroup(meai.pursuit.director.sel)" class="meai-pu-empty" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
+                                </div>
                               </div>
                             </template>
 
-                            <!-- DESK: gap (missing info) -->
+                            <!-- DESK: gap — a fact only the user holds -->
                             <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='gap'">
                               <div>
-                                <div class="meai-dir-pane-h">The Director can't invent facts. This needs information only you have.</div>
                                 <div class="meai-dir-card">
-                                  <div class="meai-dir-title" style="font-size:14px" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
+                                  <div class="meai-dir-kind">Needs your input · a fact only you hold</div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <div class="meai-dir-side-claim" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
                                   <button type="button" x-show="meai.pursuit.director.sel.legId" class="meai-pu-stop-jump" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.legId)">Show the leg →</button>
                                   <input type="text" class="field-input meai-dir-note" style="margin-top:10px; width:100%" placeholder="Your answer…" x-model="meai.pursuit.director.note">
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> Paused on this leg · costs nothing until you answer</div>
                                   <div class="meai-dir-foot-acts">
                                     <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy || !meai.pursuit.director.note.trim()" @click="meAiDirectorAnswerGap(meai.pursuit.director.sel)">Send answer</button>
                                   </div>
@@ -41454,11 +41491,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorHandledSummary() {
           const pl = this.meai.pursuit.director.plan; if (!pl || !pl.reconciliation) return '';
           const r = pl.reconciliation; const bits = [];
-          if (r.culled) bits.push(r.culled + ' duplicate' + (r.culled === 1 ? '' : 's') + ' dropped');
-          if (r.absorbed) bits.push(r.absorbed + ' reversible ' + (r.absorbed === 1 ? 'edit' : 'edits') + ' applied');
-          if (r.resolved) bits.push(r.resolved + ' factual ' + (r.resolved === 1 ? 'clash' : 'clashes') + ' tie-broken');
-          if (r.batched) bits.push(r.batched + ' deliverable' + (r.batched === 1 ? '' : 's') + ' batched');
-          return bits.join(' · ') || 'Nothing absorbed yet.';
+          if (r.culled) bits.push(r.culled + ' culled');
+          if (r.absorbed) bits.push(r.absorbed + ' absorbed');
+          if (r.resolved) bits.push(r.resolved + ' tie-broke');
+          if (!bits.length) return 'Nothing absorbed yet — everything open needs a human call.';
+          return bits.join(' · ') + ' — all in effect & reversible from the ledger.';
+        },
+        // Group the handled stops by disposition so the "Handled automatically" section
+        // reads like the mock (Duplicates culled N / Reversible edits absorbed N / …)
+        // rather than a flat stream.
+        meAiDirectorHandledGroups() {
+          const order = ['cull', 'absorb', 'resolve', 'batch'];
+          const label = { cull: 'Duplicates culled', absorb: 'Reversible edits absorbed', resolve: 'Factual tie-breaks', batch: 'Deliverables batched' };
+          const by = {};
+          this.meAiDirectorHandled().forEach(h => { (by[h.disposition] = by[h.disposition] || []).push(h); });
+          return order.filter(d => by[d] && by[d].length).map(d => ({ disposition: d, label: label[d] || d, count: by[d].length, items: by[d] }));
         },
         meAiDirectorDeskKind(it) {
           if (it && it.kind === 'clash' && it.count > 1) return 'Judgement call · ' + it.count + ' legs — one decision';
@@ -41547,13 +41594,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiDirectorApproveBatch(item) {
           const p = this.meai.pursuit; const d = p.director; if (!item || !Array.isArray(item.stopIds)) return;
           d.busy = true;
+          const note = (d.note && d.note.trim()) ? d.note.trim() : 'Approved as a batch';
           try {
             for (const sid of item.stopIds) {
-              await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/resolve', { method: 'POST', body: JSON.stringify({ decision: 'approve', note: 'Approved as a batch' }) });
+              await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/resolve', { method: 'POST', body: JSON.stringify({ decision: 'approve', note }) });
             }
             this.toast('Approved all ' + item.stopIds.length + ' — deliverables shipping together', 'success');
           } catch (e) { this.toast('Could not approve batch: ' + (e.message || e), 'error'); }
-          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+          finally { d.busy = false; d.note = ''; this.meAiDirectorAfterAction(); }
         },
         async meAiDirectorDeclineBatch(item) {
           const p = this.meai.pursuit; const d = p.director; if (!item || !Array.isArray(item.stopIds)) return;

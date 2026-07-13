@@ -49,7 +49,11 @@ const CLASS_GRANT_OP = {
 const DEFAULT_GRANT = {
   id: 'g-none',
   pursuitId: null,          // scope: THIS pursuit only (never cross-pursuit)
-  paths: ['/src'],          // repo path prefixes writes must fall under
+  paths: ['/'],             // repo path prefixes writes must fall under. Default = whole
+                            // tree: the CLASS matrix + the target-external guard are the
+                            // real safety gates; path is a user-narrowable SECONDARY guard.
+                            // (A persisted grant overrides this, so existing narrow grants
+                            //  stay narrow — only fresh grants inherit the broad default.)
   ops: ['cull', 'edit', 'resolve-clash'],
   classes: ['duplicate', 'reversible-local', 'factual-clash'],
   expiresAt: null,          // ISO string; null = no grant active
@@ -92,12 +96,23 @@ function _isLocalWrite(stop) {
   if (/deliver|publish|push|pr|pull|merge|comment|mail|send|post|external|deploy|release|ship|remote|destroy|spend|purchase|charge/.test(op)) return false;
   return true;
 }
+// Even a write whose OP looks local can name an externally-observable TARGET — a
+// pipeline/CI file that triggers a run, a branch/remote/PR, a specific commit, an
+// infra .yml. Those are compensatable but NOT silently reversible, so they must stay
+// on the desk regardless of how broad the path grant is. Deliberately does NOT match
+// bare "deploy" (this domain edits a DeployQueues module in-repo — a normal reversible
+// source edit that should absorb).
+function _targetExternal(stop) {
+  const t = _norm(_targetOf(stop)) + ' ' + _norm(stop && stop.prompt) + ' ' + _norm(stop && stop.action && stop.action.summary);
+  return /azure-pipelines|\bpipelines?\b|\bbranch\b|\bremote\b|\borigin\b|pull request|\/pull\/|\bpr #|1es|hosted pool|\.ya?ml\b|\bcommit\s+[0-9a-f]{6,}/.test(t);
+}
 function _pathCovered(target, paths) {
   if (!target) return true;               // no path on the action → not path-scoped
-  const t = String(target).replace(/\\/g, '/').toLowerCase();
+  const t = String(target).replace(/\\/g, '/').toLowerCase().replace(/^\/+/, '');
   return (paths || []).some(p => {
-    const pp = String(p).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
-    return pp === '/' || pp === '' || t === pp || t.startsWith(pp + '/') || t.includes(pp + '/') || t.startsWith(pp);
+    const pp = String(p).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '').replace(/^\/+/, '');
+    if (pp === '') return true;            // whole-tree grant ('/' or '')
+    return t === pp || t.startsWith(pp + '/');
   });
 }
 function _stopSig(stop) {
@@ -144,7 +159,7 @@ function stopClass(stop, ctx) {
     const risk = _riskOf(stop);
     if (risk === 'external' || risk === 'spend' || risk === 'destructive') return 'external-spend-destructive';
     if (ctx.duplicateStopIds && ctx.duplicateStopIds.has(stop.id)) return 'duplicate';
-    if (risk === 'write' && _isLocalWrite(stop)) return 'reversible-local';
+    if (risk === 'write' && _isLocalWrite(stop) && !_targetExternal(stop)) return 'reversible-local';
     return 'external-spend-destructive'; // unknown write shape → escalate, never guess
   }
   return 'judgement-clash';
@@ -212,31 +227,64 @@ function _gapTitle(s) {
 function _slug(str) {
   return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'x';
 }
+function _pct(x) { return (typeof x === 'number' && isFinite(x)) ? Math.round(x * 100) : null; }
 
 // Collapse the escalated stops into a handful of desk ITEMS (the whole point: turn a
 // stream of stops into a few decisions). Deliverables → one batch; held writes → one
-// chain; each judgement clash and each missing-info gap is its own item.
+// chain; each judgement clash and each missing-info gap is its own item. Every item
+// carries the RICH evidence the studio detail pane renders: the Director's own rationale
+// (attributed commentary), the two sides of a clash with confidence, the individual held
+// writes with their compensation, the batched deliverables with their authoring agent.
 function _groupDesk(deskNodes) {
   const batchStops = deskNodes.filter(n => n.cls === 'deliverable');
   const clashStops = deskNodes.filter(n => n.cls === 'judgement-clash' || n.cls === 'factual-clash');
   const gapStops = deskNodes.filter(n => n.cls === 'missing-info');
   const writeStops = deskNodes.filter(n => n.cls === 'reversible-local' || n.cls === 'external-spend-destructive' || n.cls === 'duplicate');
   const items = [];
+
   if (batchStops.length) {
-    items.push({ id: 'desk-batch', kind: 'batch', title: 'Deliverables ready to approve',
-      count: batchStops.length, stopIds: batchStops.map(s => s.stopId),
-      detail: batchStops.length + ' user-facing ' + (batchStops.length === 1 ? 'deliverable' : 'deliverables') + ' folded into one approval.' });
+    const writes = batchStops.map(s => ({
+      stopId: s.stopId, title: _clip(s.prompt || 'Deliverable write', 80),
+      agent: s.legId || null, target: s.target || null, risk: s.risk || 'write',
+    }));
+    items.push({
+      id: 'desk-batch', kind: 'batch', title: 'Deliverables ready to approve',
+      count: batchStops.length, stopIds: batchStops.map(s => s.stopId), writes,
+      directorRationale: "These are the pursuit's deliverables — the reports and artifacts you'll actually read, not internal plumbing. Every write is reversible and local, and none share a target or depend on each other; publishing or sending is always a separate step that asks again. So I folded " + batchStops.length + ' separate approvals into this one.',
+      detail: batchStops.length + ' user-facing ' + (batchStops.length === 1 ? 'deliverable' : 'deliverables') + ' folded into one approval.',
+    });
   }
+
   if (writeStops.length) {
-    items.push({ id: 'desk-chain', kind: 'chain', title: 'Held writes to review',
-      count: writeStops.length, stopIds: writeStops.map(s => s.stopId),
-      detail: writeStops.length + ' write' + (writeStops.length === 1 ? '' : 's') + ' held for review (outside the grant or unverifiable).' });
+    const heldWrites = writeStops.map(s => {
+      const external = s.cls === 'external-spend-destructive';
+      const dup = s.cls === 'duplicate';
+      return {
+        stopId: s.stopId, title: _clip(s.prompt || 'Write', 90), target: s.target || null,
+        agent: s.legId || null, risk: s.risk || 'write', cls: s.cls, external,
+        compensate: external
+          ? 'externally observable — compensate/revert after review, not silently erasable'
+          : (dup ? 'duplicate of an earlier write — safe to drop' : 'reversible in-repo edit — one-click undo'),
+      };
+    });
+    const extN = heldWrites.filter(w => w.external).length;
+    const locN = heldWrites.length - extN;
+    const bits = [];
+    if (extN) bits.push(extN + ' ' + (extN === 1 ? 'is' : 'are') + ' externally observable (pipelines, branches, remotes, commits) — compensatable but not silently erasable, so I will not touch them without you');
+    if (locN) bits.push(locN + ' fell outside the scope you granted me (or I could not verify), so I held ' + (locN === 1 ? 'it' : 'them') + ' rather than guess');
+    items.push({
+      id: 'desk-chain', kind: 'chain', title: 'Held writes to review',
+      count: writeStops.length, stopIds: writeStops.map(s => s.stopId), heldWrites,
+      directorRationale: 'I prepared these ' + writeStops.length + ' writes but stopped short of applying them: ' + bits.join('; ') + '. Nothing has left the machine — approve the reversible ones together, or step through each.',
+      detail: writeStops.length + ' write' + (writeStops.length === 1 ? '' : 's') + ' held for review (outside the grant or unverifiable).',
+    });
   }
+
   // Judgement clashes on the SAME subject are ONE decision: several legs independently
   // reached opposing conclusions about the same thing. The user settles the subject once
   // and the Director resolves every leg on it the same way (by STANCE, since A/B position
   // can be flipped per conflict). Each grouped item carries `members` for stance-mapped
-  // resolution and `promptFull` for the detail pane.
+  // resolution, plus the rich `sides` the detail pane renders.
   const clashBySubject = new Map();
   clashStops.forEach((s, i) => {
     const key = (s.subject && String(s.subject).trim()) || ('_solo-' + (s.stopId || i));
@@ -251,19 +299,49 @@ function _groupDesk(deskNodes) {
       stopId: g.stopId, legId: g.legId || null, conflictId: g.conflictId || null,
       affirmSide: g.affirmSide || null, denySide: g.denySide || null,
     }));
-    items.push({ id: 'desk-clash-' + (first.subject ? _slug(first.subject) : (first.stopId || ci)), kind: 'clash',
+    // Build the two sides from the representative conflict's stance-mapped evidence.
+    const cs = first.clashSides;
+    let sides = [], confidenceSplit = null, belowBar = true;
+    if (cs) {
+      const aKey = first.affirmSide || (cs.a && cs.a.stance === 'affirm' ? 'a' : (cs.b && cs.b.stance === 'affirm' ? 'b' : 'a'));
+      const bKey = first.denySide || (aKey === 'a' ? 'b' : 'a');
+      const av = cs[aKey] || {}, bv = cs[bKey] || {};
+      const ap = _pct(av.confidence), bp = _pct(bv.confidence);
+      sides = [
+        { key: 'affirm', label: 'Side A · Affirms the finding', claim: av.claim || '—', confidencePct: ap, legId: av.legId || null },
+        { key: 'deny', label: "Side B · Argues it's safe", claim: bv.claim || '—', confidencePct: bp, legId: bv.legId || null },
+      ];
+      if (ap != null && bp != null) confidenceSplit = ap + ' / ' + bp;
+      belowBar = Math.max(av.confidence || 0, bv.confidence || 0) < 0.85;
+    }
+    const rationale = (n > 1 ? (n + ' legs independently reached this same standoff. ') : '')
+      + "I won't call this one — both sides are competent and neither is provable from the repo or history, so it's a genuine trade-off rather than a fact I can verify."
+      + (confidenceSplit ? (' Confidence is split ' + confidenceSplit + (belowBar ? ', below my 85% bar,' : ',')) : ' Neither side clears my 85% confidence bar,')
+      + ' with no authoritative source to corroborate either. A tie-break here would be me guessing with your name on it'
+      + (n > 1 ? (', so it stays with you — settle it once and I close all ' + n + ' the same way.') : ', so it stays with you.');
+    items.push({
+      id: 'desk-clash-' + (first.subject ? _slug(first.subject) : (first.stopId || ci)), kind: 'clash',
       title: _clashTitle(first), count: n, legCount: n, subject: first.subject || null,
       stopIds: group.map(g => g.stopId), legId: first.legId || null, members,
+      nodeId: first.legId || null, target: first.target || null,
+      sides, confidenceSplit, belowBar, directorRationale: rationale,
+      status: 'Open — awaiting your decision',
       detail: n > 1
         ? (n + ' legs reached opposite conclusions on this — settle it once and the Director closes all ' + n + '.')
         : 'Two legs reached opposite conclusions — not provable, so it stays your call.',
-      promptFull: first.prompt || 'A clash only you can settle.' });
+      promptFull: first.prompt || 'A clash only you can settle.',
+    });
     ci++;
   }
-  gapStops.forEach((s, i) => items.push({ id: 'desk-gap-' + (s.stopId || i), kind: 'gap',
-    title: _gapTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId,
+
+  gapStops.forEach((s, i) => items.push({
+    id: 'desk-gap-' + (s.stopId || i), kind: 'gap',
+    title: _gapTitle(s), count: 1, stopIds: [s.stopId], legId: s.legId, nodeId: s.legId || null,
+    directorRationale: 'This leg hit a fact only you hold — something not in the repo, the history, or any source I can reach. I will not invent it or guess. Answer once and the leg picks up exactly where it paused; drafting a bounded sub-agent instead is also an option.',
     detail: 'The leg needs information only you can supply.',
-    promptFull: s.prompt || 'Information the director cannot supply.' }));
+    promptFull: s.prompt || 'Information the director cannot supply.',
+  }));
+
   items.sort((a, b) => (_DESK_ORDER[a.kind] - _DESK_ORDER[b.kind]));
   return items;
 }
@@ -316,11 +394,19 @@ function planReduction(tree, policy) {
       if (_c.a.stance === 'affirm' || _c.b.stance === 'deny') { affirmSide = 'a'; denySide = 'b'; }
       else if (_c.b.stance === 'affirm' || _c.a.stance === 'deny') { affirmSide = 'b'; denySide = 'a'; }
     }
+    // Carry the full two-sided evidence forward so the desk clash pane can show each
+    // side's claim, stance and confidence without re-reading the tree.
+    const _sideOf = v => v ? {
+      stance: v.stance || null, claim: v.claim || '',
+      confidence: (typeof v.confidence === 'number') ? v.confidence : null,
+      legId: v.legId || null,
+    } : null;
+    const clashSides = (_c && (_c.a || _c.b)) ? { a: _sideOf(_c.a), b: _sideOf(_c.b) } : null;
     return {
       stopId: s.id, cls, disposition: disp, reason: _reasonFor(cls, disp),
       legId: s.legId || null, target: _targetOf(s), prompt: s.prompt || '',
       conflictId: s.conflictId || null, risk: _riskOf(s) || null,
-      subject: (_c && _c.subject) || null, affirmSide, denySide,
+      subject: (_c && _c.subject) || null, affirmSide, denySide, clashSides,
     };
   });
 
