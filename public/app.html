@@ -13177,6 +13177,12 @@
 
               /* ===== Live pursuit canvas (P2) ===== */
               .meai-pursuit { position:fixed; z-index:55; background:var(--cp-bg); display:flex; flex-direction:column; overflow:hidden; }
+              /* Agent-page mode: hide the agenda-body flow children of .meai-wrap so the
+                 fixed, opaque agent surfaces (placeholder/console/pursuit — each a direct
+                 child rendered by an x-if template) stand alone as the agent's own page.
+                 The surfaces are position:fixed and explicitly exempted here; we must NOT
+                 hide the wrap itself (that display:none'd the surfaces → blank Open-run). */
+              .meai-wrap-agentpage > :not(.meai-agentpage-load):not(.meai-cpage):not(.meai-pursuit):not(.meai-asst) { display:none !important; }
               .meai-pu-top { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); flex:0 0 auto; }
               .meai-pu-approvebar { display:flex; align-items:center; gap:10px; padding:9px 16px; cursor:pointer; flex:0 0 auto; border-bottom:1px solid color-mix(in srgb, var(--cp-accent) 40%, var(--cp-border)); background:color-mix(in srgb, var(--cp-accent) 12%, var(--cp-surface)); color:var(--cp-text); font-size:13px; }
               .meai-pu-approvebar:hover { background:color-mix(in srgb, var(--cp-accent) 18%, var(--cp-surface)); }
@@ -14468,7 +14474,15 @@
               .mr-tomb .tb b { color:var(--cp-text); }
             </style>
 
-            <div class="meai-wrap" x-show="!meai.agentPage" :class="{ 'goals-float': route==='me-ai' && !meai.checklistDocked && meai.checklistOpen && !meai.console && !meai.pursuit.open }">
+            <div class="meai-wrap" :class="{ 'goals-float': route==='me-ai' && !meai.checklistDocked && meai.checklistOpen && !meai.console && !meai.pursuit.open, 'meai-wrap-agentpage': meai.agentPage }">
+              <!-- The three deep-linked "agent surfaces" (the "Opening agent…" placeholder,
+                   the console drawer, and the pursuit map) live INSIDE this wrap but are all
+                   position:fixed + opaque (background:var(--cp-bg)), so they cover the agenda
+                   as the agent's own page. We must NOT x-show="!agentPage" this wrap — that
+                   display:none'd its own agent-surface children and produced a blank page on
+                   Open-run deep links. Instead .meai-wrap-agentpage hides only the agenda-body
+                   flow (the fixed surfaces are exempt), preserving the covered-agenda intent
+                   without hiding the surfaces. -->
               <!-- Quick-nav ("Jump to") now lives in the left rail (.meai-lrail), docked above
                    Today's goals — see the rail block near the goals panel below. -->
               <div class="meai-head">

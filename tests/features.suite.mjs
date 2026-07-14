@@ -761,8 +761,14 @@ await t.test('Me-agent view is its own page (agenda hidden), not an overlay flas
   const src = readFileSync('public/app.html', 'utf8');
   // A dedicated agentPage flag exists in the meai state.
   t.ok(/agentPage:\s*false,/.test(src), 'meai.agentPage state flag exists');
-  // The agenda body is hidden when an agent page is active.
-  t.ok(/class="meai-wrap"\s+x-show="!meai\.agentPage"/.test(src), 'agenda body (.meai-wrap) hides when agentPage');
+  // The agenda body is hidden when an agent page is active — but the wrap itself must
+  // NOT be x-show'd away: the fixed agent surfaces (placeholder/console/pursuit) are its
+  // OWN children, so display:none on the wrap blanked the Open-run deep link. Regression
+  // guard: the wrap toggles a class that hides only agenda-body flow, exempting the
+  // position:fixed surfaces.
+  t.ok(!/class="meai-wrap"\s+x-show="!meai\.agentPage"/.test(src), 'wrap does NOT display:none itself in agent mode (would blank the fixed surfaces it contains)');
+  t.ok(/class="meai-wrap"[^>]*'meai-wrap-agentpage':\s*meai\.agentPage/.test(src), 'wrap toggles .meai-wrap-agentpage class when agentPage');
+  t.ok(/\.meai-wrap-agentpage\s*>\s*:not\(\.meai-agentpage-load\):not\(\.meai-cpage\):not\(\.meai-pursuit\)[^{]*\{\s*display:none/.test(src), 'agent-page CSS hides agenda-body flow but exempts the fixed agent surfaces');
   // A calm "opening" placeholder covers the load window before the surface opens.
   t.ok(/meai\.agentPage && !meai\.console && !meai\.pursuit\.open/.test(src), 'agent-page loading placeholder gated correctly');
   t.ok(/meai-agentpage-load/.test(src) && /Opening agent…/.test(src), 'placeholder markup + copy present');
