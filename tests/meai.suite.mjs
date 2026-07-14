@@ -597,6 +597,58 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Follow-up classifier — a directive / new-scope follow-up on a concluded pursuit
+// must FAN OUT (investigate), report edits must revise, questions must answer.
+// Guards the regression where "make the report warmer" spawned a new wave.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const { _meAiClassifyFollowup } = extractFns(SERVER, ['_meAiClassifyFollowup']);
+  await t.test('follow-up directive / new scope fans out (investigate)', () => {
+    t.eq(_meAiClassifyFollowup('you should also investigate dotnet-helix-machines and dotnet-helix-service'), 'investigate');
+    t.eq(_meAiClassifyFollowup('also look into the retry path'), 'investigate');
+    t.eq(_meAiClassifyFollowup('map the dependencies between the services'), 'investigate');
+  });
+  await t.test('report edits classify as revise (not a new investigation)', () => {
+    t.eq(_meAiClassifyFollowup('make the report warmer and shorter'), 'revise');
+    t.eq(_meAiClassifyFollowup('make it shorter'), 'revise');
+    t.eq(_meAiClassifyFollowup('revise the summary to tighten the intro'), 'revise');
+    t.eq(_meAiClassifyFollowup('tighten the conclusion'), 'revise');
+  });
+  await t.test('questions classify as answer', () => {
+    t.eq(_meAiClassifyFollowup('what did you find about wait times?'), 'answer');
+    t.eq(_meAiClassifyFollowup('how does the retry path work?'), 'answer');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Director resume honesty — the /director/resume route must flip the task out of
+// its error/idle state SYNCHRONOUSLY (clear error + _meAiSetStage 'working' +
+// emit a stage event) BEFORE scheduling the leg reruns / spine re-engagement.
+// Otherwise the stage-flip queues behind the reruns and the card sits at
+// "error · Interrupted repeatedly" for minutes → reads as "Resume did nothing".
+// Source-slice guard (the effect is async + scheduler-gated, hard to assert live).
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
+  await t.test('resume flips stage to working synchronously before scheduling reruns', () => {
+    t.ok(route.length > 0, 'resume route found');
+    // both recovery branches (stalled legs + idle nudge) must clear the error…
+    const clears = (route.match(/t\.error = null;\s*t\._lastError = null;/g) || []).length;
+    t.ok(clears >= 2, `error cleared in both branches (found ${clears})`);
+    // …and flip the stage to working + broadcast it
+    const stages = (route.match(/_meAiSetStage\(t, 'working', 'running'\)/g) || []).length;
+    t.ok(stages >= 2, `stage flipped to working in both branches (found ${stages})`);
+    const emits = (route.match(/_meAiTreeEmit\(id, 'stage', \{ stage: 'working' \}\)/g) || []).length;
+    t.ok(emits >= 2, `stage event emitted in both branches (found ${emits})`);
+    // the stalled branch must set the stage BEFORE looping the reruns
+    const stalledIdx = route.indexOf("_meAiSetStage(t, 'working', 'running')");
+    const namesIdx = route.indexOf('const names = stalled.map');
+    t.ok(stalledIdx > -1 && namesIdx > -1 && stalledIdx < namesIdx, 'stage flip precedes the rerun loop');
+  });
+}
+
+
 if (!(await serverUp())) {
   t.skipAll('dev server not running on :3847 (unit tests above still ran)');
 }

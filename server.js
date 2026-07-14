@@ -24830,6 +24830,7 @@ function _meAiClassifyFollowup(text) {
   // (1) Explicit report-revision wins — editing the deliverable, not the scope.
   if (/\b(revise|rewrite|re-?write|reword|re-?word|rephrase|reframe|re-?frame|restructure|tighten|shorten|lengthen|condense|edit|polish|clean up)\b[^.?!]*\b(report|write-?up|writeup|summary|deliverable|doc|document|draft|memo|brief|section|intro|conclusion|wording|tone|framing|it|this)\b/.test(s)
       || /\bmake it (warmer|shorter|longer|tighter|clearer|punchier|simpler|more\b|less\b)/.test(s)
+      || /\bmake (it|the (report|write-?up|writeup|summary|deliverable|doc|document|draft|memo|brief|intro|introduction|conclusion|section|wording|tone|framing)) (warmer|shorter|longer|tighter|clearer|punchier|simpler|crisper|leaner|bolder|more\b|less\b)/.test(s)
       || /\bthe (report|write-?up|summary|doc|memo|draft) (should|needs to|could|ought)/.test(s)) return 'revise';
   // (2) New direction / additional scope / "go do more work" → fan out.
   const investigate =
@@ -26878,6 +26879,11 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
       // unfinished/unexplored angle to done (or converges + delivers if truly complete).
       if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to continue.' });
       const nudge = 'The pursuit is idle but not yet concluded, and nothing is formally waiting on you. FIRST verify what every leg already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action. THEN pick up any unfinished or unexplored angle and drive it to done. If every angle is genuinely complete, converge and produce the final compendium deliverable.';
+      // Same honesty fix as the stalled path: flip the task out of error/idle SYNCHRONOUSLY so
+      // the card reflects the re-engagement immediately rather than waiting on the queued reAct.
+      t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
+      _meAiSetStage(t, 'working', 'running');
+      _meAiTreeEmit(id, 'stage', { stage: 'working' });
       _meAiTreeReAct(t, 'continue', nudge, 'Nudged to continue');
       try {
         const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
@@ -26888,6 +26894,17 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' });
     if (!t || t.mode !== 'tree') return res.status(400).json({ ok: false, error: 'not-a-pursuit' });
     if (running) return res.json({ ok: true, resumed: 0, running: true, stalled });
+    // Reflect recovery at the TASK level SYNCHRONOUSLY, before scheduling anything. The
+    // leg re-runs + the spine re-engagement below all go through the concurrency gate
+    // (ME_AI_MAX_CONCURRENT), so the stage-flip inside _meAiTreeReAct is queued BEHIND the
+    // freshly-scheduled legs and won't run for minutes. If we let that be the only stage
+    // change, the pursuit keeps showing "error · Interrupted repeatedly" the whole time
+    // legs are actually re-running in the background — which is exactly why Resume read as
+    // "nothing happened". Clearing the error + flipping to working here broadcasts an SSE
+    // stage event immediately so the card honestly shows the pursuit is recovering.
+    t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
+    _meAiSetStage(t, 'working', 'running');
+    _meAiTreeEmit(id, 'stage', { stage: 'working' });
     const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
     const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
     // Re-drive the stalled legs THEMSELVES — not just a fresh spine that re-plans AROUND
