@@ -20346,7 +20346,7 @@
               .cmpx-doc img,.cmpx-doc svg{max-width:100%;height:auto}
               .cmpx-doc blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 6%,transparent);color:var(--cp-text-secondary)}
               .cmpx-edit{flex:1;min-height:420px;width:100%;border:0;outline:0;resize:none;padding:20px 24px;font-family:'Cascadia Code',ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;background:var(--cp-surface);color:var(--cp-text)}
-              .cmpx-site{flex:1;min-height:520px;border:0;width:100%;background:#fff;border-radius:0 0 10px 10px}
+              .cmpx-site{min-height:360px;border:0;width:100%;background:#fff;border-radius:0 0 10px 10px;display:block}
               /* Activity log during generation */
               .cmpx-activity{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);padding:14px;margin-bottom:14px}
               .cmpx-actline{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--cp-text)}
@@ -20621,7 +20621,7 @@
                         <!-- Prototype site: sandboxed with scripts so it can simulate real activity,
                              but no allow-same-origin/popups → opaque origin keeps every link inside
                              the frame (can't reach the app, your data, or navigate to TheOffice.AI). -->
-                        <iframe x-show="composeIsSite() && compose.draftText.trim()" class="cmpx-site" :srcdoc="compose.draftText" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+                        <iframe x-show="composeIsSite() && compose.draftText.trim()" x-ref="composeSite" x-init="composeSiteHeightListen()" class="cmpx-site" :srcdoc="composeSiteSrcdoc()" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
                         <!-- Markdown preview -->
                         <template x-if="!composeIsSite() && compose.draftText.trim() && compose.preview">
                           <article class="nlx-paper" :style="{ zoom: compose.zoom || 1 }" @wheel="if($event.ctrlKey||$event.metaKey){$event.preventDefault(); composeZoom($event.deltaY < 0 ? 0.1 : -0.1);}"><div class="nl-preview md-output" x-html="composeRenderedDraft()"></div></article>
@@ -45856,6 +45856,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.composeIsSite()) return txt; // raw HTML doc — rendered via iframe
             return this.newsletterRenderHtml(txt).replace(/\/api\/newsletter\/asset\//g, '/api/compose/' + encodeURIComponent((this.compose.current || {}).id || '') + '/asset/');
           } catch { return ''; }
+        },
+        // Prototype srcdoc with a tiny height-reporter injected so the sandboxed iframe can
+        // AUTO-SIZE to its content instead of sitting in an arbitrary fixed-height box with
+        // its own inner scrollbar. The reporter posts the document height to the parent, which
+        // sets the iframe height (composeSiteHeightListen). Result: the prototype flows into
+        // the single page scroll — never vertically constrained, no nested scrollbar.
+        composeSiteSrcdoc() {
+          const html = this.compose.draftText || '';
+          if (!html.trim()) return html;
+          const reporter = '<scr' + 'ipt>(function(){function r(){try{var b=document.body,h=Math.max(document.documentElement.scrollHeight||0,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__composeHeight:h},"*");}catch(e){}}window.addEventListener("load",r);window.addEventListener("resize",r);try{new ResizeObserver(r).observe(document.documentElement);}catch(e){}setInterval(r,800);r();})();</scr' + 'ipt>';
+          if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, reporter + '</body>');
+          return html + reporter;
+        },
+        // One-time parent listener: size the prototype iframe to the height its content reports.
+        composeSiteHeightListen() {
+          if (this._composeSiteHL) return;
+          this._composeSiteHL = true;
+          window.addEventListener('message', (e) => {
+            try {
+              const d = e.data;
+              if (!d || typeof d.__composeHeight !== 'number') return;
+              const f = this.$refs && this.$refs.composeSite;
+              if (f && e.source === f.contentWindow) {
+                f.style.height = Math.max(360, Math.ceil(d.__composeHeight) + 2) + 'px';
+              }
+            } catch (_) { /* best-effort */ }
+          });
         },
         // Assistant chat — revise the draft conversationally.
         async composeChatSend() {

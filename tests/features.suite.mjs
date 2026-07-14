@@ -640,4 +640,19 @@ await t.test('pursuit header exposes always-available compendium + bundle export
   t.ok(/\.meai-pu-hdract \{/.test(src), 'header action group has calm layout CSS');
 });
 
+await t.test('compose prototype preview auto-sizes to content (no arbitrary vertical constraint)', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // The site iframe reports its content height and the parent sizes it — so the prototype
+  // flows into the single page scroll instead of a fixed-height box with an inner scrollbar.
+  t.ok(/x-ref="composeSite"/.test(src), 'site iframe is ref-addressable for height sync');
+  t.ok(/:srcdoc="composeSiteSrcdoc\(\)"/.test(src), 'iframe renders the height-reporter srcdoc, not raw draftText');
+  t.ok(/x-init="composeSiteHeightListen\(\)"/.test(src), 'iframe registers the parent height listener');
+  t.ok(/composeSiteSrcdoc\(\)\s*\{/.test(src), 'composeSiteSrcdoc method exists');
+  t.ok(/__composeHeight/.test(src), 'reporter posts a content-height message the parent consumes');
+  t.ok(/f\.style\.height = Math\.max\(360/.test(src), 'parent sets the iframe height from the reported content height');
+  // The arbitrary 520px lock + inert flex are gone; a modest floor + block growth remain.
+  t.ok(/\.cmpx-site\{min-height:360px;[^}]*display:block\}/.test(src), 'cmpx-site drops the 520px lock for a growable block');
+  t.ok(!/\.cmpx-site\{flex:1;min-height:520px/.test(src), 'no stale fixed-height site rule');
+});
+
 await t.done();
