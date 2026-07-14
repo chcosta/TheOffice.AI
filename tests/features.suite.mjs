@@ -199,9 +199,11 @@ await t.test('appearance/home: GET /api/settings returns a settings object', asy
 await t.test('assistant: unified FAB panel is context-dispatched, no stale refs', () => {
   const html = readFileSync(APP_HTML, 'utf8');
 
-  // The shared FAB + panel gate on asstCtx() (visible on newsletter + compose studio only).
-  t.ok(/x-show="asstCtx\(\) && !asstPanelOpen\(\)"/.test(html), 'FAB button gates on asstCtx() && !asstPanelOpen()');
-  t.ok(/x-show="asstCtx\(\) && asstPanelOpen\(\)"/.test(html), 'floating panel gates on asstCtx() && asstPanelOpen()');
+  // The shared floating FAB + panel are now NEWSLETTER-ONLY — compose uses a docked
+  // paired-assistant column inside the studio (see the compose-pairing guard), so the
+  // floating surface must not appear over the compose studio.
+  t.ok(/x-show="asstCtx\(\) === 'newsletter' && !asstPanelOpen\(\)"/.test(html), 'FAB button gates on newsletter ctx');
+  t.ok(/x-show="asstCtx\(\) === 'newsletter' && asstPanelOpen\(\)"/.test(html), 'floating panel gates on newsletter ctx');
   t.ok(/asstCtx\s*\(\s*\)\s*\{/.test(html), 'asstCtx() is defined');
   // asstCtx returns compose only inside an open studio, so the FAB never shows on the launcher.
   t.ok(/route === 'compose' && this\.compose && this\.compose\.view === 'studio' && this\.compose\.current/.test(html),
@@ -216,6 +218,45 @@ await t.test('assistant: unified FAB panel is context-dispatched, no stale refs'
   for (const dead of ['composeFab', 'pendingDraft', 'composeApplyPendingDraft', 'composeDiscardPendingDraft']) {
     t.ok(!new RegExp('\\b' + dead + '\\b').test(html), 'no stale reference to ' + dead);
   }
+});
+
+// Compose paired-programming studio: the free-text "What to say" brief is replaced by a
+// docked, collapsible, width-adjustable paired-assistant column. Pairing drives the draft
+// directly (server drafts even from an empty draft), keeping audience/format/sources structure.
+await t.test('compose: paired-assistant studio replaces the free-text brief', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // The "What to say" brief textarea + its brief-gated regenerate button are GONE.
+  t.ok(!/x-model="compose\.current\.brief"/.test(html), 'the What-to-say brief textarea is removed');
+  t.ok(!/composeUpdateBriefAndRegen\(\)/.test(html), 'the brief-gated Update & regenerate button is removed');
+  // Structure the user KEEPS: audience toggles + format + title still bind.
+  t.ok(/compose\.current\.audience/.test(html), 'audience framing is kept');
+  t.ok(/composeFormatChoices\(\)/.test(html), 'format framing is kept');
+
+  // The docked paired panel: its own scroll container (distinct from the floating asstChatScroll),
+  // reuses compose.chat state + composeChat* methods, and lives inside the studio grid.
+  t.ok(/id="composePairScroll"/.test(html), 'docked paired panel has its own scroll container');
+  t.ok(/class="nlx-studio cmpx-paired"/.test(html), 'studio grid gains the cmpx-paired modifier');
+  t.ok(/'paired-open': compose\.chat\.open/.test(html), 'grid reacts to the open/collapsed state');
+  t.ok(/composePairResizeStart\(\$event\)/.test(html), 'the panel is width-adjustable (drag resizer)');
+  t.ok(/class="cmpx-pair-tab"[\s\S]{0,80}?composeToggleChat\(\)/.test(html), 'collapsed state shows a reopen tab');
+
+  // Methods are wired.
+  for (const fn of ['composePairedOpen', 'composePairW', 'composePairResizeStart', 'composePairOpener', 'composePairQuickChips', 'composePairQuick']) {
+    t.ok(new RegExp('\\b' + fn + '\\s*\\(').test(html), fn + ' is defined');
+  }
+
+  // Not arbitrarily vertically constrained — the panel fills the viewport height + scrolls internally.
+  t.ok(/\.cmpx-pair\{[^}]*height:calc\(100vh/.test(html), 'paired panel fills available height (no arbitrary cap)');
+
+  // Sticky-bottom auto-scroll: _composeChatScroll respects a stickiness flag + honors a force arg.
+  t.ok(/_composeChatScroll\(force\)/.test(html), '_composeChatScroll takes a force arg');
+  t.ok(/c\._stick !== false/.test(html), 'auto-scroll only when the user is riding the bottom');
+  t.ok(/compose\.chat\._stick = \(\$event\.target\.scrollHeight/.test(html), 'scroll handler tracks bottom-stickiness');
+
+  // Docked panel default open + persisted width in state.
+  t.ok(/pairW: 360,/.test(html), 'pairW default is in compose state');
+  t.ok(/chat: \{ open: true,/.test(html), 'the docked panel is open by default');
 });
 
 // Compose areas resume the last composition of a purpose by default (so users land
