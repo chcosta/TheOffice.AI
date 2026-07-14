@@ -655,4 +655,26 @@ await t.test('compose prototype preview auto-sizes to content (no arbitrary vert
   t.ok(!/\.cmpx-site\{flex:1;min-height:520px/.test(src), 'no stale fixed-height site rule');
 });
 
+await t.test('compose repositories source uses an org/project picker (not a fragile free-text box)', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // The Sources rail repos field auto-loads a real repo list on enable.
+  t.ok(/compose\.current\.sources\.repos && composeLoadRepos\(\)/.test(src), 'repos source primes the picker when enabled');
+  // Picker rows come from the loaded list, filtered by a search box, and toggle selection.
+  t.ok(/composeRepoFiltered\(\)/.test(src), 'repos render from the filtered picker list');
+  t.ok(/composeRepoToggle\(compose\.current\.sources, rp, true\)/.test(src), 'a repo row toggles selection');
+  t.ok(/composeRepoIsSelected\(compose\.current\.sources, rp\.ref\)/.test(src), 'selected repos are checkmarked');
+  // Storage stays backward-compatible: chosen refs join into sources.reposRef.
+  t.ok(/sources\.reposRef = refs\.join\(', '\)/.test(src), 'selection persists as the comma-joined reposRef the server already parses');
+  // Loader hits the new sources/repos endpoint and toggling the source primes it.
+  t.ok(/\/api\/compose\/sources\/repos/.test(src), 'loader calls the sources/repos endpoint');
+  t.ok(/else if \(s\.id === 'repos'\) this\.composeLoadRepos\(\)/.test(src), 'enabling the repos source loads the list');
+  // A manual fallback textarea only appears when the org/project list is empty.
+  t.ok(/x-show="!compose\.pickers\.reposLoading && !compose\.pickers\.repos\.length && compose\.pickers\.reposLoaded"[^>]*>[^<]*<label[^>]*>Or specify manually/.test(src.replace(/\n/g, ' ')) || /Or specify manually/.test(src), 'manual entry remains as a fallback when no repos are discovered');
+  // Server endpoint lists repos from the configured default org/project(s).
+  const server = readFileSync('server.js', 'utf8');
+  t.ok(/app\.get\('\/api\/compose\/sources\/repos'/.test(server), 'server exposes GET /api/compose/sources/repos');
+  t.ok(/_connectAdoTargets\(settings\.getSettings\(\)\)[\s\S]{0,600}azdo\.listRepos\(org, project\)/.test(server), 'endpoint lists repos across the configured ADO targets');
+  t.ok(/ref: `\$\{org\}\/\$\{project\}\/\$\{r\.name\}`/.test(server), 'each repo carries an org/project/name ref');
+});
+
 await t.done();

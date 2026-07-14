@@ -20554,8 +20554,26 @@
                               </div>
                               <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
                             </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.repos"><label>Repositories to reference</label>
-                              <textarea class="field-input" rows="2" style="resize:vertical" x-model="compose.current.sources.reposRef" @input="composeMarkBriefDirty()" placeholder="org/repo, org/repo2 or a local path — one per line or comma-separated"></textarea>
+                            <div class="nlx-fld" x-show="compose.current.sources.repos" x-init="compose.current.sources.repos && composeLoadRepos(); $watch('compose.current.sources.repos', v => v && composeLoadRepos())"><label>Repositories to reference</label>
+                              <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                                <input class="field-input" type="text" x-model="compose.pickers.repoQuery" placeholder="Filter repositories…" />
+                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadRepos(true)" :disabled="compose.pickers.reposLoading" title="Refresh repositories from your org/project">↻</button>
+                              </div>
+                              <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.reposLoading">Loading repositories…</div>
+                              <div class="hint" style="margin-bottom:4px" x-show="!compose.pickers.reposLoading && compose.pickers.reposNote" x-text="compose.pickers.reposNote"></div>
+                              <div class="cmpx-wilist" x-show="!compose.pickers.reposLoading && composeRepoFiltered().length">
+                                <template x-for="rp in composeRepoFiltered()" :key="rp.ref">
+                                  <button type="button" class="cmpx-wirow" :class="{ on: composeRepoIsSelected(compose.current.sources, rp.ref) }" @click="composeRepoToggle(compose.current.sources, rp, true)">
+                                    <span class="cbx" x-text="composeRepoIsSelected(compose.current.sources, rp.ref) ? '✓' : ''"></span>
+                                    <span class="mid"><span class="ti" x-text="rp.name"></span><span class="mt" x-text="rp.org + ' / ' + rp.project"></span></span>
+                                  </button>
+                                </template>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="compose.current.sources.reposRef">Selected: <span x-text="composeRepoSelectedList(compose.current.sources)"></span></div>
+                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.reposLoading && !compose.pickers.repos.length && compose.pickers.reposLoaded && !compose.pickers.reposNote">No repositories found — add an org/project in Settings, or type one below.</div>
+                              <div class="nlx-fld" x-show="!compose.pickers.reposLoading && !compose.pickers.repos.length && compose.pickers.reposLoaded" style="margin-top:6px"><label style="font-size:11px;opacity:.75">Or specify manually</label>
+                                <textarea class="field-input" rows="2" style="resize:vertical" x-model="compose.current.sources.reposRef" @input="composeMarkBriefDirty()" placeholder="org/project/repo, org/repo — one per line or comma-separated"></textarea>
+                              </div>
                               <div class="hint" style="margin-top:4px">The writer searches these repos for real code, docs & structure, and cites only what it can confirm.</div>
                             </div>
                             <div class="nlx-fld"><label>Reference links</label>
@@ -29132,6 +29150,7 @@
             pursuits: [], pursuitsLoaded: false, pursuitsLoading: false,
             wiQuery: '', wiResults: [], wiLoading: false, wiNote: '', _wiTimer: null,
             refs: [], refsLoaded: false, refsLoading: false,
+            repos: [], reposLoaded: false, reposLoading: false, reposNote: '', repoQuery: '',
           },
         },
         // ===== Newsletter (Connect diary → polished, emailable digest) =====
@@ -45533,6 +45552,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Prime the rail's source pickers for anything on by default.
             if (c.sources && c.sources.pr) this.composeLoadPRs();
             if (c.sources && c.sources.pursuit) this.composeLoadPursuits();
+            if (c.sources && c.sources.repos) this.composeLoadRepos();
             // No auto-generate: the empty stage invites the user to author the brief
             // in the rail, then hit ✨ Generate draft (parity with Newsletter).
           } catch (e) {
@@ -45550,6 +45570,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s.id === 'pr') this.composeLoadPRs();
             else if (s.id === 'pursuit') this.composeLoadPursuits();
             else if (s.id === 'composition') this.composeLoadCompositionRefs();
+            else if (s.id === 'repos') this.composeLoadRepos();
           }
         },
         composeSourceIsText(id) { const s = (this.compose.sourceCatalog || []).find(x => x.id === id); return !!(s && s.kind === 'text'); },
@@ -45654,6 +45675,45 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           sources.compositionRef = Array.from(ids).join(', ');
           if (markDirty) this.composeMarkBriefDirty();
         },
+        // --- Repository source picker (multi-select) -------------------------
+        // Auto-populated from the configured default org/project(s) so the user
+        // picks from a real list instead of hand-typing fragile org/repo strings.
+        // Chosen repo refs (org/project/name) are stored comma-joined in
+        // sources.reposRef — the exact format the server already splits + hands
+        // to the writer, so backward-compat with a manually typed value is kept.
+        async composeLoadRepos(force) {
+          const pk = this.compose.pickers;
+          if (pk.reposLoading || (pk.reposLoaded && !force)) return;
+          pk.reposLoading = true; pk.reposNote = '';
+          try {
+            const j = await this.request('/api/compose/sources/repos' + (force ? '?refresh=1' : ''));
+            pk.repos = (j && j.repos) || [];
+            pk.reposNote = (j && j.note) || '';
+            pk.reposLoaded = true;
+          } catch (_) { pk.repos = []; pk.reposNote = 'Could not load repositories.'; pk.reposLoaded = true; }
+          finally { pk.reposLoading = false; }
+        },
+        composeRepoFiltered() {
+          const pk = this.compose.pickers;
+          const q = String(pk.repoQuery || '').trim().toLowerCase();
+          if (!q) return pk.repos;
+          return pk.repos.filter(r => (r.name + ' ' + r.org + ' ' + r.project).toLowerCase().includes(q));
+        },
+        composeRepoSelectedRefs(sources) {
+          const raw = String((sources && sources.reposRef) || '');
+          return raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+        },
+        composeRepoIsSelected(sources, ref) { return this.composeRepoSelectedRefs(sources).includes(String(ref)); },
+        composeRepoSelectedList(sources) { return this.composeRepoSelectedRefs(sources).join(', '); },
+        composeRepoToggle(sources, repo, markDirty) {
+          if (!sources || !repo) return;
+          const refs = this.composeRepoSelectedRefs(sources);
+          const ref = String(repo.ref);
+          const i = refs.indexOf(ref);
+          if (i >= 0) refs.splice(i, 1); else refs.push(ref);
+          sources.reposRef = refs.join(', ');
+          if (markDirty) this.composeMarkBriefDirty();
+        },
         // ===== Unified writing assistant (lower-right FAB) — one chat panel that
         // dispatches to the Newsletter backend on the newsletter page and the
         // Compose.AI backend inside an open composition studio. =====
@@ -45737,6 +45797,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!c) throw new Error('Not found');
             this._composeSetCurrent(c);
             this.compose.view = 'studio';
+            if (c.sources && c.sources.pr) this.composeLoadPRs();
+            if (c.sources && c.sources.pursuit) this.composeLoadPursuits();
+            if (c.sources && c.sources.repos) this.composeLoadRepos();
           } catch (e) {
             this.toast('Could not open composition: ' + (e.message || e), 'error');
           } finally { this.compose.busy = false; }

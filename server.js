@@ -12386,6 +12386,45 @@ app.get('/api/compose/sources/pursuits', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/compose/sources/repos → the repositories under the configured default
+// org(s)/project(s), so the Sources rail can offer a real picker instead of a
+// fragile free-text box. Each item carries a `ref` (org/project/name) that is what
+// gets stored in sources.reposRef and handed to the writer.
+app.get('/api/compose/sources/repos', async (req, res) => {
+  try {
+    const targets = _connectAdoTargets(settings.getSettings());
+    if (!targets.length) return res.json({ ok: true, repos: [], note: 'No Azure DevOps org configured in Settings.' });
+    const withTimeout = (p, ms) => Promise.race([
+      p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms)),
+    ]);
+    const out = [];
+    const errors = [];
+    for (const { org, projects } of targets) {
+      for (const project of projects) {
+        try {
+          const repos = await withTimeout(azdo.listRepos(org, project), 8000);
+          for (const r of (repos || [])) {
+            if (!r || !r.name) continue;
+            out.push({
+              id: `${org}/${project}/${r.name}`,
+              name: r.name, org, project, provider: 'azdo',
+              ref: `${org}/${project}/${r.name}`,
+              defaultBranch: r.defaultBranch || '',
+            });
+          }
+        } catch (e) { errors.push(`${org}/${project}: ${(e && e.message) || 'list failed'}`); }
+      }
+    }
+    // De-dupe by ref, keep first, sort by org/project/name, cap.
+    const seen = new Set();
+    const repos = out
+      .filter(r => (seen.has(r.ref) ? false : (seen.add(r.ref), true)))
+      .sort((a, b) => a.ref.localeCompare(b.ref))
+      .slice(0, 300);
+    res.json({ ok: true, repos, errors: errors.length ? errors : undefined });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/compose/sources/workitems?q=<title> → search ADO work items whose
 // title contains the query, across the configured org(s)/project(s). Requires a
 // query so we never dump the whole backlog.
