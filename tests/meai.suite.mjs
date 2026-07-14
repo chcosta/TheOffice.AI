@@ -12,6 +12,7 @@
 // offline.
 
 import { createRunner, extractFns, sliceSource, api, serverUp } from './lib/harness.mjs';
+import { readFileSync } from 'node:fs';
 
 const SERVER = 'server.js';
 const t = createRunner('meai');
@@ -622,6 +623,65 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 12b. BUG 3 — investigate fan-out never degrades to a single answer turn.
+// When the AI planner returns no angles, _meAiFallbackFanout must synthesize real
+// parallel legs straight from the steer so an "also investigate X and Y" directive
+// always lights up the map instead of a lone agent narrating a plan it never ran.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const { _meAiFallbackFanout } = extractFns(SERVER, ['_meAiFallbackFanout']);
+  await t.test('fallback fan-out splits multiple named targets into one leg each', () => {
+    const legs = _meAiFallbackFanout(
+      { _steerNote: 'Follow-up from me: you should also investigate dotnet-helix-machines and dotnet-helix-service' },
+      { goal: 'Helix UX effort' });
+    t.ok(legs.length >= 2, 'at least two parallel legs');
+    const titles = legs.map(l => l.title).join(' | ');
+    t.ok(/dotnet-helix-machines/.test(titles), 'a leg targets dotnet-helix-machines');
+    t.ok(/dotnet-helix-service/.test(titles), 'a leg targets dotnet-helix-service');
+    t.ok(legs.every(l => l.kind === 'branch' && l.lane && l.title && l.goal), 'each leg has kind/lane/title/goal');
+    t.ok(legs.every(l => l.goal.length <= 600 && l.title.length <= 80), 'legs stay within caps');
+  });
+  await t.test('fallback fan-out gives a vague steer two generic angles (scout + branch)', () => {
+    const legs = _meAiFallbackFanout({ _steerNote: 'Take a different approach on this. dig deeper here' }, { goal: 'g' });
+    t.eq(legs.length, 2, 'exactly two angles');
+    const kinds = legs.map(l => l.kind).sort().join(',');
+    t.eq(kinds, 'branch,scout', 'one scout to locate sources, one branch to deep-dive');
+    t.ok(!/Follow-up from me:|Take a different approach/i.test(legs.map(l => l.goal).join(' ')), 'framing prefix is stripped from the goal');
+  });
+  await t.test('BUG 3 — investigate route forces fan-out end to end', () => {
+    const src = readFileSync(SERVER, 'utf8');
+    // orchestrator degradation guard consults opts.forceFanout before the single-spine answer
+    t.ok(/if \(!cands\.length && opts\.forceFanout\)/.test(src), 'orchestrate calls the fallback when a forced fan-out found no angles');
+    t.ok(/cands = _meAiFallbackFanout\(t, spine\)/.test(src), 'it uses the deterministic fallback');
+    // reAct threads forceFanout down into orchestrate
+    const react = sliceSource(SERVER, 'function _meAiTreeReAct(t, intent, text, label, opts) {', '\n// via _meAiTreeReAct');
+    t.ok(/const forceFanout = !!\(opts && opts\.forceFanout\)/.test(react), 'reAct reads opts.forceFanout');
+    t.ok(/forceFanout: forceFanout/.test(react), 'reAct passes it to orchestrate');
+    // the classified-investigate route requests it
+    t.ok(/_meAiTreeReAct\(t, 'continue', b\.text, b\.label \|\| 'New direction', \{ forceFanout: true \}\)/.test(src),
+      'the investigate branch fires a forced fan-out');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12c. BUG 2 — resume re-drives stalled legs even while the pursuit reads "running".
+// The recurring "2 to resume → 0 resumed" was the running-branch bailing with
+// resumed:0; it must now re-run the orphaned blocked legs directly.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  await t.test('resume running-branch re-drives stalled legs instead of bailing', () => {
+    // slice the stalled-exists tail of the resume route (AFTER the `if (!stalled.length)`
+    // block, whose own running bail with resumed:0 is legitimate — nothing to re-drive there).
+    const run = sliceSource(SERVER, 'let rerunR = 0;', '// Reflect recovery at the TASK level');
+    t.ok(run.length > 0, 'resume stalled+running branch found');
+    t.ok(/for \(const sl of stalled\)/.test(run), 'it iterates the stalled legs');
+    t.ok(/await _meAiRunLeg\(t, leg\)/.test(run), 'it re-drives each stalled leg directly while running');
+    t.ok(/return res\.json\(\{ ok: true, resumed: rerunR, rerun: rerunR, running: true, stalled \}\)/.test(run), 'it reports the real re-driven count, not 0');
+    t.ok(/resumed-stalled/.test(run), 'a ledger entry records the direct re-runs');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Director resume honesty — the /director/resume route must flip the task out of
 // its error/idle state SYNCHRONOUSLY (clear error + _meAiSetStage 'working' +
 // emit a stage event) BEFORE scheduling the leg reruns / spine re-engagement.
@@ -711,6 +771,21 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
     t.ok(h.includes('Tool · grep'), 'labels a tool call with its tool name');
     t.ok(!/<script/i.test(h), 'no script leaks through');
     t.eq(B._meAiBundleEventsHtml([]), '<p class="muted">No captured transcript.</p>');
+  });
+  await t.test('BUG 1 — bundle transcript captures tool args + results, not bare labels', () => {
+    const h = B._meAiBundleEventsHtml([
+      { kind: 'tool_start', tool: 'grep', args: { pattern: 'wait-time', glob: '*.cs' } },
+      { kind: 'tool_complete', tool: 'grep', result: 'src/Queue.cs:42 matched', success: true },
+      { kind: 'tool_complete', tool: 'run', error: 'exit 1', success: false },
+    ]);
+    t.ok(/<pre class="io">/.test(h), 'renders tool I/O in a pre block');
+    t.ok(h.includes('wait-time') && h.includes('pattern'), 'tool args JSON is surfaced');
+    t.ok(h.includes('src/Queue.cs:42 matched'), 'tool result is surfaced');
+    t.ok(h.includes('exit 1'), 'a failed tool falls back to its error text');
+    t.ok(/Tool result · grep/.test(h), 'a completed tool is labelled with its name');
+    t.ok(/Tool result · run · failed/.test(h), 'a failed tool is marked failed');
+    // an empty-but-typed tool event still gets skipped (no bare label noise)
+    t.eq(B._meAiBundleEventsHtml([{ kind: 'tool_start', tool: '' }]), '<p class="muted">No captured transcript.</p>');
   });
 
   const bundleSrc = sliceSource(SERVER, 'function _meAiExportBundle(id) {', '\napp.get(\'/api/me-ai/task/:id/export/bundle.zip\'');

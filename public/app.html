@@ -43564,7 +43564,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/resume', { method: 'POST', body: JSON.stringify({}) });
             if (r && r.ok === false) { this.toast && this.toast(r.message || 'Could not resume: ' + (r.error || 'unknown')); }
-            else if (r && r.running) { this.toast && this.toast('Already running — picking up where it left off.'); }
+            else if (r && r.running) { this.toast && this.toast((r.resumed || 0) > 0 ? ('Re-driving ' + r.resumed + ' stalled ' + (r.resumed === 1 ? 'leg' : 'legs') + ' — the rest is already running.') : 'Already running — picking up where it left off.'); }
             else if (r && r.done) { this.toast && this.toast('This pursuit is already complete — nothing left to resume.'); }
             else if (r && r.nudged) { this.toast && this.toast('Nudged the pursuit to continue…'); }
             else { this.toast && this.toast('Resuming ' + (r.resumed || 0) + ' stalled ' + ((r.resumed === 1) ? 'leg' : 'legs') + '…'); }

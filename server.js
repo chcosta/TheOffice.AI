@@ -23247,8 +23247,10 @@ function _meAiFoldLeg(t, leg, r) {
   try {
     if (!t || !leg || !r) return;
     const outIcon = { 'dead-end': '✖', 'needs-auth': '⏸', 'needs-info': '❓', 'needs-decision': '⚖' };
-    const top = (Array.isArray(r.findings) ? r.findings : []).slice(0, 3)
-      .map(f => '• ' + String(f.claim || '').slice(0, 200)).filter(Boolean);
+    // Surface the leg's findings in FULL — the chat is where the user reads the pursuit's
+    // work, so never quietly drop findings past an arbitrary count or clip them mid-thought.
+    const top = (Array.isArray(r.findings) ? r.findings : []).slice(0, 20)
+      .map(f => '• ' + String(f.claim || '').slice(0, 400)).filter(Boolean);
     _meAiEmit(t, {
       kind: 'fold',
       leg: leg.title || 'A pursuit leg',
@@ -23257,7 +23259,7 @@ function _meAiFoldLeg(t, leg, r) {
       outcome: r.outcome || 'done',
       confidence: r.confidence || 'medium',
       icon: outIcon[r.outcome] || '✔',
-      text: String(r.summary || '').slice(0, 900),
+      text: String(r.summary || '').slice(0, 6000),
       findings: top,
       question: r.outcome === 'needs-info' || r.outcome === 'needs-decision' ? (r.question || null) : null,
       proposed: r.proposedAction ? (r.proposedAction.summary || r.proposedAction.op || null) : null,
@@ -24655,8 +24657,9 @@ function _meAiSteerBlock(t) {
 // Unlike _meAiActRun (a flat single turn that never touches the canvas), this bumps
 // the epoch, spawns a fresh spine leg carrying the steer, and re-runs the fan-out
 // orchestrator in replan mode so the map keeps growing and the report reflects it.
-function _meAiTreeReAct(t, intent, text, label) {
+function _meAiTreeReAct(t, intent, text, label, opts) {
   const id = t.id;
+  const forceFanout = !!(opts && opts.forceFanout);
   const steer = (text && String(text).trim()) ? String(text).trim().slice(0, 1200) : '';
   _meAiSchedule(async () => {
     try {
@@ -24696,7 +24699,7 @@ function _meAiTreeReAct(t, intent, text, label) {
       });
       t._spineId = spine.id;
       _meAiTreeEmit(id, 'leg_spawn', { leg: spine });
-      await _meAiTreeOrchestrate(t, spine, { replan: true });
+      await _meAiTreeOrchestrate(t, spine, { replan: true, forceFanout: forceFanout });
     } catch (e) {
       _meAiTreeMirror(t, 'Re-engagement error: ' + String(e.message || e));
       _meAiSetStage(t, 'error', 'error');
@@ -24879,9 +24882,53 @@ function _meAiClassifyFollowup(text) {
   return 'answer';
 }
 
-// Top-level tree orchestration for a fresh tree task.
-async function _meAiTreeOrchestrate(t, spine, opts = {}) {
-  const id = t.id;
+  // When the user gives an explicit "investigate / also look into X and Y" directive but the
+  // AI planner returns NO parallel angles (it failed, timed out, or wrongly judged the steer
+  // "linear"), we must NOT collapse to a single answer turn — that is the reported bug where a
+  // fan-out directive quietly became one agent narrating a plan it never executed. Derive a
+  // deterministic minimal fan-out straight from the steer so an investigate directive ALWAYS
+  // puts real parallel legs on the map. Pure + synchronous (no AI) so it can't fail the same way.
+  function _meAiFallbackFanout(t, spine) {
+    let steer = String((t && t._steerNote) || (spine && spine.goal) || '').trim();
+    // Strip the framing prefix _meAiTreeReAct stamps onto the steer note.
+    steer = steer.replace(/^(follow-up from me:|take a different approach on this\.?|take a different approach:?)\s*/i, '').trim();
+    if (!steer) steer = String((t && (t.goal || _meAiGoalFor(t))) || 'the goal').trim();
+    // Pull out concrete named targets: "quoted phrases" and repo/service-style hyphen or slash
+    // tokens (e.g. dotnet-helix-machines, org/repo). Two+ distinct targets → one leg each.
+    const targets = [];
+    const seen = new Set();
+    const push = (raw) => {
+      const v = String(raw || '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+      if (!v || v.length < 3 || v.length > 80) return;
+      const k = v.toLowerCase();
+      if (seen.has(k)) return; seen.add(k); targets.push(v);
+    };
+    const quoted = steer.match(/["'`]([^"'`]{3,80})["'`]/g) || [];
+    for (const q of quoted) push(q);
+    const hyph = steer.match(/\b[a-z0-9][a-z0-9.]*(?:[-/][a-z0-9.]+)+\b/gi) || [];
+    for (const h of hyph) push(h);
+    const legs = [];
+    if (targets.length >= 2) {
+      for (const tg of targets.slice(0, 5)) {
+        legs.push({ kind: 'branch',
+          title: ('Investigate ' + tg).slice(0, 80),
+          goal: ('Investigate ' + tg + ' in service of: ' + steer + '. Read-only — dig in thoroughly and report concrete specifics with sources; PROPOSE (do not take) any gated action.').slice(0, 600) });
+      }
+    } else {
+      const subj = targets[0] || steer;
+      legs.push({ kind: 'scout',
+        title: ('Locate the sources for ' + subj).slice(0, 80),
+        goal: ('Locate and survey the real sources relevant to: ' + steer + '. Read-only — find where it actually lives (GitHub org-wide, Azure DevOps, the web) and report what you find with links.').slice(0, 600) });
+      legs.push({ kind: 'branch',
+        title: ('Deep-dive: ' + subj).slice(0, 80),
+        goal: ('Deep-dive investigation of: ' + steer + '. Read-only — gather concrete evidence, data, and sources; PROPOSE (do not take) any gated action.').slice(0, 600) });
+    }
+    return legs.map((l, i) => ({ kind: l.kind === 'branch' ? 'branch' : 'scout', lane: (l.kind === 'scout' ? 'r' : 'l') + (i + 1), title: l.title, goal: l.goal }));
+  }
+
+  // Top-level tree orchestration for a fresh tree task.
+  async function _meAiTreeOrchestrate(t, spine, opts = {}) {
+    const id = t.id;
   const startedMs = Date.now();
   // Give the pursuit ONE shared, scannable workspace. Unless a real code worktree was
   // already resolved (dev-card implement/steward keeps its repo cwd), every leg + the spine
@@ -24903,6 +24950,13 @@ async function _meAiTreeOrchestrate(t, spine, opts = {}) {
     if (!cands.length) {
       _meAiTreeMirror(t, replan ? 'Re-planning the angles around your steer…' : 'Planning the angles worth pursuing in parallel…');
       cands = await _meAiTreePlan(t, spine);
+    }
+    if (!cands.length && opts.forceFanout) {
+      // Explicit investigate directive, but the AI planner produced no angles. Never degrade
+      // a fan-out request to a single answer turn — synthesize a deterministic fan-out from
+      // the steer so the user always sees parallel legs light up on the map.
+      cands = _meAiFallbackFanout(t, spine);
+      if (cands.length) _meAiTreeMirror(t, `The planner didn't return angles, so I split your request into ${cands.length} parallel ${cands.length === 1 ? 'pursuit' : 'pursuits'} directly.`);
     }
     if (!cands.length) {
       // Genuinely linear goal -> single spine turn (still journaled as a tree).
@@ -26923,7 +26977,26 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     }
     if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' });
     if (!t || t.mode !== 'tree') return res.status(400).json({ ok: false, error: 'not-a-pursuit' });
-    if (running) return res.json({ ok: true, resumed: 0, running: true, stalled });
+    if (running) {
+      // The task reads "running" because a DIFFERENT leg/wave is live — but there are ALSO
+      // stalled blocked legs a restart orphaned (they never reach the desk and the running
+      // spine re-plans AROUND them, so they linger "Blocked" forever). Bailing here with
+      // resumed:0 is exactly the recurring "2 to resume → 0 resumed" bug. Re-drive just the
+      // stuck legs directly (read-only/idempotent; any external action stays permission-gated),
+      // but DON'T re-engage the spine — that would stack a duplicate wave on the live one.
+      let rerunR = 0;
+      for (const sl of stalled) {
+        const leg = tree.legs && tree.legs[sl.legId];
+        if (!leg) continue;
+        rerunR++;
+        _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
+      }
+      try {
+        const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
+        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: rerunR + ' stalled ' + (rerunR === 1 ? 'leg was' : 'legs were') + ' re-driven while the pursuit was otherwise running (no new spine wave, to avoid duplication).', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+      } catch (_) {}
+      return res.json({ ok: true, resumed: rerunR, rerun: rerunR, running: true, stalled });
+    }
     // Reflect recovery at the TASK level SYNCHRONOUSLY, before scheduling anything. The
     // leg re-runs + the spine re-engagement below all go through the concurrency gate
     // (ME_AI_MAX_CONCURRENT), so the stage-flip inside _meAiTreeReAct is queued BEHIND the
@@ -27095,20 +27168,35 @@ function _meAiFmtDurMs(ms) {
 // a quiet kind label per block). No pills, self-contained.
 function _meAiBundleEventsHtml(evs) {
   const out = [];
+  const asStr = (v) => {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    try { return JSON.stringify(v, null, 2); } catch (_) { return String(v); }
+  };
+  const clip = (s, n) => { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '\n… (truncated)' : s; };
   for (const ev of (evs || [])) {
     const kind = String((ev && ev.kind) || '').toLowerCase();
     const txt = String((ev && (ev.text || ev.summary)) || '').trim();
     const tool = (ev && ev.tool) || '';
-    if (!txt && !tool) continue;
+    const isToolStart = kind === 'tool_start' || kind === 'tool';
+    const isToolDone = kind === 'tool_complete' || kind === 'tool_result';
+    // Tool calls carry their signal in args/result, not in .text — surface both so the
+    // transcript captures the actual reasoning + tool I/O, not just a bare label.
+    const toolArgs = isToolStart ? asStr(ev && ev.args) : '';
+    const toolResult = isToolDone ? asStr(ev && (ev.result != null ? ev.result : (ev.output != null ? ev.output : ev.error))) : '';
+    if (!txt && !tool && !toolArgs && !toolResult) continue;
     let label = kind || 'event', who = kind;
     if (kind === 'thinking') label = 'Thinking';
     else if (kind === 'response') label = 'Response';
     else if (kind === 'question') label = 'Asked you';
     else if (kind === 'note') label = 'Note';
     else if (kind === 'error') label = 'Problem';
+    else if (isToolDone) label = 'Tool result' + (tool ? ' · ' + tool : '') + (ev && ev.success === false ? ' · failed' : '');
     else if (kind.startsWith('tool')) label = 'Tool · ' + (tool || 'call');
     else if (kind === 'report' || kind === 'fold') label = 'Fold-back';
-    const body = txt ? '<div class="b">' + _meAiBundleEsc(txt).replace(/\n/g, '<br>') + '</div>' : '';
+    let body = txt ? '<div class="b">' + _meAiBundleEsc(txt).replace(/\n/g, '<br>') + '</div>' : '';
+    if (toolArgs) body += '<pre class="io">' + _meAiBundleEsc(clip(toolArgs, 6000)) + '</pre>';
+    if (toolResult) body += '<pre class="io">' + _meAiBundleEsc(clip(toolResult, 12000)) + '</pre>';
     out.push('<div class="ev ' + _meAiBundleEsc(who) + '"><div class="k">' + _meAiBundleEsc(label) + '</div>' + body + '</div>');
   }
   return out.length ? out.join('\n') : '<p class="muted">No captured transcript.</p>';
@@ -27128,6 +27216,7 @@ function _meAiBundlePage(title, subtitle, inner, backHref) {
     + '.ev .k{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;margin-bottom:5px}'
     + '.ev .b{white-space:normal;word-wrap:break-word}.ev.thinking{opacity:.85}.ev.response,.ev.report,.ev.fold{border-left:3px solid var(--ac)}'
     + '.ev.error{border-left:3px solid #cf222e}'
+    + '.ev pre.io{margin:7px 0 0;font-size:12px}'
     + 'ol.toc{list-style:none;padding:0;margin:0}ol.toc li{border-bottom:1px solid var(--bd);padding:11px 2px}ol.toc li:last-child{border-bottom:none}'
     + 'ol.toc a{font-weight:600;text-decoration:none}ol.toc a:hover{text-decoration:underline}.meta{color:var(--mut);font-size:13px;margin-top:2px}'
     + '.sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:26px 0 6px;border-bottom:1px solid var(--bd);padding-bottom:5px}'
@@ -27623,7 +27712,7 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
       // direction just got a one-shot reply, never another investigation effort).
       const verdict = _meAiClassifyFollowup(b.text);
       if (verdict === 'investigate') {
-        _meAiTreeReAct(t, 'continue', b.text, b.label || 'New direction');
+        _meAiTreeReAct(t, 'continue', b.text, b.label || 'New direction', { forceFanout: true });
         t.status = 'running';
         return res.json({ ok: true, routed: 'investigate', task: _meAiTaskPublic(t) });
       }
