@@ -808,4 +808,28 @@ await t.test('Director diagnosis explains zero automated handling + zero redunda
   t.ok(/\.meai-dir-why\s*\{/.test(src), 'why block CSS present');
 });
 
+await t.test('compose fullscreen fills width (real classes) + single fullscreen button (app.html)', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // Fullscreen must widen the capped wrap and NOT target the stale .cmpx-studio/.cmpx-stage
+  // classes that don't exist in the compose markup (real grid is .nlx-studio/.nlx-stage).
+  t.ok(/\.cmpx-fs\s+\.cmpx-wrap\s*\{[^}]*max-width:\s*none/.test(src), 'fullscreen wrap uncaps width');
+  t.ok(!/\.cmpx-fs\s+\.cmpx-studio\s*,\s*\.cmpx-fs\s+\.cmpx-stage/.test(src), 'stale .cmpx-studio/.cmpx-stage height rule removed');
+  // Exactly one fullscreen toggle button remains (the labeled header one).
+  const btnCount = (src.match(/@click="composeToggleFullscreen\(\)"/g) || []).length;
+  t.ok(btnCount === 1, 'exactly one compose fullscreen button (was two): ' + btnCount);
+});
+
+await t.test('me-ai run open: evicted DEEP run falls back to durable /tree map, never a blank page (app.html)', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // The plain /task/:id endpoint 404s once a finished/errored run leaves memory. Opening
+  // it must probe the durable /tree and open the pursuit map instead of stranding the user.
+  t.ok(/_meAiOpenTaskFallback\s*\(/.test(src), 'fallback helper defined');
+  t.ok(/\.catch\(\(\)\s*=>\s*\{\s*this\._meAiOpenTaskFallback\(id\)/.test(src), 'fetch failure routes to the fallback');
+  const m = src.match(/async\s+_meAiOpenTaskFallback\s*\(id\)\s*\{[\s\S]{0,600}?\n\s{8}\}/);
+  t.ok(!!m, 'fallback body found');
+  const body = m ? m[0] : '';
+  t.ok(/\/tree/.test(body) && /meAiPursuitOpen\(id\)/.test(body), 'fallback probes /tree + opens the pursuit map');
+  t.ok(/meAiAgentPageLeave\(\)/.test(body), 'no durable record → backs out cleanly (no blank agent page)');
+});
+
 await t.done();

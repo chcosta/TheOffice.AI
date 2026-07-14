@@ -20415,9 +20415,12 @@
               .cmpx-vrow{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--cp-border);font-size:13px}
               .cmpx-vrow:last-child{border-bottom:0}
               .cmpx-vrow .mn{flex:1}
-              /* Fullscreen */
-              .cmpx-fs{position:fixed;inset:0;z-index:60;background:var(--cp-bg);padding:16px 20px;overflow:auto}
-              .cmpx-fs .cmpx-studio,.cmpx-fs .cmpx-stage,.cmpx-fs .cmpx-chat{height:calc(100vh - 120px)}
+              /* Fullscreen: cover the whole viewport (above the topbar/quick-launch) and
+                 let the studio use the FULL width instead of the centered 1180/1520 column.
+                 Height stays content-driven (the prototype iframe auto-sizes; no forced nested
+                 scrollbar — the overlay itself scrolls if needed). */
+              .cmpx-fs{position:fixed;inset:0;z-index:1000;background:var(--cp-bg);padding:14px 22px;overflow:auto}
+              .cmpx-fs .cmpx-wrap{max-width:none;width:100%}
               /* Docked paired assistant (replaces the What-to-say brief) */
               .cmpx-wrap:has(.cmpx-paired){max-width:1520px}
               .nlx-studio.cmpx-paired.paired-open{grid-template-columns:300px minmax(0,1fr) var(--cmpx-pair-w,360px)}
@@ -20701,7 +20704,6 @@
                             <button type="button" @click="composeExport('json')">JSON</button>
                           </div>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.tab === 'history' }" @click="composeSetTab(compose.tab === 'history' ? 'compose' : 'history')" x-text="compose.tab === 'history' ? '← Back' : ('🕘 History (' + (compose.versions ? compose.versions.length : 0) + ')')"></button>
-                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="composeToggleFullscreen()" :title="compose.fullscreen ? 'Exit full screen' : 'Full screen'" x-text="compose.fullscreen ? '🗕' : '🗖'"></button>
                         </div>
                       </div>
 
@@ -21671,22 +21673,26 @@
                           <span class="dvx-idx-group-name" x-text="grp.label"></span>
                           <span class="dvx-idx-group-c" x-text="grp.items.length"></span>
                         </div>
-                        <template x-for="pr in grp.items" :key="'cfir-' + cfPrKey(pr)" x-if="!grp.label || cfGrpIsOpen(grp)">
-                          <button type="button" class="dvx-idx-row"
-                                  :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)), attn: cfIdxMeta(pr).attn }"
-                                  @click="cfPageSelect(pr)">
-                            <span class="dvx-idx-here" x-show="yahIsOn('pr:' + cfPrKey(pr))" title="You are here"></span>
-                            <span class="dvx-idx-main">
-                              <span class="dvx-idx-title" x-text="pr.title || ('PR ' + (pr.id || ''))"></span>
-                              <span class="dvx-idx-repo" x-show="pr.repo || pr.id" x-text="(pr.org ? pr.org + ' / ' : '') + (pr.repo || '') + (pr.id ? ((pr.repo ? '  ·  ' : '') + '#' + pr.id) : '')"></span>
-                              <span class="dvx-idx-attnrow" x-show="cfIdxMeta(pr).attn" :title="cfIdxMeta(pr).attnLabel">
-                                <span class="adot"></span><span x-text="cfIdxMeta(pr).attnLabel"></span>
-                              </span>
-                            </span>
-                            <span class="dvx-idx-status">
-                              <span class="sdot" :class="'st-' + cfIdxMeta(pr).tone" :title="cfIdxMeta(pr).label"></span>
-                            </span>
-                          </button>
+                        <template x-if="!grp.label || cfGrpIsOpen(grp)">
+                          <div class="dvx-idx-group-items">
+                            <template x-for="pr in grp.items" :key="'cfir-' + cfPrKey(pr)">
+                              <button type="button" class="dvx-idx-row"
+                                      :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)), attn: cfIdxMeta(pr).attn }"
+                                      @click="cfPageSelect(pr)">
+                                <span class="dvx-idx-here" x-show="yahIsOn('pr:' + cfPrKey(pr))" title="You are here"></span>
+                                <span class="dvx-idx-main">
+                                  <span class="dvx-idx-title" x-text="pr.title || ('PR ' + (pr.id || ''))"></span>
+                                  <span class="dvx-idx-repo" x-show="pr.repo || pr.id" x-text="(pr.org ? pr.org + ' / ' : '') + (pr.repo || '') + (pr.id ? ((pr.repo ? '  ·  ' : '') + '#' + pr.id) : '')"></span>
+                                  <span class="dvx-idx-attnrow" x-show="cfIdxMeta(pr).attn" :title="cfIdxMeta(pr).attnLabel">
+                                    <span class="adot"></span><span x-text="cfIdxMeta(pr).attnLabel"></span>
+                                  </span>
+                                </span>
+                                <span class="dvx-idx-status">
+                                  <span class="sdot" :class="'st-' + cfIdxMeta(pr).tone" :title="cfIdxMeta(pr).label"></span>
+                                </span>
+                              </button>
+                            </template>
+                          </div>
                         </template>
                       </div>
                     </template>
@@ -44765,8 +44771,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               // deliverable, so it isn't a collapsed section the user can't find.
               try { this.meai.mdOpen = this._meAiMdDefaultOpen(); } catch (_) {}
               this.$nextTick(() => { this._meAiConsoleScroll(); this.meAiConsoleFrame(); this._meAiConsoleObserve(); });
+            } else {
+              // 200 but no task body — treat like an eviction and try the durable record.
+              this._meAiOpenTaskFallback(id);
             }
-          }).catch(() => {});
+          }).catch(() => { this._meAiOpenTaskFallback(id); });
+        },
+        // The live task isn't in memory — it finished/errored and was evicted, or the
+        // server restarted. A DEEP (tree) pursuit still has a durable journal on disk, so
+        // reopen its map from `/tree` instead of stranding the user on a blank agent page
+        // (the plain /task/:id endpoint 404s once the task leaves memory). A simple
+        // single-thread run with no journal genuinely can't be reopened → back out cleanly.
+        async _meAiOpenTaskFallback(id) {
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(id) + '/tree');
+            if (r && r.tree && Array.isArray(r.tree.order) && r.tree.order.length) {
+              if (this.meai.console && this.meai.console.id === id) this.meai.console = null;
+              this.meAiPursuitOpen(id);
+              return;
+            }
+          } catch (_) {}
+          try { this.toast('This run is no longer available to open.', 'error'); } catch (_) {}
+          this.meAiAgentPageLeave();
         },
         meAiCloseConsole() {
           // Closing simply detaches — the task keeps running server-side and reports
