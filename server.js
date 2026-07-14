@@ -12106,25 +12106,30 @@ async function runComposeGeneration(id, runId) {
 }
 
 // Conversationally revise a composition draft. Returns { reply, draft? }; never saves.
-async function runComposeChat(id, { message, history, runId }) {
+async function runComposeChat(id, { message, history, runId, draft, attachments }) {
   const c = compose.getComposition(id);
   if (!c) throw new Error('Composition not found.');
   const msg = String(message || '').trim();
-  if (!msg) throw new Error('Say what you would like to change or ask about the composition.');
+  const atts = Array.isArray(attachments) ? attachments.filter(a => a && (a.ref || a.file)) : [];
+  if (!msg && !atts.length) throw new Error('Say what you would like to change or ask about the composition.');
   let _seq = 0;
   const emit = (icon, text, done) => {
     if (!text) return;
     try { broadcastSSE('compose-progress', { id, runId: runId || null, chat: true, icon, text, done: !!done, at: Date.now(), seq: ++_seq }); } catch (_) { /* ignore */ }
   };
-  emit('💬', 'Reading your feedback…');
+  emit('💬', atts.length ? 'Reading your message and attached image(s)…' : 'Reading your feedback…');
   const { block } = _composeSourceContext(c);
   const p = compose.purposeById(c.purpose) || { label: c.purpose };
-  const curDraft = String((c.draft && c.draft.content) || '').trim();
+  // Honour the live editor buffer the client sends (unsaved edits) over the stored draft.
+  const curDraft = String(draft != null ? draft : ((c.draft && c.draft.content) || '')).trim();
   const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
     const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
     return `${role}: ${String((h && h.content) || (h && h.text) || '').trim()}`;
   }).filter(Boolean).join('\n') || '(none)';
   const isSite = c.format === 'site';
+  const attBlock = atts.length
+    ? atts.map(a => `- ${a.ref || ('assets/' + a.file)}${a.name ? ` (original: ${a.name})` : ''}`).join('\n')
+    : '';
   const prompt = [
     'You are revising my composition through conversation. Follow your output protocol exactly.',
     'INVESTIGATE BEFORE YOU REVISE when my feedback references something (a PR, meeting, work item, initiative) that is thin or absent — use the sources and tools to gather the real details, then weave them in. Never a bare refusal; if you truly cannot substantiate something, say what you searched and propose the closest supported change.',
@@ -12141,6 +12146,14 @@ async function runComposeChat(id, { message, history, runId }) {
     `## Assets directory (reference saved assets as assets/<file>)`,
     compose.assetsDir(c.id),
     '',
+    ...(atts.length ? [
+      '## Images I just attached (already saved in the assets dir)',
+      attBlock,
+      'Embed the attached image(s) where they fit best'
+        + (isSite ? ' using an <img src="assets/…"> tag' : ' using Markdown — ![short caption](' + (atts[0].ref || ('assets/' + atts[0].file)) + ')')
+        + ', give each a relevant caption, place them near related content, and reflow the surrounding layout so it reads well. Do not drop any attached image unless I ask you to.',
+      '',
+    ] : []),
     '## Current draft' + (isSite ? ' (a full HTML document)' : ' (Markdown)'),
     curDraft || '(the draft is empty)',
     '',
@@ -12148,7 +12161,7 @@ async function runComposeChat(id, { message, history, runId }) {
     histLines,
     '',
     '## My latest message',
-    msg,
+    msg || '(no text — just embed the attached image(s) nicely and reflow the layout)',
     '',
     'If you revise, output the COMPLETE revised deliverable between ===DRAFT=== and ===END DRAFT=== '
       + (isSite ? '(a full self-contained HTML document, NO <script>).' : '(Markdown).')
@@ -12372,9 +12385,35 @@ app.post('/api/compose/:id/generate', async (req, res) => {
 // Conversationally revise the draft. Returns { reply, draft? } — never saves.
 app.post('/api/compose/:id/chat', async (req, res) => {
   try {
-    const { message, history, runId } = req.body || {};
-    const out = await runComposeChat(req.params.id, { message, history, runId });
+    const { message, history, runId, draft, attachments } = req.body || {};
+    const out = await runComposeChat(req.params.id, { message, history, runId, draft, attachments });
     res.json({ ok: true, ...out });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Accept an image the user pasted / dropped into the Compose assistant and save it
+// into THIS composition's assets dir so the editor can embed it as ![](assets/<file>).
+// Mirrors /api/newsletter/asset/upload — small JSON payload, no multer.
+app.post('/api/compose/:id/asset/upload', (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const b = req.body || {};
+    const dataUrl = String(b.dataUrl || '');
+    const m = dataUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'dataUrl must be a base64 image data URI.' });
+    const extMap = { jpeg: 'jpg', 'svg+xml': 'svg' };
+    let ext = m[1].toLowerCase();
+    ext = extMap[ext] || ext.replace(/[^a-z0-9]/g, '') || 'png';
+    const buffer = Buffer.from(m[2], 'base64');
+    if (!buffer.length) return res.status(400).json({ error: 'Empty image.' });
+    if (buffer.length > 12 * 1024 * 1024) return res.status(413).json({ error: 'Image too large (max 12 MB).' });
+    const dir = compose.assetsDir(c.id);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { /* exists */ }
+    const base = (String(b.name || 'upload').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)) || 'upload';
+    const file = `${base}-${Date.now().toString(36)}.${ext}`;
+    fs.writeFileSync(path.join(dir, file), buffer);
+    res.json({ ok: true, file, ref: `assets/${file}`, bytes: buffer.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

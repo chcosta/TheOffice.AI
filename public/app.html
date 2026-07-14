@@ -20256,7 +20256,7 @@
               <template x-if="compose.view === 'studio' && compose.current && !compose.loading">
                 <div>
                   <!-- ===== Studio: rail · stage · chat (parity with Newsletter studio) ===== -->
-                  <div class="nlx-studio" :class="{ 'chat-open': compose.chat.open }">
+                  <div class="nlx-studio">
 
                     <!-- LEFT RAIL: brief + sources live here, out of the content's way -->
                     <aside class="nlx-rail">
@@ -20393,7 +20393,6 @@
                             <button type="button" @click="composeExport('json')">JSON</button>
                           </div>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.tab === 'history' }" @click="composeSetTab(compose.tab === 'history' ? 'compose' : 'history')" x-text="compose.tab === 'history' ? '← Back' : ('🕘 History (' + (compose.versions ? compose.versions.length : 0) + ')')"></button>
-                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.chat.open }" @click="composeToggleChat()">💬 Revise</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="composeToggleFullscreen()" :title="compose.fullscreen ? 'Exit full screen' : 'Full screen'" x-text="compose.fullscreen ? '🗕' : '🗖'"></button>
                         </div>
                       </div>
@@ -20438,42 +20437,6 @@
                         <div class="nlx-empty" x-show="!compose.versions.length"><div class="big">🕘</div><p>No earlier versions yet. Each generation and saved edit is snapshotted here.</p></div>
                       </div>
                     </main>
-
-                    <!-- RIGHT: assistant chat -->
-                    <aside class="nlx-chat" x-show="compose.chat.open" x-transition.opacity.duration.120ms>
-                      <div class="nlx-chat-head"><strong style="font-size:13px">💬 Compose assistant</strong><button class="btn ghost" type="button" style="margin-left:auto;padding:4px 8px;font-size:12px" @click="composeToggleChat()">✕</button></div>
-                      <div id="composeChatScroll" class="nlx-chat-log">
-                        <p class="hint" x-show="!compose.chat.messages.length" style="margin:0">Ask for changes — “make it shorter”, “add a cost table”, “sharpen the ask”, “more executive tone”.</p>
-                        <template x-for="(m, i) in compose.chat.messages" :key="i">
-                          <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
-                            <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
-                            <div class="connect-chat-body md-output" x-html="renderMarkdown(m.text)"></div>
-                          </div>
-                        </template>
-                        <div class="connect-chat-msg" x-show="compose.chat.busy">
-                          <div class="connect-chat-role">Assistant</div>
-                          <div class="connect-chat-body">
-                            <div class="nlx-chat-activity" x-show="compose.chat.progress.length">
-                              <template x-for="(p, i) in compose.chat.progress" :key="i">
-                                <div class="nlx-chat-act-line"><span x-text="p.icon"></span> <span x-text="p.text"></span></div>
-                              </template>
-                            </div>
-                            <span class="hint" x-text="compose.chat.progress.length ? (compose.chat.progress[compose.chat.progress.length-1].icon + ' working…') : 'Reading your feedback…'"></span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="cmpx-pending" x-show="compose.chat.pendingDraft" style="margin:0 12px 8px">
-                        The assistant revised the draft.
-                        <div style="display:flex;gap:8px;margin-top:6px">
-                          <button class="btn primary" type="button" style="padding:4px 10px" @click="composeApplyPendingDraft()">Apply changes</button>
-                          <button class="btn ghost" type="button" style="padding:4px 10px" @click="composeDiscardPendingDraft()">Discard</button>
-                        </div>
-                      </div>
-                      <div class="nlx-chat-in">
-                        <textarea rows="2" x-model="compose.chat.input" placeholder="Message the assistant…" :disabled="compose.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); composeChatSend(); }"></textarea>
-                        <button class="btn primary" type="button" @click="composeChatSend()" :disabled="compose.chat.busy || !compose.chat.input.trim()" x-text="compose.chat.busy ? '…' : 'Send'"></button>
-                      </div>
-                    </aside>
                   </div>
 
                   <!-- Delivery modal -->
@@ -20877,7 +20840,7 @@
             <div x-show="newsletter.loading" class="hint" style="padding:20px 0">Loading…</div>
 
             <!-- ===== Studio: rail · stage · chat ===== -->
-            <div class="nlx-studio" :class="{ 'chat-open': newsletter.chat.open }" x-show="!newsletter.loading">
+            <div class="nlx-studio" x-show="!newsletter.loading">
 
               <!-- LEFT RAIL: config lives here, out of the content's way -->
               <aside class="nlx-rail">
@@ -21006,7 +20969,6 @@
                     </div>
                     <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="newsletter.tab !== 'history' && (!newsletter.preview || newsletter.draftDirty)" :disabled="newsletter.savingDraft || !newsletter.draftDirty" @click="saveNewsletterDraft()" x-text="newsletter.savingDraft ? 'Saving…' : (newsletter.draftDirty ? 'Save' : 'Saved')"></button>
                     <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: newsletter.tab === 'history' }" @click="newsletterSetTab(newsletter.tab === 'history' ? 'compose' : 'history')" x-text="(newsletter.tab === 'history' ? '← Back' : ('🕘 History (' + (newsletter.versions ? newsletter.versions.length : 0) + ')'))"></button>
-                    <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Revise</button>
                   </div>
                 </div>
 
@@ -21067,44 +21029,6 @@
                 </div>
               </main>
 
-              <!-- RIGHT: chat drawer -->
-              <aside class="nlx-chat" x-show="newsletter.chat.open" x-transition.opacity.duration.120ms
-                     :class="{ drop: newsletter.chat.dragging }"
-                     @dragover.prevent="newsletter.chat.dragging = true"
-                     @dragleave.prevent="newsletter.chat.dragging = false"
-                     @drop.prevent="newsletter.chat.dragging = false; newsletterChatDrop($event)">
-                <div class="nlx-chat-head"><strong style="font-size:13px">💬 Newsletter assistant</strong><button class="btn ghost" type="button" style="margin-left:auto;padding:4px 8px;font-size:12px" @click="newsletterToggleChat()">✕</button></div>
-                <div id="nlChatScroll" class="nlx-chat-log">
-                  <p class="hint" x-show="!newsletter.chat.messages.length" style="margin:0">Ask for changes — “punchier intro”, “add a chart for PR throughput”, “shorten to 3 stories”. Paste or drag images here to add them to the newsletter.</p>
-                  <template x-for="(m, i) in newsletter.chat.messages" :key="i">
-                    <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
-                      <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
-                      <div class="connect-chat-body md-output" x-html="renderMarkdown(m.text)"></div>
-                    </div>
-                  </template>
-                  <div class="connect-chat-msg" x-show="newsletter.chat.busy">
-                    <div class="connect-chat-role">Assistant</div>
-                    <div class="connect-chat-body">
-                      <div class="nlx-chat-activity" x-show="newsletter.chat.progress.length">
-                        <template x-for="(p, i) in newsletter.chat.progress" :key="i">
-                          <div class="nlx-chat-act-line"><span x-text="p.icon"></span> <span x-text="p.text"></span></div>
-                        </template>
-                      </div>
-                      <span class="hint" x-text="newsletter.chat.progress.length ? (newsletter.chat.progress[newsletter.chat.progress.length-1].icon + ' working…') : 'Reading your feedback…'"></span>
-                    </div>
-                  </div>
-                </div>
-                <div class="nlx-attach" x-show="newsletter.chat.attachments.length">
-                  <template x-for="(a, i) in newsletter.chat.attachments" :key="a.ref">
-                    <div class="chip" :title="a.name"><img :src="'/api/newsletter/asset/' + a.file" alt="" /><button type="button" @click="newsletterChatRemoveAttachment(i)">✕</button></div>
-                  </template>
-                  <div class="chip" x-show="newsletter.chat.uploading" style="display:flex;align-items:center;justify-content:center"><span class="hint" style="font-size:10px">…</span></div>
-                </div>
-                <div class="nlx-chat-in">
-                  <textarea rows="2" x-model="newsletter.chat.input" placeholder="Message the assistant… (paste an image to attach)" :disabled="newsletter.chat.busy" @paste="newsletterChatPaste($event)" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); newsletterChatSend(); }"></textarea>
-                  <button class="btn primary" type="button" @click="newsletterChatSend()" :disabled="newsletter.chat.busy || (!newsletter.chat.input.trim() && !newsletter.chat.attachments.length)">Send</button>
-                </div>
-              </aside>
             </div>
 
           </section>
@@ -28280,30 +28204,70 @@
     </template>
   </div>
 
-  <!-- Compose.AI launcher — start a proposal, alignment brief, status update,
-       one-pager, doc, or prototype. Only shown on the Compose.AI page itself.
-       NOTE: gated by inline `route`/`compose.fab.open` (always-present) rather than a
-       method call, so a stale mid-deploy load can never throw and blank other routes. -->
-  <template x-if="compose">
+  <!-- Unified writing assistant — one lower-right FAB opens a floating chat panel
+       that dispatches to the Newsletter backend on the newsletter page and the
+       Compose.AI backend inside an open composition studio. Replaces both studios'
+       inline "💬 Revise" drawer and the old Compose purpose-launcher FAB (creation
+       now lives in the in-page launcher). Gated by method-free-safe inline guards so
+       a stale mid-deploy load can never throw and blank other routes. -->
+  <style>
+    .asst-panel { position: fixed; right: 20px; bottom: 20px; z-index: 60;
+      width: 392px; max-width: calc(100vw - 40px);
+      height: min(70vh, 640px); min-height: 340px;
+      display: flex; flex-direction: column;
+      background: var(--cp-surface); color: var(--cp-text);
+      border: 1px solid var(--cp-border); border-radius: 14px;
+      box-shadow: 0 18px 48px rgba(0,0,0,.30); overflow: hidden; }
+    .asst-panel .nlx-chat-log { flex: 1; min-height: 0; }
+    .asst-panel.drop { outline: 2px dashed var(--cp-accent); outline-offset: -6px; }
+    @media (max-width: 520px) { .asst-panel { right: 12px; bottom: 12px; width: calc(100vw - 24px); height: 72vh; } }
+  </style>
+  <template x-if="compose && newsletter">
     <div>
-      <button class="board-ai-fab cmpx-fab" type="button"
-        x-show="route === 'compose' && !compose.fab.open"
+      <button class="board-ai-fab asst-fab" type="button"
+        x-show="asstCtx() && !asstPanelOpen()"
         x-transition.opacity.duration.150ms
-        @click="composeFabToggle()" title="Compose.AI — draft a proposal, alignment brief, status update, doc or prototype" aria-label="Open Compose.AI launcher">✍️</button>
-      <div class="cmpx-fab-backdrop" x-show="compose.fab.open" x-transition.opacity.duration.150ms @click.self="composeFabToggle()" x-cloak>
-        <div class="cmpx-fab-pop" x-show="compose.fab.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
-          <div class="cmpx-fab-head">
-            <div><div style="font-weight:600">✍️ Compose.AI</div><div class="hint">What do you want to create?</div></div>
-            <button class="icon-button" type="button" @click="composeFabToggle()" title="Close">✕</button>
+        @click="asstToggle()" :title="asstTitle() + ' — revise, ask, or attach images'" aria-label="Open the writing assistant">💬</button>
+      <div class="asst-panel"
+        x-show="asstCtx() && asstPanelOpen()" x-cloak
+        x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end"
+        :class="{ drop: asstChat() && asstChat().dragging }"
+        @dragover.prevent="asstSetDragging(true)"
+        @dragleave.prevent="asstSetDragging(false)"
+        @drop.prevent="asstSetDragging(false); asstDrop($event)">
+        <div class="nlx-chat-head">
+          <strong style="font-size:13px" x-text="asstTitle()"></strong>
+          <button class="btn ghost" type="button" style="margin-left:auto;padding:4px 8px;font-size:12px" @click="asstToggle()" title="Close">✕</button>
+        </div>
+        <div id="asstChatScroll" class="nlx-chat-log">
+          <p class="hint" x-show="asstChat() && !asstChat().messages.length" style="margin:0" x-text="asstEmptyHint()"></p>
+          <template x-for="(m, i) in (asstChat() ? asstChat().messages : [])" :key="i">
+            <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
+              <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
+              <div class="connect-chat-body md-output" x-html="renderMarkdown(m.text)"></div>
+            </div>
+          </template>
+          <div class="connect-chat-msg" x-show="asstChat() && asstChat().busy">
+            <div class="connect-chat-role">Assistant</div>
+            <div class="connect-chat-body">
+              <div class="nlx-chat-activity" x-show="asstChat() && asstChat().progress.length">
+                <template x-for="(p, i) in (asstChat() ? asstChat().progress : [])" :key="i">
+                  <div class="nlx-chat-act-line"><span x-text="p.icon"></span> <span x-text="p.text"></span></div>
+                </template>
+              </div>
+              <span class="hint" x-text="(asstChat() && asstChat().progress.length) ? (asstChat().progress[asstChat().progress.length-1].icon + ' working…') : 'Reading your feedback…'"></span>
+            </div>
           </div>
-          <div class="cmpx-fab-gallery">
-            <template x-for="p in compose.purposes" :key="p.id">
-              <button class="cmpx-fab-purpose" type="button" @click="composeFabPick(p.id)">
-                <span class="ic" x-text="p.icon || '📝'"></span>
-                <span class="tx"><span class="nm" x-text="p.label"></span><span class="bl" x-text="p.blurb"></span></span>
-              </button>
-            </template>
-          </div>
+        </div>
+        <div class="nlx-attach" x-show="asstChat() && asstChat().attachments && asstChat().attachments.length">
+          <template x-for="(a, i) in (asstChat() && asstChat().attachments ? asstChat().attachments : [])" :key="a.ref">
+            <div class="chip" :title="a.name"><img :src="asstAttachmentUrl(a)" alt="" /><button type="button" @click="asstRemoveAttachment(i)">✕</button></div>
+          </template>
+          <div class="chip" x-show="asstChat() && asstChat().uploading" style="display:flex;align-items:center;justify-content:center"><span class="hint" style="font-size:10px">…</span></div>
+        </div>
+        <div class="nlx-chat-in">
+          <textarea rows="2" :value="asstChat() ? asstChat().input : ''" @input="if(asstChat()) asstChat().input = $event.target.value" :placeholder="asstPlaceholder()" :disabled="asstChat() && asstChat().busy" @paste="asstPaste($event)" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); asstSend(); }"></textarea>
+          <button class="btn primary" type="button" @click="asstSend()" :disabled="!asstChat() || asstChat().busy || (!(asstChat().input||'').trim() && !(asstChat().attachments && asstChat().attachments.length))">Send</button>
         </div>
       </div>
     </div>
@@ -28924,8 +28888,7 @@
           diaryHasEvidence: false,
           view: 'launcher',       // 'launcher' | 'brief' | 'studio'
           fullscreen: false,
-          fab: { open: false },   // floating Compose.AI launcher popover
-          _pendingStart: null,    // purpose queued by the FAB, applied after load
+          _pendingStart: null,    // purpose queued by a deep link, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
                    sources: { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', m365: false, links: [], pasted: '' }, _linkInput: '' },
@@ -28946,7 +28909,7 @@
           notice: '',
           versions: [],
           showVersions: false,
-          chat: { open: true, busy: false, input: '', messages: [], progress: [], pendingDraft: null, _seen: null },
+          chat: { open: false, busy: false, input: '', messages: [], progress: [], attachments: [], uploading: false, dragging: false, runId: null, _seen: null },
           deliver: { open: false, to: '', subject: '' },
           // Source pickers: real pursuit / PR / work-item lists so the user
           // selects instead of typing raw refs. Populated lazily on demand.
@@ -31443,14 +31406,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 if (d.chat) {
                   const c = co.chat;
                   if (!c || !c.busy) return;
+                  if (c.runId && d.runId && d.runId !== c.runId) return;
                   if (!d.text) return;
                   const key = (d.seq != null) ? ('s' + d.seq) : ((d.at || '') + '|' + (d.icon || '') + '|' + d.text);
                   if (!c._seen) c._seen = new Set();
                   if (c._seen.has(key)) return;
                   c._seen.add(key);
+                  c._lastActivityAt = Date.now();   // feed the idle watchdog — the writer is alive
                   c.progress = c.progress || [];
                   c.progress.push({ icon: d.icon || '•', text: d.text, at: d.at || Date.now() });
                   if (c.progress.length > 40) c.progress.splice(0, c.progress.length - 40);
+                  this.$nextTick(() => this._composeChatScroll());
                   return;
                 }
                 if (!co.generating) return;
@@ -44909,7 +44875,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { c.uploading = false; }
         },
         _newsletterChatScroll() {
-          try { const el = document.getElementById('nlChatScroll'); if (el) el.scrollTop = el.scrollHeight; } catch {}
+          try { const el = document.getElementById('asstChatScroll'); if (el) el.scrollTop = el.scrollHeight; } catch {}
         },
         async emailNewsletter() {
           const nl = this.newsletter;
@@ -45185,19 +45151,60 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           sources.workitemsRef = Array.from(ids).sort((a, b) => a - b).map(n => 'AB#' + n).join(', ');
           if (markDirty) this.composeMarkBriefDirty();
         },
-        // Compose.AI launcher (lower-right FAB). Only shown on the Compose.AI page.
-        composeFabVisible() {
-          return this.route === 'compose';
+        // ===== Unified writing assistant (lower-right FAB) — one chat panel that
+        // dispatches to the Newsletter backend on the newsletter page and the
+        // Compose.AI backend inside an open composition studio. =====
+        asstCtx() {
+          if (this.route === 'newsletter') return 'newsletter';
+          if (this.route === 'compose' && this.compose && this.compose.view === 'studio' && this.compose.current) return 'compose';
+          return null;
         },
-        composeFabToggle() {
-          this.compose.fab.open = !this.compose.fab.open;
-          if (this.compose.fab.open && !this.compose.purposes.length) { this.loadCompose(); }
+        asstChat() {
+          const ctx = this.asstCtx();
+          if (ctx === 'newsletter') return this.newsletter.chat;
+          if (ctx === 'compose') return this.compose.chat;
+          return null;
         },
-        composeFabPick(purposeId) {
-          this.compose.fab.open = false;
-          this.compose._pendingStart = purposeId;
-          this.goTo('#/compose');
+        asstPanelOpen() { const c = this.asstChat(); return !!(c && c.open); },
+        asstTitle() { return this.asstCtx() === 'newsletter' ? '💬 Newsletter assistant' : '💬 Compose assistant'; },
+        asstEmptyHint() {
+          return this.asstCtx() === 'newsletter'
+            ? 'Ask for changes — “punchier intro”, “add a chart for PR throughput”, “shorten to 3 stories”. Paste or drag images here to add them to the newsletter.'
+            : 'Ask for changes — “make it shorter”, “add a cost table”, “sharpen the ask”, “more executive tone”. Paste or drag images to embed them.';
         },
+        asstPlaceholder() { return 'Message the assistant… (paste an image to attach)'; },
+        asstAttachmentUrl(a) {
+          if (!a) return '';
+          if (this.asstCtx() === 'newsletter') return '/api/newsletter/asset/' + a.file;
+          const co = this.compose;
+          return co && co.current ? ('/api/compose/' + encodeURIComponent(co.current.id) + '/asset/' + a.file) : '';
+        },
+        asstToggle() {
+          const ctx = this.asstCtx();
+          if (ctx === 'newsletter') return this.newsletterToggleChat();
+          if (ctx === 'compose') return this.composeToggleChat();
+        },
+        asstSend() {
+          const ctx = this.asstCtx();
+          if (ctx === 'newsletter') return this.newsletterChatSend();
+          if (ctx === 'compose') return this.composeChatSend();
+        },
+        asstPaste(ev) {
+          const ctx = this.asstCtx();
+          if (ctx === 'newsletter') return this.newsletterChatPaste(ev);
+          if (ctx === 'compose') return this.composeChatPaste(ev);
+        },
+        asstDrop(ev) {
+          const ctx = this.asstCtx();
+          if (ctx === 'newsletter') return this.newsletterChatDrop(ev);
+          if (ctx === 'compose') return this.composeChatDrop(ev);
+        },
+        asstRemoveAttachment(i) {
+          const ctx = this.asstCtx();
+          if (ctx === 'newsletter') return this.newsletterChatRemoveAttachment(i);
+          if (ctx === 'compose') return this.composeChatRemoveAttachment(i);
+        },
+        asstSetDragging(v) { const c = this.asstChat(); if (c) c.dragging = !!v; },
         _composeSetCurrent(c) {
           const co = this.compose;
           if (c && !c.sources) c.sources = this.composeSourcesDefault();
@@ -45211,7 +45218,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           co.tab = 'compose';
           co.preview = true;
           co.chat.messages = Array.isArray(c.chat) ? c.chat.map(m => ({ role: m.role, text: m.content || m.text || '' })) : [];
-          co.chat.pendingDraft = null;
+          co.chat.attachments = [];
+          co.chat.progress = [];
+          co.chat.input = '';
+          co.chat.busy = false;
           co.versions = [];
           co.showVersions = false;
           this.composeLoadVersions();
@@ -45343,37 +45353,99 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async composeChatSend() {
           const co = this.compose, c = co.chat;
           const msg = String(c.input || '').trim();
-          if (!msg || c.busy || !co.current) return;
-          c.messages.push({ role: 'user', text: msg });
+          const atts = (c.attachments || []).slice();
+          if ((!msg && !atts.length) || c.busy || !co.current) return;
+          let shown = msg;
+          if (atts.length) {
+            const thumbs = atts.map(a => '![' + (a.name || 'image') + '](' + this.asstAttachmentUrl(a) + ')').join(' ');
+            shown = (msg ? msg + '\n\n' : '') + thumbs;
+          }
+          c.messages.push({ role: 'user', text: shown });
           c.input = '';
+          c.attachments = [];
           c.busy = true;
+          c.runId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
           c.progress = [];
           c._seen = new Set();
+          c._lastActivityAt = Date.now();
           this.$nextTick(() => this._composeChatScroll());
+          // Idle watchdog — mirror the newsletter assistant. A deep-dive can run for many
+          // minutes, so we disable the absolute request timeout and only give up after a
+          // true silence (reset _lastActivityAt on every SSE compose-progress event).
+          const IDLE_MS = 300000, CEILING_MS = 45 * 60000;
+          const startedAt = Date.now();
+          const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+          let idleAborted = false;
+          const watchdog = setInterval(() => {
+            const silent = Date.now() - (c._lastActivityAt || startedAt);
+            if (silent > IDLE_MS || (Date.now() - startedAt) > CEILING_MS) { idleAborted = true; try { controller && controller.abort(); } catch {} }
+          }, 15000);
           try {
-            const history = c.messages.slice(-10).map(m => ({ role: m.role, content: m.text }));
+            const history = c.messages.slice(-12).map(m => ({ role: m.role, content: m.text }));
             const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/chat', {
-              method: 'POST', body: JSON.stringify({ message: msg, history }),
+              method: 'POST', timeoutMs: 0, signal: controller ? controller.signal : undefined, body: JSON.stringify({
+                message: msg || 'Please embed the attached image(s) where they fit and reflow the layout so it reads well.',
+                history, draft: co.draftText, runId: c.runId,
+                attachments: atts.map(a => ({ file: a.file, ref: a.ref, name: a.name })),
+              }),
             });
             const reply = (r && r.reply) || 'Done.';
             c.messages.push({ role: 'assistant', text: reply });
-            if (r && r.draft) { c.pendingDraft = r.draft; }
-            this.$nextTick(() => this._composeChatScroll());
+            // Apply the revised deliverable DIRECTLY (like the newsletter assistant) — no
+            // apply/discard step — then persist so history + preview stay in sync.
+            if (r && typeof r.draft === 'string' && r.draft.trim() && r.draft !== co.draftText) {
+              co.draftText = r.draft;
+              co.draftDirty = true;
+              this.composeSaveDraft();
+            }
           } catch (e) {
-            c.messages.push({ role: 'assistant', text: 'Sorry — that failed: ' + (e.message || e) });
-          } finally { c.busy = false; this.$nextTick(() => this._composeChatScroll()); }
+            const raw = String((e && e.message) || e || '');
+            const aborted = idleAborted || (e && e.name === 'AbortError');
+            const friendly = aborted
+              ? 'I didn’t hear anything back from the writer for a while, so I stopped waiting. Your draft is unchanged — send your message again and I’ll retry.'
+              : (/failed to fetch|networkerror|load failed/i.test(raw)
+                ? 'The connection dropped while I was investigating (this can happen on a long deep-dive or a server restart). Your draft is unchanged — send that again and I’ll pick up where I left off.'
+                : raw);
+            c.messages.push({ role: 'assistant', text: '⚠️ ' + friendly });
+          } finally {
+            clearInterval(watchdog);
+            c.busy = false;
+            c.runId = null;
+            c.progress = [];
+            c._lastActivityAt = null;
+            this.$nextTick(() => this._composeChatScroll());
+          }
         },
-        _composeChatScroll() { const el = document.getElementById('composeChatScroll'); if (el) el.scrollTop = el.scrollHeight; },
-        composeApplyPendingDraft() {
-          const co = this.compose;
-          if (!co.chat.pendingDraft) return;
-          co.draftText = co.chat.pendingDraft;
-          co.chat.pendingDraft = null;
-          co.draftDirty = true;
-          this.composeSaveDraft();
-        },
-        composeDiscardPendingDraft() { this.compose.chat.pendingDraft = null; },
+        _composeChatScroll() { try { const el = document.getElementById('asstChatScroll'); if (el) el.scrollTop = el.scrollHeight; } catch {} },
         composeToggleChat() { this.compose.chat.open = !this.compose.chat.open; },
+        // Compose assistant image attachments (paste / drag-drop) — save into THIS
+        // composition's asset dir so the writer can embed them as assets/<file>.
+        composeChatPaste(ev) {
+          const items = ev && ev.clipboardData && ev.clipboardData.items; if (!items) return;
+          const files = [];
+          for (const it of items) { if (it.kind === 'file' && /^image\//.test(it.type)) { const f = it.getAsFile(); if (f) files.push(f); } }
+          if (files.length) { ev.preventDefault(); this._composeUploadImages(files); }
+        },
+        composeChatDrop(ev) {
+          const dt = ev && ev.dataTransfer; if (!dt) return;
+          const files = Array.from(dt.files || []).filter(f => /^image\//.test(f.type));
+          if (files.length) this._composeUploadImages(files);
+        },
+        composeChatRemoveAttachment(i) { this.compose.chat.attachments.splice(i, 1); },
+        async _composeUploadImages(files) {
+          const co = this.compose, c = co.chat;
+          if (!co.current) return;
+          c.uploading = true;
+          try {
+            for (const f of files) {
+              if (f.size > 12 * 1024 * 1024) { this.toast('Image too large (max 12MB): ' + f.name, 'error'); continue; }
+              const dataUrl = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f); });
+              const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/asset/upload', { method: 'POST', body: JSON.stringify({ name: f.name || 'image.png', dataUrl }) });
+              if (r && r.file) c.attachments.push({ file: r.file, ref: r.ref || ('assets/' + r.file), name: f.name || r.file });
+            }
+          } catch (e) { this.toast('Upload failed: ' + (e.message || e), 'error'); }
+          finally { c.uploading = false; }
+        },
         // Delivery + export.
         composeCanEmail() { const co = this.compose; return co.current && co.current.format !== 'site' && (co.draftText || '').trim(); },
         composeOpenDeliver() {

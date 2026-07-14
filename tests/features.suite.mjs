@@ -18,9 +18,11 @@
 // /api/settings — so they are covered via those backing endpoints rather than
 // an invented URL.
 
+import { readFileSync } from 'node:fs';
 import { createRunner, extractFns, api, serverUp } from './lib/harness.mjs';
 
 const SERVER = 'server.js';
+const APP_HTML = 'public/app.html';
 
 const t = createRunner('features.suite');
 
@@ -184,6 +186,33 @@ await t.test('appearance/home: GET /api/settings returns a settings object', asy
   await probe('/api/settings', (j) => {
     t.ok(j && typeof j === 'object' && !Array.isArray(j), 'settings is an object');
   });
+});
+
+// --- Unified writing assistant (newsletter + compose share one FAB panel) ---
+// Locks in the shared, context-dispatched assistant: one floating panel gated on
+// asstCtx() (newsletter route OR an open compose studio), replacing the old inline
+// "Revise" drawer + embedded compose chat aside. Guards against regressing to the
+// per-feature FABs / duplicate chat panels or leaving stale references behind.
+await t.test('assistant: unified FAB panel is context-dispatched, no stale refs', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // The shared FAB + panel gate on asstCtx() (visible on newsletter + compose studio only).
+  t.ok(/x-show="asstCtx\(\) && !asstPanelOpen\(\)"/.test(html), 'FAB button gates on asstCtx() && !asstPanelOpen()');
+  t.ok(/x-show="asstCtx\(\) && asstPanelOpen\(\)"/.test(html), 'floating panel gates on asstCtx() && asstPanelOpen()');
+  t.ok(/asstCtx\s*\(\s*\)\s*\{/.test(html), 'asstCtx() is defined');
+  // asstCtx returns compose only inside an open studio, so the FAB never shows on the launcher.
+  t.ok(/route === 'compose' && this\.compose && this\.compose\.view === 'studio' && this\.compose\.current/.test(html),
+    'asstCtx() restricts compose to an open studio with a current composition');
+
+  // Dispatch layer routes to the correct backend for each context.
+  for (const fn of ['asstSend', 'asstToggle', 'asstPaste', 'asstDrop', 'asstRemoveAttachment', 'asstChat', 'asstAttachmentUrl']) {
+    t.ok(new RegExp('\\b' + fn + '\\s*\\(').test(html), fn + ' is wired');
+  }
+
+  // No stale references to the removed per-feature FAB / pending-draft apply-discard flow.
+  for (const dead of ['composeFab', 'pendingDraft', 'composeApplyPendingDraft', 'composeDiscardPendingDraft']) {
+    t.ok(!new RegExp('\\b' + dead + '\\b').test(html), 'no stale reference to ' + dead);
+  }
 });
 
 await t.done();
