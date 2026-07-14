@@ -28417,6 +28417,38 @@ function _pulseMonitorSelection(s) {
   }
   return out;
 }
+// A richer, WorkIQ-free summary of the monitoring selection for the header chip:
+// team count, total channel count (explicit picks + cached all-channels counts),
+// and which teams have shown recent activity (present in today's monitored gather).
+function _pulseMonitorSummary(s, date) {
+  s = s || settings.getSettings();
+  const sel = _pulseMonitorSelection(s);
+  const cat = _pulseLoadTeamsCatalog();
+  const catById = new Map((cat.teams || []).map(t => [String(t.id), t]));
+  let channels = 0;
+  let allTeams = 0;        // teams watching ALL channels
+  let channelsKnown = true; // false if an all-channels team's channel count isn't cached yet
+  for (const t of sel) {
+    if (t.channels && t.channels.length) { channels += t.channels.length; continue; }
+    allTeams++;
+    const ct = catById.get(t.teamId);
+    if (ct && Array.isArray(ct.channels)) channels += ct.channels.length;
+    else channelsKnown = false;
+  }
+  // Recent activity = the team appears in today's monitored gather (a per-day file of
+  // the last ~3 days of messages from the watched channels). Match by team name.
+  let activeTeams = [];
+  try {
+    const store = _pulseLoadMonitored(date || _meAiLocalDay());
+    const activeNames = new Set();
+    for (const it of (store.items || [])) {
+      const tn = String((it && it.channel) || '').split(' › ')[0].trim().toLowerCase();
+      if (tn) activeNames.add(tn);
+    }
+    activeTeams = sel.filter(t => activeNames.has(String(t.teamName || '').toLowerCase())).map(t => t.teamId);
+  } catch (_) { activeTeams = []; }
+  return { teams: sel.length, allTeams, channels, channelsKnown, activeTeams, activeCount: activeTeams.length };
+}
 function _pulseMonPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
   return path.join(PULSE_MON_DIR, `${safe}.json`);
@@ -29435,7 +29467,7 @@ app.get('/api/me-ai/pulse/teams/:id/channels', async (req, res) => {
 // POST /api/me-ai/pulse/monitoring { teams:[{teamId,teamName,channels?:[{id,name}]}] }
 //   → validate + persist the selection, kick a background monitored gather.
 app.get('/api/me-ai/pulse/monitoring', (req, res) => {
-  try { res.json({ ok: true, selection: _pulseMonitorSelection() }); }
+  try { res.json({ ok: true, selection: _pulseMonitorSelection(), summary: _pulseMonitorSummary() }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/me-ai/pulse/monitoring', async (req, res) => {
@@ -29472,7 +29504,7 @@ app.post('/api/me-ai/pulse/monitoring', async (req, res) => {
       const date = _meAiLocalDay();
       _pulseGatherMonitored(date, { force: true }).catch(() => {});
     }
-    res.json({ ok: true, selection });
+    res.json({ ok: true, selection, summary: _pulseMonitorSummary() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

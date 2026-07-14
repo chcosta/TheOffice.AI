@@ -18863,6 +18863,12 @@
               .pulse-mon-btn .pmc { display:inline-flex; align-items:center; justify-content:center; min-width:17px; height:17px;
                 padding:0 4px; border-radius:9px; background:color-mix(in srgb, var(--cp-accent) 18%, var(--cp-surface));
                 color:var(--cp-text); font-size:11px; font-weight:600; }
+              .pulse-mon-btn .pmb-ico { font-size:12px; opacity:.85; line-height:1; }
+              .pulse-mon-btn .pmb-on { display:inline-flex; align-items:center; gap:7px; }
+              .pulse-mon-btn .pmb-meta { color:var(--cp-text-muted); font-size:11.5px; }
+              .pulse-mon-btn:hover .pmb-meta { color:var(--cp-text); }
+              .pulse-mon-btn .pmb-live { width:7px; height:7px; border-radius:50%; background:#2ea043;
+                box-shadow:0 0 0 3px color-mix(in srgb, #2ea043 22%, transparent); }
               .pulse-mon-dlg { border:none; padding:0; border-radius:14px; width:min(560px, 94vw); max-height:86vh;
                 background:var(--cp-surface); color:var(--cp-text); box-shadow:0 24px 64px rgba(0,0,0,.28); overflow:hidden; }
               .pulse-mon-dlg::backdrop { background:rgba(0,0,0,.42); }
@@ -19363,8 +19369,16 @@
                   </p>
                 </div>
                 <div class="pulse-head-acts">
-                  <button class="pulse-mon-btn" type="button" x-show="pulse.consent" @click="pulseMonitorOpen()" :title="'Choose which Teams and channels Pulse.AI watches'">
-                    <span>Monitoring</span><span class="pmc" x-show="pulse.monitorCount" x-text="pulse.monitorCount"></span>
+                  <button class="pulse-mon-btn" type="button" x-show="pulse.consent" @click="pulseMonitorOpen()" :title="pulseMonitorChipTitle()">
+                    <span class="pmb-ico" aria-hidden="true">📡</span>
+                    <span x-show="!pulse.monitorSummary || !pulse.monitorSummary.teams">Monitor Teams</span>
+                    <template x-if="pulse.monitorSummary &amp;&amp; pulse.monitorSummary.teams">
+                      <span class="pmb-on">
+                        <span>Monitoring Teams</span>
+                        <span class="pmb-meta" x-text="pulseMonitorChipText()"></span>
+                        <span class="pmb-live" x-show="pulseMonitorActiveCount()" :title="pulseMonitorActiveCount() + ' team' + (pulseMonitorActiveCount()===1?'':'s') + ' with recent activity'"></span>
+                      </span>
+                    </template>
                   </button>
                   <label class="pulse-auto" x-show="pulse.consent" :title="pulse.includeDms ? 'Direct messages are included. Hide them for a demo.' : 'Direct messages are hidden from the lenses and the AI summary.'">
                     <input type="checkbox" :checked="pulse.includeDms" @change="setPulseIncludeDms($event.target.checked)">
@@ -29160,7 +29174,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -37660,6 +37674,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               try {
                 const mr = await this.request('/api/me-ai/pulse/monitoring');
                 w.monitorCount = (mr && Array.isArray(mr.selection)) ? mr.selection.length : 0;
+                w.monitorSummary = (mr && mr.summary) ? mr.summary : null;
               } catch {}
             }
           } catch (e) {
@@ -37825,6 +37840,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.pulseLoadTeams(false);
           this.$nextTick(() => { const d = this.$refs && this.$refs.pulseMonDlg; if (d && !d.open) { try { d.showModal(); } catch { d.setAttribute('open',''); } } });
         },
+        // Compact "N teams · M channels" line for the header monitoring chip.
+        pulseMonitorChipText() {
+          const s = this.pulse.monitorSummary;
+          if (!s || !s.teams) return '';
+          const parts = [s.teams + (s.teams === 1 ? ' team' : ' teams')];
+          if (s.channels) parts.push(s.channels + (s.channels === 1 ? ' channel' : ' channels') + (s.channelsKnown ? '' : '+'));
+          else if (s.allTeams) parts.push('all channels');
+          return parts.join(' · ');
+        },
+        pulseMonitorChipTitle() {
+          const s = this.pulse.monitorSummary;
+          if (!s || !s.teams) return 'Choose which Microsoft Teams teams and channels Pulse.AI watches';
+          let t = 'Pulse.AI is watching ' + s.teams + ' Microsoft Teams team' + (s.teams === 1 ? '' : 's');
+          if (s.channels) t += ' · ' + s.channels + (s.channelsKnown ? '' : '+') + ' channel' + (s.channels === 1 ? '' : 's');
+          else if (s.allTeams) t += ' · all channels';
+          if (s.activeCount) t += ' · ' + s.activeCount + ' with recent activity';
+          return t + '. Click to change.';
+        },
+        pulseMonitorActiveCount() {
+          const s = this.pulse.monitorSummary;
+          return (s && s.activeCount) || 0;
+        },
         pulseMonitorClose() {
           const m = this.pulse.monitor;
           m.open = false;
@@ -37966,6 +38003,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/pulse/monitoring', { method: 'POST', body: JSON.stringify({ teams }) });
             this.pulse.monitorCount = (r && Array.isArray(r.selection)) ? r.selection.length : teams.length;
+            this.pulse.monitorSummary = (r && r.summary) ? r.summary : this.pulse.monitorSummary;
             this.pulseMonitorClose();
             this.toast(this.pulse.monitorCount ? ('Monitoring ' + this.pulse.monitorCount + (this.pulse.monitorCount === 1 ? ' team' : ' teams')) : 'Monitoring cleared', 'success');
             // Fold the new selection in on the next read.

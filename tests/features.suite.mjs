@@ -529,4 +529,20 @@ await t.test('pulse monitor: mode toggle preserves selection + client polls (app
   t.ok(/pmd-refreshing/.test(html), 'a refreshing indicator is surfaced in the picker');
 });
 
+await t.test('pulse monitor chip: Teams-specific label + channel count + activity dot', () => {
+  const src = readFileSync('server.js', 'utf8');
+  // server exposes a richer summary (teams, channels, active teams) on the monitoring GET
+  t.ok(/function\s+_pulseMonitorSummary\s*\(/.test(src), 'monitor summary helper defined');
+  t.ok(/summary:\s*_pulseMonitorSummary\(\)/.test(src), 'monitoring route returns the summary');
+  const sum = _win(src, 'function _pulseMonitorSummary', 1400);
+  t.ok(/activeTeams/.test(sum) && /channels/.test(sum), 'summary carries channel count + active teams');
+  const html = readFileSync('public/app.html', 'utf8');
+  // chip is clearly Teams-specific, shows the compact meta, and a live-activity dot
+  t.ok(/Monitor Teams/.test(html) && /Monitoring Teams/.test(html), 'chip labels the monitoring as Teams-specific');
+  t.ok(/pulseMonitorChipText\(\)/.test(html), 'chip renders the compact team/channel meta');
+  t.ok(/pmb-live/.test(html) && /pulseMonitorActiveCount\(\)/.test(html), 'chip surfaces a recent-activity indicator');
+  const chip = _win(html, 'pulseMonitorChipText() {', 500);
+  t.ok(/channel/.test(chip), 'chip text names channels');
+});
+
 await t.done();
