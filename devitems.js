@@ -1438,10 +1438,24 @@ function _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r, ns = '', rep
 }
 
 // List a card's cached report history (newest first), enriched with a stable,
-// same-origin URL rel the card can link to via the existing report endpoint.
+// same-origin URL rel the card can link to via the existing report endpoint AND
+// a clean `displayName` with a "(N)" suffix before the extension. The newest
+// superseded version of a given report is "(1)", the next-older "(2)", etc.,
+// grouped per source report name + repo so identically-named reports across
+// repos number independently. The raw `name`/`ts` are preserved for callers.
 function listReportHistory(boardId, devId) {
   if (!boardId || !devId) return [];
-  return _readHistoryManifest(boardId, devId).filter(e => e && e.rel);
+  const list = _readHistoryManifest(boardId, devId).filter(e => e && e.rel);
+  const counts = Object.create(null);
+  for (const e of list) {                     // manifest is newest-first
+    const nm = e.name || path.basename(e.rel);
+    const ext = path.extname(nm);
+    const base = nm.slice(0, nm.length - ext.length);
+    const key = (e.repoId || 'primary') + '|' + nm;
+    const n = (counts[key] = (counts[key] || 0) + 1);
+    e.displayName = base + '(' + n + ')' + ext;
+  }
+  return list;
 }
 
 // Find reports in the worktree AND durably cache them in one shot. Use this

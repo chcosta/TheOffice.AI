@@ -344,4 +344,60 @@ await t.test('codeflow: index rows show the PR # and the dev card work-item #', 
   t.ok(/dvx-idx-repo"[^>]*x-text="[^"]*'#' \+ card\.workItemId/.test(html), 'dev card index row appends #<workItemId>');
 });
 
+// Report artifacts carry timestamps and preserved previous versions ("Past reports")
+// are numbered with a clean (N) suffix before the extension, per repo.
+await t.test('devitems: listReportHistory numbers superseded reports (N) per repo', () => {
+  const prelude = [
+    "const path = require('node:path');",
+    // Stub the on-disk manifest (newest-first, as the real reader returns).
+    "function _readHistoryManifest() { return [",
+    "  { rel: '__history/pr-review-report-c.html', name: 'pr-review-report.html', ts: 3, kind: 'html' },",
+    "  { rel: '__history/pr-review-report-b.html', name: 'pr-review-report.html', ts: 2, kind: 'html' },",
+    "  { rel: 'repoA/__history/pr-review-report-a.html', name: 'pr-review-report.html', repoId: 'repoA', ts: 1, kind: 'html' },",
+    "  { rel: '__history/no-name-x.md', ts: 0, kind: 'md' },",
+    "]; }",
+  ].join('\n');
+  const F = extractFns('devitems.js', ['listReportHistory'], { prelude });
+  const out = F.listReportHistory('board', 'dev');
+  t.eq(out.length, 4, 'all manifest rows returned');
+  t.eq(out[0].displayName, 'pr-review-report(1).html', 'newest superseded primary is (1)');
+  t.eq(out[1].displayName, 'pr-review-report(2).html', 'next-older primary is (2)');
+  t.eq(out[2].displayName, 'pr-review-report(1).html', 'a different repo numbers independently');
+  t.ok(/^no-name-x\(1\)\.md$/.test(out[3].displayName), 'displayName falls back to basename(rel) when name missing');
+  t.eq(out[0].name, 'pr-review-report.html', 'raw name is preserved for callers');
+  t.eq(out[0].ts, 3, 'raw ts is preserved for callers');
+  // Guards against an empty/missing board or dev id.
+  t.deep(F.listReportHistory('', 'dev'), [], 'missing boardId → empty');
+  t.deep(F.listReportHistory('board', ''), [], 'missing devId → empty');
+});
+
+// The PR + dev artifact panes must show a per-report timestamp on the CURRENT reports
+// (not only on the collapsed history), and the dev card must surface a "Past reports"
+// disclosure wired to the reactive devHistExpanded store.
+await t.test('codeflow: PR + dev artifacts show timestamps and a Past reports disclosure', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // PR: current report rows render cfReportTs; the helper exists.
+  t.ok(/<span class="cf-wt-history-ts" x-text="cfReportTs\(r\)"><\/span>/.test(html), 'PR full pane renders a cfReportTs timestamp per report');
+  t.ok(/\+ ' · ' \+ cfReportTs\(r\)/.test(html), 'PR mini worktree render appends · <ts>');
+  t.ok(/cfReportTs\(r\)\s*\{/.test(html), 'cfReportTs helper is defined');
+  // Dev: both artifact panes have a "Past reports" collapsible (2 occurrences).
+  const toggles = (html.match(/@click="devToggleHist\(d\)"/g) || []).length;
+  t.eq(toggles, 2, 'both dev artifact panes wire a Past reports toggle');
+  t.ok(/x-text="\(devHistOpen\(d\) \? '▾ ' : '▸ '\) \+ 'Past reports ' \+ d\.reportHistory\.length"/.test(html), 'toggle label reflects reportHistory length');
+  t.ok(/formatRelative\(h\.ts\)/.test(html), 'history rows show a relative timestamp');
+  // The disclosure is backed by a declared reactive store (not an ad-hoc field) so
+  // Alpine re-renders on toggle.
+  t.ok(/devHistExpanded:\s*\{\}/.test(html), 'devHistExpanded reactive store is declared');
+  t.ok(/devHistOpen\(d\)\s*\{\s*return[^}]*devHistExpanded\[d\.id\]/.test(html), 'devHistOpen reads the reactive store');
+});
+
+// The server must attach reportHistory to dev cards on the GET refresh, the manual
+// scan, and the summarizer loop, so the client's d.reportHistory is populated.
+await t.test('server: dev routes plumb reportHistory alongside reports', () => {
+  const s = readFileSync('server.js', 'utf8');
+  t.ok(/partial\.reportHistory = devitems\.listReportHistory\(req\.params\.id, req\.params\.devId\)/.test(s), 'GET refresh attaches reportHistory');
+  t.ok(/ctx\.save\(\{ reports, reportHistory \}\)/.test(s), 'manual scan saves reports + reportHistory');
+  t.ok(/cR\.save\(\{ reports, reportHistory \}\)/.test(s), 'summarizer loop saves reports + reportHistory on change');
+});
+
 await t.done();

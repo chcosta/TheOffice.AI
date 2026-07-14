@@ -10615,6 +10615,22 @@
                                            </div>
                                          </div>
                                        </template>
+                                       <!-- Past reports: previous versions preserved when a report was re-run, newest first -->
+                                       <template x-if="d.reportHistory && d.reportHistory.length">
+                                         <div style="display:flex;flex-direction:column;gap:2px">
+                                           <button class="btn ghost" type="button" style="font-size:11px;padding:2px 6px;align-self:flex-start"
+                                                   @click="devToggleHist(d)"
+                                                   x-text="(devHistOpen(d) ? '▾ ' : '▸ ') + 'Past reports ' + d.reportHistory.length"></button>
+                                           <div style="display:flex;flex-direction:column" x-show="devHistOpen(d)">
+                                             <template x-for="h in d.reportHistory" :key="h.rel">
+                                               <div class="cal-row">
+                                                 <a class="cal-row-link" :href="devReportUrl(d, { cacheRel: h.rel })" target="_blank" rel="noopener" :title="'Open ' + (h.name || '')"><span x-text="(h.kind==='html' ? '📄 ' : '📝 ') + (h.displayName || h.name)"></span><span x-show="h.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + h.repo"></span></a>
+                                                 <span class="cal-row-time" x-text="formatRelative(h.ts)"></span>
+                                               </div>
+                                             </template>
+                                           </div>
+                                         </div>
+                                       </template>
                                        <!-- Links subgroup -->
                                        <div style="display:flex;flex-direction:column;gap:4px">
                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -12234,6 +12250,21 @@
                                                  </a>
                                                  <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                                                  <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
+                                               </div>
+                                             </template>
+                                           </div>
+                                         </div>
+                                       </template>
+                                       <template x-if="d.reportHistory && d.reportHistory.length">
+                                         <div style="display:flex;flex-direction:column;gap:2px">
+                                           <button class="btn ghost" type="button" style="font-size:11px;padding:2px 6px;align-self:flex-start"
+                                                   @click="devToggleHist(d)"
+                                                   x-text="(devHistOpen(d) ? '▾ ' : '▸ ') + 'Past reports ' + d.reportHistory.length"></button>
+                                           <div style="display:flex;flex-direction:column" x-show="devHistOpen(d)">
+                                             <template x-for="h in d.reportHistory" :key="h.rel">
+                                               <div class="cal-row">
+                                                 <a class="cal-row-link" :href="devReportUrl(d, { cacheRel: h.rel })" target="_blank" rel="noopener" :title="'Open ' + (h.name || '')"><span x-text="(h.kind==='html' ? '📄 ' : '📝 ') + (h.displayName || h.name)"></span><span x-show="h.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + h.repo"></span></a>
+                                                 <span class="cal-row-time" x-text="formatRelative(h.ts)"></span>
                                                </div>
                                              </template>
                                            </div>
@@ -21653,12 +21684,16 @@
                         </template>
                         <div class="cf-agent-reports" x-show="cfWt(pr) && ((cfWt(pr).reports || []).length || (cfWt(pr).reportHistory || []).length)">
                           <template x-for="r in (cfWt(pr) ? (cfWt(pr).reports || []) : [])" :key="r.rel">
-                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                            <div class="cf-wt-history-row">
+                              <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                                 :title="'Open ' + (r.rel || '') + ' — ' + cfReportTs(r)"
+                                 x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                              <span class="cf-wt-history-ts" x-text="cfReportTs(r)"></span>
+                            </div>
                           </template>
                           <template x-if="cfWt(pr) && (cfWt(pr).reportHistory || []).length">
                             <button class="cf-wt-link" @click="cfToggleHist(pr)"
-                                    :title="'Previously generated review reports, cached for comparison'"
+                                    :title="'Previously generated reports, preserved when a report was re-run'"
                                     x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
                           </template>
                           <template x-if="cfHistOpen(pr) && cfWt(pr) && (cfWt(pr).reportHistory || []).length">
@@ -21666,7 +21701,7 @@
                               <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
                                 <div class="cf-wt-history-row">
                                   <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
-                                     x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
+                                     x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.displayName || h.name || h.rel)"></a>
                                   <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
                                 </div>
                               </template>
@@ -21957,7 +21992,8 @@
                           </span>
                           <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                               :title="'Open ' + (r.rel || '') + ' — ' + cfReportTs(r)"
+                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel) + ' · ' + cfReportTs(r)"></a>
                           </template>
                           <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                                 x-text="cfWt(pr).reviewError"></span>
@@ -28812,6 +28848,7 @@
         devMergeOpen: {},
         devMergeDraft: {},
         devLinkDraft: {},
+        devHistExpanded: {},    // devId -> bool: "Past reports" history list expanded
         devNoteDraft: {},
         devNoteEdit: {},
         // PR-card-style dev-card drawer: open flag + active pane, keyed by dev id.
@@ -48051,6 +48088,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfHistTs(h) {
           try { return new Date(h.ts).toLocaleString(); } catch { return h.ts || ''; }
         },
+        // Relative timestamp for a current (non-history) PR artifact, from its file mtime.
+        cfReportTs(r) {
+          try { return this.formatRelative(new Date(r && r.mtime ? r.mtime : Date.now()).toISOString()); }
+          catch { return ''; }
+        },
         async cfPush(pr) {
           const key = this.cfPrKey(pr);
           this.codeflow.wtBusy[key] = 'push';
@@ -57055,6 +57097,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         devReportTime(r) {
           try { return new Date(r.mtime || Date.now()).toISOString(); } catch { return new Date().toISOString(); }
+        },
+        // Per-card "Past reports" disclosure toggle (preserved previous versions).
+        devHistOpen(d) { return !!(d && this.devHistExpanded[d.id]); },
+        devToggleHist(d) {
+          if (!d || !d.id) return;
+          if (this.devHistExpanded[d.id]) delete this.devHistExpanded[d.id];
+          else this.devHistExpanded[d.id] = true;
         },
         openReportPreview(d, r) {
           const name = (r && r.name) || 'Report';

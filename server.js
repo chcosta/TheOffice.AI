@@ -32308,6 +32308,8 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   }
   // Reports: aggregate across every repo slot (live worktrees + cached-from-removed).
   try { partial.reports = _rescanDevReports(req.params.id, req.params.devId, d); } catch {}
+  // Preserved previous report versions ("Past reports"), enriched with (N) names.
+  try { partial.reportHistory = devitems.listReportHistory(req.params.id, req.params.devId) || []; } catch {}
   // Work item.
   if (d.workItemId && d.org && d.project) {
     try { partial.workItem = await _devWorkItem(_devDesc(d), d.workItemId); } catch (e) { partial.workItemError = (e && e.message) || 'work item failed'; }
@@ -32661,8 +32663,10 @@ async function _reconcileDevSummaries() {
               const reports = _rescanDevReports(b.id, d.id, d);
               const sig = (arr) => (Array.isArray(arr) ? arr : []).map(r => (r.cacheRel || r.rel) + ':' + Math.round(r.mtime)).join('|');
               if (sig(reports) !== sig(d.reports)) {
+                let reportHistory = [];
+                try { reportHistory = devitems.listReportHistory(b.id, d.id) || []; } catch {}
                 const cR = _devItemCtx(b.id, d.id);
-                if (cR) cR.save({ reports });
+                if (cR) cR.save({ reports, reportHistory });
               }
             } catch {}
           }
@@ -32824,7 +32828,9 @@ app.post('/api/boards/:id/dev-items/:devId/reports/scan', (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const reports = _rescanDevReports(req.params.id, req.params.devId, ctx.dev);
-  const updated = ctx.save({ reports });
+  let reportHistory = [];
+  try { reportHistory = devitems.listReportHistory(req.params.id, req.params.devId) || []; } catch {}
+  const updated = ctx.save({ reports, reportHistory });
   res.json({ ok: true, dev: updated });
 });
 
