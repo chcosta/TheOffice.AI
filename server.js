@@ -24698,6 +24698,40 @@ function _meAiTreeConverse(t, mode, text) {
   });
 }
 
+// Classify a free-text follow-up sent through the single pursuit composer (converse
+// mode 'auto') on a CONCLUDED tree pursuit. Returns one of:
+//   'investigate' — new direction / more scope / "go do more" → RE-ENGAGE THE FAN-OUT
+//                   (a real new pursuit wave via _meAiTreeReAct), not a single dead turn.
+//   'revise'      — change the existing report/deliverable in place.
+//   'answer'      — a question about what was already found.
+// Instant heuristic (no AI latency on a chat send). Deliberately biased so directive /
+// new-work phrasing launches a wave: the reported bug was that EVERY follow-up collapsed
+// to a single-agent answer even when the user was clearly redirecting the pursuit to do
+// more work ("also look into X and Y").
+function _meAiClassifyFollowup(text) {
+  const s = String(text || '').trim().toLowerCase();
+  if (!s) return 'answer';
+  // (1) Explicit report-revision wins — editing the deliverable, not the scope.
+  if (/\b(revise|rewrite|re-?write|reword|re-?word|rephrase|reframe|re-?frame|restructure|tighten|shorten|lengthen|condense|edit|polish|clean up)\b[^.?!]*\b(report|write-?up|writeup|summary|deliverable|doc|document|draft|memo|brief|section|intro|conclusion|wording|tone|framing|it|this)\b/.test(s)
+      || /\bmake it (warmer|shorter|longer|tighter|clearer|punchier|simpler|more\b|less\b)/.test(s)
+      || /\bthe (report|write-?up|summary|doc|memo|draft) (should|needs to|could|ought)/.test(s)) return 'revise';
+  // (2) New direction / additional scope / "go do more work" → fan out.
+  const investigate =
+    (/\b(also|additionally|in addition|as well|furthermore|moreover|besides|on top of that|next|then|now)\b/.test(s)
+      && /\b(look|investigat|explor|examin|analy|research|dig|check|assess|evaluat|compar|map|trace|review|audit|cover|includ|add|consider|find|figure|determine|scope|gather|survey|do|build|run)\b/.test(s))
+    || /\b(look into|looking into|dig into|dig deeper|go deeper|deeper (on|into)|drill (into|down)|investigate|explore|examine|research|take (a|another) look|extend|broaden|widen)\b/.test(s)
+    || /\b(keep going|continue|carry on|press on|go on|do more|more work|another (round|pass|wave|angle|look)|new (angle|direction|approach)|pivot|start over|try (again|a different|another)|fan out|spin up|kick off|launch|re-?run)\b/.test(s)
+    || /\b(you (should|need to|could|might|didn'?t|did not|missed|haven'?t|have not|never))\b[^.?!]*\b(look|investigat|explor|analy|cover|check|includ|consider|dig|examin|address|account)\b/.test(s);
+  if (investigate) return 'investigate';
+  // (3) A question about what was found → answer in place.
+  if (/\?\s*$/.test(s) || /^(what|why|how|did|does|do|is|are|was|were|can|could|should|would|will|who|whom|where|when|which|has|have|had)\b/.test(s)) return 'answer';
+  // (4) A bare imperative with no question mark ("map the dependencies", "check the
+  //     retry path") reads as direction on a finished pursuit → fan out.
+  if (/^(look|find|check|investigat|explor|analy|examin|research|map|trace|review|audit|compar|assess|evaluat|dig|go|do|run|build|draft|create|make|add|list|identify|determine|figure|scope|gather|collect|pull|fetch|survey|redo|expand|extend|include)\b/.test(s)) return 'investigate';
+  // (5) Default: treat as a question — no costly wave on an ambiguous aside.
+  return 'answer';
+}
+
 // Top-level tree orchestration for a fresh tree task.
 async function _meAiTreeOrchestrate(t, spine, opts = {}) {
   const id = t.id;
@@ -26740,12 +26774,28 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     if (running) return res.json({ ok: true, resumed: 0, running: true, stalled });
     const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
     const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
+    // Re-drive the stalled legs THEMSELVES — not just a fresh spine that re-plans AROUND
+    // them. A restart flips each in-flight leg 'running' → 'blocked' (see _meAiHydrateTrees);
+    // _meAiTreeReAct alone spawns a NEW spine wave and leaves those blocked legs untouched,
+    // so they linger "Blocked" on the map and the user sees nothing happen. Re-run each on
+    // its own durable session so it visibly goes running → done (or surfaces a real gate).
+    // Read-only scout legs are idempotent; any external action stays gated by the
+    // permission gate, so re-running can never re-fire a push/deploy.
+    let rerun = 0;
+    for (const sl of stalled) {
+      const leg = tree.legs && tree.legs[sl.legId];
+      if (!leg) continue;
+      rerun++;
+      _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
+    }
+    // Also re-engage the spine so the pursuit re-plans and eventually MERGES the recovered
+    // legs into the deliverable, rather than leaving them completed but un-woven.
     _meAiTreeReAct(t, 'continue', steer, 'Resumed ' + stalled.length + ' stalled ' + (stalled.length === 1 ? 'leg' : 'legs'));
     try {
       const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
-      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-engaged to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-ran ' + rerun + ' directly + re-engaged the spine to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
     } catch (_) {}
-    res.json({ ok: true, resumed: stalled.length, stalled });
+    res.json({ ok: true, resumed: stalled.length, rerun, stalled });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
@@ -27237,10 +27287,26 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
     // lightweight spine turn and NEVER re-forks the fan-out — so chatting with your
     // Chief of Staff stays calm and the map doesn't grow another wave.
     if (t.mode === 'tree' && intent === 'converse') {
-      const mode = (String(b.mode || '').trim() === 'revise') ? 'revise' : 'ask';
-      _meAiTreeConverse(t, mode, b.text);
+      const rawMode = String(b.mode || '').trim();
+      // The quick-action buttons send an EXPLICIT mode ('ask' / 'revise') — honour it.
+      if (rawMode === 'ask' || rawMode === 'revise') {
+        _meAiTreeConverse(t, rawMode, b.text);
+        t.status = 'running';
+        return res.json({ ok: true, routed: rawMode, task: _meAiTaskPublic(t) });
+      }
+      // The single composer sends 'auto' → intuit intent. New direction / more scope must
+      // RE-ENGAGE THE FAN-OUT (a real pursuit wave) instead of collapsing to one dead
+      // single-agent answer turn (the reported bug: giving a completed pursuit new
+      // direction just got a one-shot reply, never another investigation effort).
+      const verdict = _meAiClassifyFollowup(b.text);
+      if (verdict === 'investigate') {
+        _meAiTreeReAct(t, 'continue', b.text, b.label || 'New direction');
+        t.status = 'running';
+        return res.json({ ok: true, routed: 'investigate', task: _meAiTaskPublic(t) });
+      }
+      _meAiTreeConverse(t, verdict === 'revise' ? 'revise' : 'ask', b.text);
       t.status = 'running';
-      return res.json({ ok: true, task: _meAiTaskPublic(t) });
+      return res.json({ ok: true, routed: verdict, task: _meAiTaskPublic(t) });
     }
     // Tree pursuits: a steer ("keep going / dig deeper" = continue, or "try a
     // different approach" = change-approach, with optional free text) re-engages the

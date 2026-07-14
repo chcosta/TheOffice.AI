@@ -20205,7 +20205,6 @@
                 <div>
                   <h1>✍️ Compose.AI</h1>
                   <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
-                  <div class="cmpx-sub" x-show="compose.view === 'brief'" x-text="'New ' + composePurposeLabel(compose.brief.purpose).toLowerCase()"></div>
                   <div class="cmpx-sub" x-show="compose.view === 'studio' && compose.current" x-text="compose.current ? (composePurposeLabel(compose.current.purpose) + ' · ' + composeFormatLabel(compose.current.format)) : ''"></div>
                 </div>
                 <div class="spacer"></div>
@@ -20249,116 +20248,9 @@
                 </div>
               </template>
 
-              <!-- ============ BRIEF ============ -->
-              <template x-if="compose.view === 'brief' && !compose.loading">
-                <div class="cmpx-brief">
-                  <div class="cmpx-fld">
-                    <label>What do you want to say? <span class="sub">— the brief the writer works from</span></label>
-                    <textarea class="field-input" rows="4" x-model="compose.brief.brief" placeholder="e.g. Make the case for adopting the helix-observer prediction-accuracy service across teams — the problem it solves, the evidence, the cost, and the ask."></textarea>
-                  </div>
-                  <div class="cmpx-fld">
-                    <label>Working title / subject <span class="sub">(optional — the writer will craft one if blank)</span></label>
-                    <input class="field-input" type="text" x-model="compose.brief.title" placeholder="Leave blank to auto-title" />
-                  </div>
-                  <div class="cmpx-fld">
-                    <label>Audience <span class="sub">— steers tone, depth &amp; how chart-heavy it gets</span></label>
-                    <div class="cmpx-auds">
-                      <template x-for="a in compose.audiences" :key="a.id">
-                        <button type="button" class="cmpx-aud" :class="{ active: compose.brief.audience === a.label }" @click="compose.brief.audience = (compose.brief.audience === a.label ? '' : a.label)" x-text="a.label"></button>
-                      </template>
-                    </div>
-                    <input class="field-input" type="text" style="margin-top:8px" x-model="compose.brief.audience" placeholder="…or describe a specific audience" />
-                  </div>
-                  <div class="cmpx-fld">
-                    <label>Format</label>
-                    <div class="cmpx-fmts">
-                      <template x-for="f in compose.formats" :key="f.id">
-                        <button type="button" class="cmpx-fmt" :class="{ active: compose.brief.format === f.id }" @click="compose.brief.format = f.id" x-text="f.label"></button>
-                      </template>
-                    </div>
-                  </div>
-                  <div class="cmpx-fld">
-                    <label>Sources <span class="sub">— what Compose.AI reads &amp; cites (it only cites what it can genuinely find)</span></label>
-                    <div class="cmpx-srcgrid">
-                      <template x-for="s in compose.sourceCatalog" :key="s.id">
-                        <button type="button" class="cmpx-srccard" :class="{ on: compose.brief.sources[s.id] }" @click="composeToggleSource(compose.brief.sources, s)">
-                          <span class="hd"><span class="cbx" x-text="compose.brief.sources[s.id] ? '✓' : ''"></span><span x-text="s.label"></span></span>
-                          <span class="bl" x-text="(s.id === 'diary' && !compose.diaryHasEvidence) ? 'No diary evidence yet — Connect may be off.' : s.blurb"></span>
-                        </button>
-                      </template>
-                    </div>
-                    <div class="cmpx-srcref" x-show="compose.brief.sources.diary">
-                      <label style="font-size:12px;font-weight:600">Connect diary timeframe</label>
-                      <select class="field-input" style="width:auto" x-model.number="compose.brief.sources.diaryDays">
-                        <option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option>
-                      </select>
-                    </div>
-                    <div class="cmpx-srcref" x-show="compose.brief.sources.pr" x-init="compose.brief.sources.pr && composeLoadPRs(); $watch('compose.brief.sources.pr', v => v && composeLoadPRs())">
-                      <label style="font-size:12px;font-weight:600">Pull request to investigate</label>
-                      <div style="display:flex;gap:6px;align-items:center">
-                        <select class="field-input" x-model="compose.brief.sources.prRef">
-                          <option value="">Select a pull request…</option>
-                          <template x-for="p in compose.pickers.prs" :key="p.url">
-                            <option :value="p.url" x-text="(p.repo ? p.repo + ' #' + p.id + ' · ' : '') + p.title"></option>
-                          </template>
-                        </select>
-                        <button type="button" class="btn ghost" style="padding:6px 10px" @click="composeLoadPRs(true)" :disabled="compose.pickers.prsLoading" title="Refresh pull requests">↻</button>
-                      </div>
-                      <div class="hint" style="margin-top:4px" x-show="compose.pickers.prsLoading">Loading pull requests…</div>
-                      <div class="hint" style="margin-top:4px" x-show="!compose.pickers.prsLoading && compose.pickers.prsLoaded && !compose.pickers.prs.length">No pull requests found — you can paste a URL below in Additional links.</div>
-                    </div>
-                    <div class="cmpx-srcref" x-show="compose.brief.sources.pursuit" x-init="compose.brief.sources.pursuit && composeLoadPursuits(); $watch('compose.brief.sources.pursuit', v => v && composeLoadPursuits())">
-                      <label style="font-size:12px;font-weight:600">Pursuit to read</label>
-                      <div style="display:flex;gap:6px;align-items:center">
-                        <select class="field-input" x-model="compose.brief.sources.pursuitRef">
-                          <option value="">Select a pursuit…</option>
-                          <template x-for="p in compose.pickers.pursuits" :key="p.id">
-                            <option :value="p.id" x-text="p.title + (p.stage ? ' · ' + p.stage : '') + (p.archived ? ' (archived)' : '')"></option>
-                          </template>
-                        </select>
-                        <button type="button" class="btn ghost" style="padding:6px 10px" @click="composeLoadPursuits(true)" :disabled="compose.pickers.pursuitsLoading" title="Refresh pursuits">↻</button>
-                      </div>
-                      <div class="hint" style="margin-top:4px" x-show="compose.pickers.pursuitsLoading">Loading pursuits…</div>
-                      <div class="hint" style="margin-top:4px" x-show="!compose.pickers.pursuitsLoading && compose.pickers.pursuitsLoaded && !compose.pickers.pursuits.length">No pursuits yet.</div>
-                    </div>
-                    <div class="cmpx-srcref" x-show="compose.brief.sources.workitems">
-                      <label style="font-size:12px;font-weight:600">Work items (Azure DevOps)</label>
-                      <input class="field-input" type="text" x-model="compose.pickers.wiQuery" @input="composeWiSearch()" placeholder="Search by title…" />
-                      <div class="hint" style="margin-top:4px" x-show="compose.pickers.wiLoading">Searching…</div>
-                      <div class="hint" style="margin-top:4px" x-show="!compose.pickers.wiLoading && compose.pickers.wiNote" x-text="compose.pickers.wiNote"></div>
-                      <div class="cmpx-wilist" x-show="compose.pickers.wiResults.length">
-                        <template x-for="wi in compose.pickers.wiResults" :key="wi.id">
-                          <button type="button" class="cmpx-wirow" :class="{ on: composeWiIsSelected(compose.brief.sources, wi.id) }" @click="composeWiToggle(compose.brief.sources, wi)">
-                            <span class="cbx" x-text="composeWiIsSelected(compose.brief.sources, wi.id) ? '✓' : ''"></span>
-                            <span class="mid"><span class="ti" x-text="wi.title"></span><span class="mt" x-text="'AB#' + wi.id + (wi.state ? ' · ' + wi.state : '') + (wi.type ? ' · ' + wi.type : '')"></span></span>
-                          </button>
-                        </template>
-                      </div>
-                      <div class="hint" style="margin-top:4px" x-show="compose.brief.sources.workitemsRef">Selected: <span x-text="compose.brief.sources.workitemsRef"></span></div>
-                    </div>
-                    <div class="cmpx-srcref">
-                      <label style="font-size:12px;font-weight:600">Additional links <span class="hint" style="font-weight:400">(optional — PRs, issues, docs)</span></label>
-                      <div class="cmpx-links">
-                        <template x-for="(l, i) in compose.brief.sources.links" :key="i">
-                          <div class="cmpx-link"><a :href="l" target="_blank" x-text="l"></a><button type="button" @click="composeRemoveLink(i)">✕</button></div>
-                        </template>
-                      </div>
-                      <div style="display:flex;gap:8px;margin-top:6px">
-                        <input class="field-input" type="text" x-model="compose.brief._linkInput" @keydown.enter.prevent="composeAddLink()" placeholder="https://github.com/org/repo/pull/123" />
-                        <button class="btn ghost" type="button" @click="composeAddLink()">Add</button>
-                      </div>
-                    </div>
-                    <div class="cmpx-srcref">
-                      <label style="font-size:12px;font-weight:600">Pasted context <span class="hint" style="font-weight:400">(optional)</span></label>
-                      <textarea class="field-input" rows="3" x-model="compose.brief.sources.pasted" placeholder="Paste notes, data, or background the writer should weave in."></textarea>
-                    </div>
-                  </div>
-                  <div class="cmpx-actions">
-                    <button class="btn ghost" type="button" @click="compose.view = 'launcher'">Cancel</button>
-                    <button class="btn primary" type="button" :disabled="compose.busy || !composeBriefValid()" @click="composeCreate()" x-text="compose.busy ? 'Composing…' : '✨ Compose draft'"></button>
-                  </div>
-                </div>
-              </template>
+              <!-- BRIEF authoring now lives in the studio's left rail (parity with
+                   Newsletter). Picking a purpose creates the composition and opens
+                   the studio directly — no separate brief form. -->
 
               <!-- ============ STUDIO ============ -->
               <template x-if="compose.view === 'studio' && compose.current && !compose.loading">
@@ -20370,7 +20262,7 @@
                     <aside class="nlx-rail">
                       <div class="nlx-card">
                         <button class="btn primary nlx-gen" type="button" :disabled="compose.generating" @click="composeGenerate()">
-                          <span x-show="!compose.generating">✨ Regenerate draft</span>
+                          <span x-show="!compose.generating" x-text="compose.draftText.trim() ? '✨ Regenerate draft' : '✨ Generate draft'"></span>
                           <span x-show="compose.generating">Composing…</span>
                         </button>
                         <div class="nlx-win">
@@ -20402,7 +20294,13 @@
                           <div class="nlx-acc-head" @click="o=!o">📝 Brief <span class="chev">›</span></div>
                           <div class="nlx-acc-body">
                             <div class="nlx-fld"><label>Title <span class="hint" style="font-weight:400">(optional — AI writes one if blank)</span></label><input class="field-input" type="text" x-model="compose.current.title" @input="composeMarkBriefDirty()" placeholder="Leave blank to auto-title" /></div>
-                            <div class="nlx-fld"><label>Audience</label><input class="field-input" type="text" x-model="compose.current.audience" @input="composeMarkBriefDirty()" placeholder="Who is this for? (e.g. eng leadership)" /></div>
+                            <div class="nlx-fld"><label>Audience</label>
+                              <div class="cmpx-auds" style="margin-bottom:6px">
+                                <template x-for="a in compose.audiences" :key="a.id">
+                                  <button type="button" class="cmpx-aud" :class="{ active: compose.current.audience === a.label }" @click="compose.current.audience = (compose.current.audience === a.label ? '' : a.label); composeMarkBriefDirty()" x-text="a.label"></button>
+                                </template>
+                              </div>
+                              <input class="field-input" type="text" x-model="compose.current.audience" @input="composeMarkBriefDirty()" placeholder="…or describe a specific audience" /></div>
                             <div class="nlx-fld"><label>Format</label><select class="field-input" x-model="compose.current.format" @change="composeMarkBriefDirty()"><template x-for="f in compose.formats" :key="f.id"><option :value="f.id" x-text="f.label"></option></template></select></div>
                             <div class="nlx-fld"><label>What to say</label><textarea class="field-input" rows="4" style="resize:vertical" x-model="compose.current.brief" @input="composeMarkBriefDirty()" placeholder="The purpose, key points, and any framing…"></textarea></div>
                             <button class="btn ghost" type="button" style="width:100%;justify-content:center;padding:6px" :disabled="compose.generating || !compose.briefDirty" @click="composeUpdateBriefAndRegen()" x-text="compose.briefDirty ? '✨ Update & regenerate' : 'Brief saved'"></button>
@@ -20504,7 +20402,7 @@
                       <div class="nlx-scroll" x-show="compose.tab !== 'history'">
                         <div class="nlx-empty" x-show="!compose.draftText.trim() && !compose.generating">
                           <div class="big">✍️</div>
-                          <p>No draft yet. Click <strong>✨ Regenerate draft</strong> to compose from your brief — or switch to <strong>Edit</strong> and write your own.</p>
+                          <p>Set up your brief and sources in the left rail, then click <strong>✨ Generate draft</strong> to compose — or switch to <strong>Edit</strong> and write your own.</p>
                         </div>
                         <div class="nlx-empty" x-show="!compose.draftText.trim() && compose.generating">
                           <div class="big">✨</div>
@@ -44064,7 +43962,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               method: 'POST', body: JSON.stringify(body),
             });
             if (r && r.task) { this.meai._taskById[p.tid] = r.task; if (this._meAiMergeTask) this._meAiMergeTask(r.task); }
-            return true;
+            return r || true;
           } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); return false; }
           finally { p.acting = false; }
         },
@@ -44094,8 +43992,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const text = String(p.steer || '').trim();
           if (!text) return;
           if (this.meAiPursuitBusy()) { this.toast("The agent is still working — it'll be ready in a moment", 'info'); return; }
-          const ok = await this._meAiPursuitPost('converse', text, 'auto');
-          if (ok) { p.steer = ''; this.toast('Sent — the reply streams into the chat', 'success'); setTimeout(() => this.meAiPursuitLoad(), 600); }
+          const r = await this._meAiPursuitPost('converse', text, 'auto');
+          if (r) {
+            p.steer = '';
+            const routed = (r && r.routed) || 'ask';
+            const msg = routed === 'investigate' ? 'On it — launching a fresh investigation into that…'
+              : routed === 'revise' ? 'On it — revising the report'
+              : 'Sent — the reply streams into the chat';
+            this.toast(msg, 'success');
+            setTimeout(() => this.meAiPursuitLoad(), 600);
+          }
         },
         // Which side of the transcript an event sits on: your own asides ("You asked…")
         // hang right like a chat message; everything the agent does hangs left.
@@ -45161,40 +45067,48 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Begin a new composition from a chosen purpose. The Newsletter purpose is a
         // link to the dedicated newsletter studio (fully preserved).
-        composeStart(purposeId) {
+        // Pick a purpose → create the composition and drop straight into the full
+        // studio (rail · preview · revise · history · zoom), exactly like the
+        // Newsletter studio. The brief is authored in the studio's left rail, not a
+        // separate form — so every composition type gets the same rich experience.
+        async composeStart(purposeId) {
           const p = this.composePurpose(purposeId);
           if (p && p.linksTo === 'newsletter') { this.goTo('#/newsletter'); return; }
           const on = new Set(this.compose.sourceDefaults[purposeId] || []);
-          this.compose.brief = {
-            purpose: purposeId,
-            title: '',
-            audience: '',
-            format: this.composeDefaultFormat(p),
-            brief: '',
-            sources: {
-              diary: on.has('diary'), diaryDays: 14,
-              pr: on.has('pr'), prRef: '',
-              pursuit: on.has('pursuit'), pursuitRef: '',
-              workitems: on.has('workitems'), workitemsRef: '',
-              m365: on.has('m365'),
-              links: [], pasted: '',
-            },
-            _linkInput: '',
-          };
-          this.compose.current = null;
-          this.compose.view = 'brief';
+          this.compose.busy = true;
+          try {
+            const r = await this.request('/api/compose', { method: 'POST', body: JSON.stringify({
+              purpose: purposeId,
+              title: '',
+              audience: '',
+              format: this.composeDefaultFormat(p),
+              brief: '',
+              sources: {
+                diary: on.has('diary'), diaryDays: 14,
+                pr: on.has('pr'), prRef: '',
+                pursuit: on.has('pursuit'), pursuitRef: '',
+                workitems: on.has('workitems'), workitemsRef: '',
+                m365: on.has('m365'),
+                links: [], pasted: '',
+              },
+            }) });
+            const c = r && r.composition;
+            if (!c) throw new Error('No composition returned');
+            this._composeSetCurrent(c);
+            this.compose.view = 'studio';
+            // Prime the rail's source pickers for anything on by default.
+            if (c.sources && c.sources.pr) this.composeLoadPRs();
+            if (c.sources && c.sources.pursuit) this.composeLoadPursuits();
+            // No auto-generate: the empty stage invites the user to author the brief
+            // in the rail, then hit ✨ Generate draft (parity with Newsletter).
+          } catch (e) {
+            this.toast('Could not start the composition: ' + (e.message || e), 'error');
+          } finally { this.compose.busy = false; }
         },
         // A fully-populated source object so older/partial records get new fields.
         composeSourcesDefault() {
           return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', m365: false, links: [], pasted: '' };
         },
-        composeAddLink() {
-          const v = String(this.compose.brief._linkInput || '').trim();
-          if (!v) return;
-          this.compose.brief.sources.links.push(v);
-          this.compose.brief._linkInput = '';
-        },
-        composeRemoveLink(i) { this.compose.brief.sources.links.splice(i, 1); },
         composeToggleSource(sources, s) {
           if (!sources || !s) return;
           sources[s.id] = !sources[s.id];
@@ -45283,36 +45197,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.fab.open = false;
           this.compose._pendingStart = purposeId;
           this.goTo('#/compose');
-        },
-        composeBriefValid() {
-          const b = this.compose.brief;
-          return !!(b && b.purpose && b.format && (b.brief || '').trim());
-        },
-        // Create the composition from the brief and immediately generate a first draft.
-        async composeCreate() {
-          const b = this.compose.brief;
-          if (!this.composeBriefValid()) { this.toast('Add a short brief of what you want before composing.', 'info'); return; }
-          this.compose.busy = true;
-          try {
-            const r = await this.request('/api/compose', { method: 'POST', body: JSON.stringify({
-              purpose: b.purpose, title: b.title, audience: b.audience, format: b.format, brief: b.brief,
-              sources: {
-                diary: !!b.sources.diary, diaryDays: b.sources.diaryDays,
-                pr: !!b.sources.pr, prRef: b.sources.prRef || '',
-                pursuit: !!b.sources.pursuit, pursuitRef: b.sources.pursuitRef || '',
-                workitems: !!b.sources.workitems, workitemsRef: b.sources.workitemsRef || '',
-                m365: !!b.sources.m365,
-                links: b.sources.links.slice(), pasted: b.sources.pasted,
-              },
-            }) });
-            const c = r && r.composition;
-            if (!c) throw new Error('No composition returned');
-            this._composeSetCurrent(c);
-            this.compose.view = 'studio';
-            await this.composeGenerate();
-          } catch (e) {
-            this.toast('Could not start the composition: ' + (e.message || e), 'error');
-          } finally { this.compose.busy = false; }
         },
         _composeSetCurrent(c) {
           const co = this.compose;
