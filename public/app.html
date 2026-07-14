@@ -20136,6 +20136,16 @@
               .cmpx-link{display:flex;align-items:center;gap:8px;font-size:13px}
               .cmpx-link a{color:var(--cp-accent);word-break:break-all}
               .cmpx-link button{border:0;background:none;color:var(--cp-text-secondary);cursor:pointer}
+              /* Work-item search results: plain rows (no pills), click to toggle */
+              .cmpx-wilist{display:flex;flex-direction:column;gap:2px;margin-top:6px;max-height:220px;overflow:auto;border:1px solid var(--cp-border);border-radius:9px;padding:4px}
+              .cmpx-wirow{display:flex;align-items:flex-start;gap:8px;padding:7px 9px;border:0;border-radius:7px;background:none;cursor:pointer;text-align:left;width:100%;transition:background-color .1s}
+              .cmpx-wirow:hover{background:var(--cp-surface-hover,rgba(127,127,127,.08))}
+              .cmpx-wirow.on{background:var(--cp-accent-soft,rgba(80,120,255,.12))}
+              .cmpx-wirow .cbx{flex:0 0 16px;width:16px;height:16px;margin-top:1px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--cp-border);border-radius:4px;font-size:11px;color:var(--cp-accent)}
+              .cmpx-wirow.on .cbx{border-color:var(--cp-accent);background:var(--cp-accent);color:#fff}
+              .cmpx-wirow .mid{display:flex;flex-direction:column;gap:1px;min-width:0}
+              .cmpx-wirow .mid .ti{font-size:13px;line-height:1.3;color:var(--cp-text)}
+              .cmpx-wirow .mid .mt{font-size:11px;color:var(--cp-text-secondary)}
               .cmpx-src{border:1px solid var(--cp-border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--cp-surface)}
               .cmpx-srcrow{display:flex;align-items:center;gap:10px}
               .cmpx-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
@@ -20283,17 +20293,48 @@
                         <option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option>
                       </select>
                     </div>
-                    <div class="cmpx-srcref" x-show="compose.brief.sources.pr">
+                    <div class="cmpx-srcref" x-show="compose.brief.sources.pr" x-init="compose.brief.sources.pr && composeLoadPRs(); $watch('compose.brief.sources.pr', v => v && composeLoadPRs())">
                       <label style="font-size:12px;font-weight:600">Pull request to investigate</label>
-                      <input class="field-input" type="text" x-model="compose.brief.sources.prRef" placeholder="https://github.com/org/repo/pull/123" />
+                      <div style="display:flex;gap:6px;align-items:center">
+                        <select class="field-input" x-model="compose.brief.sources.prRef">
+                          <option value="">Select a pull request…</option>
+                          <template x-for="p in compose.pickers.prs" :key="p.url">
+                            <option :value="p.url" x-text="(p.repo ? p.repo + ' #' + p.id + ' · ' : '') + p.title"></option>
+                          </template>
+                        </select>
+                        <button type="button" class="btn ghost" style="padding:6px 10px" @click="composeLoadPRs(true)" :disabled="compose.pickers.prsLoading" title="Refresh pull requests">↻</button>
+                      </div>
+                      <div class="hint" style="margin-top:4px" x-show="compose.pickers.prsLoading">Loading pull requests…</div>
+                      <div class="hint" style="margin-top:4px" x-show="!compose.pickers.prsLoading && compose.pickers.prsLoaded && !compose.pickers.prs.length">No pull requests found — you can paste a URL below in Additional links.</div>
                     </div>
-                    <div class="cmpx-srcref" x-show="compose.brief.sources.pursuit">
+                    <div class="cmpx-srcref" x-show="compose.brief.sources.pursuit" x-init="compose.brief.sources.pursuit && composeLoadPursuits(); $watch('compose.brief.sources.pursuit', v => v && composeLoadPursuits())">
                       <label style="font-size:12px;font-weight:600">Pursuit to read</label>
-                      <input class="field-input" type="text" x-model="compose.brief.sources.pursuitRef" placeholder="Pursuit name or id" />
+                      <div style="display:flex;gap:6px;align-items:center">
+                        <select class="field-input" x-model="compose.brief.sources.pursuitRef">
+                          <option value="">Select a pursuit…</option>
+                          <template x-for="p in compose.pickers.pursuits" :key="p.id">
+                            <option :value="p.id" x-text="p.title + (p.stage ? ' · ' + p.stage : '') + (p.archived ? ' (archived)' : '')"></option>
+                          </template>
+                        </select>
+                        <button type="button" class="btn ghost" style="padding:6px 10px" @click="composeLoadPursuits(true)" :disabled="compose.pickers.pursuitsLoading" title="Refresh pursuits">↻</button>
+                      </div>
+                      <div class="hint" style="margin-top:4px" x-show="compose.pickers.pursuitsLoading">Loading pursuits…</div>
+                      <div class="hint" style="margin-top:4px" x-show="!compose.pickers.pursuitsLoading && compose.pickers.pursuitsLoaded && !compose.pickers.pursuits.length">No pursuits yet.</div>
                     </div>
                     <div class="cmpx-srcref" x-show="compose.brief.sources.workitems">
                       <label style="font-size:12px;font-weight:600">Work items (Azure DevOps)</label>
-                      <input class="field-input" type="text" x-model="compose.brief.sources.workitemsRef" placeholder="AB#123, AB#456 or a query" />
+                      <input class="field-input" type="text" x-model="compose.pickers.wiQuery" @input="composeWiSearch()" placeholder="Search by title…" />
+                      <div class="hint" style="margin-top:4px" x-show="compose.pickers.wiLoading">Searching…</div>
+                      <div class="hint" style="margin-top:4px" x-show="!compose.pickers.wiLoading && compose.pickers.wiNote" x-text="compose.pickers.wiNote"></div>
+                      <div class="cmpx-wilist" x-show="compose.pickers.wiResults.length">
+                        <template x-for="wi in compose.pickers.wiResults" :key="wi.id">
+                          <button type="button" class="cmpx-wirow" :class="{ on: composeWiIsSelected(compose.brief.sources, wi.id) }" @click="composeWiToggle(compose.brief.sources, wi)">
+                            <span class="cbx" x-text="composeWiIsSelected(compose.brief.sources, wi.id) ? '✓' : ''"></span>
+                            <span class="mid"><span class="ti" x-text="wi.title"></span><span class="mt" x-text="'AB#' + wi.id + (wi.state ? ' · ' + wi.state : '') + (wi.type ? ' · ' + wi.type : '')"></span></span>
+                          </button>
+                        </template>
+                      </div>
+                      <div class="hint" style="margin-top:4px" x-show="compose.brief.sources.workitemsRef">Selected: <span x-text="compose.brief.sources.workitemsRef"></span></div>
                     </div>
                     <div class="cmpx-srcref">
                       <label style="font-size:12px;font-weight:600">Additional links <span class="hint" style="font-weight:400">(optional — PRs, issues, docs)</span></label>
@@ -20378,9 +20419,40 @@
                               </template>
                             </div>
                             <div class="nlx-fld" x-show="compose.current.sources.diary"><label>Diary timeframe</label><select class="field-input" x-model.number="compose.current.sources.diaryDays" @change="composeMarkBriefDirty()"><option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option></select></div>
-                            <div class="nlx-fld" x-show="compose.current.sources.pr"><label>Pull request</label><input class="field-input" type="text" x-model="compose.current.sources.prRef" @input="composeMarkBriefDirty()" placeholder="https://github.com/org/repo/pull/123" /></div>
-                            <div class="nlx-fld" x-show="compose.current.sources.pursuit"><label>Pursuit</label><input class="field-input" type="text" x-model="compose.current.sources.pursuitRef" @input="composeMarkBriefDirty()" placeholder="Pursuit name or id" /></div>
-                            <div class="nlx-fld" x-show="compose.current.sources.workitems"><label>Work items</label><input class="field-input" type="text" x-model="compose.current.sources.workitemsRef" @input="composeMarkBriefDirty()" placeholder="AB#123, AB#456 or a query" /></div>
+                            <div class="nlx-fld" x-show="compose.current.sources.pr" x-init="compose.current.sources.pr && composeLoadPRs(); $watch('compose.current.sources.pr', v => v && composeLoadPRs())"><label>Pull request</label>
+                              <div style="display:flex;gap:6px;align-items:center">
+                                <select class="field-input" x-model="compose.current.sources.prRef" @change="composeMarkBriefDirty()">
+                                  <option value="">Select a pull request…</option>
+                                  <template x-for="p in compose.pickers.prs" :key="p.url"><option :value="p.url" x-text="(p.repo ? p.repo + ' #' + p.id + ' · ' : '') + p.title"></option></template>
+                                </select>
+                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPRs(true)" :disabled="compose.pickers.prsLoading" title="Refresh pull requests">↻</button>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.prsLoading">Loading…</div>
+                            </div>
+                            <div class="nlx-fld" x-show="compose.current.sources.pursuit" x-init="compose.current.sources.pursuit && composeLoadPursuits(); $watch('compose.current.sources.pursuit', v => v && composeLoadPursuits())"><label>Pursuit</label>
+                              <div style="display:flex;gap:6px;align-items:center">
+                                <select class="field-input" x-model="compose.current.sources.pursuitRef" @change="composeMarkBriefDirty()">
+                                  <option value="">Select a pursuit…</option>
+                                  <template x-for="p in compose.pickers.pursuits" :key="p.id"><option :value="p.id" x-text="p.title + (p.stage ? ' · ' + p.stage : '') + (p.archived ? ' (archived)' : '')"></option></template>
+                                </select>
+                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPursuits(true)" :disabled="compose.pickers.pursuitsLoading" title="Refresh pursuits">↻</button>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.pursuitsLoading">Loading…</div>
+                            </div>
+                            <div class="nlx-fld" x-show="compose.current.sources.workitems"><label>Work items</label>
+                              <input class="field-input" type="text" x-model="compose.pickers.wiQuery" @input="composeWiSearch()" placeholder="Search by title…" />
+                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.wiLoading">Searching…</div>
+                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.wiLoading && compose.pickers.wiNote" x-text="compose.pickers.wiNote"></div>
+                              <div class="cmpx-wilist" x-show="compose.pickers.wiResults.length">
+                                <template x-for="wi in compose.pickers.wiResults" :key="wi.id">
+                                  <button type="button" class="cmpx-wirow" :class="{ on: composeWiIsSelected(compose.current.sources, wi.id) }" @click="composeWiToggle(compose.current.sources, wi, true)">
+                                    <span class="cbx" x-text="composeWiIsSelected(compose.current.sources, wi.id) ? '✓' : ''"></span>
+                                    <span class="mid"><span class="ti" x-text="wi.title"></span><span class="mt" x-text="'AB#' + wi.id + (wi.state ? ' · ' + wi.state : '')"></span></span>
+                                  </button>
+                                </template>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="compose.current.sources.workitemsRef">Selected: <span x-text="compose.current.sources.workitemsRef"></span></div>
+                            </div>
                             <div class="nlx-fld"><label>Reference links</label>
                               <template x-for="(l, i) in compose.current.sources.links" :key="i">
                                 <div class="cmpx-link"><a :href="l" target="_blank" rel="noopener" x-text="l"></a><button type="button" @click="composeStudioRemoveLink(i)" title="Remove">✕</button></div>
@@ -28978,6 +29050,13 @@
           showVersions: false,
           chat: { open: true, busy: false, input: '', messages: [], progress: [], pendingDraft: null, _seen: null },
           deliver: { open: false, to: '', subject: '' },
+          // Source pickers: real pursuit / PR / work-item lists so the user
+          // selects instead of typing raw refs. Populated lazily on demand.
+          pickers: {
+            prs: [], prsLoaded: false, prsLoading: false,
+            pursuits: [], pursuitsLoaded: false, pursuitsLoading: false,
+            wiQuery: '', wiResults: [], wiLoading: false, wiNote: '', _wiTimer: null,
+          },
         },
         // ===== Newsletter (Connect diary → polished, emailable digest) =====
         newsletter: {
@@ -45116,8 +45195,82 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.brief._linkInput = '';
         },
         composeRemoveLink(i) { this.compose.brief.sources.links.splice(i, 1); },
-        composeToggleSource(sources, s) { if (!sources || !s) return; sources[s.id] = !sources[s.id]; },
+        composeToggleSource(sources, s) {
+          if (!sources || !s) return;
+          sources[s.id] = !sources[s.id];
+          if (sources[s.id]) {
+            if (s.id === 'pr') this.composeLoadPRs();
+            else if (s.id === 'pursuit') this.composeLoadPursuits();
+          }
+        },
         composeSourceIsText(id) { const s = (this.compose.sourceCatalog || []).find(x => x.id === id); return !!(s && s.kind === 'text'); },
+        // --- Source pickers: pursuits / PRs / work items ---------------------
+        // The user picks a real item; we write a clean identifier into the brief
+        // (PR url, pursuit id, or a comma-joined AB#<id> list) instead of a typed ref.
+        async composeLoadPRs(force) {
+          const pk = this.compose.pickers;
+          if (pk.prsLoading || (pk.prsLoaded && !force)) return;
+          pk.prsLoading = true;
+          try {
+            const seen = new Set(); const out = [];
+            for (const view of ['mine', 'reviews', 'active']) {
+              try {
+                const j = await this.request('/api/codeflow/pullrequests?view=' + view + (force ? '&refresh=1' : ''));
+                for (const p of ((j && j.pullRequests) || [])) {
+                  if (!p || !p.url || seen.has(p.url)) continue;
+                  seen.add(p.url);
+                  out.push({ url: p.url, title: p.title || ('PR #' + p.id), repo: p.repo || '', id: p.id });
+                }
+              } catch (_) { /* try next view */ }
+            }
+            out.sort((a, b) => String(a.repo).localeCompare(String(b.repo)) || (b.id - a.id));
+            pk.prs = out; pk.prsLoaded = true;
+          } catch (_) { /* leave empty */ }
+          finally { pk.prsLoading = false; }
+        },
+        async composeLoadPursuits(force) {
+          const pk = this.compose.pickers;
+          if (pk.pursuitsLoading || (pk.pursuitsLoaded && !force)) return;
+          pk.pursuitsLoading = true;
+          try {
+            const j = await this.request('/api/compose/sources/pursuits');
+            pk.pursuits = (j && j.pursuits) || [];
+            pk.pursuitsLoaded = true;
+          } catch (_) { pk.pursuits = []; }
+          finally { pk.pursuitsLoading = false; }
+        },
+        composeWiSearch() {
+          const pk = this.compose.pickers;
+          if (pk._wiTimer) clearTimeout(pk._wiTimer);
+          const q = String(pk.wiQuery || '').trim();
+          if (q.length < 2) { pk.wiResults = []; pk.wiNote = q ? 'Type at least 2 characters.' : ''; pk.wiLoading = false; return; }
+          pk.wiLoading = true;
+          pk._wiTimer = setTimeout(async () => {
+            try {
+              const j = await this.request('/api/compose/sources/workitems?q=' + encodeURIComponent(q));
+              pk.wiResults = (j && j.items) || [];
+              pk.wiNote = (j && j.note) || (pk.wiResults.length ? '' : 'No matching work items.');
+            } catch (e) { pk.wiResults = []; pk.wiNote = 'Search failed.'; }
+            finally { pk.wiLoading = false; }
+          }, 350);
+        },
+        // Parse the comma/space-separated workitemsRef into a set of numeric ids.
+        composeWiSelectedIds(sources) {
+          const raw = String((sources && sources.workitemsRef) || '');
+          const set = new Set();
+          const re = /(?:AB#)?(\d{2,})/g; let m;
+          while ((m = re.exec(raw))) set.add(Number(m[1]));
+          return set;
+        },
+        composeWiIsSelected(sources, id) { return this.composeWiSelectedIds(sources).has(Number(id)); },
+        composeWiToggle(sources, wi, markDirty) {
+          if (!sources || !wi) return;
+          const ids = this.composeWiSelectedIds(sources);
+          const id = Number(wi.id);
+          if (ids.has(id)) ids.delete(id); else ids.add(id);
+          sources.workitemsRef = Array.from(ids).sort((a, b) => a - b).map(n => 'AB#' + n).join(', ');
+          if (markDirty) this.composeMarkBriefDirty();
+        },
         // Compose.AI launcher (lower-right FAB). Only shown on the Compose.AI page.
         composeFabVisible() {
           return this.route === 'compose';

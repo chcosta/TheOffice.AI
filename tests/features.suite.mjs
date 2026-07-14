@@ -126,12 +126,13 @@ await t.test('system agents: GET /api/agents returns an array', async () => {
   });
 });
 
-await t.test('water cooler backing: GET /api/managers returns an array', async () => {
-  // Water cooler is a client view over managers/agents chat — no dedicated
-  // route. Its data source is /api/managers.
-  await probe('/api/managers', (j) => {
-    t.ok(Array.isArray(j), 'managers payload is an array');
-    if (j.length) t.ok('manager_id' in j[0], 'manager has manager_id');
+await t.test('water cooler backing: GET /api/chats returns an array', async () => {
+  // Water cooler is a client view over agent chats (route #/chat) — no
+  // dedicated route. Its data source is /api/chats. (The old /api/managers
+  // backing was retired along with the manager plugin.)
+  await probe('/api/chats', (j) => {
+    t.ok(Array.isArray(j), 'chats payload is an array');
+    if (j.length) t.ok('id' in j[0], 'chat has id');
   });
 });
 

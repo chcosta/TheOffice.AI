@@ -215,8 +215,11 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 //    two real module-level regex consts the classifier reads.
 // ─────────────────────────────────────────────────────────────────────────────
 {
-  const prelude = sliceSource(SERVER, 'const _MEAI_EXT_SHELL_RE = new RegExp(', 'const _MEAI_EXT_TOOLS =');
-  const { _meAiClassifyPermission } = extractFns(SERVER, ['_meAiClassifyPermission'], { prelude });
+  // Prelude must carry every module-level regex the extracted fns reference:
+  // _MEAI_EXT_SHELL_RE/_TOOLS *and* the interpreter-write regexes, since
+  // _meAiClassifyPermission now delegates to _meAiInterpreterWrite.
+  const prelude = sliceSource(SERVER, 'const _MEAI_EXT_SHELL_RE = new RegExp(', '// True when a shell command invokes an interpreter');
+  const { _meAiClassifyPermission } = extractFns(SERVER, ['_meAiInterpreterWrite', '_meAiClassifyPermission'], { prelude, sandbox: { process } });
   const g = (req) => _meAiClassifyPermission(req).gate;
 
   await t.test('gate allows read-only investigation', () => {

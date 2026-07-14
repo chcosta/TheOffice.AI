@@ -887,7 +887,7 @@ async function listMyWorkItems(org, project, { start, end, top = 200 } = {}) {
 // UNDER the given node (so a parent area path also catches children). Always
 // scopes to items ASSIGNED to @Me unless assignedToMe is explicitly false.
 // Returns compact items hydrated via the batch endpoint. Never throws on empty.
-async function queryWorkItems(org, project, { type, state, areaPath, assignedToMe = true, top = 100 } = {}) {
+async function queryWorkItems(org, project, { type, state, areaPath, assignedToMe = true, top = 100, titleContains } = {}) {
   // WIQL escapes a single quote by doubling it.
   const lit = (v) => `'${String(v == null ? '' : v).replace(/'/g, "''")}'`;
   const clauses = [];
@@ -900,8 +900,14 @@ async function queryWorkItems(org, project, { type, state, areaPath, assignedToM
   const area = String(areaPath || '').trim();
   if (area) clauses.push(`[System.AreaPath] UNDER ${lit(area)}`);
   if (assignedToMe !== false) clauses.push(`[System.AssignedTo] = @Me`);
-  // Exclude terminal states unless the caller pinned a specific state list.
-  if (!states.length) clauses.push(`[System.State] <> 'Closed' AND [System.State] <> 'Removed' AND [System.State] <> 'Done'`);
+  // Free-text title search (compose source picker): CONTAINS runs a substring match
+  // over [System.Title]. Combined with the other clauses via AND.
+  const titleQ = String(titleContains || '').trim();
+  if (titleQ) clauses.push(`[System.Title] CONTAINS ${lit(titleQ)}`);
+  // Exclude terminal states unless the caller pinned a specific state list, or is
+  // running a free-text title search (where finding a specific item — even a closed
+  // one — matters more than filtering by activity).
+  if (!states.length && !titleQ) clauses.push(`[System.State] <> 'Closed' AND [System.State] <> 'Removed' AND [System.State] <> 'Done'`);
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')} ` : '';
   const wiql =
     `SELECT [System.Id] FROM WorkItems ${where}ORDER BY [System.ChangedDate] DESC`;

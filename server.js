@@ -12253,6 +12253,71 @@ app.post('/api/compose', (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// --- Compose source pickers -------------------------------------------------
+// These back the "Sources" pickers in the Compose.AI studio/brief: rather than
+// typing a raw ref, the user searches/selects a real pursuit, PR, or work item
+// and we write a clean identifier into the brief. Read-only; best-effort.
+
+// GET /api/compose/sources/pursuits → the user's pursuits (active + archived),
+// most-recent first, for the pursuit-to-read picker.
+app.get('/api/compose/sources/pursuits', (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const items = [];
+    for (const t of meAiTasks.values()) {
+      if (!t || t.deleted) continue;
+      const title = t.title || '';
+      if (q && !title.toLowerCase().includes(q) && !String(t.id).toLowerCase().includes(q)) continue;
+      items.push({
+        id: t.id, title, stage: t.stage || '', status: t.status || '',
+        mode: t.mode || 'single', archived: !!t.archived,
+        hasReport: !!(t.report && (t.report.markdown || t.report.html)),
+        updatedAt: t.updatedAt || t.date || '',
+      });
+    }
+    items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    res.json({ ok: true, pursuits: items.slice(0, 60) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/compose/sources/workitems?q=<title> → search ADO work items whose
+// title contains the query, across the configured org(s)/project(s). Requires a
+// query so we never dump the whole backlog.
+app.get('/api/compose/sources/workitems', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ ok: true, items: [], note: 'Type at least 2 characters.' });
+    const targets = _connectAdoTargets(settings.getSettings());
+    if (!targets.length) return res.json({ ok: true, items: [], note: 'No Azure DevOps org configured in Settings.' });
+    const withTimeout = (p, ms) => Promise.race([
+      p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms)),
+    ]);
+    const out = [];
+    const errors = [];
+    for (const { org, projects } of targets) {
+      for (const project of projects) {
+        try {
+          const wis = await withTimeout(
+            azdo.queryWorkItems(org, project, { titleContains: q, assignedToMe: false, top: 25 }),
+            8000
+          );
+          for (const w of (wis || [])) {
+            out.push({
+              id: w.id, title: w.title || '', type: w.type || '', state: w.state || '',
+              org, project, url: w.url || '', ref: `AB#${w.id}`,
+            });
+          }
+        } catch (e) { errors.push(`${org}/${project}: ${(e && e.message) || 'query failed'}`); }
+      }
+    }
+    // De-dupe by id, keep first, cap.
+    const seen = new Set();
+    const items = out.filter(w => (seen.has(w.id) ? false : (seen.add(w.id), true))).slice(0, 40);
+    res.json({ ok: true, items, errors: errors.length ? errors : undefined });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 // Fetch a full composition.
 app.get('/api/compose/:id', (req, res) => {
   try {
