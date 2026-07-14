@@ -3707,23 +3707,37 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   _reconcileStaleReviews();   // an orphaned "Running…" self-heals on the next poll
   let rec = _getCfWt(key);
   if (!rec) return res.json({ worktree: null });
+  // The review worktree is a detached snapshot at the old PR tip, so its own
+  // HEAD never reflects new local commits (which land on the branch inside a
+  // sibling branch-attached worktree — e.g. a dev card's Work worktree). Measure
+  // sync + uncommitted against that branch-attached dir so the card's Git section
+  // shows real "N to push" / dirty state instead of a false "In sync / Clean".
+  // Resolve it ONCE and take a single uncommitted-changes read, so the drift
+  // badge (dirty) and the "Uncommitted N files" row can never disagree within a
+  // response — resolving it twice let worktree churn between the two reads make
+  // the card contradict itself ("Out of sync (uncommitted)" vs "Clean").
+  const branchDir = _cfUsableDir(rec) || rec.worktreePath;
+  let wc = null;
+  try { if (branchDir && fs.existsSync(branchDir)) wc = devitems.worktreeChanges(branchDir); } catch {}
   if (rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath)) {
     try {
       const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
       const save = { reports: reports || [] };
-      // The review worktree is a detached snapshot at the old PR tip, so its own
-      // HEAD never reflects new local commits (which land on the branch inside a
-      // sibling branch-attached worktree — e.g. a dev card's Work worktree). Measure
-      // sync + uncommitted against that branch-attached dir so the card's Git section
-      // shows real "N to push" / dirty state instead of a false "In sync / Clean".
-      const branchDir = _cfUsableDir(rec) || rec.worktreePath;
       if (rec.sourceBranch) {
         try {
           const lastFetch = _cfDriftFetchAt.get(key) || 0;
           const doFetch = req.query.refresh === '1' || (Date.now() - lastFetch) > CF_DRIFT_FETCH_TTL_MS;
           if (doFetch) _cfDriftFetchAt.set(key, Date.now());
           const drift = devitems.prDrift(branchDir, rec.sourceBranch, { fetch: doFetch });
-          if (drift) save.drift = drift;
+          if (drift) {
+            // Reconcile the drift's dirty/inSync with the single change read above so
+            // the persisted drift can't diverge from the fresh Uncommitted count.
+            if (wc) {
+              drift.dirty = wc.dirty;
+              drift.inSync = drift.comparable && (drift.ahead || 0) === 0 && (drift.behind || 0) === 0 && !drift.dirty;
+            }
+            save.drift = drift;
+          }
         } catch {}
       }
       const rc = _readCfReviewComments(rec.worktreePath);
@@ -3742,13 +3756,18 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   const extra = {};
   try { Object.assign(extra, _cfAgentPresence(rec)); } catch {}
   try { extra.reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, _cfWtDevId(o)) || []; } catch { extra.reportHistory = []; }
-  try {
-    const branchDir = _cfUsableDir(rec) || rec.worktreePath;
-    if (branchDir && fs.existsSync(branchDir)) {
-      const ch = devitems.worktreeChanges(branchDir);
-      extra.changeCount = (ch.changed || []).length;
+  if (wc) {
+    extra.changeCount = (wc.changed || []).length;
+    // Guarantee the returned drift's dirty flag matches changeCount even when the
+    // ready-block above didn't recompute drift this tick (stale persisted record).
+    if (rec.drift) {
+      const dirty = wc.dirty;
+      extra.drift = Object.assign({}, rec.drift, {
+        dirty,
+        inSync: rec.drift.comparable && (rec.drift.ahead || 0) === 0 && (rec.drift.behind || 0) === 0 && !dirty
+      });
     }
-  } catch {}
+  }
   res.json({ worktree: { key, ...rec, ...extra } });
 });
 

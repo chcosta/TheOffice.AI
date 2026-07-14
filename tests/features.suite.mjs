@@ -19,7 +19,7 @@
 // an invented URL.
 
 import { readFileSync } from 'node:fs';
-import { createRunner, extractFns, api, serverUp } from './lib/harness.mjs';
+import { createRunner, extractFns, api, serverUp, sliceSource } from './lib/harness.mjs';
 
 const SERVER = 'server.js';
 const APP_HTML = 'public/app.html';
@@ -267,6 +267,81 @@ await t.test('compose: AI drafts auto-title from the generated subject/H1 (recen
   // Only overwrites while the title is still an auto placeholder.
   t.ok(/const isPlaceholder = !String\(c\.title \|\| ''\)\.trim\(\) \|\| c\.title === label \|\| c\.title === 'Untitled';/.test(composeJs), 'title is replaced only when it is a placeholder');
   t.ok(/if \(t\) c\.title = t;/.test(composeJs), 'derived title is applied on AI save');
+});
+
+// Code Flow: a review worktree must not read as "dirty" from throwaway build/SDK
+// droppings (e.g. a dotnet build pinning global.json leaves global.json.bak/.tmp),
+// and those droppings must never be swept into the PR commit by commitAll.
+await t.test('devitems: throwaway .bak/.tmp/.orig droppings are ignorable (not committable, not dirty)', () => {
+  const D = 'devitems.js';
+  const prelude = [
+    "const path = require('node:path');",
+    sliceSource(D, 'const REPORT_EXTS', 'const REPORT_SUBDIRS'),
+    sliceSource(D, 'const BUILD_OUTPUT_SEGMENTS', ']);'),
+    sliceSource(D, 'const BUILD_DROPPING_EXTS', ']);'),
+  ].join('\n');
+  const F = extractFns(D, [
+    'isIgnorableReportPath', 'isIgnorableAgentArtifact', 'isIgnorableBuildOutput',
+    'isIgnorableBuildDropping', 'isIgnorableWorktreePath', 'classifyPorcelain',
+  ], { prelude });
+
+  // The dropping extensions are ignorable; real source is not.
+  t.ok(F.isIgnorableBuildDropping('global.json.bak'), '.bak dropping is ignorable');
+  t.ok(F.isIgnorableBuildDropping('global.json.tmp'), '.tmp dropping is ignorable');
+  t.ok(F.isIgnorableBuildDropping('src/Foo/App.cs.orig'), '.orig dropping is ignorable (nested)');
+  t.notOk(F.isIgnorableBuildDropping('global.json'), 'global.json itself is NOT a dropping');
+  t.notOk(F.isIgnorableBuildDropping('src/Program.cs'), 'real source is not a dropping');
+  t.ok(F.isIgnorableWorktreePath('x.bak'), 'isIgnorableWorktreePath folds in droppings');
+
+  // The exact PR-61625 shape: only the tracked global.json edit is committable;
+  // the two droppings are filtered out (so Push would commit ONLY global.json).
+  const real = F.classifyPorcelain(' M global.json\n?? global.json.bak\n?? global.json.tmp');
+  t.deep(real.changed, ['global.json'], 'only the tracked global.json edit is committable');
+  t.ok(real.dirty, 'a tracked edit still reads dirty');
+  t.eq(real.ignored.length, 2, 'both droppings are classified ignorable');
+
+  // A worktree whose ONLY changes are droppings reads clean.
+  const droppingsOnly = F.classifyPorcelain('?? global.json.bak\n?? global.json.tmp');
+  t.deep(droppingsOnly.changed, [], 'droppings-only tree has no committable changes');
+  t.notOk(droppingsOnly.dirty, 'droppings-only tree is clean');
+});
+
+// Code Flow worktree route: the drift "dirty" badge and the "Uncommitted N files"
+// row must be computed from a SINGLE change read so they can never contradict each
+// other ("Out of sync (uncommitted)" vs "Clean") due to worktree churn between two
+// separate reads.
+await t.test('codeflow: worktree drift.dirty and changeCount come from one read (consistent)', () => {
+  const serverJs = readFileSync('server.js', 'utf8');
+  const route = serverJs.slice(serverJs.indexOf("app.get('/api/codeflow/pr/worktree'"), serverJs.indexOf("app.get('/api/codeflow/pr/worktree'") + 4200);
+  // branchDir resolved once, up front; a single worktreeChanges read feeds both.
+  t.ok(/const branchDir = _cfUsableDir\(rec\) \|\| rec\.worktreePath;[\s\S]{0,400}wc = devitems\.worktreeChanges\(branchDir\)/.test(route), 'branchDir + single worktreeChanges read up front');
+  // The persisted/recomputed drift's dirty is reconciled to that single read.
+  t.ok(/drift\.dirty = wc\.dirty;/.test(route), 'drift.dirty is reconciled to the single change read');
+  t.ok(/extra\.changeCount = \(wc\.changed \|\| \[\]\)\.length;/.test(route), 'changeCount comes from the same read');
+  t.ok(/extra\.drift = Object\.assign\(\{\}, rec\.drift, \{[\s\S]{0,120}dirty,/.test(route), 'returned drift dirty is overridden from the same read even when not recomputed');
+});
+
+// Code Flow: Boards is NOT a tab in the PR detail — it renders as a "Workspaces.AI"
+// clickable row directly below Notes (mirrors the dev card layout). Guards against a
+// regression that re-adds it to the tab strip or drops the row.
+await t.test('codeflow: PR Boards renders as a Workspaces.AI row below Notes, not a tab', () => {
+  // cfSections no longer pushes a 'boards' tab.
+  const secs = readFileSync('public/app.html', 'utf8');
+  const cfSec = secs.slice(secs.indexOf('cfSections(pr) {'), secs.indexOf('cfSections(pr) {') + 1400);
+  t.notOk(/id:\s*'boards'/.test(cfSec), "cfSections does not push a 'boards' tab");
+  t.notOk(/x-show="cfActivePane\(pr\) === 'boards'"/.test(secs), "the orphaned 'boards' pane is gone");
+  // The PR card body has a Workspaces.AI cf-ws-row wired to the PR board helpers.
+  const body = secs.slice(secs.indexOf('<!--CF_PR_CARD_BODY:START-->'), secs.indexOf('<!--CF_PR_CARD_BODY:START-->') + 12000);
+  t.ok(/class="cf-ws-row"[\s\S]{0,600}cfPrPinnedBoards\(pr\)/.test(body), 'a cf-ws-row iterates cfPrPinnedBoards(pr)');
+  t.ok(/cfPrUnpinFromBoard\(pr, b\)/.test(body), 'the row can unpin a board');
+  t.ok(/openQuickPin\('pr'/.test(body), 'the row can pin the PR to a workspace');
+});
+
+// Index rows carry the reference number so a PR / dev card is findable by # in the list.
+await t.test('codeflow: index rows show the PR # and the dev card work-item #', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/dvx-idx-repo"[^>]*x-text="[^"]*'#' \+ pr\.id/.test(html), 'PR index row appends #<id>');
+  t.ok(/dvx-idx-repo"[^>]*x-text="[^"]*'#' \+ card\.workItemId/.test(html), 'dev card index row appends #<workItemId>');
 });
 
 await t.done();

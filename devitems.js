@@ -1184,10 +1184,24 @@ function isIgnorableBuildOutput(rel) {
   return false;
 }
 
+// Throwaway backup/temp droppings left by build & SDK bootstrap tooling (e.g. a
+// dotnet build that pins global.json writes `global.json.bak`/`global.json.tmp`
+// beside it; editors/patchers leave `*.orig`). These are never part of a PR, so —
+// like build output — they must not flip a review worktree to "dirty", inflate the
+// change count, or (critically) get swept into the user's PR commit by commitAll,
+// which stages every non-ignorable change including untracked files.
+const BUILD_DROPPING_EXTS = new Set(['.bak', '.tmp', '.orig']);
+function isIgnorableBuildDropping(rel) {
+  if (!rel) return false;
+  const base = String(rel).replace(/\\/g, '/').split('/').pop();
+  return BUILD_DROPPING_EXTS.has(path.extname(base).toLowerCase());
+}
+
 // A worktree change is ignorable when it's a generated report, a Copilot/agent
-// tooling artifact, OR build output — all surfaced/managed by us but never committed.
+// tooling artifact, build output, OR a throwaway build/tool dropping — all
+// surfaced/managed by us but never committed.
 function isIgnorableWorktreePath(rel) {
-  return isIgnorableReportPath(rel) || isIgnorableAgentArtifact(rel) || isIgnorableBuildOutput(rel);
+  return isIgnorableReportPath(rel) || isIgnorableAgentArtifact(rel) || isIgnorableBuildOutput(rel) || isIgnorableBuildDropping(rel);
 }
 
 // Split `git status --porcelain` output into committable changes vs ignorable

@@ -11605,7 +11605,7 @@
                             <span class="dvx-idx-here" x-show="yahIsOn('dev:' + card.id)" title="You are here"></span>
                             <span class="dvx-idx-main">
                               <span class="dvx-idx-title" x-text="card.title || card.repo || 'Dev card'"></span>
-                              <span class="dvx-idx-repo" x-show="card.repo" x-text="(card.org ? card.org + ' / ' : '') + card.repo"></span>
+                              <span class="dvx-idx-repo" x-show="card.repo || card.workItemId" x-text="(card.org ? card.org + ' / ' : '') + (card.repo || '') + (card.workItemId ? ((card.repo ? '  ·  ' : '') + '#' + card.workItemId) : '')"></span>
                             </span>
                             <span class="dvx-idx-status">
                               <span class="sdot dev"></span>
@@ -21334,7 +21334,7 @@
                             <span class="dvx-idx-here" x-show="yahIsOn('pr:' + cfPrKey(pr))" title="You are here"></span>
                             <span class="dvx-idx-main">
                               <span class="dvx-idx-title" x-text="pr.title || ('PR ' + (pr.id || ''))"></span>
-                              <span class="dvx-idx-repo" x-show="pr.repo" x-text="(pr.org ? pr.org + ' / ' : '') + pr.repo"></span>
+                              <span class="dvx-idx-repo" x-show="pr.repo || pr.id" x-text="(pr.org ? pr.org + ' / ' : '') + (pr.repo || '') + (pr.id ? ((pr.repo ? '  ·  ' : '') + '#' + pr.id) : '')"></span>
                               <span class="dvx-idx-attnrow" x-show="cfIdxMeta(pr).attn" :title="cfIdxMeta(pr).attnLabel">
                                 <span class="adot"></span><span x-text="cfIdxMeta(pr).attnLabel"></span>
                               </span>
@@ -21512,6 +21512,20 @@
                     </template>
                   </div>
 
+                  <!-- Workspaces.AI: boards this PR is pinned on. Rendered right below Notes as a
+                       clickable row (mirrors the dev card layout) instead of a tab in the strip. -->
+                  <div class="cf-ws-row">
+                    <span class="cf-ws-label">Workspaces.AI</span>
+                    <template x-for="b in cfPrPinnedBoards(pr)" :key="b.id">
+                      <span class="cf-ws-item">
+                        <a class="cf-ws-chip" href="#" @click.prevent.stop="boardJumpToBoard(b)" :title="'Open ' + b.name"><span class="cf-ws-dot" :style="boardSwatchStyle(b)"></span><span class="nm" x-text="b.name"></span></a>
+                        <button class="cf-ws-x" type="button" data-tip="Remove from this workspace" @click.stop="cfPrUnpinFromBoard(pr, b)">&#10005;</button>
+                      </span>
+                    </template>
+                    <span class="hint" x-show="!cfPrPinnedBoards(pr).length" style="font-size:11px">Not on a workspace yet</span>
+                    <button class="cf-ws-pin" type="button" @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider, branch: pr.branch })" x-text="cfPrPinnedBoards(pr).length ? '&#128204; Change' : '&#128204; Pin to a workspace'"></button>
+                  </div>
+
                   <div class="cf-dtabs"><template x-for="s in cfSections(pr)" :key="s.id"><button type="button" class="cf-dtab" :class="{ active: cfTabActive(pr, s.id), disabled: s.disabled }" @click="cfTabToggle(pr, s.id)"><span class="cf-dtab-dot" x-show="s.attn" title="Needs attention"></span><span x-text="s.label"></span><span class="rc" x-show="s.count" x-text="s.count"></span></button></template></div>
 <div class="cf-dtab-panes" x-show="cfDrawerIsOpen(pr)"><div class="cf-panes">
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'reviewers'">
@@ -21659,24 +21673,6 @@
                             </div>
                           </template>
                         </div>
-                        </div>
-                      </div>
-                      <!-- Boards: every workspace this PR is pinned on, with a jump link + pin-to-more. -->
-                      <div class="cf-pane" x-show="cfActivePane(pr) === 'boards'">
-                        <div class="cf-subsec">
-                        <div class="cf-subhead">📌 Boards</div>
-                        <template x-if="!cfPrPinnedBoards(pr).length">
-                          <span class="cf-wt-history-ts">Not pinned to any workspace yet.</span>
-                        </template>
-                        <template x-for="b in cfPrPinnedBoards(pr)" :key="b.id">
-                          <div class="cf-wt-row" style="align-items:center;gap:10px">
-                            <span style="display:inline-flex;align-items:center;gap:6px"><span :style="'flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:'+boardColor(b)"></span><span x-text="b.name"></span></span>
-                            <a href="#" class="cf-wt-link" @click.prevent.stop="boardJumpToBoard(b)" style="margin-left:auto">Open ↗</a>
-                            <a href="#" class="cf-wt-link" @click.prevent.stop="cfPrUnpinFromBoard(pr, b)" style="color:var(--cp-text-soft)">Unpin</a>
-                          </div>
-                        </template>
-                        <button class="btn ghost" type="button" style="font-size:0.72rem;margin-top:6px"
-                                @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider, branch: pr.branch })">📌 Pin to a board</button>
                         </div>
                       </div>
                       <!-- Worktree: Review agent + Git + Worktree rolled into ONE section (stacked sub-headers) -->
@@ -47369,8 +47365,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           s.push({ id: 'worktree', label: '🗃 Worktree', attn: wtAttn });
           const arts = (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) ? ((wt.reports || []).length || 1) : 0;
           s.push({ id: 'links', label: '🔗 Artifacts', count: arts || undefined, disabled: !arts });
-          const pinned = this.cfPrPinnedBoards(pr);
-          s.push({ id: 'boards', label: '📌 Boards', count: pinned.length || undefined });
+          // Boards is NOT a tab — it renders as a "Workspaces.AI" clickable row right below
+          // Notes (mirrors the dev card layout). See the cf-ws-row in the PR card body.
           return s;
         },
         cfSummaryAttn(pr) {
