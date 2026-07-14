@@ -477,4 +477,56 @@ await t.test('pursuit map: Export (single file) + Export as zip (bundle)', () =>
   t.ok(!/compendium\.zip/.test(html), 'the old compendium.zip download name is gone');
 });
 
+// Feature — Pulse.AI Teams cache: the monitor picker is stale-while-revalidate.
+// The GET routes serve the disk cache INSTANTLY (never await the multi-minute WorkIQ
+// collector) and report a `refreshing` flag the client polls on; the mode toggle
+// preserves specific-channel picks via an explicit `allMode` boolean instead of
+// nulling `channels` (which lost the selection).
+function _win(src, marker, chars) {
+  const i = src.indexOf(marker);
+  return i < 0 ? '' : src.slice(i, i + chars);
+}
+await t.test('pulse monitor: stale-while-revalidate teams cache (server routes)', () => {
+  const src = readFileSync('server.js', 'utf8');
+  // routes must NOT block on the gather (collector) fns
+  const teamsRoute = _win(src, "app.get('/api/me-ai/pulse/teams',", 1200);
+  t.ok(teamsRoute, 'teams route found');
+  t.ok(!/await\s+_pulseGatherTeams/.test(teamsRoute), 'teams GET no longer awaits the blocking collector');
+  t.ok(/_pulseKickTeamsRefresh\(\)/.test(teamsRoute), 'teams GET kicks a background refresh');
+  t.ok(/refreshing:\s*_pulseTeamsRefreshing/.test(teamsRoute), 'teams GET reports the refreshing flag');
+  t.ok(/stale/.test(teamsRoute), 'teams GET reports staleness');
+  const chanRoute = _win(src, "app.get('/api/me-ai/pulse/teams/:id/channels',", 1400);
+  t.ok(chanRoute, 'channels route found');
+  t.ok(!/await\s+_pulseGatherChannels/.test(chanRoute), 'channels GET no longer awaits the blocking collector');
+  t.ok(/_pulseKickChannelsRefresh\(teamId\)/.test(chanRoute), 'channels GET kicks a background channel refresh');
+  t.ok(/refreshing:\s*_pulseChannelsRefreshing\.has\(teamId\)/.test(chanRoute), 'channels GET reports per-team refreshing');
+  // the SWR helpers exist
+  t.ok(/_pulseKickTeamsRefresh\s*\(/.test(src), 'teams background-refresh kicker defined');
+  t.ok(/_pulseKickChannelsRefresh\s*\(/.test(src), 'channels background-refresh kicker defined');
+});
+
+await t.test('pulse monitor: mode toggle preserves selection + client polls (app.html)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // All-channels mode is an explicit boolean; switching to "all" must NOT drop channels
+  const setMode = _win(html, 'pulseSetTeamMode(t, mode) {', 600);
+  t.ok(setMode, 'pulseSetTeamMode found');
+  t.ok(/s\.allMode\s*=\s*true/.test(setMode), "switching to 'all' sets allMode without wiping channels");
+  t.ok(!/s\.channels\s*=\s*null/.test(setMode), "switching to 'all' no longer nulls the channel picks");
+  // state carries the poll timers + seed guard
+  t.ok(/refreshing:\s*false/.test(html) && /_selSeeded:\s*false/.test(html), 'monitor state has refreshing + seed guard');
+  t.ok(/chanRefreshing:\s*\{\}/.test(html), 'monitor state tracks per-team channel refreshing');
+  // teams loader only cold-loads + seeds once + polls while refreshing
+  const loadTeams = _win(html, 'async pulseLoadTeams(refresh) {', 2400);
+  t.ok(loadTeams, 'pulseLoadTeams found');
+  t.ok(/if\s*\(!m\.teams\.length\)\s*m\.loading\s*=\s*true/.test(loadTeams), 'blocking loader only when nothing cached');
+  t.ok(/m\._selSeeded/.test(loadTeams), 'selection seeded once so a re-poll cannot clobber edits');
+  t.ok(/setTimeout\(\(\)\s*=>\s*this\.pulseLoadTeams/.test(loadTeams), 'polls again while refreshing');
+  // channels loader no longer permanently caches an empty list
+  const loadCh = _win(html, 'async pulseLoadChannels(teamId, teamName) {', 900);
+  t.ok(loadCh, 'pulseLoadChannels found');
+  t.ok(!/if\s*\(m\.channels\[teamId\]\s*\|\|\s*m\.chanLoading\[teamId\]\)\s*return/.test(loadCh), 'channel loader no longer short-circuits on a cached empty array');
+  // refreshing indicators in the modal
+  t.ok(/pmd-refreshing/.test(html), 'a refreshing indicator is surfaced in the picker');
+});
+
 await t.done();

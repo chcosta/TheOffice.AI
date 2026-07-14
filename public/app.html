@@ -18878,6 +18878,7 @@
               .pmd-count { font-size:12px; color:var(--cp-text-muted); flex-shrink:0; }
               .pmd-body { overflow-y:auto; padding:8px 14px 6px; flex:1; }
               .pmd-loading, .pmd-empty, .pmd-chan-loading, .pmd-chan-empty { color:var(--cp-text-muted); font-size:12.5px; padding:14px 8px; }
+              .pmd-refreshing { color:var(--cp-accent, #4a7cff); font-size:12px; padding:8px 8px; opacity:.85; }
               .pmd-chan-loading, .pmd-chan-empty { padding:8px 4px; }
               .pmd-team { border-radius:10px; padding:2px 8px; transition:background .15s ease; }
               .pmd-team.on { background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); }
@@ -19402,7 +19403,8 @@
                   </div>
                   <div class="pmd-body">
                     <div class="pmd-loading" x-show="pulse.monitor.loading">Loading your Teams…</div>
-                    <div class="pmd-empty" x-show="!pulse.monitor.loading &amp;&amp; !pulseTeamsFiltered().length">
+                    <div class="pmd-refreshing" x-show="!pulse.monitor.loading &amp;&amp; pulse.monitor.refreshing">↻ Refreshing from Teams… this can take a minute. The list below is your last saved copy.</div>
+                    <div class="pmd-empty" x-show="!pulse.monitor.loading &amp;&amp; !pulse.monitor.refreshing &amp;&amp; !pulseTeamsFiltered().length">
                       <span x-show="pulse.monitor.q">No teams match “<span x-text="pulse.monitor.q"></span>”.</span>
                       <span x-show="!pulse.monitor.q">No Teams found.</span>
                     </div>
@@ -19425,13 +19427,14 @@
                           </div>
                           <div class="pmd-chan-list" x-show="pulseTeamMode(t.id)==='specific'">
                             <div class="pmd-chan-loading" x-show="pulse.monitor.chanLoading[t.id]">Loading channels…</div>
+                            <div class="pmd-chan-loading" x-show="!pulse.monitor.chanLoading[t.id] &amp;&amp; pulse.monitor.chanRefreshing[t.id]">↻ Refreshing channels…</div>
                             <template x-for="ch in (pulse.monitor.channels[t.id] || [])" :key="ch.id">
                               <label class="pmd-chan-item">
                                 <input type="checkbox" :checked="pulseChannelChecked(t.id, ch)" @change="pulseToggleChannel(t.id, ch)">
                                 <span x-text="ch.displayName || ch.name"></span>
                               </label>
                             </template>
-                            <div class="pmd-chan-empty" x-show="!pulse.monitor.chanLoading[t.id] &amp;&amp; !(pulse.monitor.channels[t.id] || []).length">No channels found.</div>
+                            <div class="pmd-chan-empty" x-show="!pulse.monitor.chanLoading[t.id] &amp;&amp; !pulse.monitor.chanRefreshing[t.id] &amp;&amp; !(pulse.monitor.channels[t.id] || []).length">No channels found.</div>
                           </div>
                         </div>
                       </div>
@@ -29157,7 +29160,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, teams: [], sel: {}, channels: {}, chanLoading: {}, expanded: {}, q: '', gatheredAt: '' }, _reelFull: null, _reelFullReel: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -37815,39 +37818,57 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = this.pulse.monitor;
           m.open = true;
           m.q = '';
-          if (!m.teams.length) this.pulseLoadTeams(false);
-          else this._pulseSyncSelFromSaved();
+          // Re-opening resets in-progress edits back to the saved selection. loadTeams is
+          // cheap (served from the server cache instantly), so always call it — it also
+          // kicks a background refresh if the catalog is stale.
+          m._selSeeded = false;
+          this.pulseLoadTeams(false);
           this.$nextTick(() => { const d = this.$refs && this.$refs.pulseMonDlg; if (d && !d.open) { try { d.showModal(); } catch { d.setAttribute('open',''); } } });
         },
         pulseMonitorClose() {
           const m = this.pulse.monitor;
           m.open = false;
+          // Stop any in-flight background polling so a closed dialog isn't hammering the API.
+          try { clearTimeout(m._pollT); } catch (e) {}
+          try { for (const k of Object.keys(m._chanPollT || {})) clearTimeout(m._chanPollT[k]); } catch (e) {}
           const d = this.$refs && this.$refs.pulseMonDlg;
           if (d && d.open) { try { d.close(); } catch { d.removeAttribute('open'); } }
         },
         async pulseLoadTeams(refresh) {
           const m = this.pulse.monitor;
-          m.loading = true;
+          // Only show the blocking loader when we have NOTHING cached yet; a warm re-poll
+          // keeps the list on screen and just flags `refreshing`.
+          if (!m.teams.length) m.loading = true;
           try {
             const r = await this.request('/api/me-ai/pulse/teams' + (refresh ? '?refresh=1' : ''));
-            m.teams = (r && Array.isArray(r.teams)) ? r.teams : [];
-            m.gatheredAt = (r && r.gatheredAt) || '';
-            // Seed the working selection from the server's saved selection.
-            m.sel = {};
-            const sel = (r && Array.isArray(r.selection)) ? r.selection : [];
-            for (const s of sel) {
-              if (!s || !s.teamId) continue;
-              m.sel[s.teamId] = { teamName: s.teamName || '', channels: Array.isArray(s.channels) && s.channels.length ? s.channels.map(c => ({ id: c.id, name: c.name || c.displayName || '' })) : null };
+            if (r && Array.isArray(r.teams)) m.teams = r.teams;
+            m.gatheredAt = (r && r.gatheredAt) || m.gatheredAt;
+            m.refreshing = !!(r && r.refreshing);
+            // Seed the working selection from the server's saved selection ONCE per open,
+            // so a background re-poll never clobbers the user's in-progress edits.
+            if (!m._selSeeded) {
+              m.sel = {};
+              const sel = (r && Array.isArray(r.selection)) ? r.selection : [];
+              for (const s of sel) {
+                if (!s || !s.teamId) continue;
+                const chans = Array.isArray(s.channels) && s.channels.length ? s.channels.map(c => ({ id: c.id, name: c.name || c.displayName || '' })) : null;
+                m.sel[s.teamId] = { teamName: s.teamName || '', channels: chans, allMode: !chans };
+              }
+              this.pulse.monitorCount = Object.keys(m.sel).length;
+              m._selSeeded = true;
             }
-            this.pulse.monitorCount = Object.keys(m.sel).length;
+            // Background revalidation in flight → poll again shortly to paint the fresh list.
+            try { clearTimeout(m._pollT); } catch (e) {}
+            if (m.refreshing && m.open) m._pollT = setTimeout(() => this.pulseLoadTeams(false), 4000);
           } catch (e) {
-            this.toast('Could not load your Teams: ' + (e.message || e), 'error');
+            if (!m.teams.length) this.toast('Could not load your Teams: ' + (e.message || e), 'error');
           } finally {
             m.loading = false;
           }
         },
         _pulseSyncSelFromSaved() {
           // Re-open resets working edits back to the saved selection.
+          this.pulse.monitor._selSeeded = false;
           this.pulseLoadTeams(false);
         },
         pulseTeamsFiltered() {
@@ -37860,7 +37881,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         pulseToggleTeam(t) {
           const m = this.pulse.monitor;
           if (m.sel[t.id]) { delete m.sel[t.id]; m.expanded[t.id] = false; }
-          else { m.sel[t.id] = { teamName: t.displayName || '', channels: null }; this.pulseToggleExpand(t, true); }
+          else { m.sel[t.id] = { teamName: t.displayName || '', channels: null, allMode: true }; this.pulseToggleExpand(t, true); }
         },
         pulseToggleExpand(t, forceOpen) {
           const m = this.pulse.monitor;
@@ -37869,28 +37890,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async pulseLoadChannels(teamId, teamName) {
           const m = this.pulse.monitor;
-          if (m.channels[teamId] || m.chanLoading[teamId]) return;
-          m.chanLoading[teamId] = true;
+          // Serve cached channels instantly; keep polling ONLY while the server reports a
+          // background refresh in flight (never cache-lock an empty list — that was the
+          // "No channels found until I toggle All↔Choose" bug).
+          const have = Array.isArray(m.channels[teamId]) && m.channels[teamId].length;
+          if (m.chanLoading[teamId]) return;
+          if (!have) m.chanLoading[teamId] = true;
           try {
             const r = await this.request('/api/me-ai/pulse/teams/' + encodeURIComponent(teamId) + '/channels');
-            m.channels[teamId] = (r && Array.isArray(r.channels)) ? r.channels : [];
+            if (r && Array.isArray(r.channels)) m.channels[teamId] = r.channels;
+            m.chanRefreshing[teamId] = !!(r && r.refreshing);
+            try { clearTimeout(m._chanPollT[teamId]); } catch (e) {}
+            if (m.chanRefreshing[teamId] && m.open) {
+              m._chanPollT[teamId] = setTimeout(() => { m.chanLoading[teamId] = false; this.pulseLoadChannels(teamId, teamName); }, 4000);
+            }
           } catch (e) {
-            m.channels[teamId] = [];
-            this.toast('Could not load channels for ' + (teamName || 'team') + ': ' + (e.message || e), 'error');
+            if (!have) { m.channels[teamId] = []; this.toast('Could not load channels for ' + (teamName || 'team') + ': ' + (e.message || e), 'error'); }
           } finally {
             m.chanLoading[teamId] = false;
           }
         },
         pulseTeamMode(teamId) {
           const s = this.pulse.monitor.sel[teamId];
-          return (s && Array.isArray(s.channels)) ? 'specific' : 'all';
+          if (!s) return 'all';
+          // Explicit allMode wins; fall back to "specific iff a channel array is present".
+          if (typeof s.allMode === 'boolean') return s.allMode ? 'all' : 'specific';
+          return Array.isArray(s.channels) ? 'specific' : 'all';
         },
         pulseSetTeamMode(t, mode) {
           const m = this.pulse.monitor;
           const s = m.sel[t.id];
           if (!s) return;
-          if (mode === 'all') { s.channels = null; }
-          else { if (!Array.isArray(s.channels)) s.channels = []; if (!m.channels[t.id]) this.pulseLoadChannels(t.id, t.displayName); }
+          if (mode === 'all') {
+            // Switch to all-channels WITHOUT discarding the specific picks, so flipping
+            // back to "Choose channels" keeps the previous selection intact.
+            s.allMode = true;
+          } else {
+            s.allMode = false;
+            if (!Array.isArray(s.channels)) s.channels = [];
+            this.pulseLoadChannels(t.id, t.displayName);
+          }
         },
         pulseChannelChecked(teamId, ch) {
           const s = this.pulse.monitor.sel[teamId];
@@ -37908,8 +37947,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         pulseTeamSummary(teamId) {
           const s = this.pulse.monitor.sel[teamId];
           if (!s) return '';
-          if (!Array.isArray(s.channels)) return 'All channels';
-          const n = s.channels.length;
+          if (this.pulseTeamMode(teamId) === 'all') return 'All channels';
+          const n = Array.isArray(s.channels) ? s.channels.length : 0;
           return n ? (n + (n === 1 ? ' channel' : ' channels')) : 'No channels chosen';
         },
         async pulseSaveMonitoring() {
@@ -37918,7 +37957,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const teams = Object.keys(m.sel).map(id => {
             const s = m.sel[id];
             const out = { teamId: id, teamName: s.teamName || '' };
-            if (Array.isArray(s.channels)) out.channels = s.channels.map(c => ({ id: c.id, name: c.name || '' }));
+            // Persist specific channels only when the team is in "Choose channels" mode
+            // AND has at least one pick; all-channels persists as no channels array.
+            const specific = this.pulseTeamMode(id) === 'specific';
+            if (specific && Array.isArray(s.channels) && s.channels.length) out.channels = s.channels.map(c => ({ id: c.id, name: c.name || '' }));
             return out;
           });
           try {

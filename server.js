@@ -28304,6 +28304,33 @@ function _pulseSaveTeamsCatalog(cat) {
   try { fs.mkdirSync(PULSE_DIR, { recursive: true }); fs.writeFileSync(PULSE_TEAMS_PATH, JSON.stringify(cat || { teams: [] }, null, 2)); } catch (_) {}
   return cat;
 }
+// ---- Stale-while-revalidate for the Teams/channel catalog ------------------------
+// The WorkIQ collector poll can take MINUTES, so a GET must never block on it. These
+// guards let a route serve whatever is cached instantly and kick a single background
+// revalidation off the request path; the client polls until `refreshing` clears.
+let _pulseTeamsRefreshing = false;
+const _pulseChannelsRefreshing = new Set();
+function _pulseTeamsStale(cat) {
+  if (!cat || !cat.gatheredAt || !Array.isArray(cat.teams) || !cat.teams.length) return true;
+  const last = Date.parse(cat.gatheredAt);
+  return !(isFinite(last) && (Date.now() - last) < PULSE_TEAMS_TTL_MS);
+}
+function _pulseChannelsStale(team) {
+  if (!team || !Array.isArray(team.channels) || !team.channelsAt) return true;
+  const last = Date.parse(team.channelsAt);
+  return !(isFinite(last) && (Date.now() - last) < PULSE_TEAMS_TTL_MS);
+}
+function _pulseKickTeamsRefresh() {
+  if (_pulseTeamsRefreshing) return;
+  _pulseTeamsRefreshing = true;
+  Promise.resolve().then(() => _pulseGatherTeams({ force: true })).catch(() => {}).finally(() => { _pulseTeamsRefreshing = false; });
+}
+function _pulseKickChannelsRefresh(teamId) {
+  const key = String(teamId || '');
+  if (!key || _pulseChannelsRefreshing.has(key)) return;
+  _pulseChannelsRefreshing.add(key);
+  Promise.resolve().then(() => _pulseGatherChannels(key, { force: true })).catch(() => {}).finally(() => { _pulseChannelsRefreshing.delete(key); });
+}
 // Refresh the joined-teams list via the collector agent (WorkIQ /me/joinedTeams).
 // Cached for PULSE_TEAMS_TTL_MS; preserves any previously-cached per-team channels.
 async function _pulseGatherTeams({ force = false } = {}) {
@@ -29364,29 +29391,43 @@ app.post('/api/me-ai/pulse/seen', (req, res) => {
 });
 
 // GET /api/me-ai/pulse/teams?refresh=1 → the user's joined-teams catalog + current
-// monitoring selection. Cached (teams rarely change); refresh=1 forces a WorkIQ poll.
+// monitoring selection. Stale-while-revalidate: serves the cached list INSTANTLY and
+// kicks a background WorkIQ refresh (which can take minutes) off the request path;
+// the client polls until `refreshing` clears. refresh=1 forces a background re-poll.
 app.get('/api/me-ai/pulse/teams', async (req, res) => {
   try {
     const cfg = _meAiConfig();
-    if (!cfg.consent) return res.json({ ok: true, consent: false, teams: [], selection: [], gatheredAt: '' });
+    if (!cfg.consent) return res.json({ ok: true, consent: false, teams: [], selection: [], gatheredAt: '', refreshing: false, stale: false });
     const force = String(req.query.refresh || '') === '1';
-    const cat = await _pulseGatherTeams({ force });
+    const cat = _pulseLoadTeamsCatalog();
+    const stale = _pulseTeamsStale(cat);
+    if (force || stale) _pulseKickTeamsRefresh();
     const selection = _pulseMonitorSelection();
     const teams = (cat.teams || []).map(t => ({ id: t.id, displayName: t.displayName, hasChannels: Array.isArray(t.channels) }));
-    res.json({ ok: true, consent: true, teams, selection, gatheredAt: cat.gatheredAt || '' });
+    res.json({ ok: true, consent: true, teams, selection, gatheredAt: cat.gatheredAt || '', refreshing: _pulseTeamsRefreshing, stale });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // GET /api/me-ai/pulse/teams/:id/channels?refresh=1 → channels for one team (lazy).
+// Also stale-while-revalidate: cached channels return instantly, a background refresh
+// fills them in. If the team catalog itself is cold, kicks a teams refresh so the id
+// resolves on a later poll rather than 404-ing.
 app.get('/api/me-ai/pulse/teams/:id/channels', async (req, res) => {
   try {
     const cfg = _meAiConfig();
-    if (!cfg.consent) return res.json({ ok: true, consent: false, channels: [] });
+    if (!cfg.consent) return res.json({ ok: true, consent: false, channels: [], refreshing: false, stale: false });
     const force = String(req.query.refresh || '') === '1';
-    const team = await _pulseGatherChannels(String(req.params.id || ''), { force });
-    if (!team) return res.status(404).json({ error: 'team not found' });
+    const teamId = String(req.params.id || '');
+    const cat = _pulseLoadTeamsCatalog();
+    const team = cat.teams.find(t => String(t.id) === teamId);
+    if (!team) {
+      _pulseKickTeamsRefresh();
+      return res.json({ ok: true, consent: true, teamId, teamName: '', channels: [], refreshing: true, stale: true });
+    }
+    const stale = _pulseChannelsStale(team);
+    if (force || stale) _pulseKickChannelsRefresh(teamId);
     const channels = Array.isArray(team.channels) ? team.channels.map(c => ({ id: c.id, displayName: c.displayName })) : [];
-    res.json({ ok: true, consent: true, teamId: team.id, teamName: team.displayName, channels });
+    res.json({ ok: true, consent: true, teamId: team.id, teamName: team.displayName, channels, refreshing: _pulseChannelsRefreshing.has(teamId), stale });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
