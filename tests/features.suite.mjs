@@ -215,4 +215,17 @@ await t.test('assistant: unified FAB panel is context-dispatched, no stale refs'
   }
 });
 
+// Compose areas resume the last composition of a purpose by default (so users land
+// on their last generated draft + its history) and can still start a fresh one.
+await t.test('compose: purpose picker resumes latest by default, forceNew starts blank', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/composeLatestForPurpose\s*\(/.test(html), 'composeLatestForPurpose helper exists');
+  // composeStart resumes an existing composition unless forceNew is passed.
+  t.ok(/async composeStart\(purposeId, opts = \{\}\)/.test(html), 'composeStart takes opts');
+  t.ok(/if \(!opts\.forceNew\)/.test(html), 'composeStart resumes unless forceNew');
+  t.ok(/composeStart\(p\.id, \{ forceNew: true \}\)/.test(html), 'gallery exposes a fresh-start (forceNew) action');
+  // Saving refreshes the version list so the History count stays live.
+  t.ok(/async composeSaveDraft\(\)[\s\S]{0,700}composeLoadVersions\(\)/.test(html), 'composeSaveDraft refreshes versions');
+});
+
 await t.done();

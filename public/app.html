@@ -20093,11 +20093,16 @@
               /* Launcher: purpose gallery + recent */
               .cmpx-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin:18px 0 26px}
               .cmpx-purpose{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);cursor:pointer;text-align:left;transition:border-color .12s,transform .12s,box-shadow .12s}
+              .cmpx-purpose-wrap{position:relative;display:flex}
+              .cmpx-purpose-wrap>.cmpx-purpose{flex:1}
+              .cmpx-purpose-new{position:absolute;top:10px;right:10px;font-size:11px;color:var(--cp-text-secondary);background:none;border:0;cursor:pointer;padding:2px 5px;border-radius:6px}
+              .cmpx-purpose-new:hover{color:var(--cp-accent);background:var(--cp-surface-hover,rgba(0,0,0,.04))}
               .cmpx-purpose:hover{border-color:var(--cp-accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.06)}
               .cmpx-purpose .ic{font-size:22px}
               .cmpx-purpose .nm{font-weight:650;font-size:15px;color:var(--cp-text)}
               .cmpx-purpose .bl{font-size:12.5px;color:var(--cp-text-secondary);line-height:1.45}
               .cmpx-purpose .lk{font-size:12px;color:var(--cp-accent);margin-top:2px}
+              .cmpx-purpose .rk{font-size:11.5px;color:var(--cp-accent);margin-top:auto;padding-top:6px}
               .cmpx-secttl{font-size:13px;font-weight:650;color:var(--cp-text-secondary);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px}
               .cmpx-recent{display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;overflow:hidden;background:var(--cp-surface)}
               .cmpx-rrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--cp-border);cursor:pointer}
@@ -20217,15 +20222,22 @@
               <!-- ============ LAUNCHER ============ -->
               <template x-if="compose.view === 'launcher' && !compose.loading">
                 <div>
-                  <div class="cmpx-secttl">Start something new</div>
+                  <div class="cmpx-secttl">Compose — pick up where you left off, or start fresh</div>
                   <div class="cmpx-gallery">
                     <template x-for="p in compose.purposes" :key="p.id">
-                      <button class="cmpx-purpose" type="button" @click="composeStart(p.id)">
-                        <span class="ic" x-text="p.icon || '📝'"></span>
-                        <span class="nm" x-text="p.label"></span>
-                        <span class="bl" x-text="p.blurb"></span>
-                        <span class="lk" x-show="p.linksTo === 'newsletter'">Opens the Newsletter studio →</span>
-                      </button>
+                      <div class="cmpx-purpose-wrap">
+                        <button class="cmpx-purpose" type="button" @click="composeStart(p.id)">
+                          <span class="ic" x-text="p.icon || '📝'"></span>
+                          <span class="nm" x-text="p.label"></span>
+                          <span class="bl" x-text="p.blurb"></span>
+                          <span class="lk" x-show="p.linksTo === 'newsletter'">Opens the Newsletter studio →</span>
+                          <span class="rk" x-show="p.linksTo !== 'newsletter' && composeLatestForPurpose(p.id)" x-text="composeResumeHint(p.id)"></span>
+                        </button>
+                        <button class="cmpx-purpose-new" type="button"
+                                x-show="p.linksTo !== 'newsletter' && composeLatestForPurpose(p.id)"
+                                @click.stop="composeStart(p.id, { forceNew: true })"
+                                title="Start a fresh blank composition of this type">＋ New</button>
+                      </div>
                     </template>
                   </div>
 
@@ -45037,9 +45049,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // studio (rail · preview · revise · history · zoom), exactly like the
         // Newsletter studio. The brief is authored in the studio's left rail, not a
         // separate form — so every composition type gets the same rich experience.
-        async composeStart(purposeId) {
+        // The most recent composition of a purpose (prefer one that has a draft
+        // so "resume" lands on the last thing actually generated). Used to make
+        // picking a purpose resume where you left off instead of spawning empties.
+        composeLatestForPurpose(purposeId) {
+          const list = this.compose.compositions || [];
+          return list.find(c => c.purpose === purposeId && c.hasDraft)
+            || list.find(c => c.purpose === purposeId)
+            || null;
+        },
+        composeResumeHint(purposeId) {
+          const c = this.composeLatestForPurpose(purposeId);
+          if (!c) return '';
+          return c.hasDraft
+            ? ('↩ Resume — last generated ' + this.formatRelative(c.lastGeneratedAt || c.updatedAt))
+            : '↩ Resume — draft in progress';
+        },
+        async composeStart(purposeId, opts = {}) {
           const p = this.composePurpose(purposeId);
           if (p && p.linksTo === 'newsletter') { this.goTo('#/newsletter'); return; }
+          // Resume the latest composition of this purpose by default so the user
+          // lands on their last generated draft (and its history) rather than a
+          // fresh empty one. `forceNew` starts a blank composition instead.
+          if (!opts.forceNew) {
+            const existing = this.composeLatestForPurpose(purposeId);
+            if (existing) { await this.composeOpen(existing.id); return; }
+          }
           const on = new Set(this.compose.sourceDefaults[purposeId] || []);
           this.compose.busy = true;
           try {
@@ -45332,6 +45367,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
             if (r && r.composition) co.current = r.composition;
             co.draftDirty = false;
+            // Keep the History tab/count live after each save (a prior draft was
+            // just snapshotted server-side).
+            this.composeLoadVersions();
             this.toast('Saved', 'success');
           } catch (e) {
             this.toast('Save failed: ' + (e.message || e), 'error');
