@@ -12426,6 +12426,10 @@
           <section x-show="!loading && !errorMessage && route === 'me-ai'">
             <style>
               .meai-wrap { max-width:1100px; margin:0 auto; }
+              .meai-agentpage-load { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:var(--cp-bg); z-index:5; }
+              .meai-agentpage-spin { width:34px; height:34px; border-radius:50%; border:3px solid var(--cp-border); border-top-color:var(--cp-accent); animation:meaiAgentSpin 0.8s linear infinite; }
+              @keyframes meaiAgentSpin { to { transform:rotate(360deg); } }
+              .meai-agentpage-txt { color:var(--cp-text-dim); font-size:14px; }
               .meai-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:0 0 6px; }
               .meai-head-right { display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
               .meai-head-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
@@ -14461,7 +14465,7 @@
               .mr-tomb .tb b { color:var(--cp-text); }
             </style>
 
-            <div class="meai-wrap" :class="{ 'goals-float': route==='me-ai' && !meai.checklistDocked && meai.checklistOpen && !meai.console && !meai.pursuit.open }">
+            <div class="meai-wrap" x-show="!meai.agentPage" :class="{ 'goals-float': route==='me-ai' && !meai.checklistDocked && meai.checklistOpen && !meai.console && !meai.pursuit.open }">
               <!-- Quick-nav ("Jump to") now lives in the left rail (.meai-lrail), docked above
                    Today's goals — see the rail block near the goals panel below. -->
               <div class="meai-head">
@@ -15752,6 +15756,18 @@
                   </div><!-- /.meai-peek2 -->
               </div>
             </div>
+
+            <!-- Deep-linked agent page (opened from Automations / a share link): while we
+                 hydrate the task and decide which surface to open, show a calm "opening"
+                 placeholder instead of the full agenda flashing behind. Once the pursuit
+                 map or the console drawer opens they cover this as the agent's own page. -->
+            <template x-if="meai.agentPage && !meai.console && !meai.pursuit.open">
+              <div class="meai-agentpage-load">
+                <div class="meai-agentpage-spin"></div>
+                <div class="meai-agentpage-txt">Opening agent…</div>
+                <button type="button" class="meai-pu-back" @click="meAiAgentPageLeave()" title="Back to your agenda">‹ Back to agenda</button>
+              </div>
+            </template>
 
             <!-- ===== Me-agent console drawer (M2) ===== -->
             <template x-if="meai.console">
@@ -17443,14 +17459,14 @@
                  floating "Today's goals" panel is open it occupies the bottom-right corner and
                  would cover this icon, so shift the assistant to the bottom-left (the goals dock
                  button is hidden while the panel is open, so that corner is free). -->
-            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open && !meai.console && !meai.pursuit.open && !meai.agentPage" x-transition.opacity.duration.150ms
               :style="(meai.checklistOpen && !meai.checklistDocked) ? 'right:auto; left:calc(var(--sidebar-width, 240px) + 12px)' : ''"
               @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
 
             <!-- Item 4: floating today's-goals FAB (stacked above the assistant). Shown only
                  when the goals panel is neither docked nor floating open, and no console/pursuit. -->
             <button class="meai-chk-fab" :class="{ 'has-open': meAiGoalTabCount('open') > 0 }" type="button"
-              x-show="route==='me-ai' && !meai.checklistDocked && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+              x-show="route==='me-ai' && !meai.checklistDocked && !meai.checklistOpen && !meai.asst.open && !meai.console && !meai.pursuit.open && !meai.agentPage" x-transition.opacity.duration.150ms
               @click="meAiChecklistToggle(true)"
               :title="meAiGoalCountsTitle()"
               aria-label="Open today's goals">
@@ -17470,7 +17486,7 @@
                  Shown only when the todos panel is neither docked nor floating open. Shifts left
                  when the goals panel floats open (so it clears the bottom-right corner). -->
             <button class="meai-chk-fab meai-todo-fab" :class="{ 'has-open': meAiTodoCounts().total - meAiTodoCounts().done > 0 }" type="button"
-              x-show="route==='me-ai' && !meai.todosDocked && !meai.todosOpen && !meai.console && !meai.pursuit.open" x-transition.opacity.duration.150ms
+              x-show="route==='me-ai' && !meai.todosDocked && !meai.todosOpen && !meai.console && !meai.pursuit.open && !meai.agentPage" x-transition.opacity.duration.150ms
               @click="meAiTodosToggle(true)"
               title="To-dos — a separate list of things to get to when you have time"
               aria-label="Open to-dos">
@@ -17482,7 +17498,7 @@
             <!-- Quick-nav: fixed at the left, vertically centered. Hidden while a Me-agent
                  console / pursuit is open so it never overlaps that workspace. Collapses to a
                  slim icon rail docked beside the sidebar (owner ask, for narrow screens). -->
-            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed, 'is-raised': meai.todosOpen && !meai.todosDocked }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open" x-cloak>
+            <nav class="meai-jump" :class="{ 'is-mini': meai.jumpCollapsed, 'is-raised': meai.todosOpen && !meai.todosDocked }" aria-label="Jump to section" x-show="route==='me-ai' && meai.loaded && !meai.console && !meai.pursuit.open && !meai.agentPage" x-cloak>
               <div class="meai-jump-head">
                 <div class="meai-jump-t">Jump to</div>
                 <button type="button" class="meai-jump-toggle" @click="meAiJumpToggleCollapse()"
@@ -29298,6 +29314,7 @@
           launchIntent: (() => { try { const v = localStorage.getItem('meAiLaunchIntent'); return ['investigate','prepare','execute'].includes(v) ? v : 'investigate'; } catch (_) { return 'investigate'; } })(),
           launchMenuFor: null,   // per-block Quick/Deep chooser popover: block id|title or null
           console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
+          agentPage: false,      // deep-linked agent view: render the pursuit/console as its OWN page (agenda body hidden), not an overlay flashed over the agenda
           consoleBusy: false,    // a dispatch/act request is in flight
           consoleReply: '',      // free-text reply box
           consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
@@ -30915,11 +30932,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'diary') {
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
+            const monId = this.app.routeParam;
+            // A specific agent is deep-linked (from Automations, a lane map link, or a
+            // share URL). Treat it as the agent's OWN page: hide the agenda body up front
+            // so the user doesn't watch the whole agenda render and THEN get an overlay
+            // slapped on top ("routed to the agenda, then to the agent"). The pursuit map
+            // / console drawer then opens as the page itself.
+            this.meai.agentPage = !!monId;
             await this.loadMeAi();
             // Deep-linked run monitor (#/me-ai/<taskId>) — launched from Automation or
             // restored after a page refresh. Open its live monitor and restore the
             // "return to where I came from" target so closing hops back correctly.
-            const monId = this.app.routeParam;
             if (monId) {
               try {
                 const saved = JSON.parse(localStorage.getItem('meAiMonitorReturn') || 'null');
@@ -41861,6 +41884,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiPursuitOpen(id, opts) {
           const p = this.meai.pursuit;
           p.open = true; p.tid = id; p.follow = true;
+          // The pursuit map is the agent's own full page — hide the agenda body behind it
+          // (cheap x-show, so agenda scroll/state is preserved) instead of overlaying it.
+          this.meai.agentPage = true;
           p.zoom = 1; p.panX = 0; p.panY = 0; p.note = ''; p.answering = null;
           p._fitted = false; p._focusId = null; p.legPick = 'spine';
           p.artView = null; p.evOpen = {}; p.nodeDetail = null; p.centerView = 'map';
@@ -41873,9 +41899,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.$nextTick(() => { this.meAiPursuitFrame(); this._meAiPursuitObserve(); });
           this.meAiPursuitLoad();
         },
+        // Leave a deep-linked agent page while it's still hydrating (the placeholder's
+        // Back button) — hop back to where we came from, else drop the deep-link param.
+        meAiAgentPageLeave() {
+          this.meai.agentPage = false;
+          const ret = this.meai._monitorReturn;
+          this.meai._monitorReturn = null;
+          try { localStorage.removeItem('meAiMonitorReturn'); } catch (_) {}
+          if (ret) { this.goTo(ret); }
+          else { this.goTo('#/me-ai'); }
+        },
         meAiPursuitClose() {
           const p = this.meai.pursuit;
           p.open = false; p.artView = null;
+          this.meai.agentPage = false;
           try { if (p._ro) { p._ro.disconnect(); p._ro = null; } } catch (_) {}
           try { window.removeEventListener('resize', this._meAiPursuitFrameBound || (() => {})); } catch (_) {}
           // If we opened this monitor from the Automation page, hop back there. Otherwise
@@ -44590,6 +44627,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // drawer (the drawer is only for simple single-thread tasks).
           if (cached && cached.mode === 'tree') { this.meAiPursuitOpen(id); return; }
           this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false; this.meai.consoleTab = 'chat'; this.meai.mdOpen = false; this.meai._evMdOpen = {};
+          // The console drawer is this single-thread agent's own page — hide the agenda
+          // body behind it (cheap x-show, agenda state preserved) rather than overlaying.
+          this.meai.agentPage = true;
           const t = cached;
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => { this._meAiConsoleScroll(); this.meAiConsoleFrame(); this._meAiConsoleObserve(); }); }
@@ -44630,6 +44670,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meAiLoadTasks();
           }
           this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false; this.meai.consoleTab = 'chat'; this.meai.mdOpen = false; this.meai._evMdOpen = {};
+          this.meai.agentPage = false;
           // If we opened this monitor from the Automation page, hop back there. Otherwise
           // drop the #/me-ai/<id> deep-link param so a later refresh won't re-open it.
           const ret = this.meai._monitorReturn;

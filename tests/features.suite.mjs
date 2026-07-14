@@ -713,4 +713,22 @@ await t.test('Pulse.AI Reel — forward/back nav, tap-to-fullscreen, copy-in-ful
   t.ok(/No renderable image — keep the caption/.test(srv), 'email keeps the caption when no image renders');
 });
 
+await t.test('Me-agent view is its own page (agenda hidden), not an overlay flashed over the agenda', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // A dedicated agentPage flag exists in the meai state.
+  t.ok(/agentPage:\s*false,/.test(src), 'meai.agentPage state flag exists');
+  // The agenda body is hidden when an agent page is active.
+  t.ok(/class="meai-wrap"\s+x-show="!meai\.agentPage"/.test(src), 'agenda body (.meai-wrap) hides when agentPage');
+  // A calm "opening" placeholder covers the load window before the surface opens.
+  t.ok(/meai\.agentPage && !meai\.console && !meai\.pursuit\.open/.test(src), 'agent-page loading placeholder gated correctly');
+  t.ok(/meai-agentpage-load/.test(src) && /Opening agent…/.test(src), 'placeholder markup + copy present');
+  t.ok(/meAiAgentPageLeave\(\)/.test(src), 'placeholder Back wires meAiAgentPageLeave');
+  // Both open paths set agentPage; both close paths clear it.
+  t.ok(/p\.open = true; p\.tid = id; p\.follow = true;[\s\S]{0,200}this\.meai\.agentPage = true;/.test(src), 'meAiPursuitOpen sets agentPage');
+  t.ok(/console drawer is this single-thread agent's own page[\s\S]{0,200}this\.meai\.agentPage = true;/.test(src), 'console-drawer open sets agentPage');
+  t.ok(/p\.open = false; p\.artView = null;\s*this\.meai\.agentPage = false;/.test(src), 'meAiPursuitClose clears agentPage');
+  // Router seeds agentPage from the deep-link param up front (no agenda flash).
+  t.ok(/this\.meai\.agentPage = !!monId;\s*await this\.loadMeAi\(\);/.test(src), 'router sets agentPage before loading the agenda');
+});
+
 await t.done();
