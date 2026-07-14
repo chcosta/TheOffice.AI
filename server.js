@@ -21132,6 +21132,12 @@ function _meAiNewLeg(o = {}) {
     sessionId: o.sessionId || null,    // SDK session for durable resume
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    // Wall-clock run timing (§ node-duration). Stamped by the fold reducer: startedAt
+    // on the running transition (fallback createdAt for legs born running), endedAt +
+    // durationMs on a terminal transition. Null until the leg actually runs.
+    startedAt: (o.status === 'running' ? new Date().toISOString() : null),
+    endedAt: null,
+    durationMs: null,
   };
 }
 function _meAiNewCheckpoint(o = {}) {
@@ -21290,12 +21296,36 @@ function _meAiFoldJournal(id) {
       case 'epoch_bump': state.epoch = (r.epoch != null ? r.epoch : state.epoch + 1); break;
       case 'leg_spawn': {
         const leg = r.leg || {}; state.legs[leg.id] = Object.assign({}, leg);
+        // A leg born already-running (e.g. the spine) has no leg_status 'running'
+        // event to stamp start off, so anchor it to its creation time here.
+        const sp = state.legs[leg.id];
+        if (sp.status === 'running' && !sp.startedAt) sp.startedAt = sp.createdAt || r.at;
         if (!state.order.includes(leg.id)) state.order.push(leg.id); break;
       }
       case 'leg_status': {
-        const leg = state.legs[r.legId]; if (leg) { leg.status = r.status; if (r.confidence != null) leg.confidence = r.confidence; leg.updatedAt = r.at; } break;
+        const leg = state.legs[r.legId];
+        if (leg) {
+          leg.status = r.status; if (r.confidence != null) leg.confidence = r.confidence; leg.updatedAt = r.at;
+          // Run timing. Entering 'running' (re)starts the clock; a rerun on resume
+          // re-times from the fresh start. A terminal transition closes it and records
+          // the wall-clock the leg actually ran for.
+          if (r.status === 'running') { leg.startedAt = r.at; leg.endedAt = null; leg.durationMs = null; }
+          else if (['done', 'error', 'invalidated', 'cancelled'].includes(r.status)) {
+            leg.endedAt = r.at;
+            const s = leg.startedAt || leg.createdAt;
+            if (s) leg.durationMs = Math.max(0, Date.parse(r.at) - Date.parse(s));
+          }
+        }
+        break;
       }
-      case 'leg_invalidate': { const leg = state.legs[r.legId]; if (leg) { leg.invalidated = true; leg.status = 'invalidated'; } break; }
+      case 'leg_invalidate': {
+        const leg = state.legs[r.legId];
+        if (leg) {
+          leg.invalidated = true; leg.status = 'invalidated';
+          if (!leg.endedAt) { leg.endedAt = r.at; const s = leg.startedAt || leg.createdAt; if (s) leg.durationMs = Math.max(0, Date.parse(r.at) - Date.parse(s)); }
+        }
+        break;
+      }
       case 'leg_redirect': {
         // The director changed a leg's goal because its premise went stale. Keep the
         // prior goal so a redirect is undoable (F2), and flag the premise as reset so
@@ -27040,6 +27070,166 @@ app.get('/api/me-ai/task/:id/report/:artifactId/export.zip', (req, res) => {
     const zip = _zipBuild([{ name: indexName, data: String(body) }, { name: 'README.txt', data: readme }]);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', 'attachment; filename="' + slug + '.zip"');
+    res.setHeader('Content-Length', zip.length);
+    res.end(zip);
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Full-pursuit export bundle ─────────────────────────────────────────────
+// The single-file "Export" downloads just the report. This bundles EVERYTHING the
+// pursuit produced — the final report, any earlier reports, each agent's investigation
+// transcript, the main planning thread, and other artifacts — into one .zip with a
+// navigable index.html you can open in a browser to walk the whole record in order.
+function _meAiBundleEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function _meAiBundleSlug(s, fb) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || (fb || 'item'); }
+function _meAiFmtDurMs(ms) {
+  if (ms == null || !isFinite(ms) || ms < 0) return '';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return m + 'm' + (r ? ' ' + r + 's' : '');
+  const h = Math.floor(m / 60), rm = m % 60;
+  return h + 'h' + (rm ? ' ' + rm + 'm' : '');
+}
+// Render a leg's / main-thread's substep events as calm HTML blocks (escaped text,
+// a quiet kind label per block). No pills, self-contained.
+function _meAiBundleEventsHtml(evs) {
+  const out = [];
+  for (const ev of (evs || [])) {
+    const kind = String((ev && ev.kind) || '').toLowerCase();
+    const txt = String((ev && (ev.text || ev.summary)) || '').trim();
+    const tool = (ev && ev.tool) || '';
+    if (!txt && !tool) continue;
+    let label = kind || 'event', who = kind;
+    if (kind === 'thinking') label = 'Thinking';
+    else if (kind === 'response') label = 'Response';
+    else if (kind === 'question') label = 'Asked you';
+    else if (kind === 'note') label = 'Note';
+    else if (kind === 'error') label = 'Problem';
+    else if (kind.startsWith('tool')) label = 'Tool · ' + (tool || 'call');
+    else if (kind === 'report' || kind === 'fold') label = 'Fold-back';
+    const body = txt ? '<div class="b">' + _meAiBundleEsc(txt).replace(/\n/g, '<br>') + '</div>' : '';
+    out.push('<div class="ev ' + _meAiBundleEsc(who) + '"><div class="k">' + _meAiBundleEsc(label) + '</div>' + body + '</div>');
+  }
+  return out.length ? out.join('\n') : '<p class="muted">No captured transcript.</p>';
+}
+// A standalone, self-contained HTML page wrapper (light+dark, a quiet back link).
+function _meAiBundlePage(title, subtitle, inner, backHref) {
+  const back = backHref ? '<a class="back" href="' + backHref + '">← Back to index</a>' : '';
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>' + _meAiBundleEsc(title) + '</title><style>'
+    + ':root{--bg:#fff;--fg:#1f2328;--mut:#57606a;--bd:#d0d7de;--sf:#f6f8fa;--ac:#0969da}'
+    + '@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--mut:#8b949e;--bd:#30363d;--sf:#161b22;--ac:#4493f8}}'
+    + '*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}'
+    + '.wrap{max-width:860px;margin:0 auto;padding:32px 22px 80px}h1{font-size:24px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 22px}'
+    + '.back{display:inline-block;color:var(--ac);text-decoration:none;font-size:13px;margin-bottom:18px}.back:hover{text-decoration:underline}'
+    + '.muted{color:var(--mut)}a{color:var(--ac)}'
+    + '.ev{border:1px solid var(--bd);border-radius:8px;padding:10px 13px;margin:10px 0;background:var(--sf)}'
+    + '.ev .k{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;margin-bottom:5px}'
+    + '.ev .b{white-space:normal;word-wrap:break-word}.ev.thinking{opacity:.85}.ev.response,.ev.report,.ev.fold{border-left:3px solid var(--ac)}'
+    + '.ev.error{border-left:3px solid #cf222e}'
+    + 'ol.toc{list-style:none;padding:0;margin:0}ol.toc li{border-bottom:1px solid var(--bd);padding:11px 2px}ol.toc li:last-child{border-bottom:none}'
+    + 'ol.toc a{font-weight:600;text-decoration:none}ol.toc a:hover{text-decoration:underline}.meta{color:var(--mut);font-size:13px;margin-top:2px}'
+    + '.sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:26px 0 6px;border-bottom:1px solid var(--bd);padding-bottom:5px}'
+    + 'pre{white-space:pre-wrap;word-wrap:break-word;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}'
+    + '</style></head><body><div class="wrap">' + back + '<h1>' + _meAiBundleEsc(title) + '</h1>'
+    + (subtitle ? '<p class="sub">' + _meAiBundleEsc(subtitle) + '</p>' : '') + inner + '</div></body></html>';
+}
+function _meAiExportBundle(id) {
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const t = meAiTasks.get(id) || tree;
+  const title = _meAiReportTitle(t) || _meAiReportTitle(tree) || 'Pursuit';
+  const goal = (t && t.goal) || (tree && tree.goal) || _meAiGoalFor(t) || _meAiGoalFor(tree) || '';
+  const entries = [];
+  const manifest = { title, goal, generatedAt: new Date().toISOString(), reports: [], transcripts: [], mainChat: null, artifacts: [] };
+
+  const readArt = (a) => {
+    let body = a.body;
+    if ((body == null || body === '') && a.path) { try { body = fs.readFileSync(a.path, 'utf8'); } catch (_) {} }
+    return body == null ? '' : String(body);
+  };
+  const allArts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts.slice() : [];
+  const reportArts = allArts.filter(a => a && a.kind === 'report');
+  const otherArts = allArts.filter(a => a && a.kind !== 'report');
+  // Newest report = the final deliverable; earlier ones are prior versions.
+  const finalReport = reportArts.length ? reportArts[reportArts.length - 1] : null;
+
+  // Reports → report/ (final first). HTML kept as-is; markdown wrapped in a readable page.
+  reportArts.slice().reverse().forEach((a, i) => {
+    const body = readArt(a); if (!body) return;
+    const isHtml = a.format === 'html';
+    const isFinal = a === finalReport;
+    const base = 'report/' + (isFinal ? '00-final' : String(i).padStart(2, '0')) + '-' + _meAiBundleSlug(a.title, 'report') + (isHtml ? '.html' : '.html');
+    const data = isHtml ? body : _meAiBundlePage(a.title || 'Report', new Date(a.at || Date.now()).toLocaleString(), '<pre>' + _meAiBundleEsc(body) + '</pre>', '../index.html');
+    entries.push({ name: base, data });
+    manifest.reports.push({ file: base, title: a.title || 'Report', final: isFinal, at: a.at || null, format: isHtml ? 'html' : 'markdown' });
+  });
+
+  // Agent investigations → transcripts/ (one page per non-spine leg that has a transcript).
+  const legOrder = (tree && Array.isArray(tree.order)) ? tree.order : Object.keys((tree && tree.legs) || {});
+  let ti = 0;
+  for (const lid of legOrder) {
+    const leg = tree.legs && tree.legs[lid]; if (!leg) continue;
+    if (leg.kind === 'spine') continue;
+    const evs = Array.isArray(leg.events) ? leg.events : [];
+    if (!evs.length) continue;
+    ti++;
+    const file = 'transcripts/' + String(ti).padStart(2, '0') + '-' + _meAiBundleSlug(leg.title, 'agent') + '.html';
+    const dur = leg.durationMs != null ? _meAiFmtDurMs(leg.durationMs) : '';
+    const metaBits = [leg.status ? 'Status: ' + leg.status : '', dur ? 'Ran for ' + dur : ''].filter(Boolean).join(' · ');
+    const inner = (leg.goal ? '<p class="sub">' + _meAiBundleEsc(leg.goal) + '</p>' : '') + (metaBits ? '<p class="meta">' + _meAiBundleEsc(metaBits) + '</p>' : '') + _meAiBundleEventsHtml(evs);
+    entries.push({ name: file, data: _meAiBundlePage(leg.title || 'Agent investigation', '', inner, '../index.html') });
+    manifest.transcripts.push({ file, title: leg.title || 'Agent', status: leg.status || null, durationMs: leg.durationMs != null ? leg.durationMs : null, events: evs.length });
+  }
+
+  // Main planning thread → chat/main-thread.html.
+  const chatEvs = (t && Array.isArray(t.events) ? t.events : []).filter(e => e && !e.legId);
+  if (chatEvs.length) {
+    const file = 'chat/main-thread.html';
+    entries.push({ name: file, data: _meAiBundlePage('Main thread', 'The Chief-of-Staff planning and fold-back conversation.', _meAiBundleEventsHtml(chatEvs), '../index.html') });
+    manifest.mainChat = { file, events: chatEvs.length };
+  }
+
+  // Other (non-report) artifacts → artifacts/.
+  otherArts.forEach((a, i) => {
+    const body = readArt(a); if (!body) return;
+    const isHtml = a.format === 'html';
+    const file = 'artifacts/' + String(i + 1).padStart(2, '0') + '-' + _meAiBundleSlug(a.title, 'artifact') + (isHtml ? '.html' : '.txt');
+    entries.push({ name: file, data: body });
+    manifest.artifacts.push({ file, title: a.title || 'Artifact', kind: a.kind || null, at: a.at || null });
+  });
+
+  // Navigable landing page: ordered, sectioned, deep-links into every item.
+  const row = (href, label, meta) => '<li><a href="' + href + '">' + _meAiBundleEsc(label) + '</a>' + (meta ? '<div class="meta">' + _meAiBundleEsc(meta) + '</div>' : '') + '</li>';
+  let toc = '';
+  const fin = manifest.reports.find(r => r.final);
+  if (fin) toc += '<div class="sec">Final report</div><ol class="toc">' + row(fin.file, fin.title, fin.at ? new Date(fin.at).toLocaleString() : '') + '</ol>';
+  const priorReports = manifest.reports.filter(r => !r.final);
+  if (priorReports.length) toc += '<div class="sec">Earlier reports</div><ol class="toc">' + priorReports.map(r => row(r.file, r.title, r.at ? new Date(r.at).toLocaleString() : '')).join('') + '</ol>';
+  if (manifest.transcripts.length) toc += '<div class="sec">Agent investigations · ' + manifest.transcripts.length + '</div><ol class="toc">' + manifest.transcripts.map(x => row(x.file, x.title, [x.status, x.durationMs != null ? 'ran ' + _meAiFmtDurMs(x.durationMs) : '', x.events + ' steps'].filter(Boolean).join(' · '))).join('') + '</ol>';
+  if (manifest.mainChat) toc += '<div class="sec">Conversation</div><ol class="toc">' + row(manifest.mainChat.file, 'Main thread', manifest.mainChat.events + ' messages') + '</ol>';
+  if (manifest.artifacts.length) toc += '<div class="sec">Other artifacts · ' + manifest.artifacts.length + '</div><ol class="toc">' + manifest.artifacts.map(x => row(x.file, x.title, x.at ? new Date(x.at).toLocaleString() : '')).join('') + '</ol>';
+  if (!toc) toc = '<p class="muted">This pursuit produced no exportable material yet.</p>';
+  const indexInner = (goal ? '<p class="sub">' + _meAiBundleEsc(goal) + '</p>' : '') + toc + '<p class="meta" style="margin-top:28px">Exported ' + new Date().toLocaleString() + ' · TheOffice.AI</p>';
+  entries.unshift({ name: 'index.html', data: _meAiBundlePage(title, '', indexInner, null) });
+  entries.push({ name: 'manifest.json', data: JSON.stringify(manifest, null, 2) });
+
+  return { entries, slug: _meAiBundleSlug(title, 'pursuit'), manifest };
+}
+
+// Bundle the entire pursuit record (final report + earlier reports + every agent
+// transcript + main thread + artifacts) as a navigable .zip. Read-only.
+app.get('/api/me-ai/task/:id/export/bundle.zip', (req, res) => {
+  try {
+    const id = req.params.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    if (!tree || !tree.legs || !Object.keys(tree.legs).length) return res.status(404).json({ ok: false, error: 'no-pursuit' });
+    meAiTrees.set(id, tree);
+    const { entries, slug } = _meAiExportBundle(id);
+    if (!entries.length) return res.status(422).json({ ok: false, error: 'no-material' });
+    const zip = _zipBuild(entries);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + slug + '-bundle.zip"');
     res.setHeader('Content-Length', zip.length);
     res.end(zip);
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }

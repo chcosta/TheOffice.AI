@@ -414,4 +414,67 @@ await t.test('appearance: Compose.AI ✍️ maps to a themed glyph (no raw-emoji
   t.ok(/label:\s*'Compose\.AI'[^}]*icon:\s*'✍️'/.test(html), 'Compose.AI nav item uses the ✍️ icon that is now mapped');
 });
 
+// ── Pursuit map enhancements (context menu, running-node pulse, node duration,
+// export overhaul). Static guards over the shipped SPA markup + methods.
+
+// Feature C — a node shows how long it ran: dedicated CSS, a duration helper, and
+// the LOD hover tooltip appends "running <dur>" / "ran <dur>".
+await t.test('pursuit map: nodes surface run duration', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/\.meai-pnode-dur \{/.test(html), 'a node-duration style exists');
+  t.ok(/meAiPursuitNodeDuration\(n\)\s*\{/.test(html) || /meAiPursuitNodeDuration\(n\) \{/.test(html), 'a node-duration helper is defined');
+  // DOM card renders the duration span, gated on there being a duration.
+  t.ok(/<span class="meai-pnode-dur" x-show="meAiPursuitNodeDuration\(n\)"/.test(html), 'the DOM node card renders a duration span');
+  // LOD tooltip appends running/ran duration.
+  t.ok(/running ' \+ dur/.test(html) && /ran ' \+ dur/.test(html), 'the LOD tooltip appends running/ran duration');
+});
+
+// Feature B — a node doing work pulses (not just the path), and every DOM pulse is
+// gated on the "Pulse running work" toggle via a .pu-pulse class on the world.
+await t.test('pursuit map: running nodes pulse, gated on the toggle', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // the world carries pu-pulse bound to the lodPulse toggle
+  t.ok(/'pu-pulse':\s*meai\.pursuit\.lodPulse !== false/.test(html), '.meai-pworld toggles pu-pulse off lodPulse');
+  // both the DOM-card and the LOD-dot running pulses are gated behind it
+  t.ok(/\.meai-pworld\.pu-pulse \.meai-pnode\.prun \{ animation:meaiPuNodePulse/.test(html), 'DOM running-node pulse is gated on pu-pulse');
+  t.ok(/\.meai-pworld\.lod\.pu-pulse \.meai-pnode\.prun::after \{ animation:meaiPuLodPulse/.test(html), 'LOD running-node pulse is gated on pu-pulse');
+});
+
+// Feature A — right-click context menu (zoom / follow / monitor) + a docked monitor
+// panel. Plain rows, no pills (per AGENTS.md), wired to real methods.
+await t.test('pursuit map: right-click context menu + follow + monitor', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/@contextmenu\.prevent="meAiPursuitCtx\(\$event\)"/.test(html), 'the canvas opens a context menu on right-click');
+  // the three headline actions dispatch to real methods
+  t.ok(/action === 'zoom'.*meAiPursuitZoomToNode\(id\)/.test(html), 'zoom-to-node is wired');
+  t.ok(/action === 'follow'.*meAiPursuitFollowNode/.test(html), 'follow-node is wired');
+  t.ok(/action === 'monitor'.*meAiPursuitToggleMonitor\(id\)/.test(html), 'monitor toggle is wired');
+  // methods are defined
+  t.ok(/meAiPursuitZoomToNode\(id\)\s*\{/.test(html), 'zoom method defined');
+  t.ok(/meAiPursuitFollowNode\(id\)\s*\{/.test(html), 'follow method defined');
+  t.ok(/meAiPursuitToggleMonitor\(id\)\s*\{/.test(html), 'monitor method defined');
+  // docked monitor panel, shown only when something is monitored
+  t.ok(/<div class="meai-pu-monitor" x-show="\(meai\.pursuit\.monitored\|\|\[\]\)\.length"/.test(html), 'a monitor panel docks when nodes are monitored');
+  // monitored set persists across reloads
+  t.ok(/localStorage\.setItem\('meai-pu-monitored'/.test(html), 'monitored node set is persisted');
+});
+
+// Feature D — export overhaul: the header offers a single-file "Export ↓" (the
+// self-contained report page) AND a whole-record "Export as zip ↓" (the bundle
+// route). The old single-file "export.zip"/"compendium.zip" wiring is gone.
+await t.test('pursuit map: Export (single file) + Export as zip (bundle)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // single-file export → the /view page, saved via download attr, named off the report
+  t.ok(/\/view'" :download="meAiPursuitExportName\(meAiPursuitReport\(\)\)"[^>]*>Export ↓<\/a>/.test(html), 'report view offers a single-file "Export ↓"');
+  t.ok(/\/view'" :download="meAiPursuitExportName\(meai\.pursuit\.artView\)"[^>]*>Export ↓<\/a>/.test(html), 'artifact view offers a single-file "Export ↓"');
+  // whole-record bundle → the bundle.zip route
+  const bundleLinks = (html.match(/\+ '\/export\/bundle\.zip'" :download="'pursuit-bundle\.zip'"[^>]*>Export as zip ↓<\/a>/g) || []).length;
+  t.eq(bundleLinks, 2, 'both report + artifact views link the whole-record bundle.zip');
+  // the export-name helper is defined
+  t.ok(/meAiPursuitExportName\(a\)\s*\{/.test(html), 'the export-filename helper is defined');
+  // no stale single-file zip wiring survives
+  t.ok(!/\/export\.zip'/.test(html), 'the old per-report export.zip link is gone');
+  t.ok(!/compendium\.zip/.test(html), 'the old compendium.zip download name is gone');
+});
+
 await t.done();

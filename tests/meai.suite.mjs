@@ -649,6 +649,94 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pursuit map — node run-duration (Feature C). The fold reducer must stamp
+// startedAt when a leg enters 'running' and endedAt + durationMs on a terminal
+// transition, so the map / tooltip / export can report how long a node ran.
+// Reducer effect is stamped inside _meAiFoldJournal; assert via a source slice.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const foldSrc = sliceSource(SERVER, 'case \'leg_status\': {', 'case \'leg_invalidate\':');
+  await t.test('fold reducer stamps run timing on status transitions', () => {
+    t.ok(foldSrc.length > 0, 'leg_status reducer case found');
+    // entering running (re)starts the clock and clears any prior end
+    t.ok(/if \(r\.status === 'running'\) \{ leg\.startedAt = r\.at; leg\.endedAt = null; leg\.durationMs = null; \}/.test(foldSrc),
+      'running transition (re)starts the run clock');
+    // a terminal transition closes the clock and records elapsed wall-clock
+    t.ok(/\['done', 'error', 'invalidated', 'cancelled'\]\.includes\(r\.status\)/.test(foldSrc),
+      'terminal statuses close the clock');
+    t.ok(/leg\.durationMs = Math\.max\(0, Date\.parse\(r\.at\) - Date\.parse\(s\)\)/.test(foldSrc),
+      'durationMs is computed from startedAt→endedAt');
+  });
+
+  const { _meAiFmtDurMs } = extractFns(SERVER, ['_meAiFmtDurMs']);
+  await t.test('_meAiFmtDurMs is compact + human, guards bad input', () => {
+    t.eq(_meAiFmtDurMs(45000), '45s');
+    t.eq(_meAiFmtDurMs(90000), '1m 30s');
+    t.eq(_meAiFmtDurMs(120000), '2m');
+    t.eq(_meAiFmtDurMs(3600000), '1h');
+    t.eq(_meAiFmtDurMs(3660000), '1h 1m');
+    t.eq(_meAiFmtDurMs(null), '');
+    t.eq(_meAiFmtDurMs(-5), '');
+    t.eq(_meAiFmtDurMs(Infinity), '');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export overhaul (Feature D). "Export as zip" bundles the FULL pursuit record —
+// final report + earlier reports + every non-spine agent transcript + the main
+// thread + other artifacts — into a self-contained, navigable .zip.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const B = extractFns(SERVER, ['_meAiBundleEsc', '_meAiBundleSlug', '_meAiFmtDurMs', '_meAiBundleEventsHtml', '_meAiBundlePage']);
+  await t.test('bundle page wrapper is a self-contained, script-free HTML doc', () => {
+    const page = B._meAiBundlePage('My <Report>', 'a subtitle', '<p>inner</p>', '../index.html');
+    t.ok(/^<!doctype html><html>/.test(page), 'is a full HTML document');
+    t.ok(/<\/html>$/.test(page), 'document is closed');
+    t.ok(!/<script/i.test(page), 'no script (sandbox-safe / self-contained)');
+    t.ok(page.includes('My &lt;Report&gt;'), 'title is HTML-escaped');
+    t.ok(page.includes('← Back to index'), 'renders the back link when a href is given');
+    t.ok(!/prefers-color-scheme[^}]*undefined/.test(page) && /prefers-color-scheme/.test(page), 'ships light+dark styling');
+    // no back link when no href
+    t.ok(!B._meAiBundlePage('t', '', '<p>x</p>', null).includes('← Back to index'), 'omits back link without an href');
+  });
+  await t.test('bundle event renderer escapes text + labels kinds, no leaks', () => {
+    const h = B._meAiBundleEventsHtml([
+      { kind: 'thinking', text: 'plan <x>' },
+      { kind: 'tool.run', tool: 'grep', text: 'searched' },
+      { kind: 'response', text: 'done & dusted' },
+    ]);
+    t.ok(h.includes('plan &lt;x&gt;'), 'escapes angle brackets');
+    t.ok(h.includes('done &amp; dusted'), 'escapes ampersands');
+    t.ok(h.includes('Tool · grep'), 'labels a tool call with its tool name');
+    t.ok(!/<script/i.test(h), 'no script leaks through');
+    t.eq(B._meAiBundleEventsHtml([]), '<p class="muted">No captured transcript.</p>');
+  });
+
+  const bundleSrc = sliceSource(SERVER, 'function _meAiExportBundle(id) {', '\napp.get(\'/api/me-ai/task/:id/export/bundle.zip\'');
+  await t.test('_meAiExportBundle partitions the whole record + names the final report', () => {
+    t.ok(bundleSrc.length > 0, 'bundle builder found');
+    t.ok(/const reportArts = allArts\.filter\(a => a && a\.kind === 'report'\)/.test(bundleSrc), 'reports are gathered');
+    t.ok(/isFinal \? '00-final'/.test(bundleSrc), 'the newest report is the 00-final deliverable');
+    t.ok(/if \(leg\.kind === 'spine'\) continue/.test(bundleSrc), 'the spine is excluded from transcripts');
+    t.ok(/'transcripts\/'/.test(bundleSrc) && /'chat\/main-thread\.html'/.test(bundleSrc) && /'artifacts\/'/.test(bundleSrc),
+      'transcripts / main chat / artifacts each get their own folder');
+    // navigable landing page + machine manifest bookend the archive
+    t.ok(/entries\.unshift\(\{ name: 'index\.html'/.test(bundleSrc), 'a navigable index.html leads the bundle');
+    t.ok(/entries\.push\(\{ name: 'manifest\.json'/.test(bundleSrc), 'a manifest.json closes the bundle');
+    t.ok(/Agent investigations · '/.test(bundleSrc), 'index deep-links the agent investigations');
+  });
+  await t.test('bundle.zip route streams an attachment, guards empty pursuits', () => {
+    const route = sliceSource(SERVER, "app.get('/api/me-ai/task/:id/export/bundle.zip'", "// ─");
+    t.ok(route.length > 0, 'bundle route found');
+    t.ok(/res\.status\(404\)\.json\(\{ ok: false, error: 'no-pursuit' \}\)/.test(route), 'a pursuit with no legs 404s');
+    t.ok(/res\.status\(422\)\.json\(\{ ok: false, error: 'no-material' \}\)/.test(route), 'a pursuit with no material 422s');
+    t.ok(/res\.setHeader\('Content-Type', 'application\/zip'\)/.test(route), 'serves application/zip');
+    t.ok(/attachment; filename="' \+ slug \+ '-bundle\.zip"/.test(route), 'downloads as <slug>-bundle.zip');
+  });
+}
+
+
 if (!(await serverUp())) {
   t.skipAll('dev server not running on :3847 (unit tests above still ran)');
 }
