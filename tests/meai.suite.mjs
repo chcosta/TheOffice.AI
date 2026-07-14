@@ -453,6 +453,63 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6c. GOALS ENTITY DEDUP — one work item surfaced under 3 labels collapses to one.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const { _meAiGoalEntKey, _meAiDedupStoredGoals } = extractFns(SERVER, [
+    // Order matters — dependencies (_meAiParseWorkItem/_meAiDevKey) must be defined
+    // before the functions that call them in the concatenated sandbox.
+    '_meAiParseWorkItem', '_meAiDevKey', '_meAiGoalEntKey', '_meAiDedupStoredGoals',
+  ]);
+
+  const WI = 'https://dev.azure.com/dnceng/internal/_workitems/edit/11499';
+  const PR = 'https://dev.azure.com/dnceng/internal/_git/repo/pullrequest/61625';
+
+  await t.test('entKey: link and meta.workItemId resolve to the SAME entity key', () => {
+    const fromLink = _meAiGoalEntKey(WI, null);
+    const fromMeta = _meAiGoalEntKey(PR, { workItemId: '11499', provider: 'azdo', org: 'dnceng', project: 'internal' });
+    t.ok(fromLink, 'work-item link yields a key');
+    t.eq(fromLink, fromMeta, 'a PR-linked dev/code-flow goal keys to the same work item');
+    // A bare PR (no work item anywhere) falls back to a pr: key, distinct from the wi: key.
+    t.ne(_meAiGoalEntKey(PR, { prId: '61625' }), fromLink);
+    t.eq(_meAiGoalEntKey('', null), '', 'a non-entity goal has no key');
+  });
+
+  await t.test('dedup: #11499 surfaced 3 ways collapses to one, keeping the canonical row', () => {
+    const rows = [
+      { title: 'DNCENG Task #11499', kind: 'checklist', done: false, status: 'open', link: WI },
+      { title: 'Dev: #11499', kind: 'checklist', done: false, status: 'open', link: PR, carried: true, meta: { workItemId: '11499', provider: 'azdo', org: 'dnceng', project: 'internal' } },
+      { title: 'Code Flow: Add per-repo SLA rejection preview enforcement', kind: 'checklist', done: false, status: 'open', link: PR, meta: { workItemId: '11499', provider: 'azdo', org: 'dnceng', project: 'internal', repo: 'helix' } },
+      // A genuinely different work item must survive untouched.
+      { title: 'DNCENG Task #11247', kind: 'checklist', done: false, status: 'open', link: 'https://dev.azure.com/dnceng/internal/_workitems/edit/11247' },
+    ];
+    const out = _meAiDedupStoredGoals(rows);
+    const titles = out.map(r => r.title);
+    t.eq(out.length, 2, 'three #11499 goals collapse to one; #11247 stays');
+    t.ok(titles.includes('DNCENG Task #11499'), 'kept the canonical work-item-linked row (best score)');
+    t.ok(titles.includes('DNCENG Task #11247'), 'the distinct work item is untouched');
+    t.ok(!titles.includes('Dev: #11499'), 'the carried duplicate is dropped');
+  });
+
+  await t.test('dedup: disposed / done rows are historical and never collapsed', () => {
+    const rows = [
+      { title: 'DNCENG Task #11499', kind: 'checklist', done: true, status: 'open', link: WI },
+      { title: 'Dev: #11499', kind: 'checklist', done: false, status: 'open', link: WI },
+    ];
+    const out = _meAiDedupStoredGoals(rows);
+    t.eq(out.length, 2, 'a done row and an open row for the same item both stay');
+  });
+
+  await t.test('dedup: no duplicates → identical array reference (cheap no-op)', () => {
+    const rows = [
+      { title: 'DNCENG Task #11499', kind: 'checklist', done: false, status: 'open', link: WI },
+      { title: 'Reply to Drew', kind: 'checklist', done: false, status: 'open' },
+    ];
+    t.eq(_meAiDedupStoredGoals(rows), rows, 'returns the same array when nothing collapses');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 6c. COMPOSITE URGENCY — deterministic due/impact/scope/effort scorer. The four
 //     facets refine, never override, the collector's flat urgency (base). Feeds
 //     surfacing + sorting only; the agenda is never touched by this value.

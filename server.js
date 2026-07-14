@@ -15701,6 +15701,12 @@ function _meAiGatherCodeflow() {
       if (rec.prStatus && DONE.has(String(rec.prStatus).toLowerCase())) continue;
       const title = rec.title || rec.prTitle || rec.workItemTitle || rec.branch || key;
       const prUrl = _meAiCodeflowPrUrl(rec);
+      // Resolve the underlying work item (if the worktree record carries one) so this
+      // code-flow goal dedups against the SAME work item surfaced as a dev card or a
+      // work-item goal — the link alone is a PR url that won't parse to a work item.
+      const cfWi = rec.workItem || null;
+      let cfWid = (cfWi && (cfWi.id != null && cfWi.id !== '' ? cfWi.id : '')) || '';
+      if (!cfWid && cfWi && cfWi.url) { const p = _meAiParseWorkItem(cfWi.url); if (p) cfWid = p.workItemId; }
       const bits = [];
       if (rec.branch) bits.push(`branch ${rec.branch}`);
       if (rec.prId != null && rec.prId !== '') bits.push(`PR #${rec.prId}`);
@@ -15712,7 +15718,14 @@ function _meAiGatherCodeflow() {
         urgency: 2, source: 'codeflow',
         provider: (rec.provider || 'azdo'), org: rec.org || '', project: rec.project || '', repo: rec.repo || '',
         prId: (rec.prId != null ? rec.prId : ''),
-        meta: { repo: rec.repo || '' },
+        meta: {
+          repo: rec.repo || '',
+          workItemId: cfWid ? String(cfWid) : '',
+          provider: (cfWi && cfWi.provider) || rec.provider || 'azdo',
+          org: rec.org || '',
+          project: rec.project || '',
+          prId: (rec.prId != null && rec.prId !== '') ? String(rec.prId) : '',
+        },
       });
     }
   } catch { /* best-effort */ }
@@ -15793,6 +15806,17 @@ function _meAiGatherDevCards() {
         repo: c.repo || '',
         prId: prId || '',
         devId: c.id,
+        // Live-entity identity so a dev card dedups against the SAME work item surfaced
+        // as a work-item goal or a code-flow goal (the three-way #NNNNN duplicate). The
+        // work-item id is the reliable link across surfaces; the PR id is the fallback.
+        meta: {
+          workItemId: wid ? String(wid) : '',
+          provider: c.provider || wi.provider || 'azdo',
+          org: c.org || '',
+          project: c.project || '',
+          repo: c.repo || '',
+          prId: prId ? String(prId) : '',
+        },
       });
     }
   } catch { /* best-effort */ }
@@ -17578,6 +17602,10 @@ function _meAiCarryOverTodos(cfg, day) {
         if (t.origin) c.origin = t.origin;
         if (t.link) c.link = t.link;
         if (t.note) c.note = t.note;
+        // Carry the live-entity identity forward so a carried goal dedups against a
+        // FRESH one for the same work item / PR even when their labels differ.
+        if (t.ent) c.ent = t.ent;
+        if (t.meta) c.meta = t.meta;
         return c;
       });
     }
@@ -17661,6 +17689,66 @@ function _meAiSplitStoredGoals(todos) {
   }
   return changed ? out : todos;
 }
+// Live-entity identity key for a goal: collapses two goals that track the SAME work
+// item or PR even when their titles / links / labels differ ("DNCENG Task #11499",
+// "Dev: #11499", "Code Flow: …"). Prefers a work-item identity — parsed from the link
+// URL, else a workItemId carried in meta (dev cards / code-flow worktrees know their
+// work item even when their LINK points at a PR) — over a bare PR id, so all three
+// surface forms of one work item resolve to the same key. Returns '' when no live
+// entity can be identified (a plain focus/admin goal keeps its own identity).
+function _meAiGoalEntKey(link, meta) {
+  const wi = _meAiParseWorkItem(link);
+  if (wi) return 'wi:' + _meAiDevKey(wi.provider, wi.org, wi.project, wi.workItemId);
+  if (meta && meta.workItemId) {
+    return 'wi:' + _meAiDevKey(meta.provider, meta.org, meta.project, meta.workItemId);
+  }
+  const prId = meta && meta.prId;
+  if (prId) return 'pr:' + String(prId).toLowerCase();
+  return '';
+}
+// Migrate/reconcile an already-persisted store: collapse OPEN checklist goals that track
+// the SAME live entity (work item / PR) but surfaced under different labels — the
+// "DNCENG Task #11499" work-item goal, the "Dev: #11499" dev-card goal, and the
+// "Code Flow: …" pursuit goal are one piece of work, not three. Keeps ONE representative
+// per entity (preferring a fresh, non-carried row with a canonical work-item link) and
+// drops the rest so the owner never sees the same work item several times. Disposed rows
+// are historical and untouched; a genuinely distinct work item / PR keeps its own row.
+// Identity comes from a persisted row.ent (stamped at seed time) or is recomputed from
+// the row's link/meta, so it also self-heals stores seeded before ent existed.
+function _meAiDedupStoredGoals(todos) {
+  if (!Array.isArray(todos) || todos.length < 2) return todos;
+  const isOpenGoal = (t) => !!t && t.kind === 'checklist' && !t.done && !(t.status && t.status !== 'open');
+  const keyOf = (t) => (t && t.ent) || _meAiGoalEntKey(t && t.link, t && t.meta);
+  // Score a row so the best representative for an entity wins the keep.
+  const score = (t) => {
+    let s = 0;
+    if (_meAiParseWorkItem(t && t.link)) s += 4; // canonical work-item link
+    if (!(t && t.carried)) s += 2;               // a fresh row beats a carried duplicate
+    if (t && t.note) s += 1;                      // preserves the user's note
+    return s;
+  };
+  const counts = new Map();
+  const best = new Map();
+  for (const t of todos) {
+    if (!isOpenGoal(t)) continue;
+    const k = keyOf(t);
+    if (!k) continue;
+    counts.set(k, (counts.get(k) || 0) + 1);
+    const cur = best.get(k);
+    if (!cur || score(t) > score(cur)) best.set(k, t);
+  }
+  let hasDup = false;
+  for (const n of counts.values()) { if (n > 1) { hasDup = true; break; } }
+  if (!hasDup) return todos;
+  const out = [];
+  for (const t of todos) {
+    if (!isOpenGoal(t)) { out.push(t); continue; }
+    const k = keyOf(t);
+    if (k && counts.get(k) > 1 && best.get(k) !== t) continue; // drop a non-representative duplicate
+    out.push(t);
+  }
+  return out;
+}
 function _meAiSeedChecklist(agenda, effTodos, day, opts = {}) {
   try {
     if (!agenda || !Array.isArray(effTodos)) return;
@@ -17701,14 +17789,9 @@ function _meAiSeedChecklist(agenda, effTodos, day, opts = {}) {
     const haveOrigin = new Set(effTodos.map(t => norm(t && t.origin)).filter(Boolean));
     const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
     // Live-entity identity (work-item / PR id): collapses two goals that track the SAME
-    // work item or PR even when their titles/links differ slightly (owner: #10734 twice).
-    const entKey = (link, meta) => {
-      const wi = _meAiParseWorkItem(link);
-      if (wi) return 'wi:' + _meAiDevKey(wi.provider, wi.org, wi.project, wi.workItemId);
-      const prId = meta && meta.prId;
-      if (prId) return 'pr:' + String(prId).toLowerCase();
-      return '';
-    };
+    // work item or PR even when their titles/links/labels differ (owner: #10734 twice, or
+    // one item surfaced as a work-item + a dev card + a code-flow goal at once).
+    const entKey = (link, meta) => _meAiGoalEntKey(link, meta);
     const haveEnt = new Set(effTodos.map(t => entKey(t && t.link, t && t.meta)).filter(Boolean));
     // A goal the user already DISPOSED of today (marked done / needs-more-time / didn't-get-to)
     // must never be re-added by a churned agenda under a slightly different wording. Exact
@@ -17780,6 +17863,15 @@ function _meAiSeedChecklist(agenda, effTodos, day, opts = {}) {
       if (ent) haveEnt.add(ent);
       const row = { title, scope: 'work', done: false, status: 'open', kind: 'checklist', origin: (link || title).slice(0, 300), link };
       if (isLive) row.live = true;
+      // Persist the live-entity identity + the minimal meta that produced it so a later
+      // dedup pass can collapse this goal against the same work item surfaced under a
+      // different label (dev card / code-flow) even though their links differ.
+      if (ent) row.ent = ent;
+      if (lf.meta && (lf.meta.workItemId || lf.meta.prId)) {
+        row.meta = {};
+        if (lf.meta.workItemId) { row.meta.workItemId = String(lf.meta.workItemId); row.meta.provider = lf.meta.provider || ''; row.meta.org = lf.meta.org || ''; row.meta.project = lf.meta.project || ''; }
+        if (lf.meta.prId) row.meta.prId = String(lf.meta.prId);
+      }
       effTodos.push(row);
     }
     // Freeze the day's goals once we've actually seeded from a work-bearing agenda. A sparse
@@ -18372,13 +18464,32 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
       const carried = _meAiCarryOverTodos(cfg, day);
       if (carried.length) {
         const have = new Set(effTodos.map(t => t.title.toLowerCase()));
-        for (const c of carried) { if (!have.has(c.title.toLowerCase())) { effTodos.push(c); have.add(c.title.toLowerCase()); } }
+        // Live-entity + signature indexes so a carried goal doesn't duplicate a fresh
+        // one that tracks the SAME work item / PR under a different label (e.g. a carried
+        // "Dev: #11499" against today's "DNCENG Task #11499").
+        const haveEnt = new Set(effTodos.map(t => _meAiGoalEntKey(t && t.link, t && t.meta)).filter(Boolean));
+        const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
+        for (const c of carried) {
+          const lc = c.title.toLowerCase();
+          if (have.has(lc)) continue;
+          const ce = _meAiGoalEntKey(c.link, c.meta);
+          if (ce && haveEnt.has(ce)) continue;
+          const cs = _meAiGoalSig(c.title);
+          if (cs && !c.link && haveSig.has(cs)) continue;
+          effTodos.push(c);
+          have.add(lc);
+          if (ce) haveEnt.add(ce);
+          if (cs) haveSig.add(cs);
+        }
       }
     }
   }
   // Split any persisted compound aggregate goals into their constituent source items
   // (migration for stores created before goal-splitting existed).
   effTodos = _meAiSplitStoredGoals(effTodos);
+  // Collapse any open goals that track the SAME work item / PR (surfaced under multiple
+  // labels: work-item + dev card + code-flow), keeping the best-scored representative.
+  effTodos = _meAiDedupStoredGoals(effTodos);
   // Persist the resolved list so it is durable from here on (creates the store on first use).
   saveMeAiTodoStore(day, effTodos);
   // Explicit user commitments (custom + recurring blocks) become fixed reservations so
