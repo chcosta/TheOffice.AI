@@ -579,4 +579,30 @@ await t.test('compose prototype: interactive scenario (site format lock, sandbox
   t.ok(/sources\.reposRef/.test(html), 'sources rail binds a repos ref input');
 });
 
+await t.test('director clash: high-level area summary + option comparison', () => {
+  const src = readFileSync('server.js', 'utf8');
+  // AI prompt asks for a clashSummary (area + compare) on clash stops
+  t.ok(/clashSummary/.test(src), 'reason prompt requests a clashSummary');
+  const prompt = _win(src, 'CLASH SUMMARY', 700);
+  t.ok(/area/.test(prompt) && /compare/.test(prompt), 'clashSummary framing names area + compare');
+  // verdict normalization keeps clashSummary
+  t.ok(/clashSummary:\s*\(v\.clashSummary/.test(src), 'verdict normalizer carries clashSummary');
+
+  const djs = readFileSync('director.js', 'utf8');
+  // deskNode carries the AI summary; grouped clash item builds a summary with a fallback
+  t.ok(/aiClashSummary/.test(djs), 'deskNode carries aiClashSummary');
+  const grp = _win(djs, 'const areaText', 700);
+  t.ok(/areaText/.test(grp) && /compareText/.test(grp), 'clash item synthesizes area + compare (with fallback)');
+  t.ok(/aiAuthored/.test(djs), 'summary flags whether it is AI-authored vs synthesized');
+  t.ok(/directorRationale: rationale, summary/.test(djs), 'grouped clash item exposes summary');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  // clash pane renders the framing block above the two sides
+  t.ok(/meai-dir-summary/.test(html), 'clash pane has a summary block');
+  t.ok(/What this is about/.test(html), 'summary block is labelled');
+  t.ok(/summary\.area/.test(html) && /summary\.compare/.test(html), 'summary renders area + comparison');
+  t.ok(/summary\.aiAuthored/.test(html), 'summary notes when it is synthesized, not AI-authored');
+  t.ok(/\.meai-dir-summary\s*\{/.test(html), 'summary block has CSS');
+});
+
 await t.done();

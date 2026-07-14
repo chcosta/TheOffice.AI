@@ -343,12 +343,23 @@ function _groupDesk(deskNodes) {
         + (confidenceSplit ? (' Confidence is split ' + confidenceSplit + (belowBar ? ', below my 85% bar,' : ',')) : ' Neither side clears my 85% confidence bar,')
         + ' with no authoritative source to corroborate either. A tie-break here would be me guessing with your name on it'
         + (n > 1 ? (', so it stays with you — settle it once and I close all ' + n + ' the same way.') : ', so it stays with you.'));
+    // High-level framing shown ABOVE the two sides: what the decision is about + a neutral
+    // head-to-head. Prefer the Director's AI summary; otherwise synthesize an honest one from
+    // the subject and each side's claim so the block is always useful.
+    const aiSum = first.aiClashSummary;
+    const areaText = (aiSum && aiSum.area) || ('This decision is about ' + (first.subject || _clashTitle(first) || 'a contested finding') + '.');
+    let compareText = (aiSum && aiSum.compare) || null;
+    if (!compareText && sides.length === 2 && (sides[0].claim !== '—' || sides[1].claim !== '—')) {
+      compareText = 'Side A holds that ' + sides[0].claim + ' Side B holds that ' + sides[1].claim
+        + ' Both can\'t stand — pick the reading that matches your intent for the work.';
+    }
+    const summary = { area: areaText, compare: compareText, aiAuthored: !!(aiSum && (aiSum.area || aiSum.compare)) };
     items.push({
       id: 'desk-clash-' + (first.subject ? _slug(first.subject) : (first.stopId || ci)), kind: 'clash',
       title: _clashTitle(first), count: n, legCount: n, subject: first.subject || null,
       stopIds: group.map(g => g.stopId), legId: first.legId || null, members,
       nodeId: first.legId || null, target: first.target || null,
-      sides, confidenceSplit, belowBar, aiSided, directorRationale: rationale,
+      sides, confidenceSplit, belowBar, aiSided, directorRationale: rationale, summary,
       aiUsed: !!first.aiReason,
       aiConfidencePct: (first.aiConfidence != null ? _pct(first.aiConfidence) : null),
       status: 'Open — awaiting your decision',
@@ -559,6 +570,13 @@ function planReduction(tree, policy) {
       // the standoff, summing to 100 (e.g. 75/25). Distinct from a leg's self-confidence.
       aiSideConfidence: (av && av.sideConfidence && typeof av.sideConfidence === 'object'
         && typeof av.sideConfidence.a === 'number' && typeof av.sideConfidence.b === 'number') ? av.sideConfidence : null,
+      // The Director's high-level framing of a clash — what the decision is about (area) and a
+      // neutral head-to-head of the two options (compare). Surfaced above the two sides so the
+      // human understands the terrain before choosing.
+      aiClashSummary: (av && av.clashSummary && typeof av.clashSummary === 'object'
+        && (av.clashSummary.area || av.clashSummary.compare)) ? {
+          area: av.clashSummary.area || null, compare: av.clashSummary.compare || null,
+        } : null,
       // A bounded investigation the Director wants to run before deciding (probe disposition).
       aiProbe: (av && av.probe && typeof av.probe === 'object' && (av.probe.question || av.probe.plan)) ? av.probe : null,
     };

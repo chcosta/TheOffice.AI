@@ -13523,6 +13523,11 @@
               .meai-dir-mem-comp { font-size:11px; color:var(--cp-text-muted); margin-top:3px; }
               .meai-dir-mem-comp::before { content:'↩ '; opacity:.7; }
               .meai-dir-sides { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0; }
+              .meai-dir-summary { margin:11px 0; padding:11px 13px; border-radius:calc(var(--cp-radius-scale,1)*8px); background:var(--cp-surface-2,color-mix(in srgb,var(--cp-border) 22%, var(--cp-bg))); border:1px solid color-mix(in srgb,var(--cp-border) 60%, transparent); }
+              .meai-dir-summary-h { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; font-weight:800; color:var(--cp-text-muted); margin-bottom:5px; }
+              .meai-dir-summary-area { font-size:13.5px; line-height:1.5; color:var(--cp-text); font-weight:600; }
+              .meai-dir-summary-cmp { font-size:12.5px; line-height:1.6; color:var(--cp-text); margin-top:7px; }
+              .meai-dir-summary-note { font-size:11px; line-height:1.5; color:var(--cp-text-muted); margin-top:7px; font-style:italic; }
               @media (max-width:640px){ .meai-dir-sides { grid-template-columns:1fr; } }
               .meai-dir-side { border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:11px 12px; background:var(--cp-bg); }
               .meai-dir-side.a { border-color:color-mix(in srgb,var(--cp-accent) 40%, var(--cp-border)); }
@@ -16753,6 +16758,15 @@
                                   <div class="meai-dir-kind">Judgement clash · your call<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' · '+meai.pursuit.director.sel.count+' legs → one decision'"></span></div>
                                   <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
                                   <div class="meai-dir-target" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.target"><span x-show="meai.pursuit.director.sel.nodeId" x-text="'node '+meai.pursuit.director.sel.nodeId"></span><span x-show="meai.pursuit.director.sel.nodeId && meai.pursuit.director.sel.target"> · </span><span x-show="meai.pursuit.director.sel.target" x-text="'target '+meai.pursuit.director.sel.target"></span></div>
+                                  <!-- High-level framing: what the decision is about + a neutral head-to-head, shown before the two sides -->
+                                  <template x-if="meai.pursuit.director.sel.summary && (meai.pursuit.director.sel.summary.area || meai.pursuit.director.sel.summary.compare)">
+                                    <div class="meai-dir-summary">
+                                      <div class="meai-dir-summary-h">What this is about</div>
+                                      <div class="meai-dir-summary-area" x-text="meai.pursuit.director.sel.summary.area"></div>
+                                      <div class="meai-dir-summary-cmp" x-show="meai.pursuit.director.sel.summary.compare" x-text="meai.pursuit.director.sel.summary.compare"></div>
+                                      <div class="meai-dir-summary-note" x-show="!meai.pursuit.director.sel.summary.aiAuthored">Framed from each leg's own claims — the Director hasn't independently summarized this angle yet.</div>
+                                    </div>
+                                  </template>
                                   <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span><span x-show="meai.pursuit.director.sel.aiUsed && meai.pursuit.director.sel.aiConfidencePct!=null && !meai.pursuit.director.sel.aiSided" style="display:block;margin-top:6px;color:var(--cp-text-muted);font-size:12px">Director's confidence in calling this a genuine judgement call: <b x-text="meai.pursuit.director.sel.aiConfidencePct+'%'"></b> — not provable either way, so it stays your decision.</span></div>
                                   <template x-if="(meai.pursuit.director.sel.sides||[]).length">
                                     <div>
