@@ -677,4 +677,18 @@ await t.test('compose repositories source uses an org/project picker (not a frag
   t.ok(/ref: `\$\{org\}\/\$\{project\}\/\$\{r\.name\}`/.test(server), 'each repo carries an org/project/name ref');
 });
 
+await t.test('Monitor Teams pre-loads cached channels + shows currently-monitored channels', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // On open, after seeding the saved selection, warm the channel cache for monitored teams.
+  t.ok(/m\._selSeeded = true;[\s\S]{0,600}this\._pulseWarmMonitoredChannels\(\)/.test(src), 'seed warms monitored-team channels on open');
+  // The warmer expands each specific-scoped monitored team and loads its (cached) channels.
+  t.ok(/_pulseWarmMonitoredChannels\(\)\s*\{/.test(src), '_pulseWarmMonitoredChannels helper exists');
+  t.ok(/m\.expanded\[teamId\] = true;\s*\n\s*this\.pulseLoadChannels\(teamId, s\.teamName\)/.test(src), 'warmer expands + loads cached channels');
+  // A human list of the monitored channels is surfaced inline (no expand needed).
+  t.ok(/pulseTeamSelectedNames\(teamId\)\s*\{/.test(src), 'pulseTeamSelectedNames helper exists');
+  t.ok(/pmd-team-chansel/.test(src), 'inline monitored-channels row is rendered');
+  t.ok(/x-text="pulseTeamSelectedNames\(t\.id\)"/.test(src), 'inline row shows the monitored channel names');
+  t.ok(/\.pmd-team-chansel \{/.test(src), 'inline row has calm muted CSS');
+});
+
 await t.done();

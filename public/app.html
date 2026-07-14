@@ -18926,6 +18926,8 @@
               .pmd-team-sum:hover { color:var(--cp-text); border-color:var(--cp-border-strong); background:var(--cp-hover); }
               .pmd-caret { display:inline-block; font-size:10px; transition:transform .18s ease; }
               .pmd-caret.open { transform:rotate(180deg); }
+              .pmd-team-chansel { padding:1px 4px 4px 30px; font-size:12px; color:var(--cp-text-soft); line-height:1.5; }
+              .pmd-team-chansel-lbl { color:var(--cp-text-muted); }
               @media (prefers-reduced-motion: reduce) { .pmd-caret { transition:none; } }
               .pmd-chan { padding:4px 4px 12px 30px; }
               .pmd-mode { display:flex; gap:18px; margin-bottom:8px; }
@@ -19461,6 +19463,9 @@
                             <span x-text="pulseTeamSummary(t.id)"></span>
                             <span class="pmd-caret" :class="pulse.monitor.expanded[t.id] ? 'open' : ''">▾</span>
                           </button>
+                        </div>
+                        <div class="pmd-team-chansel" x-show="pulseTeamOn(t.id) &amp;&amp; !pulse.monitor.expanded[t.id] &amp;&amp; pulseTeamSelectedNames(t.id)">
+                          <span class="pmd-team-chansel-lbl">Monitoring:</span> <span x-text="pulseTeamSelectedNames(t.id)"></span>
                         </div>
                         <div class="pmd-chan" x-show="pulseTeamOn(t.id) &amp;&amp; pulse.monitor.expanded[t.id]" x-collapse>
                           <div class="pmd-mode">
@@ -37956,6 +37961,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }
               this.pulse.monitorCount = Object.keys(m.sel).length;
               m._selSeeded = true;
+              // Warm the channel cache for every monitored team already scoped to
+              // specific channels, so re-opening shows the currently-monitored channels
+              // immediately (cached, instant) instead of an empty list until the user
+              // toggles the mode. Also auto-expand them so the monitored scope is visible.
+              this._pulseWarmMonitoredChannels();
             }
             // Background revalidation in flight → poll again shortly to paint the fresh list.
             try { clearTimeout(m._pollT); } catch (e) {}
@@ -38009,6 +38019,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             m.chanLoading[teamId] = false;
           }
+        },
+        // Warm the cached channel list for every monitored team that is scoped to
+        // specific channels, and expand it, so the user sees exactly which channels
+        // are currently being monitored the moment the dialog opens.
+        _pulseWarmMonitoredChannels() {
+          const m = this.pulse.monitor;
+          for (const teamId of Object.keys(m.sel || {})) {
+            const s = m.sel[teamId];
+            if (!s) continue;
+            const specific = (typeof s.allMode === 'boolean') ? !s.allMode : Array.isArray(s.channels);
+            if (!specific) continue;
+            m.expanded[teamId] = true;
+            this.pulseLoadChannels(teamId, s.teamName);
+          }
+        },
+        // Human list of the channels currently monitored for a team (specific mode),
+        // e.g. "General · Releases · Announcements" — shown inline so the monitored
+        // scope is visible without expanding the team.
+        pulseTeamSelectedNames(teamId) {
+          const s = this.pulse.monitor.sel[teamId];
+          if (!s || !Array.isArray(s.channels) || !s.channels.length) return '';
+          return s.channels.map(c => c.name || c.displayName || c.id).filter(Boolean).join(' · ');
         },
         pulseTeamMode(teamId) {
           const s = this.pulse.monitor.sel[teamId];
