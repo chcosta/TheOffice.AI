@@ -13196,6 +13196,9 @@
               .meai-pu-back:hover { border-color:var(--cp-accent); }
               .meai-pu-dismiss { border:1px solid transparent; background:transparent; color:var(--cp-muted); border-radius:calc(var(--cp-radius-scale,1)*8px); padding:6px 12px; cursor:pointer; font-weight:600; font-size:12.5px; }
               .meai-pu-dismiss:hover { color:var(--cp-danger,#c0392b); border-color:var(--cp-border); }
+              .meai-pu-hdract { display:flex; align-items:center; gap:14px; margin-right:6px; padding-right:12px; border-right:1px solid var(--cp-border); }
+              .meai-pu-hdract-btn { appearance:none; border:none; background:none; padding:0; cursor:pointer; font-family:inherit; }
+              .meai-pu-hdract-btn:disabled { color:var(--cp-text-muted); cursor:default; text-decoration:none; }
               .meai-pu-title { min-width:0; }
               .meai-pu-goal { font-weight:700; color:var(--cp-text); font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:46vw; }
               .meai-pu-status { font-size:12px; color:var(--cp-text-muted); display:flex; align-items:center; gap:6px; }
@@ -16047,6 +16050,17 @@
                     <div class="meai-pu-status"><span class="meai-pu-livedot" :class="meAiPursuitLiveCls()"></span><span x-text="meAiPursuitStageLabel()"></span></div>
                   </div>
                   <span style="flex:1"></span>
+                  <!-- Always-available compendium + full-record export, so the whole
+                       pursuit record (build/rebuild the compendium, jump to the report,
+                       and export the navigable .zip bundle) is reachable from ANY tab
+                       without hunting the Chief-of-Staff's report first. -->
+                  <div class="meai-pu-hdract" x-show="meai.pursuit.tid">
+                    <a href="#" class="meai-pu-artcard-link" x-show="meAiPursuitReport() && meai.pursuit.centerView!=='report'" @click.prevent="meAiPursuitShowReport()" title="Jump to the compiled report">Report →</a>
+                    <button type="button" class="meai-pu-artcard-link meai-pu-hdract-btn" :disabled="meai.pursuit.compendiumBusy" @click="meAiPursuitBuildCompendium()"
+                      x-text="meai.pursuit.compendiumBusy ? 'Compiling…' : (meAiPursuitReport() ? 'Rebuild compendium' : 'Build compendium')"
+                      :title="meAiPursuitReport() ? 'Recompile the full navigable compendium from every angle, finding and chart' : 'Compile the full navigable compendium from every angle, finding and chart'"></button>
+                    <a class="meai-pu-artcard-link" :href="'/api/me-ai/task/' + encodeURIComponent(meai.pursuit.tid) + '/export/bundle.zip'" :download="'pursuit-bundle.zip'" title="Bundle the final report, earlier reports, every agent investigation, and the main thread into one navigable .zip">Export bundle ↓</a>
+                  </div>
                   <button type="button" class="meai-pu-dismiss" @click="meAiPursuitDismiss()" title="Archive this Me-agent — it stays browsable under Archived">Dismiss</button>
                 </div>
 

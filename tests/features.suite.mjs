@@ -622,4 +622,22 @@ await t.test('pursuit follow-up anchors on the main spine trunk (not a sub-agent
   t.ok(/if \(prevSpine\) t\._spineId = prevSpine/.test(conv), 'converse repairs t._spineId before spawning the you node');
 });
 
+await t.test('pursuit header exposes always-available compendium + bundle export (outside the report pane)', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // The always-available action group lives in the pursuit header (meai-pu-top), gated on a tid.
+  const hdr = _win(src, 'class="meai-pu-hdract"', 1400);
+  t.ok(/x-show="meai\.pursuit\.tid"/.test(hdr), 'header action group is gated on an open pursuit');
+  // Build/Rebuild the compendium from the header — label flips on whether a report exists.
+  t.ok(/meAiPursuitBuildCompendium\(\)/.test(hdr), 'header wires the compendium build action');
+  t.ok(/meAiPursuitReport\(\) \? 'Rebuild compendium' : 'Build compendium'/.test(hdr), 'label flips Build vs Rebuild');
+  t.ok(/:disabled="meai\.pursuit\.compendiumBusy"/.test(hdr), 'build button is gated while compiling');
+  // Full-record .zip bundle is reachable from the header too (whole record without opening the report).
+  t.ok(/\/export\/bundle\.zip/.test(hdr), 'header exposes the navigable .zip bundle export');
+  t.ok(/Export bundle/.test(hdr), 'bundle export is labelled');
+  // A quiet jump to the compiled report when one already exists.
+  t.ok(/meAiPursuitShowReport\(\)/.test(hdr), 'header offers a jump to the report when present');
+  // No pills — the group uses the existing calm link/button styling.
+  t.ok(/\.meai-pu-hdract \{/.test(src), 'header action group has calm layout CSS');
+});
+
 await t.done();
