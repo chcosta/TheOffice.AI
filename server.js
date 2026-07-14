@@ -23234,7 +23234,18 @@ function _meAiComposeCompendiumSite(payload, meta) {
   toc.push(`<a href="#overview" class="toc-a" data-pg="overview">Overview</a>`);
   for (const s of sections) toc.push(`<a href="#${s.id}" class="toc-a" data-pg="${s.id}">${s.title}</a>`);
   if (hasSources) toc.push(`<a href="#sources" class="toc-a" data-pg="sources">Sources &amp; references</a>`);
-  // Pages
+  // Pages — build in reading order so each can carry a prev/next pager. The pager is
+  // pure anchor links (no JS) so it works in the sandboxed, script-free viewer.
+  const order = [{ id: 'overview', title: 'Overview' }].concat(sections.map(s => ({ id: s.id, title: s.title })));
+  if (hasSources) order.push({ id: 'sources', title: 'Sources &amp; references' });
+  const pager = (i) => {
+    const prev = i > 0 ? order[i - 1] : null;
+    const next = i < order.length - 1 ? order[i + 1] : null;
+    return `<nav class="pager" aria-label="Page navigation">`
+      + (prev ? `<a class="pg-prev" href="#${prev.id}">‹ ${prev.title}</a>` : `<span class="pg-sp"></span>`)
+      + (next ? `<a class="pg-next" href="#${next.id}">${next.title} ›</a>` : `<span class="pg-sp"></span>`)
+      + `</nav>`;
+  };
   const pages = [];
   pages.push([
     `<section id="overview" class="pg" aria-label="Overview">`,
@@ -23244,18 +23255,19 @@ function _meAiComposeCompendiumSite(payload, meta) {
     actionItems.length ? (`<div class="callout"><h2>Action items</h2><ol>` + actionItems.map(a => `<li>${esc(a)}</li>`).join('') + `</ol></div>`) : '',
     keyFindings.length ? (`<div class="callout alt"><h2>Key findings</h2><ul>` + keyFindings.map(f => `<li>${esc(f)}</li>`).join('') + `</ul></div>`) : '',
     sections.length ? (`<div class="jump"><h2>In this report</h2><ul>` + sections.map(s => `<li><a href="#${s.id}">${s.title}</a>${s.tagline ? ` — <span class="mut">${s.tagline}</span>` : ''}</li>`).join('') + `</ul></div>`) : '',
+    pager(0),
     `</section>`
   ].join('\n'));
-  for (const s of sections) {
+  sections.forEach((s, si) => {
     pages.push([
       `<section id="${s.id}" class="pg" aria-label="${s.title}">`,
       `<h2>${s.title}</h2>`,
       s.tagline ? `<p class="why">${s.tagline}</p>` : '',
       `<div class="body">${s.html}</div>`,
-      `<p class="totop"><a href="#overview">‹ Back to overview</a></p>`,
+      pager(si + 1),
       `</section>`
     ].join('\n'));
-  }
+  });
   if (hasSources) {
     pages.push([
       `<section id="sources" class="pg" aria-label="Sources and references">`,
@@ -23266,7 +23278,7 @@ function _meAiComposeCompendiumSite(payload, meta) {
         const url = s.url ? esc(s.url) : '';
         return url ? `<li><a href="${url}" rel="noreferrer noopener">${label}</a></li>` : `<li>${label}</li>`;
       }).join('') + `</ul>`,
-      `<p class="totop"><a href="#overview">‹ Back to overview</a></p>`,
+      pager(order.length - 1),
       `</section>`
     ].join('\n'));
   }
@@ -23318,6 +23330,11 @@ h3{font-size:16px;margin:20px 0 8px;}
 .src{max-width:78ch;padding-left:20px;}
 .src li{margin:6px 0;word-break:break-word;}
 .totop{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;}
+.pager{display:flex;justify-content:space-between;gap:12px;margin-top:40px;padding-top:18px;border-top:1px solid var(--line);}
+.pager a{display:inline-block;max-width:46%;padding:9px 14px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pager a:hover{background:color-mix(in srgb,var(--acc) 12%,transparent);text-decoration:none;border-color:var(--acc);}
+.pager .pg-next{margin-left:auto;text-align:right;}
+.pager .pg-sp{flex:0 0 1px;}
 @media (max-width:760px){.wrap{grid-template-columns:1fr;}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);}.main{padding:28px 22px 72px;}}
 `;
   return [
@@ -26192,6 +26209,29 @@ app.get('/api/me-ai/task/:id/report/:artifactId/export.zip', (req, res) => {
     res.setHeader('Content-Length', zip.length);
     res.end(zip);
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Serve a report artifact as a real same-origin HTML page so the compendium's in-page
+// navigation works inside the sandboxed iframe. The viewer previously used srcdoc, whose
+// document URL is about:srcdoc — Chromium/WebView2 won't perform #fragment navigation
+// against about:srcdoc, so the CSS :target paging (sidebar TOC, prev/next) never fired.
+// Loading via a real URL fixes fragment nav. Still rendered with sandbox="allow-same-origin"
+// (no allow-scripts), so any embedded script stays inert. Read-only.
+app.get('/api/me-ai/task/:id/report/:artifactId/view', (req, res) => {
+  try {
+    const id = req.params.id;
+    const artifactId = String(req.params.artifactId || '');
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const arts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts : [];
+    const art = arts.find(a => a && a.id === artifactId);
+    if (!art) return res.status(404).send('<!doctype html><meta charset="utf-8"><p>Report not found.');
+    let body = art.body;
+    if ((body == null || body === '') && art.path) { try { body = fs.readFileSync(art.path, 'utf8'); } catch (_) {} }
+    if (body == null) return res.status(404).send('<!doctype html><meta charset="utf-8"><p>Report has no content.');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(String(body));
+  } catch (err) { res.status(500).send('<!doctype html><meta charset="utf-8"><p>' + String(err.message || err)); }
 });
 
 // ── PR shepherding ────────────────────────────────────────────────────────

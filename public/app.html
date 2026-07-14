@@ -16900,7 +16900,7 @@
                           <a x-show="meAiPursuitArtIsHtml(meAiPursuitReport()) && meAiPursuitReport().id && meai.pursuit.tid" class="meai-pu-artcard-link" :href="'/api/me-ai/task/' + encodeURIComponent(meai.pursuit.tid) + '/report/' + encodeURIComponent((meAiPursuitReport()||{}).id||'') + '/export.zip'" :download="'compendium.zip'">Export as zip ↓</a>
                         </div>
                         <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && !meAiPursuitArtRaw(meAiPursuitReport())">
-                          <iframe class="meai-pu-report-frame" :srcdoc="(meAiPursuitReport()||{}).body||''" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
+                          <iframe class="meai-pu-report-frame" :src="meAiPursuitArtViewSrc(meAiPursuitReport())" :srcdoc="meAiPursuitArtViewSrc(meAiPursuitReport()) ? null : ((meAiPursuitReport()||{}).body||'')" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
                         </template>
                         <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && meAiPursuitArtRaw(meAiPursuitReport())">
                           <pre class="meai-pu-report-src" x-text="(meAiPursuitReport()||{}).body||''"></pre>
@@ -16935,7 +16935,7 @@
                           <button type="button" class="meai-pu-report-back" x-show="meai.pursuit.artView.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.artView.legId)">Show the leg →</button>
                         </div>
                         <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && !meAiPursuitArtRaw(meai.pursuit.artView)">
-                          <iframe class="meai-pu-report-frame" :srcdoc="(meai.pursuit.artView||{}).body||''" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
+                          <iframe class="meai-pu-report-frame" :src="meAiPursuitArtViewSrc(meai.pursuit.artView)" :srcdoc="meAiPursuitArtViewSrc(meai.pursuit.artView) ? null : ((meai.pursuit.artView||{}).body||'')" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
                         </template>
                         <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && meAiPursuitArtRaw(meai.pursuit.artView)">
                           <pre class="meai-pu-report-src" x-text="(meai.pursuit.artView||{}).body||''"></pre>
@@ -42031,6 +42031,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.format === 'html') return true;
           const b = String(a.body || '').trimStart().slice(0, 200).toLowerCase();
           return b.startsWith('<!doctype') || b.startsWith('<html') || /^<html[\s>]/.test(b);
+        },
+        // Real same-origin URL for an HTML artifact so the iframe can navigate its in-page
+        // anchors (the compendium's TOC + prev/next paging). srcdoc renders as about:srcdoc,
+        // where Chromium/WebView2 won't do #fragment navigation, so :target never fires.
+        // Returns '' when we can't build a URL (the iframe then falls back to srcdoc).
+        meAiPursuitArtViewSrc(a) {
+          if (!a || !a.id || !this.meai.pursuit.tid) return null;
+          if (!this.meAiPursuitArtIsHtml(a)) return null;
+          return '/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/report/' + encodeURIComponent(a.id) + '/view';
         },
         // Extract Mermaid diagram source from an artifact body — handles a bare diagram
         // (body opens with a directive) or a single ```mermaid fenced block. Returns the
