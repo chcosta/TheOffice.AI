@@ -28310,14 +28310,14 @@
     </template>
   </div>
 
-  <!-- Global Compose.AI launcher — start a proposal, alignment brief, status update,
-       one-pager, doc, or prototype from anywhere. Hidden on routes that own a FAB.
+  <!-- Compose.AI launcher — start a proposal, alignment brief, status update,
+       one-pager, doc, or prototype. Only shown on the Compose.AI page itself.
        NOTE: gated by inline `route`/`compose.fab.open` (always-present) rather than a
        method call, so a stale mid-deploy load can never throw and blank other routes. -->
   <template x-if="compose">
     <div>
       <button class="board-ai-fab cmpx-fab" type="button"
-        x-show="!['compose','me-ai','connect','boards','board','sessions','cli-sessions'].includes(route) && !compose.fab.open"
+        x-show="route === 'compose' && !compose.fab.open"
         x-transition.opacity.duration.150ms
         @click="composeFabToggle()" title="Compose.AI — draft a proposal, alignment brief, status update, doc or prototype" aria-label="Open Compose.AI launcher">✍️</button>
       <div class="cmpx-fab-backdrop" x-show="compose.fab.open" x-transition.opacity.duration.150ms @click.self="composeFabToggle()" x-cloak>
@@ -45118,10 +45118,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         composeRemoveLink(i) { this.compose.brief.sources.links.splice(i, 1); },
         composeToggleSource(sources, s) { if (!sources || !s) return; sources[s.id] = !sources[s.id]; },
         composeSourceIsText(id) { const s = (this.compose.sourceCatalog || []).find(x => x.id === id); return !!(s && s.kind === 'text'); },
-        // Global Compose.AI launcher (lower-right FAB). Hidden on routes that own their own FAB.
+        // Compose.AI launcher (lower-right FAB). Only shown on the Compose.AI page.
         composeFabVisible() {
-          const owns = ['compose', 'me-ai', 'connect', 'boards', 'board', 'sessions', 'cli-sessions'];
-          return !owns.includes(this.route);
+          return this.route === 'compose';
         },
         composeFabToggle() {
           this.compose.fab.open = !this.compose.fab.open;

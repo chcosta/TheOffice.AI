@@ -87,6 +87,25 @@ async function runOffline() {
         checks.push({ name: `node _syntax.mjs (${f})`, pass: false, detail: ((e.stderr || e.stdout || e.message || '') + '').toString() });
       }
     }
+    // 2) HTML structural balance — _syntax.mjs only sees inline JS, so a stray/
+    // missing container tag (rogue </div>, unbalanced <template>/<section>) slips
+    // through and corrupts the DOM at parse time. This catches it deterministically.
+    const checkerPath = path.resolve(cwd, 'tests', 'lib', 'html-structure.mjs');
+    if (fs.existsSync(checkerPath)) {
+      try {
+        const { checkHtmlStructure } = await import('file://' + checkerPath.replace(/\\/g, '/'));
+        const src = fs.readFileSync(path.resolve(cwd, f), 'utf8');
+        const r = checkHtmlStructure(src);
+        if (r.ok) {
+          checks.push({ name: `html structure balanced (${f})`, pass: true });
+        } else {
+          const detail = r.errors.slice(0, 6).map((e) => (e.line ? `L${e.line}: ${e.message}` : e.message)).join('\n');
+          checks.push({ name: `html structure balanced (${f})`, pass: false, detail });
+        }
+      } catch (e) {
+        checks.push({ name: `html structure balanced (${f})`, pass: false, detail: ((e.stack || e.message || '') + '').toString() });
+      }
+    }
   }
 
   console.log('');

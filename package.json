@@ -10,6 +10,7 @@
     "install-service": "node install-service.js",
     "uninstall-service": "node uninstall-service.js",
     "test": "node tests/run-all.mjs",
+    "test:html": "node tests/html-structure.suite.mjs",
     "test:board": "node tests/board-jumble.regression.mjs",
     "test:board:ux": "node tests/board-ux.regression.mjs",
     "test:board:mc": "node tests/board-multiclient.regression.mjs",
