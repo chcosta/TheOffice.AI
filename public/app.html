@@ -16214,6 +16214,23 @@
                                   <a x-show="!meai.pursuit.director._reasoning" @click="meAiPursuitDirectorReason(true)" style="cursor:pointer">Re-judge with AI ↻</a></div>
                               </div>
 
+                              <!-- Stalled legs (interrupted by a restart — no open gate, silently stuck) -->
+                              <template x-if="(meai.pursuit.director.stalled||[]).length && meAiDirectorActive()">
+                                <div style="margin-bottom:14px">
+                                  <div class="meai-dir-h"><span>Stalled after an interruption</span> <span class="c" x-text="(meai.pursuit.director.stalled||[]).length"></span></div>
+                                  <div class="meai-dir-insight">
+                                    <div class="meai-dir-insight-t"><span>⏸</span> <span x-text="(meai.pursuit.director.stalled||[]).length===1 ? 'One leg stalled and never reached your desk' : (meai.pursuit.director.stalled||[]).length + ' legs stalled and never reached your desk'"></span></div>
+                                    <div class="meai-dir-row-w">These were mid-run when the server restarted, so they show as blocked on the map but have no decision waiting for you. Resume to pick up where they left off — the agents verify finished work first so nothing repeats.</div>
+                                    <div class="meai-dir-row-w" style="margin-top:4px;opacity:.85">
+                                      <template x-for="(sl, si) in (meai.pursuit.director.stalled||[]).slice(0,6)" :key="sl.legId">
+                                        <span><span x-show="si>0"> · </span><a @click="meAiPursuitOpenNodeById(sl.legId)" x-text="sl.title"></a></span>
+                                      </template>
+                                    </div>
+                                    <button type="button" class="meai-dir-linklike" :disabled="meai.pursuit.director.busy || meai.pursuit.director._resuming" @click="meAiDirectorResume()" x-text="meai.pursuit.director._resuming ? 'Resuming…' : ('Resume ' + ((meai.pursuit.director.stalled||[]).length===1 ? 'this leg' : 'all ' + (meai.pursuit.director.stalled||[]).length) + ' →')"></button>
+                                  </div>
+                                </div>
+                              </template>
+
                               <!-- Director insights (cross-node judgement) -->
                               <template x-if="meAiDirectorInsightCount() > 0">
                                 <div style="margin-bottom:14px">
@@ -16222,7 +16239,19 @@
                                     <div class="meai-dir-insight">
                                       <div class="meai-dir-insight-t"><span x-text="ins.icon"></span> <span x-text="ins.title"></span></div>
                                       <div class="meai-dir-row-w" x-text="ins.why"></div>
-                                      <button type="button" x-show="ins.action" class="meai-dir-linklike" @click="meAiDirectorInsightAct(ins)" x-text="ins.action"></button>
+                                      <button type="button" x-show="ins.action && !(meai.pursuit.director.spawn && meai.pursuit.director.spawn.key === ins.key)" class="meai-dir-linklike" @click="meAiDirectorInsightAct(ins)" x-text="ins.action"></button>
+                                      <!-- inline spin-off composer: edit the goal / redirect / add context before spawning -->
+                                      <template x-if="meai.pursuit.director.spawn && meai.pursuit.director.spawn.key === ins.key">
+                                        <div class="meai-dir-ask">
+                                          <div class="meai-dir-ask-h">Edit the goal, point it somewhere else, or add context before the Director spins off a bounded sub-agent inside this pursuit (max depth 1 — its findings return to this queue).</div>
+                                          <textarea class="field-input meai-dir-note" rows="3" placeholder="What should this effort pursue?" x-model="meai.pursuit.director.spawn.goal"></textarea>
+                                          <div class="meai-dir-foot-acts" style="margin-top:6px">
+                                            <button type="button" class="btn primary" :disabled="meai.pursuit.director.spawn.busy || !(meai.pursuit.director.spawn.goal||'').trim()" @click="meAiDirectorSpawnSubmit(true)">Start it now →</button>
+                                            <button type="button" class="btn ghost" :disabled="meai.pursuit.director.spawn.busy || !(meai.pursuit.director.spawn.goal||'').trim()" @click="meAiDirectorSpawnSubmit(false)">Just draft it</button>
+                                            <button type="button" class="meai-dir-linklike" :disabled="meai.pursuit.director.spawn.busy" @click="meAiDirectorSpawnCancel()">Cancel</button>
+                                          </div>
+                                        </div>
+                                      </template>
                                     </div>
                                   </template>
                                 </div>
@@ -28667,6 +28696,7 @@
               enabled: false, autonomy: 'balanced', paused: false, offline: false, leader: true,
               leaderInfo: null, _claiming: false, syncPaused: false,
               grant: null, plan: null, ledger: [], lastSweepAt: null,
+              stalled: [], spawn: { key: null, goal: '', busy: false }, _resuming: false,
               sel: null, selKind: null,          // current detail selection
               showHandled: false, note: '',
             },
@@ -42489,6 +42519,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             d.insights = (r.plan && r.plan.insights) || null;
             d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : [];
             d.lastSweepAt = r.lastSweepAt || null;
+            d.stalled = Array.isArray(r.stalled) ? r.stalled : [];
             d.pr = r.pr || null;
             this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
             // Land on the Director tab by default when it's governing this pursuit —
@@ -42638,7 +42669,44 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorInsightAct(ins) {
           if (!ins) return;
           if (ins.action === 'Redirect…' && ins.legId) return this.meAiDirectorRedirect(ins.legId);
-          if (ins.action === 'Spin off effort') return this.meAiDirectorSpawn(null);
+          if (ins.action === 'Spin off effort') return this.meAiDirectorSpawnOpen(ins);
+        },
+        // Fix #3: open the inline spin-off composer for an insight, pre-filled with the
+        // insight's own goal so the user can edit / redirect / add context before spawning
+        // (rather than an empty prompt that discards the opportunity).
+        meAiDirectorSpawnOpen(ins) {
+          const d = this.meai.pursuit.director;
+          d.spawn = { key: ins.key, goal: ins.goal || ins.title || '', busy: false };
+        },
+        meAiDirectorSpawnCancel() {
+          this.meai.pursuit.director.spawn = { key: null, goal: '', busy: false };
+        },
+        async meAiDirectorSpawnSubmit(run) {
+          const d = this.meai.pursuit.director;
+          const g = String((d.spawn && d.spawn.goal) || '').trim();
+          if (!g) return;
+          d.spawn.busy = true;
+          try {
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal: g, run: !!run }) });
+            this.toast && this.toast(run ? 'Sub-agent started inside this pursuit.' : 'Sub-agent drafted — approve it in the ledger to run.');
+            this.meAiDirectorSpawnCancel();
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast && this.toast('Spin-off failed: ' + (e.message || e)); }
+          finally { if (d.spawn) d.spawn.busy = false; }
+        },
+        // Fix #2: resume legs stalled by an interruption (blocked on the map, no open gate).
+        async meAiDirectorResume() {
+          const d = this.meai.pursuit.director;
+          if (!(d.stalled || []).length || d._resuming) return;
+          d._resuming = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/resume', { method: 'POST', body: JSON.stringify({}) });
+            if (r && r.ok === false) { this.toast && this.toast(r.message || 'Could not resume: ' + (r.error || 'unknown')); }
+            else if (r && r.running) { this.toast && this.toast('Already running — nothing stalled.'); }
+            else { this.toast && this.toast('Resuming ' + (r.resumed || 0) + ' stalled ' + ((r.resumed === 1) ? 'leg' : 'legs') + '…'); }
+            await this.meAiPursuitDirectorLoad();
+          } catch (e) { this.toast && this.toast('Resume failed: ' + (e.message || e)); }
+          finally { d._resuming = false; }
         },
         // ── PR shepherd (Director watches its own PR's CI and self-heals it) ──
         meAiDirectorPr() { const d = this.meai.pursuit.director; return (d && d.pr) || null; },

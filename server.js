@@ -23818,6 +23818,25 @@ function _meAiDirectorView(id) {
   return { policy, plan, tree };
 }
 
+// Legs left stalled by an interruption (a server restart marks any still-'running' leg
+// 'blocked' — see _meAiHydrateTrees). These have NO open stop of their own, so they never
+// reach the desk and the Director shows "nothing needs you" while the map shows blocked
+// dots — silently stuck. We distinguish them from legs that are legitimately blocked ON a
+// user gate (those DO have an open stop referencing them, and belong on the desk). Returns
+// the recoverable ones so the Director can surface + one-click resume them.
+function _meAiDirectorStalledLegs(tree) {
+  if (!tree || !tree.legs) return [];
+  const openStopLegs = new Set((tree.stops || []).filter(s => s && s.status === 'open' && s.legId).map(s => s.legId));
+  const out = [];
+  for (const legId of (tree.order || [])) {
+    const leg = tree.legs[legId];
+    if (!leg || leg.status !== 'blocked') continue;
+    if (openStopLegs.has(legId)) continue; // blocked ON a live gate → already actionable on the desk
+    out.push({ legId, title: leg.title || leg.goal || 'a leg', kind: leg.kind || 'leg', lane: leg.lane || null });
+  }
+  return out;
+}
+
 // ---- AI reasoning pass ----------------------------------------------------
 // The Director's judgement is model-driven, not regex. This pass hands the open stops
 // (with what each ACTION actually does — the verb, not the filename) plus the leg roster
@@ -24560,6 +24579,12 @@ function _meAiDirectorSweep(t) {
   const pv = (policy.grant && policy.grant.policyVersion) || null;
   const gid = (policy.grant && policy.grant.id) || 'g-none';
   let handled = 0;
+  // Conflict stops the sweep culls this pass. A culled duplicate/informational conflict
+  // stop leaves its CONFLICT record open in rootState, so the Chief of Staff keeps
+  // re-asking "Pick A/Pick B" even though the Director handled it (the desk-0 vs
+  // "N still need you" contradiction). We retire those conflicts below once nothing
+  // still gates them.
+  const culledConflictIds = new Set();
   for (const p of plan.per) {
     if (!director.HANDLED.has(p.disposition)) continue;
     const stop = (tree.stops || []).find(s => s.id === p.stopId && s.status === 'open');
@@ -24575,6 +24600,7 @@ function _meAiDirectorSweep(t) {
       _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resolved', stopId: stop.id, conflictId: c.id, cls: p.cls, why: 'Factual conflict with an authoritative, high-confidence verdict.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen-conflict', target: c.id, stopId: stop.id } }) });
       handled++;
     } else if (p.disposition === 'cull') {
+      if (stop.conflictId) culledConflictIds.add(stop.conflictId);
       _meAiTreeEmit(id, 'auth_decision', { stopId: stop.id, decision: 'approve', by: 'director', note: 'Culled by director — duplicate of an action already on the desk.' });
       _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'culled', stopId: stop.id, legId: stop.legId, cls: p.cls, why: 'Duplicate of an action already handled.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: stop.id } }) });
       handled++;
@@ -24584,6 +24610,48 @@ function _meAiDirectorSweep(t) {
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
       _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'absorbed', stopId: stop.id, legId: stop.legId, cls: p.cls, target: p.target, why: 'Reversible local change under your standing grant for ' + ((policy.grant.paths || []).join(', ') || 'this pursuit') + '.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: stop.id } }) });
       handled++;
+    }
+  }
+  // ── Fix #1: retire conflicts the Director handled ─────────────────────────────
+  // A culled conflict stop closes the GATE but not the CONFLICT record, so the
+  // Chief-of-Staff conclusion keeps offering "Pick A/Pick B" for something the
+  // Director already put to rest. This reconciliation runs on EVERY sweep (not just
+  // when this pass culled something): a pursuit swept in a prior round — before this
+  // fix, or by a user approval — can still be carrying open conflicts and stale
+  // recommendation chips whose gates are already closed, and a zero-cull re-sweep
+  // must clean those up too. Every open conflict always has a gating needs-decision
+  // stop (see conclusion builder), so an open conflict with no OPEN referencing stop
+  // but a CLOSED one (or one we just culled) means its gate is closed — retire it as
+  // superseded (chosenBy director, informational; reversible via reopen-conflict).
+  let reconciled = false;
+  {
+    const fresh = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const freshStops = fresh.stops || [];
+    const freshConflicts = (fresh.rootState && fresh.rootState.openConflicts) || [];
+    for (const c of freshConflicts) {
+      if (!c || c.status !== 'open') continue;
+      const cid = c.id;
+      if (freshStops.some(s => s && s.status === 'open' && s.conflictId === cid)) continue; // a surviving stop still gates it
+      // Only retire once its gate is provably closed: either we just culled it this
+      // pass, or a closed stop referencing it exists (guards a fold race where a
+      // freshly-raised conflict's stop hasn't landed yet).
+      if (!culledConflictIds.has(cid) && !freshStops.some(s => s && s.status !== 'open' && s.conflictId === cid)) continue;
+      const verdict = { stance: 'superseded', claim: 'Informational contradiction — the Director determined no decision was needed.', legId: null, confidence: null, chosenBy: 'director' };
+      _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: cid, verdict, resolvedBy: 'director' } });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'retired-conflict', conflictId: cid, cls: 'duplicate', why: 'The gating stop was culled as informational — the contradiction needed no decision.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen-conflict', target: cid } }) });
+      reconciled = true;
+    }
+    // Drop recommendation chips whose stop is already closed (conflict picks, or
+    // delivery/approve offers the Director absorbed). If that empties the list, fall
+    // back to a calm "Looks good — done" so the thread never shows stale asks. Runs
+    // unconditionally so a re-sweep reconciles chips even when it culled nothing.
+    const openStopIds = new Set((meAiTrees.get(id) || fresh).stops.filter(s => s && s.status === 'open').map(s => s.id));
+    const lt2 = meAiTasks.get(id);
+    if (lt2 && Array.isArray(lt2.nextActions) && lt2.nextActions.length) {
+      const before = lt2.nextActions.length;
+      lt2.nextActions = lt2.nextActions.filter(a => !a || !a._stopId || openStopIds.has(a._stopId));
+      if (!lt2.nextActions.length) lt2.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+      if (lt2.nextActions.length !== before) { reconciled = true; try { _meAiSaveTask(lt2); } catch (_) {} }
     }
   }
   // Probe dispatch (the "just handle it" path): for every stop the AI judged worth a bounded
@@ -24610,7 +24678,7 @@ function _meAiDirectorSweep(t) {
       if (r && r.ok) probed++;
     }
   }
-  if (handled || probed) {
+  if (handled || probed || reconciled) {
     _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
     const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
     // The desk just changed — let the Director narrate the update into the main chat
@@ -24621,7 +24689,7 @@ function _meAiDirectorSweep(t) {
   if (tree.director && tree.director.pr && tree.director.pr.prId) {
     try { _meAiSchedule(async () => { try { await _meAiDirectorPrTick(t); } catch (_) {} }); } catch (_) {}
   }
-  return { handled, probed, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
+  return { handled, probed, reconciled, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
 }
 
 // Undo a prior director action (state-aware): reopen the folded stop / conflict so
@@ -25359,6 +25427,7 @@ app.get('/api/me-ai/task/:id/director', (req, res) => {
       reasonedAt: policy.aiReasonedAt || null,
       ledger: (tree.director && tree.director.ledger) || [],
       lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
+      stalled: _meAiDirectorStalledLegs(tree),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -25379,6 +25448,7 @@ app.post('/api/me-ai/task/:id/director/reason', async (req, res) => {
       enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused, leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan, ledger: (tree.director && tree.director.ledger) || [], lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
+      stalled: _meAiDirectorStalledLegs(tree),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -25495,6 +25565,30 @@ app.post('/api/me-ai/task/:id/director/spawn', (req, res) => {
     const { plan } = _meAiDirectorView(id);
     res.json(Object.assign({}, result, { plan }));
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Resume legs stalled by an interruption (restart-orphaned; blocked with no open gate).
+// Re-engages the orchestrator with a steer to pick up the named legs without repeating
+// finished work. Leader-gated (this executes work, per I1) — a read-only follower can't.
+app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
+  try {
+    const id = req.params.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const stalled = _meAiDirectorStalledLegs(tree);
+    if (!stalled.length) return res.json({ ok: true, resumed: 0, stalled: [] });
+    if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' });
+    const t = meAiTasks.get(id);
+    if (!t || t.mode !== 'tree') return res.status(400).json({ ok: false, error: 'not-a-pursuit' });
+    if (t.status === 'running' || t.stage === 'working') return res.json({ ok: true, resumed: 0, running: true, stalled });
+    const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
+    const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
+    _meAiTreeReAct(t, 'continue', steer, 'Resumed ' + stalled.length + ' stalled ' + (stalled.length === 1 ? 'leg' : 'legs'));
+    try {
+      const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-engaged to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+    } catch (_) {}
+    res.json({ ok: true, resumed: stalled.length, stalled });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── PR shepherding ────────────────────────────────────────────────────────
