@@ -20071,6 +20071,314 @@
 
           </section>
 
+          <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'compose'" :class="{ 'cmpx-fs': compose.fullscreen }">
+            <style>
+              .cmpx-wrap{max-width:1180px;margin:0 auto}
+              .cmpx-head{display:flex;align-items:flex-end;gap:14px;margin:0 0 6px}
+              .cmpx-head h1{margin:0;font-size:26px;letter-spacing:-.01em}
+              .cmpx-head .cmpx-sub{color:var(--cp-text-secondary);font-size:14px;margin:2px 0 0}
+              .cmpx-head .spacer{flex:1}
+              /* Launcher: purpose gallery + recent */
+              .cmpx-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin:18px 0 26px}
+              .cmpx-purpose{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);cursor:pointer;text-align:left;transition:border-color .12s,transform .12s,box-shadow .12s}
+              .cmpx-purpose:hover{border-color:var(--cp-accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.06)}
+              .cmpx-purpose .ic{font-size:22px}
+              .cmpx-purpose .nm{font-weight:650;font-size:15px;color:var(--cp-text)}
+              .cmpx-purpose .bl{font-size:12.5px;color:var(--cp-text-secondary);line-height:1.45}
+              .cmpx-purpose .lk{font-size:12px;color:var(--cp-accent);margin-top:2px}
+              .cmpx-secttl{font-size:13px;font-weight:650;color:var(--cp-text-secondary);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px}
+              .cmpx-recent{display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;overflow:hidden;background:var(--cp-surface)}
+              .cmpx-rrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--cp-border);cursor:pointer}
+              .cmpx-rrow:last-child{border-bottom:0}
+              .cmpx-rrow:hover{background:var(--cp-surface-hover,rgba(0,0,0,.03))}
+              .cmpx-rrow .ic{font-size:18px;flex:0 0 auto}
+              .cmpx-rrow .mn{flex:1;min-width:0}
+              .cmpx-rrow .mn .t{font-weight:600;font-size:14px;color:var(--cp-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-rrow .mn .m{font-size:12px;color:var(--cp-text-secondary)}
+              .cmpx-rrow .del{opacity:0;color:var(--cp-text-secondary);border:0;background:none;cursor:pointer;font-size:14px;padding:4px}
+              .cmpx-rrow:hover .del{opacity:1}
+              .cmpx-empty{padding:22px;text-align:center;color:var(--cp-text-secondary);font-size:13.5px}
+              /* Brief form */
+              .cmpx-brief{max-width:720px;margin:14px auto 0;display:flex;flex-direction:column;gap:14px}
+              .cmpx-fld{display:flex;flex-direction:column;gap:5px}
+              .cmpx-fld > label{font-size:12.5px;font-weight:650;color:var(--cp-text)}
+              .cmpx-fld .sub{font-weight:400;color:var(--cp-text-secondary)}
+              .cmpx-fmts{display:flex;gap:8px;flex-wrap:wrap}
+              .cmpx-fmt{padding:7px 13px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface);cursor:pointer;font-size:13px;color:var(--cp-text)}
+              .cmpx-fmt.active{border-color:var(--cp-accent);color:var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 8%,transparent)}
+              .cmpx-links{display:flex;flex-direction:column;gap:6px}
+              .cmpx-link{display:flex;align-items:center;gap:8px;font-size:13px}
+              .cmpx-link a{color:var(--cp-accent);word-break:break-all}
+              .cmpx-link button{border:0;background:none;color:var(--cp-text-secondary);cursor:pointer}
+              .cmpx-src{border:1px solid var(--cp-border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--cp-surface)}
+              .cmpx-srcrow{display:flex;align-items:center;gap:10px}
+              .cmpx-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
+              /* Studio */
+              .cmpx-studio{display:grid;grid-template-columns:1fr;gap:16px}
+              .cmpx-studio.chat-open{grid-template-columns:1fr 340px}
+              .cmpx-stage{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+              .cmpx-toolbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--cp-border);flex-wrap:wrap}
+              .cmpx-toolbar .spacer{flex:1}
+              .cmpx-toolbar .seg{display:flex;border:1px solid var(--cp-border);border-radius:8px;overflow:hidden}
+              .cmpx-toolbar .seg button{border:0;background:var(--cp-surface);padding:5px 12px;font-size:12.5px;cursor:pointer;color:var(--cp-text)}
+              .cmpx-toolbar .seg button.active{background:var(--cp-accent);color:#fff}
+              .cmpx-paper{flex:1;min-height:420px;overflow:auto;padding:26px 30px}
+              .cmpx-fs .cmpx-paper{min-height:0}
+              .cmpx-doc{max-width:820px;margin:0 auto;line-height:1.6;color:var(--cp-text)}
+              .cmpx-doc h1{font-size:26px;margin:.2em 0 .5em}
+              .cmpx-doc h2{font-size:20px;margin:1.1em 0 .4em;border-bottom:1px solid var(--cp-border);padding-bottom:4px}
+              .cmpx-doc h3{font-size:16px;margin:1em 0 .3em}
+              .cmpx-doc table{border-collapse:collapse;width:100%;margin:12px 0}
+              .cmpx-doc th,.cmpx-doc td{border:1px solid var(--cp-border);padding:6px 10px;text-align:left}
+              .cmpx-doc img,.cmpx-doc svg{max-width:100%;height:auto}
+              .cmpx-doc blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 6%,transparent);color:var(--cp-text-secondary)}
+              .cmpx-edit{flex:1;min-height:420px;width:100%;border:0;outline:0;resize:none;padding:20px 24px;font-family:'Cascadia Code',ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;background:var(--cp-surface);color:var(--cp-text)}
+              .cmpx-site{flex:1;min-height:520px;border:0;width:100%;background:#fff;border-radius:0 0 10px 10px}
+              /* Activity log during generation */
+              .cmpx-activity{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);padding:14px;margin-bottom:14px}
+              .cmpx-actline{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--cp-text)}
+              .cmpx-log{max-height:180px;overflow:auto;margin-top:8px;display:flex;flex-direction:column;gap:3px}
+              .cmpx-log .row{font-size:12.5px;color:var(--cp-text-secondary);display:flex;gap:7px}
+              .cmpx-spin{width:13px;height:13px;border:2px solid var(--cp-border);border-top-color:var(--cp-accent);border-radius:50%;animation:cmpxspin .8s linear infinite}
+              @keyframes cmpxspin{to{transform:rotate(360deg)}}
+              /* Assistant chat */
+              .cmpx-chat{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);display:flex;flex-direction:column;min-height:0}
+              .cmpx-chat-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--cp-border);font-size:13px;font-weight:650}
+              .cmpx-chat-body{flex:1;min-height:300px;max-height:560px;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+              .cmpx-msg{font-size:13px;line-height:1.5;padding:8px 11px;border-radius:9px;max-width:92%}
+              .cmpx-msg.user{align-self:flex-end;background:var(--cp-accent);color:#fff}
+              .cmpx-msg.assistant{align-self:flex-start;background:var(--cp-surface-hover,rgba(0,0,0,.04));color:var(--cp-text);border:1px solid var(--cp-border)}
+              .cmpx-pending{margin:2px 12px;padding:10px;border:1px dashed var(--cp-accent);border-radius:9px;font-size:12.5px;color:var(--cp-text-secondary)}
+              .cmpx-chat-foot{padding:10px 12px;border-top:1px solid var(--cp-border);display:flex;gap:8px}
+              .cmpx-chat-foot textarea{flex:1;resize:none;border:1px solid var(--cp-border);border-radius:8px;padding:7px 10px;font-size:13px;background:var(--cp-bg);color:var(--cp-text);min-height:38px;max-height:120px}
+              .cmpx-chatlog{padding:0 12px 8px;display:flex;flex-direction:column;gap:2px}
+              .cmpx-chatlog .row{font-size:11.5px;color:var(--cp-text-secondary);display:flex;gap:6px}
+              /* Version drawer */
+              .cmpx-vers{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);margin-top:14px;overflow:hidden}
+              .cmpx-vrow{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--cp-border);font-size:13px}
+              .cmpx-vrow:last-child{border-bottom:0}
+              .cmpx-vrow .mn{flex:1}
+              /* Fullscreen */
+              .cmpx-fs{position:fixed;inset:0;z-index:60;background:var(--cp-bg);padding:16px 20px;overflow:auto}
+              .cmpx-fs .cmpx-studio,.cmpx-fs .cmpx-stage,.cmpx-fs .cmpx-chat{height:calc(100vh - 120px)}
+            </style>
+
+            <div class="cmpx-wrap">
+              <!-- Header -->
+              <div class="cmpx-head">
+                <div>
+                  <h1>✍️ Compose.AI</h1>
+                  <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
+                  <div class="cmpx-sub" x-show="compose.view === 'brief'" x-text="'New ' + composePurposeLabel(compose.brief.purpose).toLowerCase()"></div>
+                  <div class="cmpx-sub" x-show="compose.view === 'studio' && compose.current" x-text="compose.current ? (composePurposeLabel(compose.current.purpose) + ' · ' + composeFormatLabel(compose.current.format)) : ''"></div>
+                </div>
+                <div class="spacer"></div>
+                <button class="btn ghost" type="button" x-show="compose.view !== 'launcher'" @click="compose.view === 'studio' ? composeBackToLauncher() : (compose.view = 'launcher')">← All compositions</button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
+              </div>
+
+              <div x-show="compose.loading" class="hint" style="padding:20px 0">Loading…</div>
+
+              <!-- ============ LAUNCHER ============ -->
+              <template x-if="compose.view === 'launcher' && !compose.loading">
+                <div>
+                  <div class="cmpx-secttl">Start something new</div>
+                  <div class="cmpx-gallery">
+                    <template x-for="p in compose.purposes" :key="p.id">
+                      <button class="cmpx-purpose" type="button" @click="composeStart(p.id)">
+                        <span class="ic" x-text="p.icon || '📝'"></span>
+                        <span class="nm" x-text="p.label"></span>
+                        <span class="bl" x-text="p.blurb"></span>
+                        <span class="lk" x-show="p.linksTo === 'newsletter'">Opens the Newsletter studio →</span>
+                      </button>
+                    </template>
+                  </div>
+
+                  <div class="cmpx-secttl">Recent compositions</div>
+                  <div class="cmpx-recent" x-show="compose.compositions.length">
+                    <template x-for="c in compose.compositions" :key="c.id">
+                      <div class="cmpx-rrow" @click="composeOpen(c.id)">
+                        <span class="ic" x-text="(composePurpose(c.purpose) || {}).icon || '📝'"></span>
+                        <div class="mn">
+                          <div class="t" x-text="c.title || 'Untitled'"></div>
+                          <div class="m" x-text="composePurposeLabel(c.purpose) + ' · ' + composeFormatLabel(c.format) + (c.hasDraft ? '' : ' · draft empty') + ' · ' + formatRelative(c.updatedAt)"></div>
+                        </div>
+                        <button class="del" type="button" title="Delete" @click.stop="composeDelete(c.id)">✕</button>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="cmpx-recent" x-show="!compose.compositions.length">
+                    <div class="cmpx-empty">Nothing composed yet. Pick a purpose above to start.</div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- ============ BRIEF ============ -->
+              <template x-if="compose.view === 'brief' && !compose.loading">
+                <div class="cmpx-brief">
+                  <div class="cmpx-fld">
+                    <label>What do you want to say? <span class="sub">— the brief the writer works from</span></label>
+                    <textarea class="field-input" rows="4" x-model="compose.brief.brief" placeholder="e.g. Make the case for adopting the helix-observer prediction-accuracy service across teams — the problem it solves, the evidence, the cost, and the ask."></textarea>
+                  </div>
+                  <div class="cmpx-fld">
+                    <label>Working title / subject <span class="sub">(optional — the writer will craft one if blank)</span></label>
+                    <input class="field-input" type="text" x-model="compose.brief.title" placeholder="Leave blank to auto-title" />
+                  </div>
+                  <div class="cmpx-fld">
+                    <label>Audience <span class="sub">(who is this for?)</span></label>
+                    <input class="field-input" type="text" x-model="compose.brief.audience" placeholder="e.g. Eng leadership & partner team leads" />
+                  </div>
+                  <div class="cmpx-fld">
+                    <label>Format</label>
+                    <div class="cmpx-fmts">
+                      <template x-for="f in compose.formats" :key="f.id">
+                        <button type="button" class="cmpx-fmt" :class="{ active: compose.brief.format === f.id }" @click="compose.brief.format = f.id" x-text="f.label"></button>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="cmpx-fld">
+                    <label>Sources <span class="sub">— ground the draft in real evidence</span></label>
+                    <div class="cmpx-src">
+                      <div class="cmpx-srcrow">
+                        <span class="toggle-switch"><input type="checkbox" x-model="compose.brief.sources.diary" /><span class="toggle-slider"></span></span>
+                        <div style="flex:1">
+                          <div style="font-size:13px;font-weight:600">Your Connect diary</div>
+                          <div class="hint" style="font-size:12px" x-text="compose.diaryHasEvidence ? 'Pull recent activity as evidence.' : 'No diary evidence yet — Connect may be off.'"></div>
+                        </div>
+                        <select class="field-input" style="width:auto" x-model.number="compose.brief.sources.diaryDays" x-show="compose.brief.sources.diary">
+                          <option :value="7">7 days</option><option :value="14">14 days</option><option :value="30">30 days</option><option :value="90">Quarter</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div style="font-size:13px;font-weight:600;margin-bottom:5px">Links to investigate <span class="hint" style="font-weight:400">(PRs, issues, docs)</span></div>
+                        <div class="cmpx-links">
+                          <template x-for="(l, i) in compose.brief.sources.links" :key="i">
+                            <div class="cmpx-link"><a :href="l" target="_blank" x-text="l"></a><button type="button" @click="composeRemoveLink(i)">✕</button></div>
+                          </template>
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:6px">
+                          <input class="field-input" type="text" x-model="compose.brief._linkInput" @keydown.enter.prevent="composeAddLink()" placeholder="https://github.com/org/repo/pull/123" />
+                          <button class="btn ghost" type="button" @click="composeAddLink()">Add</button>
+                        </div>
+                      </div>
+                      <div>
+                        <div style="font-size:13px;font-weight:600;margin-bottom:5px">Pasted context <span class="hint" style="font-weight:400">(optional)</span></div>
+                        <textarea class="field-input" rows="3" x-model="compose.brief.sources.pasted" placeholder="Paste notes, data, or background the writer should weave in."></textarea>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cmpx-actions">
+                    <button class="btn ghost" type="button" @click="compose.view = 'launcher'">Cancel</button>
+                    <button class="btn primary" type="button" :disabled="compose.busy || !composeBriefValid()" @click="composeCreate()" x-text="compose.busy ? 'Composing…' : '✨ Compose draft'"></button>
+                  </div>
+                </div>
+              </template>
+
+              <!-- ============ STUDIO ============ -->
+              <template x-if="compose.view === 'studio' && compose.current && !compose.loading">
+                <div>
+                  <!-- Generation activity -->
+                  <div class="cmpx-activity" x-show="compose.generating">
+                    <div class="cmpx-actline"><span class="cmpx-spin"></span><span x-text="compose.notice || 'Composing your draft…'"></span></div>
+                    <div id="composeProgressScroll" class="cmpx-log" x-show="compose.progress.length">
+                      <template x-for="(p, i) in compose.progress" :key="i">
+                        <div class="row"><span x-text="p.icon"></span><span x-text="p.text"></span></div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="cmpx-studio" :class="{ 'chat-open': compose.chat.open }" x-show="!compose.generating">
+                    <div class="cmpx-stage">
+                      <div class="cmpx-toolbar">
+                        <div class="seg" x-show="!composeIsSite()">
+                          <button type="button" :class="{ active: compose.preview }" @click="compose.preview = true">Preview</button>
+                          <button type="button" :class="{ active: !compose.preview }" @click="compose.preview = false">Edit</button>
+                        </div>
+                        <span class="hint" x-show="composeIsSite()" style="font-size:12px">Prototype site — rendered live</span>
+                        <div class="spacer"></div>
+                        <button class="btn ghost" type="button" :disabled="compose.generating" @click="composeGenerate()" title="Regenerate from the brief">↻ Regenerate</button>
+                        <button class="btn ghost" type="button" x-show="!compose.preview || composeIsSite()" :disabled="compose.savingDraft || !compose.draftDirty" @click="composeSaveDraft()" x-text="compose.savingDraft ? 'Saving…' : (compose.draftDirty ? 'Save' : 'Saved')"></button>
+                        <button class="btn ghost" type="button" @click="composeToggleVersions()" x-text="'Versions' + ((compose.current.versionCount || (compose.versions||[]).length) ? '' : '')"></button>
+                        <button class="btn ghost" type="button" @click="composeCopy()" title="Copy to clipboard (paste into Teams / email / a doc)">⧉ Copy</button>
+                        <button class="btn ghost" type="button" x-show="composeCanEmail()" @click="composeOpenDeliver()">✉ Email</button>
+                        <div class="seg">
+                          <button type="button" @click="composeExport(composeIsSite() ? 'html' : 'md')" x-text="composeIsSite() ? '⬇ HTML' : '⬇ MD'"></button>
+                          <button type="button" @click="composeExport('html')" x-show="!composeIsSite()">HTML</button>
+                          <button type="button" @click="composeExport('json')">JSON</button>
+                        </div>
+                        <button class="btn ghost" type="button" @click="composeToggleChat()" x-text="compose.chat.open ? 'Hide assistant' : '💬 Assistant'"></button>
+                      </div>
+
+                      <!-- Site (HTML doc) -->
+                      <iframe x-show="composeIsSite()" class="cmpx-site" :srcdoc="compose.draftText" sandbox="allow-same-origin"></iframe>
+                      <!-- Markdown preview -->
+                      <div x-show="!composeIsSite() && compose.preview" class="cmpx-paper">
+                        <div class="cmpx-doc" x-html="composeRenderedDraft()"></div>
+                        <div class="cmpx-empty" x-show="!(compose.draftText||'').trim()">No draft yet — regenerate or switch to Edit to write one.</div>
+                      </div>
+                      <!-- Edit -->
+                      <textarea x-show="!composeIsSite() && !compose.preview" class="cmpx-edit" x-model="compose.draftText" @input="composeMarkDirty()" placeholder="Write or paste your draft in Markdown…"></textarea>
+
+                      <!-- Version drawer -->
+                      <div class="cmpx-vers" x-show="compose.showVersions">
+                        <template x-for="v in compose.versions" :key="v.id">
+                          <div class="cmpx-vrow">
+                            <div class="mn"><span x-text="(v.source === 'ai' ? '🤖 ' : '✎ ') + (v.title || 'Version')"></span> <span class="hint" x-text="'· ' + v.reason + ' · ' + formatRelative(v.savedAt)"></span></div>
+                            <button class="btn ghost" type="button" @click="composeRestoreVersion(v.id)">Restore</button>
+                          </div>
+                        </template>
+                        <div class="cmpx-empty" x-show="!compose.versions.length">No earlier versions yet.</div>
+                      </div>
+                    </div>
+
+                    <!-- Assistant chat -->
+                    <div class="cmpx-chat" x-show="compose.chat.open">
+                      <div class="cmpx-chat-head">💬 Compose assistant <span class="hint" style="font-weight:400;margin-left:auto">revise by talking</span></div>
+                      <div id="composeChatScroll" class="cmpx-chat-body">
+                        <div class="cmpx-empty" x-show="!compose.chat.messages.length">Ask for changes — "make it shorter", "add a cost table", "clarify the helix-observer context", "sharpen the ask".</div>
+                        <template x-for="(m, i) in compose.chat.messages" :key="i">
+                          <div class="cmpx-msg" :class="m.role" x-text="m.text"></div>
+                        </template>
+                      </div>
+                      <div class="cmpx-chatlog" x-show="compose.chat.busy && compose.chat.progress.length">
+                        <template x-for="(p, i) in compose.chat.progress" :key="i">
+                          <div class="row"><span x-text="p.icon"></span><span x-text="p.text"></span></div>
+                        </template>
+                      </div>
+                      <div class="cmpx-pending" x-show="compose.chat.pendingDraft">
+                        The assistant revised the draft.
+                        <div style="display:flex;gap:8px;margin-top:6px">
+                          <button class="btn primary" type="button" style="padding:4px 10px" @click="composeApplyPendingDraft()">Apply changes</button>
+                          <button class="btn ghost" type="button" style="padding:4px 10px" @click="composeDiscardPendingDraft()">Discard</button>
+                        </div>
+                      </div>
+                      <div class="cmpx-chat-foot">
+                        <textarea x-model="compose.chat.input" @keydown.enter.prevent="composeChatSend()" :disabled="compose.chat.busy" placeholder="Ask for a change…"></textarea>
+                        <button class="btn primary" type="button" :disabled="compose.chat.busy || !compose.chat.input.trim()" @click="composeChatSend()" x-text="compose.chat.busy ? '…' : 'Send'"></button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Delivery modal -->
+                  <div x-show="compose.deliver.open" @click.self="compose.deliver.open = false"
+                       style="position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center">
+                    <div class="card" style="width:440px;max-width:92vw;padding:20px" @click.stop>
+                      <h3 style="margin:0 0 12px">Email this composition</h3>
+                      <div class="cmpx-fld" style="margin-bottom:10px"><label>To</label><input class="field-input" type="text" x-model="compose.deliver.to" placeholder="them@company.com (optional)" /></div>
+                      <div class="cmpx-fld" style="margin-bottom:14px"><label>Subject</label><input class="field-input" type="text" x-model="compose.deliver.subject" /></div>
+                      <div class="hint" style="margin-bottom:12px">Opens a review-ready draft in your mail client. Nothing is sent automatically.</div>
+                      <div style="display:flex;gap:8px;justify-content:flex-end">
+                        <button class="btn ghost" type="button" @click="compose.deliver.open = false">Cancel</button>
+                        <button class="btn primary" type="button" :disabled="compose.busy" @click="composeEmail()" x-text="compose.busy ? 'Opening…' : 'Open draft'"></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </section>
+
           <!-- ===== Newsletter (Connect diary → polished, emailable digest) ===== -->
           <section x-show="!loading && !errorMessage && route === 'newsletter'">
             <style>
@@ -28456,6 +28764,36 @@
           },
         },
         connectElapsed: 0,
+        // ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) =====
+        compose: {
+          loaded: false,
+          loading: false,
+          purposes: [],
+          formats: [],
+          compositions: [],       // recent compositions (list view)
+          capture: null,
+          diaryHasEvidence: false,
+          view: 'launcher',       // 'launcher' | 'brief' | 'studio'
+          fullscreen: false,
+          // The brief being authored (launcher → brief step).
+          brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
+                   sources: { diary: false, diaryDays: 14, links: [], pasted: '' }, _linkInput: '' },
+          current: null,          // full composition object when in studio
+          draftText: '',          // editable draft buffer
+          draftFormat: 'markdown',// 'markdown' | 'html'
+          draftDirty: false,
+          savingDraft: false,
+          preview: true,          // preview vs edit
+          generating: false,
+          runId: null,
+          progress: [],
+          busy: false,
+          notice: '',
+          versions: [],
+          showVersions: false,
+          chat: { open: true, busy: false, input: '', messages: [], progress: [], pendingDraft: null, _seen: null },
+          deliver: { open: false, to: '', subject: '' },
+        },
         // ===== Newsletter (Connect diary → polished, emailable digest) =====
         newsletter: {
           loaded: false,
@@ -29840,7 +30178,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -30219,6 +30557,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadPlaybooks();
           } else if (this.route === 'newsletter') {
             await this.loadNewsletter();
+          } else if (this.route === 'compose') {
+            await this.loadCompose();
           } else if (this.route === 'codeflow') {
             const cfFocus = this.app.routeParam || '';
             if (!cfFocus) this.codeflow.focusKey = '';
@@ -30932,6 +31272,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 }
               } catch {}
             });
+            // Compose.AI generation/chat progress → live activity + assistant log.
+            source.addEventListener('compose-progress', (event) => {
+              try {
+                const d = JSON.parse(event.data || '{}');
+                const co = this.compose;
+                if (!co) return;
+                if (d.chat) {
+                  const c = co.chat;
+                  if (!c || !c.busy) return;
+                  if (!d.text) return;
+                  const key = (d.seq != null) ? ('s' + d.seq) : ((d.at || '') + '|' + (d.icon || '') + '|' + d.text);
+                  if (!c._seen) c._seen = new Set();
+                  if (c._seen.has(key)) return;
+                  c._seen.add(key);
+                  c.progress = c.progress || [];
+                  c.progress.push({ icon: d.icon || '•', text: d.text, at: d.at || Date.now() });
+                  if (c.progress.length > 40) c.progress.splice(0, c.progress.length - 40);
+                  return;
+                }
+                if (!co.generating) return;
+                if (co.runId && d.runId && d.runId !== co.runId) return;
+                if (d.text) {
+                  const key = (d.seq != null) ? ('s' + d.seq) : ((d.at || '') + '|' + (d.icon || '') + '|' + d.text);
+                  if (!co._seen) co._seen = new Set();
+                  if (co._seen.has(key)) return;
+                  co._seen.add(key);
+                  co.progress.push({ icon: d.icon || '•', text: d.text, at: d.at || Date.now() });
+                  if (co.progress.length > 60) co.progress.splice(0, co.progress.length - 60);
+                  co.notice = d.text;
+                  this.$nextTick(() => { const el = document.getElementById('composeProgressScroll'); if (el) el.scrollTop = el.scrollHeight; });
+                }
+              } catch {}
+            });
             // Scheduled auto-generation finished → refresh state (lights the
             // "review pending" banner) and let the user know a draft is waiting.
             source.addEventListener('newsletter-ready', () => {
@@ -31451,7 +31824,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
             const connect = { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
-            const newsletter = { key: 'newsletter', label: 'Newsletter', title: 'Newsletter', icon: '📰', href: '#/newsletter', routeGroup: 'newsletter', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' };
+            const newsletter = { key: 'newsletter', label: 'Compose.AI', title: 'Compose.AI', icon: '✍️', href: '#/compose', routeGroup: 'compose', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' };
             const news = { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
               { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
@@ -31487,7 +31860,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
             { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false },
             { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' },
-            { key: 'newsletter', label: 'Newsletter', title: 'Newsletter', icon: '📰', href: '#/newsletter', routeGroup: 'newsletter', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' },
+            { key: 'newsletter', label: 'Compose.AI', title: 'Compose.AI', icon: '✍️', href: '#/compose', routeGroup: 'compose', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' },
             watercooler,
             ...globalZone
           ];
@@ -31504,6 +31877,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail' || this.route === 'new-task';
           if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail' || this.route === 'chain';
           if (group === 'events') return this.route === 'events';
+          if (group === 'compose') return this.route === 'compose' || this.route === 'newsletter';
           return this.route === group;
         },
 
@@ -31687,7 +32061,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks',
+          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -31726,7 +32100,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
-            { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
+            { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
           ];
         },
         // Catalog of optional features that can be switched OFF while in Advanced mode
@@ -31743,7 +32117,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
-            { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
+            { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
           ];
         },
         setExperienceLevel(level) {
@@ -31826,7 +32200,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sessions: ['sessions'],
             news: ['activity', 'reports'],
             connect: ['connect'],
-            newsletter: ['newsletter'],
+            newsletter: ['newsletter', 'compose'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -31850,7 +32224,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sessions: ['sessions'],
             news: ['activity', 'reports'],
             connect: ['connect'],
-            newsletter: ['newsletter'],
+            newsletter: ['newsletter', 'compose'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -44469,6 +44843,270 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return html;
           }
         },
+        // ===== Compose.AI methods =====
+        async loadCompose() {
+          const co = this.compose;
+          if (co.loading) return;
+          co.loading = true;
+          try {
+            const r = await this.request('/api/compose');
+            co.purposes = (r && r.purposes) || [];
+            co.formats = (r && r.formats) || [];
+            co.compositions = (r && r.compositions) || [];
+            co.capture = (r && r.capture) || null;
+            co.diaryHasEvidence = !!(r && r.diaryHasEvidence);
+            co.loaded = true;
+            // Land on the launcher unless we're already deep in a composition.
+            if (!co.current) co.view = 'launcher';
+          } catch (e) {
+            this.toast('Failed to load Compose.AI: ' + (e.message || e), 'error');
+          } finally { co.loading = false; }
+        },
+        composePurpose(id) { return (this.compose.purposes || []).find(p => p.id === id) || null; },
+        composePurposeLabel(id) { const p = this.composePurpose(id); return p ? p.label : id; },
+        composeFormatLabel(id) { const f = (this.compose.formats || []).find(x => x.id === id); return f ? f.label : id; },
+        // Default medium for a purpose when the user first picks it.
+        composeDefaultFormat(p) {
+          if (!p) return 'doc';
+          if (p.defaultFormat) return p.defaultFormat;
+          if (Array.isArray(p.formats) && p.formats.length) return p.formats[0];
+          if (p.id === 'prototype') return 'site';
+          if (p.id === 'status' || p.id === 'alignment' || p.id === 'message') return 'email';
+          return 'doc';
+        },
+        composeFormatsFor(p) {
+          return (this.compose.formats || []).map(f => f.id);
+        },
+        // Begin a new composition from a chosen purpose. The Newsletter purpose is a
+        // link to the dedicated newsletter studio (fully preserved).
+        composeStart(purposeId) {
+          const p = this.composePurpose(purposeId);
+          if (p && p.linksTo === 'newsletter') { this.goTo('#/newsletter'); return; }
+          this.compose.brief = {
+            purpose: purposeId,
+            title: '',
+            audience: '',
+            format: this.composeDefaultFormat(p),
+            brief: '',
+            sources: { diary: false, diaryDays: 14, links: [], pasted: '' },
+            _linkInput: '',
+          };
+          this.compose.current = null;
+          this.compose.view = 'brief';
+        },
+        composeAddLink() {
+          const v = String(this.compose.brief._linkInput || '').trim();
+          if (!v) return;
+          this.compose.brief.sources.links.push(v);
+          this.compose.brief._linkInput = '';
+        },
+        composeRemoveLink(i) { this.compose.brief.sources.links.splice(i, 1); },
+        composeBriefValid() {
+          const b = this.compose.brief;
+          return !!(b && b.purpose && b.format && (b.brief || '').trim());
+        },
+        // Create the composition from the brief and immediately generate a first draft.
+        async composeCreate() {
+          const b = this.compose.brief;
+          if (!this.composeBriefValid()) { this.toast('Add a short brief of what you want before composing.', 'info'); return; }
+          this.compose.busy = true;
+          try {
+            const r = await this.request('/api/compose', { method: 'POST', body: JSON.stringify({
+              purpose: b.purpose, title: b.title, audience: b.audience, format: b.format, brief: b.brief,
+              sources: { diary: !!b.sources.diary, diaryDays: b.sources.diaryDays, links: b.sources.links.slice(), pasted: b.sources.pasted },
+            }) });
+            const c = r && r.composition;
+            if (!c) throw new Error('No composition returned');
+            this._composeSetCurrent(c);
+            this.compose.view = 'studio';
+            await this.composeGenerate();
+          } catch (e) {
+            this.toast('Could not start the composition: ' + (e.message || e), 'error');
+          } finally { this.compose.busy = false; }
+        },
+        _composeSetCurrent(c) {
+          const co = this.compose;
+          co.current = c;
+          co.draftText = (c.draft && c.draft.content) || '';
+          co.draftFormat = (c.draft && c.draft.contentFormat) || (c.format === 'site' ? 'html' : 'markdown');
+          co.draftDirty = false;
+          co.preview = true;
+          co.chat.messages = Array.isArray(c.chat) ? c.chat.map(m => ({ role: m.role, text: m.content || m.text || '' })) : [];
+          co.chat.pendingDraft = null;
+          co.versions = [];
+          co.showVersions = false;
+        },
+        async composeOpen(id) {
+          this.compose.busy = true;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(id));
+            const c = r && r.composition;
+            if (!c) throw new Error('Not found');
+            this._composeSetCurrent(c);
+            this.compose.view = 'studio';
+          } catch (e) {
+            this.toast('Could not open composition: ' + (e.message || e), 'error');
+          } finally { this.compose.busy = false; }
+        },
+        composeBackToLauncher() {
+          if (this.compose.draftDirty && !confirm('Discard unsaved edits to this draft?')) return;
+          this.compose.current = null;
+          this.compose.view = 'launcher';
+          this.loadCompose();
+        },
+        async composeGenerate() {
+          const co = this.compose;
+          if (!co.current) return;
+          co.generating = true;
+          co.progress = [];
+          co.notice = '';
+          co._seen = new Set();
+          co.runId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/generate', {
+              method: 'POST', body: JSON.stringify({ runId: co.runId }),
+            });
+            const c = r && r.composition;
+            if (c) { this._composeSetCurrent(c); }
+            this.toast('Draft ready', 'success');
+          } catch (e) {
+            this.toast('Generation failed: ' + (e.message || e), 'error');
+          } finally { co.generating = false; }
+        },
+        composeMarkDirty() { this.compose.draftDirty = true; },
+        composeToggleEdit() { this.compose.preview = !this.compose.preview; },
+        async composeSaveDraft() {
+          const co = this.compose;
+          if (!co.current) return;
+          co.savingDraft = true;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/draft', {
+              method: 'PUT', body: JSON.stringify({ content: co.draftText, contentFormat: co.draftFormat, source: 'manual' }),
+            });
+            if (r && r.composition) co.current = r.composition;
+            co.draftDirty = false;
+            this.toast('Saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          } finally { co.savingDraft = false; }
+        },
+        composeIsSite() {
+          const co = this.compose;
+          return co.draftFormat === 'html' || (co.current && co.current.format === 'site');
+        },
+        // Rendered preview HTML for a markdown composition (reuses the rich renderer).
+        composeRenderedDraft() {
+          try {
+            const txt = this.compose.draftText || '';
+            if (this.composeIsSite()) return txt; // raw HTML doc — rendered via iframe
+            return this.newsletterRenderHtml(txt).replace(/\/api\/newsletter\/asset\//g, '/api/compose/' + encodeURIComponent((this.compose.current || {}).id || '') + '/asset/');
+          } catch { return ''; }
+        },
+        // Assistant chat — revise the draft conversationally.
+        async composeChatSend() {
+          const co = this.compose, c = co.chat;
+          const msg = String(c.input || '').trim();
+          if (!msg || c.busy || !co.current) return;
+          c.messages.push({ role: 'user', text: msg });
+          c.input = '';
+          c.busy = true;
+          c.progress = [];
+          c._seen = new Set();
+          this.$nextTick(() => this._composeChatScroll());
+          try {
+            const history = c.messages.slice(-10).map(m => ({ role: m.role, content: m.text }));
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/chat', {
+              method: 'POST', body: JSON.stringify({ message: msg, history }),
+            });
+            const reply = (r && r.reply) || 'Done.';
+            c.messages.push({ role: 'assistant', text: reply });
+            if (r && r.draft) { c.pendingDraft = r.draft; }
+            this.$nextTick(() => this._composeChatScroll());
+          } catch (e) {
+            c.messages.push({ role: 'assistant', text: 'Sorry — that failed: ' + (e.message || e) });
+          } finally { c.busy = false; this.$nextTick(() => this._composeChatScroll()); }
+        },
+        _composeChatScroll() { const el = document.getElementById('composeChatScroll'); if (el) el.scrollTop = el.scrollHeight; },
+        composeApplyPendingDraft() {
+          const co = this.compose;
+          if (!co.chat.pendingDraft) return;
+          co.draftText = co.chat.pendingDraft;
+          co.chat.pendingDraft = null;
+          co.draftDirty = true;
+          this.composeSaveDraft();
+        },
+        composeDiscardPendingDraft() { this.compose.chat.pendingDraft = null; },
+        composeToggleChat() { this.compose.chat.open = !this.compose.chat.open; },
+        // Delivery + export.
+        composeCanEmail() { const co = this.compose; return co.current && co.current.format !== 'site' && (co.draftText || '').trim(); },
+        composeOpenDeliver() {
+          const co = this.compose;
+          co.deliver.open = true;
+          co.deliver.to = '';
+          co.deliver.subject = (co.current && co.current.title) || '';
+        },
+        async composeEmail() {
+          const co = this.compose;
+          if (!co.current) return;
+          if (co.draftDirty) await this.composeSaveDraft();
+          co.busy = true;
+          try {
+            await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/email', {
+              method: 'POST', body: JSON.stringify({ to: co.deliver.to || '', subject: co.deliver.subject || undefined }),
+            });
+            co.deliver.open = false;
+            this.toast('Opened your mail client with the composition draft.', 'success');
+          } catch (e) {
+            this.toast('Email failed: ' + (e.message || e), 'error');
+          } finally { co.busy = false; }
+        },
+        composeExport(fmt) {
+          const co = this.compose;
+          if (!co.current) return;
+          window.open('/api/compose/' + encodeURIComponent(co.current.id) + '/export?format=' + encodeURIComponent(fmt), '_blank');
+          this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'export' }) }).catch(() => {});
+        },
+        async composeCopy() {
+          const co = this.compose;
+          if (!co.current) return;
+          try {
+            await navigator.clipboard.writeText(co.draftText || '');
+            this.toast('Copied — paste into Teams, email, or a doc.', 'success');
+            this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'copied' }) }).catch(() => {});
+          } catch (e) { this.toast('Copy failed', 'error'); }
+        },
+        async composeLoadVersions() {
+          const co = this.compose;
+          if (!co.current) return;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/versions');
+            co.versions = (r && r.versions) || [];
+          } catch (_) { co.versions = []; }
+        },
+        async composeToggleVersions() {
+          this.compose.showVersions = !this.compose.showVersions;
+          if (this.compose.showVersions) await this.composeLoadVersions();
+        },
+        async composeRestoreVersion(vid) {
+          const co = this.compose;
+          if (!co.current) return;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/versions/' + encodeURIComponent(vid) + '/restore', { method: 'POST' });
+            if (r && r.composition) this._composeSetCurrent(r.composition);
+            this.compose.showVersions = false;
+            this.toast('Restored version', 'success');
+          } catch (e) { this.toast('Restore failed: ' + (e.message || e), 'error'); }
+        },
+        async composeDelete(id) {
+          if (!confirm('Delete this composition? This cannot be undone.')) return;
+          try {
+            await this.request('/api/compose/' + encodeURIComponent(id), { method: 'DELETE' });
+            if (this.compose.current && this.compose.current.id === id) { this.compose.current = null; this.compose.view = 'launcher'; }
+            await this.loadCompose();
+            this.toast('Deleted', 'success');
+          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+        },
+        composeToggleFullscreen() { this.compose.fullscreen = !this.compose.fullscreen; },
         async loadDataLocation() {
           try {
             const r = await this.request('/api/data-location');

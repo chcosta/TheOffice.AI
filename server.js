@@ -731,7 +731,108 @@ let newsletterPluginDir = null;
   }
 })();
 
-const PROCESS_PID = process.pid;
+// Runtime dir of the seeded Compose plugin (set by ensureComposePlugin). Compose
+// runs point config.pluginDir here so the SDK loads its writer/editor agents +
+// compose-standards skill + WorkIQ .mcp.json.
+let composePluginDir = null;
+
+// Seed the built-in Compose plugin into the runtime store, register it, and
+// (re)generate its WorkIQ .mcp.json from settings. Mirrors ensureNewsletterPlugin —
+// the compose writer/editor investigate the referenced sources (WorkIQ + ADO/GitHub
+// links + browser + shell), so they need the WorkIQ MCP server available.
+(function ensureComposePlugin() {
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const configPath = path.join(homeDir, '.copilot', 'config.json');
+  const installedDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+  const builtinCompose = path.join(BUILTIN_PLUGINS_DIR, 'compose');
+  const runtimeCompose = path.join(PLUGINS_DIR, 'compose');
+  const targetDir = path.join(installedDir, 'compose');
+
+  try {
+    if (fs.existsSync(builtinCompose) && !fs.existsSync(runtimeCompose)) {
+      fs.mkdirSync(PLUGINS_DIR, { recursive: true });
+      fs.cpSync(builtinCompose, runtimeCompose, { recursive: true });
+      console.log('[supervisor] Seeded compose plugin into runtime store');
+    } else if (fs.existsSync(builtinCompose) && fs.existsSync(runtimeCompose)) {
+      // Upgrade path: copy any agent/skill files added to the builtin plugin
+      // that aren't yet in the runtime store (never clobber the generated .mcp.json).
+      for (const sub of ['agents', 'skills']) {
+        const src = path.join(builtinCompose, sub);
+        const dst = path.join(runtimeCompose, sub);
+        if (!fs.existsSync(src)) continue;
+        try { fs.mkdirSync(dst, { recursive: true }); } catch { /* ignore */ }
+        const walk = (s, d) => {
+          for (const f of fs.readdirSync(s)) {
+            const sf = path.join(s, f);
+            const df = path.join(d, f);
+            try {
+              const stat = fs.statSync(sf);
+              if (stat.isDirectory()) { fs.mkdirSync(df, { recursive: true }); walk(sf, df); }
+              else if (stat.isFile() && !fs.existsSync(df)) {
+                fs.copyFileSync(sf, df);
+                console.log(`[supervisor] Synced compose ${sub}/${f} into runtime store`);
+              }
+            } catch { /* best-effort */ }
+          }
+        };
+        walk(src, dst);
+      }
+    }
+  } catch (e) { console.warn('[supervisor] Could not seed compose plugin:', e.message); }
+
+  if (!fs.existsSync(runtimeCompose)) return;
+  composePluginDir = runtimeCompose;
+
+  // Generate the WorkIQ .mcp.json so the writer/editor can investigate the user's
+  // M365 activity behind the referenced sources. Reuses the Connect WorkIQ settings.
+  try {
+    let cmd = 'npx';
+    let argsRaw = '-y @microsoft/workiq@latest mcp';
+    try {
+      const s = require('./settings').getSettings();
+      if (s.connectWorkIqCommand) cmd = s.connectWorkIqCommand;
+      if (s.connectWorkIqArgs) argsRaw = s.connectWorkIqArgs;
+    } catch { /* settings not ready — use defaults */ }
+    const desired = {
+      mcpServers: {
+        workiq: { command: cmd, args: String(argsRaw).split(/\s+/).filter(Boolean) },
+      },
+    };
+    const mcpJsonPath = path.join(runtimeCompose, '.mcp.json');
+    let current = null;
+    try { current = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8')); } catch { current = null; }
+    if (JSON.stringify(current) !== JSON.stringify(desired)) {
+      fs.writeFileSync(mcpJsonPath, JSON.stringify(desired, null, 2));
+      console.log('[supervisor] Generated compose WorkIQ MCP config (.mcp.json)');
+    }
+  } catch (e) { console.warn('[supervisor] Could not generate compose MCP config:', e.message); }
+
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(installedDir, { recursive: true });
+      require('child_process').execSync(`mklink /J "${targetDir}" "${runtimeCompose}"`, { shell: true });
+      console.log('[supervisor] Created compose plugin junction');
+    } catch (e) { console.warn('[supervisor] Could not create compose plugin junction:', e.message); }
+  }
+
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf-8').replace(/^\s*\/\/.*$/gm, '');
+      const config = JSON.parse(raw);
+      if (!config.installedPlugins) config.installedPlugins = [];
+      if (!config.installedPlugins.some(p => p.name === 'compose')) {
+        config.installedPlugins.push({
+          name: 'compose', marketplace: '', version: '1.0.0',
+          installed_at: new Date().toISOString(), enabled: true,
+          cache_path: targetDir,
+          source: { source: 'local', path: runtimeCompose },
+        });
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('[supervisor] Registered compose plugin in copilot config');
+      }
+    } catch (e) { console.warn('[supervisor] Could not register compose plugin:', e.message); }
+  }
+})();
 const PROCESS_START = new Date().toISOString();
 
 // In the packaged desktop app the server runs from resources/server (no git),
@@ -852,6 +953,20 @@ const SYSTEM_AGENTS = [
     contract: 'Returns the revised newsletter between the same START/END sentinels.',
   },
   {
+    id: 'compose-writer', name: 'Compose writer', modelCategory: 'execution', canModel: true,
+    role: 'Composes a finished, sendable deliverable from a brief (purpose, audience, format, sources) — proposals, alignment memos, status updates, one-pagers, technical & architecture docs, references, or a self-contained prototype microsite. Investigates the referenced sources to ground the work.',
+    usedIn: 'Compose.AI studio → "Generate / Regenerate".',
+    tools: 'Runs as the compose plugin\'s "writer" agent with full investigation tools (WorkIQ / ADO / GitHub / browser / shell).',
+    contract: 'Wraps the deliverable between ===COMPOSE-START=== / ===COMPOSE-END=== sentinels (Markdown for email/teams/doc; a full HTML document for site).',
+  },
+  {
+    id: 'compose-editor', name: 'Compose editor', modelCategory: 'execution', canModel: true,
+    role: 'Conversationally revises an existing composition — sharpens the argument, retunes tone for a new audience, restructures, tightens copy, adds/refines tables and charts.',
+    usedIn: 'Compose.AI studio → "Compose assistant" chat.',
+    tools: 'Runs as the compose plugin\'s "editor" agent; can investigate the referenced sources to strengthen a point.',
+    contract: 'Returns an optional revised draft between ===DRAFT=== / ===END DRAFT=== sentinels.',
+  },
+  {
     id: 'meai-agent', name: 'Me agent', modelCategory: 'execution', canModel: true,
     role: 'Your background "Me agent" — carries out a task from your agenda (review / implement / steward / prep / comms / admin / ad-hoc) and, for bigger goals, runs a self-directed pursuit: fanning out into disposable sub-agents, culling dead ends, and merging findings back. Runs real tools, streams its thinking, and reports back with next actions. Only the main Me agent talks to you; sub-agents are disposable and torn down when done.',
     usedIn: 'Me.AI page → per-block "Launch" and the delegation lane; the task console and the pursuit canvas.',
@@ -929,6 +1044,7 @@ const uiPrefs = require('./ui-prefs');
 const connect = require('./connect');
 const newsletter = require('./newsletter');
 const newsletterCapture = require('./newsletter-capture');
+const compose = require('./compose');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
 // disk only on session disconnect, so disk reads lag the live stream — live
@@ -11824,6 +11940,454 @@ app.get('/api/newsletter/export', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ============================================================================
+// Compose.AI — general-purpose composition studio (successor/superset of the
+// Newsletter feature). Mirrors the newsletter run/generate/chat plumbing but is
+// purpose-agnostic: the brief (purpose × audience × format × sources) steers the
+// compose plugin's writer/editor agents. Newsletter stays fully intact; the
+// "Newsletter" purpose links out to the dedicated newsletter studio.
+// ============================================================================
+
+// Run the compose plugin's writer/editor agent (mirrors _newsletterRunAgent).
+async function _composeRunAgent(agentName, prompt, onStep) {
+  if (!composePluginDir || !fs.existsSync(composePluginDir)) {
+    throw new Error('Compose plugin is not available yet — restart the server.');
+  }
+  const _saId = agentName === 'editor' ? 'compose-editor' : 'compose-writer';
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: _systemAgentCfg(_saId, { pluginDir: composePluginDir, agent: agentName, cwd: __dirname }),
+    prompt: prompt + _systemAgentInstr(_saId),
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    meta: { source: 'compose', category: 'compose' },
+    onChunk: (c) => { acc += c; },
+    onStep: typeof onStep === 'function' ? onStep : undefined,
+  });
+  if (result && result.fallback) throw new Error(result.error || 'Compose agent runtime unavailable');
+  return acc.trim() ? acc : ((result && result.output) || '');
+}
+
+// Build the grounded "sources" block from a composition's source selections:
+// the shared Connect diary (best-effort), referenced links, and pasted context.
+function _composeSourceContext(c) {
+  const src = (c && c.sources) || {};
+  const parts = [];
+  let evidenceCount = 0;
+  if (src.diary) {
+    let win = { items: [], since: '', until: '' };
+    try { win = newsletter.evidenceForTimeframe(src.diaryDays || 14); } catch (_) { /* Connect off */ }
+    const items = (win.items || []).slice(0, 100);
+    evidenceCount = items.length;
+    parts.push(`### Connect diary evidence (${items.length} item${items.length === 1 ? '' : 's'}, ${win.since} → ${win.until})`);
+    parts.push(items.length ? _newsletterEvidenceLines(items) : '(no diary evidence in window — Connect may be off or empty)');
+  }
+  const links = Array.isArray(src.links) ? src.links.filter(Boolean) : [];
+  if (links.length) {
+    parts.push('### Links to investigate (open and pull real details before writing)');
+    parts.push(links.map(l => `- ${l}`).join('\n'));
+  }
+  if (src.pasted && String(src.pasted).trim()) {
+    parts.push('### Pasted context provided by the user');
+    parts.push(String(src.pasted).trim().slice(0, 12000));
+  }
+  return { block: parts.length ? parts.join('\n\n') : '(no external sources selected — ground the work in the brief and your own investigation)', evidenceCount };
+}
+
+// Wrap raw inner HTML in a minimal self-contained document (used only when the
+// writer returns site content that isn't already a full <html> document).
+function _composeWrapHtml(title, inner) {
+  const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title || 'Composition')}</title>
+<style>:root{color-scheme:light dark}body{font-family:'Segoe UI',system-ui,sans-serif;line-height:1.6;max-width:900px;margin:0 auto;padding:32px 24px;color:#1f2430;background:#fff}@media(prefers-color-scheme:dark){body{color:#e6e6e6;background:#14161a}}h1,h2,h3{line-height:1.25}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border:1px solid #8884;padding:6px 10px;text-align:left}img,svg{max-width:100%;height:auto}a{color:#2563eb}</style></head><body>${inner}</body></html>`;
+}
+
+// Extract the finished deliverable from raw agent output. For markdown mediums,
+// prefer the ===COMPOSE-START/END=== sentinels with the same fallbacks the
+// newsletter uses; for `site` (HTML), extract the full HTML document.
+function _composeExtractDeliverable(out, format) {
+  let s = String(out || '').trim();
+  const sent = s.match(/===COMPOSE-START===\s*([\s\S]*?)\s*===COMPOSE-END===/i);
+  if (sent && sent[1].trim()) s = sent[1].trim();
+  else {
+    const startOnly = s.match(/===COMPOSE-START===\s*([\s\S]*)$/i);
+    if (startOnly && startOnly[1].trim()) s = startOnly[1].trim();
+  }
+  s = s.replace(/^===COMPOSE-(?:START|END)===\s*$/gim, '').trim();
+  if (format === 'site') {
+    // Prefer a full HTML document; tolerate a surrounding code fence.
+    let html = s;
+    const fence = html.match(/```(?:html)?\s*([\s\S]*?)```\s*$/i);
+    if (fence && fence[1].trim() && /^```/.test(html)) html = fence[1].trim();
+    const doc = html.match(/<!doctype html[\s\S]*<\/html>/i) || html.match(/<html[\s\S]*<\/html>/i);
+    if (doc) return { content: doc[0].trim(), contentFormat: 'html' };
+    // Not a full doc — wrap whatever HTML/markup we got.
+    return { content: _composeWrapHtml('Composition', html), contentFormat: 'html' };
+  }
+  // Markdown mediums: strip a whole-output code fence if present.
+  const fence = s.match(/```(?:markdown|md)?\s*([\s\S]*?)```\s*$/i);
+  if (fence && fence[1].trim() && /^```/.test(s)) s = fence[1].trim();
+  return { content: s, contentFormat: 'markdown' };
+}
+
+// Build the purpose-aware generation prompt for the writer agent.
+function _composeGeneratePrompt(c, sourceBlock) {
+  const p = compose.purposeById(c.purpose) || { label: c.purpose };
+  const isSite = c.format === 'site';
+  return [
+    `Compose a finished, sendable deliverable from the brief below. Follow the compose-standards skill and your output protocol exactly.`,
+    '',
+    '## Brief',
+    `Purpose: ${p.label} (${c.purpose})`,
+    `Audience: ${c.audience || '(not specified — write for a general professional reader)'}`,
+    `Medium / format: ${c.format}`,
+    `Working title / subject: ${c.title || '(invent a strong, specific one from the content)'}`,
+    '',
+    '## What the user wants (their own words — the primary instruction)',
+    c.brief && c.brief.trim() ? c.brief.trim() : '(no extra detail — infer intent from the purpose and sources)',
+    '',
+    '## Sources',
+    sourceBlock,
+    '',
+    `## Assets directory (save any captured charts/screenshots here, reference as assets/<file>)`,
+    compose.assetsDir(c.id),
+    '',
+    'OUTPUT PROTOCOL — STRICT: You may think and use tools freely, but emit ONLY the finished deliverable, wrapped between these two sentinel lines, each alone on its own line:',
+    '===COMPOSE-START===',
+    isSite
+      ? '<the complete self-contained HTML document — starts with <!doctype html>, all CSS inline, NO <script>, no external assets>'
+      : '<the complete deliverable in Markdown — inline HTML/SVG for charts and tables allowed>',
+    '===COMPOSE-END===',
+    'Put nothing except the deliverable between the sentinels, and nothing at all after ===COMPOSE-END===. Do not write it to a file; print it inline. No code fences around the whole thing.',
+  ].join('\n');
+}
+
+// Generate a fresh composition draft. Streams progress over SSE `compose-progress`.
+async function runComposeGeneration(id, runId) {
+  const c = compose.getComposition(id);
+  if (!c) throw new Error('Composition not found.');
+  let _seq = 0;
+  const emit = (icon, text, done) => {
+    if (!text) return;
+    try { broadcastSSE('compose-progress', { id, runId: runId || null, icon, text, done: !!done, at: Date.now(), seq: ++_seq }); } catch (_) { /* ignore */ }
+  };
+  emit('🧭', `Composing a ${(compose.purposeById(c.purpose) || {}).label || c.purpose} for ${c.format}…`);
+  const { block, evidenceCount } = _composeSourceContext(c);
+  if (evidenceCount) emit('📖', `Reading ${evidenceCount} source item${evidenceCount === 1 ? '' : 's'}`);
+  const prompt = _composeGeneratePrompt(c, block);
+  const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };
+  const text = await _composeRunAgent('writer', prompt, onStep);
+  emit('✍️', 'Finishing the draft…');
+  const { content, contentFormat } = _composeExtractDeliverable(text, c.format);
+  if (!content || !content.trim()) throw new Error('The compose writer returned an empty draft. Try again.');
+  const saved = compose.saveDraft(id, { content, contentFormat }, { source: 'ai' });
+  return saved;
+}
+
+// Conversationally revise a composition draft. Returns { reply, draft? }; never saves.
+async function runComposeChat(id, { message, history, runId }) {
+  const c = compose.getComposition(id);
+  if (!c) throw new Error('Composition not found.');
+  const msg = String(message || '').trim();
+  if (!msg) throw new Error('Say what you would like to change or ask about the composition.');
+  let _seq = 0;
+  const emit = (icon, text, done) => {
+    if (!text) return;
+    try { broadcastSSE('compose-progress', { id, runId: runId || null, chat: true, icon, text, done: !!done, at: Date.now(), seq: ++_seq }); } catch (_) { /* ignore */ }
+  };
+  emit('💬', 'Reading your feedback…');
+  const { block } = _composeSourceContext(c);
+  const p = compose.purposeById(c.purpose) || { label: c.purpose };
+  const curDraft = String((c.draft && c.draft.content) || '').trim();
+  const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
+    const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${String((h && h.content) || (h && h.text) || '').trim()}`;
+  }).filter(Boolean).join('\n') || '(none)';
+  const isSite = c.format === 'site';
+  const prompt = [
+    'You are revising my composition through conversation. Follow your output protocol exactly.',
+    'INVESTIGATE BEFORE YOU REVISE when my feedback references something (a PR, meeting, work item, initiative) that is thin or absent — use the sources and tools to gather the real details, then weave them in. Never a bare refusal; if you truly cannot substantiate something, say what you searched and propose the closest supported change.',
+    '',
+    '## Brief',
+    `Purpose: ${p.label} (${c.purpose}) · Audience: ${c.audience || '(general)'} · Medium: ${c.format} · Title: ${c.title || '(untitled)'}`,
+    '',
+    '## What the user wants',
+    c.brief && c.brief.trim() ? c.brief.trim() : '(none)',
+    '',
+    '## Sources',
+    block,
+    '',
+    `## Assets directory (reference saved assets as assets/<file>)`,
+    compose.assetsDir(c.id),
+    '',
+    '## Current draft' + (isSite ? ' (a full HTML document)' : ' (Markdown)'),
+    curDraft || '(the draft is empty)',
+    '',
+    '## Conversation so far',
+    histLines,
+    '',
+    '## My latest message',
+    msg,
+    '',
+    'If you revise, output the COMPLETE revised deliverable between ===DRAFT=== and ===END DRAFT=== '
+      + (isSite ? '(a full self-contained HTML document, NO <script>).' : '(Markdown).')
+      + ' If you are only answering a question, omit the block.',
+  ].join('\n');
+  const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };
+  const text = await _composeRunAgent('editor', prompt, onStep);
+  const raw = String(text || '').trim();
+  let reply = raw;
+  let newDraft = null;
+  const m = raw.match(/===DRAFT===\s*([\s\S]*?)\s*===END DRAFT===/i);
+  if (m) {
+    reply = raw.slice(0, m.index).trim();
+    const ext = _composeExtractDeliverable('===COMPOSE-START===\n' + m[1].trim() + '\n===COMPOSE-END===', c.format);
+    if (ext.content && ext.content.trim()) newDraft = ext.content;
+  }
+  if (!reply) reply = newDraft ? 'Updated the draft below — review the changes.' : 'Done.';
+  emit('✅', newDraft ? 'Revision ready' : 'Done', true);
+  return { reply, draft: newDraft };
+}
+
+// Inline a composition's local asset images (assets/<file>) as data URIs.
+function _composeInlineAssets(id, html) {
+  try {
+    const dir = compose.assetsDir(id);
+    return String(html).replace(/(<img\b[^>]*\bsrc=["'])(assets\/[^"']+)(["'][^>]*>)/gi, (full, pre, rel, post) => {
+      try {
+        const file = path.join(dir, path.basename(rel));
+        if (!fs.existsSync(file)) return full;
+        const ext = (path.extname(file).slice(1) || 'png').toLowerCase();
+        const mime = ext === 'jpg' ? 'jpeg' : ext;
+        return `${pre}data:image/${mime};base64,${fs.readFileSync(file).toString('base64')}${post}`;
+      } catch { return full; }
+    });
+  } catch { return html; }
+}
+
+// Build a self-contained HTML draft email (.eml) from a markdown-medium composition.
+async function _composeBuildEml(c, { to, subject } = {}) {
+  const md = String((c.draft && c.draft.content) || '').trim();
+  if (!md) throw new Error('The composition draft is empty — nothing to email.');
+  const { marked } = require('marked');
+  let htmlBody = marked.parse(md);
+  htmlBody = _composeInlineAssets(c.id, htmlBody);
+  try { htmlBody = await _newsletterRasterizeSvgs(htmlBody, { bg: '#ffffff', maxWidth: 700 }); } catch (_) { /* leave svg */ }
+  const h1 = md.match(/^#\s+(.+)$/m);
+  const subj = subject || (h1 ? h1[1].replace(/[*_`]/g, '').trim() : (c.title || 'Composition'));
+  const toAddr = to || '';
+  const htmlEmail = `<html><head><meta charset="utf-8"><style>
+body{margin:0;padding:0;background:#f4f5f7}
+.wrap{max-width:760px;margin:0 auto;background:#fff}
+.content{font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#24292f;padding:28px 32px}
+.content h1{font-size:26px;line-height:1.25;margin:0 0 12px;color:#1b1f24}
+.content h2{font-size:19px;margin:24px 0 6px;color:#1b1f24;border-bottom:1px solid #eaecef;padding-bottom:4px}
+.content h3{font-size:16px;margin:16px 0 4px;color:#1b1f24}
+.content a{color:#2563eb}
+.content img,.content svg{max-width:100%;height:auto}
+.content table{border-collapse:collapse;width:100%;margin:14px 0}
+.content th,.content td{border:1px solid #d0d7de;padding:6px 10px;text-align:left}
+.content blockquote{margin:14px 0;padding:10px 14px;background:#f6f8fa;border-left:4px solid #2563eb;color:#57606a;border-radius:0 6px 6px 0}
+.content pre{background:#f6f8fa;padding:12px 14px;border-radius:8px;overflow-x:auto;border:1px solid #eaecef}
+.footer{font-family:'Segoe UI',sans-serif;font-size:12px;color:#8b949e;text-align:center;padding:16px 32px 28px}
+</style></head><body><div class="wrap"><div class="content">${htmlBody}</div><div class="footer">Drafted with Compose.AI · review before sending.</div></div></body></html>`;
+  const boundary = `----=_Part_${Date.now()}`;
+  const headers = [`Subject: ${subj}`];
+  if (toAddr) headers.push(`To: ${toAddr}`);
+  const eml = [
+    ...headers, `MIME-Version: 1.0`, `Content-Type: multipart/alternative; boundary="${boundary}"`, `X-Unsent: 1`, ``,
+    `--${boundary}`, `Content-Type: text/plain; charset="utf-8"`, `Content-Transfer-Encoding: 8bit`, ``, md, ``,
+    `--${boundary}`, `Content-Type: text/html; charset="utf-8"`, `Content-Transfer-Encoding: 8bit`, ``, htmlEmail, ``,
+    `--${boundary}--`,
+  ].join('\r\n');
+  const draftDir = path.join(__dirname, '.share-drafts');
+  fs.mkdirSync(draftDir, { recursive: true });
+  const emlPath = path.join(draftDir, `compose-${Date.now()}.eml`);
+  fs.writeFileSync(emlPath, eml, 'utf8');
+  return { emlPath, to: toAddr, subject: subj };
+}
+
+// ---- Compose routes ---------------------------------------------------------
+
+// List compositions + the purpose catalog + capture capability.
+app.get('/api/compose', (req, res) => {
+  try {
+    res.json({
+      compositions: compose.listCompositions(),
+      purposes: compose.PURPOSES,
+      formats: compose.FORMATS.map(f => ({ id: f, label: ({ email: 'Email', teams: 'Teams message', doc: 'Document', site: 'Prototype site' })[f] || f })),
+      storageDir: compose.storageDir(),
+      capture: (() => { try { return newsletterCapture.capabilities(); } catch { return { available: false }; } })(),
+      diaryHasEvidence: (() => { try { return (connect.listEvidence({ includeHidden: false }) || []).length > 0; } catch { return false; } })(),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Create a composition from a brief.
+app.post('/api/compose', (req, res) => {
+  try { res.json({ ok: true, composition: compose.createComposition(req.body || {}) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Fetch a full composition.
+app.get('/api/compose/:id', (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    res.json({ composition: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Patch brief-level fields.
+app.patch('/api/compose/:id', (req, res) => {
+  try {
+    const c = compose.updateComposition(req.params.id, req.body || {});
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    res.json({ ok: true, composition: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/compose/:id', (req, res) => {
+  try {
+    const ok = compose.deleteComposition(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Composition not found.' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Save the (user-edited or AI) draft body.
+app.put('/api/compose/:id/draft', (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = { content: typeof b.content === 'string' ? b.content : '' };
+    if (b.contentFormat === 'html' || b.contentFormat === 'markdown') patch.contentFormat = b.contentFormat;
+    const c = compose.saveDraft(req.params.id, patch, { source: b.source === 'ai' ? 'ai' : 'manual' });
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    res.json({ ok: true, composition: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Generate a fresh draft from the brief + sources.
+app.post('/api/compose/:id/generate', async (req, res) => {
+  const runId = (req.body && req.body.runId) || require('crypto').randomUUID();
+  try {
+    const c = await runComposeGeneration(req.params.id, runId);
+    try { broadcastSSE('compose-progress', { id: req.params.id, runId, icon: '✅', text: 'Draft ready', done: true, at: Date.now() }); } catch (_) {}
+    res.json({ ok: true, runId, composition: c });
+  } catch (err) {
+    try { broadcastSSE('compose-progress', { id: req.params.id, runId, icon: '⚠️', text: 'Generation failed: ' + err.message, done: true, error: true, at: Date.now() }); } catch (_) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Conversationally revise the draft. Returns { reply, draft? } — never saves.
+app.post('/api/compose/:id/chat', async (req, res) => {
+  try {
+    const { message, history, runId } = req.body || {};
+    const out = await runComposeChat(req.params.id, { message, history, runId });
+    res.json({ ok: true, ...out });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Version history.
+app.get('/api/compose/:id/versions', (req, res) => {
+  try { res.json({ versions: compose.listVersions(req.params.id) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete('/api/compose/:id/versions/:vid', (req, res) => {
+  try {
+    const ok = compose.deleteVersion(req.params.id, req.params.vid);
+    if (!ok) return res.status(404).json({ error: 'Version not found.' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/compose/:id/versions/:vid/restore', (req, res) => {
+  try {
+    const c = compose.restoreVersion(req.params.id, req.params.vid);
+    if (!c) return res.status(404).json({ error: 'Version not found.' });
+    res.json({ ok: true, composition: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Serve a captured composition asset.
+app.get('/api/compose/:id/asset/:file', (req, res) => {
+  try {
+    const dir = compose.assetsDir(req.params.id);
+    const file = path.join(dir, path.basename(String(req.params.file || '')));
+    if (!file.startsWith(dir) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return res.status(404).end();
+    const ext = (path.extname(file).slice(1) || 'png').toLowerCase();
+    const mimes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+    res.setHeader('Content-Type', mimes[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    fs.createReadStream(file).pipe(res);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Open the composition as a draft email (markdown mediums only).
+app.post('/api/compose/:id/email', async (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    if (c.format === 'site') return res.status(400).json({ error: 'A prototype/site composition is a web deliverable — export it as HTML instead of emailing.' });
+    if (!String((c.draft && c.draft.content) || '').trim()) return res.status(400).json({ error: 'The composition draft is empty — nothing to email.' });
+    const to = (req.body && req.body.to) || '';
+    const subject = (req.body && req.body.subject) || undefined;
+    const { emlPath } = await _composeBuildEml(c, { to, subject });
+    require('child_process').exec(`start "" "${emlPath}"`);
+    compose.markDelivered(c.id, 'email');
+    try { supervisor.recordUsage({ source: 'compose', category: 'compose', status: 'delivered', label: 'composition emailed', deliverable: 1 }); } catch (_) {}
+    try { recordActivity({ kind: 'email', category: 'email', title: 'Emailed composition', detail: (c.title || 'Composition') + (to ? ` → ${to}` : ''), status: 'success', route: '#/compose' }); } catch (_) {}
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Record a delivery via a non-email channel (Teams / copied / exported) so the
+// composition tracks how it went out. The actual send is client-driven.
+app.post('/api/compose/:id/delivered', (req, res) => {
+  try {
+    const via = String((req.body && req.body.via) || 'export');
+    const c = compose.markDelivered(req.params.id, via);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    try { supervisor.recordUsage({ source: 'compose', category: 'compose', status: 'delivered', label: 'composition ' + via, deliverable: 1 }); } catch (_) {}
+    res.json({ ok: true, composition: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Export a composition as html | md | json (download).
+app.get('/api/compose/:id/export', (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const fmt = String(req.query.format || (c.draft && c.draft.contentFormat === 'html' ? 'html' : 'md')).toLowerCase();
+    const slug = (c.title || 'composition').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'composition';
+    const body = String((c.draft && c.draft.content) || '');
+    if (fmt === 'json') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${slug}.json"`);
+      return res.send(JSON.stringify(compose.exportComposition(c.id), null, 2));
+    }
+    if (fmt === 'html') {
+      let html = body;
+      if (c.draft.contentFormat !== 'html') {
+        const { marked } = require('marked');
+        html = _composeWrapHtml(c.title, marked.parse(body));
+      } else if (!/<html/i.test(html)) {
+        html = _composeWrapHtml(c.title, html);
+      }
+      html = _composeInlineAssets(c.id, html);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${slug}.html"`);
+      return res.send(html);
+    }
+    // Default: markdown (or the raw content).
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${slug}.${c.draft.contentFormat === 'html' ? 'html' : 'md'}"`);
+    res.send(body);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // Phase 2 — collect recent M365 activity into diary evidence (manual trigger).
 // --- Background meeting backfill --------------------------------------------

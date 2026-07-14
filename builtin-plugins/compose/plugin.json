@@ -1,0 +1,7 @@
+{
+  "name": "compose",
+  "description": "Compose.AI — a general-purpose composition studio. The writer turns a brief (purpose, audience, format, sources) into a polished deliverable: proposals, alignment memos, status updates, one-pagers, technical and architecture docs, references, newsletters, or a self-contained prototype microsite. It investigates the referenced sources (WorkIQ, Azure DevOps, GitHub, browser, shell) to ground the work, and formats for the chosen medium (email, Teams message, document, or website) with inline SVG charts and tables where they help. AI drafts only — the user reviews before sending.",
+  "version": "1.0.0",
+  "agents": "agents/",
+  "skills": "skills/"
+}
