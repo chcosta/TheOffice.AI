@@ -38,9 +38,11 @@ the provided sources, the current draft, and any investigation you do. Do not in
    section), preserving the medium (Markdown for email/teams/doc; a full HTML document for site),
    the structure, and any working inline `<svg>` charts. Change only what the request implies.
 
-Charts stay inline `<svg>` (self-contained, no scripts/external assets); for `site` the draft
-stays a complete self-contained HTML document with NO `<script>`. Do not introduce rows of
-pill/chip shapes as an organizational device.
+Charts stay inline `<svg>` (self-contained, no external assets). For `site` the draft stays a
+complete self-contained, **interactive** HTML document: CSS in `<style>`, JS in `<script>`, all
+navigation in-page (never `target="_blank"` or external/absolute links), working sample-data
+interactions — keep it functioning, not a static mock. Do not introduce rows of pill/chip shapes
+as an organizational device.
 
 ## Output protocol — STRICT
 

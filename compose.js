@@ -78,6 +78,7 @@ const SOURCES = [
   { id: 'pr',        label: 'Pull request',           blurb: 'Open a PR and read its diff, description & threads.', kind: 'ref', placeholder: 'https://github.com/org/repo/pull/123' },
   { id: 'pursuit',   label: 'Pursuit compendium',     blurb: 'Read a pursuit’s findings & compendium.',            kind: 'ref', placeholder: 'Pursuit name or id' },
   { id: 'workitems', label: 'Work items',             blurb: 'Investigate linked Azure DevOps work items.',        kind: 'ref', placeholder: 'AB#123, AB#456 or a query' },
+  { id: 'repos',     label: 'Repositories',           blurb: 'Pick repos to search for real code, docs & structure.', kind: 'ref', placeholder: 'org/repo, org/repo2 or a local path' },
   { id: 'composition', label: 'Another composition',  blurb: 'Reuse a Compose.AI report or your Newsletter as source material.', kind: 'ref', placeholder: 'Pick compositions or the Newsletter' },
   { id: 'm365',      label: 'Microsoft 365 (WorkIQ)', blurb: 'Pull relevant mail, meetings & files.',              kind: 'toggle' },
   { id: 'pasted',    label: 'Pasted context',         blurb: 'Notes, links, or a spec you paste in.',              kind: 'text' },
@@ -171,6 +172,9 @@ function _defaultSources() {
     pr: false, prRef: '',
     pursuit: false, pursuitRef: '',
     workitems: false, workitemsRef: '',
+    // Repositories to reference / search for grounding context (comma/newline list
+    // of org/repo or local paths). The writer searches them and cites what it finds.
+    repos: false, reposRef: '',
     // Reuse another composition (compose report) or the Newsletter as evidence.
     // compositionRef is a comma-joined list of composition ids; the token
     // 'newsletter' is a sentinel for the current Newsletter draft.
@@ -299,7 +303,7 @@ function updateComposition(id, patch) {
   if (p.sources && typeof p.sources === 'object') {
     c.sources = { ...c.sources, ...p.sources };
     if (Array.isArray(p.sources.links)) c.sources.links = p.sources.links.slice(0, 40).map(String);
-    for (const k of ['prRef', 'pursuitRef', 'workitemsRef', 'compositionRef']) {
+    for (const k of ['prRef', 'pursuitRef', 'workitemsRef', 'compositionRef', 'reposRef']) {
       if (typeof c.sources[k] === 'string') c.sources[k] = c.sources[k].slice(0, 500);
     }
     if (typeof c.sources.pasted === 'string') c.sources.pasted = c.sources.pasted.slice(0, 16000);

@@ -20457,7 +20457,14 @@
                                 </template>
                               </div>
                               <input class="field-input" type="text" x-model="compose.current.audience" @input="composeMarkBriefDirty()" placeholder="…or describe a specific audience" /></div>
-                            <div class="nlx-fld"><label>Format</label><select class="field-input" x-model="compose.current.format" @change="composeMarkBriefDirty()"><template x-for="f in compose.formats" :key="f.id"><option :value="f.id" x-text="f.label"></option></template></select></div>
+                            <div class="nlx-fld"><label>Format</label>
+                              <template x-if="composeFormatChoices().length > 1">
+                                <select class="field-input" x-model="compose.current.format" @change="composeMarkBriefDirty()"><template x-for="f in composeFormatChoices()" :key="f.id"><option :value="f.id" x-text="f.label"></option></template></select>
+                              </template>
+                              <template x-if="composeFormatChoices().length <= 1">
+                                <div class="field-input" style="display:flex;align-items:center;gap:6px;background:var(--cp-surface-2);color:var(--cp-text-muted);cursor:default" x-text="composeFormatLabel(compose.current.format) + (composeIsSite() ? ' · fixed for this type' : '')"></div>
+                              </template>
+                            </div>
                             <div class="nlx-fld"><label>What to say</label><textarea class="field-input" rows="4" style="resize:vertical" x-model="compose.current.brief" @input="composeMarkBriefDirty()" placeholder="The purpose, key points, and any framing…"></textarea></div>
                             <button class="btn ghost" type="button" style="width:100%;justify-content:center;padding:6px" :disabled="compose.generating || !compose.briefDirty" @click="composeUpdateBriefAndRegen()" x-text="compose.briefDirty ? '✨ Update & regenerate' : 'Brief saved'"></button>
                           </div>
@@ -20519,6 +20526,10 @@
                               </div>
                               <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
                             </div>
+                            <div class="nlx-fld" x-show="compose.current.sources.repos"><label>Repositories to reference</label>
+                              <textarea class="field-input" rows="2" style="resize:vertical" x-model="compose.current.sources.reposRef" @input="composeMarkBriefDirty()" placeholder="org/repo, org/repo2 or a local path — one per line or comma-separated"></textarea>
+                              <div class="hint" style="margin-top:4px">The writer searches these repos for real code, docs & structure, and cites only what it can confirm.</div>
+                            </div>
                             <div class="nlx-fld"><label>Reference links</label>
                               <template x-for="(l, i) in compose.current.sources.links" :key="i">
                                 <div class="cmpx-link"><a :href="l" target="_blank" rel="noopener" x-text="l"></a><button type="button" @click="composeStudioRemoveLink(i)" title="Remove">✕</button></div>
@@ -20553,11 +20564,14 @@
                             <button class="btn ghost" type="button" title="Zoom in" style="padding:5px 9px;font-size:14px;line-height:1" @click="composeZoom(0.1)" :disabled="(compose.zoom||1) >= 2">+</button>
                           </div>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="compose.tab !== 'history' && (!compose.preview || composeIsSite() || compose.draftDirty)" :disabled="compose.savingDraft || !compose.draftDirty" @click="composeSaveDraft()" x-text="compose.savingDraft ? 'Saving…' : (compose.draftDirty ? 'Save' : 'Saved')"></button>
-                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="composeCopy()" title="Copy to clipboard">⧉ Copy</button>
+                          <!-- Prototype share actions: open full-window preview + download the self-contained site. Copy/JSON aren't meaningful for a running prototype. -->
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composePreviewSite()" title="Open the prototype full-window in a new tab (still sandboxed)">↗ Open</button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeExport('html')" title="Download the self-contained prototype as an .html file">⬇ Download</button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="!composeIsSite()" @click="composeCopy()" title="Copy to clipboard">⧉ Copy</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeCanEmail()" @click="composeOpenDeliver()">✉ Email</button>
-                          <div class="nlx-seg">
-                            <button type="button" @click="composeExport(composeIsSite() ? 'html' : 'md')" x-text="composeIsSite() ? '⬇ HTML' : '⬇ MD'"></button>
-                            <button type="button" @click="composeExport('html')" x-show="!composeIsSite()">HTML</button>
+                          <div class="nlx-seg" x-show="!composeIsSite()">
+                            <button type="button" @click="composeExport('md')">⬇ MD</button>
+                            <button type="button" @click="composeExport('html')">HTML</button>
                             <button type="button" @click="composeExport('json')">JSON</button>
                           </div>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.tab === 'history' }" @click="composeSetTab(compose.tab === 'history' ? 'compose' : 'history')" x-text="compose.tab === 'history' ? '← Back' : ('🕘 History (' + (compose.versions ? compose.versions.length : 0) + ')')"></button>
@@ -20576,8 +20590,10 @@
                           <p x-text="compose.notice || 'Composing your draft…'"></p>
                           <p class="hint">Watch the live activity feed on the left to see what the writer is doing.</p>
                         </div>
-                        <!-- Prototype site (HTML doc) -->
-                        <iframe x-show="composeIsSite() && compose.draftText.trim()" class="cmpx-site" :srcdoc="compose.draftText" sandbox="allow-same-origin"></iframe>
+                        <!-- Prototype site: sandboxed with scripts so it can simulate real activity,
+                             but no allow-same-origin/popups → opaque origin keeps every link inside
+                             the frame (can't reach the app, your data, or navigate to TheOffice.AI). -->
+                        <iframe x-show="composeIsSite() && compose.draftText.trim()" class="cmpx-site" :srcdoc="compose.draftText" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
                         <!-- Markdown preview -->
                         <template x-if="!composeIsSite() && compose.draftText.trim() && compose.preview">
                           <article class="nlx-paper" :style="{ zoom: compose.zoom || 1 }" @wheel="if($event.ctrlKey||$event.metaKey){$event.preventDefault(); composeZoom($event.deltaY < 0 ? 0.1 : -0.1);}"><div class="nl-preview md-output" x-html="composeRenderedDraft()"></div></article>
@@ -29061,7 +29077,7 @@
           _pendingStart: null,    // purpose queued by a deep link, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
-                   sources: { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', m365: false, links: [], pasted: '' }, _linkInput: '' },
+                   sources: { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', repos: false, reposRef: '', m365: false, links: [], pasted: '' }, _linkInput: '' },
           current: null,          // full composition object when in studio
           draftText: '',          // editable draft buffer
           draftFormat: 'markdown',// 'markdown' | 'html'
@@ -45421,6 +45437,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         composeFormatsFor(p) {
           return (this.compose.formats || []).map(f => f.id);
         },
+        // Formats offered for the CURRENT composition's purpose. The prototype purpose
+        // is a web deliverable → only 'site'; every other purpose is a written medium →
+        // 'site' is hidden (it isn't a document). Single-choice formats render as a
+        // fixed label instead of a select.
+        composeFormatChoices() {
+          const all = this.compose.formats || [];
+          const purpose = this.compose.current && this.compose.current.purpose;
+          if (purpose === 'prototype') return all.filter(f => f.id === 'site');
+          return all.filter(f => f.id !== 'site');
+        },
         // Begin a new composition from a chosen purpose. The Newsletter purpose is a
         // link to the dedicated newsletter studio (fully preserved).
         // Pick a purpose → create the composition and drop straight into the full
@@ -45467,6 +45493,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 pr: on.has('pr'), prRef: '',
                 pursuit: on.has('pursuit'), pursuitRef: '',
                 workitems: on.has('workitems'), workitemsRef: '',
+                repos: on.has('repos'), reposRef: '',
                 m365: on.has('m365'),
                 links: [], pasted: '',
               },
@@ -45486,7 +45513,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // A fully-populated source object so older/partial records get new fields.
         composeSourcesDefault() {
-          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', composition: false, compositionRef: '', m365: false, links: [], pasted: '' };
+          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', repos: false, reposRef: '', composition: false, compositionRef: '', m365: false, links: [], pasted: '' };
         },
         composeToggleSource(sources, s) {
           if (!sources || !s) return;
@@ -45747,6 +45774,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   pr: !!(c.sources && c.sources.pr), prRef: (c.sources && c.sources.prRef) || '',
                   pursuit: !!(c.sources && c.sources.pursuit), pursuitRef: (c.sources && c.sources.pursuitRef) || '',
                   workitems: !!(c.sources && c.sources.workitems), workitemsRef: (c.sources && c.sources.workitemsRef) || '',
+                  repos: !!(c.sources && c.sources.repos), reposRef: (c.sources && c.sources.reposRef) || '',
                   composition: !!(c.sources && c.sources.composition), compositionRef: (c.sources && c.sources.compositionRef) || '',
                   m365: !!(c.sources && c.sources.m365),
                   links: (c.sources && Array.isArray(c.sources.links)) ? c.sources.links.slice() : [],
@@ -45941,6 +45969,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!co.current) return;
           window.open('/api/compose/' + encodeURIComponent(co.current.id) + '/export?format=' + encodeURIComponent(fmt), '_blank');
           this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'export' }) }).catch(() => {});
+        },
+        // Open the prototype full-window in a new tab. Uses a blob URL so the site
+        // renders standalone on its own opaque origin (still cannot reach the app or
+        // your data), giving a true full-screen run of the interactive prototype.
+        composePreviewSite() {
+          const co = this.compose;
+          const html = String(co.draftText || '').trim();
+          if (!html) { this.toast('Nothing to preview yet — generate the prototype first.', 'info'); return; }
+          try {
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener');
+            // Revoke after the tab has had time to load.
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 60000);
+            if (co.current) this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'preview' }) }).catch(() => {});
+          } catch (e) { this.toast('Could not open preview: ' + (e.message || e), 'error'); }
         },
         async composeCopy() {
           const co = this.compose;

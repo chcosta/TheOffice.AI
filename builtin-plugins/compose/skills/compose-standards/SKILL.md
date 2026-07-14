@@ -37,17 +37,20 @@ Lead with what the audience cares about. Never open with throat-clearing.
 - **Newsletter** — Warm, story-driven, human. A masthead, a short intro, a few stories with
   impact and a light chart or two, a friendly close. (This purpose can also hand off to the
   dedicated Newsletter studio.)
-- **Prototype / demo site** — A self-contained microsite that *demonstrates* an experience or
-  concept: a landing header, an anchor-linked nav, feature/flow sections with mock UI rendered
-  in HTML/CSS, and inline `<svg>` where a diagram or chart helps tell the story.
+- **Prototype / demo site** — A self-contained, **interactive** microsite that *demonstrates* an
+  experience or concept: a landing header, in-page nav, feature/flow sections with working UI
+  rendered in HTML/CSS/JS, sample-data interactions (nav, forms, filterable lists, charts drawn
+  from data, animated progress), and inline `<svg>` where a diagram helps. Build it to feel real.
 
 ## Medium conventions
 
 - **email** — Subject as H1, skimmable body, one clear ask, short close. Sparse visuals.
 - **teams** — Short and punchy, bullets over prose, one call to action, no long preamble.
 - **doc** — Title, one-paragraph summary, well-headed sections; rich tables/charts as warranted.
-- **site** — One self-contained `<!doctype html>` document, all CSS inline, **NO `<script>`**,
-  no external assets, light + dark via `prefers-color-scheme`, anchor-linked nav.
+- **site** — One self-contained `<!doctype html>` document, CSS in `<style>`, JS in `<script>`,
+  no external assets, light + dark via `prefers-color-scheme`. Interactive and self-simulating,
+  with ALL navigation kept in-page (never external/absolute links or `target="_blank"`). It runs
+  in a locked-down sandbox (no storage/cookies/parent access) — use only in-memory JS state.
 
 ## Visuals
 

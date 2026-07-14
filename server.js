@@ -12023,6 +12023,13 @@ function _composeSourceContext(c) {
     parts.push('### Work items to investigate (Azure DevOps)');
     parts.push(`Look up these work items and reflect their real state/detail; cite only what you can confirm:\n- ${String(src.workitemsRef).trim()}`);
   }
+  if (src.repos && String(src.reposRef || '').trim()) {
+    const repos = String(src.reposRef).split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+    if (repos.length) {
+      parts.push('### Repositories to reference / search for context');
+      parts.push('Search these repositories for code, docs, config, structure, and naming relevant to the brief, and ground concrete details (real component/file/path names, APIs, patterns) in what you actually find. Cite only what you can confirm:\n' + repos.map(r => `- ${r}`).join('\n'));
+    }
+  }
   // Reference another composition / the Newsletter — we already hold these drafts
   // locally, so INLINE their content directly (like pasted context) rather than
   // asking the writer to go fetch anything.
@@ -12125,13 +12132,22 @@ function _composeGeneratePrompt(c, sourceBlock) {
     '## Sources',
     sourceBlock,
     '',
+    ...(isSite ? [
+      '## Prototype requirements (this is an INTERACTIVE, self-contained prototype — build it to feel real, not a static mock)',
+      '- Output ONE self-contained HTML5 document: `<!doctype html>`, all CSS in a `<style>` tag, all JS in `<script>` tags. No external assets, CDNs, fonts, or network calls.',
+      '- SIMULATE REAL ACTIVITY with client-side JavaScript: seed realistic in-memory sample data and make the UI actually DO things — working navigation/tabs that swap views in-page, forms that update state, lists you can filter/sort/add to, charts rendered from the sample data, timers or streams that animate progress. It must be a working simulation, not a screenshot.',
+      '- Keep ALL navigation INSIDE the document: use in-page view switching (JS show/hide or hash routes) — never link to real external sites or absolute app paths, and do not use `target="_blank"`. A click must stay within the prototype.',
+      '- Make it look and behave like a shippable product for the stated audience: cohesive design, sensible empty/loading/hover states. Light + dark via `prefers-color-scheme`. No pills as an organizing pattern.',
+      '- The prototype runs in a locked-down sandbox (no storage, cookies, or parent access) — rely only on in-memory JS state. All data is illustrative sample data; do not claim it is live.',
+      '',
+    ] : []),
     `## Assets directory (save any captured charts/screenshots here, reference as assets/<file>)`,
     compose.assetsDir(c.id),
     '',
     'OUTPUT PROTOCOL — STRICT: You may think and use tools freely, but emit ONLY the finished deliverable, wrapped between these two sentinel lines, each alone on its own line:',
     '===COMPOSE-START===',
     isSite
-      ? '<the complete self-contained HTML document — starts with <!doctype html>, all CSS inline, NO <script>, no external assets>'
+      ? '<the complete self-contained, INTERACTIVE HTML document — starts with <!doctype html>, CSS in <style>, JS in <script>, no external assets>'
       : '<the complete deliverable in Markdown — inline HTML/SVG for charts and tables allowed>',
     '===COMPOSE-END===',
     'Put nothing except the deliverable between the sentinels, and nothing at all after ===COMPOSE-END===. Do not write it to a file; print it inline. No code fences around the whole thing.',
@@ -12219,7 +12235,7 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     msg || '(no text — just embed the attached image(s) nicely and reflow the layout)',
     '',
     'If you revise, output the COMPLETE revised deliverable between ===DRAFT=== and ===END DRAFT=== '
-      + (isSite ? '(a full self-contained HTML document, NO <script>).' : '(Markdown).')
+      + (isSite ? '(a full self-contained, INTERACTIVE HTML document — CSS in <style>, JS in <script>, keep it working; all navigation stays in-page).' : '(Markdown).')
       + ' If you are only answering a question, omit the block.',
   ].join('\n');
   const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };

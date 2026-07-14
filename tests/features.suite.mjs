@@ -545,4 +545,38 @@ await t.test('pulse monitor chip: Teams-specific label + channel count + activit
   t.ok(/channel/.test(chip), 'chip text names channels');
 });
 
+await t.test('compose prototype: interactive scenario (site format lock, sandbox, repos source, share)', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  // repos source in the catalog + defaults + clamp
+  t.ok(/id:\s*'repos'/.test(cjs), 'compose.js SOURCES catalog has a repos source');
+  const defs = _win(cjs, '_defaultSources', 600);
+  t.ok(/repos:\s*false/.test(defs) && /reposRef:\s*''/.test(defs), '_defaultSources seeds repos + reposRef');
+  t.ok(/'reposRef'/.test(cjs), 'updateComposition clamps reposRef');
+
+  const src = readFileSync('server.js', 'utf8');
+  // writer prompt: interactive prototype (JS allowed), repos ref branch
+  const ctx = _win(src, '_composeSourceContext', 3000);
+  t.ok(/reposRef/.test(ctx), '_composeSourceContext reads a repos ref');
+  const gen = _win(src, 'Prototype requirements', 1200);
+  t.ok(gen, 'generate prompt has a prototype-requirements block');
+  t.ok(/simulate/i.test(gen), 'prototype prompt asks it to simulate real activity');
+  t.ok(/in-page|in-frame|inside the (doc|prototype)/i.test(gen), 'prototype prompt keeps navigation in-page');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  // format lock: prototype offers only 'site'; other purposes hide 'site'
+  const fc = _win(html, 'composeFormatChoices() {', 400);
+  t.ok(fc, 'composeFormatChoices helper defined');
+  t.ok(/prototype/.test(fc) && /f\.id === 'site'/.test(fc), 'prototype → only the site format');
+  t.ok(/composeFormatChoices\(\)\.length/.test(html), 'format field switches on the choice count');
+  // sandbox: scripts run but the frame is opaque-origin (cannot escape to the app)
+  t.ok(/sandbox="allow-scripts"/.test(html), 'prototype iframe enables scripts (opaque origin, no same-origin)');
+  t.ok(!/sandbox="allow-scripts allow-same-origin"/.test(html), 'prototype iframe never combines scripts with same-origin');
+  // prototype share actions: Open (blob preview) + Download, no Copy/JSON for site
+  t.ok(/composePreviewSite\(\)/.test(html), 'prototype has an Open full-window preview action');
+  const prev = _win(html, 'composePreviewSite() {', 700);
+  t.ok(/createObjectURL/.test(prev), 'preview uses a blob URL (standalone opaque origin)');
+  // repos ref input in the rail
+  t.ok(/sources\.reposRef/.test(html), 'sources rail binds a repos ref input');
+});
+
 await t.done();

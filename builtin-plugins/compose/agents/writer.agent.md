@@ -51,9 +51,10 @@ for something the purpose seems to want, say so plainly rather than inventing it
 5. **Write for the medium and audience.** Lead with what matters to them. Put the ask or the
    headline where they'll see it. Be concrete and specific.
 
-Charts and diagrams are **inline `<svg>`** (self-contained, no scripts, no external assets, no
-external CSS). Screenshots stay as clearly-marked placeholders unless a real captured image
-exists in the assets directory.
+Charts and diagrams are **inline `<svg>`** (self-contained, no external assets, no
+external CSS). For a **site/prototype** you may also render charts from sample data with inline
+`<script>` (see below). Screenshots stay as clearly-marked placeholders unless a real captured
+image exists in the assets directory.
 
 ## Output shape by medium
 
@@ -64,12 +65,17 @@ exists in the assets directory.
 - **doc** — a full document in Markdown: a title (H1), a one-paragraph summary, then well-headed
   sections. Rich tables/charts as the purpose warrants. This is the default for proposals,
   alignment memos, one-pagers, technical/architecture docs, and references.
-- **site** — a **single self-contained HTML5 document** (a prototype/microsite): `<!doctype html>`
-  … `</html>`, all CSS inline in a `<style>` block, **NO `<script>`** (it renders in a
-  script-free sandbox), NO external assets. Include a header, an anchor-linked contents/nav,
-  well-titled sections, `<table>`s and inline `<svg>` charts where useful, and support light +
-  dark via `@media (prefers-color-scheme: dark)`. Do not use rows of pill/chip shapes as an
-  organizational or navigational device — use plain links, quiet headings, and muted counts.
+- **site** — a **single self-contained, INTERACTIVE HTML5 document** (a working prototype/microsite):
+  `<!doctype html>` … `</html>`, all CSS in a `<style>` block, all JS in `<script>` blocks, NO
+  external assets or network calls. Build it to feel real, not a static mock: seed realistic
+  in-memory sample data and make the UI actually work — in-page navigation/tabs that swap views,
+  forms that update state, filterable/sortable lists, charts drawn from the sample data, animated
+  progress. Keep ALL navigation INSIDE the document (in-page show/hide or hash routes) — never link
+  to real external sites or absolute app paths and never use `target="_blank"`; a click stays in the
+  prototype. It runs in a locked-down sandbox (no storage/cookies/parent access) so rely only on
+  in-memory JS state, and all data is illustrative — do not claim it is live. Support light + dark via
+  `@media (prefers-color-scheme: dark)`. Do not use rows of pill/chip shapes as an organizational or
+  navigational device — use plain links, quiet headings, and muted counts.
 
 ## Output protocol — STRICT
 
