@@ -13478,6 +13478,9 @@
               .meai-dir-reduce-sub { font-size:12px; color:var(--cp-text-muted); margin-top:7px; line-height:1.5; }
               .meai-dir-reduce-sub b { color:var(--cp-text); }
               .meai-dir-reduce-sub a { color:var(--cp-link); cursor:pointer; font-weight:600; }
+              .meai-dir-why { border:1px solid var(--cp-border); border-left:3px solid var(--cp-text-muted); border-radius:calc(var(--cp-radius-scale,1)*9px); padding:9px 11px; margin-bottom:14px; background:var(--cp-bg); }
+              .meai-dir-why-h { font-size:12px; font-weight:700; color:var(--cp-text); margin-bottom:3px; }
+              .meai-dir-why-b { font-size:12px; color:var(--cp-text-muted); line-height:1.5; margin-top:4px; }
               .meai-dir-insight { border:1px solid var(--cp-border); border-left:3px solid #0ea5e9; border-radius:calc(var(--cp-radius-scale,1)*9px); padding:9px 11px; margin-bottom:7px; background:var(--cp-bg); }
               .meai-dir-insight-t { font-size:12.5px; font-weight:700; color:var(--cp-text); display:flex; gap:7px; align-items:baseline; }
               .meai-dir-insight .meai-dir-linklike { margin-top:6px; }
@@ -16361,6 +16364,15 @@
                                   <span x-show="meai.pursuit.director.reasonErr" style="color:#d97706" x-text="'AI: '+meai.pursuit.director.reasonErr"></span>
                                   <a x-show="!meai.pursuit.director._reasoning" @click="meAiPursuitDirectorReason(true)" style="cursor:pointer">Re-judge with AI ↻</a></div>
                               </div>
+
+                              <!-- Why so little (or nothing) was handled — answers "how did a complex pursuit get zero automated handling / zero redundant paths?" -->
+                              <template x-if="meAiDirectorActive() && (meAiDirectorWhyZero() || meAiDirectorRedundancyNote())">
+                                <div class="meai-dir-why">
+                                  <div class="meai-dir-why-h">Why the Director handled so little</div>
+                                  <div class="meai-dir-why-b" x-show="meAiDirectorWhyZero()" x-text="meAiDirectorWhyZero()"></div>
+                                  <div class="meai-dir-why-b" x-show="meAiDirectorRedundancyNote()" x-text="meAiDirectorRedundancyNote()"></div>
+                                </div>
+                              </template>
 
                               <!-- Stalled legs (interrupted by a restart — no open gate, silently stuck) -->
                               <template x-if="(meai.pursuit.director.stalled||[]).length && meAiDirectorActive()">
@@ -43924,6 +43936,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorDeskCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.deskCount || 0) : 0; },
         meAiDirectorDeskStops() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; return (r && typeof r.deskStops === 'number') ? r.deskStops : this.meAiDirectorDeskCount(); },
         meAiDirectorDesk() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : []; },
+        meAiDirectorDiagnosis() { const pl = this.meai.pursuit.director.plan; return (pl && pl.diagnosis && typeof pl.diagnosis === 'object') ? pl.diagnosis : null; },
+        meAiDirectorWhyZero() { const dx = this.meAiDirectorDiagnosis(); return (dx && dx.whyZero) ? dx.whyZero : ''; },
+        meAiDirectorRedundancyNote() { const dx = this.meAiDirectorDiagnosis(); return (dx && dx.redundancyNote) ? dx.redundancyNote : ''; },
         meAiDirectorProbes() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.probeItems)) ? pl.probeItems : []; },
         meAiDirectorProbing() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; if (r && typeof r.probing === 'number') return r.probing; return this.meAiDirectorProbes().length; },
         async meAiDirectorProbeDispatch(it) {

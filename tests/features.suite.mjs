@@ -19,7 +19,10 @@
 // an invented URL.
 
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { createRunner, extractFns, api, serverUp, sliceSource } from './lib/harness.mjs';
+
+const require = createRequire(import.meta.url);
 
 const SERVER = 'server.js';
 const APP_HTML = 'public/app.html';
@@ -729,6 +732,39 @@ await t.test('Me-agent view is its own page (agenda hidden), not an overlay flas
   t.ok(/p\.open = false; p\.artView = null;\s*this\.meai\.agentPage = false;/.test(src), 'meAiPursuitClose clears agentPage');
   // Router seeds agentPage from the deep-link param up front (no agenda flash).
   t.ok(/this\.meai\.agentPage = !!monId;\s*await this\.loadMeAi\(\);/.test(src), 'router sets agentPage before loading the agenda');
+});
+
+await t.test('Director diagnosis explains zero automated handling + zero redundant paths', () => {
+  const director = require('../director.js');
+  const S = (o) => Object.assign({ status: 'open' }, o);
+  const tree = { id: 'p1', stops: [
+    S({ id: 's1', type: 'needs-auth', action: { risk: 'write', op: 'edit-file', target: 'src/a.cs', summary: 'edit a' } }),
+    S({ id: 's2', type: 'needs-auth', action: { risk: 'write', op: 'edit-file', target: 'src/a.cs', summary: 'edit a' } }),
+    S({ id: 's3', type: 'needs-auth', action: { risk: 'write', op: 'push', target: 'origin/main', summary: 'push' } }),
+    S({ id: 's4', type: 'needs-decision', conflictId: 'c1' }),
+    S({ id: 's5', type: 'needs-info' }),
+  ], conflicts: [{ id: 'c1', subject: 'x', a: { stance: 'affirm' }, b: { stance: 'deny' } }] };
+
+  // Director OFF (default): whyZero names the off state; redundancy note explains the AI-pass gating.
+  const off = director.planReduction(tree, { enabled: false });
+  t.ok(off.diagnosis && typeof off.diagnosis === 'object', 'reduction carries a diagnosis object');
+  t.ok(/handling is off/i.test(off.diagnosis.whyZero || (off.handledCount ? 'n/a' : '')) || off.handledCount > 0, 'off-state whyZero or something handled');
+  // Buckets reconcile: desk stops are all accounted by reason.
+  const dw = off.diagnosis.deskWhy;
+  const bucketSum = dw.external + dw.judgement + dw.missingInfo + dw.heldForGrant + dw.lowConfidence + dw.pausedOffline + dw.deliverable + dw.other;
+  t.ok(bucketSum === off.reconciliation.deskStops, 'deskWhy buckets sum to desk-stop count');
+  t.ok(dw.external >= 1 && dw.judgement >= 1 && dw.missingInfo >= 1, 'push=external, clash=judgement, needs-info bucketed');
+  t.ok(typeof off.diagnosis.duplicatesFound === 'number' && typeof off.diagnosis.redundancyCount === 'number', 'redundancy counts present');
+
+  // Enabled but no AI verdicts yet (not-leader / pass not run) → whyZero explains pending judging.
+  const pend = director.planReduction(tree, { enabled: true, grant: { id: 'g', paths: ['src'], classes: ['duplicate', 'reversible-local', 'factual-clash'], ops: ['cull', 'absorb', 'resolve'], expiresAt: Date.now() + 1e7 } });
+  if (pend.handledCount === 0) t.ok(/not finished judging|absorbable|granted paths/i.test(pend.diagnosis.whyZero || ''), 'enabled zero-handled whyZero is honest');
+
+  // UI surfaces the diagnosis with calm helpers (no pills).
+  const src = readFileSync('public/app.html', 'utf8');
+  t.ok(/meAiDirectorDiagnosis\(\)/.test(src) && /meAiDirectorWhyZero\(\)/.test(src) && /meAiDirectorRedundancyNote\(\)/.test(src), 'diagnosis helpers wired');
+  t.ok(/class="meai-dir-why"/.test(src) && /Why the Director handled so little/.test(src), 'why block rendered');
+  t.ok(/\.meai-dir-why\s*\{/.test(src), 'why block CSS present');
 });
 
 await t.done();

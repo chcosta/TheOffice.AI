@@ -621,6 +621,46 @@ function planReduction(tree, policy) {
   else if (deskItems.length === 0) state = 'nothing-needs-you';
   else if (unsure > 0 && handled.length === 0) state = 'unsure';
 
+  // ---- diagnosis: WHY did so little (or nothing) get handled automatically? ------
+  // Answers the user's "how did a complex pursuit get zero automated handling / zero
+  // redundant paths?" honestly, in-product, instead of leaving a bare N→M reduction
+  // with no cause. Every desk stop is bucketed by the REASON it stayed on your desk,
+  // and a plain-language headline explains a zero-handled outcome.
+  const _SAFE_CLASSES = new Set(['duplicate', 'reversible-local', 'factual-clash']);
+  const deskWhy = { external: 0, judgement: 0, missingInfo: 0, heldForGrant: 0, lowConfidence: 0, pausedOffline: 0, deliverable: 0, other: 0 };
+  for (const p of per) {
+    if (HANDLED.has(p.disposition) || p.disposition === 'probe') continue; // only desk stops
+    if (p.cls === 'deliverable') { deskWhy.deliverable++; continue; }
+    if (paused || offline) { deskWhy.pausedOffline++; continue; }
+    if (p.aiExternal === true || p.cls === 'external-spend-destructive') { deskWhy.external++; continue; }
+    if (p.cls === 'judgement-clash') { deskWhy.judgement++; continue; }
+    if (p.cls === 'missing-info') { deskWhy.missingInfo++; continue; }
+    if (typeof p.aiConfidence === 'number' && p.aiConfidence < 0.5) { deskWhy.lowConfidence++; continue; }
+    if (_SAFE_CLASSES.has(p.cls)) { deskWhy.heldForGrant++; continue; } // safe class but held for grant/path scope
+    deskWhy.other++;
+  }
+  let whyZero = null;
+  if (handled.length === 0 && openStops.length > 0) {
+    if (!policy.enabled) whyZero = 'Automated handling is off. Turn the Director on and grant it scope on this pursuit so it can absorb safe, reversible stops for you.';
+    else if (offline) whyZero = 'The Director is offline or stale on this machine, so nothing is auto-applied — you are seeing the raw stops.';
+    else if (paused) whyZero = 'The Director is paused, so nothing is auto-applied. Resume it to let it absorb safe stops.';
+    else if (aiPending) whyZero = 'The Director has not finished judging this pursuit yet. Automated handling appears once its reasoning pass completes.';
+    else if (deskWhy.heldForGrant > 0) whyZero = deskWhy.heldForGrant + ' safe, reversible edit(s) were held only because they fall outside your granted paths — widen the grant to let the Director absorb them.';
+    else whyZero = 'Every open stop is a genuine external action, judgement call, or missing-info ask — none was safely absorbable, so nothing was auto-handled. For a pursuit that made no redundant or reversible-local moves, zero handling is the honest, correct outcome.';
+  }
+  // Redundant-path accounting: exact-duplicate write gates (deterministic) + cross-leg
+  // redundancies/merges the reasoning pass surfaced. Zero is explained rather than implied.
+  const _ins = (policy.aiInsights && typeof policy.aiInsights === 'object') ? policy.aiInsights : null;
+  const redundancyCount = dup.size
+    + ((_ins && Array.isArray(_ins.redundancies)) ? _ins.redundancies.length : 0)
+    + ((_ins && Array.isArray(_ins.merges)) ? _ins.merges.length : 0);
+  let redundancyNote = null;
+  if (redundancyCount === 0) {
+    if (!policy.enabled || !aiVerdicts) redundancyNote = 'Cross-leg redundant-path detection is part of the Director\u2019s reasoning pass. With the Director off — or not yet run on this machine — only exact-duplicate write gates are checked, so redundancy reads as zero. Turn the Director on to have it look for redundant and mergeable paths.';
+    else redundancyNote = 'The Director analysed the legs and found no redundant or mergeable paths — each leg pursued a distinct angle.';
+  }
+  const diagnosis = { whyZero, deskWhy, duplicatesFound: dup.size, redundancyCount, redundancyNote };
+
   return {
     autonomy, enabled: !!policy.enabled, grantId: grant.id, policyVersion: grant.policyVersion,
     total: openStops.length, handled, handledCount: handled.length,
@@ -633,6 +673,7 @@ function planReduction(tree, policy) {
     aiActive: !!aiVerdicts,
     aiJudgedCount, aiComplete, aiPending,
     insights: (policy.aiInsights && typeof policy.aiInsights === 'object') ? policy.aiInsights : null,
+    diagnosis,
   };
 }
 
