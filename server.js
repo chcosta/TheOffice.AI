@@ -25345,17 +25345,41 @@ function _meAiDirectorView(id) {
 // dots — silently stuck. We distinguish them from legs that are legitimately blocked ON a
 // user gate (those DO have an open stop referencing them, and belong on the desk). Returns
 // the recoverable ones so the Director can surface + one-click resume them.
-function _meAiDirectorStalledLegs(tree) {
+function _meAiDirectorStalledLegs(tree, opts) {
   if (!tree || !tree.legs) return [];
+  // When the pursuit is NOT live (errored/idle after an interruption), a leg that still
+  // claims 'running' but hasn't been touched in a while has no loop behind it — it's just
+  // as orphaned as a 'blocked' one. This is the scout-waiting case that made "Resume all N"
+  // recompute 0: the parent leg shows 'running' (waiting on a scout that died with the
+  // process), so the blocked-only detector missed it. Only widen when a caller opts in
+  // (the pursuit is known idle), so a healthy live pursuit still counts blocked-only.
+  const includeStale = !!(opts && opts.includeStaleRunning);
+  const now = Date.now();
   const openStopLegs = new Set((tree.stops || []).filter(s => s && s.status === 'open' && s.legId).map(s => s.legId));
   const out = [];
   for (const legId of (tree.order || [])) {
     const leg = tree.legs[legId];
-    if (!leg || leg.status !== 'blocked') continue;
+    if (!leg) continue;
     if (openStopLegs.has(legId)) continue; // blocked ON a live gate → already actionable on the desk
-    out.push({ legId, title: leg.title || leg.goal || 'a leg', kind: leg.kind || 'leg', lane: leg.lane || null });
+    let stalled = leg.status === 'blocked';
+    if (!stalled && includeStale && leg.status === 'running') {
+      const t0 = Date.parse(leg.updatedAt || leg.startedAt || leg.createdAt || 0);
+      if (!t0 || (now - t0) > ME_AI_STALE_RUNNING_MS) stalled = true;
+    }
+    if (stalled) out.push({ legId, title: leg.title || leg.goal || 'a leg', kind: leg.kind || 'leg', lane: leg.lane || null });
   }
   return out;
+}
+// A leg claiming 'running' this long after its last update, on a pursuit with no live loop,
+// is a restart/crash orphan — the loop is gone, so it never advances on its own.
+const ME_AI_STALE_RUNNING_MS = 90 * 1000;
+// A pursuit is "idle" (not live) when no orchestrator loop is driving it — errored, paused,
+// or parked. In that state a leg's 'running' status is stale, so stale-running orphans should
+// count toward the stalled/resumable set the desk surfaces and Resume acts on (they agree).
+function _meAiPursuitIdle(id) {
+  const t = meAiTasks.get(id);
+  if (!t) return true;
+  return !(t.status === 'running' || t.stage === 'working');
 }
 
 // ---- AI reasoning pass ----------------------------------------------------
@@ -26959,7 +26983,7 @@ app.get('/api/me-ai/task/:id/director', (req, res) => {
       reasonedAt: policy.aiReasonedAt || null,
       ledger: (tree.director && tree.director.ledger) || [],
       lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
-      stalled: _meAiDirectorStalledLegs(tree),
+      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id) }),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -26980,7 +27004,7 @@ app.post('/api/me-ai/task/:id/director/reason', async (req, res) => {
       enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused, leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan, ledger: (tree.director && tree.director.ledger) || [], lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
-      stalled: _meAiDirectorStalledLegs(tree),
+      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id) }),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -27119,6 +27143,17 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     const t = meAiTasks.get(id);
     const running = !!(t && (t.status === 'running' || t.stage === 'working'));
     const treeDone = !!((t && t.stage === 'done') || (tree && tree.stage === 'done'));
+    // The blocked-only pass found nothing, but the pursuit isn't live and isn't done —
+    // look again for legs that still claim 'running' with no loop behind them. This is the
+    // exact "Resume all 2 → 0 resumed" case the user keeps hitting: a restart killed the
+    // scouts, the PARENT legs read 'running' (waiting on a scout that will never return),
+    // so the blocked-only detector saw 0. Treating stale-running legs as orphans here lets
+    // the normal re-drive path below actually pick them up. Only when idle, so a healthy
+    // live pursuit is never touched (its 'running' legs really are running).
+    if (!stalled.length && !running && !treeDone) {
+      const orphans = _meAiDirectorStalledLegs(fresh, { includeStaleRunning: true });
+      if (orphans.length) { tree = fresh; stalled = orphans; meAiTrees.set(id, fresh); }
+    }
     // No restart-orphaned legs. This is the case that made "Resume all" look like a no-op:
     // the button fires off a stale client snapshot, the server recomputes fresh and finds
     // 0 stalled, and (previously) returned resumed:0 with no action. Distinguish the three

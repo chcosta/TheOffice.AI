@@ -767,6 +767,38 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Resume "N → 0 resumed" fix — the stalled detector must also catch scout-waiting
+// orphans that a restart left claiming 'running' (no loop behind them), but ONLY
+// when the pursuit is idle, so a healthy live pursuit still counts blocked-only.
+// The resume route recomputes with those orphans when the blocked-only pass finds
+// 0 on an idle, not-done pursuit; the state routes surface the same count so the
+// desk badge and Resume agree.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const src = readFileSync(SERVER, 'utf8');
+  const detector = sliceSource(SERVER, 'function _meAiDirectorStalledLegs(tree, opts) {', 'const ME_AI_STALE_RUNNING_MS');
+  await t.test('stalled detector opts-in to stale-running orphans', () => {
+    t.ok(detector.length > 0, 'detector found');
+    t.ok(/const includeStale = !!\(opts && opts\.includeStaleRunning\)/.test(detector), 'reads the includeStaleRunning opt');
+    t.ok(/leg\.status === 'running'/.test(detector) && /ME_AI_STALE_RUNNING_MS/.test(detector), 'counts a stale running leg past the threshold');
+    // default (no opts) must stay blocked-only so live pursuits are unaffected
+    t.ok(/let stalled = leg\.status === 'blocked'/.test(detector), 'blocked is still the base case');
+  });
+  await t.test('resume recomputes orphans when idle and the blocked pass is empty', () => {
+    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
+    t.ok(/if \(!stalled\.length && !running && !treeDone\)/.test(route), 'guards on idle, unfinished, blocked-pass-empty');
+    t.ok(/_meAiDirectorStalledLegs\(fresh, \{ includeStaleRunning: true \}\)/.test(route), 're-scans the fold for stale-running orphans');
+    t.ok(/stalled = orphans; meAiTrees\.set\(id, fresh\)/.test(route), 'adopts the orphans + rehydrates the live tree');
+  });
+  await t.test('state routes surface the idle-aware stalled count', () => {
+    const n = (src.match(/_meAiDirectorStalledLegs\(tree, \{ includeStaleRunning: _meAiPursuitIdle\(id\) \}\)/g) || []).length;
+    t.ok(n >= 2, `both GET /director and /director/reason use the idle-aware count (found ${n})`);
+    t.ok(/function _meAiPursuitIdle\(id\)/.test(src), '_meAiPursuitIdle helper exists');
+  });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pursuit map — node run-duration (Feature C). The fold reducer must stamp
 // startedAt when a leg enters 'running' and endedAt + durationMs on a terminal
 // transition, so the map / tooltip / export can report how long a node ran.
