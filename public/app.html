@@ -20456,6 +20456,7 @@
               .cmpx-pair-msg .body :last-child{margin-bottom:0}
               .cmpx-pair-msg.user{align-items:flex-end}
               .cmpx-pair-msg.user .body{background:var(--cp-accent);color:#fff;border-color:transparent;max-width:92%}
+              .cmpx-pair-msg.structure .body{border-left:3px solid var(--cp-accent);background:color-mix(in srgb, var(--cp-accent) 7%, var(--cp-bg))}
               .cmpx-pair-act{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
               .cmpx-pair-act .ln{font-size:11.5px;color:var(--cp-text-secondary);display:flex;gap:6px}
               .cmpx-pair-quick{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--cp-border)}
@@ -20786,7 +20787,7 @@
                           <p class="hint" x-text="composePairOpener()"></p>
                         </div>
                         <template x-for="(m, i) in compose.chat.messages" :key="i">
-                          <div class="cmpx-pair-msg" :class="{ user: m.role === 'user' }">
+                          <div class="cmpx-pair-msg" :class="{ user: m.role === 'user', structure: m.structure }">
                             <div class="who" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
                             <div class="body md-output" x-html="renderMarkdown(m.text)"></div>
                           </div>
@@ -46339,6 +46340,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               co.draftText = r.draft;
               co.draftDirty = true;
               this.composeSaveDraft();
+            }
+            // Structure negotiation — the assistant may have DECIDED a different audience /
+            // format / working title / sources (already persisted server-side) and/or asked
+            // ME to decide something. Mirror the decision into the framing panel and surface
+            // the change + any question in the conversation.
+            if (r && r.structure) {
+              const st = r.structure;
+              if (st.composition) {
+                co.current = st.composition;
+                co.current.sources = { ...this.composeSourcesDefault(), ...(co.current.sources || {}) };
+              }
+              const changed = st.patch && Object.keys(st.patch).length;
+              if (changed || st.note) {
+                c.messages.push({ role: 'assistant', text: '🧭 ' + (st.note || 'Updated the framing.'), structure: true });
+                this.toast('Framing updated', 'info');
+              }
+              if (st.ask && !(reply && reply.includes(st.ask))) {
+                c.messages.push({ role: 'assistant', text: st.ask });
+              }
             }
           } catch (e) {
             const raw = String((e && e.message) || e || '');

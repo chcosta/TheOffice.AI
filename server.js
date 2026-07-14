@@ -12177,6 +12177,24 @@ async function runComposeGeneration(id, runId) {
 }
 
 // Conversationally revise a composition draft. Returns { reply, draft? }; never saves.
+// Parse a fenced-or-bare JSON object emitted inside a control block (e.g. the
+// paired assistant's ===STRUCTURE=== block). Tolerant of ```json fences and
+// leading/trailing prose; returns null if nothing parses.
+function _composeParseJsonBlock(s) {
+  let t = String(s || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  try { return JSON.parse(t); } catch (_) { /* try brace-slice */ }
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch (_) { /* give up */ } }
+  return null;
+}
+
+// Formats the paired assistant is allowed to switch a composition to, honouring
+// the per-purpose lock the UI enforces (prototype ⇒ site only; everything else
+// hides site). Keeps the assistant's structure proposals inside the rails.
+function _composeAllowedFormats(purpose) {
+  return purpose === 'prototype' ? ['site'] : compose.FORMATS.filter(f => f !== 'site');
+}
+
 async function runComposeChat(id, { message, history, runId, draft, attachments }) {
   const c = compose.getComposition(id);
   if (!c) throw new Error('Composition not found.');
@@ -12198,6 +12216,15 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     return `${role}: ${String((h && h.content) || (h && h.text) || '').trim()}`;
   }).filter(Boolean).join('\n') || '(none)';
   const isSite = c.format === 'site';
+  const allowedFormats = _composeAllowedFormats(c.purpose);
+  const fmtLabels = { email: 'Email', teams: 'Teams message', doc: 'Document', site: 'Prototype site' };
+  const onSources = compose.SOURCES.filter(s => c.sources && c.sources[s.id]).map(s => s.id);
+  const structureCtx = [
+    `Audience: ${c.audience || '(unset)'}  ·  Format: ${c.format} (${fmtLabels[c.format] || c.format})  ·  Working title: ${c.title || '(untitled)'}`,
+    `Audience presets you may propose: ${compose.AUDIENCES.map(a => a.label).join(' · ')} — or a custom phrase.`,
+    `Formats allowed for this purpose: ${allowedFormats.map(f => `${f} (${fmtLabels[f] || f})`).join(', ')}. Never propose a format outside this list.`,
+    `Sources currently ON: ${onSources.length ? onSources.join(', ') : '(none)'}. Source ids you may add/remove: ${compose.SOURCES.map(s => s.id).join(', ')}.`,
+  ].join('\n');
   const attBlock = atts.length
     ? atts.map(a => `- ${a.ref || ('assets/' + a.file)}${a.name ? ` (original: ${a.name})` : ''}`).join('\n')
     : '';
@@ -12210,6 +12237,9 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     '',
     '## What the user wants',
     c.brief && c.brief.trim() ? c.brief.trim() : '(none)',
+    '',
+    '## Structure (you own this — refine it, don\'t just accept it)',
+    structureCtx,
     '',
     '## Sources',
     block,
@@ -12237,21 +12267,54 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     'If you revise, output the COMPLETE revised deliverable between ===DRAFT=== and ===END DRAFT=== '
       + (isSite ? '(a full self-contained, INTERACTIVE HTML document — CSS in <style>, JS in <script>, keep it working; all navigation stays in-page).' : '(Markdown).')
       + ' If you are only answering a question, omit the block.',
+    '',
+    'You also OWN the structure. If a clearer audience, a better-fitting allowed format, a sharper working title, or a different set of sources would make this land better — OR if you need me to decide something before you can proceed well — emit ONE control block:',
+    '===STRUCTURE===',
+    '{ "audience": "…", "format": "<allowed id>", "title": "…", "addSources": ["id"], "removeSources": ["id"], "note": "one line: what you changed and why", "ask": "one question when you need me to decide" }',
+    '===END STRUCTURE===',
+    'Include ONLY the fields you are actually changing or asking about (omit the rest). Decisions in the fields take effect immediately and update my structure panel; open questions go in "ask". Keep it valid JSON. Always still write your normal conversational reply.',
   ].join('\n');
   const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };
   const text = await _composeRunAgent('editor', prompt, onStep);
   const raw = String(text || '').trim();
-  let reply = raw;
   let newDraft = null;
   const m = raw.match(/===DRAFT===\s*([\s\S]*?)\s*===END DRAFT===/i);
   if (m) {
-    reply = raw.slice(0, m.index).trim();
     const ext = _composeExtractDeliverable('===COMPOSE-START===\n' + m[1].trim() + '\n===COMPOSE-END===', c.format);
     if (ext.content && ext.content.trim()) newDraft = ext.content;
   }
-  if (!reply) reply = newDraft ? 'Updated the draft below — review the changes.' : 'Done.';
-  emit('✅', newDraft ? 'Revision ready' : 'Done', true);
-  return { reply, draft: newDraft };
+  // Structure negotiation — the assistant may decide a different audience/format/title/
+  // sources (applied immediately, mirrored in the panel) and/or ask me to decide.
+  let structure = null;
+  const sm = raw.match(/===STRUCTURE===\s*([\s\S]*?)\s*===END STRUCTURE===/i);
+  if (sm) {
+    const j = _composeParseJsonBlock(sm[1]);
+    if (j && typeof j === 'object') {
+      const patch = {};
+      if (typeof j.audience === 'string' && j.audience.trim()) patch.audience = j.audience.trim().slice(0, 400);
+      if (typeof j.format === 'string' && allowedFormats.includes(j.format) && j.format !== c.format) patch.format = j.format;
+      if (typeof j.title === 'string' && j.title.trim()) patch.title = j.title.trim().slice(0, 200);
+      const known = new Set(compose.SOURCES.map(s => s.id));
+      const srcPatch = {};
+      for (const id of (Array.isArray(j.addSources) ? j.addSources : [])) { const k = String(id || ''); if (known.has(k)) srcPatch[k] = true; }
+      for (const id of (Array.isArray(j.removeSources) ? j.removeSources : [])) { const k = String(id || ''); if (known.has(k)) srcPatch[k] = false; }
+      if (Object.keys(srcPatch).length) patch.sources = srcPatch;
+      const note = typeof j.note === 'string' ? j.note.trim().slice(0, 300) : '';
+      const ask = typeof j.ask === 'string' ? j.ask.trim().slice(0, 400) : '';
+      if (Object.keys(patch).length || ask) {
+        const comp = Object.keys(patch).length ? (compose.updateComposition(id, patch) || c) : c;
+        structure = { patch, note, ask, composition: comp };
+      }
+    }
+  }
+  // Reply = everything the assistant said, minus the machine-only control blocks.
+  let reply = raw
+    .replace(/===DRAFT===[\s\S]*?===END DRAFT===/i, '')
+    .replace(/===STRUCTURE===[\s\S]*?===END STRUCTURE===/i, '')
+    .trim();
+  if (!reply) reply = newDraft ? 'Updated the draft below — review the changes.' : (structure && structure.note ? structure.note : 'Done.');
+  emit('✅', newDraft ? 'Revision ready' : (structure ? 'Structure updated' : 'Done'), true);
+  return { reply, draft: newDraft, structure };
 }
 
 // Inline a composition's local asset images (assets/<file>) as data URIs.

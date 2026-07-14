@@ -774,6 +774,49 @@ await t.test('Pulse.AI share — inline-SVG comic is rasterized to a PNG data UR
   t.ok(!/markdown: body, images: sh\.images/.test(send), 'raw sh.images is no longer posted directly');
 });
 
+await t.test('Compose paired assistant negotiates structure — server judges + applies, client mirrors into the framing panel', async () => {
+  const srv = readFileSync('server.js', 'utf8');
+  // Server: fence-tolerant JSON extractor + per-purpose format lock helpers.
+  t.ok(/function _composeParseJsonBlock\(s\)\s*\{/.test(srv), '_composeParseJsonBlock helper exists');
+  t.ok(/function _composeAllowedFormats\(purpose\)\s*\{[\s\S]*?purpose === 'prototype' \? \['site'\] : compose\.FORMATS\.filter\(f => f !== 'site'\)/.test(srv), 'allowed-format helper honours the prototype site-lock');
+  // The prompt injects the structure context + the ===STRUCTURE=== control-block protocol.
+  t.ok(/## Structure \(you own this/.test(srv), 'prompt gives the assistant ownership of the structure');
+  t.ok(/===STRUCTURE===[\s\S]*?===END STRUCTURE===/.test(srv), 'prompt documents the STRUCTURE control block');
+  // Parse/validate/apply: format validated against the allowed list + only when changed;
+  // sources add/remove validated against the catalog; patch applied via updateComposition.
+  const fn = (srv.match(/async function runComposeChat\([\s\S]*?return \{ reply, draft: newDraft, structure \};/) || [''])[0];
+  t.ok(/allowedFormats\.includes\(j\.format\) && j\.format !== c\.format/.test(fn), 'format change validated against the allowed list + must differ');
+  t.ok(/patch\.audience = j\.audience\.trim\(\)\.slice\(0, 400\)/.test(fn), 'audience clamped');
+  t.ok(/patch\.title = j\.title\.trim\(\)\.slice\(0, 200\)/.test(fn), 'title clamped');
+  t.ok(/const known = new Set\(compose\.SOURCES\.map\(s => s\.id\)\)/.test(fn), 'source ids validated against the catalog');
+  t.ok(/compose\.updateComposition\(id, patch\)/.test(fn), 'structure patch applied through the real update path');
+  t.ok(/return \{ reply, draft: newDraft, structure \}/.test(fn), 'handler returns the structure alongside reply + draft');
+  // Control blocks are stripped from the human-visible reply.
+  t.ok(/\.replace\(\/===STRUCTURE===\[\\s\\S\]\*\?===END STRUCTURE===\/i, ''\)/.test(fn), 'STRUCTURE block stripped from the reply');
+  // Route forwards the whole out object (structure included).
+  t.ok(/const out = await runComposeChat\(req\.params\.id[\s\S]*?res\.json\(\{ ok: true, \.\.\.out \}\)/.test(srv), 'chat route spreads out so structure passes through');
+
+  // Live functional proof: the parse/validate/apply logic honours the rails.
+  const { default: compose } = await import('../compose.js');
+  const parse = (s) => { let t2 = String(s || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim(); try { return JSON.parse(t2); } catch (_) {} const a = t2.indexOf('{'), b = t2.lastIndexOf('}'); if (a >= 0 && b > a) { try { return JSON.parse(t2.slice(a, b + 1)); } catch (_) {} } return null; };
+  t.ok(parse('```json\n{"audience":"execs"}\n```').audience === 'execs', 'fenced JSON parses');
+  t.ok(parse('noise {"title":"X"} tail').title === 'X', 'brace-sliced JSON parses');
+  const allowed = (p) => p === 'prototype' ? ['site'] : compose.FORMATS.filter(f => f !== 'site');
+  t.ok(!allowed('proposal').includes('site'), 'non-prototype purpose cannot switch to site');
+  t.ok(allowed('prototype').length === 1 && allowed('prototype')[0] === 'site', 'prototype purpose is locked to site');
+
+  // Client: composeChatSend consumes r.structure → sets co.current + surfaces note/ask.
+  const html = readFileSync('public/app.html', 'utf8');
+  const send = (html.match(/async composeChatSend\(\)\s*\{[\s\S]*?\n        \},/) || [''])[0];
+  t.ok(/if \(r && r\.structure\)/.test(send), 'client acts on r.structure');
+  t.ok(/co\.current = st\.composition/.test(send), 'client mirrors the returned composition into the framing panel');
+  t.ok(/\.\.\.this\.composeSourcesDefault\(\)/.test(send), 'client re-merges the sources defaults');
+  t.ok(/text: '🧭 ' \+ \(st\.note \|\| 'Updated the framing\.'\), structure: true/.test(send), 'a decision note surfaces as a distinct structure message');
+  t.ok(/if \(st\.ask && !\(reply && reply\.includes\(st\.ask\)\)\)/.test(send), 'an open question surfaces (de-duped against the prose reply)');
+  t.ok(/user: m\.role === 'user', structure: m\.structure/.test(html), 'structure messages get their own class');
+  t.ok(/\.cmpx-pair-msg\.structure \.body\{/.test(html), 'structure message has a calm accent style');
+});
+
 await t.test('Me-agent view is its own page (agenda hidden), not an overlay flashed over the agenda', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // A dedicated agentPage flag exists in the meai state.
