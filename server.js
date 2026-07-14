@@ -22773,6 +22773,16 @@ function _meAiTreeLegPrompt(t, leg) {
     ``,
     `For each finding, set "subject" to a short stable slug for the topic (reuse the SAME slug a sibling leg would pick for the same question, e.g. "ci-status", "reviewer-approval") and "stance" to whether you AFFIRM or DENY that subject (or neutral). This lets the main thread detect when two legs contradict each other instead of silently overwriting.`,
     ``,
+    `WRITE A THOROUGH ANALYSIS — not just a summary. Before the JSON block, write up what`,
+    `you actually found for this leg in full: the concrete specifics, evidence, data`,
+    `points, quotes, and the exact sources/links you relied on (repos, PRs, files, ADO`,
+    `items, docs, URLs — cite them inline). Explain your reasoning, note historical`,
+    `context and anything surprising, and use Markdown structure (headings, tables, lists)`,
+    `where it communicates better. Do NOT collapse this into one line — this full write-up`,
+    `is preserved and woven into the pursuit's final report, so the depth you put here is`,
+    `depth the user gets to keep. (The short "summary" field in the JSON is just a headline`,
+    `for that write-up, not a replacement for it.)`,
+    ``,
     `IF YOU HIT A WALL, FAN OUT before you park. Don't return blocked after a single`,
     `failed approach — explore several alternate routes to get through (search the`,
     `subject org-wide / in Azure DevOps / on the web, try a connected MCP or tool, or`,
@@ -22800,7 +22810,7 @@ function _meAiParseLegResult(out) {
   const okConf = c => (['low', 'medium', 'high'].includes(c) ? c : 'medium');
   const okOut = o => (['done', 'dead-end', 'needs-auth', 'needs-info', 'needs-decision'].includes(o) ? o : 'done');
   if (!p || typeof p !== 'object') {
-    return { summary: prose.slice(0, 600) || 'Leg complete.', confidence: 'medium', outcome: 'done', findings: [], proposedAction: null, question: null, invalidates: [] };
+    return { summary: prose.slice(0, 600) || 'Leg complete.', confidence: 'medium', outcome: 'done', findings: [], proposedAction: null, question: null, invalidates: [], body: prose.slice(0, 24000) };
   }
   let pa = null;
   if (p.proposedAction && typeof p.proposedAction === 'object') {
@@ -22821,6 +22831,11 @@ function _meAiParseLegResult(out) {
     proposedAction: pa,
     question: p.question ? String(p.question).slice(0, 600) : null,
     invalidates: Array.isArray(p.invalidates) ? p.invalidates.map(s => String(s).slice(0, 120)).filter(Boolean) : [],
+    // The leg's FULL written analysis (its reply minus the trailing JSON block and any
+    // surfaced <<<ARTIFACT>>> blocks, which are stripped upstream). Preserved generously
+    // so the deep investigation is available to the final compendium synthesis instead of
+    // being thrown away in favor of the 800-char summary.
+    body: prose.slice(0, 24000),
   };
 }
 
@@ -23100,6 +23115,431 @@ function _meAiTreeAutoStopReason(t, ctx) {
   return null; // converged + actionable + budget remaining → continue autonomously.
 }
 
+// ---- Rich deliverable synthesis (the pursuit's FINAL report) ------------------
+// A deep investigate-pursuit does a lot of well-sourced analysis across many legs.
+// The cheap per-round digest (headline summaries + short findings) is fine for a
+// glance mid-pursuit, but the HAND-BACK deliverable should preserve that work: the
+// specifics, evidence, data, sources and reasoning each leg produced. These helpers
+// weave the full corpus into ONE self-contained, navigable HTML compendium (rendered
+// by the existing report surface's sandboxed iframe), degrading to a rich Markdown
+// document (full leg write-ups, not 800-char clips) whenever the AI pass can't run.
+
+// Assemble the corpus the synthesis reasons over: each non-dead leg's full written
+// analysis (leg._result.body, captured in _meAiParseLegResult) plus the concrete
+// artifacts (charts/tables/HTML) those legs surfaced, so the compendium can reference
+// and re-present the real material instead of a summary of a summary.
+function _meAiReportCorpus(t, legs) {
+  let arts = [];
+  try {
+    const tree = (typeof meAiTrees !== 'undefined' && meAiTrees.get(t.id)) || null;
+    if (tree && Array.isArray(tree.artifacts)) arts = tree.artifacts;
+  } catch (_) {}
+  const legOut = [];
+  for (const l of legs) {
+    const r = l && l._result; if (!r) continue;
+    const body = String(r.body || '').trim();
+    if (r.outcome === 'dead-end' && !body && !(r.findings || []).length) continue;
+    legOut.push({
+      title: l.title || 'Angle',
+      goal: l.goal || '',
+      outcome: r.outcome || 'done',
+      confidence: r.confidence || 'medium',
+      summary: r.summary || '',
+      findings: (r.findings || []).slice(0, 12).map(f => ({ claim: f.claim, stance: f.stance || null, confidence: f.confidence || null })),
+      analysis: body.slice(0, 6000),
+    });
+    if (legOut.length >= 14) break;
+  }
+  const artOut = (arts || [])
+    .filter(a => a && a.kind !== 'report' && (a.body || a.link))
+    .slice(0, 24)
+    .map(a => ({ title: a.title || null, kind: a.kind || null, format: a.format || null, link: a.link || null, excerpt: a.body ? String(a.body).slice(0, 1000) : null }));
+  return { legs: legOut, artifacts: artOut };
+}
+
+// Pull a clean, complete HTML document out of the model's reply (tolerates a wrapping
+// ```html fence and stray prose before/after). Returns '' if it isn't a real doc.
+function _meAiExtractHtmlDoc(out) {
+  let s = String(out || '').trim();
+  if (!s) return '';
+  const fence = s.match(/^```(?:html)?\s*\n([\s\S]*?)\n?```\s*$/i);
+  if (fence) s = fence[1].trim();
+  const low = s.toLowerCase();
+  let i = low.indexOf('<!doctype');
+  if (i < 0) i = low.indexOf('<html');
+  if (i < 0) return '';
+  s = s.slice(i);
+  const end = s.toLowerCase().lastIndexOf('</html>');
+  if (end < 0) return '';
+  s = s.slice(0, end + '</html>'.length).trim();
+  return s.length > 200 ? s : '';
+}
+
+// Agents with file tools sometimes SAVE the HTML to disk and reply with a chat note
+// ("The report is ready at: C:\\…\\foo.html") instead of printing the document inline.
+// When inline extraction fails, salvage the real deliverable by reading any .html file
+// path the reply references (that exists and is recent). Facts are the model's own output,
+// so this is not a trust boundary — we only validate that it parses as an HTML document.
+function _meAiRecoverHtmlFromOutput(out) {
+  try {
+    const s = String(out || '');
+    if (!s) return '';
+    const seen = new Set();
+    const cands = [];
+    // Windows abs paths and POSIX-ish paths ending in .htm(l), tolerant of quotes/fences.
+    const re = /(?:[A-Za-z]:[\\/]|\/|\.{0,2}[\\/])[^\r\n"'`<>|*?]*?\.html?\b/gi;
+    let m; while ((m = re.exec(s))) { const p = m[0].trim(); if (p && !seen.has(p)) { seen.add(p); cands.push(p); } }
+    const fs2 = require('fs');
+    for (const p of cands) {
+      try { if (!fs2.existsSync(p)) continue; const body = fs2.readFileSync(p, 'utf8'); const html = _meAiExtractHtmlDoc(body); if (html) return html; } catch (_) {}
+    }
+  } catch (_) {}
+  return '';
+}
+
+// Assemble a navigable, story-driven "microsite" from a structured payload the model
+// returns (title/subtitle/overview/actionItems/keyFindings/sections/sources). We own the
+// chrome deterministically so the deliverable is ALWAYS navigable: a sticky sidebar table
+// of contents + CSS `:target` paging (one page at a time, no single endless scroll), a
+// home "Overview" page that frames the story with the bottom line + action items + key
+// findings, and each section headed with a "what this is / why it matters" tagline. It is
+// fully self-contained and SCRIPT-FREE (the report renders in a no-JS sandbox): navigation
+// is pure anchor links + `:target`/`:has` CSS, charts are inline <svg>, no external assets.
+function _meAiComposeCompendiumSite(payload, meta) {
+  if (!payload || typeof payload !== 'object') return '';
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const clean = h => String(h == null ? '' : h)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<\/?(?:html|head|body|!doctype)[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
+    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+  const usedIds = new Set();
+  const slug = (s, i) => {
+    let base = String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || ('s' + i);
+    let id = base, n = 2; while (usedIds.has(id)) id = base + '-' + (n++); usedIds.add(id); return id;
+  };
+  const title = esc((payload.title || (meta && meta.title) || 'Investigation compendium'));
+  const subtitle = esc(payload.subtitle || (meta && meta.goal) || '');
+  const overview = clean(payload.overview || '');
+  const actionItems = Array.isArray(payload.actionItems) ? payload.actionItems.filter(Boolean) : [];
+  const keyFindings = Array.isArray(payload.keyFindings) ? payload.keyFindings.filter(Boolean) : [];
+  const sources = Array.isArray(payload.sources) ? payload.sources.filter(Boolean) : [];
+  let sections = Array.isArray(payload.sections) ? payload.sections.filter(s => s && (s.html || s.title)) : [];
+  if (!sections.length) return ''; // nothing to page → let the caller fall back to rich MD
+  sections = sections.map((s, i) => ({ id: 'sec-' + slug(s.id || s.title, i), title: esc(s.title || ('Section ' + (i + 1))), tagline: esc(s.tagline || ''), html: clean(s.html || '') }));
+  const hasSources = sources.length > 0;
+  // Sidebar TOC — plain text links (no pills), quiet active state via :target/:has.
+  const toc = [];
+  toc.push(`<a href="#overview" class="toc-a" data-pg="overview">Overview</a>`);
+  for (const s of sections) toc.push(`<a href="#${s.id}" class="toc-a" data-pg="${s.id}">${s.title}</a>`);
+  if (hasSources) toc.push(`<a href="#sources" class="toc-a" data-pg="sources">Sources &amp; references</a>`);
+  // Pages
+  const pages = [];
+  pages.push([
+    `<section id="overview" class="pg" aria-label="Overview">`,
+    `<h1>${title}</h1>`,
+    subtitle ? `<p class="sub">${subtitle}</p>` : '',
+    overview ? `<div class="lead">${overview}</div>` : '',
+    actionItems.length ? (`<div class="callout"><h2>Action items</h2><ol>` + actionItems.map(a => `<li>${esc(a)}</li>`).join('') + `</ol></div>`) : '',
+    keyFindings.length ? (`<div class="callout alt"><h2>Key findings</h2><ul>` + keyFindings.map(f => `<li>${esc(f)}</li>`).join('') + `</ul></div>`) : '',
+    sections.length ? (`<div class="jump"><h2>In this report</h2><ul>` + sections.map(s => `<li><a href="#${s.id}">${s.title}</a>${s.tagline ? ` — <span class="mut">${s.tagline}</span>` : ''}</li>`).join('') + `</ul></div>`) : '',
+    `</section>`
+  ].join('\n'));
+  for (const s of sections) {
+    pages.push([
+      `<section id="${s.id}" class="pg" aria-label="${s.title}">`,
+      `<h2>${s.title}</h2>`,
+      s.tagline ? `<p class="why">${s.tagline}</p>` : '',
+      `<div class="body">${s.html}</div>`,
+      `<p class="totop"><a href="#overview">‹ Back to overview</a></p>`,
+      `</section>`
+    ].join('\n'));
+  }
+  if (hasSources) {
+    pages.push([
+      `<section id="sources" class="pg" aria-label="Sources and references">`,
+      `<h2>Sources &amp; references</h2>`,
+      `<p class="why">Every source cited across the investigation.</p>`,
+      `<ul class="src">` + sources.map(s => {
+        const label = esc(s.label || s.url || 'source');
+        const url = s.url ? esc(s.url) : '';
+        return url ? `<li><a href="${url}" rel="noreferrer noopener">${label}</a></li>` : `<li>${label}</li>`;
+      }).join('') + `</ul>`,
+      `<p class="totop"><a href="#overview">‹ Back to overview</a></p>`,
+      `</section>`
+    ].join('\n'));
+  }
+  const css = `
+:root{--bg:#fff;--fg:#1a1d21;--mut:#5b6570;--line:#e4e8ec;--card:#f6f8fa;--acc:#2563eb;--acc2:#0d9488;}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--mut:#9aa5b1;--line:#232a33;--card:#161b22;--acc:#5aa0ff;--acc2:#2dd4bf;}}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+a{color:var(--acc);text-decoration:none;}a:hover{text-decoration:underline;}
+.wrap{display:grid;grid-template-columns:264px minmax(0,1fr);min-height:100vh;}
+.side{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;border-right:1px solid var(--line);padding:22px 16px;background:var(--card);}
+.side .brand{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:700;margin-bottom:14px;}
+.toc-a{display:block;padding:7px 10px;border-radius:7px;color:var(--fg);font-size:13.5px;margin-bottom:2px;border-left:2px solid transparent;}
+.toc-a:hover{background:color-mix(in srgb,var(--acc) 12%,transparent);text-decoration:none;}
+.main{padding:40px 48px 96px;max-width:1080px;}
+.pg{display:none;animation:fade .18s ease;}
+.pg:target{display:block;}
+body:not(:has(.pg:target)) #overview{display:block;}
+@keyframes fade{from{opacity:.4;}to{opacity:1;}}
+h1{font-size:30px;line-height:1.2;margin:0 0 6px;letter-spacing:-.01em;}
+h2{font-size:21px;margin:30px 0 10px;letter-spacing:-.01em;}
+h3{font-size:16px;margin:20px 0 8px;}
+.sub{font-size:16px;color:var(--mut);margin:0 0 22px;max-width:70ch;}
+.why{color:var(--mut);font-size:14px;margin:0 0 16px;font-style:italic;max-width:70ch;}
+.lead{font-size:15.5px;max-width:74ch;}
+.lead p:first-child{margin-top:0;}
+.callout{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:22px 0;}
+.callout h2{margin:0 0 8px;font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);}
+.callout.alt{border-left:3px solid var(--acc2);}
+.callout ol,.callout ul{margin:0;padding-left:20px;}
+.callout li{margin:5px 0;}
+.jump{margin:26px 0;}
+.jump h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px;}
+.jump ul{list-style:none;margin:0;padding:0;}
+.jump li{padding:8px 0;border-top:1px solid var(--line);}
+.jump li:last-child{border-bottom:1px solid var(--line);}
+.mut{color:var(--mut);}
+.body{max-width:78ch;}
+.body p{margin:0 0 14px;}
+.body table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;display:block;overflow-x:auto;}
+.body th,.body td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top;}
+.body th{background:var(--card);font-weight:600;}
+.body pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;font-size:13px;}
+.body code{background:var(--card);border-radius:4px;padding:1px 5px;font-size:13px;}
+.body details{border:1px solid var(--line);border-radius:8px;padding:8px 14px;margin:14px 0;background:var(--card);}
+.body summary{cursor:pointer;font-weight:600;}
+.body svg{max-width:100%;height:auto;}
+.body blockquote{margin:14px 0;padding:4px 16px;border-left:3px solid var(--line);color:var(--mut);}
+.src{max-width:78ch;padding-left:20px;}
+.src li{margin:6px 0;word-break:break-word;}
+.totop{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;}
+@media (max-width:760px){.wrap{grid-template-columns:1fr;}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);}.main{padding:28px 22px 72px;}}
+`;
+  return [
+    '<!doctype html>',
+    '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+    `<title>${title}</title>`,
+    `<style>${css}</style></head><body>`,
+    '<div class="wrap">',
+    `<nav class="side" aria-label="Contents"><div class="brand">Contents</div>${toc.join('')}</nav>`,
+    `<main class="main">${pages.join('\n')}</main>`,
+    '</div></body></html>'
+  ].join('\n');
+}
+
+// Tolerant JSON extractor for the structured compendium payload: strips a ```json fence
+// and prose, then parses the outermost {...}. Returns null if it isn't valid JSON.
+function _meAiExtractJsonObject(out) {
+  let s = String(out || '').trim();
+  if (!s) return null;
+  const fence = s.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/i);
+  if (fence) s = fence[1].trim();
+  const i = s.indexOf('{'); const j = s.lastIndexOf('}');
+  if (i < 0 || j <= i) return null;
+  const body = s.slice(i, j + 1);
+  try { return JSON.parse(body); } catch (_) { return null; }
+}
+
+// Leader-gated AI synthesis → one self-contained, NAVIGABLE HTML compendium (a small
+// microsite). The model returns a STRUCTURED payload (sections + overview + action items
+// + key findings + sources); we assemble the navigation chrome deterministically so the
+// deliverable is reliably a story-driven, paged site — never a single endless scroll.
+// Returns { html } on success, else null (caller falls back to rich Markdown).
+async function _meAiTreeSynthesizeReport(t, corpus, meta) {
+  try { if (!_meAiDirectorLeaderOk()) return null; } catch (_) { return null; }
+  if (!corpus || !Array.isArray(corpus.legs) || !corpus.legs.length) return null;
+  const goal = (meta && meta.goal) || t.goal || _meAiGoalFor(t) || '';
+  const title = (meta && meta.title) || _meAiReportTitle(t);
+  const prompt = [
+    `You are a senior analyst-editor producing the FINAL DELIVERABLE of a deep, multi-angle investigation.`,
+    `Multiple research agents ("angles") each investigated part of the goal and wrote up what they found.`,
+    `Your job: weave their work into ONE cohesive, navigable compendium that tells a story — not a`,
+    `watered-down summary. PRESERVE the specifics: the concrete evidence, data points, quotes, numbers and`,
+    `sources each angle gathered. Where an angle went deep, stay deep. Summarizing away the detail defeats`,
+    `the entire purpose of the investigation.`,
+    ``,
+    `TITLE: ${title}`,
+    `GOAL: ${goal}`,
+    ``,
+    `INVESTIGATION CORPUS (JSON — each angle's summary, findings, and FULL written analysis, plus the`,
+    `artifacts they produced). Use ONLY facts present here; never invent sources, data or links:`,
+    '```json',
+    JSON.stringify(corpus).slice(0, 90000),
+    '```',
+    ``,
+    `OUTPUT: reply with ONLY a single JSON object (no prose, no markdown fence) with EXACTLY this shape:`,
+    `{`,
+    `  "title": "the report title",`,
+    `  "subtitle": "one-line framing of what this investigation set out to answer",`,
+    `  "overview": "HTML fragment: the executive synthesis — the bottom line and what it all MEANS together. 2-5 short paragraphs. Use <p> tags.",`,
+    `  "actionItems": ["concrete recommended next step", "..."],`,
+    `  "keyFindings": ["the single most important takeaways, one per line", "..."],`,
+    `  "sections": [`,
+    `    {`,
+    `      "id": "short-slug",`,
+    `      "title": "thematic section title",`,
+    `      "tagline": "one line: what this section IS and why it matters to the goal",`,
+    `      "html": "HTML fragment carrying the REAL evidence/data/quotes/sources for this theme. Attribute claims to their angle/source; flag low-confidence points honestly. Use <p>, <h3>, <ul>, <table> for tabular data, inline <svg> for charts (draw them by hand), <details><summary> for deep supporting detail, <blockquote> for quotes."`,
+    `    }`,
+    `  ],`,
+    `  "sources": [ { "label": "source name/title", "url": "https://... (omit if no link)" } ]`,
+    `}`,
+    ``,
+    `Hard requirements for every HTML fragment (overview + section.html):`,
+    `- HTML FRAGMENTS ONLY — no <html>, <head>, <body>, <style>, <script>, and no inline event handlers.`,
+    `  The page is rendered WITHOUT JavaScript; anything interactive must be pure HTML (<details>, inline <svg>).`,
+    `- No external CSS/JS/fonts/images and no CDN links. Inline <svg> only for charts.`,
+    `- Do NOT use pill/chip UI (small rounded bordered tag bubbles). Keep it calm, clean, highly readable.`,
+    `- Aim for 4-8 thematic sections that build a narrative arc; carry the depth — tables, charts, quotes,`,
+    `  numbers and attributed sources belong in the section bodies. Include a "Conflicts & open questions"`,
+    `  section when the angles disagreed or left something unresolved.`,
+    `- Return valid JSON: escape quotes/newlines inside strings. Do not truncate mid-object.`,
+  ].join('\n');
+  let model; try { model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined; } catch (_) {}
+  let output = '';
+  try {
+    const res = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, meta: { record: false, source: 'pursuit-compendium', pursuit: t.id } });
+    if (res && res.ok !== false) output = String(res.output || '');
+    else return null;
+  } catch (_) { return null; }
+  // Primary: structured payload → deterministic navigable site.
+  const payload = _meAiExtractJsonObject(output);
+  if (payload) { const html = _meAiComposeCompendiumSite(payload, { title, goal }); if (html) return { html }; }
+  // Fallback: the model ignored the contract and returned a full HTML doc anyway, or saved
+  // one to a file — salvage it so we never regress to a thin digest.
+  let html = _meAiExtractHtmlDoc(output);
+  if (!html) html = _meAiRecoverHtmlFromOutput(output);
+  return html ? { html } : null;
+}
+
+// Rich Markdown fallback: still preserves each angle's FULL written analysis (not the
+// clipped summary) so the depth is never lost when the AI pass is unavailable / this
+// box isn't the leader / synthesis fails. extra carries the conflicts + next-move text.
+function _meAiTreeReportFallbackMd(t, legs, extra) {
+  const title = _meAiReportTitle(t);
+  const goal = t.goal || _meAiGoalFor(t) || '';
+  const rankC = { high: 3, medium: 2, low: 1 };
+  const done = legs.filter(l => l._result && l._result.outcome !== 'dead-end');
+  const ranked = done.slice().sort((a, b) => (rankC[b._result.confidence] || 0) - (rankC[a._result.confidence] || 0));
+  const L = [`# ${title}`, ``, `**Goal:** ${goal}`, ``];
+  if (ranked.length) {
+    L.push(`## Executive synthesis`, ``);
+    for (const l of ranked.slice(0, 6)) L.push(`- **${l.title}** — ${l._result.summary}`);
+    L.push('');
+  }
+  for (const l of done) {
+    L.push(`## ${l.title}`, ``);
+    if (l.goal) L.push(`_${l.goal}_`, ``);
+    const body = String((l._result && l._result.body) || '').trim();
+    L.push(body || (l._result && l._result.summary) || '(no detail captured)');
+    const fs2 = (l._result && l._result.findings) || [];
+    if (fs2.length) { L.push('', `**Findings:**`); for (const f of fs2) L.push(`- ${f.claim} _(${f.confidence || 'medium'})_`); }
+    L.push('');
+  }
+  if (extra && extra.conflictsMd) L.push(extra.conflictsMd, '');
+  L.push(`## Recommended next steps`, ``, `- ${(extra && extra.nextText) || 'Review the conclusions above.'}`);
+  return L.join('\n');
+}
+
+// ---- On-demand compendium (rebuild the deliverable for an already-parked pursuit) ----
+// The conclusion-time synthesis above reasons over in-memory legs (`l._result`), which a
+// pursuit reloaded from disk no longer carries. This rebuilds the SAME rich corpus straight
+// from the folded journal — each leg's checkpoint summary, its merged findings (with the
+// evidence + sources the finding captured), and the FULL bodies of every artifact that leg
+// produced (analysis docs, tables, diagrams). So it works even for pursuits that ran BEFORE
+// per-leg body capture: the depth lives in the 40+ artifacts, and we weave those back in.
+function _meAiFoldedReportCorpus(t) {
+  const legs = (t && t.legs) || {};
+  const order = (t && Array.isArray(t.order)) ? t.order : Object.keys(legs);
+  const arts = (t && Array.isArray(t.artifacts)) ? t.artifacts : [];
+  const cps = (t && Array.isArray(t.checkpoints)) ? t.checkpoints : [];
+  const finds = (t && t.rootState && Array.isArray(t.rootState.findings)) ? t.rootState.findings : [];
+  const cpByLeg = {}; for (const c of cps) { if (c && c.legId) (cpByLeg[c.legId] = cpByLeg[c.legId] || []).push(c); }
+  const artByLeg = {}; for (const a of arts) { if (a && a.legId) (artByLeg[a.legId] = artByLeg[a.legId] || []).push(a); }
+  const findByLeg = {}; for (const f of finds) { if (f && f.legId) (findByLeg[f.legId] = findByLeg[f.legId] || []).push(f); }
+  const word = (n) => (typeof n === 'number') ? (n >= 0.75 ? 'high' : n >= 0.5 ? 'medium' : 'low') : (n || 'medium');
+  const legOut = [];
+  for (const id of order) {
+    const l = legs[id]; if (!l) continue;
+    if (l.lane === 'spine' || l.kind === 'reroute') continue; // the trunk carries no research body
+    const dead = l.status === 'invalidated' || l.status === 'dead' || !!l.invalidated;
+    const legFinds = findByLeg[id] || [];
+    const legArts = (artByLeg[id] || []).filter(a => a && a.kind !== 'report');
+    if (dead && !legFinds.length && !legArts.length) continue;
+    const cp = (cpByLeg[id] || []).slice(-1)[0] || null;
+    const summary = (cp && cp.summary) || l.goal || l.title || '';
+    const analysis = legArts.filter(a => a.body)
+      .map(a => `### ${a.title || a.kind || 'Artifact'}${a.format === 'mermaid' ? ' (diagram)' : (a.kind ? ' (' + a.kind + ')' : '')}\n${String(a.body).trim()}`)
+      .join('\n\n');
+    legOut.push({
+      title: l.title || 'Angle',
+      goal: l.goal || '',
+      outcome: dead ? 'dead-end' : 'done',
+      confidence: word(l.confidence != null ? l.confidence : (cp && cp.confidence)),
+      summary,
+      findings: legFinds.slice(0, 12).map(f => ({
+        claim: f.claim, stance: f.stance || null, confidence: word(f.confidence),
+        evidence: f.evidence ? String(f.evidence).slice(0, 500) : null,
+        sources: Array.isArray(f.sources) ? f.sources.slice(0, 8) : null,
+      })),
+      analysis: analysis.slice(0, 9000),
+    });
+  }
+  const rankC = { high: 3, medium: 2, low: 1 };
+  legOut.sort((a, b) => ((a.outcome === 'dead-end' ? 1 : 0) - (b.outcome === 'dead-end' ? 1 : 0)) || ((rankC[b.confidence] || 0) - (rankC[a.confidence] || 0)));
+  // Standalone diagrams/tables so the compendium can re-present the actual charts,
+  // even for legs whose per-leg analysis got trimmed.
+  const artOut = arts
+    .filter(a => a && a.kind !== 'report' && (a.body || a.link) && (a.kind === 'diagram' || a.kind === 'table' || a.format === 'mermaid'))
+    .slice(0, 20)
+    .map(a => ({ title: a.title || null, kind: a.kind || null, format: a.format || null, link: a.link || null, excerpt: a.body ? String(a.body).slice(0, 1600) : null }));
+  const out = { legs: legOut, artifacts: artOut };
+  return out;
+}
+
+// Rich Markdown fallback built straight from a folded corpus (no `_result` dependency),
+// used when the AI synthesis pass can't run. Preserves each leg's full artifact analysis,
+// its sourced findings, and re-presents diagrams/tables — so the depth is never lost.
+function _meAiFoldedReportFallbackMd(t, corpus, meta) {
+  const title = (meta && meta.title) || _meAiReportTitle(t);
+  const goal = (meta && meta.goal) || (t && t.goal) || _meAiGoalFor(t) || '';
+  const L = [`# ${title}`, ``, `**Goal:** ${goal}`, ``];
+  const done = corpus.legs.filter(l => l.outcome !== 'dead-end');
+  if (done.length) {
+    L.push(`## Executive synthesis`, ``);
+    for (const l of done.slice(0, 8)) L.push(`- **${l.title}** — ${l.summary}`);
+    L.push('');
+  }
+  for (const l of corpus.legs) {
+    L.push(`## ${l.title}${l.outcome === 'dead-end' ? ' _(dead end)_' : ''}`, ``);
+    if (l.goal) L.push(`_${l.goal}_`, ``);
+    L.push(l.analysis || l.summary || '(no detail captured)');
+    if (l.findings && l.findings.length) {
+      L.push('', `**Findings:**`);
+      for (const f of l.findings) {
+        let s = `- ${f.claim} _(${f.confidence || 'medium'})_`;
+        if (f.sources && f.sources.length) s += ` — sources: ${f.sources.join(', ')}`;
+        L.push(s);
+      }
+    }
+    L.push('');
+  }
+  if (corpus.artifacts && corpus.artifacts.length) {
+    L.push(`## Charts & tables`, ``);
+    for (const a of corpus.artifacts) {
+      L.push(`### ${a.title || a.kind || 'Artifact'}`, ``);
+      if (a.excerpt) L.push(a.format === 'mermaid' ? ('```mermaid\n' + a.excerpt + '\n```') : a.excerpt);
+      L.push('');
+    }
+  }
+  return L.join('\n');
+}
+
 async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   const id = t.id;
   const done = legs.filter(l => l._result && l._result.outcome !== 'dead-end');
@@ -23234,8 +23674,28 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   for (const p of proposals.slice(0, 3)) lines.push(`- ${p.summary || p.op}`);
   if (!deliveryStop && !pendingAuth.length && !unresolvedConflicts.length && !proposals.length) lines.push(`- ${best ? best.text : 'Review the conclusions above.'}`);
   lines.push('', `---`, `**Recommended next move:** ${best ? best.text : 'Review findings.'}`);
-  const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: reportTitle, body: lines.join('\n') });
-  try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + '.md'); fs.writeFileSync(art.path, art.body); } catch (_) {}
+  const digest = lines.join('\n');
+  // The DELIVERABLE. Only at a genuine hand-back (converged / parked / awaiting your
+  // call) do we spend a synthesis pass to build the rich navigable compendium that
+  // preserves the full investigation — interim rounds keep the cheap digest. Degrades
+  // to a rich Markdown document (full leg write-ups) when the AI pass can't run, so the
+  // depth is never lost.
+  const concluding = !!(converged || autoStop || pendingAuth.length || deliveryStop || (opts && opts.noMoreAngles) || unresolvedConflicts.length);
+  let artBody = digest, artFormat = null, artExt = '.md';
+  if (concluding && done.length) {
+    const conflictsMd = openConflicts.length
+      ? ([`## Conflicts & open questions`, ''].concat(openConflicts.map(c => (c.status === 'resolved' && c.verdict)
+          ? `- **${c.subject}** — resolved via tiebreak: ${c.verdict.claim}`
+          : `- **${c.subject}** — needs your call: (A) ${c.a.claim} · vs · (B) ${c.b.claim}`)).join('\n'))
+      : '';
+    const nextText = best ? best.text : 'Review the conclusions above.';
+    let synth = null;
+    try { synth = await _meAiTreeSynthesizeReport(t, _meAiReportCorpus(t, legs), { title: reportTitle, goal: t.goal || _meAiGoalFor(t) }); } catch (_) { synth = null; }
+    if (synth && synth.html) { artBody = synth.html; artFormat = 'html'; artExt = '.html'; }
+    else { artBody = _meAiTreeReportFallbackMd(t, legs, { conflictsMd, nextText }); artExt = '.md'; }
+  }
+  const art = _meAiNewArtifact({ legId: spine.id, kind: 'report', title: reportTitle, body: artBody, format: artFormat });
+  try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + artExt); fs.writeFileSync(art.path, art.body); } catch (_) {}
   _meAiTreeEmit(id, 'artifact', { artifact: art });
   // Reroute: a strong merged recommendation changes the plan -> bump epoch + a
   // visible reroute spine leg. GUARDED so a delivered pursuit, a broken loop, or a
@@ -23257,7 +23717,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   // buttons for any pending gated action.
   const findings = legs.filter(l => l._result).map(l => ({ title: l.title, detail: l._result.summary, severity: l._result.confidence === 'high' ? 'high' : 'medium' }));
   const conflictSummary = openConflicts.map(c => ({ id: c.id, subject: c.subject, status: c.status, a: c.a, b: c.b, verdict: c.verdict || null }));
-  t.report = { summary: best ? `Fanned out into ${legs.length} pursuits (${dead.length} dead-ended). ${best.text}` : `Fanned out into ${legs.length} pursuits.`, findings, conflicts: conflictSummary, markdown: art.body };
+  t.report = { summary: best ? `Fanned out into ${legs.length} pursuits (${dead.length} dead-ended). ${best.text}` : `Fanned out into ${legs.length} pursuits.`, findings, conflicts: conflictSummary, markdown: digest };
   t.question = pendingInfo.length ? ((pendingInfo[0]._result && pendingInfo[0]._result.question) || ('I need your input on ' + pendingInfo[0].title))
     : (unresolvedConflicts.length ? best.text : null);
   const pa = pendingAuth[0];
@@ -25573,13 +26033,43 @@ app.post('/api/me-ai/task/:id/director/spawn', (req, res) => {
 app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
   try {
     const id = req.params.id;
-    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
-    const stalled = _meAiDirectorStalledLegs(tree);
-    if (!stalled.length) return res.json({ ok: true, resumed: 0, stalled: [] });
-    if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' });
+    // Prefer a FRESH fold from the journal: the in-memory tree can lag (e.g. after an
+    // interruption the user is trying to recover from), which is exactly the case where
+    // "Resume all" appeared to do nothing. If disk sees more stalled legs than memory,
+    // trust disk and rehydrate the live tree so the re-engage steers the real legs.
+    const mem = meAiTrees.get(id);
+    const fresh = _meAiFoldJournal(id);
+    const memStalled = mem ? _meAiDirectorStalledLegs(mem) : [];
+    const freshStalled = _meAiDirectorStalledLegs(fresh);
+    let tree = mem || fresh;
+    let stalled = memStalled;
+    if (freshStalled.length > memStalled.length) { tree = fresh; stalled = freshStalled; meAiTrees.set(id, fresh); }
     const t = meAiTasks.get(id);
+    const running = !!(t && (t.status === 'running' || t.stage === 'working'));
+    const treeDone = !!((t && t.stage === 'done') || (tree && tree.stage === 'done'));
+    // No restart-orphaned legs. This is the case that made "Resume all" look like a no-op:
+    // the button fires off a stale client snapshot, the server recomputes fresh and finds
+    // 0 stalled, and (previously) returned resumed:0 with no action. Distinguish the three
+    // real states so the user always gets an honest, useful outcome instead of silence.
+    if (!stalled.length) {
+      if (running) return res.json({ ok: true, resumed: 0, running: true, stalled: [] });
+      if (treeDone) return res.json({ ok: true, resumed: 0, done: true, stalled: [] });
+      if (!t || t.mode !== 'tree') return res.json({ ok: true, resumed: 0, stalled: [] });
+      // Idle, unfinished, nothing formally waiting on the user and nothing orphaned →
+      // give the pursuit a generic "verify-then-continue" nudge so it actually pushes any
+      // unfinished/unexplored angle to done (or converges + delivers if truly complete).
+      if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to continue.' });
+      const nudge = 'The pursuit is idle but not yet concluded, and nothing is formally waiting on you. FIRST verify what every leg already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action. THEN pick up any unfinished or unexplored angle and drive it to done. If every angle is genuinely complete, converge and produce the final compendium deliverable.';
+      _meAiTreeReAct(t, 'continue', nudge, 'Nudged to continue');
+      try {
+        const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
+        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'nudged-continue', why: 'Pursuit was idle but unfinished — re-engaged to continue any open angle or converge.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+      } catch (_) {}
+      return res.json({ ok: true, resumed: 0, nudged: true, stalled: [] });
+    }
+    if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' });
     if (!t || t.mode !== 'tree') return res.status(400).json({ ok: false, error: 'not-a-pursuit' });
-    if (t.status === 'running' || t.stage === 'working') return res.json({ ok: true, resumed: 0, running: true, stalled });
+    if (running) return res.json({ ok: true, resumed: 0, running: true, stalled });
     const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
     const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
     _meAiTreeReAct(t, 'continue', steer, 'Resumed ' + stalled.length + ' stalled ' + (stalled.length === 1 ? 'leg' : 'legs'));
@@ -25588,6 +26078,119 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
       _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-engaged to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
     } catch (_) {}
     res.json({ ok: true, resumed: stalled.length, stalled });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// On-demand compendium: rebuild the rich, navigable deliverable for a pursuit that has
+// ALREADY been parked (its legs are folded on disk, so `l._result` is gone). We fold the
+// journal, reconstruct the full corpus from each leg's checkpoint summary + sourced findings
+// + the FULL bodies of its artifacts, then run the same synthesis pass the conclusion uses —
+// falling back to a rich Markdown document (never a thin digest) when the AI pass can't run.
+// Attaching it as the newest `kind:'report'` artifact surfaces it automatically in the chat
+// Chief-of-Staff card, the centre report view, and the Artifacts tab. Nothing is lost.
+app.post('/api/me-ai/task/:id/report/compendium', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    if (!tree || !tree.legs || !Object.keys(tree.legs).length) return res.status(404).json({ ok: false, error: 'no-pursuit' });
+    meAiTrees.set(id, tree);
+    const t = meAiTasks.get(id) || tree;
+    const spineId = tree._spineId || (tree.order || []).find(lid => tree.legs[lid] && tree.legs[lid].lane === 'spine') || (tree.order || [])[0];
+    if (!spineId) return res.status(400).json({ ok: false, error: 'no-spine' });
+    const corpus = _meAiFoldedReportCorpus(tree);
+    if (!corpus.legs.length && !corpus.artifacts.length) return res.status(422).json({ ok: false, error: 'no-material', message: 'This pursuit has no captured analysis to compile.' });
+    const title = _meAiReportTitle(t) || _meAiReportTitle(tree);
+    const goal = (t && t.goal) || (tree && tree.goal) || _meAiGoalFor(t) || _meAiGoalFor(tree) || '';
+    // Synthesis reasons over the full corpus but its prompt has a ~90k JSON window, so give
+    // it a trimmed CLONE (weakest legs dropped). The Markdown fallback below always uses the
+    // FULL corpus, so even when we can't synthesize an HTML microsite, no angle is lost.
+    const synthCorpus = { legs: corpus.legs.slice(), artifacts: corpus.artifacts };
+    while (JSON.stringify(synthCorpus).length > 86000 && synthCorpus.legs.length > 4) synthCorpus.legs.pop();
+    let synth = null;
+    try { synth = await _meAiTreeSynthesizeReport(t, synthCorpus, { title, goal }); } catch (_) { synth = null; }
+    let artBody, artFormat = null, artExt = '.md', synthesized = false;
+    if (synth && synth.html) { artBody = synth.html; artFormat = 'html'; artExt = '.html'; synthesized = true; }
+    else { artBody = _meAiFoldedReportFallbackMd(t, corpus, { title, goal }); }
+    const art = _meAiNewArtifact({ legId: spineId, kind: 'report', title: title, body: artBody, format: artFormat });
+    try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + artExt); fs.writeFileSync(art.path, art.body); } catch (_) {}
+    _meAiTreeEmit(id, 'artifact', { artifact: art });
+    res.json({ ok: true, artifactId: art.id, format: artFormat || 'markdown', synthesized, legs: corpus.legs.length, artifacts: corpus.artifacts.length });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Minimal ZIP archive writer (no external dependency). Uses zlib.deflateRawSync for
+// DEFLATE, falls back to STORE when a compressed member would be larger. Emits local
+// file headers + a central directory + EOCD, which is all a .zip needs. Each entry is
+// { name, data:Buffer }. Kept tiny on purpose — the compendium export is just a couple
+// of files (index.html + README), so we don't pull in an archiver library.
+function _zipBuild(entries) {
+  const zlib = require('zlib');
+  const CRC = (() => {
+    const tbl = new Int32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); tbl[n] = c; }
+    return buf => { let c = ~0; for (let i = 0; i < buf.length; i++) c = (c >>> 8) ^ tbl[(c ^ buf[i]) & 0xFF]; return (~c) >>> 0; };
+  })();
+  const local = []; const central = []; let offset = 0;
+  for (const e of entries) {
+    const nameBuf = Buffer.from(e.name, 'utf8');
+    const data = Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data), 'utf8');
+    const crc = CRC(data);
+    let comp = data, method = 0; // STORE
+    try { const d = zlib.deflateRawSync(data); if (d.length < data.length) { comp = d; method = 8; } } catch (_) {}
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); // UTF-8 flag
+    lh.writeUInt16LE(method, 8); lh.writeUInt16LE(0, 10); lh.writeUInt16LE(0, 12);
+    lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(comp.length, 18); lh.writeUInt32LE(data.length, 22);
+    lh.writeUInt16LE(nameBuf.length, 26); lh.writeUInt16LE(0, 28);
+    local.push(lh, nameBuf, comp);
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8);
+    ch.writeUInt16LE(method, 10); ch.writeUInt16LE(0, 12); ch.writeUInt16LE(0, 14);
+    ch.writeUInt32LE(crc, 16); ch.writeUInt32LE(comp.length, 20); ch.writeUInt32LE(data.length, 24);
+    ch.writeUInt16LE(nameBuf.length, 28); ch.writeUInt16LE(0, 30); ch.writeUInt16LE(0, 32);
+    ch.writeUInt16LE(0, 34); ch.writeUInt16LE(0, 36); ch.writeUInt32LE(0, 38); ch.writeUInt32LE(offset, 42);
+    central.push(ch, nameBuf);
+    offset += lh.length + nameBuf.length + comp.length;
+  }
+  const localBuf = Buffer.concat(local);
+  const centralBuf = Buffer.concat(central);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(0, 4); eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralBuf.length, 12); eocd.writeUInt32LE(localBuf.length, 16); eocd.writeUInt16LE(0, 20);
+  return Buffer.concat([localBuf, centralBuf, eocd]);
+}
+
+// Export a report artifact as a downloadable .zip. The compendium is a single
+// self-contained HTML file, so the archive is index.html + a short README. Works
+// without any client JS (a plain <a download> href). Read-only.
+app.get('/api/me-ai/task/:id/report/:artifactId/export.zip', (req, res) => {
+  try {
+    const id = req.params.id;
+    const artifactId = String(req.params.artifactId || '');
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const arts = (tree && Array.isArray(tree.artifacts)) ? tree.artifacts : [];
+    const art = arts.find(a => a && a.id === artifactId);
+    if (!art) return res.status(404).json({ ok: false, error: 'no-artifact' });
+    let body = art.body;
+    if ((body == null || body === '') && art.path) { try { body = fs.readFileSync(art.path, 'utf8'); } catch (_) {} }
+    if (body == null) return res.status(404).json({ ok: false, error: 'no-body' });
+    const isHtml = art.format === 'html';
+    const t = meAiTasks.get(id) || tree;
+    const titleRaw = art.title || _meAiReportTitle(t) || 'compendium';
+    const slug = String(titleRaw).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'compendium';
+    const indexName = isHtml ? 'index.html' : 'report.md';
+    const readme = [
+      titleRaw, '='.repeat(Math.min(titleRaw.length, 60)), '',
+      'Investigation compendium exported from TheOffice.AI.',
+      isHtml ? 'Open index.html in any web browser to read the full navigable report.' : 'Open report.md in any Markdown viewer.',
+      '', 'Generated: ' + new Date().toISOString(),
+    ].join('\n');
+    const zip = _zipBuild([{ name: indexName, data: String(body) }, { name: 'README.txt', data: readme }]);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + slug + '.zip"');
+    res.setHeader('Content-Length', zip.length);
+    res.end(zip);
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

@@ -13668,6 +13668,14 @@
               .meai-pu-turn.agent.demoted .meai-pu-turn-who { color:var(--cp-text-muted); font-weight:600; }
               .meai-pu-outcome.demoted { background:var(--cp-bg); border-color:color-mix(in srgb,var(--cp-border) 70%, transparent); }
               .meai-pu-outcome.demoted .meai-pu-outcome-h { color:var(--cp-text-muted); font-weight:600; }
+              /* Chief-of-Staff fold (only while the Director narrates): a quiet who-row with a
+                 text toggle, and a one-line synopsis + direct link to the full deliverable. */
+              .meai-pu-cos-whorow { display:flex; align-items:baseline; gap:10px; }
+              .meai-pu-cos-toggle { margin-left:auto; border:0; background:transparent; padding:0; cursor:pointer; font:inherit; font-size:11px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--cp-text-muted); }
+              .meai-pu-cos-toggle:hover { color:var(--cp-accent); text-decoration:underline; }
+              .meai-pu-cos-synopsis { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-top:4px; font-size:12.5px; color:var(--cp-text-muted); }
+              .meai-pu-cos-report { border:0; background:transparent; padding:0; cursor:pointer; font:inherit; font-size:12.5px; font-weight:600; color:var(--cp-accent); }
+              .meai-pu-cos-report:hover { text-decoration:underline; }
               .meai-pu-ev.side-you { flex-direction:row-reverse; }
               .meai-pu-ev.side-you .meai-pu-ev-b { align-items:flex-end; text-align:right; }
               /* Folded leg conclusion — a calm agent message summarising a leg that rejoined
@@ -13738,9 +13746,11 @@
               .meai-pnode.pgate { border-color:#d29922; border-style:dashed; }
               .meai-pnode-dot.gate { background:#d29922; }
               .meai-pu-legrow.lg-gate .meai-pu-legdot { background:#d29922; }
+              .meai-pu-nav.full { border-right:0; }
               @media (max-width:1000px) {
                 .meai-pu-body { flex-direction:column; }
                 .meai-pu-nav { flex:0 0 auto !important; max-height:44vh; border-right:0; border-bottom:1px solid var(--cp-border); }
+                .meai-pu-nav.full { max-height:none; flex:1 1 auto !important; }
                 .meai-pu-split { display:none; }
                 .meai-pu-goal { max-width:40vw; }
               }
@@ -15964,7 +15974,7 @@
 
                 <div class="meai-pu-body">
                   <!-- LEFT: navigation — Chat (default) / Index / Approvals / Artifacts -->
-                  <aside class="meai-pu-nav" x-show="meai.pursuit.navOpen" :style="'flex:0 0 '+meai.pursuit.navW+'px'">
+                  <aside class="meai-pu-nav" x-show="meai.pursuit.navOpen" :class="{ full: meai.pursuit.navFull }" :style="meai.pursuit.navFull ? 'flex:1 1 auto; min-width:0' : ('flex:0 0 '+meai.pursuit.navW+'px')">
                     <div class="meai-pu-navtabs">
                       <button type="button" :class="{ on: meai.pursuit.nav==='chat' }" @click="meai.pursuit.nav='chat'">Chat</button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='index' }" @click="meai.pursuit.nav='index'">Index</button>
@@ -15973,12 +15983,15 @@
                       <button type="button" :class="{ on: meai.pursuit.nav==='conflicts' }" @click="meai.pursuit.nav='conflicts'" x-show="meAiPursuitConflicts().length && !meAiDirectorActive()">Conflicts<span class="meai-pu-nc" x-text="meAiPursuitConflicts().length"></span></button>
                       <button type="button" :class="{ on: meai.pursuit.nav==='workspace' }" @click="meai.pursuit.nav='workspace'; meAiPursuitLoadWorkspace()">Workspace<span class="meai-pu-nc" x-show="meai.pursuit.ws.files.length" x-text="meai.pursuit.ws.files.length"></span></button>
                       <span style="flex:1"></span>
-                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.navOpen=false" title="Collapse">‹</button>
+                      <button type="button" class="meai-pu-panx" @click="meai.pursuit.navFull=!meai.pursuit.navFull" :title="meai.pursuit.navFull ? 'Exit full screen' : 'Full screen this panel'" x-text="meai.pursuit.navFull ? '⤡' : '⤢'"></button>
+                      <button type="button" class="meai-pu-panx" x-show="!meai.pursuit.navFull" @click="meai.pursuit.navOpen=false" title="Collapse">‹</button>
                     </div>
                     <div class="meai-pu-navbody">
                       <!-- CHAT: the main-thread conversation (goal → reasoning → outcome + steer) -->
                       <template x-if="meai.pursuit.nav==='chat'">
-                        <div class="meai-pu-chat">
+                        <div class="meai-pu-chat"
+                          x-init="$nextTick(() => meAiPursuitScrollChatBottom($el, true))"
+                          x-effect="meAiPursuitWorkEvents().length; $nextTick(() => meAiPursuitScrollChatBottom($el, false))">
                           <!-- Sticky tools: expand/collapse steps + hide the low-signal trace at once -->
                           <div class="meai-pu-chat-tools" x-show="meAiPursuitHasChatSteps()">
                             <button type="button" class="meai-pu-stepall" @click="meAiPursuitToggleHideThinking()"
@@ -16067,9 +16080,22 @@
                                  in-thread commentary above is the authority, so this is demoted to a
                                  quieter "Chief of Staff update" — the spine becomes just-another contributor. -->
                             <template x-if="meAiPursuitConcluded()">
-                              <div class="meai-pu-turn agent" :class="{ demoted: meAiDirectorNarrated() }">
-                                <div class="meai-pu-turn-who" x-text="meAiDirectorNarrated() ? 'Chief of Staff · update' : 'Chief of Staff'"></div>
-                                <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done'), demoted: meAiDirectorNarrated() }">
+                              <div class="meai-pu-turn agent" :class="{ demoted: meAiDirectorNarrated() }" x-data="{ cosOpen:false }">
+                                <div class="meai-pu-turn-who meai-pu-cos-whorow">
+                                  <span x-text="meAiDirectorNarrated() ? 'Chief of Staff · update' : 'Chief of Staff'"></span>
+                                  <!-- When the Director is the authority, the Chief of Staff's per-turn
+                                       report is folded to a quiet line so it isn't a second full report
+                                       competing with the Director's narration above. Expand on demand. -->
+                                  <button type="button" class="meai-pu-cos-toggle" x-show="meAiDirectorNarrated()"
+                                    @click="cosOpen=!cosOpen" x-text="cosOpen ? 'Hide details' : 'Show details'"></button>
+                                </div>
+                                <!-- Collapsed synopsis (Director directing): one calm line + direct link to the
+                                     full deliverable, without re-posting the whole recommendation every turn. -->
+                                <div class="meai-pu-cos-synopsis" x-show="meAiDirectorNarrated() && !cosOpen">
+                                  <span x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? 'Chief of Staff wrapped up its report.' : 'Chief of Staff posted an update.'"></span>
+                                  <button type="button" class="meai-pu-cos-report" x-show="meAiPursuitReport()" @click="meAiPursuitShowReport()">Read the full report →</button>
+                                </div>
+                                <div class="meai-pu-outcome" :class="{ done: (meai.pursuit.tree && meai.pursuit.tree.stage==='done'), demoted: meAiDirectorNarrated() }" x-show="!meAiDirectorNarrated() || cosOpen">
                                   <div class="meai-pu-outcome-h">
                                     <span class="meai-pu-outcome-ic" x-text="(meai.pursuit.tree && meai.pursuit.tree.stage==='done') ? '✓' : '★'"></span>
                                     <span x-text="meAiDirectorNarrated() ? (meAiPursuitOutcome().summary ? 'Chief of Staff’s summary' : meAiPursuitOutcome().title) : meAiPursuitOutcome().title"></span>
@@ -16089,8 +16115,12 @@
                                     <button type="button" class="btn primary" :disabled="meAiPursuitBusy()"
                                       @click="meAiPursuitAct({ intent:'continue', label:'Keep going', risk:'none' })">Keep going →</button>
                                   </div>
-                                  <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport()">
-                                    <button type="button" class="btn primary" @click="meAiPursuitShowReport()">Read the full report →</button>
+                                  <div class="meai-pu-outcome-acts" x-show="meAiPursuitReport() || meAiPursuitConcluded()">
+                                    <button type="button" class="btn primary" x-show="meAiPursuitReport()" @click="meAiPursuitShowReport()">Read the full report →</button>
+                                    <button type="button" class="btn ghost" :disabled="meai.pursuit.compendiumBusy"
+                                      @click="meAiPursuitBuildCompendium()"
+                                      :title="'Compile every angle, finding, chart and source from this pursuit into one navigable document'"
+                                      x-text="meai.pursuit.compendiumBusy ? 'Compiling the compendium… (a few minutes)' : (meAiPursuitReport() ? 'Rebuild the full compendium' : 'Compile the full compendium')"></button>
                                   </div>
                                   <div class="meai-pu-outcome-next" x-show="meAiPursuitSteerActions().length">
                                     <div class="meai-pu-outcome-nexth">Recommended next</div>
@@ -16227,6 +16257,20 @@
                                       </template>
                                     </div>
                                     <button type="button" class="meai-dir-linklike" :disabled="meai.pursuit.director.busy || meai.pursuit.director._resuming" @click="meAiDirectorResume()" x-text="meai.pursuit.director._resuming ? 'Resuming…' : ('Resume ' + ((meai.pursuit.director.stalled||[]).length===1 ? 'this leg' : 'all ' + (meai.pursuit.director.stalled||[]).length) + ' →')"></button>
+                                  </div>
+                                </div>
+                              </template>
+
+                              <!-- Idle but unfinished: no stalled legs, nothing on the desk, yet the
+                                   pursuit hasn't concluded. Give a clear one-click way to nudge it on
+                                   (fixes "nothing happens / not clear how to continue"). -->
+                              <template x-if="meAiDirectorActive() && !(meai.pursuit.director.stalled||[]).length && !meAiDirectorDeskStops() && !meAiPursuitConcluded() && !meAiPursuitBusy()">
+                                <div style="margin-bottom:14px">
+                                  <div class="meai-dir-h"><span>Idle — not yet concluded</span></div>
+                                  <div class="meai-dir-insight">
+                                    <div class="meai-dir-insight-t"><span>▸</span> <span>The pursuit has paused with nothing waiting on you</span></div>
+                                    <div class="meai-dir-row-w">Nothing is stalled and nothing needs your approval, but this hasn't reached a conclusion. Nudge it to verify what's already done and push any remaining angle forward — or converge and deliver if it's genuinely complete.</div>
+                                    <button type="button" class="meai-dir-linklike" :disabled="meai.pursuit.director.busy || meai.pursuit.director._resuming" @click="meAiDirectorResume()" x-text="meai.pursuit.director._resuming ? 'Continuing…' : 'Continue the pursuit →'"></button>
                                   </div>
                                 </div>
                               </template>
@@ -16547,10 +16591,10 @@
                   </aside>
 
                   <!-- Drag splitter (resize the nav) -->
-                  <div class="meai-pu-split" x-show="meai.pursuit.navOpen" @pointerdown="meAiPursuitNavResize($event)" title="Drag to resize"></div>
+                  <div class="meai-pu-split" x-show="meai.pursuit.navOpen && !meai.pursuit.navFull" @pointerdown="meAiPursuitNavResize($event)" title="Drag to resize"></div>
 
                   <!-- CENTER: one flexible view surface (map | node | report | artifact) -->
-                  <main class="meai-pu-view">
+                  <main class="meai-pu-view" x-show="!meai.pursuit.navFull">
                     <button type="button" class="meai-pu-reopen left" x-show="!meai.pursuit.navOpen" @click="meai.pursuit.navOpen=true" title="Show navigation">☰</button>
 
                     <!-- DIRECTOR detail (right pane of the studio) -->
@@ -16852,6 +16896,8 @@
                           </div>
                           <a x-show="meAiPursuitReport().link" :href="meAiPursuitReport().link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
                           <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meAiPursuitReport()) || meAiPursuitArtIsMermaid(meAiPursuitReport())" @click="meAiPursuitToggleArtRaw(meAiPursuitReport())" x-text="meAiPursuitArtRaw(meAiPursuitReport()) ? 'Rendered' : 'View source'"></button>
+                          <button type="button" class="meai-pu-artcard-link" :disabled="meai.pursuit.compendiumBusy" @click="meAiPursuitBuildCompendium()" x-text="meai.pursuit.compendiumBusy ? 'Compiling…' : 'Rebuild compendium'"></button>
+                          <a x-show="meAiPursuitArtIsHtml(meAiPursuitReport()) && meAiPursuitReport().id && meai.pursuit.tid" class="meai-pu-artcard-link" :href="'/api/me-ai/task/' + encodeURIComponent(meai.pursuit.tid) + '/report/' + encodeURIComponent((meAiPursuitReport()||{}).id||'') + '/export.zip'" :download="'compendium.zip'">Export as zip ↓</a>
                         </div>
                         <template x-if="meAiPursuitArtIsHtml(meAiPursuitReport()) && !meAiPursuitArtRaw(meAiPursuitReport())">
                           <iframe class="meai-pu-report-frame" :srcdoc="(meAiPursuitReport()||{}).body||''" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
@@ -16885,6 +16931,7 @@
                           </div>
                           <a x-show="meai.pursuit.artView.link" :href="meai.pursuit.artView.link" target="_blank" rel="noopener" class="meai-pu-artcard-link">Open source ↗</a>
                           <button type="button" class="meai-pu-artcard-link" x-show="meAiPursuitArtIsHtml(meai.pursuit.artView) || meAiPursuitArtIsMermaid(meai.pursuit.artView)" @click="meAiPursuitToggleArtRaw(meai.pursuit.artView)" x-text="meAiPursuitArtRaw(meai.pursuit.artView) ? 'Rendered' : 'View source'"></button>
+                          <a x-show="meAiPursuitArtIsHtml(meai.pursuit.artView) && meai.pursuit.artView.id && meai.pursuit.tid" class="meai-pu-artcard-link" :href="'/api/me-ai/task/' + encodeURIComponent(meai.pursuit.tid) + '/report/' + encodeURIComponent((meai.pursuit.artView||{}).id||'') + '/export.zip'" :download="'compendium.zip'">Export as zip ↓</a>
                           <button type="button" class="meai-pu-report-back" x-show="meai.pursuit.artView.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.artView.legId)">Show the leg →</button>
                         </div>
                         <template x-if="meAiPursuitArtIsHtml(meai.pursuit.artView) && !meAiPursuitArtRaw(meai.pursuit.artView)">
@@ -28659,9 +28706,11 @@
             // No modals; clicking a node turns the CENTER into that node's view.
             nav: 'chat',                 // left-nav section: chat|index|approvals|artifacts
             navOpen: true,               // left nav expanded
+            navFull: false,              // left nav expanded to full width (hides the center map)
             navW: (() => { try { const cap = Math.max(640, Math.floor((window.innerWidth || 1280) / 2)); const v = parseInt(localStorage.getItem('meAiPuNavW') || '360', 10); return (v >= 300 && v <= cap) ? v : 360; } catch { return 360; } })(),
             legPick: 'spine',            // selected leg for the Chat transcript (spine=main thread)
             centerView: 'map',           // center surface: map|node|report|artifact
+            compendiumBusy: false,       // building the on-demand rich compendium (long AI pass)
             nodeView: null,              // the node shown in the CENTER node-view
             artView: null,               // artifact shown in the CENTER artifact-view
             filter: 'all',               // Index filter
@@ -42702,7 +42751,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/resume', { method: 'POST', body: JSON.stringify({}) });
             if (r && r.ok === false) { this.toast && this.toast(r.message || 'Could not resume: ' + (r.error || 'unknown')); }
-            else if (r && r.running) { this.toast && this.toast('Already running — nothing stalled.'); }
+            else if (r && r.running) { this.toast && this.toast('Already running — picking up where it left off.'); }
+            else if (r && r.done) { this.toast && this.toast('This pursuit is already complete — nothing left to resume.'); }
+            else if (r && r.nudged) { this.toast && this.toast('Nudged the pursuit to continue…'); }
             else { this.toast && this.toast('Resuming ' + (r.resumed || 0) + ' stalled ' + ((r.resumed === 1) ? 'leg' : 'legs') + '…'); }
             await this.meAiPursuitDirectorLoad();
           } catch (e) { this.toast && this.toast('Resume failed: ' + (e.message || e)); }
@@ -43270,6 +43321,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!t || !Array.isArray(t.artifacts)) return [];
           return t.artifacts.filter(a => a.legId === n.id);
         },
+        // Chat auto-scroll: the transcript grows downward, so on open (force) jump to the
+        // newest turn instead of stranding the user at the top; on new messages keep it
+        // pinned to the bottom ONLY if they're already near it (so scrolling up to read
+        // history isn't yanked back). Scroll parent is the shared .meai-pu-navbody.
+        meAiPursuitScrollChatBottom(el, force) {
+          try {
+            const sc = el && el.closest ? el.closest('.meai-pu-navbody') : null;
+            if (!sc) return;
+            if (!force) {
+              const nearBottom = (sc.scrollHeight - sc.scrollTop - sc.clientHeight) < 160;
+              if (!nearBottom) return;
+            }
+            sc.scrollTop = sc.scrollHeight;
+          } catch (_) {}
+        },
         // Item 7 — report reader lives in the CENTER pane (not a cramped modal).
         meAiPursuitShowReport() {
           if (!this.meAiPursuitReport()) return;
@@ -43277,6 +43343,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.pursuit.nodeDetail = null;
         },
         meAiPursuitHideReport() { this.meai.pursuit.centerView = 'map'; },
+        // Compile (or rebuild) the rich, navigable compendium on demand — even for a
+        // pursuit parked long ago whose legs are folded on disk. The server rebuilds the
+        // full corpus from every angle's findings + artifact bodies and synthesizes one
+        // self-contained document. It becomes the newest report artifact, so it surfaces
+        // in this card, the report view, and the Artifacts tab. Long AI pass (~minutes).
+        async meAiPursuitBuildCompendium() {
+          const p = this.meai.pursuit; if (!p.tid || p.compendiumBusy) return;
+          p.compendiumBusy = true;
+          this.toast('Compiling the full compendium — weaving in every angle, finding and chart. This takes a few minutes.', 'info');
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/report/compendium', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            if (!r || r.ok === false) { this.toast((r && (r.message || r.error)) || 'Could not compile the compendium', 'error'); return; }
+            await this.meAiPursuitLoad();
+            const how = r.synthesized ? 'a navigable document' : 'a full written document';
+            this.toast('Compendium ready — ' + how + ' from ' + (r.legs || 0) + ' angle' + (r.legs === 1 ? '' : 's') + (r.artifacts ? (' and ' + r.artifacts + ' chart' + (r.artifacts === 1 ? '' : 's')) : '') + '.', 'success');
+            this.$nextTick(() => this.meAiPursuitShowReport());
+          } catch (e) { this.toast('Compendium failed: ' + (e && e.message ? e.message : e), 'error'); }
+          finally { p.compendiumBusy = false; }
+        },
         // Item 6 — resume a tree pursuit from a recommended next action (Ready-for-review).
         async meAiPursuitAct(a) {
           const p = this.meai.pursuit; if (!p.tid || p.acting || !a) return;
