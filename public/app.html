@@ -38417,6 +38417,49 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             img.src = url;
           });
         },
+        // Rasterize an inline comic/meme SVG to a PNG data URI in the browser. Mail clients
+        // (Outlook especially) strip inline <svg>, which takes the comic's baked-in panel
+        // dialogue (rendered as <text> nodes) with it — so the emailed "image" arrives blank.
+        // The browser DOES render <text> when it draws the SVG onto a canvas, so the resulting
+        // PNG carries the words. Same-origin data-URI source + no external assets → the canvas
+        // is untainted, so toDataURL succeeds.
+        async _pulseSvgToPngDataUrl(svg, bg) {
+          try {
+            const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(String(svg || ''));
+            return await new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => {
+                try {
+                  const w = img.naturalWidth || img.width || 800;
+                  const h = img.naturalHeight || img.height || 300;
+                  const c = document.createElement('canvas'); c.width = w; c.height = h;
+                  const ctx = c.getContext('2d');
+                  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }
+                  ctx.drawImage(img, 0, 0, w, h);
+                  resolve(c.toDataURL('image/png'));
+                } catch (e) { reject(e); }
+              };
+              img.onerror = () => reject(new Error('svg load failed'));
+              img.src = src;
+            });
+          } catch (_) { return ''; }
+        },
+        // Replace any inline-SVG share image with a rasterized PNG data URI so the baked-in
+        // comic text survives clients that strip SVG. An image already carrying a url/img is
+        // left as-is; rasterization failures fall back to the original svg (caption still lands).
+        async _pulseRasterizeShareImages(images) {
+          const out = [];
+          for (const im of (Array.isArray(images) ? images : [])) {
+            if (!im) continue;
+            if (im.url) { out.push(im); continue; }
+            if (im.svg) {
+              const dataUrl = await this._pulseSvgToPngDataUrl(im.svg, '#ffffff');
+              if (dataUrl) { out.push({ url: dataUrl, caption: im.caption || '' }); continue; }
+            }
+            out.push(im);
+          }
+          return out;
+        },
         // ── Comedy sharing (email / Teams channel / whole-page newsletter) ──
         _pulseShareImg(art, caption) {
           // art is a reel/strip item ({img?|svg?}) — normalize to the share payload shape
@@ -38468,13 +38511,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!body.trim() && !(sh.images && sh.images.length)) { sh.err = 'Nothing to share.'; return; }
           sh.err = ''; sh.done = ''; sh.sending = true;
           try {
+            // Bake inline-SVG comics into PNG data URIs so their panel text survives the mail
+            // client (Outlook strips <svg>, losing the joke). Rasterize once for either target.
+            const images = (sh.images && sh.images.length) ? await this._pulseRasterizeShareImages(sh.images) : [];
             if (sh.target === 'teams') {
               if (!sh.teamId || !sh.channelId) { sh.err = 'Pick a team and channel.'; sh.sending = false; return; }
-              const r = await this.request('/api/me-ai/pulse/share/teams', { method: 'POST', body: JSON.stringify({ teamId: sh.teamId, channelId: sh.channelId, subject: sh.title, markdown: body, images: sh.images }) });
+              const r = await this.request('/api/me-ai/pulse/share/teams', { method: 'POST', body: JSON.stringify({ teamId: sh.teamId, channelId: sh.channelId, subject: sh.title, markdown: body, images }) });
               if (r && r.ok) { sh.done = 'Posted to the channel.'; this.toast('Posted to Teams', 'success'); setTimeout(() => { sh.open = false; }, 900); }
               else { sh.err = (r && r.error) || 'Teams post could not be confirmed.'; }
             } else {
-              const r = await this.request('/api/me-ai/pulse/share/email', { method: 'POST', body: JSON.stringify({ subject: sh.title, markdown: body, images: sh.images }) });
+              const r = await this.request('/api/me-ai/pulse/share/email', { method: 'POST', body: JSON.stringify({ subject: sh.title, markdown: body, images }) });
               if (r && r.ok) { sh.done = 'Draft opened in your mail app.'; this.toast('Email draft opened', 'success'); setTimeout(() => { sh.open = false; }, 900); }
               else { sh.err = (r && r.error) || 'Could not open a draft.'; }
             }

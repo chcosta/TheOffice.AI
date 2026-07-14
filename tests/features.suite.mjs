@@ -757,6 +757,23 @@ await t.test('Pulse.AI Reel — forward/back nav, tap-to-fullscreen, copy-in-ful
   t.ok(/No renderable image — keep the caption/.test(srv), 'email keeps the caption when no image renders');
 });
 
+await t.test('Pulse.AI share — inline-SVG comic is rasterized to a PNG data URI so the baked-in joke text survives Outlook', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // A browser-side rasterizer turns an SVG (with its <text> panels) into a PNG data URI.
+  t.ok(/async _pulseSvgToPngDataUrl\(svg, bg\)\s*\{/.test(src), '_pulseSvgToPngDataUrl helper exists');
+  t.ok(/data:image\/svg\+xml;charset=utf-8,'\s*\+\s*encodeURIComponent/.test(src), 'rasterizer sources the SVG as a data URI');
+  t.ok(/c\.toDataURL\('image\/png'\)/.test(src), 'rasterizer exports a PNG data URI');
+  // A pre-processor swaps any inline-svg share image for the rasterized url.
+  t.ok(/async _pulseRasterizeShareImages\(images\)\s*\{/.test(src), '_pulseRasterizeShareImages helper exists');
+  t.ok(/if \(im\.url\)\s*\{\s*out\.push\(im\);\s*continue;\s*\}/.test(src), 'already-url images pass through unchanged');
+  t.ok(/out\.push\(\{ url: dataUrl, caption: im\.caption \|\| '' \}\)/.test(src), 'svg images become { url, caption }');
+  // pulseShareSend rasterizes BEFORE posting to either target (email is the reported bug).
+  const send = (src.match(/async pulseShareSend\(\)\s*\{[\s\S]*?\n        \},/) || [''])[0];
+  t.ok(/await this\._pulseRasterizeShareImages\(sh\.images\)/.test(send), 'share send rasterizes the images first');
+  t.ok(/images \} \)/.test(send.replace(/\s+/g, ' ')) || /body: JSON\.stringify\(\{ subject: sh\.title, markdown: body, images \}\)/.test(send), 'email POST sends the rasterized images (not raw sh.images)');
+  t.ok(!/markdown: body, images: sh\.images/.test(send), 'raw sh.images is no longer posted directly');
+});
+
 await t.test('Me-agent view is its own page (agenda hidden), not an overlay flashed over the agenda', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // A dedicated agentPage flag exists in the meai state.
