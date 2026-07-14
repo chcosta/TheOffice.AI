@@ -962,4 +962,29 @@ await t.test('pursuit follow-up chat: fold + director_note render boxed multi-li
     'main spine substep row still excludes fold + director_note');
 });
 
+await t.test('pulse.ai focus-lens meeting recaps: dedupe redundant + surface action items with add-to-todos / add-to-triage (server.js + app.html)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  // SERVER — semantic dedupe of recurring meeting recaps (collapse same-title occurrences).
+  t.ok(/_pulseDedupeMeetings\(Array\.from\(mByKey\.values\(\)\)\)/.test(srv), 'meetings assembly runs through _pulseDedupeMeetings');
+  t.ok(/function _pulseDedupeMeetings\(/.test(srv) && /function _pulseMeetingTitleKey\(/.test(srv), 'dedupe + title-key helpers exist');
+  // Generic titles (<2 tokens) must NOT collapse; representative carries mergedCount.
+  t.ok(/tokens\.length >= 2 \? norm : ''/.test(srv), 'title-key guards generic (<2-token) titles from collapsing');
+  t.ok(/mergedCount/.test(srv), 'survivor carries a mergedCount');
+  // SERVER — the capture endpoint routes to agenda to-dos OR the triage inbox.
+  t.ok(/'\/api\/me-ai\/pulse\/meeting\/action'/.test(srv), 'meeting-action capture route exists');
+  t.ok(/target === 'todo'[\s\S]{0,1200}saveMeAiTodoStore/.test(srv), "target 'todo' appends to the agenda todo store");
+  t.ok(/target === 'inbox'[\s\S]{0,1600}_meAiMergeInbox\(date, \[sig\]\)/.test(srv), "target 'inbox' folds a meeting-action signal into the triage inbox");
+  t.ok(/dedupeKey: 'mtgact:' \+ mid \+ ':' \+ h/.test(srv), 'inbox capture reuses the mtgact dedupeKey scheme so it merges with the auto-gather');
+  // CLIENT — action items are expandable and each offers the two quiet add actions (no pills).
+  const strip = html.slice(html.indexOf('Since your last meetings'), html.indexOf('Since your last meetings') + 3000);
+  t.ok(/pulseMtgToggle\(m\.id\)/.test(strip), 'action-item count is a toggle that expands the list');
+  t.ok(/pulseActAdd\(m, a, ai, 'todo'\)/.test(strip) && /pulseActAdd\(m, a, ai, 'inbox'\)/.test(strip), 'each action offers add-to-todos + add-to-triage');
+  t.ok(/most recent of ' \+ m\.mergedCount/.test(strip), 'collapsed recurring recaps note "most recent of N"');
+  t.ok(/pulse\._actState\[pulseActKey\(m, ai\)\]/.test(strip), 'added state is tracked per action item');
+  // CLIENT — methods + state wired.
+  t.ok(/pulseActAdd\(m, a, ai, target\)/.test(html) && /pulseMtgToggle\(id\)/.test(html), 'pulseActAdd + pulseMtgToggle methods exist');
+  t.ok(/_mtgOpen: \{\}, _actState: \{\}/.test(html), 'pulse state seeds _mtgOpen + _actState maps');
+});
+
 await t.done();

@@ -19086,6 +19086,14 @@
               .pulse-mrow .mfoot a:hover, .pulse-mrow .mfoot button:hover { border-bottom-color:currentColor; }
               .pulse-mrow .mfoot .mute { color:var(--cp-text-muted); }
               .pulse-mrow .mtime { flex:0 0 auto; color:var(--cp-text-muted); font-size:12px; white-space:nowrap; }
+              .pulse-mrow .mactions { margin:8px 0 2px; display:flex; flex-direction:column; gap:7px; }
+              .pulse-mrow .marow { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; font-size:13px; }
+              .pulse-mrow .marow .matext { color:var(--cp-text); flex:1 1 auto; min-width:0; text-wrap:pretty; }
+              .pulse-mrow .marow .madue { font-size:12px; white-space:nowrap; }
+              .pulse-mrow .marow .maadd { flex:0 0 auto; display:inline-flex; gap:14px; align-items:baseline; }
+              .pulse-mrow .marow .maadd button { color:var(--cp-link); text-decoration:none; background:none; border:none; padding:0; font:inherit; font-size:12px; cursor:pointer; border-bottom:1px solid transparent; }
+              .pulse-mrow .marow .maadd button:hover { border-bottom-color:currentColor; }
+              .pulse-mrow .marow .maok { font-size:12px; white-space:nowrap; }
 
               /* Lens switcher (quiet text links — no pills) */
               .pulse-lenses { display:flex; gap:20px; flex-wrap:wrap; margin:22px 0 20px; padding-bottom:2px; }
@@ -19670,10 +19678,30 @@
                           <p class="mrecap" x-show="m.summary" x-text="m.summary"></p>
                           <p class="mrecap" x-show="!m.summary &amp;&amp; m.highlights &amp;&amp; m.highlights.length" x-text="(m.highlights || [])[0]"></p>
                           <div class="mfoot">
-                            <span x-show="m.actions &amp;&amp; m.actions.length" x-text="m.actions.length + (m.actions.length === 1 ? ' action item for you' : ' action items for you')"></span>
+                            <button x-show="m.actions &amp;&amp; m.actions.length" @click="pulseMtgToggle(m.id)"
+                                    x-text="(pulse._mtgOpen[m.id] ? '▾ ' : '▸ ') + m.actions.length + (m.actions.length === 1 ? ' action item for you' : ' action items for you')"></button>
+                            <span x-show="m.mergedCount &amp;&amp; m.mergedCount > 1" class="mute" x-text="'most recent of ' + m.mergedCount"></span>
                             <a x-show="m.webLink" @click="pulseExtOpen(m.webLink)">Recap →</a>
                             <a x-show="m.recordingUrl" @click="pulseExtOpen(m.recordingUrl)">Recording →</a>
                             <button class="mute" @click="pulseMeetingHide(m.id)">Dismiss</button>
+                          </div>
+                          <div class="mactions" x-show="pulse._mtgOpen[m.id] &amp;&amp; m.actions &amp;&amp; m.actions.length" x-transition.opacity.duration.120ms>
+                            <template x-for="(a, ai) in m.actions" :key="ai">
+                              <div class="marow">
+                                <span class="matext" x-text="a.text"></span>
+                                <span class="madue mute" x-show="a.due" x-text="'due ' + a.due"></span>
+                                <span class="maadd">
+                                  <template x-if="!pulse._actState[pulseActKey(m, ai)]">
+                                    <span>
+                                      <button @click="pulseActAdd(m, a, ai, 'todo')">＋ To-dos</button>
+                                      <button @click="pulseActAdd(m, a, ai, 'inbox')">＋ Triage</button>
+                                    </span>
+                                  </template>
+                                  <span class="maok mute" x-show="pulse._actState[pulseActKey(m, ai)]"
+                                        x-text="pulse._actState[pulseActKey(m, ai)] === 'todo' ? '✓ on your to-dos' : (pulse._actState[pulseActKey(m, ai)] === 'inbox' ? '✓ in your triage inbox' : '✓ added')"></span>
+                                </span>
+                              </div>
+                            </template>
                           </div>
                         </div>
                         <div class="mtime" x-show="m.end" x-text="'ended ' + pulseAgo(m.end)"></div>
@@ -29594,7 +29622,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _reelCopied: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, _mtgOpen: {}, _actState: {}, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _reelCopied: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -39049,6 +39077,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.pulse.meetings = this.pulse.meetings.filter(m => m.id !== id);
           try { await this.request('/api/me-ai/pulse/meeting', { method: 'POST', body: JSON.stringify({ id, action: 'hide' }) }); }
           catch (e) { this.toast('Action failed: ' + (e.message || e), 'error'); }
+        },
+        pulseMtgToggle(id) { this.pulse._mtgOpen[id] = !this.pulse._mtgOpen[id]; },
+        pulseActKey(m, ai) { return String((m && m.id) || '') + '::' + ai; },
+        async pulseActAdd(m, a, ai, target) {
+          const key = this.pulseActKey(m, ai);
+          if (this.pulse._actState[key]) return; // already added — no double-fire
+          const text = String((a && a.text) || '').trim();
+          if (!text) return;
+          const link = (m && (m.webLink || m.recordingUrl)) || '';
+          const body = (target === 'todo')
+            ? { target: 'todo', title: text, due: (a && a.due) || '', link }
+            : { target: 'inbox', text, meeting: (m && m.meeting) || '', meetingId: (m && m.id) || '', due: (a && a.due) || '', link };
+          try {
+            const r = await this.request('/api/me-ai/pulse/meeting/action', { method: 'POST', body: JSON.stringify(body) });
+            this.pulse._actState[key] = target;
+            if (target === 'todo') this.toast((r && r.added === false) ? 'Already on your to-dos' : 'Added to your to-dos', 'success');
+            else this.toast('Added to your triage inbox', 'success');
+          } catch (e) { this.toast('Could not add: ' + (e.message || e), 'error'); }
         },
         async pulseSeen() {
           try { await this.request('/api/me-ai/pulse/seen', { method: 'POST', body: JSON.stringify({}) }); }

@@ -28808,7 +28808,7 @@ function _pulseAssemble(days, date) {
       if (!mByKey.has(m.id)) mByKey.set(m.id, Object.assign({ day: d }, m));
     }
   }
-  const meetings = Array.from(mByKey.values());
+  const meetings = _pulseDedupeMeetings(Array.from(mByKey.values()));
   for (const t of visible) t.dm = _pulseIsDm(t);
   const counts = {
     all: visible.length,
@@ -28827,6 +28827,65 @@ function _pulseAssemble(days, date) {
 // by a content fingerprint so it doesn't re-run on every page load — only when the
 // ambient activity actually changes (or the user forces a refresh).
 const PULSE_SUMMARY_MAX_ITEMS = 5;
+// Collapse redundant meeting recaps. loadMtgActStore already dedupes exact re-extractions
+// by meeting id, but a RECURRING meeting (daily standup, weekly sync) lands as a distinct
+// recap per occurrence across the recent window — so the Focus lens showed the "same"
+// meeting 3-4 times. Group by a normalized title and keep only the NEWEST occurrence as the
+// representative, folding every collapsed occurrence's action items into it (deduped by
+// text) so nothing is lost. Guard: a title with fewer than 2 alphanumeric tokens is too
+// generic ("Sync", "1:1") to safely collapse across unrelated meetings, so those pass
+// through untouched. Each survivor carries mergedCount (occurrences it represents).
+function _pulseMeetingTitleKey(title) {
+  const norm = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const tokens = norm ? norm.split(' ').filter(Boolean) : [];
+  return tokens.length >= 2 ? norm : '';
+}
+function _pulseMeetingEndMs(m) {
+  const t = Date.parse((m && m.end) || '');
+  if (isFinite(t) && t) return t;
+  const d = Date.parse(((m && m.day) || '') + 'T00:00:00');
+  return isFinite(d) ? d : 0;
+}
+function _pulseDedupeMeetings(list) {
+  const arr = Array.isArray(list) ? list.slice() : [];
+  const groups = new Map();      // titleKey -> representative meeting (newest)
+  const out = [];
+  for (const m of arr) {
+    if (!m) continue;
+    const key = _pulseMeetingTitleKey(m.meeting);
+    if (!key) { out.push(m); continue; } // too generic to collapse — keep as its own row
+    const prev = groups.get(key);
+    if (!prev) {
+      const rep = Object.assign({}, m, { mergedCount: 1 });
+      groups.set(key, rep);
+      out.push(rep);
+      continue;
+    }
+    // Merge into the newest of the two; fold the older one's actions into it.
+    const older = _pulseMeetingEndMs(m) > _pulseMeetingEndMs(prev) ? prev : m;
+    const newer = older === prev ? m : prev;
+    const rep = Object.assign(prev, newer, { mergedCount: (prev.mergedCount || 1) + 1 });
+    // Union actions across every occurrence, deduped by normalized text (cap 8).
+    const seen = new Set();
+    const acts = [];
+    for (const src of [newer, older]) {
+      for (const a of (Array.isArray(src && src.actions) ? src.actions : [])) {
+        const text = String((a && a.text) || '').trim();
+        if (!text) continue;
+        const nk = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+        if (seen.has(nk)) continue;
+        seen.add(nk);
+        acts.push({ text: text.slice(0, 200), due: (a && typeof a.due === 'string' && a.due.trim()) ? a.due.trim() : null });
+        if (acts.length >= 8) break;
+      }
+      if (acts.length >= 8) break;
+    }
+    rep.actions = acts;
+    groups.set(key, rep);
+    // rep is the same object reference already pushed to `out` for this key — mutated in place.
+  }
+  return out;
+}
 function _pulseSummaryFingerprint(threads, meetings) {
   const t = (threads || []).map(x => x.key + ':' + (x.activityTs || 0) + ':' + (x.count || 0) + ':' + (x.hasNew ? 1 : 0)).sort().join('|');
   const m = (meetings || []).map(x => String(x.id) + ':' + ((x.actions || []).length)).sort().join('|');
@@ -29656,6 +29715,67 @@ app.post('/api/me-ai/pulse/meeting', (req, res) => {
     else return res.status(400).json({ error: 'action must be hide | unhide' });
     _pulseSaveState(st);
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/pulse/meeting/action → capture a meeting recap's action item into one of
+// the user's two work surfaces:
+//   { target:'todo', title, due?, link?, date? }        → append to today's agenda to-dos
+//   { target:'inbox', text, meeting?, meetingId?, due?, link?, date? } → fold into the
+//        attention (triage) inbox as a meeting-action, reusing the same dedupeKey scheme the
+//        automatic ended-meeting gather uses, so it merges with any auto-captured twin.
+// Both are idempotent-ish (exact-title todo dup is skipped; inbox dedups by key).
+app.post('/api/me-ai/pulse/meeting/action', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const target = String(b.target || '').trim();
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    if (target === 'todo') {
+      const title = String(b.title || '').trim().slice(0, 200);
+      if (!title) return res.status(400).json({ error: 'title required' });
+      const prior = loadMeAiTodoStore(date) || [];
+      const exists = prior.some(t => String(t.title || '').trim().toLowerCase() === title.toLowerCase());
+      if (!exists) {
+        const due = (b.due && String(b.due).trim()) ? String(b.due).trim().slice(0, 60) : '';
+        const note = due ? ('Due ' + due) : '';
+        const entry = { title, scope: 'work', done: false };
+        if (b.link) entry.link = String(b.link).slice(0, 400);
+        if (note) entry.note = note;
+        const todos = _meAiNormTodos(prior.concat([entry]));
+        // Lift any tombstone so a re-added title isn't blocked from re-folding later.
+        try { const tomb = new Set(loadMeAiTodoTomb(date)); tomb.delete(title.toLowerCase()); saveMeAiTodoTomb(date, Array.from(tomb)); } catch (_) {}
+        saveMeAiTodoStore(date, todos);
+        const snap = loadAgendaForDate(date);
+        if (snap) { snap.todos = todos; _meAiCleanSnapshotBlocks(snap); saveAgendaForDate(date, snap); }
+        return res.json({ ok: true, target: 'todo', date, added: true, todos });
+      }
+      return res.json({ ok: true, target: 'todo', date, added: false, reason: 'already on your to-dos', todos: prior });
+    }
+    if (target === 'inbox') {
+      const cfg = _meAiConfig();
+      if (!cfg.consent) return res.status(400).json({ error: 'me.ai consent required' });
+      const text = String(b.text || '').trim().slice(0, 200);
+      if (!text) return res.status(400).json({ error: 'text required' });
+      const crypto = require('crypto');
+      const mid = String(b.meetingId || b.meeting || 'meeting').trim() || 'meeting';
+      const anorm = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const h = crypto.createHash('sha1').update(anorm || text.toLowerCase()).digest('hex').slice(0, 12);
+      const due = (b.due && String(b.due).trim()) ? String(b.due).trim() : '';
+      const link = b.link ? String(b.link).slice(0, 400) : '';
+      const sig = {
+        kind: 'meeting-action', type: 'comms',
+        title: text,
+        detail: ('Action from \u201C' + String(b.meeting || 'a meeting').slice(0, 80) + '\u201D' + (due ? ' \u00B7 due ' + due : '')).slice(0, 200),
+        start: null, end: null,
+        link, recordingUrl: '', meetingLink: link,
+        prLink: '', ts: new Date().toISOString(),
+        dedupeKey: 'mtgact:' + mid + ':' + h,
+        directMention: true, urgency: 4, source: 'meeting',
+      };
+      const r = await _meAiMergeInbox(date, [sig]);
+      return res.json({ ok: true, target: 'inbox', date, added: (r && r.added) || 0 });
+    }
+    return res.status(400).json({ error: "target must be 'todo' or 'inbox'" });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
