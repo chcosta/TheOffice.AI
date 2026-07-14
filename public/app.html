@@ -20345,6 +20345,63 @@
               .cmpx-rrow .del{opacity:0;color:var(--cp-text-secondary);border:0;background:none;cursor:pointer;font-size:14px;padding:4px}
               .cmpx-rrow:hover .del{opacity:1}
               .cmpx-empty{padding:22px;text-align:center;color:var(--cp-text-secondary);font-size:13.5px}
+              /* ===== Documents library ===== */
+              .cmpx-lib{margin-top:6px}
+              .cmpx-lib-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+              .cmpx-lib-search{position:relative;flex:1;min-width:220px}
+              .cmpx-lib-search input{width:100%;padding:8px 10px 8px 32px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface);color:var(--cp-text);font:inherit;font-size:13px}
+              .cmpx-lib-search .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--cp-text-secondary);font-size:13px}
+              .cmpx-lib-ctl{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--cp-text-secondary)}
+              .cmpx-lib-ctl select{padding:7px 8px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface);color:var(--cp-text);font:inherit;font-size:12.5px;cursor:pointer}
+              .cmpx-lib-viewtog{display:flex;border:1px solid var(--cp-border);border-radius:8px;overflow:hidden}
+              .cmpx-lib-viewtog button{border:0;background:var(--cp-surface);color:var(--cp-text-secondary);padding:7px 10px;cursor:pointer;font-size:13px}
+              .cmpx-lib-viewtog button.on{background:color-mix(in srgb,var(--cp-accent) 12%,transparent);color:var(--cp-accent)}
+              .cmpx-lib-filt{display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin:0 0 10px;font-size:12.5px}
+              .cmpx-lib-filt .lbl{color:var(--cp-text-secondary);margin-right:6px}
+              .cmpx-lib-filt a{color:var(--cp-text-secondary);text-decoration:none;padding:2px 7px;border-radius:6px;cursor:pointer}
+              .cmpx-lib-filt a:hover{color:var(--cp-accent)}
+              .cmpx-lib-filt a.on{color:var(--cp-accent);font-weight:600;background:color-mix(in srgb,var(--cp-accent) 12%,transparent)}
+              .cmpx-lib-filt .dot{color:var(--cp-text-secondary);opacity:.5}
+              .cmpx-lib-filt .cnt{color:var(--cp-text-secondary);font-weight:400;opacity:.75}
+              .cmpx-lib-sum{color:var(--cp-text-secondary);font-size:12px;margin:0 0 10px}
+              .cmpx-lib-panel{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;overflow:hidden}
+              .cmpx-lib-thead,.cmpx-lib-trow{display:grid;grid-template-columns:26px 1fr 150px 118px 92px 132px;gap:10px;align-items:center;padding:9px 14px}
+              .cmpx-lib-thead{border-bottom:1px solid var(--cp-border);font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--cp-text-secondary)}
+              .cmpx-lib-thead .srt{cursor:pointer;user-select:none}
+              .cmpx-lib-thead .srt:hover{color:var(--cp-accent)}
+              .cmpx-lib-thead .rt,.cmpx-lib-trow .rt{text-align:right}
+              .cmpx-lib-trow{border-bottom:1px solid var(--cp-border);cursor:pointer}
+              .cmpx-lib-trow:last-child{border-bottom:0}
+              .cmpx-lib-trow:hover{background:var(--cp-surface-hover,rgba(0,0,0,.03))}
+              .cmpx-lib-trow.sel{background:color-mix(in srgb,var(--cp-accent) 10%,transparent)}
+              .cmpx-lib-trow .cbx,.cmpx-lib-card .cbx{width:16px;height:16px;border:1px solid var(--cp-border);border-radius:4px;display:grid;place-items:center;font-size:11px;color:#fff;background:var(--cp-surface);cursor:pointer;flex:0 0 auto}
+              .cmpx-lib-trow .cbx.on,.cmpx-lib-card .cbx.on{background:var(--cp-accent);border-color:var(--cp-accent)}
+              .cmpx-lib-trow .doc .ttl{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;min-width:0}
+              .cmpx-lib-trow .doc .ttl span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-lib-trow .doc .ico{font-size:14px;flex:0 0 auto}
+              .cmpx-lib-trow .doc .meta{font-size:11.5px;color:var(--cp-text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-lib-trow .col-purpose,.cmpx-lib-trow .col-when{font-size:12.5px;color:var(--cp-text-secondary)}
+              .cmpx-lib-trow .col-size{font-size:12.5px;color:var(--cp-text-secondary);opacity:.8}
+              .cmpx-lib-trow .rowacts{display:flex;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .12s}
+              .cmpx-lib-trow:hover .rowacts{opacity:1}
+              .cmpx-lib .icobtn{border:0;background:transparent;color:var(--cp-text-secondary);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:6px}
+              .cmpx-lib .icobtn:hover{background:var(--cp-surface-2,rgba(0,0,0,.05));color:var(--cp-accent)}
+              .cmpx-lib .icobtn.danger:hover{color:var(--cp-danger,#d6493a)}
+              .cmpx-lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+              .cmpx-lib-card{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;padding:13px 14px;cursor:pointer;display:flex;flex-direction:column;gap:8px;min-height:140px}
+              .cmpx-lib-card:hover{border-color:var(--cp-accent)}
+              .cmpx-lib-card.sel{border-color:var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 8%,transparent)}
+              .cmpx-lib-card .top{display:flex;align-items:flex-start;gap:8px}
+              .cmpx-lib-card .ico{font-size:16px}
+              .cmpx-lib-card .ttl{font-weight:640;font-size:13.5px;line-height:1.35}
+              .cmpx-lib-card .prev{font-size:12px;color:var(--cp-text-secondary);line-height:1.45;flex:1;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+              .cmpx-lib-card .foot{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:var(--cp-text-secondary);border-top:1px solid var(--cp-border);padding-top:8px}
+              .cmpx-lib-empty{padding:40px 24px;text-align:center;color:var(--cp-text-secondary);font-size:13.5px}
+              .cmpx-lib-bulk{display:flex;align-items:center;gap:10px;background:var(--cp-surface);border:1px solid var(--cp-accent);border-radius:8px;padding:8px 12px;margin:0 0 10px;font-size:12.5px}
+              .cmpx-lib-bulk .n{font-weight:640;color:var(--cp-accent)}
+              .cmpx-lib-bulk .spacer{flex:1}
+              .cmpx-lib-bulk a{color:var(--cp-text-secondary);text-decoration:none;cursor:pointer;padding:3px 6px;border-radius:6px}
+              .cmpx-lib-bulk a:hover{color:var(--cp-accent)}
               /* Brief form */
               .cmpx-brief{max-width:720px;margin:14px auto 0;display:flex;flex-direction:column;gap:14px}
               .cmpx-fld{display:flex;flex-direction:column;gap:5px}
@@ -20484,6 +20541,7 @@
                   <div class="cmpx-sub" x-show="compose.view === 'studio' && compose.current" x-text="compose.current ? (composePurposeLabel(compose.current.purpose) + ' · ' + composeFormatLabel(compose.current.format)) : ''"></div>
                 </div>
                 <div class="spacer"></div>
+                <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="composeOpenLibrary()">📁 Documents</button>
                 <button class="btn ghost" type="button" x-show="compose.view !== 'launcher'" @click="compose.view === 'studio' ? composeBackToLauncher() : (compose.view = 'launcher')">← All compositions</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
               </div>
@@ -20527,6 +20585,106 @@
                   </div>
                   <div class="cmpx-recent" x-show="!compose.compositions.length">
                     <div class="cmpx-empty">Nothing composed yet. Pick a purpose above to start.</div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- ============ DOCUMENTS LIBRARY ============ -->
+              <template x-if="compose.view === 'library' && !compose.loading">
+                <div class="cmpx-lib">
+                  <div class="cmpx-lib-bar">
+                    <div class="cmpx-lib-search">
+                      <span class="ic">🔍</span>
+                      <input type="text" x-model="compose.lib.q" placeholder="Search title, purpose, or contents…">
+                    </div>
+                    <label class="cmpx-lib-ctl">Sort
+                      <select x-model="compose.lib.sort">
+                        <option value="updated">Last edited</option>
+                        <option value="created">Date created</option>
+                        <option value="title">Title (A–Z)</option>
+                        <option value="size">Size</option>
+                      </select>
+                    </label>
+                    <div class="cmpx-lib-viewtog">
+                      <button type="button" :class="{on: compose.lib.mode==='list'}" @click="compose.lib.mode='list'" title="List">☰</button>
+                      <button type="button" :class="{on: compose.lib.mode==='grid'}" @click="compose.lib.mode='grid'" title="Grid">▦</button>
+                    </div>
+                    <button class="btn" type="button" @click="compose.view='launcher'">Iterations studio →</button>
+                    <button class="btn primary" type="button" @click="composeLibNew()">＋ New</button>
+                  </div>
+
+                  <!-- quiet filter index row (NO pills) -->
+                  <div class="cmpx-lib-filt">
+                    <span class="lbl">Filter</span>
+                    <a :class="{on: !compose.lib.filter}" @click="compose.lib.filter=''">All <span class="cnt" x-text="compose.compositions.length"></span></a>
+                    <template x-for="f in composeLibFacets()" :key="f.id">
+                      <span><span class="dot">·</span><a :class="{on: compose.lib.filter===f.id}" @click="compose.lib.filter=f.id" x-text="f.label"></a> <span class="cnt" x-text="f.count"></span></span>
+                    </template>
+                  </div>
+
+                  <!-- bulk bar -->
+                  <div class="cmpx-lib-bulk" x-show="compose.lib.sel.length">
+                    <span class="n" x-text="compose.lib.sel.length + ' selected'"></span>
+                    <span class="spacer"></span>
+                    <a @click="composeLibBulk('export')">⬇ Export</a>
+                    <a @click="composeLibBulk('delete')">🗑 Delete</a>
+                    <a @click="compose.lib.sel = []">Clear</a>
+                  </div>
+
+                  <div class="cmpx-lib-sum" x-text="composeLibSummary()"></div>
+
+                  <!-- empty -->
+                  <div class="cmpx-lib-panel" x-show="!composeLibFiltered().length">
+                    <div class="cmpx-lib-empty" x-text="compose.compositions.length ? 'Nothing matches. Try a different search or filter.' : 'Nothing composed yet. Start one from the iterations studio.'"></div>
+                  </div>
+
+                  <!-- LIST -->
+                  <div class="cmpx-lib-panel" x-show="compose.lib.mode==='list' && composeLibFiltered().length">
+                    <div class="cmpx-lib-thead">
+                      <span></span>
+                      <span class="srt" @click="composeLibSortBy('title')">Document</span>
+                      <span>Purpose</span>
+                      <span class="srt" @click="composeLibSortBy('updated')">Last edited</span>
+                      <span class="rt srt" @click="composeLibSortBy('size')">Size</span>
+                      <span></span>
+                    </div>
+                    <template x-for="c in composeLibFiltered()" :key="c.id">
+                      <div class="cmpx-lib-trow" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeOpen(c.id)">
+                        <span class="cbx" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
+                        <div class="doc">
+                          <div class="ttl"><span class="ico" x-text="(composePurpose(c.purpose)||{}).icon || '📄'"></span><span x-text="c.title || 'Untitled'"></span></div>
+                          <div class="meta" x-text="c.preview ? (c.preview.slice(0,96) + (c.preview.length>96?'…':'')) : (c.hasDraft ? '' : 'draft empty')"></div>
+                        </div>
+                        <div class="col-purpose" x-text="composePurposeLabel(c.purpose)"></div>
+                        <div class="col-when" x-text="formatRelative(c.updatedAt)"></div>
+                        <div class="col-size rt" x-text="composeLibSize(c.size)"></div>
+                        <div class="rowacts">
+                          <button class="icobtn" title="Open" @click.stop="composeOpen(c.id)">↗</button>
+                          <button class="icobtn" title="Share" @click.stop="composeLibShare(c.id)">⤴</button>
+                          <button class="icobtn" title="Export" @click.stop="composeLibExport(c.id)">⬇</button>
+                          <button class="icobtn danger" title="Delete" @click.stop="composeDelete(c.id)">🗑</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- GRID -->
+                  <div class="cmpx-lib-grid" x-show="compose.lib.mode==='grid' && composeLibFiltered().length">
+                    <template x-for="c in composeLibFiltered()" :key="c.id">
+                      <div class="cmpx-lib-card" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeOpen(c.id)">
+                        <div class="top">
+                          <span class="ico" x-text="(composePurpose(c.purpose)||{}).icon || '📄'"></span>
+                          <div class="ttl" x-text="c.title || 'Untitled'"></div>
+                          <span class="spacer" style="flex:1"></span>
+                          <span class="cbx" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
+                        </div>
+                        <div class="prev" x-text="c.preview || (c.hasDraft ? '' : 'Draft empty — nothing generated yet.')"></div>
+                        <div class="foot">
+                          <span x-text="composePurposeLabel(c.purpose) + ' · ' + formatRelative(c.updatedAt)"></span>
+                          <span x-text="composeLibSize(c.size)"></span>
+                        </div>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </template>
@@ -29277,8 +29435,10 @@
           compositions: [],       // recent compositions (list view)
           capture: null,
           diaryHasEvidence: false,
-          view: 'launcher',       // 'launcher' | 'brief' | 'studio'
+          view: 'launcher',       // 'launcher' | 'brief' | 'studio' | 'library'
           fullscreen: false,
+          // Documents library (whole body of composed work).
+          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [] },
           _pendingStart: null,    // purpose queued by a deep link, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
@@ -45798,8 +45958,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             co.capture = (r && r.capture) || null;
             co.diaryHasEvidence = !!(r && r.diaryHasEvidence);
             co.loaded = true;
-            // Land on the launcher unless we're already deep in a composition.
-            if (!co.current) co.view = 'launcher';
+            // Land on the launcher unless we're already deep in a composition
+            // or browsing the documents library.
+            if (!co.current && co.view !== 'library') co.view = 'launcher';
             // Honor a purpose picked from the global FAB launcher.
             if (co._pendingStart) { const pid = co._pendingStart; co._pendingStart = null; this.composeStart(pid); }
           } catch (e) {
@@ -45852,6 +46013,93 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return c.hasDraft
             ? ('↩ Resume — last generated ' + this.formatRelative(c.lastGeneratedAt || c.updatedAt))
             : '↩ Resume — draft in progress';
+        },
+        // ===== Documents library =====
+        async composeOpenLibrary() {
+          this.compose.lib.sel = [];
+          this.compose.view = 'library';
+          await this.loadCompose();
+          this.compose.view = 'library';
+        },
+        composeLibFacets() {
+          const counts = {};
+          (this.compose.compositions || []).forEach(c => { counts[c.purpose] = (counts[c.purpose] || 0) + 1; });
+          return Object.keys(counts)
+            .sort((a, b) => counts[b] - counts[a])
+            .map(id => ({ id, label: this.composePurposeLabel(id), count: counts[id] }));
+        },
+        composeLibFiltered() {
+          const lib = this.compose.lib;
+          const q = String(lib.q || '').toLowerCase().trim();
+          let list = (this.compose.compositions || []).filter(c => {
+            if (lib.filter && c.purpose !== lib.filter) return false;
+            if (q) {
+              const hay = (String(c.title || '') + ' ' + this.composePurposeLabel(c.purpose) + ' ' + String(c.preview || '')).toLowerCase();
+              if (!hay.includes(q)) return false;
+            }
+            return true;
+          });
+          const s = lib.sort;
+          list = list.slice().sort((a, b) => {
+            if (s === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
+            if (s === 'size') return (b.size || 0) - (a.size || 0);
+            if (s === 'created') return String(b.createdAt).localeCompare(String(a.createdAt));
+            return String(b.updatedAt).localeCompare(String(a.updatedAt));
+          });
+          return list;
+        },
+        composeLibSortBy(s) {
+          // clicking a column header selects that sort (updated toggles created⇄updated feel is unnecessary)
+          this.compose.lib.sort = s;
+        },
+        composeLibSize(bytes) {
+          const b = Number(bytes) || 0;
+          if (b < 1024) return b + ' B';
+          const k = b / 1024;
+          if (k < 1024) return k.toFixed(k < 10 ? 1 : 0) + ' KB';
+          return (k / 1024).toFixed(1) + ' MB';
+        },
+        composeLibSummary() {
+          const list = this.compose.compositions || [];
+          if (!list.length) return '';
+          const total = list.reduce((s, c) => s + (Number(c.size) || 0), 0);
+          return list.length + (list.length === 1 ? ' document · ' : ' documents · ') + this.composeLibSize(total) + ' total';
+        },
+        composeLibToggle(id) {
+          const sel = this.compose.lib.sel;
+          const i = sel.indexOf(id);
+          if (i === -1) sel.push(id); else sel.splice(i, 1);
+        },
+        composeLibNew() {
+          // Fresh blank composition — land in the launcher to pick a purpose.
+          this.compose.view = 'launcher';
+          this.toast('Pick a purpose to start a fresh composition.', 'info');
+        },
+        composeLibExport(id) {
+          const c = (this.compose.compositions || []).find(x => x.id === id);
+          const fmt = c && c.format === 'site' ? 'html' : 'md';
+          window.open('/api/compose/' + encodeURIComponent(id) + '/export?format=' + fmt, '_blank');
+        },
+        async composeLibShare(id) {
+          // Open the doc in the studio and surface its deliver dialog — the studio
+          // owns the real email/Teams/export delivery flow.
+          await this.composeOpen(id);
+          this.composeOpenDeliver && this.composeOpenDeliver();
+        },
+        async composeLibBulk(act) {
+          const ids = (this.compose.lib.sel || []).slice();
+          if (!ids.length) return;
+          if (act === 'export') {
+            ids.forEach(id => this.composeLibExport(id));
+            this.compose.lib.sel = [];
+            return;
+          }
+          if (act === 'delete') {
+            if (typeof confirm === 'function' && !confirm('Delete ' + ids.length + ' document' + (ids.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
+            for (const id of ids) { await this.composeDelete(id, { silent: true }); }
+            this.compose.lib.sel = [];
+            this.toast('Deleted ' + ids.length + ' document' + (ids.length === 1 ? '' : 's') + '.', 'success');
+          }
         },
         async composeStart(purposeId, opts = {}) {
           const p = this.composePurpose(purposeId);
@@ -46542,14 +46790,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast('Restored version', 'success');
           } catch (e) { this.toast('Restore failed: ' + (e.message || e), 'error'); }
         },
-        async composeDelete(id) {
-          if (!confirm('Delete this composition? This cannot be undone.')) return;
+        async composeDelete(id, opts = {}) {
+          if (!opts.silent && !confirm('Delete this composition? This cannot be undone.')) return;
           try {
             await this.request('/api/compose/' + encodeURIComponent(id), { method: 'DELETE' });
             if (this.compose.current && this.compose.current.id === id) { this.compose.current = null; this.compose.view = 'launcher'; }
+            const sel = this.compose.lib && this.compose.lib.sel;
+            if (sel) { const i = sel.indexOf(id); if (i !== -1) sel.splice(i, 1); }
             await this.loadCompose();
-            this.toast('Deleted', 'success');
-          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+            if (!opts.silent) this.toast('Deleted', 'success');
+          } catch (e) { if (!opts.silent) this.toast('Delete failed: ' + (e.message || e), 'error'); else throw e; }
         },
         composeToggleFullscreen() { this.compose.fullscreen = !this.compose.fullscreen; },
         async loadDataLocation() {

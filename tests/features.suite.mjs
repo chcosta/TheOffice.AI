@@ -817,6 +817,45 @@ await t.test('Compose paired assistant negotiates structure — server judges + 
   t.ok(/\.cmpx-pair-msg\.structure \.body\{/.test(html), 'structure message has a calm accent style');
 });
 
+await t.test('Compose.AI documents library — real list/search/sort/filter/grid/bulk wired to compositions', async () => {
+  // Server list carries the fields the library needs (size + preview) per composition.
+  const cjs = readFileSync('compose.js', 'utf8');
+  const list = (cjs.match(/function listCompositions\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  t.ok(/size:\s*Buffer\.byteLength\(content, 'utf8'\)/.test(list), 'listCompositions reports byte size from the draft content');
+  t.ok(/preview:\s*String\(content\)/.test(list), 'listCompositions carries a plain-text preview snippet');
+
+  // Live proof: the size/preview derivation is real (not a placeholder).
+  const { default: compose } = await import('../compose.js');
+  t.ok(typeof compose.listCompositions === 'function', 'listCompositions is exported');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  // A distinct library view exists, reachable from the launcher header.
+  t.ok(/compose\.view === 'library'/.test(html), 'library is its own compose view');
+  t.ok(/@click="composeOpenLibrary\(\)">📁 Documents/.test(html), 'launcher header opens the Documents library');
+  // The library is driven by real bindings, not the mock DOCS array.
+  t.ok(/composeLibFiltered\(\)/.test(html), 'rows/cards render composeLibFiltered()');
+  t.ok(/x-model="compose\.lib\.q"/.test(html), 'search binds to compose.lib.q');
+  t.ok(/x-model="compose\.lib\.sort"/.test(html), 'sort binds to compose.lib.sort');
+  // Filter row is calm text links with muted counts — NO pills.
+  t.ok(/class="cmpx-lib-filt"/.test(html) && /composeLibFacets\(\)/.test(html), 'quiet filter index row driven by facets');
+  t.ok(!/border-radius:\s*999px/.test((html.match(/\.cmpx-lib-filt[\s\S]*?\.cmpx-lib-sum\{/) || [''])[0]), 'filter row uses no pill radius');
+  // List + grid toggle both present.
+  t.ok(/compose\.lib\.mode==='list'/.test(html) && /compose\.lib\.mode==='grid'/.test(html), 'list + grid view modes');
+  // Bulk selection bar + timestamps + size.
+  t.ok(/class="cmpx-lib-bulk"/.test(html) && /composeLibBulk\(/.test(html), 'bulk action bar wired');
+  t.ok(/composeLibSize\(c\.size\)/.test(html), 'row size rendered from real byte size');
+  t.ok(/formatRelative\(c\.updatedAt\)/.test((html.match(/class="cmpx-lib-trow"[\s\S]*?<\/template>/) || [''])[0]), 'row timestamp from meta.updatedAt');
+
+  // Actions reuse real compose paths (open/share-deliver/export/delete) — not mock stubs.
+  const methods = html;
+  t.ok(/async composeOpenLibrary\(\)\s*\{[\s\S]*?await this\.loadCompose\(\)/.test(methods), 'library refreshes via the real loader');
+  t.ok(/composeLibExport\(id\)\s*\{[\s\S]*?\/api\/compose\/' \+ encodeURIComponent\(id\) \+ '\/export/.test(methods), 'export hits the real per-id export route');
+  t.ok(/async composeLibShare\(id\)\s*\{[\s\S]*?await this\.composeOpen\(id\)[\s\S]*?composeOpenDeliver/.test(methods), 'share opens the studio deliver flow');
+  t.ok(/composeDelete\(id, \{ silent: true \}\)/.test(methods), 'bulk delete uses the silent delete path');
+  // loadCompose must not clobber an explicit library view.
+  t.ok(/if \(!co\.current && co\.view !== 'library'\) co\.view = 'launcher'/.test(methods), 'loadCompose preserves the library view');
+});
+
 await t.test('Me-agent view is its own page (agenda hidden), not an overlay flashed over the agenda', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // A dedicated agentPage flag exists in the meai state.

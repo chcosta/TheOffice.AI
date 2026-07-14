@@ -257,20 +257,25 @@ function _writeAll(state) { return _writeJson(_statePath(), state); }
 function listCompositions() {
   const st = _readAll();
   return st.items
-    .map(c => ({
-      id: c.id,
-      title: c.title,
-      purpose: c.purpose,
-      audience: c.audience,
-      format: c.format,
-      hasDraft: !!(c.draft && (c.draft.content || '').trim()),
-      draftSource: c.draft ? c.draft.source : 'manual',
-      versionCount: (c.versions || []).length,
-      createdAt: c.meta.createdAt,
-      updatedAt: c.meta.updatedAt,
-      lastGeneratedAt: c.meta.lastGeneratedAt,
-      lastDeliveredAt: c.meta.lastDeliveredAt,
-    }))
+    .map(c => {
+      const content = (c.draft && c.draft.content) || '';
+      return {
+        id: c.id,
+        title: c.title,
+        purpose: c.purpose,
+        audience: c.audience,
+        format: c.format,
+        hasDraft: !!(content || '').trim(),
+        draftSource: c.draft ? c.draft.source : 'manual',
+        versionCount: (c.versions || []).length,
+        size: Buffer.byteLength(content, 'utf8'),
+        preview: String(content).replace(/[#*_`>\[\]!]|<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220),
+        createdAt: c.meta.createdAt,
+        updatedAt: c.meta.updatedAt,
+        lastGeneratedAt: c.meta.lastGeneratedAt,
+        lastDeliveredAt: c.meta.lastDeliveredAt,
+      };
+    })
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }
 
