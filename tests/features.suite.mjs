@@ -691,4 +691,26 @@ await t.test('Monitor Teams pre-loads cached channels + shows currently-monitore
   t.ok(/\.pmd-team-chansel \{/.test(src), 'inline row has calm muted CSS');
 });
 
+await t.test('Pulse.AI Reel — forward/back nav, tap-to-fullscreen, copy-in-fullscreen, doom-scroll order', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  // Reel panel now has BOTH a previous and a next nav button (was previous-only).
+  t.ok(/pc-reel-nav prev"[^>]*pulseReelStep\(-1\)/.test(src), 'reel has a previous nav button');
+  t.ok(/pc-reel-nav next"[^>]*pulseReelStep\(1\)/.test(src), 'reel has a forward nav button');
+  // Tapping the reel image opens the fullscreen lightbox (not advance-in-place).
+  t.ok(/pc-s-media clickable"\s*@click="pulseReelOpenFull\(it, i\)"/.test(src), 'reel image click opens fullscreen');
+  // Fullscreen lightbox can copy the image + open the original.
+  t.ok(/pulseReelCopyFull\(\)/.test(src), 'lightbox wires a copy-image action');
+  t.ok(/async pulseReelCopyFull\(\)\s*\{/.test(src), 'pulseReelCopyFull method exists');
+  t.ok(/_pulseRasterize\(/.test(src), 'copy rasterizes svg/non-png to a png blob');
+  t.ok(/new window\.ClipboardItem\(\{ 'image\/png': blob \}\)/.test(src), 'copy writes an image ClipboardItem');
+  t.ok(/_reelCopied:\s*false/.test(src), '_reelCopied state exists');
+  // Server reel order: today first, then RANDOM older art (doom-scroll).
+  t.ok(/const today = items\.filter\(isToday\)\.sort/.test(srv), 'server puts today\'s art first');
+  t.ok(/const older = items\.filter\(x => !isToday\(x\)\);[\s\S]{0,200}Math\.random\(\)/.test(srv), 'older art is shuffled randomly');
+  // Email share accepts data: image URIs and never drops the joke caption.
+  t.ok(/\/\^\(https\?:\|data:image\\\/\)\/i\.test\(url\)/.test(srv), 'email image renderer accepts data: URIs');
+  t.ok(/No renderable image — keep the caption/.test(srv), 'email keeps the caption when no image renders');
+});
+
 await t.done();

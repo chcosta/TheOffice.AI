@@ -29198,12 +29198,17 @@ function _pulseComedyReel(limit) {
     const items = _pulseComedyLoadBacklog().items.filter(x => x && !x.hidden && (x.svg || x.img));
     if (!items.length) return [];
     const ts = (x) => Date.parse(x.lastShownAt || x.createdAt || '') || 0;
-    const recent = items.slice().sort((a, b) => ts(b) - ts(a));
+    const todayStr = new Date().toDateString();
+    const isToday = (x) => { const t = Date.parse(x.createdAt || x.lastShownAt || ''); return isFinite(t) && !!t && new Date(t).toDateString() === todayStr; };
+    // Doom-scroll order: art generated TODAY first (freshest first), then OLDER art in
+    // RANDOM order so each visit resurfaces different memes from the vault.
+    const today = items.filter(isToday).sort((a, b) => ts(b) - ts(a));
+    const older = items.filter(x => !isToday(x));
+    for (let i = older.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const tmp = older[i]; older[i] = older[j]; older[j] = tmp; }
     const picked = [];
     const used = new Set();
-    for (const x of recent) { if (picked.length >= cap - 2) break; picked.push(x); used.add(x.id); }
-    const vault = items.filter(x => !used.has(x.id)).sort((a, b) => ((b.pinned ? 1e6 : 0) + (b.showCount || 0)) - ((a.pinned ? 1e6 : 0) + (a.showCount || 0)));
-    for (const x of vault) { if (picked.length >= cap) break; picked.push(Object.assign({}, x, { _vault: true })); used.add(x.id); }
+    for (const x of today) { if (picked.length >= cap) break; picked.push(x); used.add(x.id); }
+    for (const x of older) { if (picked.length >= cap) break; if (used.has(x.id)) continue; picked.push(Object.assign({}, x, { _vault: true })); used.add(x.id); }
     return picked.map(x => ({ id: x.id, kind: x.kind, svg: x.svg || '', img: x.img || '', template: x.template || '', title: x.title || '', captions: x.captions || [], sourceKey: x.sourceKey || '', vault: !!x._vault || (x.showCount || 1) > 1, pinned: !!x.pinned, createdAt: x.createdAt || '', at: x.lastShownAt || x.createdAt || '' }));
   } catch { return []; }
 }
@@ -29659,10 +29664,16 @@ function _pulseShareHtml(markdown, images) {
     const url = String(im.url || '').trim();
     const svg = String(im.svg || '').trim();
     const cap = String(im.caption || '').trim();
-    if (url && /^https?:\/\//i.test(url)) {
-      art += `<div style="margin:14px 0;"><img src="${url.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:8px;border:1px solid #e5e2dc;" alt="">${cap ? `<div style="font-size:12px;color:#6b675f;margin-top:4px;">${cap.replace(/</g, '&lt;')}</div>` : ''}</div>`;
+    const capText = cap ? cap.replace(/&/g, '&amp;').replace(/</g, '&lt;') : '';
+    if (url && /^(https?:|data:image\/)/i.test(url)) {
+      art += `<div style="margin:14px 0;"><img src="${url.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:8px;border:1px solid #e5e2dc;" alt="${capText}">${cap ? `<div style="font-size:13px;color:#3a352c;margin-top:6px;font-weight:560;">${capText}</div>` : ''}</div>`;
     } else if (svg && /^<svg[\s>]/i.test(svg)) {
-      art += `<div style="margin:14px 0;border:1px solid #e5e2dc;border-radius:8px;overflow:hidden;background:#f6f1e6;">${svg}</div>${cap ? `<div style="font-size:12px;color:#6b675f;margin:-8px 0 8px;">${cap.replace(/</g, '&lt;')}</div>` : ''}`;
+      // Inline SVG is stripped by many mail clients (Outlook), so ALWAYS repeat the joke
+      // text as visible caption below the art — the caption is the point, never drop it.
+      art += `<div style="margin:14px 0;border:1px solid #e5e2dc;border-radius:8px;overflow:hidden;background:#f6f1e6;">${svg}</div>${cap ? `<div style="font-size:13px;color:#3a352c;margin:6px 0 8px;font-weight:560;">${capText}</div>` : ''}`;
+    } else if (cap) {
+      // No renderable image — keep the caption so the shared joke text still lands.
+      art += `<div style="margin:10px 0;font-size:13px;color:#3a352c;font-weight:560;">${capText}</div>`;
     }
   }
   return `<html><head><style>

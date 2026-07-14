@@ -19044,8 +19044,10 @@
               .pc .pc-reel-head .t { font-weight:650; font-size:14px; color:var(--cp-text); }
               .pc .pc-reel-head .c { margin-left:auto; font-size:11.5px; color:var(--cp-text-muted); }
               .pc .pc-reel { position:relative; padding:12px 12px 12px 40px; }
-              .pc .pc-reel-nav { position:absolute; left:8px; top:50%; transform:translateY(-50%); width:26px; height:26px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:2; }
+              .pc .pc-reel-nav { position:absolute; left:7px; width:26px; height:26px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); font-size:15px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:3; }
               .pc .pc-reel-nav:hover { background:var(--cp-surface-hover); }
+              .pc .pc-reel-nav.prev { top:12px; }
+              .pc .pc-reel-nav.next { bottom:12px; }
               .pc .pc-reel-dots { position:absolute; left:16px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:6px; z-index:2; }
               .pc .pc-dot { width:7px; height:7px; border-radius:999px; border:0; padding:0; background:color-mix(in srgb, var(--cp-text) 22%, transparent); cursor:pointer; }
               .pc .pc-dot.on { background:var(--joy); }
@@ -19079,6 +19081,9 @@
               @media (prefers-reduced-motion: reduce) { .pc-lb-nav { transition:none; } }
               .pc-lb-count { color:#aeb6c0; font-size:12.5px; text-align:center; font-variant-numeric:tabular-nums; }
               .pc-lb-cap { color:#e6edf3; font-size:14px; text-align:center; line-height:1.5; text-wrap:pretty; }
+              .pc-lb-acts { display:flex; gap:8px; justify-content:center; }
+              .pc-lb-act { font-size:12px; padding:5px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.06); color:#e6edf3; cursor:pointer; transition:background .14s ease-out; }
+              .pc-lb-act:hover { background:rgba(255,255,255,.14); }
               @media (prefers-reduced-motion: reduce) { .pc .pc-s-full { transition:none; } }
               .pc .pc-s-acts { display:flex; gap:7px; margin-top:7px; }
               .pc .pc-mini { font-size:11px; padding:3px 9px; border-radius:7px; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text-soft); cursor:pointer; }
@@ -19807,10 +19812,11 @@
                             <div class="pc-reel-panel" x-show="pulseComedyReel().length">
                               <div class="pc-reel-head">
                                 <span class="i">📱</span><span class="t">The Reel</span>
-                                <span class="c"><span x-text="pulseGenStamp(pulse.gatheredAt)"></span> · tap image →</span>
+                                <span class="c"><span x-text="pulseGenStamp(pulse.gatheredAt)"></span> · tap image ⤢</span>
                               </div>
                               <div class="pc-reel">
-                                <button class="pc-reel-nav" @click="pulseReelStep(-1)" aria-label="Previous">‹</button>
+                                <button class="pc-reel-nav prev" @click="pulseReelStep(-1)" aria-label="Previous">↑</button>
+                                <button class="pc-reel-nav next" @click="pulseReelStep(1)" aria-label="Next">↓</button>
                                 <div class="pc-reel-dots">
                                   <template x-for="(it, i) in pulseComedyReel()" :key="it.id || i">
                                     <button class="pc-dot" :class="i === pulseReelIdx() ? 'on' : ''" @click="pulseReelGoTo(i)" :aria-label="'Slide ' + (i+1)"></button>
@@ -19820,7 +19826,7 @@
                                   <div class="pc-reel-track" :style="'transform: translateY(' + (-pulseReelIdx() * 300) + 'px)'">
                                     <template x-for="(it, i) in pulseComedyReel()" :key="it.id || i">
                                       <div class="pc-slide">
-                                        <div class="pc-s-media clickable" @click="pulseReelStep(1)">
+                                        <div class="pc-s-media clickable" @click="pulseReelOpenFull(it, i)">
                                           <button class="pc-s-full" @click.stop="pulseReelOpenFull(it, i)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                           <div class="pc-svg">
                                             <img x-show="it.img" :src="it.img" alt="" loading="lazy">
@@ -19855,6 +19861,11 @@
                                 <div class="pc-lb-svg" x-show="pulse._reelFull && !pulse._reelFull.img" x-html="pulse._reelFull ? pulse._reelFull.svg : ''"></div>
                               </div>
                               <div class="pc-lb-cap" x-text="pulse._reelFull ? pulseReelCaption(pulse._reelFull) : ''"></div>
+                              <div class="pc-lb-acts">
+                                <button class="pc-lb-act" @click.stop="pulseReelCopyFull()" x-text="pulse._reelCopied ? '✓ Copied' : 'Copy image'"></button>
+                                <button class="pc-lb-act" @click.stop="pulse._reelFull && pulseShareReel(pulse._reelFull)">Share</button>
+                                <button class="pc-lb-act" x-show="pulse._reelFull && pulse._reelFull.img" @click.stop="pulseReelOpenImg()">Open original</button>
+                              </div>
                               <div class="pc-lb-count" x-show="pulseReelFullNavable()" x-text="(pulseReelIdx()+1) + ' / ' + pulseComedyReel().length"></div>
                             </div>
                           </div>
@@ -29242,7 +29253,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _reelCopied: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -38189,16 +38200,72 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         pulseReelCaption(it) { const c = (it && Array.isArray(it.captions)) ? it.captions.filter(Boolean) : []; return c.join(' · '); },
         pulseReelOpenFull(it, reelIdx) {
           this.pulse._reelFull = it || null;
+          this.pulse._reelCopied = false;
           if (typeof reelIdx === 'number' && reelIdx >= 0) { this.pulse._reelFullReel = true; this.pulseReelGoTo(reelIdx); }
           else { this.pulse._reelFullReel = false; }
         },
-        pulseReelCloseFull() { this.pulse._reelFull = null; this.pulse._reelFullReel = false; },
+        pulseReelCloseFull() { this.pulse._reelFull = null; this.pulse._reelFullReel = false; this.pulse._reelCopied = false; },
         pulseReelFullNavable() { return !!this.pulse._reelFullReel && this.pulseComedyReel().length > 1; },
         pulseReelFullStep(d) {
           if (!this.pulse._reelFull || !this.pulse._reelFullReel) return;
+          this.pulse._reelCopied = false;
           this.pulseReelStep(d || 1);
           const a = this.pulseReelActive();
           if (a) this.pulse._reelFull = a;
+        },
+        pulseReelOpenImg() {
+          const it = this.pulse._reelFull; if (!it || !it.img) return;
+          try { window.open(it.img, '_blank', 'noopener'); } catch (e) { /* popup blocked */ }
+        },
+        async pulseReelCopyFull() {
+          const it = this.pulse._reelFull; if (!it) return;
+          try {
+            let blob = null;
+            if (it.img) {
+              // memegen / hosted image → fetch the bytes and copy as an image
+              const resp = await fetch(it.img, { mode: 'cors' });
+              blob = await resp.blob();
+              // Clipboard image write only reliably accepts PNG; rasterize others via canvas
+              if (blob && blob.type && blob.type !== 'image/png') {
+                blob = await this._pulseRasterize(URL.createObjectURL(blob));
+              }
+            } else if (it.svg) {
+              const svg = String(it.svg);
+              const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+              blob = await this._pulseRasterize(url);
+            }
+            if (blob && navigator.clipboard && window.ClipboardItem) {
+              await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
+              this.pulse._reelCopied = true;
+              this.toast('Image copied', 'success');
+              setTimeout(() => { this.pulse._reelCopied = false; }, 1600);
+              return;
+            }
+            // Fallback: copy the caption text so the click isn't a dead end
+            const cap = this.pulseReelCaption(it);
+            if (cap && navigator.clipboard) { await navigator.clipboard.writeText(cap); this.toast('Caption copied (image copy unsupported here)', 'info'); return; }
+            this.toast('Copy is not supported in this browser', 'error');
+          } catch (e) { this.toast('Could not copy image: ' + (e.message || e), 'error'); }
+        },
+        // Rasterize an image/SVG URL to a PNG blob via an offscreen canvas (for clipboard image copy).
+        _pulseRasterize(url) {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              try {
+                const w = img.naturalWidth || img.width || 800;
+                const h = img.naturalHeight || img.height || 600;
+                const c = document.createElement('canvas'); c.width = w; c.height = h;
+                const ctx = c.getContext('2d');
+                ctx.fillStyle = '#0a0d12'; ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                c.toBlob((b) => b ? resolve(b) : reject(new Error('canvas export failed')), 'image/png');
+              } catch (e) { reject(e); }
+            };
+            img.onerror = () => reject(new Error('image load failed'));
+            img.src = url;
+          });
         },
         // ── Comedy sharing (email / Teams channel / whole-page newsletter) ──
         _pulseShareImg(art, caption) {
