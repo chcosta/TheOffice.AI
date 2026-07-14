@@ -400,4 +400,18 @@ await t.test('server: dev routes plumb reportHistory alongside reports', () => {
   t.ok(/cR\.save\(\{ reports, reportHistory \}\)/.test(s), 'summarizer loop saves reports + reportHistory on change');
 });
 
+// The themed icon engine swaps nav emoji for SVG glyphs when a non-emoji icon set is
+// active. Compose.AI's ✍️ must be mapped (to the dedicated "compose" glyph) so it gets
+// a themed icon like every other sidebar piece instead of falling back to raw emoji.
+await t.test('appearance: Compose.AI ✍️ maps to a themed glyph (no raw-emoji fallback)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // The emoji→role map includes both the FE0F and bare variants → "compose".
+  t.ok(/"✍️":\s*"compose"/.test(html), '✍️ (with variation selector) maps to compose');
+  t.ok(/"✍":\s*"compose"/.test(html), '✍ (bare) maps to compose');
+  // The compose glyph is actually defined in the PATHS library.
+  t.ok(/\n\s*compose:\s*'<path/.test(html), 'a compose glyph is defined in the icon PATHS');
+  // The Compose.AI nav item still uses ✍️, so the mapping is the one that applies.
+  t.ok(/label:\s*'Compose\.AI'[^}]*icon:\s*'✍️'/.test(html), 'Compose.AI nav item uses the ✍️ icon that is now mapped');
+});
+
 await t.done();
