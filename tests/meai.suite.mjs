@@ -729,11 +729,11 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
   await t.test('resume running-branch re-drives stalled legs instead of bailing', () => {
     // slice the stalled-exists tail of the resume route (AFTER the `if (!stalled.length)`
     // block, whose own running bail with resumed:0 is legitimate — nothing to re-drive there).
-    const run = sliceSource(SERVER, 'let rerunR = 0;', '// Reflect recovery at the TASK level');
+    const run = sliceSource(SERVER, 'let rerunR = 0, culledR = 0;', '// Reflect recovery at the TASK level');
     t.ok(run.length > 0, 'resume stalled+running branch found');
     t.ok(/for \(const sl of stalled\)/.test(run), 'it iterates the stalled legs');
     t.ok(/await _meAiRunLeg\(t, leg\)/.test(run), 'it re-drives each stalled leg directly while running');
-    t.ok(/return res\.json\(\{ ok: true, resumed: rerunR, rerun: rerunR, running: true, stalled \}\)/.test(run), 'it reports the real re-driven count, not 0');
+    t.ok(/return res\.json\(\{ ok: true, resumed: rerunR, rerun: rerunR, culled: culledR, running: true, stalled \}\)/.test(run), 'it reports the real re-driven count, not 0');
     t.ok(/resumed-stalled/.test(run), 'a ledger entry records the direct re-runs');
   });
 }
@@ -816,6 +816,50 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
       'terminal statuses close the clock');
     t.ok(/leg\.durationMs = Math\.max\(0, Date\.parse\(r\.at\) - Date\.parse\(s\)\)/.test(foldSrc),
       'durationMs is computed from startedAt→endedAt');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Crash-loop cull (auto-recover from a stuck state). A leg that keeps ERRORING
+  // on its own runs must accumulate a durable failCount (reset on a genuine done),
+  // and after MEAI_LEG_MAX_FAILS the Director culls the path + auto-converges so
+  // the pursuit never parks forever on a leg that will only crash again.
+  // ───────────────────────────────────────────────────────────────────────────
+  await t.test('fold reducer tracks consecutive leg crashes (failCount)', () => {
+    t.ok(/if \(r\.status === 'error'\) leg\.failCount = \(leg\.failCount \|\| 0\) \+ 1;/.test(foldSrc),
+      'an error increments the durable failCount');
+    t.ok(/else if \(r\.status === 'done'\) leg\.failCount = 0;/.test(foldSrc),
+      'a genuine done clears the failCount (only consecutive crashes count)');
+  });
+
+  await t.test('crash-loop cull threshold + helper exist', () => {
+    const src = readFileSync(SERVER, 'utf8');
+    t.ok(/const MEAI_LEG_MAX_FAILS = 3;/.test(src), 'MEAI_LEG_MAX_FAILS threshold defined');
+    t.ok(/function _meAiAutoCullCrashLoop\(t, leg, fails, err\) \{/.test(src), 'cull helper defined');
+    const cull = sliceSource(SERVER, 'function _meAiAutoCullCrashLoop(t, leg, fails, err) {', 'async function _meAiRunLeg(t, leg) {');
+    t.ok(/_meAiTreeEmit\(id, 'leg_invalidate', \{ legId: leg\.id \}\)/.test(cull), 'it culls (invalidates) the doomed leg');
+    t.ok(/culled-crash-loop/.test(cull), 'it records a director ledger entry');
+    // auto-recover: only when this machine leads + the pursuit is idle + nothing else is live
+    t.ok(/_meAiDirectorLeaderOk\(\)/.test(cull) && /_meAiPursuitIdle\(id\)/.test(cull), 'auto-converge is leader- + idle-gated');
+    t.ok(/l\.status === 'running' \|\| l\.status === 'blocked'/.test(cull), 'it only converges when no other leg is live');
+    t.ok(/_meAiTreeReAct\(tk, 'continue'/.test(cull), 'it re-engages the spine to converge on a deliverable');
+  });
+
+  await t.test('_meAiRunLeg culls after repeated crashes', () => {
+    const runLeg = sliceSource(SERVER, 'async function _meAiRunLeg(t, leg) {', '// The sub-agent');
+    // the error branch reads the just-folded failCount and culls past the threshold
+    t.ok(/const st2 = _meAiTreeEmit\(id, 'leg_status', \{ legId: leg\.id, status: 'error' \}\)/.test(runLeg),
+      'it captures the folded state after emitting error');
+    t.ok(/if \(fails >= MEAI_LEG_MAX_FAILS && !\(fl && \(fl\.invalidated \|\| fl\.status === 'invalidated'\)\)\)/.test(runLeg),
+      'it culls only past the threshold and not twice');
+    t.ok(/_meAiAutoCullCrashLoop\(t, leg, fails, err\)/.test(runLeg), 'it delegates to the cull helper');
+  });
+
+  await t.test('resume culls crash-loopers instead of re-driving them', () => {
+    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
+    // both re-drive loops must short-circuit a leg that already crash-looped
+    const guards = (route.match(/\(leg\.failCount \|\| 0\) >= MEAI_LEG_MAX_FAILS && !leg\.invalidated/g) || []).length;
+    t.ok(guards >= 2, `both re-drive loops cull crash-loopers (found ${guards})`);
+    t.ok(/culled: culledR/.test(route) && /culled,/.test(route), 'the response reports the culled count honestly');
   });
 
   const { _meAiFmtDurMs } = extractFns(SERVER, ['_meAiFmtDurMs']);

@@ -21480,6 +21480,12 @@ function _meAiFoldJournal(id) {
             leg.endedAt = r.at;
             const s = leg.startedAt || leg.createdAt;
             if (s) leg.durationMs = Math.max(0, Date.parse(r.at) - Date.parse(s));
+            // Crash-loop tracking. A leg that keeps ERRORING on its own runs (as opposed to a
+            // restart orphan, which goes running→blocked and never emits 'error') accumulates a
+            // consecutive-failure count the Director uses to cull a doomed path. A genuine 'done'
+            // clears it so an occasional-but-recovering leg is never culled.
+            if (r.status === 'error') leg.failCount = (leg.failCount || 0) + 1;
+            else if (r.status === 'done') leg.failCount = 0;
           }
         }
         break;
@@ -21673,6 +21679,11 @@ function _meAiOutboxReconcile(id) {
 // (open user-gate -> 'awaiting'; genuine orphan -> queue for auto-resume, capped so a
 // crash-looping pursuit can't stampede) and drain the queue once the server is listening.
 const ME_AI_MAX_TREE_RECOVERIES = 2;
+// A leg that ERRORS this many times in a row (consecutive crashes on its own runs — a genuine
+// crash loop, not a restart orphan, which never emits 'error') is a doomed path. The Director
+// culls it so the pursuit can converge on the work that succeeded instead of the user re-driving
+// a leg that will only crash again.
+const MEAI_LEG_MAX_FAILS = 3;
 const _meAiOrphanTrees = [];
 // Rehydrate tree tasks on boot: fold each journal, reconcile its outbox, re-arm.
 function _meAiHydrateTrees() {
@@ -23839,6 +23850,35 @@ function _meAiDisposeLegSession(leg) {
   } catch (_) { /* non-fatal: disposal is best-effort */ }
 }
 
+// Cull a crash-looping leg and, if that unsticks the pursuit, auto-converge to a deliverable
+// WITHOUT waiting on the user. This is the "auto-recover from any stuck state" path: a leg the
+// engine can't complete no longer parks the whole pursuit at 'error' forever.
+function _meAiAutoCullCrashLoop(t, leg, fails, err) {
+  const id = t.id;
+  try {
+    _meAiTreeEmit(id, 'leg_invalidate', { legId: leg.id });
+    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: 'Culled — crashed ' + fails + ' times in a row (' + String((err && err.message) || err || '').slice(0, 160) + '). The Director dropped this path so the pursuit can converge on the work that succeeded.', confidence: 'low' }) });
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    let gr = {};
+    try { const pol = _meAiDirectorPolicy(id, tree); gr = (pol && pol.grant) || {}; } catch (_) {}
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'culled-crash-loop', target: leg.id, why: 'Leg “' + String(leg.title || leg.goal || leg.id).slice(0, 80) + '” crashed ' + fails + ' consecutive times (not a restart) — culled to unstick the pursuit.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+  } catch (_) { /* cull ledger is best-effort */ }
+  // Auto-recover: if nothing else is live and this machine leads, re-engage the spine so the
+  // pursuit weaves together what succeeded and hands back a deliverable on its own.
+  try {
+    if (!_meAiDirectorLeaderOk() || !_meAiPursuitIdle(id)) return;
+    const fresh = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const liveLeft = (fresh.order || []).some(lid => { const l = fresh.legs[lid]; return l && (l.status === 'running' || l.status === 'blocked'); });
+    if (liveLeft) return;
+    const tk = meAiTasks.get(id);
+    if (!tk || tk.mode !== 'tree') return;
+    tk.error = null; tk._lastError = null; tk.question = null; tk.pauseReason = null; tk.nextActions = [];
+    _meAiSetStage(tk, 'working', 'running');
+    _meAiTreeEmit(id, 'stage', { stage: 'working' });
+    _meAiTreeReAct(tk, 'continue', 'A crash-looping leg was just culled. Verify what the other legs already established, then converge and produce the final deliverable from the work that succeeded — do not re-attempt the culled path.', 'Auto-recovered after culling a crash-looping leg');
+  } catch (_) { /* auto-converge is best-effort; manual Resume remains available */ }
+}
+
 async function _meAiRunLeg(t, leg) {
   const id = t.id;
   _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'running' });
@@ -23856,7 +23896,19 @@ async function _meAiRunLeg(t, leg) {
     catch (e) { err = e; }
     if (err) {
       _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: 'Failed: ' + String(err.message || err).slice(0, 300), confidence: 'low' }) });
-      _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'error' });
+      const st2 = _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'error' });
+      // Crash-loop cull. Reading the just-folded failCount (durable across reruns/restarts)
+      // tells us whether this leg keeps crashing on its OWN runs. Restart orphans never land
+      // here (they go running→blocked in _meAiHydrateTrees), so a high count is a real doomed
+      // path — cull it so the pursuit auto-recovers instead of staying stuck on a leg that
+      // will only crash again on the next resume.
+      try {
+        const fl = st2 && st2.legs && st2.legs[leg.id];
+        const fails = (fl && fl.failCount) || 0;
+        if (fails >= MEAI_LEG_MAX_FAILS && !(fl && (fl.invalidated || fl.status === 'invalidated'))) {
+          _meAiAutoCullCrashLoop(t, leg, fails, err);
+        }
+      } catch (_) { /* cull is best-effort; the error is already recorded */ }
       return;
     }
     const r = _meAiParseLegResult(out);
@@ -27227,18 +27279,21 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
       // resumed:0 is exactly the recurring "2 to resume → 0 resumed" bug. Re-drive just the
       // stuck legs directly (read-only/idempotent; any external action stays permission-gated),
       // but DON'T re-engage the spine — that would stack a duplicate wave on the live one.
-      let rerunR = 0;
+      let rerunR = 0, culledR = 0;
       for (const sl of stalled) {
         const leg = tree.legs && tree.legs[sl.legId];
         if (!leg) continue;
+        // A leg that already crash-looped is doomed — culling it now (rather than re-driving
+        // it toward a 4th crash) is the honest recovery. Everything else gets re-driven.
+        if ((leg.failCount || 0) >= MEAI_LEG_MAX_FAILS && !leg.invalidated) { culledR++; _meAiAutoCullCrashLoop(t, leg, leg.failCount || MEAI_LEG_MAX_FAILS, null); continue; }
         rerunR++;
         _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
       }
       try {
         const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
-        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: rerunR + ' stalled ' + (rerunR === 1 ? 'leg was' : 'legs were') + ' re-driven while the pursuit was otherwise running (no new spine wave, to avoid duplication).', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: rerunR + ' stalled ' + (rerunR === 1 ? 'leg was' : 'legs were') + ' re-driven while the pursuit was otherwise running (no new spine wave, to avoid duplication)' + (culledR ? '; ' + culledR + ' crash-looping ' + (culledR === 1 ? 'leg was' : 'legs were') + ' culled' : '') + '.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
       } catch (_) {}
-      return res.json({ ok: true, resumed: rerunR, rerun: rerunR, running: true, stalled });
+      return res.json({ ok: true, resumed: rerunR, rerun: rerunR, culled: culledR, running: true, stalled });
     }
     // Reflect recovery at the TASK level SYNCHRONOUSLY, before scheduling anything. The
     // leg re-runs + the spine re-engagement below all go through the concurrency gate
@@ -27260,10 +27315,12 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     // its own durable session so it visibly goes running → done (or surfaces a real gate).
     // Read-only scout legs are idempotent; any external action stays gated by the
     // permission gate, so re-running can never re-fire a push/deploy.
-    let rerun = 0;
+    let rerun = 0, culled = 0;
     for (const sl of stalled) {
       const leg = tree.legs && tree.legs[sl.legId];
       if (!leg) continue;
+      // Cull a leg that already crash-looped rather than sending it toward another crash.
+      if ((leg.failCount || 0) >= MEAI_LEG_MAX_FAILS && !leg.invalidated) { culled++; _meAiAutoCullCrashLoop(t, leg, leg.failCount || MEAI_LEG_MAX_FAILS, null); continue; }
       rerun++;
       _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
     }
@@ -27272,9 +27329,9 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     _meAiTreeReAct(t, 'continue', steer, 'Resumed ' + stalled.length + ' stalled ' + (stalled.length === 1 ? 'leg' : 'legs'));
     try {
       const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
-      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-ran ' + rerun + ' directly + re-engaged the spine to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-ran ' + rerun + ' directly' + (culled ? ', culled ' + culled + ' crash-looping' : '') + ' + re-engaged the spine to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
     } catch (_) {}
-    res.json({ ok: true, resumed: stalled.length, rerun, stalled });
+    res.json({ ok: true, resumed: rerun, rerun, culled, stalled });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
