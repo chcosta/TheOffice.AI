@@ -833,6 +833,7 @@ let composePluginDir = null;
     } catch (e) { console.warn('[supervisor] Could not register compose plugin:', e.message); }
   }
 })();
+const PROCESS_PID = process.pid;
 const PROCESS_START = new Date().toISOString();
 
 // In the packaged desktop app the server runs from resources/server (no git),

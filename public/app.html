@@ -42136,6 +42136,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           while (cur && cur.parentId != null && guard++ < 32) { d++; cur = legs[cur.parentId]; }
           return d;
         },
+        // Human-readable role label for a leg's kind (shown on map nodes and in
+        // chat attribution). Kinds: spine (the orchestrator thread), reroute (a
+        // redirect that rejoins main), user (a note you added), everything else is
+        // a forked investigation angle.
+        meAiPursuitLegKind(kind) {
+          switch (kind) {
+            case 'spine': return 'Main thread';
+            case 'reroute': return 'Redirect';
+            case 'user': return 'Your note';
+            case 'synthesis': return 'Synthesis';
+            default: return 'Investigation';
+          }
+        },
         // Attribution label so the chat clearly shows WHICH agent produced the data:
         // "L{depth} · {role} · Sub-Agent" for a forked leg; the spine is the
         // orchestrator, so it reads "L1 · Main thread · Chief of Staff".
