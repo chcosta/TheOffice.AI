@@ -55,6 +55,48 @@ const PURPOSES = [
 
 const FORMATS = ['email', 'teams', 'doc', 'site'];
 
+// Audience presets — steer tone, depth, and how chart-heavy the draft gets.
+// Stored on a composition as the label string (so the writer reads it directly);
+// the UI renders these as selectable choices, matching the Format treatment.
+const AUDIENCES = [
+  { id: 'peers',      label: 'Engineering peers' },
+  { id: 'leadership', label: 'Leadership / execs' },
+  { id: 'crossteam',  label: 'Cross-team stakeholders' },
+  { id: 'external',   label: 'Customer / external' },
+  { id: 'org',        label: 'Whole org' },
+];
+
+// ---- Source catalog ---------------------------------------------------------
+// What Compose.AI reads & cites to ground the draft. Honesty mandate: `diary`
+// and `pasted` are REAL local evidence the server hands the writer verbatim;
+// the rest are REFERENCES the writer investigates (opening the PR, reading the
+// pursuit compendium, querying work items, or pulling M365 via WorkIQ) and it
+// cites only what it genuinely finds — never fabricated. `pr`/`pursuit`/
+// `workitems` take a small reference string; `diary`/`m365` are toggles.
+const SOURCES = [
+  { id: 'diary',     label: 'Connect diary',          blurb: 'Recent activity from your work journal.',            kind: 'toggle' },
+  { id: 'pr',        label: 'Pull request',           blurb: 'Open a PR and read its diff, description & threads.', kind: 'ref', placeholder: 'https://github.com/org/repo/pull/123' },
+  { id: 'pursuit',   label: 'Pursuit compendium',     blurb: 'Read a pursuit’s findings & compendium.',            kind: 'ref', placeholder: 'Pursuit name or id' },
+  { id: 'workitems', label: 'Work items',             blurb: 'Investigate linked Azure DevOps work items.',        kind: 'ref', placeholder: 'AB#123, AB#456 or a query' },
+  { id: 'm365',      label: 'Microsoft 365 (WorkIQ)', blurb: 'Pull relevant mail, meetings & files.',              kind: 'toggle' },
+  { id: 'pasted',    label: 'Pasted context',         blurb: 'Notes, links, or a spec you paste in.',              kind: 'text' },
+];
+
+// Sensible starting sources per purpose (mirrors the launcher blueprint). The
+// user can toggle any of them; these just prime the brief.
+const SOURCE_DEFAULTS = {
+  proposal:     ['pursuit', 'workitems'],
+  alignment:    ['pr'],
+  status:       ['diary', 'workitems'],
+  onepager:     ['pursuit'],
+  technical:    ['pr', 'pasted'],
+  architecture: ['pasted', 'pr'],
+  reference:    ['pasted'],
+  newsletter:   ['diary'],
+  prototype:    ['pasted'],
+  message:      ['diary'],
+};
+
 function purposeById(id) {
   return PURPOSES.find(p => p.id === id) || null;
 }
@@ -124,6 +166,12 @@ function _defaultSources() {
     // Pull the shared Connect diary as evidence (like Newsletter).
     diary: false,
     diaryDays: 14,
+    // Reference sources the writer investigates (best-effort, cite only what's found).
+    pr: false, prRef: '',
+    pursuit: false, pursuitRef: '',
+    workitems: false, workitemsRef: '',
+    // Use the agent's M365 / WorkIQ access (mail, meetings, files).
+    m365: false,
     // GitHub / Azure DevOps PR or issue URLs to investigate (best-effort).
     links: [],
     // Freeform pasted context the user supplies inline.
@@ -246,6 +294,10 @@ function updateComposition(id, patch) {
   if (p.sources && typeof p.sources === 'object') {
     c.sources = { ...c.sources, ...p.sources };
     if (Array.isArray(p.sources.links)) c.sources.links = p.sources.links.slice(0, 40).map(String);
+    for (const k of ['prRef', 'pursuitRef', 'workitemsRef']) {
+      if (typeof c.sources[k] === 'string') c.sources[k] = c.sources[k].slice(0, 500);
+    }
+    if (typeof c.sources.pasted === 'string') c.sources.pasted = c.sources.pasted.slice(0, 16000);
   }
   c.meta.updatedAt = _now();
   _writeAll(st);
@@ -388,6 +440,9 @@ function exportComposition(id) {
 module.exports = {
   PURPOSES,
   FORMATS,
+  AUDIENCES,
+  SOURCES,
+  SOURCE_DEFAULTS,
   purposeById,
   contentFormatFor,
   storageDir,

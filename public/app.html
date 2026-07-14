@@ -6109,6 +6109,17 @@
     .board-ai-fab:hover { background: var(--cp-accent-hover); transform: translateY(-2px); }
     .board-ai-fab:active { transform: translateY(0); }
     .board-ai-fab:disabled { opacity: .45; cursor: default; transform: none; }
+    /* Global Compose.AI FAB + launcher popover */
+    .cmpx-fab-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.32); display: flex; align-items: flex-end; justify-content: flex-end; padding: 24px; }
+    .cmpx-fab-pop { width: 380px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow: auto; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 14px; box-shadow: var(--cp-shadow); padding: 16px; }
+    .cmpx-fab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .cmpx-fab-gallery { display: flex; flex-direction: column; gap: 8px; }
+    .cmpx-fab-purpose { display: flex; align-items: flex-start; gap: 11px; padding: 11px 13px; border: 1px solid var(--cp-border); border-radius: 10px; background: var(--cp-bg); cursor: pointer; text-align: left; transition: border-color .12s, background .12s; }
+    .cmpx-fab-purpose:hover { border-color: var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+    .cmpx-fab-purpose .ic { font-size: 20px; line-height: 1.2; flex: 0 0 auto; }
+    .cmpx-fab-purpose .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .cmpx-fab-purpose .nm { font-size: 13.5px; font-weight: 600; color: var(--cp-text); }
+    .cmpx-fab-purpose .bl { font-size: 12px; color: var(--cp-text-secondary); line-height: 1.4; }
     /* Make hyperlinks in rendered notes, checklists, summaries visually clickable. */
     .md-output a, .md-inline a, a.md-link { color: var(--cp-link); text-decoration: underline; text-underline-offset: 2px; }
     .md-output a:hover, .md-inline a:hover, a.md-link:hover { color: var(--cp-accent); }
@@ -20107,6 +20118,20 @@
               .cmpx-fmts{display:flex;gap:8px;flex-wrap:wrap}
               .cmpx-fmt{padding:7px 13px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface);cursor:pointer;font-size:13px;color:var(--cp-text)}
               .cmpx-fmt.active{border-color:var(--cp-accent);color:var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 8%,transparent)}
+              /* Audience presets — same treatment as Format */
+              .cmpx-auds{display:flex;gap:8px;flex-wrap:wrap}
+              .cmpx-aud{padding:7px 13px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface);cursor:pointer;font-size:13px;color:var(--cp-text)}
+              .cmpx-aud.active{border-color:var(--cp-accent);color:var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 8%,transparent)}
+              /* Source cards — toggle grid (brief + studio rail) */
+              .cmpx-srcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+              .cmpx-srccard{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--cp-border);border-radius:9px;background:var(--cp-surface);cursor:pointer;text-align:left;transition:border-color .12s}
+              .cmpx-srccard:hover{border-color:var(--cp-accent)}
+              .cmpx-srccard.on{border-color:var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 7%,transparent)}
+              .cmpx-srccard .hd{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--cp-text)}
+              .cmpx-srccard .cbx{flex:0 0 auto;width:16px;height:16px;border:1.5px solid var(--cp-border);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#fff}
+              .cmpx-srccard.on .cbx{background:var(--cp-accent);border-color:var(--cp-accent)}
+              .cmpx-srccard .bl{font-size:11.5px;color:var(--cp-text-secondary);line-height:1.4;padding-left:24px}
+              .cmpx-srcref{margin-top:8px;display:flex;flex-direction:column;gap:6px}
               .cmpx-links{display:flex;flex-direction:column;gap:6px}
               .cmpx-link{display:flex;align-items:center;gap:8px;font-size:13px}
               .cmpx-link a{color:var(--cp-accent);word-break:break-all}
@@ -20226,8 +20251,13 @@
                     <input class="field-input" type="text" x-model="compose.brief.title" placeholder="Leave blank to auto-title" />
                   </div>
                   <div class="cmpx-fld">
-                    <label>Audience <span class="sub">(who is this for?)</span></label>
-                    <input class="field-input" type="text" x-model="compose.brief.audience" placeholder="e.g. Eng leadership & partner team leads" />
+                    <label>Audience <span class="sub">— steers tone, depth &amp; how chart-heavy it gets</span></label>
+                    <div class="cmpx-auds">
+                      <template x-for="a in compose.audiences" :key="a.id">
+                        <button type="button" class="cmpx-aud" :class="{ active: compose.brief.audience === a.label }" @click="compose.brief.audience = (compose.brief.audience === a.label ? '' : a.label)" x-text="a.label"></button>
+                      </template>
+                    </div>
+                    <input class="field-input" type="text" style="margin-top:8px" x-model="compose.brief.audience" placeholder="…or describe a specific audience" />
                   </div>
                   <div class="cmpx-fld">
                     <label>Format</label>
@@ -20238,34 +20268,48 @@
                     </div>
                   </div>
                   <div class="cmpx-fld">
-                    <label>Sources <span class="sub">— ground the draft in real evidence</span></label>
-                    <div class="cmpx-src">
-                      <div class="cmpx-srcrow">
-                        <span class="toggle-switch"><input type="checkbox" x-model="compose.brief.sources.diary" /><span class="toggle-slider"></span></span>
-                        <div style="flex:1">
-                          <div style="font-size:13px;font-weight:600">Your Connect diary</div>
-                          <div class="hint" style="font-size:12px" x-text="compose.diaryHasEvidence ? 'Pull recent activity as evidence.' : 'No diary evidence yet — Connect may be off.'"></div>
-                        </div>
-                        <select class="field-input" style="width:auto" x-model.number="compose.brief.sources.diaryDays" x-show="compose.brief.sources.diary">
-                          <option :value="7">7 days</option><option :value="14">14 days</option><option :value="30">30 days</option><option :value="90">Quarter</option>
-                        </select>
+                    <label>Sources <span class="sub">— what Compose.AI reads &amp; cites (it only cites what it can genuinely find)</span></label>
+                    <div class="cmpx-srcgrid">
+                      <template x-for="s in compose.sourceCatalog" :key="s.id">
+                        <button type="button" class="cmpx-srccard" :class="{ on: compose.brief.sources[s.id] }" @click="composeToggleSource(compose.brief.sources, s)">
+                          <span class="hd"><span class="cbx" x-text="compose.brief.sources[s.id] ? '✓' : ''"></span><span x-text="s.label"></span></span>
+                          <span class="bl" x-text="(s.id === 'diary' && !compose.diaryHasEvidence) ? 'No diary evidence yet — Connect may be off.' : s.blurb"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <div class="cmpx-srcref" x-show="compose.brief.sources.diary">
+                      <label style="font-size:12px;font-weight:600">Connect diary timeframe</label>
+                      <select class="field-input" style="width:auto" x-model.number="compose.brief.sources.diaryDays">
+                        <option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option>
+                      </select>
+                    </div>
+                    <div class="cmpx-srcref" x-show="compose.brief.sources.pr">
+                      <label style="font-size:12px;font-weight:600">Pull request to investigate</label>
+                      <input class="field-input" type="text" x-model="compose.brief.sources.prRef" placeholder="https://github.com/org/repo/pull/123" />
+                    </div>
+                    <div class="cmpx-srcref" x-show="compose.brief.sources.pursuit">
+                      <label style="font-size:12px;font-weight:600">Pursuit to read</label>
+                      <input class="field-input" type="text" x-model="compose.brief.sources.pursuitRef" placeholder="Pursuit name or id" />
+                    </div>
+                    <div class="cmpx-srcref" x-show="compose.brief.sources.workitems">
+                      <label style="font-size:12px;font-weight:600">Work items (Azure DevOps)</label>
+                      <input class="field-input" type="text" x-model="compose.brief.sources.workitemsRef" placeholder="AB#123, AB#456 or a query" />
+                    </div>
+                    <div class="cmpx-srcref">
+                      <label style="font-size:12px;font-weight:600">Additional links <span class="hint" style="font-weight:400">(optional — PRs, issues, docs)</span></label>
+                      <div class="cmpx-links">
+                        <template x-for="(l, i) in compose.brief.sources.links" :key="i">
+                          <div class="cmpx-link"><a :href="l" target="_blank" x-text="l"></a><button type="button" @click="composeRemoveLink(i)">✕</button></div>
+                        </template>
                       </div>
-                      <div>
-                        <div style="font-size:13px;font-weight:600;margin-bottom:5px">Links to investigate <span class="hint" style="font-weight:400">(PRs, issues, docs)</span></div>
-                        <div class="cmpx-links">
-                          <template x-for="(l, i) in compose.brief.sources.links" :key="i">
-                            <div class="cmpx-link"><a :href="l" target="_blank" x-text="l"></a><button type="button" @click="composeRemoveLink(i)">✕</button></div>
-                          </template>
-                        </div>
-                        <div style="display:flex;gap:8px;margin-top:6px">
-                          <input class="field-input" type="text" x-model="compose.brief._linkInput" @keydown.enter.prevent="composeAddLink()" placeholder="https://github.com/org/repo/pull/123" />
-                          <button class="btn ghost" type="button" @click="composeAddLink()">Add</button>
-                        </div>
+                      <div style="display:flex;gap:8px;margin-top:6px">
+                        <input class="field-input" type="text" x-model="compose.brief._linkInput" @keydown.enter.prevent="composeAddLink()" placeholder="https://github.com/org/repo/pull/123" />
+                        <button class="btn ghost" type="button" @click="composeAddLink()">Add</button>
                       </div>
-                      <div>
-                        <div style="font-size:13px;font-weight:600;margin-bottom:5px">Pasted context <span class="hint" style="font-weight:400">(optional)</span></div>
-                        <textarea class="field-input" rows="3" x-model="compose.brief.sources.pasted" placeholder="Paste notes, data, or background the writer should weave in."></textarea>
-                      </div>
+                    </div>
+                    <div class="cmpx-srcref">
+                      <label style="font-size:12px;font-weight:600">Pasted context <span class="hint" style="font-weight:400">(optional)</span></label>
+                      <textarea class="field-input" rows="3" x-model="compose.brief.sources.pasted" placeholder="Paste notes, data, or background the writer should weave in."></textarea>
                     </div>
                   </div>
                   <div class="cmpx-actions">
@@ -20278,86 +20322,188 @@
               <!-- ============ STUDIO ============ -->
               <template x-if="compose.view === 'studio' && compose.current && !compose.loading">
                 <div>
-                  <!-- Generation activity -->
-                  <div class="cmpx-activity" x-show="compose.generating">
-                    <div class="cmpx-actline"><span class="cmpx-spin"></span><span x-text="compose.notice || 'Composing your draft…'"></span></div>
-                    <div id="composeProgressScroll" class="cmpx-log" x-show="compose.progress.length">
-                      <template x-for="(p, i) in compose.progress" :key="i">
-                        <div class="row"><span x-text="p.icon"></span><span x-text="p.text"></span></div>
-                      </template>
-                    </div>
-                  </div>
+                  <!-- ===== Studio: rail · stage · chat (parity with Newsletter studio) ===== -->
+                  <div class="nlx-studio" :class="{ 'chat-open': compose.chat.open }">
 
-                  <div class="cmpx-studio" :class="{ 'chat-open': compose.chat.open }" x-show="!compose.generating">
-                    <div class="cmpx-stage">
-                      <div class="cmpx-toolbar">
-                        <div class="seg" x-show="!composeIsSite()">
-                          <button type="button" :class="{ active: compose.preview }" @click="compose.preview = true">Preview</button>
-                          <button type="button" :class="{ active: !compose.preview }" @click="compose.preview = false">Edit</button>
+                    <!-- LEFT RAIL: brief + sources live here, out of the content's way -->
+                    <aside class="nlx-rail">
+                      <div class="nlx-card">
+                        <button class="btn primary nlx-gen" type="button" :disabled="compose.generating" @click="composeGenerate()">
+                          <span x-show="!compose.generating">✨ Regenerate draft</span>
+                          <span x-show="compose.generating">Composing…</span>
+                        </button>
+                        <div class="nlx-win">
+                          <div>
+                            <b x-text="composePurposeLabel(compose.current.purpose)"></b>
+                            <span>purpose</span>
+                          </div>
+                          <div>
+                            <b style="font-size:13px" x-text="composeFormatLabel(compose.current.format)"></b>
+                            <span>format</span>
+                          </div>
                         </div>
-                        <span class="hint" x-show="composeIsSite()" style="font-size:12px">Prototype site — rendered live</span>
-                        <div class="spacer"></div>
-                        <button class="btn ghost" type="button" :disabled="compose.generating" @click="composeGenerate()" title="Regenerate from the brief">↻ Regenerate</button>
-                        <button class="btn ghost" type="button" x-show="!compose.preview || composeIsSite()" :disabled="compose.savingDraft || !compose.draftDirty" @click="composeSaveDraft()" x-text="compose.savingDraft ? 'Saving…' : (compose.draftDirty ? 'Save' : 'Saved')"></button>
-                        <button class="btn ghost" type="button" @click="composeToggleVersions()" x-text="'Versions' + ((compose.current.versionCount || (compose.versions||[]).length) ? '' : '')"></button>
-                        <button class="btn ghost" type="button" @click="composeCopy()" title="Copy to clipboard (paste into Teams / email / a doc)">⧉ Copy</button>
-                        <button class="btn ghost" type="button" x-show="composeCanEmail()" @click="composeOpenDeliver()">✉ Email</button>
-                        <div class="seg">
-                          <button type="button" @click="composeExport(composeIsSite() ? 'html' : 'md')" x-text="composeIsSite() ? '⬇ HTML' : '⬇ MD'"></button>
-                          <button type="button" @click="composeExport('html')" x-show="!composeIsSite()">HTML</button>
-                          <button type="button" @click="composeExport('json')">JSON</button>
-                        </div>
-                        <button class="btn ghost" type="button" @click="composeToggleChat()" x-text="compose.chat.open ? 'Hide assistant' : '💬 Assistant'"></button>
                       </div>
 
-                      <!-- Site (HTML doc) -->
-                      <iframe x-show="composeIsSite()" class="cmpx-site" :srcdoc="compose.draftText" sandbox="allow-same-origin"></iframe>
-                      <!-- Markdown preview -->
-                      <div x-show="!composeIsSite() && compose.preview" class="cmpx-paper">
-                        <div class="cmpx-doc" x-html="composeRenderedDraft()"></div>
-                        <div class="cmpx-empty" x-show="!(compose.draftText||'').trim()">No draft yet — regenerate or switch to Edit to write one.</div>
+                      <!-- Live activity feed: what the AI is composing right now -->
+                      <div class="nlx-activity" x-show="compose.generating" x-transition.opacity.duration.120ms>
+                        <div class="nlx-activity-head"><span class="nlx-spin"></span><span x-text="compose.notice || 'Composing your draft…'"></span></div>
+                        <div id="composeProgressScroll" class="nlx-log" x-show="compose.progress.length">
+                          <template x-for="(p, i) in compose.progress" :key="i">
+                            <div class="nlx-log-row"><span class="ic" x-text="p.icon"></span><span class="tx" x-text="p.text"></span></div>
+                          </template>
+                        </div>
+                        <p class="hint" style="margin:8px 0 0" x-show="!compose.progress.length">Warming up the writer agent…</p>
                       </div>
-                      <!-- Edit -->
-                      <textarea x-show="!composeIsSite() && !compose.preview" class="cmpx-edit" x-model="compose.draftText" @input="composeMarkDirty()" placeholder="Write or paste your draft in Markdown…"></textarea>
 
-                      <!-- Version drawer -->
-                      <div class="cmpx-vers" x-show="compose.showVersions">
+                      <!-- Brief + Sources accordions -->
+                      <div class="nlx-card" style="padding:2px 14px">
+                        <div class="nlx-acc" x-data="{ o:true }" :class="{ open:o }">
+                          <div class="nlx-acc-head" @click="o=!o">📝 Brief <span class="chev">›</span></div>
+                          <div class="nlx-acc-body">
+                            <div class="nlx-fld"><label>Title <span class="hint" style="font-weight:400">(optional — AI writes one if blank)</span></label><input class="field-input" type="text" x-model="compose.current.title" @input="composeMarkBriefDirty()" placeholder="Leave blank to auto-title" /></div>
+                            <div class="nlx-fld"><label>Audience</label><input class="field-input" type="text" x-model="compose.current.audience" @input="composeMarkBriefDirty()" placeholder="Who is this for? (e.g. eng leadership)" /></div>
+                            <div class="nlx-fld"><label>Format</label><select class="field-input" x-model="compose.current.format" @change="composeMarkBriefDirty()"><template x-for="f in compose.formats" :key="f.id"><option :value="f.id" x-text="f.label"></option></template></select></div>
+                            <div class="nlx-fld"><label>What to say</label><textarea class="field-input" rows="4" style="resize:vertical" x-model="compose.current.brief" @input="composeMarkBriefDirty()" placeholder="The purpose, key points, and any framing…"></textarea></div>
+                            <button class="btn ghost" type="button" style="width:100%;justify-content:center;padding:6px" :disabled="compose.generating || !compose.briefDirty" @click="composeUpdateBriefAndRegen()" x-text="compose.briefDirty ? '✨ Update & regenerate' : 'Brief saved'"></button>
+                          </div>
+                        </div>
+                        <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
+                          <div class="nlx-acc-head" @click="o=!o">🔎 Sources <span class="chev">›</span></div>
+                          <div class="nlx-acc-body">
+                            <div class="cmpx-srcgrid" style="margin-bottom:10px">
+                              <template x-for="s in compose.sourceCatalog" :key="s.id">
+                                <button type="button" class="cmpx-srccard" :class="{ on: compose.current.sources[s.id] }" @click="composeToggleSource(compose.current.sources, s); composeMarkBriefDirty()">
+                                  <span class="hd"><span class="cbx" x-text="compose.current.sources[s.id] ? '✓' : ''"></span><span x-text="s.label"></span></span>
+                                </button>
+                              </template>
+                            </div>
+                            <div class="nlx-fld" x-show="compose.current.sources.diary"><label>Diary timeframe</label><select class="field-input" x-model.number="compose.current.sources.diaryDays" @change="composeMarkBriefDirty()"><option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option></select></div>
+                            <div class="nlx-fld" x-show="compose.current.sources.pr"><label>Pull request</label><input class="field-input" type="text" x-model="compose.current.sources.prRef" @input="composeMarkBriefDirty()" placeholder="https://github.com/org/repo/pull/123" /></div>
+                            <div class="nlx-fld" x-show="compose.current.sources.pursuit"><label>Pursuit</label><input class="field-input" type="text" x-model="compose.current.sources.pursuitRef" @input="composeMarkBriefDirty()" placeholder="Pursuit name or id" /></div>
+                            <div class="nlx-fld" x-show="compose.current.sources.workitems"><label>Work items</label><input class="field-input" type="text" x-model="compose.current.sources.workitemsRef" @input="composeMarkBriefDirty()" placeholder="AB#123, AB#456 or a query" /></div>
+                            <div class="nlx-fld"><label>Reference links</label>
+                              <template x-for="(l, i) in compose.current.sources.links" :key="i">
+                                <div class="cmpx-link"><a :href="l" target="_blank" rel="noopener" x-text="l"></a><button type="button" @click="composeStudioRemoveLink(i)" title="Remove">✕</button></div>
+                              </template>
+                              <div style="display:flex;gap:6px;margin-top:6px"><input class="field-input" type="text" x-model="compose.studioLinkInput" @keydown.enter.prevent="composeStudioAddLink()" placeholder="https://…" /><button class="btn ghost" type="button" style="padding:5px 10px" @click="composeStudioAddLink()">Add</button></div>
+                            </div>
+                            <div class="nlx-fld"><label>Pasted context</label><textarea class="field-input" rows="3" style="resize:vertical" x-model="compose.current.sources.pasted" @input="composeMarkBriefDirty()" placeholder="Paste notes, data, or excerpts the writer should use…"></textarea></div>
+                          </div>
+                        </div>
+                      </div>
+                    </aside>
+
+                    <!-- CENTER STAGE: the composition is the hero -->
+                    <main class="nlx-stage">
+                      <div class="nlx-stage-bar">
+                        <div class="nlx-seg" x-show="compose.tab !== 'history' && !composeIsSite()">
+                          <button type="button" :class="{ active: compose.preview }" @click="compose.preview = true">👁 Preview</button>
+                          <button type="button" :class="{ active: !compose.preview }" @click="compose.preview = false">✎ Edit</button>
+                        </div>
+                        <span class="nlx-src" x-show="compose.tab !== 'history'">
+                          <span class="connect-src-badge" x-show="composeIsSite()">✨ Prototype site</span>
+                          <span class="connect-src-badge" x-show="!composeIsSite() && compose.current.draft && compose.current.draft.source === 'ai'">✨ AI-drafted</span>
+                          <span class="connect-src-badge" x-show="!composeIsSite() && compose.current.draft && compose.current.draft.source && compose.current.draft.source !== 'ai' && compose.draftText.trim()">✍ Your draft</span>
+                          <span x-show="compose.draftDirty">· unsaved</span>
+                          <span x-show="!compose.draftDirty && compose.draftText.trim()">· saved</span>
+                        </span>
+                        <span class="nlx-src" x-show="compose.tab === 'history'"><strong>🕘 Version history</strong></span>
+                        <div class="nlx-stage-actions">
+                          <div class="nlx-zoom" x-show="compose.tab !== 'history' && !composeIsSite() && compose.preview && compose.draftText.trim()" title="Zoom the preview">
+                            <button class="btn ghost" type="button" title="Zoom out" style="padding:5px 9px;font-size:14px;line-height:1" @click="composeZoom(-0.1)" :disabled="(compose.zoom||1) <= 0.5">−</button>
+                            <button class="btn ghost" type="button" title="Reset to 100%" style="padding:5px 6px;font-size:12px;min-width:46px" @click="compose.zoom = 1" x-text="Math.round((compose.zoom||1)*100) + '%'"></button>
+                            <button class="btn ghost" type="button" title="Zoom in" style="padding:5px 9px;font-size:14px;line-height:1" @click="composeZoom(0.1)" :disabled="(compose.zoom||1) >= 2">+</button>
+                          </div>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="compose.tab !== 'history' && (!compose.preview || composeIsSite() || compose.draftDirty)" :disabled="compose.savingDraft || !compose.draftDirty" @click="composeSaveDraft()" x-text="compose.savingDraft ? 'Saving…' : (compose.draftDirty ? 'Save' : 'Saved')"></button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="composeCopy()" title="Copy to clipboard">⧉ Copy</button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeCanEmail()" @click="composeOpenDeliver()">✉ Email</button>
+                          <div class="nlx-seg">
+                            <button type="button" @click="composeExport(composeIsSite() ? 'html' : 'md')" x-text="composeIsSite() ? '⬇ HTML' : '⬇ MD'"></button>
+                            <button type="button" @click="composeExport('html')" x-show="!composeIsSite()">HTML</button>
+                            <button type="button" @click="composeExport('json')">JSON</button>
+                          </div>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.tab === 'history' }" @click="composeSetTab(compose.tab === 'history' ? 'compose' : 'history')" x-text="compose.tab === 'history' ? '← Back' : ('🕘 History (' + (compose.versions ? compose.versions.length : 0) + ')')"></button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.chat.open }" @click="composeToggleChat()">💬 Revise</button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="composeToggleFullscreen()" :title="compose.fullscreen ? 'Exit full screen' : 'Full screen'" x-text="compose.fullscreen ? '🗕' : '🗖'"></button>
+                        </div>
+                      </div>
+
+                      <!-- compose / preview stage -->
+                      <div class="nlx-scroll" x-show="compose.tab !== 'history'">
+                        <div class="nlx-empty" x-show="!compose.draftText.trim() && !compose.generating">
+                          <div class="big">✍️</div>
+                          <p>No draft yet. Click <strong>✨ Regenerate draft</strong> to compose from your brief — or switch to <strong>Edit</strong> and write your own.</p>
+                        </div>
+                        <div class="nlx-empty" x-show="!compose.draftText.trim() && compose.generating">
+                          <div class="big">✨</div>
+                          <p x-text="compose.notice || 'Composing your draft…'"></p>
+                          <p class="hint">Watch the live activity feed on the left to see what the writer is doing.</p>
+                        </div>
+                        <!-- Prototype site (HTML doc) -->
+                        <iframe x-show="composeIsSite() && compose.draftText.trim()" class="cmpx-site" :srcdoc="compose.draftText" sandbox="allow-same-origin"></iframe>
+                        <!-- Markdown preview -->
+                        <template x-if="!composeIsSite() && compose.draftText.trim() && compose.preview">
+                          <article class="nlx-paper" :style="{ zoom: compose.zoom || 1 }" @wheel="if($event.ctrlKey||$event.metaKey){$event.preventDefault(); composeZoom($event.deltaY < 0 ? 0.1 : -0.1);}"><div class="nl-preview md-output" x-html="composeRenderedDraft()"></div></article>
+                        </template>
+                        <!-- Edit -->
+                        <textarea x-show="!composeIsSite() && !compose.preview" class="nlx-edit" x-model="compose.draftText" @input="composeMarkDirty()" placeholder="# Your draft…"></textarea>
+                      </div>
+
+                      <!-- history stage -->
+                      <div class="nlx-hist" x-show="compose.tab === 'history'">
                         <template x-for="v in compose.versions" :key="v.id">
-                          <div class="cmpx-vrow">
-                            <div class="mn"><span x-text="(v.source === 'ai' ? '🤖 ' : '✎ ') + (v.title || 'Version')"></span> <span class="hint" x-text="'· ' + v.reason + ' · ' + formatRelative(v.savedAt)"></span></div>
-                            <button class="btn ghost" type="button" @click="composeRestoreVersion(v.id)">Restore</button>
+                          <div class="connect-version-row">
+                            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+                              <div style="min-width:0">
+                                <strong x-text="v.title || 'Version'"></strong>
+                                <span class="connect-src-badge" x-show="v.source === 'ai'" style="background:var(--cp-accent-soft);color:var(--cp-text)">✨ AI</span>
+                                <span class="hint" x-text="'· ' + (v.reason || 'saved') + ' · ' + formatRelative(v.savedAt)"></span>
+                              </div>
+                              <div class="connect-mem-actions">
+                                <a href="#" @click.prevent="composeRestoreVersion(v.id)">Restore</a>
+                              </div>
+                            </div>
                           </div>
                         </template>
-                        <div class="cmpx-empty" x-show="!compose.versions.length">No earlier versions yet.</div>
+                        <div class="nlx-empty" x-show="!compose.versions.length"><div class="big">🕘</div><p>No earlier versions yet. Each generation and saved edit is snapshotted here.</p></div>
                       </div>
-                    </div>
+                    </main>
 
-                    <!-- Assistant chat -->
-                    <div class="cmpx-chat" x-show="compose.chat.open">
-                      <div class="cmpx-chat-head">💬 Compose assistant <span class="hint" style="font-weight:400;margin-left:auto">revise by talking</span></div>
-                      <div id="composeChatScroll" class="cmpx-chat-body">
-                        <div class="cmpx-empty" x-show="!compose.chat.messages.length">Ask for changes — "make it shorter", "add a cost table", "clarify the helix-observer context", "sharpen the ask".</div>
+                    <!-- RIGHT: assistant chat -->
+                    <aside class="nlx-chat" x-show="compose.chat.open" x-transition.opacity.duration.120ms>
+                      <div class="nlx-chat-head"><strong style="font-size:13px">💬 Compose assistant</strong><button class="btn ghost" type="button" style="margin-left:auto;padding:4px 8px;font-size:12px" @click="composeToggleChat()">✕</button></div>
+                      <div id="composeChatScroll" class="nlx-chat-log">
+                        <p class="hint" x-show="!compose.chat.messages.length" style="margin:0">Ask for changes — “make it shorter”, “add a cost table”, “sharpen the ask”, “more executive tone”.</p>
                         <template x-for="(m, i) in compose.chat.messages" :key="i">
-                          <div class="cmpx-msg" :class="m.role" x-text="m.text"></div>
+                          <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
+                            <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
+                            <div class="connect-chat-body md-output" x-html="renderMarkdown(m.text)"></div>
+                          </div>
                         </template>
+                        <div class="connect-chat-msg" x-show="compose.chat.busy">
+                          <div class="connect-chat-role">Assistant</div>
+                          <div class="connect-chat-body">
+                            <div class="nlx-chat-activity" x-show="compose.chat.progress.length">
+                              <template x-for="(p, i) in compose.chat.progress" :key="i">
+                                <div class="nlx-chat-act-line"><span x-text="p.icon"></span> <span x-text="p.text"></span></div>
+                              </template>
+                            </div>
+                            <span class="hint" x-text="compose.chat.progress.length ? (compose.chat.progress[compose.chat.progress.length-1].icon + ' working…') : 'Reading your feedback…'"></span>
+                          </div>
+                        </div>
                       </div>
-                      <div class="cmpx-chatlog" x-show="compose.chat.busy && compose.chat.progress.length">
-                        <template x-for="(p, i) in compose.chat.progress" :key="i">
-                          <div class="row"><span x-text="p.icon"></span><span x-text="p.text"></span></div>
-                        </template>
-                      </div>
-                      <div class="cmpx-pending" x-show="compose.chat.pendingDraft">
+                      <div class="cmpx-pending" x-show="compose.chat.pendingDraft" style="margin:0 12px 8px">
                         The assistant revised the draft.
                         <div style="display:flex;gap:8px;margin-top:6px">
                           <button class="btn primary" type="button" style="padding:4px 10px" @click="composeApplyPendingDraft()">Apply changes</button>
                           <button class="btn ghost" type="button" style="padding:4px 10px" @click="composeDiscardPendingDraft()">Discard</button>
                         </div>
                       </div>
-                      <div class="cmpx-chat-foot">
-                        <textarea x-model="compose.chat.input" @keydown.enter.prevent="composeChatSend()" :disabled="compose.chat.busy" placeholder="Ask for a change…"></textarea>
-                        <button class="btn primary" type="button" :disabled="compose.chat.busy || !compose.chat.input.trim()" @click="composeChatSend()" x-text="compose.chat.busy ? '…' : 'Send'"></button>
+                      <div class="nlx-chat-in">
+                        <textarea rows="2" x-model="compose.chat.input" placeholder="Message the assistant…" :disabled="compose.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); composeChatSend(); }"></textarea>
+                        <button class="btn primary" type="button" @click="composeChatSend()" :disabled="compose.chat.busy || !compose.chat.input.trim()" x-text="compose.chat.busy ? '…' : 'Send'"></button>
                       </div>
-                    </div>
+                    </aside>
                   </div>
 
                   <!-- Delivery modal -->
@@ -22289,6 +22435,7 @@
                 </div>
               </div>
 
+              <div class="mr-metrics">
                 <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().total"></span><span class="l">Runs</span></div>
                 <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().deep"></span><span class="l">Deep</span></div>
                 <div class="mr-metric"><span class="n" x-text="meAiRunMetrics().quick"></span><span class="l">Quick</span></div>
@@ -28163,6 +28310,35 @@
     </template>
   </div>
 
+  <!-- Global Compose.AI launcher — start a proposal, alignment brief, status update,
+       one-pager, doc, or prototype from anywhere. Hidden on routes that own a FAB.
+       NOTE: gated by inline `route`/`compose.fab.open` (always-present) rather than a
+       method call, so a stale mid-deploy load can never throw and blank other routes. -->
+  <template x-if="compose">
+    <div>
+      <button class="board-ai-fab cmpx-fab" type="button"
+        x-show="!['compose','me-ai','connect','boards','board','sessions','cli-sessions'].includes(route) && !compose.fab.open"
+        x-transition.opacity.duration.150ms
+        @click="composeFabToggle()" title="Compose.AI — draft a proposal, alignment brief, status update, doc or prototype" aria-label="Open Compose.AI launcher">✍️</button>
+      <div class="cmpx-fab-backdrop" x-show="compose.fab.open" x-transition.opacity.duration.150ms @click.self="composeFabToggle()" x-cloak>
+        <div class="cmpx-fab-pop" x-show="compose.fab.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+          <div class="cmpx-fab-head">
+            <div><div style="font-weight:600">✍️ Compose.AI</div><div class="hint">What do you want to create?</div></div>
+            <button class="icon-button" type="button" @click="composeFabToggle()" title="Close">✕</button>
+          </div>
+          <div class="cmpx-fab-gallery">
+            <template x-for="p in compose.purposes" :key="p.id">
+              <button class="cmpx-fab-purpose" type="button" @click="composeFabPick(p.id)">
+                <span class="ic" x-text="p.icon || '📝'"></span>
+                <span class="tx"><span class="nm" x-text="p.label"></span><span class="bl" x-text="p.blurb"></span></span>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', {
@@ -28770,20 +28946,29 @@
           loading: false,
           purposes: [],
           formats: [],
+          audiences: [],          // selectable audience presets
+          sourceCatalog: [],      // source cards catalog
+          sourceDefaults: {},     // starting sources per purpose
           compositions: [],       // recent compositions (list view)
           capture: null,
           diaryHasEvidence: false,
           view: 'launcher',       // 'launcher' | 'brief' | 'studio'
           fullscreen: false,
+          fab: { open: false },   // floating Compose.AI launcher popover
+          _pendingStart: null,    // purpose queued by the FAB, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
-                   sources: { diary: false, diaryDays: 14, links: [], pasted: '' }, _linkInput: '' },
+                   sources: { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', m365: false, links: [], pasted: '' }, _linkInput: '' },
           current: null,          // full composition object when in studio
           draftText: '',          // editable draft buffer
           draftFormat: 'markdown',// 'markdown' | 'html'
           draftDirty: false,
           savingDraft: false,
           preview: true,          // preview vs edit
+          tab: 'compose',         // studio stage: 'compose' | 'history'
+          zoom: 1,                // preview zoom (markdown docs)
+          briefDirty: false,      // rail brief edited but not regenerated
+          studioLinkInput: '',    // add-a-link buffer in the studio rail
           generating: false,
           runId: null,
           progress: [],
@@ -31534,7 +31719,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
             case 'connect': return mk('Connect', '🌟', '#/connect', 'connect');
             case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
-            case 'newsletter': return mk('Newsletter', '📰', '#/newsletter', 'newsletter', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
+            case 'newsletter': return mk('Compose.AI', '✍️', '#/compose', 'compose', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
             case 'watercooler': return mk('Agent Chats', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
             case 'playbooks': return mk('Playbooks', '📘', '#/playbooks', 'playbooks');
@@ -44865,12 +45050,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/compose');
             co.purposes = (r && r.purposes) || [];
             co.formats = (r && r.formats) || [];
+            co.audiences = (r && r.audiences) || [];
+            co.sourceCatalog = (r && r.sources) || [];
+            co.sourceDefaults = (r && r.sourceDefaults) || {};
             co.compositions = (r && r.compositions) || [];
             co.capture = (r && r.capture) || null;
             co.diaryHasEvidence = !!(r && r.diaryHasEvidence);
             co.loaded = true;
             // Land on the launcher unless we're already deep in a composition.
             if (!co.current) co.view = 'launcher';
+            // Honor a purpose picked from the global FAB launcher.
+            if (co._pendingStart) { const pid = co._pendingStart; co._pendingStart = null; this.composeStart(pid); }
           } catch (e) {
             this.toast('Failed to load Compose.AI: ' + (e.message || e), 'error');
           } finally { co.loading = false; }
@@ -44895,17 +45085,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         composeStart(purposeId) {
           const p = this.composePurpose(purposeId);
           if (p && p.linksTo === 'newsletter') { this.goTo('#/newsletter'); return; }
+          const on = new Set(this.compose.sourceDefaults[purposeId] || []);
           this.compose.brief = {
             purpose: purposeId,
             title: '',
             audience: '',
             format: this.composeDefaultFormat(p),
             brief: '',
-            sources: { diary: false, diaryDays: 14, links: [], pasted: '' },
+            sources: {
+              diary: on.has('diary'), diaryDays: 14,
+              pr: on.has('pr'), prRef: '',
+              pursuit: on.has('pursuit'), pursuitRef: '',
+              workitems: on.has('workitems'), workitemsRef: '',
+              m365: on.has('m365'),
+              links: [], pasted: '',
+            },
             _linkInput: '',
           };
           this.compose.current = null;
           this.compose.view = 'brief';
+        },
+        // A fully-populated source object so older/partial records get new fields.
+        composeSourcesDefault() {
+          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', m365: false, links: [], pasted: '' };
         },
         composeAddLink() {
           const v = String(this.compose.brief._linkInput || '').trim();
@@ -44914,6 +45116,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.brief._linkInput = '';
         },
         composeRemoveLink(i) { this.compose.brief.sources.links.splice(i, 1); },
+        composeToggleSource(sources, s) { if (!sources || !s) return; sources[s.id] = !sources[s.id]; },
+        composeSourceIsText(id) { const s = (this.compose.sourceCatalog || []).find(x => x.id === id); return !!(s && s.kind === 'text'); },
+        // Global Compose.AI launcher (lower-right FAB). Hidden on routes that own their own FAB.
+        composeFabVisible() {
+          const owns = ['compose', 'me-ai', 'connect', 'boards', 'board', 'sessions', 'cli-sessions'];
+          return !owns.includes(this.route);
+        },
+        composeFabToggle() {
+          this.compose.fab.open = !this.compose.fab.open;
+          if (this.compose.fab.open && !this.compose.purposes.length) { this.loadCompose(); }
+        },
+        composeFabPick(purposeId) {
+          this.compose.fab.open = false;
+          this.compose._pendingStart = purposeId;
+          this.goTo('#/compose');
+        },
         composeBriefValid() {
           const b = this.compose.brief;
           return !!(b && b.purpose && b.format && (b.brief || '').trim());
@@ -44926,7 +45144,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/compose', { method: 'POST', body: JSON.stringify({
               purpose: b.purpose, title: b.title, audience: b.audience, format: b.format, brief: b.brief,
-              sources: { diary: !!b.sources.diary, diaryDays: b.sources.diaryDays, links: b.sources.links.slice(), pasted: b.sources.pasted },
+              sources: {
+                diary: !!b.sources.diary, diaryDays: b.sources.diaryDays,
+                pr: !!b.sources.pr, prRef: b.sources.prRef || '',
+                pursuit: !!b.sources.pursuit, pursuitRef: b.sources.pursuitRef || '',
+                workitems: !!b.sources.workitems, workitemsRef: b.sources.workitemsRef || '',
+                m365: !!b.sources.m365,
+                links: b.sources.links.slice(), pasted: b.sources.pasted,
+              },
             }) });
             const c = r && r.composition;
             if (!c) throw new Error('No composition returned');
@@ -44939,15 +45164,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         _composeSetCurrent(c) {
           const co = this.compose;
+          if (c && !c.sources) c.sources = this.composeSourcesDefault();
+          if (c && c.sources) { c.sources = { ...this.composeSourcesDefault(), ...c.sources }; if (!Array.isArray(c.sources.links)) c.sources.links = []; }
           co.current = c;
           co.draftText = (c.draft && c.draft.content) || '';
           co.draftFormat = (c.draft && c.draft.contentFormat) || (c.format === 'site' ? 'html' : 'markdown');
           co.draftDirty = false;
+          co.briefDirty = false;
+          co.studioLinkInput = '';
+          co.tab = 'compose';
           co.preview = true;
           co.chat.messages = Array.isArray(c.chat) ? c.chat.map(m => ({ role: m.role, text: m.content || m.text || '' })) : [];
           co.chat.pendingDraft = null;
           co.versions = [];
           co.showVersions = false;
+          this.composeLoadVersions();
         },
         async composeOpen(id) {
           this.compose.busy = true;
@@ -44988,6 +45219,63 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         composeMarkDirty() { this.compose.draftDirty = true; },
         composeToggleEdit() { this.compose.preview = !this.compose.preview; },
+        // Studio rail: brief editing + sources, then regenerate from the changed brief.
+        composeMarkBriefDirty() { this.compose.briefDirty = true; },
+        composeStudioAddLink() {
+          const co = this.compose;
+          const v = String(co.studioLinkInput || '').trim();
+          if (!v || !co.current) return;
+          if (!co.current.sources) co.current.sources = this.composeSourcesDefault();
+          if (!Array.isArray(co.current.sources.links)) co.current.sources.links = [];
+          co.current.sources.links.push(v);
+          co.studioLinkInput = '';
+          co.briefDirty = true;
+        },
+        composeStudioRemoveLink(i) {
+          const co = this.compose;
+          if (co.current && co.current.sources && Array.isArray(co.current.sources.links)) {
+            co.current.sources.links.splice(i, 1);
+            co.briefDirty = true;
+          }
+        },
+        // Persist the edited brief, then regenerate a fresh draft from it.
+        async composeUpdateBriefAndRegen() {
+          const co = this.compose;
+          if (!co.current || co.generating) return;
+          const c = co.current;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(c.id), {
+              method: 'PATCH', body: JSON.stringify({
+                title: c.title || '', audience: c.audience || '', format: c.format, brief: c.brief || '',
+                sources: {
+                  diary: !!(c.sources && c.sources.diary),
+                  diaryDays: (c.sources && c.sources.diaryDays) || 14,
+                  pr: !!(c.sources && c.sources.pr), prRef: (c.sources && c.sources.prRef) || '',
+                  pursuit: !!(c.sources && c.sources.pursuit), pursuitRef: (c.sources && c.sources.pursuitRef) || '',
+                  workitems: !!(c.sources && c.sources.workitems), workitemsRef: (c.sources && c.sources.workitemsRef) || '',
+                  m365: !!(c.sources && c.sources.m365),
+                  links: (c.sources && Array.isArray(c.sources.links)) ? c.sources.links.slice() : [],
+                  pasted: (c.sources && c.sources.pasted) || '',
+                },
+              }),
+            });
+            if (r && r.composition) { co.current = r.composition; if (!co.current.sources) co.current.sources = this.composeSourcesDefault(); else co.current.sources = { ...this.composeSourcesDefault(), ...co.current.sources }; }
+            co.briefDirty = false;
+            await this.composeGenerate();
+          } catch (e) {
+            this.toast('Could not update the brief: ' + (e.message || e), 'error');
+          }
+        },
+        // Studio stage tabs (compose ↔ history). Loads versions when opening history.
+        composeSetTab(tab) {
+          this.compose.tab = tab;
+          if (tab === 'history') this.composeLoadVersions();
+        },
+        composeZoom(delta) {
+          const co = this.compose;
+          const z = Math.min(2, Math.max(0.5, Math.round(((co.zoom || 1) + delta) * 100) / 100));
+          co.zoom = z;
+        },
         async composeSaveDraft() {
           const co = this.compose;
           if (!co.current) return;

@@ -11990,6 +11990,24 @@ function _composeSourceContext(c) {
     parts.push('### Links to investigate (open and pull real details before writing)');
     parts.push(links.map(l => `- ${l}`).join('\n'));
   }
+  // Reference sources — the writer investigates these and cites ONLY what it can
+  // genuinely find. Never fabricate details you could not verify.
+  if (src.pr && String(src.prRef || '').trim()) {
+    parts.push('### Pull request to investigate');
+    parts.push(`Open this pull request and read its diff, description, and review threads before writing; ground any claims about it in what you actually find:\n- ${String(src.prRef).trim()}`);
+  }
+  if (src.pursuit && String(src.pursuitRef || '').trim()) {
+    parts.push('### Pursuit compendium to read');
+    parts.push(`Read the findings/compendium for this pursuit and weave in its evidence and conclusions:\n- ${String(src.pursuitRef).trim()}`);
+  }
+  if (src.workitems && String(src.workitemsRef || '').trim()) {
+    parts.push('### Work items to investigate (Azure DevOps)');
+    parts.push(`Look up these work items and reflect their real state/detail; cite only what you can confirm:\n- ${String(src.workitemsRef).trim()}`);
+  }
+  if (src.m365) {
+    parts.push('### Microsoft 365 (WorkIQ)');
+    parts.push('If you have M365/WorkIQ access, pull relevant mail, meetings, and files for this brief and cite what you actually find. If you cannot access it, say so rather than inventing content.');
+  }
   if (src.pasted && String(src.pasted).trim()) {
     parts.push('### Pasted context provided by the user');
     parts.push(String(src.pasted).trim().slice(0, 12000));
@@ -12219,6 +12237,9 @@ app.get('/api/compose', (req, res) => {
       compositions: compose.listCompositions(),
       purposes: compose.PURPOSES,
       formats: compose.FORMATS.map(f => ({ id: f, label: ({ email: 'Email', teams: 'Teams message', doc: 'Document', site: 'Prototype site' })[f] || f })),
+      audiences: compose.AUDIENCES,
+      sources: compose.SOURCES,
+      sourceDefaults: compose.SOURCE_DEFAULTS,
       storageDir: compose.storageDir(),
       capture: (() => { try { return newsletterCapture.capabilities(); } catch { return { available: false }; } })(),
       diaryHasEvidence: (() => { try { return (connect.listEvidence({ includeHidden: false }) || []).length > 0; } catch { return false; } })(),
