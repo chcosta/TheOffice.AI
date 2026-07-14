@@ -78,6 +78,7 @@ const SOURCES = [
   { id: 'pr',        label: 'Pull request',           blurb: 'Open a PR and read its diff, description & threads.', kind: 'ref', placeholder: 'https://github.com/org/repo/pull/123' },
   { id: 'pursuit',   label: 'Pursuit compendium',     blurb: 'Read a pursuit’s findings & compendium.',            kind: 'ref', placeholder: 'Pursuit name or id' },
   { id: 'workitems', label: 'Work items',             blurb: 'Investigate linked Azure DevOps work items.',        kind: 'ref', placeholder: 'AB#123, AB#456 or a query' },
+  { id: 'composition', label: 'Another composition',  blurb: 'Reuse a Compose.AI report or your Newsletter as source material.', kind: 'ref', placeholder: 'Pick compositions or the Newsletter' },
   { id: 'm365',      label: 'Microsoft 365 (WorkIQ)', blurb: 'Pull relevant mail, meetings & files.',              kind: 'toggle' },
   { id: 'pasted',    label: 'Pasted context',         blurb: 'Notes, links, or a spec you paste in.',              kind: 'text' },
 ];
@@ -170,6 +171,10 @@ function _defaultSources() {
     pr: false, prRef: '',
     pursuit: false, pursuitRef: '',
     workitems: false, workitemsRef: '',
+    // Reuse another composition (compose report) or the Newsletter as evidence.
+    // compositionRef is a comma-joined list of composition ids; the token
+    // 'newsletter' is a sentinel for the current Newsletter draft.
+    composition: false, compositionRef: '',
     // Use the agent's M365 / WorkIQ access (mail, meetings, files).
     m365: false,
     // GitHub / Azure DevOps PR or issue URLs to investigate (best-effort).
@@ -294,7 +299,7 @@ function updateComposition(id, patch) {
   if (p.sources && typeof p.sources === 'object') {
     c.sources = { ...c.sources, ...p.sources };
     if (Array.isArray(p.sources.links)) c.sources.links = p.sources.links.slice(0, 40).map(String);
-    for (const k of ['prRef', 'pursuitRef', 'workitemsRef']) {
+    for (const k of ['prRef', 'pursuitRef', 'workitemsRef', 'compositionRef']) {
       if (typeof c.sources[k] === 'string') c.sources[k] = c.sources[k].slice(0, 500);
     }
     if (typeof c.sources.pasted === 'string') c.sources.pasted = c.sources.pasted.slice(0, 16000);
@@ -312,6 +317,22 @@ function deleteComposition(id) {
   _writeAll(st);
   try { fs.rmSync(assetsDir(id), { recursive: true, force: true }); } catch { /* best effort */ }
   return true;
+}
+
+// Derive a display title from generated content: a leading "Subject:" line
+// (bold or plain) wins, then the first H1. Returns '' when neither is present.
+function _deriveTitleFromContent(content) {
+  const raw = String(content || '');
+  const lines = raw.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  if (i < lines.length) {
+    const m = lines[i].replace(/[*_`]/g, '').trim().match(/^subject\s*:\s*(.+)$/i);
+    if (m) return m[1].trim().slice(0, 200);
+  }
+  const h1 = raw.match(/^#\s+(.+)$/m);
+  if (h1) return h1[1].replace(/[*_`]/g, '').trim().slice(0, 200);
+  return '';
 }
 
 // Save the draft body. Snapshots the outgoing draft into per-composition history
@@ -335,6 +356,15 @@ function saveDraft(id, patch, { source } = {}) {
     next.source = 'ai';
     next.generatedAt = _now();
     c.meta.lastGeneratedAt = next.generatedAt;
+    // Title the composition from the generated content (Subject line → first H1)
+    // while the title is still an auto placeholder, so the recent-compositions
+    // list shows the real subject rather than the purpose label.
+    const label = (purposeById(c.purpose) || {}).label || '';
+    const isPlaceholder = !String(c.title || '').trim() || c.title === label || c.title === 'Untitled';
+    if (isPlaceholder) {
+      const t = _deriveTitleFromContent(next.content);
+      if (t) c.title = t;
+    }
   } else if (source === 'manual') {
     next.source = 'manual';
   }

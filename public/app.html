@@ -20363,6 +20363,18 @@
                               </div>
                               <div class="hint" style="margin-top:4px" x-show="compose.current.sources.workitemsRef">Selected: <span x-text="compose.current.sources.workitemsRef"></span></div>
                             </div>
+                            <div class="nlx-fld" x-show="compose.current.sources.composition" x-init="compose.current.sources.composition && composeLoadCompositionRefs(); $watch('compose.current.sources.composition', v => v && composeLoadCompositionRefs())"><label>Compositions to reuse</label>
+                              <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.refsLoading">Loading…</div>
+                              <div class="cmpx-wilist" x-show="compose.pickers.refs.length">
+                                <template x-for="rf in compose.pickers.refs" :key="rf.id">
+                                  <button type="button" class="cmpx-wirow" :class="{ on: composeRefIsSelected(compose.current.sources, rf.id) }" @click="composeRefToggle(compose.current.sources, rf, true)">
+                                    <span class="cbx" x-text="composeRefIsSelected(compose.current.sources, rf.id) ? '✓' : ''"></span>
+                                    <span class="mid"><span class="ti" x-text="rf.title"></span><span class="mt" x-text="(rf.isNewsletter ? '📰 Newsletter' : (rf.purpose || 'composition')) + (rf.hasDraft ? '' : ' · no draft yet')"></span></span>
+                                  </button>
+                                </template>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
+                            </div>
                             <div class="nlx-fld"><label>Reference links</label>
                               <template x-for="(l, i) in compose.current.sources.links" :key="i">
                                 <div class="cmpx-link"><a :href="l" target="_blank" rel="noopener" x-text="l"></a><button type="button" @click="composeStudioRemoveLink(i)" title="Remove">✕</button></div>
@@ -28929,6 +28941,7 @@
             prs: [], prsLoaded: false, prsLoading: false,
             pursuits: [], pursuitsLoaded: false, pursuitsLoading: false,
             wiQuery: '', wiResults: [], wiLoading: false, wiNote: '', _wiTimer: null,
+            refs: [], refsLoaded: false, refsLoading: false,
           },
         },
         // ===== Newsletter (Connect diary → polished, emailable digest) =====
@@ -45108,7 +45121,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // A fully-populated source object so older/partial records get new fields.
         composeSourcesDefault() {
-          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', m365: false, links: [], pasted: '' };
+          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', composition: false, compositionRef: '', m365: false, links: [], pasted: '' };
         },
         composeToggleSource(sources, s) {
           if (!sources || !s) return;
@@ -45116,6 +45129,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (sources[s.id]) {
             if (s.id === 'pr') this.composeLoadPRs();
             else if (s.id === 'pursuit') this.composeLoadPursuits();
+            else if (s.id === 'composition') this.composeLoadCompositionRefs();
           }
         },
         composeSourceIsText(id) { const s = (this.compose.sourceCatalog || []).find(x => x.id === id); return !!(s && s.kind === 'text'); },
@@ -45184,6 +45198,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const id = Number(wi.id);
           if (ids.has(id)) ids.delete(id); else ids.add(id);
           sources.workitemsRef = Array.from(ids).sort((a, b) => a - b).map(n => 'AB#' + n).join(', ');
+          if (markDirty) this.composeMarkBriefDirty();
+        },
+        // --- Composition / Newsletter reference picker (multi-select) ---------
+        // Lists other compositions (excluding the one open) + a Newsletter entry.
+        // The chosen ids are stored comma-joined in sources.compositionRef, with
+        // 'newsletter' as the sentinel for the current Newsletter draft.
+        async composeLoadCompositionRefs(force) {
+          const pk = this.compose.pickers;
+          if (pk.refsLoading || (pk.refsLoaded && !force)) return;
+          pk.refsLoading = true;
+          try {
+            const j = await this.request('/api/compose');
+            const list = (j && j.compositions) || [];
+            const curId = this.compose.current && this.compose.current.id;
+            const out = [{ id: 'newsletter', title: 'Newsletter (current draft)', purpose: 'newsletter', hasDraft: true, isNewsletter: true }];
+            for (const c of list) {
+              if (!c || c.id === curId) continue;
+              out.push({ id: c.id, title: c.title || 'Untitled', purpose: c.purpose || '', hasDraft: !!c.hasDraft });
+            }
+            pk.refs = out; pk.refsLoaded = true;
+          } catch (_) { pk.refs = [{ id: 'newsletter', title: 'Newsletter (current draft)', purpose: 'newsletter', hasDraft: true, isNewsletter: true }]; }
+          finally { pk.refsLoading = false; }
+        },
+        composeRefSelectedIds(sources) {
+          const raw = String((sources && sources.compositionRef) || '');
+          return new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
+        },
+        composeRefIsSelected(sources, id) { return this.composeRefSelectedIds(sources).has(String(id)); },
+        composeRefToggle(sources, ref, markDirty) {
+          if (!sources || !ref) return;
+          const ids = this.composeRefSelectedIds(sources);
+          const id = String(ref.id);
+          if (ids.has(id)) ids.delete(id); else ids.add(id);
+          sources.compositionRef = Array.from(ids).join(', ');
           if (markDirty) this.composeMarkBriefDirty();
         },
         // ===== Unified writing assistant (lower-right FAB) — one chat panel that
@@ -45334,6 +45382,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   pr: !!(c.sources && c.sources.pr), prRef: (c.sources && c.sources.prRef) || '',
                   pursuit: !!(c.sources && c.sources.pursuit), pursuitRef: (c.sources && c.sources.pursuitRef) || '',
                   workitems: !!(c.sources && c.sources.workitems), workitemsRef: (c.sources && c.sources.workitemsRef) || '',
+                  composition: !!(c.sources && c.sources.composition), compositionRef: (c.sources && c.sources.compositionRef) || '',
                   m365: !!(c.sources && c.sources.m365),
                   links: (c.sources && Array.isArray(c.sources.links)) ? c.sources.links.slice() : [],
                   pasted: (c.sources && c.sources.pasted) || '',
@@ -45486,11 +45535,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Delivery + export.
         composeCanEmail() { const co = this.compose; return co.current && co.current.format !== 'site' && (co.draftText || '').trim(); },
+        // Derive the email subject from the draft: a leading "Subject:" line (bold
+        // or plain) wins, then the first H1, then the composition title.
+        composeEmailSubjectGuess() {
+          const md = String(this.compose.draftText || '');
+          const lines = md.split(/\r?\n/);
+          let i = 0;
+          while (i < lines.length && !lines[i].trim()) i++;
+          if (i < lines.length) {
+            const m = lines[i].replace(/[*_`]/g, '').trim().match(/^subject\s*:\s*(.+)$/i);
+            if (m) return m[1].trim();
+          }
+          const h1 = md.match(/^#\s+(.+)$/m);
+          if (h1) return h1[1].replace(/[*_`]/g, '').trim();
+          return '';
+        },
         composeOpenDeliver() {
           const co = this.compose;
           co.deliver.open = true;
           co.deliver.to = '';
-          co.deliver.subject = (co.current && co.current.title) || '';
+          co.deliver.subject = this.composeEmailSubjectGuess() || (co.current && co.current.title) || '';
         },
         async composeEmail() {
           const co = this.compose;

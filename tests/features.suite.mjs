@@ -228,4 +228,45 @@ await t.test('compose: purpose picker resumes latest by default, forceNew starts
   t.ok(/async composeSaveDraft\(\)[\s\S]{0,700}composeLoadVersions\(\)/.test(html), 'composeSaveDraft refreshes versions');
 });
 
+await t.test('compose: another-composition/newsletter source is wired end-to-end', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const composeJs = readFileSync('compose.js', 'utf8');
+  const serverJs = readFileSync('server.js', 'utf8');
+  // compose.js: source catalog + default fields.
+  t.ok(/id: 'composition'/.test(composeJs), 'compose.js exposes a "composition" source in the catalog');
+  t.ok(/composition: false, compositionRef: ''/.test(composeJs), '_defaultSources seeds composition/compositionRef');
+  t.ok(/'prRef', 'pursuitRef', 'workitemsRef', 'compositionRef'/.test(composeJs), 'updateComposition clamps compositionRef');
+  // server.js: the referenced draft(s) get INLINED as evidence, self-ref guarded.
+  t.ok(/src\.composition && String\(src\.compositionRef/.test(serverJs), 'server gates on composition + compositionRef');
+  t.ok(/if \(ref === c\.id\) continue;/.test(serverJs), 'server skips self-reference');
+  t.ok(/newsletter\.getState\(\)[\s\S]{0,200}draft && st\.draft\.markdown/.test(serverJs), 'server inlines the Newsletter draft for the newsletter sentinel');
+  t.ok(/compose\.getComposition\(ref\)/.test(serverJs), 'server resolves other compositions by id');
+  // app.html: multi-select picker + persistence wiring.
+  t.ok(/composeLoadCompositionRefs\s*\(/.test(html), 'composeLoadCompositionRefs loader exists');
+  t.ok(/composeRefToggle\s*\(/.test(html) && /composeRefIsSelected\s*\(/.test(html), 'ref toggle/isSelected helpers exist');
+  t.ok(/composition: !!\(c\.sources && c\.sources\.composition\), compositionRef:/.test(html), 'regenerate PATCH payload includes the composition source');
+  t.ok(/compose\.current\.sources\.composition/.test(html), 'rail renders the composition picker');
+});
+
+await t.test('compose: email subject comes from the draft Subject: line, not the placeholder title', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const serverJs = readFileSync('server.js', 'utf8');
+  // Server: split helper + it's used to strip the Subject line and derive the subject.
+  t.ok(/function _composeSplitSubjectLine\(/.test(serverJs), '_composeSplitSubjectLine helper exists');
+  t.ok(/const split = _composeSplitSubjectLine\(raw\);/.test(serverJs), '_composeBuildEml splits the Subject line');
+  t.ok(/const md = split\.subject \? split\.body : raw;/.test(serverJs), 'the Subject line is stripped from the emailed body');
+  t.ok(/subject \|\| split\.subject \|\|/.test(serverJs), 'subject falls back to the extracted Subject line');
+  // Client: the deliver dialog pre-fills from the draft, not just the title.
+  t.ok(/composeEmailSubjectGuess\s*\(/.test(html), 'composeEmailSubjectGuess helper exists');
+  t.ok(/co\.deliver\.subject = this\.composeEmailSubjectGuess\(\)/.test(html), 'deliver dialog pre-fills the guessed subject');
+});
+
+await t.test('compose: AI drafts auto-title from the generated subject/H1 (recent list is scannable)', () => {
+  const composeJs = readFileSync('compose.js', 'utf8');
+  t.ok(/function _deriveTitleFromContent\(/.test(composeJs), '_deriveTitleFromContent helper exists');
+  // Only overwrites while the title is still an auto placeholder.
+  t.ok(/const isPlaceholder = !String\(c\.title \|\| ''\)\.trim\(\) \|\| c\.title === label \|\| c\.title === 'Untitled';/.test(composeJs), 'title is replaced only when it is a placeholder');
+  t.ok(/if \(t\) c\.title = t;/.test(composeJs), 'derived title is applied on AI save');
+});
+
 await t.done();

@@ -12004,6 +12004,42 @@ function _composeSourceContext(c) {
     parts.push('### Work items to investigate (Azure DevOps)');
     parts.push(`Look up these work items and reflect their real state/detail; cite only what you can confirm:\n- ${String(src.workitemsRef).trim()}`);
   }
+  // Reference another composition / the Newsletter — we already hold these drafts
+  // locally, so INLINE their content directly (like pasted context) rather than
+  // asking the writer to go fetch anything.
+  if (src.composition && String(src.compositionRef || '').trim()) {
+    const refs = String(src.compositionRef).split(',').map(s => s.trim()).filter(Boolean);
+    const blocks = [];
+    let budget = 24000;
+    for (const ref of refs) {
+      if (budget <= 0) break;
+      if (ref === c.id) continue; // never let a composition cite itself
+      let title = '', body = '';
+      if (ref === 'newsletter') {
+        try {
+          const st = newsletter.getState();
+          body = (st && st.draft && st.draft.markdown) || '';
+          title = (st && st.draft && st.draft.title) || (st && st.config && st.config.title) || 'Newsletter';
+        } catch (_) { /* Connect/newsletter off */ }
+      } else {
+        try {
+          const rc = compose.getComposition(ref);
+          if (rc) { body = (rc.draft && rc.draft.content) || ''; title = rc.title || 'Untitled composition'; }
+        } catch (_) { /* missing */ }
+      }
+      body = String(body || '').trim();
+      if (!body) continue;
+      const slice = body.slice(0, Math.min(12000, budget));
+      budget -= slice.length;
+      blocks.push(`#### ${title}\n\n${slice}`);
+      evidenceCount++;
+    }
+    if (blocks.length) {
+      parts.push('### Existing compositions to reuse as source material');
+      parts.push('Draw on the substance below (facts, framing, data, structure) where relevant. Do not copy verbatim — synthesize it into this composition.');
+      parts.push(blocks.join('\n\n---\n\n'));
+    }
+  }
   if (src.m365) {
     parts.push('### Microsoft 365 (WorkIQ)');
     parts.push('If you have M365/WorkIQ access, pull relevant mail, meetings, and files for this brief and cite what you actually find. If you cannot access it, say so rather than inventing content.');
@@ -12200,15 +12236,37 @@ function _composeInlineAssets(id, html) {
 }
 
 // Build a self-contained HTML draft email (.eml) from a markdown-medium composition.
+// If the first non-empty line of a draft is a "Subject:" line (bold or plain,
+// e.g. `**Subject:** …`, `Subject: …`), return { subject, body } with that line
+// stripped from the body; otherwise { subject:'', body:<original> }.
+function _composeSplitSubjectLine(md) {
+  const raw = String(md || '');
+  const lines = raw.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  if (i >= lines.length) return { subject: '', body: raw };
+  const norm = lines[i].replace(/[*_`]/g, '').trim();
+  const m = norm.match(/^subject\s*:\s*(.+)$/i);
+  if (!m) return { subject: '', body: raw };
+  const subject = m[1].trim();
+  const bodyLines = lines.slice(i + 1);
+  while (bodyLines.length && !bodyLines[0].trim()) bodyLines.shift();
+  return { subject, body: bodyLines.join('\n').trim() };
+}
+
 async function _composeBuildEml(c, { to, subject } = {}) {
-  const md = String((c.draft && c.draft.content) || '').trim();
-  if (!md) throw new Error('The composition draft is empty — nothing to email.');
+  const raw = String((c.draft && c.draft.content) || '').trim();
+  if (!raw) throw new Error('The composition draft is empty — nothing to email.');
+  // Email drafts lead with a "Subject:" line (bold or plain). Pull it out as the
+  // real subject and strip it from the body so it isn't duplicated in the email.
+  const split = _composeSplitSubjectLine(raw);
+  const md = split.subject ? split.body : raw;
   const { marked } = require('marked');
   let htmlBody = marked.parse(md);
   htmlBody = _composeInlineAssets(c.id, htmlBody);
   try { htmlBody = await _newsletterRasterizeSvgs(htmlBody, { bg: '#ffffff', maxWidth: 700 }); } catch (_) { /* leave svg */ }
   const h1 = md.match(/^#\s+(.+)$/m);
-  const subj = subject || (h1 ? h1[1].replace(/[*_`]/g, '').trim() : (c.title || 'Composition'));
+  const subj = subject || split.subject || (h1 ? h1[1].replace(/[*_`]/g, '').trim() : (c.title || 'Composition'));
   const toAddr = to || '';
   const htmlEmail = `<html><head><meta charset="utf-8"><style>
 body{margin:0;padding:0;background:#f4f5f7}
