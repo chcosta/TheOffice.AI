@@ -24779,6 +24779,29 @@ function _meAiSteerBlock(t) {
   return out;
 }
 
+// Resolve the spine ANCHOR a follow-up should hang off — the tip of the main-thread
+// trunk the map actually draws. `t._spineId` is an in-memory pointer that is NOT
+// restored by _meAiFoldJournal, so after a server restart it is undefined; naively
+// anchoring on `t._spineId || null` then makes a follow-up's "you" node a stray second
+// root (parentId null) or misparents it, so it reads as forking off a sub-agent instead
+// of continuing the primary effort. Fall back to the LAST spine-lane main node created
+// (spine / reroute / spine-user), which is the tip of the trunk. Never returns a
+// sub-agent (branch/scout) leg. Also repairs `t._spineId` so downstream logic agrees.
+function _meAiSpineAnchor(t, tree) {
+  try {
+    const legs = (tree && tree.legs) || {};
+    const order = (tree && tree.order) || [];
+    // A live, still-present pointer is authoritative — it was set to the latest spine
+    // node and by construction extends the trunk.
+    if (t && t._spineId && legs[t._spineId] && legs[t._spineId].lane === 'spine') return t._spineId;
+    const isMain = (l) => l && l.lane === 'spine' && (l.kind === 'spine' || l.kind === 'reroute' || l.kind === 'user');
+    for (let i = order.length - 1; i >= 0; i--) { if (isMain(legs[order[i]])) return order[i]; }
+    // Last resort: any spine-lane leg (never a branch/scout sub-agent).
+    for (let i = order.length - 1; i >= 0; i--) { const l = legs[order[i]]; if (l && l.lane === 'spine') return order[i]; }
+  } catch (_) {}
+  return null;
+}
+
 // Re-engage an EXISTING tree pursuit with a steer (a follow-up "dig deeper / get
 // more data" or a "try a different approach" redirect, optionally with free text).
 // Unlike _meAiActRun (a flat single turn that never touches the canvas), this bumps
@@ -24792,6 +24815,10 @@ function _meAiTreeReAct(t, intent, text, label, opts) {
     try {
       const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
       const epoch = (tree.epoch || 0) + 1;
+      // Repair the in-memory spine pointer from the folded tree (lost across restarts)
+      // so the steer anchors on the real trunk tip, not a stray root / sub-agent.
+      const anchor = _meAiSpineAnchor(t, tree);
+      if (anchor) t._spineId = anchor;
       t.question = null; t.error = null; t._lastError = null;
       _meAiSetStage(t, 'working', 'running');
       _meAiTreeEmit(id, 'stage', { stage: 'working' });
@@ -24889,7 +24916,11 @@ function _meAiTreeConverse(t, mode, text) {
         const ctree = meAiTrees.get(id) || _meAiFoldJournal(id);
         const cepoch = (ctree.epoch || 0) + 1;
         _meAiTreeEmit(id, 'epoch_bump', { epoch: cepoch });
-        const prevSpine = t._spineId || null;
+        // Anchor my comment on the real trunk tip. `t._spineId` is not restored across
+        // restarts, so without this the "you" node became a stray root / hung off a
+        // sub-agent instead of continuing the primary effort (the reported bug).
+        const prevSpine = _meAiSpineAnchor(t, ctree);
+        if (prevSpine) t._spineId = prevSpine;
         const unode = _meAiNewLeg({
           kind: 'user', lane: 'spine', status: 'done', baseEpoch: cepoch,
           parentId: prevSpine,

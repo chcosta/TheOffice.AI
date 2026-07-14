@@ -605,4 +605,21 @@ await t.test('director clash: high-level area summary + option comparison', () =
   t.ok(/\.meai-dir-summary\s*\{/.test(html), 'summary block has CSS');
 });
 
+await t.test('pursuit follow-up anchors on the main spine trunk (not a sub-agent)', () => {
+  const src = readFileSync('server.js', 'utf8');
+  // A tree-aware resolver exists and never returns a branch/scout sub-agent.
+  t.ok(/function _meAiSpineAnchor\(/.test(src), 'spine-anchor resolver exists');
+  const rez = _win(src, 'function _meAiSpineAnchor', 900);
+  t.ok(/lane === 'spine'/.test(rez), 'resolver only considers spine-lane legs (no sub-agents)');
+  t.ok(/order\.length - 1; i >= 0; i--/.test(rez), 'resolver walks to the LAST spine node (trunk tip)');
+  // reAct (steer follow-up) repairs the pointer from the folded tree before parenting.
+  const react = _win(src, 'function _meAiTreeReAct', 1400);
+  t.ok(/const anchor = _meAiSpineAnchor\(t, tree\)/.test(react), 'reAct resolves the spine anchor');
+  t.ok(/if \(anchor\) t\._spineId = anchor/.test(react), 'reAct repairs t._spineId before spawning the you node');
+  // converse (chat comment) does the same, so a comment continues the primary effort.
+  const conv = _win(src, 'function _meAiTreeConverse', 2200);
+  t.ok(/const prevSpine = _meAiSpineAnchor\(t, ctree\)/.test(conv), 'converse resolves the spine anchor');
+  t.ok(/if \(prevSpine\) t\._spineId = prevSpine/.test(conv), 'converse repairs t._spineId before spawning the you node');
+});
+
 await t.done();
