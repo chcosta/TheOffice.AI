@@ -216,7 +216,7 @@ function _reasonFor(cls, disp) {
   }
 }
 
-const _DESK_ORDER = { clash: 0, gap: 1, chain: 2, batch: 3 };
+const _DESK_ORDER = { clash: 0, gap: 1, review: 2, chain: 3, batch: 4 };
 
 // Compact, distinct row titles. A clash prefers its conflict subject (e.g. "arm64-branch-bug");
 // otherwise it pulls the quoted subject out of the prompt. A gap uses a short lead of the ask.
@@ -368,6 +368,34 @@ function _groupDesk(deskNodes) {
     promptFull: s.prompt || 'Information the director cannot supply.',
   }));
 
+  // Catch-all: any desk node NOT captured by a specific bucket above (e.g. a read-only step
+  // the model flagged for a human OK when no grant was active, or an unrecognized class) MUST
+  // still surface as a desk item. Otherwise it inflates `deskStops` while rendering nothing —
+  // the header reads "N still need you" over an empty desk, the exact dishonesty the user
+  // caught. Fold the remainder into one honest "review" item carrying each node's prompt + the
+  // Director's reasoning, so the reduction count always reconciles with what's actually shown.
+  const bucketed = new Set();
+  [batchStops, writeStops, clashStops, gapStops].forEach(g => g.forEach(s => bucketed.add(s.stopId)));
+  const otherStops = deskNodes.filter(n => !bucketed.has(n.stopId));
+  if (otherStops.length) {
+    const reviews = otherStops.map(s => ({
+      stopId: s.stopId, title: _clip(s.prompt || s.target || 'Step to review', 90),
+      agent: s.legId || null, target: s.target || null, cls: s.cls,
+    }));
+    const firstReason = otherStops.map(s => s.aiReason).filter(Boolean)[0];
+    const n = otherStops.length;
+    items.push({
+      id: 'desk-review', kind: 'review',
+      title: n === 1 ? 'A step to OK before it proceeds' : n + ' steps to OK before they proceed',
+      count: n, legCount: n, stopIds: otherStops.map(s => s.stopId), reviews,
+      legId: otherStops[0].legId || null, nodeId: otherStops[0].legId || null,
+      target: otherStops[0].target || null,
+      directorRationale: firstReason || "This step has no automatic disposition I can safely apply on its own, so I'm bringing it to you — approve it to let the leg proceed, or open the leg for the full context.",
+      detail: n + ' step' + (n === 1 ? '' : 's') + ' the Director surfaced for your OK.',
+      promptFull: otherStops[0].prompt || '',
+    });
+  }
+
   items.sort((a, b) => (_DESK_ORDER[a.kind] - _DESK_ORDER[b.kind]));
   return items;
 }
@@ -438,6 +466,18 @@ function planReduction(tree, policy) {
     // Rail (C1): a deliverable is ALWAYS batched to the desk, never silently absorbed —
     // even if the model over-reaches and recommends absorbing it.
     if (cls === 'deliverable' && HANDLED.has(disp)) disp = 'batch';
+    // Rail: a READ-ONLY action changes nothing. Reading data (a fetch, a lookup, a query)
+    // has no side effect to review, revert, or approve — reads never gate (the doctrine).
+    // Even when the model recommends "ask", PROCEEDING with a read is always safe, so like a
+    // cull it is side-effect-free: it auto-absorbs under an ACTIVE grant for this pursuit (no
+    // path/op coverage needed). With no active grant — or if the model flags it external, or
+    // the Director is paused/offline (rails below) — it falls to the desk honestly instead of
+    // being silently allowed. Gated on cls==='read-only', which only arises from an AI verdict,
+    // so the deterministic-fallback fixture (whose classifier never returns read-only) is
+    // unaffected.
+    if (cls === 'read-only' && (!av || av.external !== true)) {
+      disp = _grantActive(grant, ctx) ? 'absorb' : 'ask';
+    }
     // A factual clash only auto-resolves when the judge is confident. With an AI verdict the
     // model's confidence IS the evidence bar (it reasoned over both sides); without one we fall
     // back to the deterministic evidence check. Otherwise it stays a human judgement call.
@@ -455,6 +495,17 @@ function planReduction(tree, policy) {
     // side-effect-free, so it needs only an active grant for this pursuit — not path/op
     // coverage — otherwise redundant gates outside the granted path pile up needlessly.
     if (disp === 'cull') {
+      // A pure cull performs NOTHING observable — it only drops a redundant/informational gate
+      // while the surviving twin still gates on its own merits. Because it has no side effect to
+      // review, revert, or approve, an ENABLED Director may retire it with no standing grant at
+      // all (paused/offline still holds it below). Requiring a write-grant here just manufactured
+      // desk noise: every duplicate degraded to an 'ask' and was mis-filed as a "held write" the
+      // user was asked to approve/decline despite the model itself saying "no action needed".
+      /* no grant required — side-effect-free */
+    } else if (cls === 'read-only' && HANDLED.has(disp)) {
+      // A read changes nothing either, but the Director still holds an ACTIVE grant for this
+      // pursuit before it silently absorbs a read-only gate — NOT path/op coverage — so it does
+      // not fall through to the generic grantCovers check below (which would wrongly hold it).
       if (!_grantActive(grant, ctx)) disp = 'ask';
     } else if (cls === 'reversible-local' && av && av.external === false && HANDLED.has(disp)) {
       // A reversible-local edit the model judged non-external is undoable from the ledger — it

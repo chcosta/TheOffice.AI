@@ -13401,6 +13401,7 @@
               .meai-dir-row.k-chain { border-left-color:#7c3aed; }
               .meai-dir-row.k-batch { border-left-color:#0ea5e9; }
               .meai-dir-row.k-gap   { border-left-color:#e11d48; }
+              .meai-dir-row.k-review { border-left-color:#0d9488; }
               .meai-dir-row.k-cull  { border-left-color:var(--cp-text-muted); }
               .meai-dir-row.k-absorb{ border-left-color:#16a34a; }
               .meai-dir-row.k-resolve{ border-left-color:#16a34a; }
@@ -13450,6 +13451,9 @@
               .meai-dir-foot-acts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
               .meai-dir-foot-lead { font-size:12px; color:var(--cp-text-muted); margin-right:2px; }
               .meai-dir-note { flex:1; min-width:160px; }
+              .meai-dir-ask { margin:12px 0 2px; }
+              .meai-dir-ask-h { font-size:11.5px; color:var(--cp-text-muted); line-height:1.45; margin:0 0 6px; }
+              .meai-dir-ask .meai-dir-note { width:100%; box-sizing:border-box; flex:none; min-width:0; resize:vertical; }
               .meai-dir-xs { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; margin-top:8px; }
               .meai-dir-xs .d { width:7px; height:7px; border-radius:50%; background:currentColor; display:inline-block; }
               .meai-dir-xs.applied { color:#16a34a; }
@@ -16610,10 +16614,15 @@
                                   </template>
                                   <div x-show="!(meai.pursuit.director.sel.sides||[]).length" class="meai-pu-empty" style="margin:10px 0" x-text="meai.pursuit.director.sel.promptFull || meai.pursuit.director.sel.detail"></div>
                                   <div class="meai-dir-xs proposed"><span class="d"></span> <span x-text="meai.pursuit.director.sel.status || 'Open — awaiting your decision'"></span></div>
+                                  <div class="meai-dir-ask">
+                                    <div class="meai-dir-ask-h">Neither side right — or did they miss something? Tell the Director. It folds your context in and re-evaluates that angle instead of forcing a choice with your name on it.</div>
+                                    <textarea class="field-input meai-dir-note" rows="2" placeholder="Add context or a correction — e.g. “there's a helix-observer repo that captures prediction accuracy”…" x-model="meai.pursuit.director.note"></textarea>
+                                  </div>
                                   <div class="meai-dir-foot-acts">
                                     <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'affirm')">Choose Side A<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
                                     <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')">Choose Side B<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
-                                    <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId)">Ask a clarifying question →</button>
+                                    <button type="button" class="btn" :disabled="meai.pursuit.director.busy || !(meai.pursuit.director.note||'').trim()" @click="meAiDirectorCommentStop(meai.pursuit.director.sel)">Send to the Director →</button>
+                                    <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId)">Open the leg →</button>
                                   </div>
                                 </div>
                               </div>
@@ -16658,7 +16667,31 @@
                               </div>
                             </template>
 
-                            <!-- HANDLED entry -->
+                            <!-- DESK: review — steps with no auto-disposition; OK each to proceed -->
+                            <template x-if="meai.pursuit.director.selKind==='desk' && meai.pursuit.director.sel && meai.pursuit.director.sel.kind==='review'">
+                              <div>
+                                <div class="meai-dir-card">
+                                  <div class="meai-dir-kind">To review · <span x-text="meai.pursuit.director.sel.count"></span> need your OK</div>
+                                  <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
+                                  <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
+                                  <template x-for="(r, ri) in (meai.pursuit.director.sel.reviews||[])" :key="r.stopId">
+                                    <div class="meai-dir-mem">
+                                      <span class="meai-dir-mem-ord" x-text="ri+1"></span>
+                                      <div style="flex:1; min-width:0">
+                                        <div class="meai-dir-mem-sum" x-text="r.title"></div>
+                                        <div class="meai-dir-mem-leg" x-show="r.target" x-text="r.target"></div>
+                                        <div class="meai-dir-foot-acts" style="margin-top:6px">
+                                          <button type="button" class="btn primary sm" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(r.stopId,'approve')">Approve</button>
+                                          <button type="button" class="btn ghost sm" :disabled="meai.pursuit.director.busy" @click="meAiDirectorResolveStop(r.stopId,'deny')">Decline</button>
+                                          <button type="button" class="meai-dir-linklike" x-show="r.agent" @click="meAiPursuitOpenNodeById(r.agent)">Show the leg →</button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> Open — awaiting your OK</div>
+                                </div>
+                              </div>
+                            </template>
                             <template x-if="meai.pursuit.director.selKind==='handled' && meai.pursuit.director.sel">
                               <div>
                                 <div class="meai-dir-card">
@@ -42716,7 +42749,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiDirectorDeskKind(it) {
           if (it && it.kind === 'clash' && it.count > 1) return 'Judgement call · ' + it.count + ' legs — one decision';
-          return ({ clash: 'Judgement call — your decision', chain: 'Held writes — review', batch: 'Deliverables — approve once', gap: 'Needs your input' })[it && it.kind] || 'Needs you';
+          return ({ clash: 'Judgement call — your decision', chain: 'Held writes — review', batch: 'Deliverables — approve once', gap: 'Needs your input', review: 'Review — approve to proceed' })[it && it.kind] || 'Needs you';
         },
         meAiDirectorDispLabel(disp) {
           return ({ cull: 'Culled — duplicate dropped', absorb: 'Absorbed — reversible edit applied', resolve: 'Resolved — factual clash tie-broken', batch: 'Batched for approval' })[disp] || disp;
@@ -42838,6 +42871,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/answer', { method: 'POST', body: JSON.stringify({ stopId: sid, text: ans }) });
             d.note = ''; this.toast('Sent — the agent will fold it in', 'success');
+          } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        // Comment on / correct a desk item WITHOUT picking a side: sends the note tied to
+        // each underlying stop so the Director folds it in as authoritative context and
+        // re-evaluates that angle (the "neither side is right — here's what you missed"
+        // path). Works for a clash (multiple member stops) or any single-stop item.
+        async meAiDirectorCommentStop(item) {
+          const p = this.meai.pursuit; const d = p.director;
+          const note = String(d.note || '').trim();
+          const sids = (item && Array.isArray(item.stopIds) && item.stopIds.length)
+            ? item.stopIds.slice()
+            : (item && Array.isArray(item.members) ? item.members.map(m => m && m.stopId).filter(Boolean) : []);
+          if (!note) { this.toast('Add a comment or question first', 'info'); return; }
+          if (!p.tid || !sids.length) return;
+          d.busy = true;
+          try {
+            for (const sid of sids) {
+              await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/comment', { method: 'POST', body: JSON.stringify({ text: note }) });
+            }
+            d.note = ''; this.toast('Sent to the Director — folding it in and re-evaluating', 'success');
           } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
           finally { d.busy = false; this.meAiDirectorAfterAction(); }
         },

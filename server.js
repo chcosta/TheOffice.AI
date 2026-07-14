@@ -20601,7 +20601,7 @@ function _meAiFoldJournal(id) {
       }
       case 'auth_decision': {
         const s = state.stops.find(x => x.id === r.stopId);
-        if (s) { s.status = r.decision === 'approve' ? 'resolved' : 'denied'; s.resolution = r.decision; s.note = r.note || null; s.resolvedAt = r.at; s.by = r.by || 'user'; } break;
+        if (s) { s.status = (r.decision === 'approve' || r.decision === 'reframe') ? 'resolved' : 'denied'; s.resolution = r.decision; s.note = r.note || null; s.resolvedAt = r.at; s.by = r.by || 'user'; } break;
       }
       case 'director': {
         // The director's own actions. `ledger` appends a visual-record entry; `pause`
@@ -24549,16 +24549,23 @@ function _meAiDirectorSweep(t) {
   const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
   const policy = _meAiDirectorPolicy(id, tree);
   if (policy.paused) return { skipped: 'paused' };
-  if (!policy.grant || !policy.grant.expiresAt) return { skipped: 'no-grant' };
+  // A standing grant authorizes the WRITE-touching folds (resolve/absorb) and probe dispatch.
+  // A pure cull is side-effect-free — it only drops a redundant/informational gate — so the
+  // sweep may retire culls even with no grant, matching planReduction which now culls duplicates
+  // without one. Without this, a duplicate would show "handled" in the read-only view while its
+  // real stop lingered open (count drift). Everything below stays leader- and enabled-gated.
+  const hasGrant = !!(policy.grant && policy.grant.expiresAt);
   const plan = director.planReduction(tree, policy);
   const conflicts = (tree.rootState && tree.rootState.openConflicts) || [];
-  const pv = policy.grant.policyVersion, gid = policy.grant.id;
+  const pv = (policy.grant && policy.grant.policyVersion) || null;
+  const gid = (policy.grant && policy.grant.id) || 'g-none';
   let handled = 0;
   for (const p of plan.per) {
     if (!director.HANDLED.has(p.disposition)) continue;
     const stop = (tree.stops || []).find(s => s.id === p.stopId && s.status === 'open');
     if (!stop) continue;
     if (p.disposition === 'resolve') {
+      if (!hasGrant) continue; // write-touching fold — grant-gated
       const c = conflicts.find(x => x && x.id === p.conflictId && x.status === 'open');
       if (!c) continue;
       const src = c.verdict || c.evidence || c.proof || {};
@@ -24572,6 +24579,7 @@ function _meAiDirectorSweep(t) {
       _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'culled', stopId: stop.id, legId: stop.legId, cls: p.cls, why: 'Duplicate of an action already handled.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: stop.id } }) });
       handled++;
     } else if (p.disposition === 'absorb') {
+      if (!hasGrant) continue; // reversible-local write — grant-gated
       _meAiTreeEmit(id, 'auth_decision', { stopId: stop.id, decision: 'approve', by: 'director', note: 'Absorbed by director — reversible local change inside your standing grant.' });
       if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
       _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'absorbed', stopId: stop.id, legId: stop.legId, cls: p.cls, target: p.target, why: 'Reversible local change under your standing grant for ' + ((policy.grant.paths || []).join(', ') || 'this pursuit') + '.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: stop.id } }) });
@@ -24585,7 +24593,7 @@ function _meAiDirectorSweep(t) {
   // fromStopId (converge-or-escalate in _meAiDirectorSpawn), and the next reason pass reclassifies.
   let probed = 0;
   const probeItems = plan.probeItems || [];
-  if (probeItems.length) {
+  if (hasGrant && probeItems.length) {
     const liveProbe = new Set();
     for (const lid of Object.keys(tree.legs || {})) {
       const lg = tree.legs[lid];
@@ -24905,6 +24913,66 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
       _meAiSetStage(t, 'awaiting', 'awaiting');
     }
   }, { priority: true });
+}
+
+// Comment on / correct an open stop WITHOUT picking a side. Unlike _meAiTreeResolveStop
+// (which force-resolves a clash to the side the note names, else the stronger side), this
+// is the "neither side is right — here's the fact you missed" path: it records the note as
+// authoritative context (an accumulated answer + a hard constraint), retires the stop as
+// 'reframe' (honestly, never crowning A or B), invalidates the leg that reached the now-
+// refuted conclusion so its stale finding can't stand, and parks the pursuit awaiting so the
+// Director re-evaluates that angle with the correction folded in.
+function _meAiTreeCommentStop(t, stopId, text) {
+  _meAiSchedule(async () => {
+    const id = t.id;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const stop = (tree.stops || []).find(s => s.id === stopId);
+    if (!stop || stop.status !== 'open') {
+      _meAiReconcileAsks(t, tree);
+      _meAiTreeMirror(t, 'That item is no longer open.');
+      return;
+    }
+    const note = String(text || '').slice(0, 600).trim();
+    if (!note) { _meAiReconcileAsks(t, tree); return; }
+    const subject = (stop.subject && String(stop.subject).trim())
+      || (stop.prompt ? String(stop.prompt).slice(0, 60) : 'this');
+    // Fold the correction in as authoritative context: an accumulated answer (downstream
+    // legs + merge + report honor it) AND a hard constraint so the conclusion can't be
+    // silently re-derived the old way.
+    _meAiTreeEmit(id, 'rootstate', { patch: { answer: note } });
+    _meAiTreeEmit(id, 'rootstate', { patch: { constraint: 'User correction on "' + subject + '": ' + note } });
+    // If the stop stands on a conflict, retire it WITHOUT crowning A or B — a 'reframe'
+    // verdict (chosenBy user) so the standoff leaves the desk honestly rather than being
+    // misattributed to a side the user just refuted.
+    if (stop.conflictId) {
+      const tt = meAiTrees.get(id) || tree;
+      const c = ((tt.rootState && tt.rootState.openConflicts) || []).find(x => x && x.id === stop.conflictId);
+      if (c && c.status === 'open') {
+        const verdict = { stance: 'reframe', claim: note, legId: stop.legId || null, confidence: null, chosenBy: 'user' };
+        _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: c.id, verdict, resolvedBy: 'user' } });
+      }
+    }
+    // Retire the stop as reframed (folds to status 'resolved' via the extended auth_decision
+    // fold) and invalidate the leg that reached the refuted conclusion so the angle re-runs
+    // against the new fact instead of leaving the stale finding standing.
+    _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'reframe', note });
+    if (stop.legId) _meAiTreeEmit(id, 'leg_invalidate', { legId: stop.legId });
+    _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+    // Actively re-evaluate that angle rather than parking awaiting: steer a replan
+    // (change-approach) carrying the user's correcting fact. Because the refuted leg is
+    // invalidated it's excluded from the reuse memo (_meAiBuildMemo), so the orchestrator
+    // re-investigates THIS angle fresh against the new fact instead of parroting the dead
+    // conclusion — while unchanged angles are reused, keeping it a targeted reconsideration
+    // rather than a full restart. _meAiTreeReAct handles the epoch bump + running spine leg
+    // + orchestrate(replan) + stage → working.
+    const steer = 'On "' + subject + '", I reviewed the standoff and neither conclusion was right. '
+      + 'Correcting fact: ' + note + ' '
+      + 'Reconsider this specific angle in light of it \u2014 investigate fresh, do NOT repeat the earlier '
+      + 'dead-end, and fold the result back in.';
+    _meAiTreeMirror(t, 'Got it \u2014 folding your correction in and re-evaluating that angle\u2026');
+    t._skipChoiceNote = true; // suppress ReAct's generic "you steered" mirror; the line above is clearer
+    _meAiTreeReAct(t, 'change-approach', steer, 'Correction on "' + subject + '"');
+  });
 }
 
 // Dedup-aware diary write-back on completion (§9.1). Only writes what a passive
@@ -25676,6 +25744,23 @@ app.post('/api/me-ai/task/:id/stop/:stopId/resolve', (req, res) => {
     const decision = (b.decision === 'deny') ? 'deny' : 'approve';
     const note = (typeof b.note === 'string') ? b.note.slice(0, 600) : null;
     _meAiTreeResolveStop(t, String(req.params.stopId), decision, note);
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/stop/:stopId/comment { text } → comment on / correct an
+// open stop WITHOUT picking a side. The Director folds the note in as authoritative
+// context, retires the stop as 'reframe' (never crowning a clash side), invalidates the
+// refuted leg, and re-evaluates that angle. This is the context-preserving "neither side
+// is right — here's a fact they missed" path.
+app.post('/api/me-ai/task/:id/stop/:stopId/comment', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found or no longer live' });
+    const b = req.body || {};
+    const text = (typeof b.text === 'string') ? b.text.slice(0, 600) : '';
+    if (!text.trim()) return res.status(400).json({ error: 'text required' });
+    _meAiTreeCommentStop(t, String(req.params.stopId), text);
     res.json({ ok: true, task: _meAiTaskPublic(t) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
