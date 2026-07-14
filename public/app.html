@@ -16287,8 +16287,45 @@
                                     <div class="meai-pu-bubble md-output" x-html="renderMarkdown(ev.text||'')"></div>
                                   </div>
                                 </template>
+                                <!-- A leg that rejoined during the follow-up → the same calm boxed fold card
+                                     as the main thread (never a truncated single-line substep row). -->
+                                <template x-if="ev.kind==='fold'">
+                                  <div class="meai-pu-fold" :class="{ 'is-click': ev.legRef && meAiPursuitOpenNodeById }"
+                                    @click="ev.legRef && meAiPursuitOpenNodeById(ev.legRef)"
+                                    :title="ev.legRef ? 'See how this agent worked' : ''">
+                                    <div class="meai-pu-fold-h">
+                                      <span class="meai-pu-fold-ic" x-text="ev.icon || '✔'"></span>
+                                      <template x-if="meAiPursuitFoldAgent(ev)">
+                                        <span class="meai-pu-fold-agent">
+                                          <span class="meai-pu-fold-sid" x-show="meAiPursuitFoldAgent(ev).sid" x-text="meAiPursuitFoldAgent(ev).sid"></span>
+                                          <span class="meai-pu-fold-rl" x-text="meAiPursuitFoldAgent(ev).role"></span>
+                                        </span>
+                                      </template>
+                                      <span class="meai-pu-fold-leg" x-text="ev.leg || 'A pursuit leg'"></span>
+                                      <span class="meai-pu-fold-oc" x-text="meAiPursuitFoldOutcome(ev)"></span>
+                                    </div>
+                                    <div class="meai-pu-fold-attr" x-show="meAiPursuitFoldAttr(ev)" x-text="meAiPursuitFoldAttr(ev)"></div>
+                                    <div class="meai-pu-fold-sum md-output" x-show="ev.text" x-html="renderMarkdown(ev.text)"></div>
+                                    <ul class="meai-pu-fold-find" x-show="ev.findings && ev.findings.length">
+                                      <template x-for="(f, fi) in (ev.findings||[])" :key="'cff-'+ci+'-'+fi">
+                                        <li x-text="String(f).replace(/^•\s*/,'')"></li>
+                                      </template>
+                                    </ul>
+                                    <div class="meai-pu-fold-q" x-show="ev.question" x-text="ev.question"></div>
+                                    <div class="meai-pu-fold-pr" x-show="ev.proposed"><span class="k">Proposed:</span> <span x-text="ev.proposed"></span></div>
+                                    <div class="meai-pu-fold-open" x-show="ev.legRef">See how this agent worked →</div>
+                                  </div>
+                                </template>
+                                <!-- The Director's cross-cutting commentary during the follow-up → the same
+                                     prominent multi-line turn as the main thread. -->
+                                <template x-if="ev.kind==='director_note'">
+                                  <div class="meai-pu-turn director">
+                                    <div class="meai-pu-turn-who">Director</div>
+                                    <div class="meai-pu-bubble md-output" x-html="renderMarkdown(ev.text||'')"></div>
+                                  </div>
+                                </template>
                                 <!-- Reasoning / tools / notes → the existing collapsible substep row. -->
-                                <template x-if="ev.who!=='you' && ev.kind!=='response' && !(meai.pursuit.hideThinking && meAiPursuitIsThinking(ev))">
+                                <template x-if="ev.who!=='you' && ev.kind!=='response' && ev.kind!=='fold' && ev.kind!=='director_note' && !(meai.pursuit.hideThinking && meAiPursuitIsThinking(ev))">
                                   <div class="meai-pu-ev" :class="['ev-'+ev.kind, 'side-'+meAiPursuitEvSide(ev), meAiPursuitEvHasDetail(ev)?'has-detail':'']">
                                     <span class="meai-pu-ev-ic" x-text="meAiEventIcon(ev.kind)"></span>
                                     <div class="meai-pu-ev-b">

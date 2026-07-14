@@ -937,4 +937,29 @@ await t.test('me-ai run open: evicted DEEP run falls back to durable /tree map, 
   t.ok(/meAiAgentPageLeave\(\)/.test(body), 'no durable record → backs out cleanly (no blank agent page)');
 });
 
+await t.test('pursuit follow-up chat: fold + director_note render boxed multi-line, never a truncated substep row (app.html)', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // Root cause: while _converse is set (the continue re-engagement clone), the server tags
+  // EVERY emitted event converse:true — including fold + director_note. Those land in the
+  // follow-up converse loop, which previously only special-cased 'you'/'response' and dumped
+  // everything else into the single-line .meai-pu-ev-s row (white-space:nowrap; text-overflow:ellipsis).
+  // The converse loop must now box fold + director_note like the main thread, and EXCLUDE them
+  // from the generic substep row.
+  // Isolate the converse loop block.
+  const seg = src.slice(src.indexOf('meAiPursuitConverseEvents()') >= 0 ? src.indexOf("(ev, ci) in meAiPursuitConverseEvents()") : 0);
+  const loop = seg.slice(0, 6000);
+  t.ok(/x-for="\(ev, ci\) in meAiPursuitConverseEvents\(\)"/.test(src), 'converse loop present');
+  // Boxed fold card + director turn inside the converse block.
+  t.ok(/ev\.kind==='fold'[\s\S]{0,120}meai-pu-fold/.test(loop), 'converse fold renders the boxed .meai-pu-fold card');
+  t.ok(/ev\.kind==='director_note'[\s\S]{0,120}meai-pu-turn director/.test(loop), 'converse director_note renders the prominent Director turn');
+  t.ok(/:key="'cff-'\+ci\+'-'\+fi"/.test(loop), 'converse fold findings key is unique to the converse loop');
+  // The generic substep row must now exclude fold + director_note so they can never fall through
+  // to the truncated single-line .meai-pu-ev-s row.
+  t.ok(/ev\.who!=='you' && ev\.kind!=='response' && ev\.kind!=='fold' && ev\.kind!=='director_note'/.test(loop),
+    'generic converse substep row excludes fold + director_note');
+  // The main-thread spine loop already excluded them (guard against regression).
+  t.ok(/ev\.kind!=='fold' && ev\.kind!=='director_note' && !\(meai\.pursuit\.hideThinking/.test(src),
+    'main spine substep row still excludes fold + director_note');
+});
+
 await t.done();
