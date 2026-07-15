@@ -20443,6 +20443,8 @@
               .cmpx-lib-trow .cbx.on,.cmpx-lib-card .cbx.on{background:var(--cp-accent);border-color:var(--cp-accent)}
               .cmpx-lib-trow .doc .ttl{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;min-width:0}
               .cmpx-lib-trow .doc .ttl span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-lib-rename{flex:1;min-width:0}
+              .cmpx-lib-rename input{width:100%;padding:3px 7px;border:1px solid var(--cp-accent);border-radius:6px;background:var(--cp-surface);color:var(--cp-text);font:inherit;font-size:13.5px;font-weight:600}
               .cmpx-lib-trow .doc .ico{font-size:14px;flex:0 0 auto}
               .cmpx-lib-trow .doc .meta{font-size:11.5px;color:var(--cp-text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
               .cmpx-lib-trow .col-purpose,.cmpx-lib-trow .col-when{font-size:12.5px;color:var(--cp-text-secondary)}
@@ -20526,7 +20528,16 @@
               .cmpx-doc img,.cmpx-doc svg{max-width:100%;height:auto}
               .cmpx-doc blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 6%,transparent);color:var(--cp-text-secondary)}
               .cmpx-edit{flex:1;min-height:420px;width:100%;border:0;outline:0;resize:none;padding:20px 24px;font-family:'Cascadia Code',ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;background:var(--cp-surface);color:var(--cp-text)}
-              .cmpx-site{min-height:360px;border:0;width:100%;background:#fff;border-radius:0 0 10px 10px;display:block}
+              .cmpx-site{min-height:calc(100vh - 260px);border:0;width:100%;background:#fff;border-radius:0 0 10px 10px;display:block}
+              /* Provenance — calm, muted "what produced this" block; no pills. */
+              .cmpx-prov{margin:0 0 14px;padding:9px 12px;border:1px solid var(--cp-border);border-left:3px solid var(--cp-accent);border-radius:8px;background:var(--cp-surface);font-size:12.5px}
+              .cmpx-prov-row{display:flex;gap:8px;align-items:baseline}
+              .cmpx-prov-row + .cmpx-prov-row{margin-top:3px}
+              .cmpx-prov-k{flex:0 0 auto;color:var(--cp-text-dim);font-weight:600;min-width:96px}
+              .cmpx-prov-v{color:var(--cp-text);min-width:0}
+              .cmpx-prov-hist{margin-top:6px;padding-left:2px}
+              .cmpx-prov-hist-note{font-size:12.5px;color:var(--cp-text);font-style:italic}
+              .cmpx-prov-hist-fr{font-size:11.5px;color:var(--cp-text-dim);margin-top:2px}
               /* Activity log during generation */
               .cmpx-activity{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);padding:14px;margin-bottom:14px}
               .cmpx-actline{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--cp-text)}
@@ -20557,6 +20568,18 @@
                  scrollbar — the overlay itself scrolls if needed). */
               .cmpx-fs{position:fixed;inset:0;z-index:1000;background:var(--cp-bg);padding:14px 22px;overflow:auto}
               .cmpx-fs .cmpx-wrap{max-width:none;width:100%}
+              /* Focused full screen: this is a FOCUS mode, not just "cover the topbar".
+                 Collapse the studio to the deliverable only — hide the sources rail + the
+                 paired assistant and let the stage own the whole viewport, with the content
+                 (document or prototype) scrolling inside it. Exiting restores all panels. */
+              .cmpx-fs .nlx-studio,
+              .cmpx-fs .nlx-studio.chat-open,
+              .cmpx-fs .nlx-studio.cmpx-paired.paired-open,
+              .cmpx-fs .nlx-studio.cmpx-paired.paired-collapsed{grid-template-columns:1fr}
+              .cmpx-fs .nlx-rail,
+              .cmpx-fs .cmpx-pair{display:none}
+              .cmpx-fs .nlx-stage{height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0}
+              .cmpx-fs .nlx-scroll{flex:1;min-height:0;overflow:auto}
               /* Docked paired assistant (replaces the What-to-say brief) */
               .cmpx-wrap:has(.cmpx-paired){max-width:1520px}
               .nlx-studio.cmpx-paired.paired-open{grid-template-columns:300px minmax(0,1fr) var(--cmpx-pair-w,360px)}
@@ -20714,20 +20737,28 @@
                       <span></span>
                     </div>
                     <template x-for="c in composeLibFiltered()" :key="c.id">
-                      <div class="cmpx-lib-trow" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeOpen(c.id)">
-                        <span class="cbx" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
+                      <div class="cmpx-lib-trow" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeLibOpen(c)">
+                        <span class="cbx" x-show="c.kind!=='newsletter'" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
+                        <span x-show="c.kind==='newsletter'"></span>
                         <div class="doc">
-                          <div class="ttl"><span class="ico" x-text="(composePurpose(c.purpose)||{}).icon || '📄'"></span><span x-text="c.title || 'Untitled'"></span></div>
+                          <div class="ttl">
+                            <span class="ico" x-text="c.kind==='newsletter' ? '📰' : ((composePurpose(c.purpose)||{}).icon || '📄')"></span>
+                            <template x-if="compose.lib.renaming!==c.id"><span x-text="c.title || 'Untitled'"></span></template>
+                            <span class="cmpx-lib-rename" x-show="compose.lib.renaming===c.id" @click.stop>
+                              <input type="text" x-model="compose.lib.renameVal" @keydown.enter.prevent="composeLibRenameCommit(c)" @keydown.escape.prevent="composeLibRenameCancel()" @blur="composeLibRenameCommit(c)">
+                            </span>
+                          </div>
                           <div class="meta" x-text="c.preview ? (c.preview.slice(0,96) + (c.preview.length>96?'…':'')) : (c.hasDraft ? '' : 'draft empty')"></div>
                         </div>
                         <div class="col-purpose" x-text="composePurposeLabel(c.purpose)"></div>
                         <div class="col-when" x-text="formatRelative(c.updatedAt)"></div>
                         <div class="col-size rt" x-text="composeLibSize(c.size)"></div>
                         <div class="rowacts">
-                          <button class="icobtn" title="Open" @click.stop="composeOpen(c.id)">↗</button>
-                          <button class="icobtn" title="Share" @click.stop="composeLibShare(c.id)">⤴</button>
-                          <button class="icobtn" title="Export" @click.stop="composeLibExport(c.id)">⬇</button>
-                          <button class="icobtn danger" title="Delete" @click.stop="composeDelete(c.id)">🗑</button>
+                          <button class="icobtn" title="Open" @click.stop="composeLibOpen(c)">↗</button>
+                          <button class="icobtn" x-show="c.kind!=='newsletter'" title="Rename" @click.stop="composeLibRenameStart(c)">✎</button>
+                          <button class="icobtn" title="Share" @click.stop="composeLibShareItem(c)">⤴</button>
+                          <button class="icobtn" title="Export" @click.stop="composeLibExportItem(c)">⬇</button>
+                          <button class="icobtn danger" x-show="c.kind!=='newsletter'" title="Delete" @click.stop="composeDelete(c.id)">🗑</button>
                         </div>
                       </div>
                     </template>
@@ -20736,12 +20767,12 @@
                   <!-- GRID -->
                   <div class="cmpx-lib-grid" x-show="compose.lib.mode==='grid' && composeLibFiltered().length">
                     <template x-for="c in composeLibFiltered()" :key="c.id">
-                      <div class="cmpx-lib-card" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeOpen(c.id)">
+                      <div class="cmpx-lib-card" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeLibOpen(c)">
                         <div class="top">
-                          <span class="ico" x-text="(composePurpose(c.purpose)||{}).icon || '📄'"></span>
+                          <span class="ico" x-text="c.kind==='newsletter' ? '📰' : ((composePurpose(c.purpose)||{}).icon || '📄')"></span>
                           <div class="ttl" x-text="c.title || 'Untitled'"></div>
                           <span class="spacer" style="flex:1"></span>
-                          <span class="cbx" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
+                          <span class="cbx" x-show="c.kind!=='newsletter'" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
                         </div>
                         <div class="prev" x-text="c.preview || (c.hasDraft ? '' : 'Draft empty — nothing generated yet.')"></div>
                         <div class="foot">
@@ -20956,6 +20987,19 @@
                           <p x-text="compose.notice || 'Composing your draft…'"></p>
                           <p class="hint">Watch the live activity feed on the left to see what the writer is doing.</p>
                         </div>
+                        <!-- Provenance: WHAT this iteration was composed from — the driving
+                             comment + the framing (audience / format / sources). Makes it
+                             obvious, on the current draft, what produced it. -->
+                        <div class="cmpx-prov" x-show="compose.draftText.trim() && composeProvHas(compose.current && compose.current.draft)">
+                          <div class="cmpx-prov-row">
+                            <span class="cmpx-prov-k">Composed from</span>
+                            <span class="cmpx-prov-v" x-text="composeProvPrompt(compose.current && compose.current.draft)"></span>
+                          </div>
+                          <div class="cmpx-prov-row" x-show="composeProvFraming(compose.current && compose.current.draft)">
+                            <span class="cmpx-prov-k">Framing</span>
+                            <span class="cmpx-prov-v" x-text="composeProvFraming(compose.current && compose.current.draft)"></span>
+                          </div>
+                        </div>
                         <!-- Prototype site: sandboxed with scripts so it can simulate real activity,
                              but no allow-same-origin/popups → opaque origin keeps every link inside
                              the frame (can't reach the app, your data, or navigate to TheOffice.AI). -->
@@ -20981,6 +21025,11 @@
                               <div class="connect-mem-actions">
                                 <a href="#" @click.prevent="composeRestoreVersion(v.id)">Restore</a>
                               </div>
+                            </div>
+                            <!-- What produced this version: the driving comment + framing. -->
+                            <div class="cmpx-prov-hist" x-show="composeProvHas(v)">
+                              <div class="cmpx-prov-hist-note" x-show="v.prompt" x-text="'“' + v.prompt + '”'"></div>
+                              <div class="cmpx-prov-hist-fr" x-show="composeProvFraming(v)" x-text="composeProvFraming(v)"></div>
                             </div>
                           </div>
                         </template>
@@ -29503,7 +29552,7 @@
           view: 'launcher',       // 'launcher' | 'brief' | 'studio' | 'library'
           fullscreen: false,
           // Documents library (whole body of composed work).
-          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [] },
+          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletter: null, renaming: '', renameVal: '' },
           _pendingStart: null,    // purpose queued by a deep link, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
@@ -46051,7 +46100,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { co.loading = false; }
         },
         composePurpose(id) { return (this.compose.purposes || []).find(p => p.id === id) || null; },
-        composePurposeLabel(id) { const p = this.composePurpose(id); return p ? p.label : id; },
+        composePurposeLabel(id) { if (id === 'newsletter') return 'Newsletter'; const p = this.composePurpose(id); return p ? p.label : id; },
         composeFormatLabel(id) { const f = (this.compose.formats || []).find(x => x.id === id); return f ? f.label : id; },
         // Default medium for a purpose when the user first picks it.
         composeDefaultFormat(p) {
@@ -46100,13 +46149,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // ===== Documents library =====
         async composeOpenLibrary() {
           this.compose.lib.sel = [];
+          this.compose.lib.renaming = '';
           this.compose.view = 'library';
           await this.loadCompose();
+          // Fold the living newsletter in as a first-class document row — it's a
+          // composed deliverable too, so it belongs in the Documents library even
+          // though it lives in its own single-document store.
+          try {
+            const ns = await this.request('/api/newsletter/status');
+            this.compose.lib.newsletter = (ns && ns.hasDraft) ? {
+              id: '__newsletter__', kind: 'newsletter', title: ns.title || 'Newsletter',
+              purpose: 'newsletter', format: 'doc', hasDraft: true,
+              size: ns.size || 0, preview: ns.dek || ns.subtitle || '',
+              createdAt: ns.createdAt || null, updatedAt: ns.updatedAt || ns.lastGeneratedAt || null,
+            } : null;
+          } catch (_) { this.compose.lib.newsletter = null; }
           this.compose.view = 'library';
+        },
+        // All library rows = compositions + the living newsletter (when it has a draft).
+        composeLibAll() {
+          const list = (this.compose.compositions || []).slice();
+          if (this.compose.lib.newsletter) list.unshift(this.compose.lib.newsletter);
+          return list;
         },
         composeLibFacets() {
           const counts = {};
-          (this.compose.compositions || []).forEach(c => { counts[c.purpose] = (counts[c.purpose] || 0) + 1; });
+          this.composeLibAll().forEach(c => { counts[c.purpose] = (counts[c.purpose] || 0) + 1; });
           return Object.keys(counts)
             .sort((a, b) => counts[b] - counts[a])
             .map(id => ({ id, label: this.composePurposeLabel(id), count: counts[id] }));
@@ -46114,7 +46182,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         composeLibFiltered() {
           const lib = this.compose.lib;
           const q = String(lib.q || '').toLowerCase().trim();
-          let list = (this.compose.compositions || []).filter(c => {
+          let list = this.composeLibAll().filter(c => {
             if (lib.filter && c.purpose !== lib.filter) return false;
             if (q) {
               const hay = (String(c.title || '') + ' ' + this.composePurposeLabel(c.purpose) + ' ' + String(c.preview || '')).toLowerCase();
@@ -46143,7 +46211,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return (k / 1024).toFixed(1) + ' MB';
         },
         composeLibSummary() {
-          const list = this.compose.compositions || [];
+          const list = this.composeLibFiltered();
           if (!list.length) return '';
           const total = list.reduce((s, c) => s + (Number(c.size) || 0), 0);
           return list.length + (list.length === 1 ? ' document · ' : ' documents · ') + this.composeLibSize(total) + ' total';
@@ -46157,6 +46225,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Fresh blank composition — land in the launcher to pick a purpose.
           this.compose.view = 'launcher';
           this.toast('Pick a purpose to start a fresh composition.', 'info');
+        },
+        // Kind-aware row actions: the living newsletter routes to its own studio;
+        // compositions use the compose studio + APIs.
+        composeLibOpen(c) {
+          if (c && c.kind === 'newsletter') { this.goTo('#/newsletter'); return; }
+          this.composeOpen(c.id);
+        },
+        composeLibExportItem(c) {
+          if (c && c.kind === 'newsletter') { window.open('/api/newsletter/export', '_blank'); return; }
+          this.composeLibExport(c.id);
+        },
+        async composeLibShareItem(c) {
+          if (c && c.kind === 'newsletter') { this.goTo('#/newsletter'); return; }
+          await this.composeLibShare(c.id);
+        },
+        composeLibRenameStart(c) {
+          if (!c || c.kind === 'newsletter') return;  // newsletter title is derived from its H1
+          this.compose.lib.renaming = c.id;
+          this.compose.lib.renameVal = c.title || '';
+          this.$nextTick(() => { const el = this.$root && this.$root.querySelector('.cmpx-lib-rename input'); if (el) { el.focus(); el.select(); } });
+        },
+        composeLibRenameCancel() { this.compose.lib.renaming = ''; this.compose.lib.renameVal = ''; },
+        async composeLibRenameCommit(c) {
+          const id = this.compose.lib.renaming;
+          if (!id) return;
+          const title = String(this.compose.lib.renameVal || '').trim();
+          this.compose.lib.renaming = '';
+          if (!title || title === c.title) return;
+          try {
+            await this.request('/api/compose/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ title }) });
+            const item = (this.compose.compositions || []).find(x => x.id === id);
+            if (item) item.title = title.slice(0, 200);
+            if (this.compose.current && this.compose.current.id === id) this.compose.current.title = title.slice(0, 200);
+            this.toast('Renamed', 'success');
+          } catch (e) { this.toast('Rename failed: ' + (e.message || e), 'error'); }
         },
         composeLibExport(id) {
           const c = (this.compose.compositions || []).find(x => x.id === id);
@@ -46565,13 +46668,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const z = Math.min(2, Math.max(0.5, Math.round(((co.zoom || 1) + delta) * 100) / 100));
           co.zoom = z;
         },
-        async composeSaveDraft() {
+        async composeSaveDraft(prompt) {
           const co = this.compose;
           if (!co.current) return;
           co.savingDraft = true;
           try {
+            const body = { content: co.draftText, contentFormat: co.draftFormat, source: 'manual' };
+            if (typeof prompt === 'string') body.prompt = prompt;
             const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/draft', {
-              method: 'PUT', body: JSON.stringify({ content: co.draftText, contentFormat: co.draftFormat, source: 'manual' }),
+              method: 'PUT', body: JSON.stringify(body),
             });
             if (r && r.composition) co.current = r.composition;
             co.draftDirty = false;
@@ -46582,6 +46687,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.toast('Save failed: ' + (e.message || e), 'error');
           } finally { co.savingDraft = false; }
+        },
+        // Provenance helpers — surface WHAT produced a draft/version. `d` is any
+        // object carrying { prompt, framing } (compose.current.draft OR a history
+        // version entry from listVersions).
+        composeProvHas(d) { return !!(d && (String(d.prompt || '').trim() || (d.framing && (d.framing.audience || d.framing.format || (d.framing.sources && d.framing.sources.length))))); },
+        composeProvPrompt(d) {
+          const p = d && String(d.prompt || '').trim();
+          return p ? '“' + p + '”' : 'Manual edit — no comment';
+        },
+        composeProvFraming(d) {
+          const f = d && d.framing;
+          if (!f) return '';
+          const parts = [];
+          if (f.format) parts.push('Format: ' + f.format);
+          if (f.audience) parts.push('Audience: ' + f.audience);
+          if (f.sources && f.sources.length) parts.push('Sources: ' + f.sources.join(', '));
+          return parts.join('  ·  ');
         },
         composeIsSite() {
           const co = this.compose;
@@ -46617,7 +46739,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (!d || typeof d.__composeHeight !== 'number') return;
               const f = this.$refs && this.$refs.composeSite;
               if (f && e.source === f.contentWindow) {
-                f.style.height = Math.max(360, Math.ceil(d.__composeHeight) + 2) + 'px';
+                // Floor the prototype to (roughly) a viewport so a self-contained "site"
+                // that reports a short scrollHeight still gets real room — never an
+                // arbitrary squeeze — while genuinely taller content grows past it.
+                const floor = Math.max(480, (window.innerHeight || 800) - 240);
+                f.style.height = Math.max(floor, Math.ceil(d.__composeHeight) + 2) + 'px';
               }
             } catch (_) { /* best-effort */ }
           });
@@ -46670,7 +46796,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && typeof r.draft === 'string' && r.draft.trim() && r.draft !== co.draftText) {
               co.draftText = r.draft;
               co.draftDirty = true;
-              this.composeSaveDraft();
+              this.composeSaveDraft(msg);
             }
             // Structure negotiation — the assistant may have DECIDED a different audience /
             // format / working title / sources (already persisted server-side) and/or asked

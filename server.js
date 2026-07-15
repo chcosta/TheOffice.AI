@@ -11839,6 +11839,11 @@ app.get('/api/newsletter/status', (req, res) => {
       lastEmailedAt: meta.lastEmailedAt || null,
       coveredFrom: draft.coveredFrom || '',
       coveredTo: draft.coveredTo || '',
+      // Byte size + timestamps so the Compose.AI Documents library can surface the
+      // living newsletter as a first-class document row alongside compositions.
+      size: Buffer.byteLength(md, 'utf8'),
+      createdAt: draft.generatedAt || meta.lastGeneratedAt || null,
+      updatedAt: meta.lastEmailedAt || meta.lastGeneratedAt || draft.generatedAt || null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -12172,7 +12177,7 @@ async function runComposeGeneration(id, runId) {
   emit('✍️', 'Finishing the draft…');
   const { content, contentFormat } = _composeExtractDeliverable(text, c.format);
   if (!content || !content.trim()) throw new Error('The compose writer returned an empty draft. Try again.');
-  const saved = compose.saveDraft(id, { content, contentFormat }, { source: 'ai' });
+  const saved = compose.saveDraft(id, { content, contentFormat }, { source: 'ai', prompt: (c.brief || '').trim() });
   return saved;
 }
 
@@ -12558,7 +12563,7 @@ app.put('/api/compose/:id/draft', (req, res) => {
     const b = req.body || {};
     const patch = { content: typeof b.content === 'string' ? b.content : '' };
     if (b.contentFormat === 'html' || b.contentFormat === 'markdown') patch.contentFormat = b.contentFormat;
-    const c = compose.saveDraft(req.params.id, patch, { source: b.source === 'ai' ? 'ai' : 'manual' });
+    const c = compose.saveDraft(req.params.id, patch, { source: b.source === 'ai' ? 'ai' : 'manual', prompt: typeof b.prompt === 'string' ? b.prompt : undefined });
     if (!c) return res.status(404).json({ error: 'Composition not found.' });
     res.json({ ok: true, composition: c });
   } catch (err) { res.status(500).json({ error: err.message }); }

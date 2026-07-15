@@ -344,9 +344,33 @@ function _deriveTitleFromContent(content) {
   return '';
 }
 
+// A compact, human-readable snapshot of the framing (audience / format / sources)
+// that produced a draft, so every iteration + history entry can show WHAT it was
+// composed from — not just the body.
+function _framingSnapshot(c) {
+  if (!c || typeof c !== 'object') return null;
+  const s = c.sources || {};
+  const labels = [];
+  if (s.diary) labels.push('Connect diary');
+  if (s.pr) labels.push('PR');
+  if (s.pursuit) labels.push('Pursuit');
+  if (s.workitems) labels.push('Work items');
+  if (s.repos) labels.push('Repos');
+  if (s.composition) labels.push('Composition ref');
+  if (s.m365) labels.push('M365');
+  if (Array.isArray(s.links) && s.links.length) labels.push('Links');
+  if (typeof s.pasted === 'string' && s.pasted.trim()) labels.push('Pasted context');
+  return {
+    purpose: c.purpose || '',
+    audience: (c.audience || '').slice(0, 400),
+    format: c.format || '',
+    sources: labels,
+  };
+}
+
 // Save the draft body. Snapshots the outgoing draft into per-composition history
 // when the content meaningfully changes.
-function saveDraft(id, patch, { source } = {}) {
+function saveDraft(id, patch, { source, prompt } = {}) {
   const st = _readAll();
   const c = st.items.find(x => x.id === id);
   if (!c) return null;
@@ -378,6 +402,13 @@ function saveDraft(id, patch, { source } = {}) {
     next.source = 'manual';
   }
   next.updatedAt = _now();
+  // Provenance — the driving comment + the framing snapshot that produced THIS
+  // draft, so the current iteration and (once superseded) its history entry can
+  // show what it was composed from. A hand-edit with no comment records the
+  // framing but leaves the prompt blank (rendered as "Manual edit").
+  if (typeof prompt === 'string' && prompt.trim()) next.prompt = prompt.trim().slice(0, 2000);
+  else if (source === 'manual') next.prompt = '';
+  next.framing = _framingSnapshot(c);
   c.draft = next;
   c.meta.updatedAt = next.updatedAt;
   _writeAll(st);
@@ -395,6 +426,8 @@ function _pushVersion(c, draft, { reason } = {}) {
     title: c.title,
     source: draft.source === 'ai' ? 'ai' : 'manual',
     reason: reason || 'edited',
+    prompt: typeof draft.prompt === 'string' ? draft.prompt : '',
+    framing: draft.framing || null,
     createdAt: draft.updatedAt || draft.generatedAt || _now(),
     savedAt: _now(),
   };
@@ -405,7 +438,7 @@ function _pushVersion(c, draft, { reason } = {}) {
 
 function listVersions(id) {
   const c = getComposition(id);
-  return c ? c.versions.map(v => ({ id: v.id, title: v.title, source: v.source, reason: v.reason, contentFormat: v.contentFormat, savedAt: v.savedAt, createdAt: v.createdAt })) : [];
+  return c ? c.versions.map(v => ({ id: v.id, title: v.title, source: v.source, reason: v.reason, prompt: typeof v.prompt === 'string' ? v.prompt : '', framing: v.framing || null, contentFormat: v.contentFormat, savedAt: v.savedAt, createdAt: v.createdAt })) : [];
 }
 
 function getVersion(id, vid) {

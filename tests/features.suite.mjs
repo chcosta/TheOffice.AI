@@ -269,7 +269,7 @@ await t.test('compose: purpose picker resumes latest by default, forceNew starts
   t.ok(/if \(!opts\.forceNew\)/.test(html), 'composeStart resumes unless forceNew');
   t.ok(/composeStart\(p\.id, \{ forceNew: true \}\)/.test(html), 'gallery exposes a fresh-start (forceNew) action');
   // Saving refreshes the version list so the History count stays live.
-  t.ok(/async composeSaveDraft\(\)[\s\S]{0,700}composeLoadVersions\(\)/.test(html), 'composeSaveDraft refreshes versions');
+  t.ok(/async composeSaveDraft\(prompt\)[\s\S]{0,800}composeLoadVersions\(\)/.test(html), 'composeSaveDraft refreshes versions');
 });
 
 await t.test('compose: another-composition/newsletter source is wired end-to-end', () => {
@@ -693,12 +693,32 @@ await t.test('compose prototype preview auto-sizes to content (no arbitrary vert
   t.ok(/x-init="composeSiteHeightListen\(\)"/.test(src), 'iframe registers the parent height listener');
   t.ok(/composeSiteSrcdoc\(\)\s*\{/.test(src), 'composeSiteSrcdoc method exists');
   t.ok(/__composeHeight/.test(src), 'reporter posts a content-height message the parent consumes');
-  t.ok(/f\.style\.height = Math\.max\(360/.test(src), 'parent sets the iframe height from the reported content height');
+  t.ok(/const floor = Math\.max\(480, \(window\.innerHeight/.test(src), 'height floor is viewport-based, not an arbitrary 360px');
+  t.ok(/f\.style\.height = Math\.max\(floor/.test(src), 'parent sets the iframe height from the reported content height');
   // The arbitrary 520px lock + inert flex are gone; a modest floor + block growth remain.
-  t.ok(/\.cmpx-site\{min-height:360px;[^}]*display:block\}/.test(src), 'cmpx-site drops the 520px lock for a growable block');
+  t.ok(/\.cmpx-site\{min-height:calc\(100vh - 260px\);[^}]*display:block\}/.test(src), 'cmpx-site drops the 520px lock for a viewport-based floor + block growth');
   t.ok(!/\.cmpx-site\{flex:1;min-height:520px/.test(src), 'no stale fixed-height site rule');
 });
 
+  await t.test('compose fullscreen is a focus mode + iterations show their provenance', () => {
+    const src = readFileSync('public/app.html', 'utf8');
+    // Fullscreen collapses the studio to the deliverable: single column, rail + paired
+    // assistant hidden, the stage owns the viewport (a genuine focus, not just covering the topbar).
+    t.ok(/\.cmpx-fs \.nlx-rail,\s*\.cmpx-fs \.cmpx-pair\{display:none\}/.test(src), 'fullscreen hides the sources rail + paired assistant');
+    t.ok(/\.cmpx-fs \.nlx-stage\{height:calc\(100vh - 96px\)/.test(src), 'fullscreen stage fills the viewport height');
+    t.ok(/\.cmpx-fs \.nlx-scroll\{flex:1;min-height:0;overflow:auto\}/.test(src), 'fullscreen scrolls inside the stage');
+    // Provenance — the driving comment + framing that produced the CURRENT draft and every version.
+    t.ok(/composeProvHas\(compose\.current && compose\.current\.draft\)/.test(src), 'current iteration renders its provenance');
+    t.ok(/composeProvHas\(v\)/.test(src), 'each history version renders its provenance');
+    t.ok(/composeProvPrompt\(d\)\s*\{[\s\S]{0,200}Manual edit/.test(src), 'prompt helper falls back to a Manual-edit label');
+    t.ok(/composeProvFraming\(d\)\s*\{[\s\S]{0,300}f\.format[\s\S]{0,120}f\.audience/.test(src), 'framing helper surfaces audience + format + sources');
+    // compose.js persists prompt + framing snapshot into the draft and carries it into versions.
+    const cjs = readFileSync('compose.js', 'utf8');
+    t.ok(/function _framingSnapshot\(c\)/.test(cjs), 'compose.js snapshots the framing');
+    t.ok(/next\.framing = _framingSnapshot\(c\)/.test(cjs), 'saveDraft stamps the framing onto the draft');
+    t.ok(/prompt: typeof draft\.prompt === 'string' \? draft\.prompt : ''/.test(cjs), '_pushVersion carries the driving prompt');
+    t.ok(/prompt: typeof v\.prompt === 'string'[\s\S]{0,60}framing: v\.framing/.test(cjs), 'listVersions exposes prompt + framing');
+  });
 await t.test('compose repositories source uses an org/project picker (not a fragile free-text box)', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // The Sources rail repos field auto-loads a real repo list on enable.
@@ -844,7 +864,7 @@ await t.test('Compose.AI documents library — real list/search/sort/filter/grid
   // Bulk selection bar + timestamps + size.
   t.ok(/class="cmpx-lib-bulk"/.test(html) && /composeLibBulk\(/.test(html), 'bulk action bar wired');
   t.ok(/composeLibSize\(c\.size\)/.test(html), 'row size rendered from real byte size');
-  t.ok(/formatRelative\(c\.updatedAt\)/.test((html.match(/class="cmpx-lib-trow"[\s\S]*?<\/template>/) || [''])[0]), 'row timestamp from meta.updatedAt');
+  t.ok(/class="col-when" x-text="formatRelative\(c\.updatedAt\)"/.test(html), 'row timestamp from meta.updatedAt');
 
   // Actions reuse real compose paths (open/share-deliver/export/delete) — not mock stubs.
   const methods = html;
