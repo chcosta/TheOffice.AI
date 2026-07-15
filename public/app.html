@@ -11002,12 +11002,16 @@
             </div>
 
             <!-- Compose version quick-view — top-level teleport (NOT nested in a <template x-if>,
-                 which would prevent Alpine from teleporting it) so position:fixed fills the viewport -->
+                 which would prevent Alpine from teleporting it). Centering MUST come from the
+                 .modal-backdrop stylesheet class (display:grid;place-items:center), not inline
+                 display:flex — Alpine's x-show clears the inline `display` when it shows the node,
+                 which would strand the card top-left. -->
             <template x-teleport="body">
-            <div x-show="compose.verPreview.open" @click.self="composeVersionPreviewClose()" x-cloak
+            <div class="modal-backdrop modal-overlay" x-show="compose.verPreview.open" x-transition.opacity.duration.150ms
+                 @click.self="composeVersionPreviewClose()" x-cloak
                  @keydown.escape.window="composeVersionPreviewClose()"
-                 style="position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:3vh 2vw">
-              <div class="card" style="width:min(1200px,96vw);max-width:96vw;height:94vh;max-height:94vh;padding:0;display:flex;flex-direction:column" @click.stop>
+                 style="z-index:10002;padding:3vh 2vw">
+              <div class="card" style="width:min(1200px,96vw);max-width:96vw;height:94vh;max-height:94vh;padding:0;display:flex;flex-direction:column;overflow:hidden" @click.stop>
                 <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cp-border)">
                   <h3 style="margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="compose.verPreview.title || 'Version preview'"></h3>
                   <button class="btn ghost" type="button" @click="composeVersionPreviewClose()">Close</button>
