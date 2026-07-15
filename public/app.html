@@ -20513,12 +20513,12 @@
               .cmpx-lib-filt .cnt{color:var(--cp-text-secondary);font-weight:400;opacity:.75}
               .cmpx-lib-sum{color:var(--cp-text-secondary);font-size:12px;margin:0 0 10px}
               .cmpx-lib-panel{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;overflow:hidden}
-              .cmpx-lib-thead,.cmpx-lib-trow{display:grid;grid-template-columns:26px 1fr 150px 118px 92px 132px;gap:10px;align-items:center;padding:9px 14px}
+              .cmpx-lib-thead,.cmpx-lib-trow{display:grid;grid-template-columns:26px 1fr 150px 118px 92px;gap:10px;align-items:center;padding:9px 14px}
               .cmpx-lib-thead{border-bottom:1px solid var(--cp-border);font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--cp-text-secondary)}
               .cmpx-lib-thead .srt{cursor:pointer;user-select:none}
               .cmpx-lib-thead .srt:hover{color:var(--cp-accent)}
               .cmpx-lib-thead .rt,.cmpx-lib-trow .rt{text-align:right}
-              .cmpx-lib-trow{border-bottom:1px solid var(--cp-border);cursor:pointer}
+              .cmpx-lib-trow{border-bottom:1px solid var(--cp-border);cursor:pointer;position:relative}
               .cmpx-lib-trow:last-child{border-bottom:0}
               .cmpx-lib-trow:hover{background:var(--cp-surface-hover,rgba(0,0,0,.03))}
               .cmpx-lib-trow.sel{background:color-mix(in srgb,var(--cp-accent) 10%,transparent)}
@@ -20532,8 +20532,8 @@
               .cmpx-lib-trow .doc .meta{font-size:11.5px;color:var(--cp-text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
               .cmpx-lib-trow .col-purpose,.cmpx-lib-trow .col-when{font-size:12.5px;color:var(--cp-text-secondary)}
               .cmpx-lib-trow .col-size{font-size:12.5px;color:var(--cp-text-secondary);opacity:.8}
-              .cmpx-lib-trow .rowacts{display:flex;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .12s}
-              .cmpx-lib-trow:hover .rowacts{opacity:1}
+              .cmpx-lib-trow .rowacts{position:absolute;right:8px;top:0;bottom:0;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-left:34px;opacity:0;pointer-events:none;transition:opacity .12s;background:linear-gradient(90deg,transparent,var(--cp-surface-hover,rgba(0,0,0,.03)) 30px),linear-gradient(90deg,transparent,var(--cp-surface) 30px)}
+              .cmpx-lib-trow:hover .rowacts{opacity:1;pointer-events:auto}
               .cmpx-lib .icobtn{border:0;background:transparent;color:var(--cp-text-secondary);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:6px}
               .cmpx-lib .icobtn:hover{background:var(--cp-surface-2,rgba(0,0,0,.05));color:var(--cp-accent)}
               .cmpx-lib .icobtn.danger:hover{color:var(--cp-danger,#d6493a)}
@@ -20785,6 +20785,7 @@
                 <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="composeOpenLibrary()">📁 Documents</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeNewSamePurpose()" :title="'Start a new ' + (composePurposeLabel((compose.current &amp;&amp; compose.current.purpose) || '') || 'composition') + ' — same purpose as this one'">✚ New</button>
                 <button class="btn ghost" type="button" x-show="compose.view !== 'launcher'" @click="compose.view === 'studio' ? composeBackToLauncher() : (compose.view = 'launcher')">← All compositions</button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.current && compose.current.kind !== 'newsletter'" @click="openQuickPin('document', compose.current.id, compose.current.title || 'Untitled', composePurposeLabel(compose.current.purpose))" title="Pin this document to a workspace">📌 Pin</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
               </div>
 
@@ -20888,7 +20889,6 @@
                       <span>Purpose</span>
                       <span class="srt" @click="composeLibSortBy('updated')">Last edited</span>
                       <span class="rt srt" @click="composeLibSortBy('size')">Size</span>
-                      <span></span>
                     </div>
                     <template x-for="c in composeLibFiltered()" :key="c.id">
                       <div class="cmpx-lib-trow" :class="{sel: compose.lib.sel.includes(c.id)}" @click="composeLibOpen(c)">
@@ -20911,6 +20911,7 @@
                           <button class="icobtn" title="Open" @click.stop="composeLibOpen(c)">↗</button>
                           <button class="icobtn" x-show="c.kind!=='newsletter'" title="Quick view (read-only)" @click.stop="composeLibPreview(c)">👁</button>
                           <button class="icobtn" x-show="c.kind!=='newsletter'" title="Rename" @click.stop="composeLibRenameStart(c)">✎</button>
+                          <button class="icobtn" x-show="c.kind!=='newsletter'" title="Pin to a workspace" @click.stop="openQuickPin('document', c.id, c.title || 'Untitled', composePurposeLabel(c.purpose))">📌</button>
                           <button class="icobtn" title="Share" @click.stop="composeLibShareItem(c)">⤴</button>
                           <button class="icobtn" title="Export" @click.stop="composeLibExportItem(c)">⬇</button>
                           <button class="icobtn danger" x-show="c.kind!=='newsletter'" title="Delete" @click.stop="composeDelete(c.id)">🗑</button>
@@ -20928,6 +20929,7 @@
                           <div class="ttl" x-text="c.title || 'Untitled'"></div>
                           <span class="spacer" style="flex:1"></span>
                           <button class="icobtn" x-show="c.kind!=='newsletter'" title="Quick view (read-only)" @click.stop="composeLibPreview(c)">👁</button>
+                          <button class="icobtn" x-show="c.kind!=='newsletter'" title="Pin to a workspace" @click.stop="openQuickPin('document', c.id, c.title || 'Untitled', composePurposeLabel(c.purpose))">📌</button>
                           <span class="cbx" x-show="c.kind!=='newsletter'" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
                         </div>
                         <div class="prev" x-text="composeLibRowMeta(c) || (c.hasDraft ? '' : 'Draft empty — nothing generated yet.')"></div>

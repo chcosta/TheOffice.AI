@@ -1425,4 +1425,23 @@ await t.test('boards: pin Compose.AI documents (backend + picker + card + assist
   t.ok(/boardPinHasDetail[\s\S]{0,160}'document'/.test(html), 'boardPinHasDetail includes document');
 });
 
+await t.test('compose library: pin a document to a board (row/card/studio) + non-overlapping row actions', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // Icon overlap fix: the list-row action toolbar is a floating, occluding overlay
+  // (absolute, pointer-events gated, backing gradient) instead of a too-small grid column,
+  // and the grid dropped the dead 6th column (now 5 cells: cbx/doc/purpose/when/size).
+  t.ok(/grid-template-columns:26px 1fr 150px 118px 92px;/.test(html), 'list grid is 5 columns (actions no longer reserve a column)');
+  const rowacts = _win(html, '.cmpx-lib-trow .rowacts{', 400);
+  t.ok(/position:absolute/.test(rowacts) && /pointer-events:none/.test(rowacts), 'rowacts floats as an overlay, click-through when hidden');
+  t.ok(/linear-gradient\([\s\S]{0,120}var\(--cp-surface\)/.test(rowacts), 'rowacts has an occluding backing so icons never bleed into the size text');
+  t.ok(/\.cmpx-lib-trow:hover \.rowacts\{opacity:1;pointer-events:auto\}/.test(html), 'rowacts becomes interactive on hover');
+  // Pin affordance in all three surfaces, gated to non-newsletter (documents only).
+  const pin = /openQuickPin\('document', c\.id, c\.title \|\| 'Untitled', composePurposeLabel\(c\.purpose\)\)/g;
+  const hits = (html.match(pin) || []).length;
+  t.ok(hits >= 2, 'list row + grid card each pin the document via openQuickPin(document)');
+  t.ok(/openQuickPin\('document', compose\.current\.id, compose\.current\.title \|\| 'Untitled', composePurposeLabel\(compose\.current\.purpose\)\)/.test(html), 'studio header pins the current document');
+  const pinBtns = _win(html, "title=\"Pin to a workspace\"", 400);
+  t.ok(/x-show="c\.kind!=='newsletter' " ?title="Pin to a workspace"|x-show="c\.kind!=='newsletter'" title="Pin to a workspace"/.test(html), 'row pin button is gated to non-newsletter documents');
+});
+
 await t.done();
