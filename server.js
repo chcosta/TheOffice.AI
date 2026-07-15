@@ -12134,13 +12134,12 @@ function _composePursuitCorpusText(ref) {
   }
   return blocks.join('\n\n') || null;
 }
-// Fold an agent's recent task runs into a compact evidence corpus: for each run in
-// the lookback window, its status, a compact step trail, and the run output/error.
-// agentRef is an agent id (or name); days bounds the window. Budget-capped.
-function _composeAgentRunsCorpusText(agentRef, opts = {}) {
+// Fold one agent's recent task runs into a compact evidence corpus: for each run
+// in the lookback window, its status, a compact step trail, and the run
+// output/error. Returns { name, id, text, runCount } or null. `budget` caps chars.
+function _composeAgentRunsForOne(agentRef, days, budget) {
   const id = String(agentRef || '').trim();
   if (!id) return null;
-  const days = Math.max(1, Math.min(90, Math.round(Number(opts.days) || 14)));
   let agentName = id, resolvedId = id;
   try {
     const a = loadAgents().find(x => x && (x.id === id || x.name === id));
@@ -12156,10 +12155,10 @@ function _composeAgentRunsCorpusText(agentRef, opts = {}) {
   });
   const use = (recent.length ? recent : runs).slice(0, 12);
   if (!use.length) return null;
-  const blocks = [`Agent: ${agentName} (${resolvedId}) — ${use.length} run(s) within the last ${days} day(s). Ground any claims about this agent's work in these runs; do not invent outcomes.`];
-  let budget = 10000;
+  const segs = [];
+  let left = budget;
   for (const r of use) {
-    if (budget <= 0) break;
+    if (left <= 0) break;
     const when = r.started_at ? String(r.started_at).slice(0, 19).replace('T', ' ') : '(unknown time)';
     const status = (r.exit_code === 0 || r.exit_code == null) ? 'ok' : `failed (exit ${r.exit_code})`;
     const trig = r.triggered_by ? ` · ${r.triggered_by}` : '';
@@ -12172,10 +12171,33 @@ function _composeAgentRunsCorpusText(agentRef, opts = {}) {
     }
     const body = String(r.output || r.error || '').replace(/\s+$/, '').slice(0, 1600);
     const seg = [head, steps, body].filter(Boolean).join('\n');
-    budget -= seg.length;
-    blocks.push(seg);
+    left -= seg.length;
+    segs.push(seg);
   }
-  return blocks.join('\n\n') || null;
+  if (!segs.length) return null;
+  return { name: agentName, id: resolvedId, runCount: segs.length, text: segs.join('\n\n') };
+}
+// Fold one OR MORE agents' recent task runs into a compact evidence corpus.
+// agentRef is an agent id/name, or a comma/newline-separated list of them; days
+// bounds the window. Budget is shared across the selected agents.
+function _composeAgentRunsCorpusText(agentRef, opts = {}) {
+  const ids = String(agentRef || '').split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+  if (!ids.length) return null;
+  const days = Math.max(1, Math.min(90, Math.round(Number(opts.days) || 14)));
+  const capped = ids.slice(0, 6); // keep the corpus focused
+  let budget = 12000;
+  const perAgent = Math.max(1500, Math.floor(budget / capped.length));
+  const sections = [];
+  for (const id of capped) {
+    if (budget <= 0) break;
+    const one = _composeAgentRunsForOne(id, days, Math.min(perAgent, budget));
+    if (!one) continue;
+    budget -= one.text.length;
+    sections.push(`### ${one.name} (${one.id}) — ${one.runCount} run(s) in the last ${days} day(s)\n\n${one.text}`);
+  }
+  if (!sections.length) return null;
+  const preface = `Recent task runs from ${sections.length} of your agent(s), within the last ${days} day(s). Ground any claims about these agents' work in these runs; do not invent outcomes.`;
+  return [preface, ...sections].join('\n\n');
 }
 async function _composeFetchUrl(url, timeoutMs = 8000) {
   const ac = new AbortController();

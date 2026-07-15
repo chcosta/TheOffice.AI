@@ -1082,7 +1082,7 @@ await t.test('newsletter: multi-document model (revision vs new) end to end', ()
   t.ok(!/lib\.newsletter\b(?!s)/.test(html.replace(/newsletters/g, 'NLS')), 'no stale singular lib.newsletter reference');
 });
 
-await t.test('compose sources: agent task runs (pick an agent, fold recent runs)', () => {
+await t.test('compose sources: agent task runs (pick one or more agents, fold recent runs)', () => {
   const cjs = readFileSync('compose.js', 'utf8');
   // catalog + defaults + clamp
   t.ok(/id:\s*'agentruns'/.test(cjs), 'compose.js SOURCES catalog has an agentruns source');
@@ -1094,10 +1094,12 @@ await t.test('compose sources: agent task runs (pick an agent, fold recent runs)
   const src = readFileSync('server.js', 'utf8');
   // corpus helper + fetcher + source-context branch + picker route
   t.ok(/function _composeAgentRunsCorpusText\s*\(/.test(src), 'server has an agent-runs corpus helper');
-  const corpus = _win(src, 'function _composeAgentRunsCorpusText', 1600);
-  t.ok(/getRunHistory/.test(corpus), 'corpus reads the agent run history');
-  t.ok(/loadAgents\(\)/.test(corpus), 'corpus resolves the agent via loadAgents');
-  t.ok(/86400000/.test(corpus), 'corpus bounds runs to a lookback window');
+  const corpus = _win(src, 'function _composeAgentRunsCorpusText', 900);
+  t.ok(/split\(\/\[,\\n\]\//.test(corpus), 'corpus splits the ref into one-or-more agent ids');
+  const one = _win(src, 'function _composeAgentRunsForOne', 1600);
+  t.ok(/getRunHistory/.test(one), 'per-agent fold reads the run history');
+  t.ok(/loadAgents\(\)/.test(one), 'per-agent fold resolves the agent via loadAgents');
+  t.ok(/86400000/.test(one), 'per-agent fold bounds runs to a lookback window');
   t.ok(/agentruns:\s*async/.test(src), '_composeSourceFetchers registers an agentruns fetcher');
   const ctx = _win(src, '_composeSourceContext', 12000);
   t.ok(/agentRunsRef/.test(ctx), '_composeSourceContext reads the agent-runs ref');
@@ -1106,6 +1108,9 @@ await t.test('compose sources: agent task runs (pick an agent, fold recent runs)
   const html = readFileSync('public/app.html', 'utf8');
   t.ok(/composeLoadAgents\s*\(/.test(html), 'client has a composeLoadAgents loader');
   t.ok(/\/api\/compose\/sources\/agents/.test(html), 'client fetches the agents picker');
+  // multi-select checklist (comma-joined ref), mirroring the repos picker — no pills
+  t.ok(/composeAgentToggle\s*\(/.test(html) && /composeAgentIsSelected\s*\(/.test(html), 'agents picker is a multi-select checklist (toggle + isSelected)');
+  t.ok(/composeAgentSelectedRefs\s*\(/.test(html), 'selection is stored as comma-joined refs');
   t.ok(/sources\.agentRunsRef/.test(html), 'sources rail binds the agent-runs ref');
   t.ok(/sources\.agentRunsDays/.test(html), 'sources rail binds the look-back window');
   const sd = _win(html, 'composeSourcesDefault() {', 700);

@@ -20935,13 +20935,21 @@
                               <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
                             </div>
                             <div class="nlx-fld" x-show="compose.current.sources.agentruns" x-init="compose.current.sources.agentruns && composeLoadAgents(); $watch('compose.current.sources.agentruns', v => v && composeLoadAgents())"><label>Agent task runs</label>
-                              <div style="display:flex;gap:6px;align-items:center">
-                                <select class="field-input" x-model="compose.current.sources.agentRunsRef" @change="composeMarkBriefDirty()">
-                                  <option value="">Select an agent…</option>
-                                  <template x-for="a in compose.pickers.agents" :key="a.id"><option :value="a.id" x-text="a.name + (a.runCount ? ' · ' + a.runCount + ' run' + (a.runCount === 1 ? '' : 's') : ' · no runs yet')"></option></template>
-                                </select>
+                              <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                                <input class="field-input" type="text" x-model="compose.pickers.agentQuery" placeholder="Filter your agents…" />
                                 <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadAgents(true)" :disabled="compose.pickers.agentsLoading" title="Refresh agents">↻</button>
                               </div>
+                              <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.agentsLoading">Loading agents…</div>
+                              <div class="cmpx-wilist" x-show="!compose.pickers.agentsLoading && composeAgentFiltered().length">
+                                <template x-for="ag in composeAgentFiltered()" :key="ag.id">
+                                  <button type="button" class="cmpx-wirow" :class="{ on: composeAgentIsSelected(compose.current.sources, ag.id) }" @click="composeAgentToggle(compose.current.sources, ag, true)">
+                                    <span class="cbx" x-text="composeAgentIsSelected(compose.current.sources, ag.id) ? '✓' : ''"></span>
+                                    <span class="mid"><span class="ti" x-text="ag.name"></span><span class="mt" x-text="(ag.runCount ? ag.runCount + ' run' + (ag.runCount === 1 ? '' : 's') : 'no runs yet') + (ag.group ? ' · ' + ag.group : '')"></span></span>
+                                  </button>
+                                </template>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="compose.current.sources.agentRunsRef">Selected: <span x-text="composeAgentSelectedList(compose.current.sources)"></span></div>
+                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.agentsLoading && !compose.pickers.agents.length && compose.pickers.agentsLoaded">No agents found — create one on the Agents page first.</div>
                               <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
                                 <label style="font-size:11px;opacity:.75;margin:0">Look back</label>
                                 <select class="field-input" style="max-width:150px" x-model.number="compose.current.sources.agentRunsDays" @change="composeMarkBriefDirty()">
@@ -20951,9 +20959,7 @@
                                   <option :value="90">90 days</option>
                                 </select>
                               </div>
-                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.agentsLoading">Loading agents…</div>
-                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.agentsLoading && !compose.pickers.agents.length && compose.pickers.agentsLoaded">No agents found — create one on the Agents page first.</div>
-                              <div class="hint" style="margin-top:4px">The assistant folds this agent’s recent runs — their output &amp; findings within the window — as evidence.</div>
+                              <div class="hint" style="margin-top:4px">The assistant folds each selected agent’s recent runs — their output &amp; findings within the window — as evidence.</div>
                             </div>
                             <div class="nlx-fld" x-show="compose.current.sources.repos" x-init="compose.current.sources.repos && composeLoadRepos(); $watch('compose.current.sources.repos', v => v && composeLoadRepos())"><label>Repositories to reference</label>
                               <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
@@ -29661,7 +29667,7 @@
             wiQuery: '', wiResults: [], wiLoading: false, wiNote: '', _wiTimer: null,
             refs: [], refsLoaded: false, refsLoading: false,
             repos: [], reposLoaded: false, reposLoading: false, reposNote: '', repoQuery: '',
-            agents: [], agentsLoaded: false, agentsLoading: false,
+            agents: [], agentsLoaded: false, agentsLoading: false, agentQuery: '',
           },
         },
         // ===== Newsletter (Connect diary → polished, emailable digest) =====
@@ -46635,6 +46641,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             pk.agentsLoaded = true;
           } catch (_) { pk.agents = []; pk.agentsLoaded = true; }
           finally { pk.agentsLoading = false; }
+        },
+        composeAgentFiltered() {
+          const pk = this.compose.pickers;
+          const q = String(pk.agentQuery || '').trim().toLowerCase();
+          if (!q) return pk.agents;
+          return pk.agents.filter(a => (a.name + ' ' + a.id + ' ' + (a.group || '') + ' ' + (a.description || '')).toLowerCase().includes(q));
+        },
+        composeAgentSelectedRefs(sources) {
+          const raw = String((sources && sources.agentRunsRef) || '');
+          return raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+        },
+        composeAgentIsSelected(sources, id) { return this.composeAgentSelectedRefs(sources).includes(String(id)); },
+        composeAgentSelectedList(sources) {
+          const pk = this.compose.pickers;
+          return this.composeAgentSelectedRefs(sources).map(id => {
+            const a = (pk.agents || []).find(x => x && x.id === id);
+            return a ? a.name : id;
+          }).join(', ');
+        },
+        composeAgentToggle(sources, agent, markDirty) {
+          if (!sources || !agent) return;
+          const refs = this.composeAgentSelectedRefs(sources);
+          const ref = String(agent.id);
+          const i = refs.indexOf(ref);
+          if (i >= 0) refs.splice(i, 1); else refs.push(ref);
+          sources.agentRunsRef = refs.join(', ');
+          if (markDirty) this.composeMarkBriefDirty();
         },
         composeRepoFiltered() {
           const pk = this.compose.pickers;
