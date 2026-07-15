@@ -1243,22 +1243,34 @@ await t.test('compose: Brainstorm purpose blueprints options + strength scores +
   t.ok(!/pasted\.slice\(0, 16000\)/.test(cjs) && /pasted\.slice\(0, 200000\)/.test(cjs), 'pasted source clamp raised (not truncated at 16000)');
 });
 
-await t.test('compose: version promote (rename → own document) — server + core + UI', () => {
+await t.test('compose: version rename in place (+ promote fork still available) — server + core + UI', () => {
   const cjs = readFileSync('compose.js', 'utf8');
   const src = readFileSync('server.js', 'utf8');
   const html = readFileSync('public/app.html', 'utf8');
-  // compose.js core: promoteVersion forks a new composition from a version's content
-  t.ok(/function promoteVersion\(id, vid, title\)/.test(cjs), 'compose.js has promoteVersion(id,vid,title)');
+  // compose.js core: promoteVersion (fork) still EXISTS as an available op, but is
+  // no longer wired to the rename input — rename is now IN PLACE via renameVersion.
+  t.ok(/function promoteVersion\(id, vid, title\)/.test(cjs), 'compose.js still has promoteVersion(id,vid,title)');
   const pv = _win(cjs, 'function promoteVersion(id, vid, title)', 1400);
   t.ok(/_defaultComposition\(/.test(pv), 'promote clones a new composition (fork)');
-  t.ok(/st\.items\.unshift\(c\)/.test(pv), 'the fork is added as its own document');
-  t.ok(/return null/.test(pv), 'promote returns null when parent/version is missing');
   t.ok(/promoteVersion,/.test(cjs), 'promoteVersion is exported');
-  // server route
-  t.ok(/app\.post\('\/api\/compose\/:id\/versions\/:vid\/promote'/.test(src), 'promote route present');
-  // UI: editable title input on prior versions drives the promote
-  t.ok(/composePromoteVersion\(v, \$event\.target\.value\)/.test(html), 'renaming a version calls composePromoteVersion');
-  t.ok(/async composePromoteVersion\(v, newTitle\)/.test(html), 'composePromoteVersion method present');
+  // compose.js core: renameVersion mutates the version's title IN PLACE + persists.
+  t.ok(/function renameVersion\(id, vid, title\)/.test(cjs), 'compose.js has renameVersion(id,vid,title)');
+  const rv = _win(cjs, 'function renameVersion(id, vid, title)', 500);
+  t.ok(/c\.versions[\s\S]*\.find\(x => x\.id === vid\)/.test(rv), 'renameVersion locates the version by id');
+  t.ok(/v\.title = t;/.test(rv) && /_writeAll\(st\)/.test(rv), 'renameVersion sets v.title in place and persists');
+  t.ok(/if \(!t\) return null;/.test(rv), 'renameVersion rejects an empty title');
+  t.ok(/renameVersion,/.test(cjs), 'renameVersion is exported');
+  // server route: PATCH renames in place (NOT the promote POST)
+  t.ok(/app\.patch\('\/api\/compose\/:id\/versions\/:vid'/.test(src), 'in-place rename PATCH route present');
+  t.ok(/app\.post\('\/api\/compose\/:id\/versions\/:vid\/promote'/.test(src), 'promote route still present');
+  // UI: editable title input on prior versions renames IN PLACE (no fork, no reset)
+  t.ok(/@change="composeRenameVersion\(v, \$event\.target\.value\)"/.test(html), 'renaming a version calls composeRenameVersion');
+  t.ok(/\$event\.target\.value = \(v\.title/.test(html) === false, 'rename input no longer resets its value (which discarded the edit)');
+  t.ok(/composePromoteVersion/.test(html) === false, 'stale composePromoteVersion is gone from the UI');
+  const rm = _win(html, 'async composeRenameVersion(v, newTitle)', 900);
+  t.ok(/method: 'PATCH'/.test(rm), 'composeRenameVersion PATCHes the version');
+  t.ok(/v\.title = nt;/.test(rm), 'composeRenameVersion updates v.title locally so the row sticks');
+  t.ok(/v\.title = was;/.test(rm), 'composeRenameVersion reverts the input on failure');
 });
 
 await t.test('compose: version quick-view (read-only preview without restoring)', () => {

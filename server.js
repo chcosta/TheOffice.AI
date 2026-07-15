@@ -13077,6 +13077,16 @@ app.get('/api/compose/:id/versions/:vid', (req, res) => {
     res.json({ ok: true, version: v });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// Rename a prior version IN PLACE — the new title sticks on that version row.
+// Does not fork a new document or touch the current draft / composition title.
+app.patch('/api/compose/:id/versions/:vid', (req, res) => {
+  try {
+    const title = (req.body && typeof req.body.title === 'string') ? req.body.title : '';
+    const v = compose.renameVersion(req.params.id, req.params.vid, title);
+    if (!v) return res.status(404).json({ error: 'Version not found or title empty.' });
+    res.json({ ok: true, version: { id: v.id, title: v.title } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 app.delete('/api/compose/:id/versions/:vid', (req, res) => {
   try {
     const ok = compose.deleteVersion(req.params.id, req.params.vid);
@@ -13091,9 +13101,10 @@ app.post('/api/compose/:id/versions/:vid/restore', (req, res) => {
     res.json({ ok: true, composition: c });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// Promote a prior version into its own document (a fork). Renaming a version in the
-// UI hits this: it clones the parent's framing + the version's content into a NEW
-// composition with the given title, leaving the parent untouched.
+// Promote a prior version into its own document (a fork): clones the parent's
+// framing + the version's content into a NEW composition with the given title,
+// leaving the parent untouched. Kept as an available operation (not wired to the
+// rename input anymore — rename is now in-place via PATCH above).
 app.post('/api/compose/:id/versions/:vid/promote', (req, res) => {
   try {
     const title = (req.body && typeof req.body.title === 'string') ? req.body.title : '';

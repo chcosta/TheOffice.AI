@@ -571,6 +571,21 @@ function promoteVersion(id, vid, title) {
   _writeAll(st);
   return c;
 }
+// Rename a prior version in place — the title sticks on that version row.
+// Does NOT touch the current draft, the composition title, or fork a new
+// document. Returns the updated version, or null if not found / empty title.
+function renameVersion(id, vid, title) {
+  const st = _readAll();
+  const c = st.items.find(x => x.id === id);
+  if (!c) return null;
+  const v = (c.versions || []).find(x => x.id === vid);
+  if (!v) return null;
+  const t = (typeof title === 'string' ? title.trim() : '').slice(0, 200);
+  if (!t) return null;
+  v.title = t;
+  _writeAll(st);
+  return v;
+}
 function appendChat(id, msg) {
   const st = _readAll();
   const c = st.items.find(x => x.id === id);
@@ -627,6 +642,7 @@ module.exports = {
   deleteVersion,
   restoreVersion,
   promoteVersion,
+  renameVersion,
   appendChat,
   markDelivered,
   exportComposition,

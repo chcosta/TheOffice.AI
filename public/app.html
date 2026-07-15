@@ -21253,7 +21253,7 @@
                           <div class="connect-version-row">
                             <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
                               <div style="min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                <input class="cmpx-ver-title" type="text" :value="v.title || 'Version'" @keydown.enter.prevent="$event.target.blur()" @change="composePromoteVersion(v, $event.target.value); $event.target.value = (v.title || 'Version')" title="Rename to save this version as its own document" />
+                                <input class="cmpx-ver-title" type="text" :value="v.title || 'Version'" @keydown.enter.prevent="$event.target.blur()" @change="composeRenameVersion(v, $event.target.value)" title="Rename this version" />
                                 <span class="connect-src-badge" x-show="v.source === 'ai'" style="background:var(--cp-accent-soft);color:var(--cp-text)">✨ AI</span>
                                 <span class="hint" x-text="'· ' + (v.reason || 'saved') + ' · ' + formatRelative(v.savedAt)"></span>
                               </div>
@@ -21267,7 +21267,7 @@
                               <div class="cmpx-prov-hist-note" x-show="v.prompt" x-text="'“' + v.prompt + '”'"></div>
                               <div class="cmpx-prov-hist-fr" x-show="composeProvFraming(v)" x-text="composeProvFraming(v)"></div>
                             </div>
-                            <div class="cmpx-ver-hint">Rename to save this version as its own document.</div>
+                            <div class="cmpx-ver-hint">Edit the title and press Enter to rename this version.</div>
                           </div>
                         </template>
                         <div class="nlx-empty" x-show="!compose.versions.length"><div class="big">🕘</div><p>No earlier versions yet. Each generation and saved edit is snapshotted here.</p></div>
@@ -47498,22 +47498,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Renaming a prior version promotes it to its OWN document (a fork): a new
         // composition cloned from that version's content + framing, appearing in
         // Documents. The original version is left untouched in this composition.
-        async composePromoteVersion(v, newTitle) {
+        // Rename a prior version IN PLACE — the new title sticks on the row.
+        // PATCHes the version's title; on success updates v.title locally (the
+        // bound :value re-renders); on failure/no-op reverts the input. Does NOT
+        // fork a new document.
+        async composeRenameVersion(v, newTitle) {
           const co = this.compose;
           if (!co.current || !v) return;
           const title = String(newTitle || '').trim();
           const was = String(v.title || '').trim();
-          if (!title || title === was) return; // no-op unless the title actually changed
+          if (!title || title === was) { v.title = was || v.title; return; } // no-op / empty → revert
           try {
-            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/versions/' + encodeURIComponent(v.id) + '/promote', {
-              method: 'POST', body: JSON.stringify({ title }),
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/versions/' + encodeURIComponent(v.id), {
+              method: 'PATCH', body: JSON.stringify({ title }),
             });
-            if (r && r.composition) {
-              this.toast('Promoted to a new document: “' + (r.composition.title || title) + '” — find it in Documents.', 'success');
-            } else {
-              this.toast('Promoted to a new document.', 'success');
-            }
-          } catch (e) { this.toast('Could not promote version: ' + (e.message || e), 'error'); }
+            const nt = (r && r.version && r.version.title) || title;
+            v.title = nt; // v is the same object in compose.versions → row updates in place
+            this.toast('Renamed version to “' + nt + '”.', 'success');
+          } catch (e) {
+            v.title = was; // revert the input on failure
+            this.toast('Could not rename version: ' + (e.message || e), 'error');
+          }
         },
         // Read-only quick view of a version's content — see what a snapshot contains
         // WITHOUT restoring it. Fetches the full body on demand and opens a preview modal.
