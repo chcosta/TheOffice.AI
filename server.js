@@ -25508,6 +25508,12 @@ function _meAiDirectorStalledLegs(tree, opts) {
   // process), so the blocked-only detector missed it. Only widen when a caller opts in
   // (the pursuit is known idle), so a healthy live pursuit still counts blocked-only.
   const includeStale = !!(opts && opts.includeStaleRunning);
+  // A 'planned' leg is transient — it exists only in the instant between creation and being
+  // handed to _meAiRunLeg in the SAME synchronous orchestration wave. Nothing polls for planned
+  // legs, so a crash/restart that kills the wave before dispatch orphans them FOREVER (this is
+  // the map's "parallel explore agents that never appear"). On an idle pursuit they are orphans
+  // to recover, not queued work — surface them so Resume actually launches the fan-out.
+  const includePlanned = !!(opts && opts.includePlanned);
   const now = Date.now();
   const openStopLegs = new Set((tree.stops || []).filter(s => s && s.status === 'open' && s.legId).map(s => s.legId));
   const out = [];
@@ -25516,11 +25522,12 @@ function _meAiDirectorStalledLegs(tree, opts) {
     if (!leg) continue;
     if (openStopLegs.has(legId)) continue; // blocked ON a live gate → already actionable on the desk
     let stalled = leg.status === 'blocked';
+    if (!stalled && includePlanned && leg.status === 'planned') stalled = true;
     if (!stalled && includeStale && leg.status === 'running') {
       const t0 = Date.parse(leg.updatedAt || leg.startedAt || leg.createdAt || 0);
       if (!t0 || (now - t0) > ME_AI_STALE_RUNNING_MS) stalled = true;
     }
-    if (stalled) out.push({ legId, title: leg.title || leg.goal || 'a leg', kind: leg.kind || 'leg', lane: leg.lane || null });
+    if (stalled) out.push({ legId, title: leg.title || leg.goal || 'a leg', kind: leg.kind || 'leg', lane: leg.lane || null, status: leg.status || 'blocked' });
   }
   return out;
 }
@@ -27137,7 +27144,7 @@ app.get('/api/me-ai/task/:id/director', (req, res) => {
       reasonedAt: policy.aiReasonedAt || null,
       ledger: (tree.director && tree.director.ledger) || [],
       lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
-      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id) }),
+      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id), includePlanned: _meAiPursuitIdle(id) }),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -27158,7 +27165,7 @@ app.post('/api/me-ai/task/:id/director/reason', async (req, res) => {
       enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused, leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan, ledger: (tree.director && tree.director.ledger) || [], lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
-      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id) }),
+      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id), includePlanned: _meAiPursuitIdle(id) }),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -27289,32 +27296,32 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     // trust disk and rehydrate the live tree so the re-engage steers the real legs.
     const mem = meAiTrees.get(id);
     const fresh = _meAiFoldJournal(id);
-    const memStalled = mem ? _meAiDirectorStalledLegs(mem) : [];
-    const freshStalled = _meAiDirectorStalledLegs(fresh);
+    const t = meAiTasks.get(id);
+    const running = !!(t && (t.status === 'running' || t.stage === 'working'));
+    // When the pursuit isn't live, widen the detector to catch EVERY restart/crash orphan:
+    // 'blocked' (was running when the process died) + stale-'running' (a parent waiting on a
+    // scout that died with the process) + 'planned' (fan-out legs the wave created but never
+    // dispatched — the "parallel explore agents that never showed on the map"). Nothing else
+    // reschedules a planned leg, so on an idle pursuit it is an orphan to recover. A LIVE
+    // pursuit still counts blocked-only, so we never yank a leg out from under a running wave.
+    const detOpts = running ? {} : { includeStaleRunning: true, includePlanned: true };
+    const memStalled = mem ? _meAiDirectorStalledLegs(mem, detOpts) : [];
+    const freshStalled = _meAiDirectorStalledLegs(fresh, detOpts);
     let tree = mem || fresh;
     let stalled = memStalled;
     if (freshStalled.length > memStalled.length) { tree = fresh; stalled = freshStalled; meAiTrees.set(id, fresh); }
-    const t = meAiTasks.get(id);
-    const running = !!(t && (t.status === 'running' || t.stage === 'working'));
-    const treeDone = !!((t && t.stage === 'done') || (tree && tree.stage === 'done'));
-    // The blocked-only pass found nothing, but the pursuit isn't live and isn't done —
-    // look again for legs that still claim 'running' with no loop behind them. This is the
-    // exact "Resume all 2 → 0 resumed" case the user keeps hitting: a restart killed the
-    // scouts, the PARENT legs read 'running' (waiting on a scout that will never return),
-    // so the blocked-only detector saw 0. Treating stale-running legs as orphans here lets
-    // the normal re-drive path below actually pick them up. Only when idle, so a healthy
-    // live pursuit is never touched (its 'running' legs really are running).
-    if (!stalled.length && !running && !treeDone) {
-      const orphans = _meAiDirectorStalledLegs(fresh, { includeStaleRunning: true });
-      if (orphans.length) { tree = fresh; stalled = orphans; meAiTrees.set(id, fresh); }
-    }
+    // (Orphan widening — stale-running + planned — now happens up front via detOpts whenever the
+    // pursuit isn't live, so blocked/stale/planned legs are all in `stalled` already.)
     // No restart-orphaned legs. This is the case that made "Resume all" look like a no-op:
     // the button fires off a stale client snapshot, the server recomputes fresh and finds
     // 0 stalled, and (previously) returned resumed:0 with no action. Distinguish the three
     // real states so the user always gets an honest, useful outcome instead of silence.
     if (!stalled.length) {
       if (running) return res.json({ ok: true, resumed: 0, running: true, stalled: [] });
-      if (treeDone) return res.json({ ok: true, resumed: 0, done: true, stalled: [] });
+      // NOTE: a DONE tree is intentionally NOT dead-ended here. The user explicitly wants to
+      // resume/nudge a finished (or errored) run back into progress to fold in new direction —
+      // so a concluded pursuit with nothing stalled falls through to the nudge below, which
+      // flips it back to 'working' and re-engages the spine. Never a "nothing to resume" wall.
       if (!t || t.mode !== 'tree') return res.json({ ok: true, resumed: 0, stalled: [] });
       // Idle, unfinished, nothing formally waiting on the user and nothing orphaned →
       // give the pursuit a generic "verify-then-continue" nudge so it actually pushes any
@@ -27326,6 +27333,10 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
       t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
       _meAiSetStage(t, 'working', 'running');
       _meAiTreeEmit(id, 'stage', { stage: 'working' });
+      // Give a resumed run a FRESH restart-recovery budget — otherwise a pursuit that was
+      // force-errored after ME_AI_MAX_TREE_RECOVERIES restarts would re-error on the very next
+      // restart, stranding the user again (the "still can't unblock it" loop).
+      try { _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: 0 } }); } catch (_) {}
       _meAiTreeReAct(t, 'continue', nudge, 'Nudged to continue');
       try {
         const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
@@ -27369,6 +27380,7 @@ app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
     t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
     _meAiSetStage(t, 'working', 'running');
     _meAiTreeEmit(id, 'stage', { stage: 'working' });
+    try { _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: 0 } }); } catch (_) {}
     const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
     const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
     // Re-drive the stalled legs THEMSELVES — not just a fresh spine that re-plans AROUND

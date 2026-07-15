@@ -767,31 +767,44 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Resume "N → 0 resumed" fix — the stalled detector must also catch scout-waiting
-// orphans that a restart left claiming 'running' (no loop behind them), but ONLY
-// when the pursuit is idle, so a healthy live pursuit still counts blocked-only.
-// The resume route recomputes with those orphans when the blocked-only pass finds
-// 0 on an idle, not-done pursuit; the state routes surface the same count so the
-// desk badge and Resume agree.
+// Resume "N → 0 resumed" fix — the stalled detector must catch EVERY restart/crash
+// orphan on an idle pursuit: scout-waiting legs left claiming 'running' AND 'planned'
+// fan-out legs the wave created but never dispatched (the "parallel explore agents
+// that never appear on the map"). It stays blocked-only on a live pursuit. The resume
+// route picks the opts up front from live-ness; the state routes surface the same count
+// so the desk badge and Resume agree; a DONE run is nudgeable (not walled off); and a
+// resumed run gets a fresh restart-recovery budget so it can't immediately re-error.
 // ─────────────────────────────────────────────────────────────────────────────
 {
   const src = readFileSync(SERVER, 'utf8');
   const detector = sliceSource(SERVER, 'function _meAiDirectorStalledLegs(tree, opts) {', 'const ME_AI_STALE_RUNNING_MS');
-  await t.test('stalled detector opts-in to stale-running orphans', () => {
+  await t.test('stalled detector opts-in to stale-running AND planned orphans', () => {
     t.ok(detector.length > 0, 'detector found');
     t.ok(/const includeStale = !!\(opts && opts\.includeStaleRunning\)/.test(detector), 'reads the includeStaleRunning opt');
+    t.ok(/const includePlanned = !!\(opts && opts\.includePlanned\)/.test(detector), 'reads the includePlanned opt');
     t.ok(/leg\.status === 'running'/.test(detector) && /ME_AI_STALE_RUNNING_MS/.test(detector), 'counts a stale running leg past the threshold');
+    t.ok(/includePlanned && leg\.status === 'planned'/.test(detector), 'counts an orphaned planned leg when opted in');
     // default (no opts) must stay blocked-only so live pursuits are unaffected
     t.ok(/let stalled = leg\.status === 'blocked'/.test(detector), 'blocked is still the base case');
   });
-  await t.test('resume recomputes orphans when idle and the blocked pass is empty', () => {
+  await t.test('resume widens to stale-running + planned orphans up front when idle', () => {
     const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
-    t.ok(/if \(!stalled\.length && !running && !treeDone\)/.test(route), 'guards on idle, unfinished, blocked-pass-empty');
-    t.ok(/_meAiDirectorStalledLegs\(fresh, \{ includeStaleRunning: true \}\)/.test(route), 're-scans the fold for stale-running orphans');
-    t.ok(/stalled = orphans; meAiTrees\.set\(id, fresh\)/.test(route), 'adopts the orphans + rehydrates the live tree');
+    // opts chosen up front from live-ness: blocked-only while running, the full orphan set
+    // (stale-running + planned) when idle.
+    t.ok(/const detOpts = running \? \{\} : \{ includeStaleRunning: true, includePlanned: true \}/.test(route),
+      'idle pursuits scan for stale-running + planned orphans, live pursuits stay blocked-only');
+    t.ok(/_meAiDirectorStalledLegs\(fresh, detOpts\)/.test(route), 'the fold is scanned with the idle-aware opts');
+    // a DONE run is no longer dead-ended — it falls through to the nudge so the user can reopen it
+    t.ok(!/if \(treeDone\) return res\.json\(\{ ok: true, resumed: 0, done: true/.test(route),
+      'a finished run is not walled off — it can be nudged back into progress');
   });
-  await t.test('state routes surface the idle-aware stalled count', () => {
-    const n = (src.match(/_meAiDirectorStalledLegs\(tree, \{ includeStaleRunning: _meAiPursuitIdle\(id\) \}\)/g) || []).length;
+  await t.test('resume resets the restart-recovery budget so it cannot re-error', () => {
+    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
+    const resets = (route.match(/_meAiTreeEmit\(id, 'rootstate', \{ patch: \{ recoveries: 0 \} \}\)/g) || []).length;
+    t.ok(resets >= 2, `recovery counter reset in both recovery branches (found ${resets})`);
+  });
+  await t.test('state routes surface the idle-aware stalled count (stale + planned)', () => {
+    const n = (src.match(/_meAiDirectorStalledLegs\(tree, \{ includeStaleRunning: _meAiPursuitIdle\(id\), includePlanned: _meAiPursuitIdle\(id\) \}\)/g) || []).length;
     t.ok(n >= 2, `both GET /director and /director/reason use the idle-aware count (found ${n})`);
     t.ok(/function _meAiPursuitIdle\(id\)/.test(src), '_meAiPursuitIdle helper exists');
   });
