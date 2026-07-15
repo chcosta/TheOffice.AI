@@ -11273,7 +11273,7 @@ async function _newsletterProcessShots(md, emit) {
 // Generate a fresh newsletter draft from the diary evidence in the timeframe.
 // Streams live progress over SSE (`newsletter-progress`) so the UI can show what the
 // agent is investigating instead of a static spinner.
-async function runNewsletterGeneration(runId) {
+async function runNewsletterGeneration(runId, { docMode } = {}) {
   const { cfg, win, items } = _newsletterContext();
   if (!items.length) {
     throw new Error(`No diary evidence in the last ${cfg.timeframeDays} day(s) to build a newsletter from. Add Connect diary entries or widen the timeframe.`);
@@ -11353,7 +11353,7 @@ async function runNewsletterGeneration(runId) {
   const title = h1 ? h1[1].trim() : (cfg.title || '');
   return newsletter.saveDraft({
     markdown: md, title, coveredFrom: win.since, coveredTo: win.until, evidenceCount: items.length,
-  }, { source: 'ai' });
+  }, { source: 'ai', docMode });
 }
 
 // Conversational revision of the current newsletter draft. Returns the reply plus
@@ -11874,10 +11874,23 @@ app.put('/api/newsletter/draft', (req, res) => {
 });
 
 // Generate a fresh newsletter from the diary evidence in the timeframe.
+//
+// `mode` ('new' | 'revise') resolves the revision-vs-new-newsletter question. When
+// the prospective evidence window differs from what the current draft covers AND no
+// mode was supplied, we DON'T generate — we return { needsDecision, current,
+// prospective } so the client can offer a calm choice, then re-POST with a mode.
 app.post('/api/newsletter/generate', async (req, res) => {
   const runId = (req.body && req.body.runId) || require('crypto').randomUUID();
+  const mode = req.body && req.body.mode;
   try {
-    const st = await runNewsletterGeneration(runId);
+    if (mode !== 'new' && mode !== 'revise') {
+      const win = newsletter.evidenceForTimeframe(newsletter.getState().config.timeframeDays);
+      const decision = newsletter.windowChanged(win);
+      if (decision.changed) {
+        return res.json({ ok: true, needsDecision: true, current: decision.current, prospective: decision.prospective });
+      }
+    }
+    const st = await runNewsletterGeneration(runId, { docMode: mode === 'new' ? 'new' : undefined });
     try { broadcastSSE('newsletter-progress', { runId, icon: '✅', text: 'Newsletter ready', done: true, at: Date.now() }); } catch (_) { /* ignore */ }
     res.json({ ok: true, runId, state: st });
   } catch (err) {
@@ -11897,9 +11910,10 @@ app.post('/api/newsletter/draft/chat', async (req, res) => {
   }
 });
 
-// List / fetch / delete prior newsletter draft versions.
+// List / fetch / delete prior newsletter draft versions (scoped to the active
+// newsletter document, or an explicit ?docId=).
 app.get('/api/newsletter/versions', (req, res) => {
-  try { res.json({ versions: newsletter.listDraftVersions() }); }
+  try { res.json({ versions: newsletter.listDraftVersions(req.query && req.query.docId) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete('/api/newsletter/versions/:id', (req, res) => {
@@ -11925,6 +11939,29 @@ app.post('/api/newsletter/current/delete', (req, res) => {
     const { state, promoted } = newsletter.deleteCurrentPromoteLatest();
     res.json({ ok: true, state, promoted });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---- Newsletter documents (revision vs new) ---------------------------------
+
+// List the distinct newsletter documents (one row per docId) for the Documents
+// library. Each carries title, covered window, size, revision count, timestamps.
+app.get('/api/newsletter/documents', (req, res) => {
+  try { res.json({ documents: newsletter.listDocuments() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Open a newsletter document — promote it to the active draft (snapshotting the
+// current head into its own doc's history first).
+app.post('/api/newsletter/documents/:docId/open', (req, res) => {
+  try {
+    const { state, opened } = newsletter.openDocument(req.params.docId);
+    if (!opened) return res.status(404).json({ error: 'Newsletter document not found.' });
+    res.json({ ok: true, state });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Start a brand-new newsletter document (blank head under a fresh docId).
+app.post('/api/newsletter/documents/new', (req, res) => {
+  try { res.json({ ok: true, state: newsletter.newDocument() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Compose a styled, self-contained HTML newsletter and open it as a draft email.

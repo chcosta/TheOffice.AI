@@ -20748,7 +20748,7 @@
                               <input type="text" x-model="compose.lib.renameVal" @keydown.enter.prevent="composeLibRenameCommit(c)" @keydown.escape.prevent="composeLibRenameCancel()" @blur="composeLibRenameCommit(c)">
                             </span>
                           </div>
-                          <div class="meta" x-text="c.preview ? (c.preview.slice(0,96) + (c.preview.length>96?'…':'')) : (c.hasDraft ? '' : 'draft empty')"></div>
+                          <div class="meta" x-text="composeLibRowMeta(c)"></div>
                         </div>
                         <div class="col-purpose" x-text="composePurposeLabel(c.purpose)"></div>
                         <div class="col-when" x-text="formatRelative(c.updatedAt)"></div>
@@ -20774,7 +20774,7 @@
                           <span class="spacer" style="flex:1"></span>
                           <span class="cbx" x-show="c.kind!=='newsletter'" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
                         </div>
-                        <div class="prev" x-text="c.preview || (c.hasDraft ? '' : 'Draft empty — nothing generated yet.')"></div>
+                        <div class="prev" x-text="composeLibRowMeta(c) || (c.hasDraft ? '' : 'Draft empty — nothing generated yet.')"></div>
                         <div class="foot">
                           <span x-text="composePurposeLabel(c.purpose) + ' · ' + formatRelative(c.updatedAt)"></span>
                           <span x-text="composeLibSize(c.size)"></span>
@@ -21135,6 +21135,8 @@
               .nlx-rail { display:flex; flex-direction:column; gap:14px; position:sticky; top:12px; }
               .nlx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); padding:14px; }
               .nlx-gen { width:100%; justify-content:center; padding:12px; font-size:14px; }
+              .nlx-newdoc { display:block; text-align:center; margin-top:8px; font-size:12.5px; color:var(--cp-muted); text-decoration:none; }
+              .nlx-newdoc:hover { color:var(--cp-accent); text-decoration:underline; }
               .nlx-frame { display:inline-flex; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); overflow:hidden; margin-top:12px; width:100%; }
               .nlx-frame button { flex:1; border:0; background:transparent; color:var(--cp-text-soft); padding:6px 0; font-size:12px; cursor:pointer; border-left:1px solid var(--cp-border); }
               .nlx-frame button:first-child { border-left:0; }
@@ -21506,6 +21508,9 @@
                     <span x-show="!newsletter.generating">✨ Generate newsletter</span>
                     <span x-show="newsletter.generating">Composing…</span>
                   </button>
+                  <a href="#" class="nlx-newdoc" @click.prevent="newsletterNewDocument()"
+                     x-show="!newsletter.generating"
+                     title="Start a separate newsletter (keeps the current one in your Documents library)">＋ New newsletter</a>
                   <div class="nlx-frame" x-show="newsletter.config">
                     <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 7 }" @click="newsletterSetTimeframe(7)">7d</button>
                     <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 14 }" @click="newsletterSetTimeframe(14)">14d</button>
@@ -29552,7 +29557,7 @@
           view: 'launcher',       // 'launcher' | 'brief' | 'studio' | 'library'
           fullscreen: false,
           // Documents library (whole body of composed work).
-          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletter: null, renaming: '', renameVal: '' },
+          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletters: [], renaming: '', renameVal: '' },
           _pendingStart: null,    // purpose queued by a deep link, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
@@ -45736,10 +45741,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sc.autoGenerate = !!r.autoGenerate;
           } catch (_) { /* non-fatal */ }
         },
-        async newsletterGenerate() {
+        async newsletterGenerate(opts) {
           const nl = this.newsletter;
           if (nl.generating) return;
-          if (nl.draftDirty) {
+          const mode = opts && opts.mode; // 'new' | 'revise' | undefined
+          if (nl.draftDirty && !mode) {
             const ok = await this.uiConfirm({ title: 'Regenerate newsletter', message: 'You have unsaved edits to the draft. Generating a new newsletter will replace them (the current draft is snapshotted to history first). Continue?', confirmLabel: 'Generate' });
             if (!ok) return;
           }
@@ -45751,7 +45757,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             // Persist config first so the timeframe/title used matches what's on screen.
             await this.request('/api/newsletter/config', { method: 'PUT', body: JSON.stringify(this._newsletterConfigPayload()) });
-            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: JSON.stringify({ runId: nl.runId }) });
+            const body = { runId: nl.runId };
+            if (mode) body.mode = mode;
+            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: JSON.stringify(body) });
+            // The timeframe moved to a window this newsletter doesn't cover — offer a
+            // calm choice between continuing this newsletter and starting a new one.
+            if (r && r.needsDecision) {
+              nl.generating = false; nl.notice = ''; nl.runId = null;
+              const cur = r.current || {}; const prosp = r.prospective || {};
+              const fmt = (w) => (w.from && w.to) ? (w.from + ' → ' + w.to) : 'the current window';
+              const startNew = await this.uiConfirm({
+                title: 'New timeframe',
+                message: 'This covers ' + fmt(prosp) + ', which is different from the newsletter you\'re on (' + fmt(cur) + ').\n\nStart a NEW newsletter for this window, or add it as a revision of the current one?',
+                confirmLabel: 'Start new',
+                cancelLabel: 'Add as revision',
+              });
+              return this.newsletterGenerate({ mode: startNew ? 'new' : 'revise' });
+            }
             if (r && r.state) { nl.state = r.state; nl.config = r.state.config || this._newsletterDefaultConfig(); }
             const d = (r && r.state && r.state.draft) || (r && r.draft) || null;
             nl.draftText = (d && d.markdown) || nl.draftText;
@@ -45764,6 +45786,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.toast('Generation failed: ' + (e.message || e), 'error');
           } finally { nl.generating = false; nl.notice = ''; nl.runId = null; }
+        },
+        // Start a brand-new newsletter document (blank head under a fresh docId),
+        // then land ready to Generate — this is the explicit "New" intent, so no
+        // window-decision confirm is needed on the subsequent generate.
+        async newsletterNewDocument() {
+          const nl = this.newsletter;
+          if (nl.generating) return;
+          try {
+            const r = await this.request('/api/newsletter/documents/new', { method: 'POST', body: JSON.stringify({}) });
+            if (r && r.state) {
+              nl.state = r.state;
+              if (r.state.config) nl.config = r.state.config;
+              const d = r.state.draft || null;
+              nl.draftText = (d && d.markdown) || '';
+              nl.draftTitle = (d && d.title) || '';
+              nl.draftDirty = false;
+            }
+            nl._viewVersionId = null;
+            nl.preview = false;
+            nl.tab = 'compose';
+            await this.newsletterLoadVersions();
+            this.toast('Started a new newsletter — Generate when ready', 'success');
+          } catch (e) { this.toast('Could not start a new newsletter: ' + (e.message || e), 'error'); }
         },
         async saveNewsletterDraft() {
           const nl = this.newsletter;
@@ -46152,24 +46197,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.lib.renaming = '';
           this.compose.view = 'library';
           await this.loadCompose();
-          // Fold the living newsletter in as a first-class document row — it's a
-          // composed deliverable too, so it belongs in the Documents library even
-          // though it lives in its own single-document store.
+          // Fold every distinct newsletter in as a first-class document row — each
+          // newsletter is a composed deliverable too, so they belong in the Documents
+          // library even though they live in their own (multi-document) store.
           try {
-            const ns = await this.request('/api/newsletter/status');
-            this.compose.lib.newsletter = (ns && ns.hasDraft) ? {
-              id: '__newsletter__', kind: 'newsletter', title: ns.title || 'Newsletter',
-              purpose: 'newsletter', format: 'doc', hasDraft: true,
-              size: ns.size || 0, preview: ns.dek || ns.subtitle || '',
-              createdAt: ns.createdAt || null, updatedAt: ns.updatedAt || ns.lastGeneratedAt || null,
-            } : null;
-          } catch (_) { this.compose.lib.newsletter = null; }
+            const nd = await this.request('/api/newsletter/documents');
+            const docs = Array.isArray(nd && nd.documents) ? nd.documents : [];
+            this.compose.lib.newsletters = docs.map(d => ({
+              id: 'nl:' + d.docId, docId: d.docId, kind: 'newsletter',
+              title: d.title || 'Newsletter', purpose: 'newsletter', format: 'doc', hasDraft: true,
+              size: d.size || 0, preview: '', revisions: d.revisions || 1, active: !!d.active,
+              coveredFrom: d.coveredFrom || '', coveredTo: d.coveredTo || '',
+              createdAt: d.createdAt || null, updatedAt: d.updatedAt || null,
+            }));
+          } catch (_) { this.compose.lib.newsletters = []; }
           this.compose.view = 'library';
         },
-        // All library rows = compositions + the living newsletter (when it has a draft).
+        // All library rows = compositions + every newsletter document.
         composeLibAll() {
           const list = (this.compose.compositions || []).slice();
-          if (this.compose.lib.newsletter) list.unshift(this.compose.lib.newsletter);
+          const nls = this.compose.lib.newsletters || [];
+          for (let i = nls.length - 1; i >= 0; i--) list.unshift(nls[i]);
           return list;
         },
         composeLibFacets() {
@@ -46203,8 +46251,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // clicking a column header selects that sort (updated toggles created⇄updated feel is unnecessary)
           this.compose.lib.sort = s;
         },
-        composeLibSize(bytes) {
-          const b = Number(bytes) || 0;
+        // Sub-line for a library row. Newsletters show their revision count + covered
+        // window (they carry no preview snippet); compositions show the text preview.
+        composeLibRowMeta(c) {
+          if (!c) return '';
+          if (c.kind === 'newsletter') {
+            const bits = [];
+            const n = Number(c.revisions) || 1;
+            bits.push(n === 1 ? '1 revision' : n + ' revisions');
+            if (c.coveredFrom && c.coveredTo) bits.push('covers ' + c.coveredFrom + ' → ' + c.coveredTo);
+            if (c.active) bits.push('current');
+            return bits.join(' · ');
+          }
+          const p = String(c.preview || '');
+          if (p) return p.slice(0, 96) + (p.length > 96 ? '…' : '');
+          return c.hasDraft ? '' : 'draft empty';
+        },
+        composeLibSize(bytes) {          const b = Number(bytes) || 0;
           if (b < 1024) return b + ' B';
           const k = b / 1024;
           if (k < 1024) return k.toFixed(k < 10 ? 1 : 0) + ' KB';
@@ -46226,18 +46289,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.view = 'launcher';
           this.toast('Pick a purpose to start a fresh composition.', 'info');
         },
-        // Kind-aware row actions: the living newsletter routes to its own studio;
-        // compositions use the compose studio + APIs.
-        composeLibOpen(c) {
-          if (c && c.kind === 'newsletter') { this.goTo('#/newsletter'); return; }
+        // Kind-aware row actions: a newsletter row opens THAT document (promoting it
+        // to the active draft) then routes to its own studio; compositions use the
+        // compose studio + APIs.
+        async composeLibOpen(c) {
+          if (c && c.kind === 'newsletter') { await this._newsletterOpenDoc(c); this.goTo('#/newsletter'); return; }
           this.composeOpen(c.id);
         },
-        composeLibExportItem(c) {
-          if (c && c.kind === 'newsletter') { window.open('/api/newsletter/export', '_blank'); return; }
+        // Promote a specific newsletter document to the active draft (idempotent for
+        // the already-active one). Shared by Open/Export/Share.
+        async _newsletterOpenDoc(c) {
+          if (!c || !c.docId || c.active) return;
+          try { await this.request('/api/newsletter/documents/' + encodeURIComponent(c.docId) + '/open', { method: 'POST', body: JSON.stringify({}) }); }
+          catch (_) { /* non-fatal — export/share fall back to the current active doc */ }
+        },
+        async composeLibExportItem(c) {
+          if (c && c.kind === 'newsletter') { await this._newsletterOpenDoc(c); window.open('/api/newsletter/export', '_blank'); return; }
           this.composeLibExport(c.id);
         },
         async composeLibShareItem(c) {
-          if (c && c.kind === 'newsletter') { this.goTo('#/newsletter'); return; }
+          if (c && c.kind === 'newsletter') { await this._newsletterOpenDoc(c); this.goTo('#/newsletter'); return; }
           await this.composeLibShare(c.id);
         },
         composeLibRenameStart(c) {
@@ -46275,16 +46346,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async composeLibBulk(act) {
           const ids = (this.compose.lib.sel || []).slice();
           if (!ids.length) return;
+          const byId = {}; this.composeLibAll().forEach(c => { byId[c.id] = c; });
+          const rows = ids.map(id => byId[id]).filter(Boolean);
+          const nls = rows.filter(c => c.kind === 'newsletter');
+          const comps = rows.filter(c => c.kind !== 'newsletter');
           if (act === 'export') {
-            ids.forEach(id => this.composeLibExport(id));
+            for (const c of nls) { await this.composeLibExportItem(c); }
+            comps.forEach(c => this.composeLibExport(c.id));
             this.compose.lib.sel = [];
             return;
           }
           if (act === 'delete') {
-            if (typeof confirm === 'function' && !confirm('Delete ' + ids.length + ' document' + (ids.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
-            for (const id of ids) { await this.composeDelete(id, { silent: true }); }
+            // Newsletters aren't deleted from the library (their lifecycle lives in
+            // the newsletter studio); only compositions are bulk-deletable here.
+            if (!comps.length) { this.toast('Newsletters are managed from the Newsletter studio.', 'info'); return; }
+            if (typeof confirm === 'function' && !confirm('Delete ' + comps.length + ' document' + (comps.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
+            for (const c of comps) { await this.composeDelete(c.id, { silent: true }); }
             this.compose.lib.sel = [];
-            this.toast('Deleted ' + ids.length + ' document' + (ids.length === 1 ? '' : 's') + '.', 'success');
+            this.toast('Deleted ' + comps.length + ' document' + (comps.length === 1 ? '' : 's') + (nls.length ? ' (newsletters skipped)' : '') + '.', 'success');
           }
         },
         async composeStart(purposeId, opts = {}) {

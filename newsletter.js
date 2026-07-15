@@ -125,6 +125,12 @@ const DEFAULT_STATE = {
   // MAY contain inline HTML/SVG for charts and image references).
   draft: {
     markdown: '',
+    // Stable identity of the newsletter DOCUMENT this draft belongs to. A newsletter
+    // is a document (like a composition): iterating over the same timeframe produces
+    // revisions of the SAME docId; generating over a materially different timeframe (or
+    // an explicit "New newsletter") mints a fresh docId. Legacy state is migrated by
+    // grouping the flat version log into documents by contiguous title runs.
+    docId: '',
     // A generated/edited display title for THIS issue (falls back to config.title).
     title: '',
     // 'manual' (user typed) | 'ai' (generated). Steers the source badge.
@@ -188,10 +194,66 @@ function saveConfig(patch) {
   return st;
 }
 
+// ---- Document identity (revision vs new newsletter) -------------------------
+
+// Mint a fresh newsletter-document id.
+function _mintDocId() { return _id('nd'); }
+
+// Normalize a title for run-grouping: strip markup, collapse space, lowercase.
+function _normTitle(s) {
+  return String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Lazily assign docIds to legacy state that predates the document model. The flat
+// version log (newest-first) plus the live draft (its head) form one timeline; we
+// group it into documents by contiguous title runs — a change in the H1 title starts
+// a new document. Runs idempotent: once everything carries a docId it is a no-op.
+// Persists both state + versions when it migrates. Returns { st, items }.
+function _ensureMigrated() {
+  const st = getState();
+  const items = _readVersions();
+  const draftBody = (st.draft && st.draft.markdown || '').trim();
+  const versionsNeed = items.some(v => (v.markdown || '').trim() && !v.docId);
+  const draftNeed = !!draftBody && !(st.draft && st.draft.docId);
+  if (!versionsNeed && !draftNeed) return { st, items };
+
+  let curDoc = null, prevKey = null;
+  if (draftBody) {
+    curDoc = st.draft.docId || _mintDocId();
+    st.draft.docId = curDoc;
+    prevKey = _normTitle(extractTitle(st.draft.markdown) || st.draft.title || '');
+  }
+  for (const v of items) {
+    if (!(v.markdown || '').trim()) continue;
+    const k = _normTitle(v.title || extractTitle(v.markdown));
+    if (v.docId) { curDoc = v.docId; prevKey = k; continue; }
+    if (curDoc && k && prevKey === k) {
+      v.docId = curDoc;              // same title as the entry above → same newsletter
+    } else {
+      curDoc = _mintDocId();         // title changed → a distinct newsletter
+      v.docId = curDoc;
+    }
+    prevKey = k;
+  }
+  _writeJson(_statePath(), st);
+  _writeVersions(items);
+  return { st, items };
+}
+
 // Persist the newsletter draft. Snapshots the outgoing draft to history when the
 // body meaningfully changes, exactly like Connect.
-function saveDraft(patch, { source } = {}) {
-  const st = getState();
+//
+// `docMode` steers the DOCUMENT identity of the new head:
+//   'new'  → mint a fresh docId (this generation starts a NEW newsletter)
+//   (else) → keep the active docId (a revision of the current newsletter); a
+//            first-ever draft with no docId gets one minted.
+function saveDraft(patch, { source, docMode } = {}) {
+  const { st } = _ensureMigrated();
   const p = patch && typeof patch === 'object' ? patch : {};
   const next = { ...st.draft };
   if (typeof p.markdown === 'string') next.markdown = p.markdown;
@@ -205,6 +267,10 @@ function saveDraft(patch, { source } = {}) {
   if (prevBody && prevBody !== nextBody) {
     _pushDraftVersion(st.draft, { reason: source === 'ai' ? 'replaced-by-ai' : 'edited' });
   }
+  // Decide the new head's document identity.
+  if (docMode === 'new') next.docId = _mintDocId();
+  else if (!next.docId) next.docId = _mintDocId();
+
   if (source === 'ai') {
     next.source = 'ai';
     next.generatedAt = new Date().toISOString();
@@ -285,11 +351,17 @@ function _pushDraftVersion(draft, { reason } = {}) {
   if (items.length && (items[0].markdown || '').trim() === body.trim()) return items[0];
   const entry = {
     id: _id('nv'),
+    // The document this revision belongs to (empty on pre-migration entries; filled
+    // by _ensureMigrated). Lets the history list scope to a single newsletter.
+    docId: (draft && draft.docId) || '',
     markdown: body,
     // Prefer the visible H1 over the (often stale) draft.title.
     title: extractTitle(body) || (draft && draft.title) || '',
     source: draft && draft.source === 'ai' ? 'ai' : 'manual',
     reason: reason || 'edited',
+    coveredFrom: (draft && draft.coveredFrom) || '',
+    coveredTo: (draft && draft.coveredTo) || '',
+    evidenceCount: (draft && Number(draft.evidenceCount)) || 0,
     createdAt: (draft && (draft.updatedAt || draft.generatedAt)) || new Date().toISOString(),
     savedAt: new Date().toISOString(),
   };
@@ -299,16 +371,135 @@ function _pushDraftVersion(draft, { reason } = {}) {
   return entry;
 }
 
-// Return versions with a display title derived from the body H1 unless the user
-// has manually renamed the entry (titleEdited). This keeps legacy snapshots —
-// stored with a stale draft.title — showing the correct heading on read, without
-// rewriting the file.
-function listDraftVersions() {
-  return _readVersions().map(v => {
-    if (v && v.titleEdited) return v;
-    const t = extractTitle(v && v.markdown || '');
-    return t ? { ...v, title: t } : v;
-  });
+// Return the prior revisions for ONE newsletter document (defaults to the active
+// draft's docId), newest-first, with a display title derived from the body H1
+// unless the user has manually renamed the entry (titleEdited). Scoping to a docId
+// is what makes each newsletter show only its OWN history — legacy state is grouped
+// into documents first by _ensureMigrated.
+function listDraftVersions(docId) {
+  const { st, items } = _ensureMigrated();
+  const active = docId || (st.draft && st.draft.docId) || null;
+  return items
+    .filter(v => (v.markdown || '').trim())
+    .filter(v => !active || v.docId === active)
+    .map(v => {
+      if (v && v.titleEdited) return v;
+      const t = extractTitle(v && v.markdown || '');
+      return t ? { ...v, title: t } : v;
+    });
+}
+
+// ---- Newsletter documents (revision vs new) ---------------------------------
+
+// Group the draft head + version log into distinct newsletter documents. One row
+// per docId: the newest entry supplies title/size/window/updatedAt; the oldest
+// supplies createdAt. `active` marks the document currently loaded in the studio.
+function listDocuments() {
+  const { st, items } = _ensureMigrated();
+  const draft = st.draft || {};
+  const draftBody = (draft.markdown || '').trim();
+  const map = new Map();
+  const add = (docId, e, isHead) => {
+    if (!docId) return;
+    if (!map.has(docId)) map.set(docId, []);
+    map.get(docId).push({ ...e, __head: !!isHead });
+  };
+  if (draftBody) add(draft.docId, {
+    markdown: draft.markdown,
+    title: extractTitle(draft.markdown) || draft.title || '',
+    coveredFrom: draft.coveredFrom || '', coveredTo: draft.coveredTo || '',
+    source: draft.source, savedAt: draft.updatedAt || draft.generatedAt || '',
+    createdAt: draft.generatedAt || draft.updatedAt || '',
+  }, true);
+  for (const v of items) {
+    if (!(v.markdown || '').trim()) continue;
+    add(v.docId, {
+      markdown: v.markdown,
+      title: (v.titleEdited && v.title) || extractTitle(v.markdown) || v.title || '',
+      coveredFrom: v.coveredFrom || '', coveredTo: v.coveredTo || '',
+      source: v.source, savedAt: v.savedAt || v.createdAt || '',
+      createdAt: v.createdAt || v.savedAt || '',
+    }, false);
+  }
+  const out = [];
+  for (const [docId, entries] of map) {
+    entries.sort((a, b) => {
+      const h = (b.__head ? 1 : 0) - (a.__head ? 1 : 0);
+      return h !== 0 ? h : String(b.savedAt).localeCompare(String(a.savedAt));
+    });
+    const newest = entries[0];
+    const oldest = entries[entries.length - 1];
+    out.push({
+      docId,
+      title: newest.title || 'Untitled newsletter',
+      coveredFrom: newest.coveredFrom || '', coveredTo: newest.coveredTo || '',
+      size: Buffer.byteLength(newest.markdown || '', 'utf8'),
+      revisions: entries.length,
+      createdAt: oldest.createdAt || oldest.savedAt || '',
+      updatedAt: newest.savedAt || newest.createdAt || '',
+      active: docId === draft.docId,
+      source: newest.source === 'ai' ? 'ai' : 'manual',
+    });
+  }
+  out.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  return out;
+}
+
+// Make `docId` the active document: snapshot the current head into its own doc's
+// history (so nothing is lost), then promote that document's newest revision to be
+// the live draft. Returns { state, opened }.
+function openDocument(docId) {
+  const { st } = _ensureMigrated();
+  if (!docId) return { state: st, opened: false };
+  if ((st.draft && st.draft.docId) === docId) return { state: st, opened: true };
+  const curBody = (st.draft && st.draft.markdown || '').trim();
+  if (curBody) _pushDraftVersion(st.draft, { reason: 'switch-doc' });
+  const list = _readVersions();
+  const idx = list.findIndex(v => v.docId === docId && (v.markdown || '').trim());
+  if (idx < 0) { _writeJson(_statePath(), st); return { state: st, opened: false }; }
+  const top = list.splice(idx, 1)[0];
+  _writeVersions(list);
+  st.draft = {
+    ..._clone(DEFAULT_STATE.draft),
+    markdown: top.markdown || '',
+    title: extractTitle(top.markdown || '') || top.title || '',
+    source: top.source === 'ai' ? 'ai' : 'manual',
+    generatedAt: top.createdAt || '',
+    updatedAt: new Date().toISOString(),
+    docId,
+    coveredFrom: top.coveredFrom || '', coveredTo: top.coveredTo || '',
+    evidenceCount: Number(top.evidenceCount) || 0,
+  };
+  _writeJson(_statePath(), st);
+  return { state: st, opened: true };
+}
+
+// Start a brand-new newsletter: snapshot the current head into its own doc's
+// history, then clear the draft to an empty head under a fresh docId.
+function newDocument() {
+  const { st } = _ensureMigrated();
+  const curBody = (st.draft && st.draft.markdown || '').trim();
+  if (curBody) _pushDraftVersion(st.draft, { reason: 'new-doc' });
+  st.draft = { ..._clone(DEFAULT_STATE.draft), docId: _mintDocId(), updatedAt: new Date().toISOString() };
+  _writeJson(_statePath(), st);
+  return st;
+}
+
+// Does the prospective evidence window differ from what the active draft covers?
+// A meaningful difference means the next generation is really a NEW newsletter,
+// not a revision — so the UI can offer a calm "new vs revise" choice. When there
+// is no current body, there is nothing to revise, so `changed` is false.
+function windowChanged(win) {
+  const { st } = _ensureMigrated();
+  const d = st.draft || {};
+  const cf = d.coveredFrom || '', ct = d.coveredTo || '';
+  const nf = (win && win.since) || '', nt = (win && win.until) || '';
+  const has = !!(d.markdown && String(d.markdown).trim());
+  return {
+    changed: has && (cf !== nf || ct !== nt),
+    current: { from: cf, to: ct },
+    prospective: { from: nf, to: nt },
+  };
 }
 
 // Manually override a version's title. An empty title resets to auto-derivation
@@ -348,11 +539,15 @@ function deleteDraftVersion(id) {
 // its empty default. Returns { state, promoted } where `promoted` is the version
 // metadata that became current (or null when there was nothing to promote).
 function deleteCurrentPromoteLatest() {
-  const st = getState();
-  const items = _readVersions();
+  const { st, items } = _ensureMigrated();
+  const active = (st.draft && st.draft.docId) || null;
   let promoted = null;
-  if (items.length) {
-    const top = items.shift();                // newest-first → latest becomes current
+  // Promote the newest EARLIER revision of the SAME document (not some other
+  // newsletter's version). If this document has no earlier revisions, it's gone —
+  // clear the draft to its empty default.
+  const idx = items.findIndex(v => (v.markdown || '').trim() && (!active || v.docId === active));
+  if (idx >= 0) {
+    const top = items.splice(idx, 1)[0];
     _writeVersions(items);
     const title = extractTitle(top.markdown || '') || top.title || '';
     st.draft = {
@@ -362,6 +557,9 @@ function deleteCurrentPromoteLatest() {
       source: top.source === 'ai' ? 'ai' : 'manual',
       generatedAt: top.createdAt || '',
       updatedAt: new Date().toISOString(),
+      docId: top.docId || active || _mintDocId(),
+      coveredFrom: top.coveredFrom || '', coveredTo: top.coveredTo || '',
+      evidenceCount: Number(top.evidenceCount) || 0,
     };
     promoted = { id: top.id, title, source: st.draft.source, savedAt: top.savedAt || null };
   } else {
@@ -417,6 +615,10 @@ module.exports = {
   markAutoGenerated,
   clearReviewPending,
   listDraftVersions,
+  listDocuments,
+  openDocument,
+  newDocument,
+  windowChanged,
   getDraftVersion,
   deleteDraftVersion,
   deleteCurrentPromoteLatest,

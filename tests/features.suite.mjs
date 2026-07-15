@@ -871,7 +871,7 @@ await t.test('Compose.AI documents library — real list/search/sort/filter/grid
   t.ok(/async composeOpenLibrary\(\)\s*\{[\s\S]*?await this\.loadCompose\(\)/.test(methods), 'library refreshes via the real loader');
   t.ok(/composeLibExport\(id\)\s*\{[\s\S]*?\/api\/compose\/' \+ encodeURIComponent\(id\) \+ '\/export/.test(methods), 'export hits the real per-id export route');
   t.ok(/async composeLibShare\(id\)\s*\{[\s\S]*?await this\.composeOpen\(id\)[\s\S]*?composeOpenDeliver/.test(methods), 'share opens the studio deliver flow');
-  t.ok(/composeDelete\(id, \{ silent: true \}\)/.test(methods), 'bulk delete uses the silent delete path');
+  t.ok(/composeDelete\(c\.id, \{ silent: true \}\)/.test(methods), 'bulk delete uses the silent delete path');
   // loadCompose must not clobber an explicit library view.
   t.ok(/if \(!co\.current && co\.view !== 'library'\) co\.view = 'launcher'/.test(methods), 'loadCompose preserves the library view');
 });
@@ -1005,6 +1005,46 @@ await t.test('pulse.ai focus-lens meeting recaps: dedupe redundant + surface act
   // CLIENT — methods + state wired.
   t.ok(/pulseActAdd\(m, a, ai, target\)/.test(html) && /pulseMtgToggle\(id\)/.test(html), 'pulseActAdd + pulseMtgToggle methods exist');
   t.ok(/_mtgOpen: \{\}, _actState: \{\}/.test(html), 'pulse state seeds _mtgOpen + _actState maps');
+});
+
+// Newsletter is a MULTI-DOCUMENT model (was a singleton: one perpetual draft + a
+// flat 40-entry version log). A newsletter now has a docId; the covered-timeframe
+// window is the fingerprint for revision-vs-new. The Documents library lists every
+// distinct newsletter; generating with a changed window prompts a calm choice.
+await t.test('newsletter: multi-document model (revision vs new) end to end', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  const nl = readFileSync('newsletter.js', 'utf8');
+
+  // MODEL (newsletter.js) — docId + window-aware storage + doc operations.
+  t.ok(/docId:\s*''/.test(nl), 'draft state carries a docId');
+  t.ok(/_ensureMigrated\b/.test(nl), 'legacy flat log migrates into docIds');
+  t.ok(/windowChanged\s*\(/.test(nl) && /listDocuments\s*\(/.test(nl) && /openDocument\s*\(/.test(nl) && /newDocument\s*\(/.test(nl), 'window/doc operations defined');
+  t.ok(/module\.exports[\s\S]{0,600}listDocuments[\s\S]{0,120}openDocument[\s\S]{0,120}newDocument[\s\S]{0,120}windowChanged/.test(nl), 'doc operations exported');
+  // saveDraft honors an explicit docMode='new' (start a separate newsletter).
+  t.ok(/saveDraft\s*\([^)]*docMode/.test(nl) || /docMode\s*===\s*'new'/.test(nl), 'saveDraft honors docMode new');
+
+  // SERVER — generate returns needsDecision when the window changed and no mode was
+  // given; the three document endpoints exist; versions are doc-scoped.
+  t.ok(/needsDecision:\s*true/.test(srv), 'generate can return needsDecision');
+  t.ok(/windowChanged\(win\)/.test(srv), 'generate consults windowChanged');
+  t.ok(/docMode:\s*mode === 'new'/.test(srv), "generate passes docMode 'new' only on explicit new");
+  t.ok(/'\/api\/newsletter\/documents'/.test(srv), 'GET documents route');
+  t.ok(/'\/api\/newsletter\/documents\/:docId\/open'/.test(srv), 'open-document route');
+  t.ok(/'\/api\/newsletter\/documents\/new'/.test(srv), 'new-document route');
+  t.ok(/listDraftVersions\(req\.query && req\.query\.docId\)/.test(srv), 'versions endpoint is doc-scoped');
+
+  // CLIENT — generate handles needsDecision with a calm binary confirm + re-POST;
+  // New-newsletter button; library lists all newsletter docs and opens the right one.
+  t.ok(/r\.needsDecision/.test(html) && /this\.newsletterGenerate\(\{ mode: startNew \? 'new' : 'revise' \}\)/.test(html), 'client resolves needsDecision then re-generates with a mode');
+  t.ok(/newsletterNewDocument\s*\(/.test(html) && /\/api\/newsletter\/documents\/new/.test(html), 'New newsletter button posts documents/new');
+  t.ok(/lib\.newsletters\s*=/.test(html) && /\/api\/newsletter\/documents'/.test(html), 'library loads all newsletter documents (array)');
+  t.ok(/_newsletterOpenDoc\s*\(/.test(html) && /\/api\/newsletter\/documents\/'\s*\+\s*encodeURIComponent\(c\.docId\)\s*\+\s*'\/open'/.test(html), 'opening a newsletter row promotes that specific doc');
+  t.ok(/composeLibRowMeta\s*\(/.test(html), 'library rows show a doc-aware sub-line (revisions/window)');
+  // Bulk delete must not try to delete a newsletter as a composition.
+  t.ok(/comps\.length[\s\S]{0,400}composeDelete\(c\.id/.test(html), 'bulk delete only targets compositions');
+  // No stale singleton reference left behind.
+  t.ok(!/lib\.newsletter\b(?!s)/.test(html.replace(/newsletters/g, 'NLS')), 'no stale singular lib.newsletter reference');
 });
 
 await t.done();
