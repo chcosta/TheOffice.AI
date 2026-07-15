@@ -12034,42 +12034,269 @@ async function _composeRunAgent(agentName, prompt, onStep) {
 
 // Build the grounded "sources" block from a composition's source selections:
 // the shared Connect diary (best-effort), referenced links, and pasted context.
-function _composeSourceContext(c) {
+// --- Compose source resolution helpers ---------------------------------------
+// Historically, several sources (PR / pursuit / work items / repos / links) were
+// only DESCRIBED to the writer with an instruction to "go investigate". That
+// relied on the SDK agent having live tools + auth, which it often does not — so
+// the checked source never actually reached the assistant. These helpers FETCH
+// the real content server-side and INLINE it (like diary/composition/pasted),
+// with a bounded timeout and a graceful fallback to the old instruction text so
+// nothing regresses when a source can't be reached.
+function _composeHtmlText(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function _composeWithTimeout(p, ms, label) {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise((_, rej) => setTimeout(() => rej(new Error((label || 'source') + ' timed out')), ms)),
+  ]);
+}
+// Default Azure DevOps org/project/repo for bare PR / work-item refs.
+function _composeAdoDefault() {
+  try {
+    const s = settings.getSettings();
+    const t = (_connectAdoTargets(s) || [])[0];
+    return {
+      org: (t && t.org) || s.devOrg || s.exportOrg || s.connectAdoOrg || '',
+      project: (t && t.projects && t.projects[0]) || s.devProject || s.exportProject || '',
+      repo: s.devRepo || s.exportRepo || '',
+    };
+  } catch (_) { return { org: '', project: '', repo: '' }; }
+}
+// Parse a PR reference (full ADO url, "repo!123"/"repo#123", or bare "123").
+function _composeParsePrRef(ref, def) {
+  const s = String(ref || '').trim();
+  if (!s) return null;
+  let m = s.match(/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i);
+  if (m) return { org: decodeURIComponent(m[1]), project: decodeURIComponent(m[2]), repo: decodeURIComponent(m[3]), prId: m[4] };
+  m = s.match(/https?:\/\/([^.]+)\.visualstudio\.com\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i);
+  if (m) return { org: m[1], project: decodeURIComponent(m[2]), repo: decodeURIComponent(m[3]), prId: m[4] };
+  def = def || _composeAdoDefault();
+  m = s.match(/^([^\s!#/]+)\s*[!#]\s*(\d+)$/);
+  if (m && def.org && def.project) return { org: def.org, project: def.project, repo: m[1], prId: m[2] };
+  m = s.match(/^(\d+)$/);
+  if (m && def.org && def.project && def.repo) return { org: def.org, project: def.project, repo: def.repo, prId: m[1] };
+  return null;
+}
+// Parse one-or-more work-item references (urls, "#123", or bare numbers).
+function _composeParseWorkItemRefs(ref, def) {
+  def = def || _composeAdoDefault();
+  const out = [];
+  const seen = new Set();
+  for (const tok of String(ref || '').split(/[\s,\n]+/).map(t => t.trim()).filter(Boolean)) {
+    let m = null;
+    try { m = _meAiParseWorkItem(tok); } catch (_) { m = null; }
+    if (!m) {
+      const num = tok.match(/^#?(\d{1,8})$/);
+      if (num && def.org && def.project) m = { provider: 'azdo', org: def.org, project: def.project, workItemId: num[1] };
+    }
+    if (m && String(m.provider || 'azdo') === 'azdo' && m.org && m.project && m.workItemId) {
+      const k = `${m.org}|${m.project}|${m.workItemId}`.toLowerCase();
+      if (!seen.has(k)) { seen.add(k); out.push(m); }
+    }
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+// Fold a pursuit (by task id) and render a compact, inline-able corpus.
+function _composePursuitCorpusText(ref) {
+  const id = String(ref || '').trim();
+  if (!id) return null;
+  let tree = null;
+  try { tree = (typeof meAiTrees !== 'undefined' && meAiTrees.get && meAiTrees.get(id)) || null; } catch (_) { tree = null; }
+  if (!tree) { try { tree = _meAiFoldJournal(id); } catch (_) { tree = null; } }
+  if (!tree) return null;
+  let corpus = null;
+  try { corpus = _meAiFoldedReportCorpus(tree); } catch (_) { return null; }
+  const legs = (corpus && corpus.legs) || [];
+  if (!legs.length) return null;
+  const blocks = [];
+  let budget = 16000;
+  for (const l of legs) {
+    if (budget <= 0) break;
+    const head = `#### ${l.title || 'Angle'}${l.outcome === 'dead-end' ? ' (dead-end)' : ''}`;
+    const sum = l.summary ? String(l.summary).slice(0, 1400) : '';
+    const finds = (l.findings || []).slice(0, 6)
+      .map(f => `- ${f.claim}${f.evidence ? ` — ${String(f.evidence).slice(0, 260)}` : ''}${Array.isArray(f.sources) && f.sources.length ? ` [${f.sources.slice(0, 3).join(', ')}]` : ''}`)
+      .join('\n');
+    const seg = [head, sum, finds].filter(Boolean).join('\n');
+    budget -= seg.length;
+    blocks.push(seg);
+  }
+  return blocks.join('\n\n') || null;
+}
+async function _composeFetchUrl(url, timeoutMs = 8000) {
+  const ac = new AbortController();
+  const to = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: ac.signal, redirect: 'follow', headers: { 'user-agent': 'TheOffice.AI/compose' } });
+    const ct = r.headers.get('content-type') || '';
+    const body = await r.text();
+    const text = (/html|xml/i.test(ct) || /^\s*</.test(body)) ? _composeHtmlText(body) : body;
+    return { ok: r.ok, status: r.status, text: String(text || '').slice(0, 8000) };
+  } finally { clearTimeout(to); }
+}
+// Real server-side fetchers (overridable in tests via opts.fetchers).
+const _composeSourceFetchers = {
+  pursuit: async (ref) => _composePursuitCorpusText(ref),
+  pr: async (m) => {
+    const pr = await azdo.getPullRequest(m.org, m.project, m.repo, m.prId);
+    let files = [];
+    try { files = await azdo.getPrChangedFiles(m.org, m.project, m.repo, m.prId, 60); } catch (_) { files = []; }
+    return { pr, files };
+  },
+  workitem: async (m) => azdo.getWorkItem(m.org, m.project, m.workItemId),
+  repo: async (m) => azdo.getRepo(m.org, m.project, m.repo),
+  url: async (u) => _composeFetchUrl(u),
+};
+
+// Build the grounded "sources" block AND a per-source resolution report. The
+// report ({ id, label, on, ok, chars, note }) powers the honest "what actually
+// reached the assistant" UI and the automated source-validation harness.
+async function _composeSourceContext(c, opts = {}) {
   const src = (c && c.sources) || {};
+  const F = { ..._composeSourceFetchers, ...(opts.fetchers || {}) };
+  const TMO = opts.timeoutMs || 8000;
   const parts = [];
+  const resolved = [];
   let evidenceCount = 0;
+  const report = (id, label, on, ok, chars, note) => resolved.push({ id, label, on: !!on, ok: !!ok, chars: chars || 0, note: String(note || '').replace(/\s+/g, ' ').trim().slice(0, 160) });
   if (src.diary) {
     let win = { items: [], since: '', until: '' };
     try { win = newsletter.evidenceForTimeframe(src.diaryDays || 14); } catch (_) { /* Connect off */ }
     const items = (win.items || []).slice(0, 100);
     evidenceCount = items.length;
     parts.push(`### Connect diary evidence (${items.length} item${items.length === 1 ? '' : 's'}, ${win.since} → ${win.until})`);
-    parts.push(items.length ? _newsletterEvidenceLines(items) : '(no diary evidence in window — Connect may be off or empty)');
+    const lines = items.length ? _newsletterEvidenceLines(items) : '(no diary evidence in window — Connect may be off or empty)';
+    parts.push(lines);
+    report('diary', 'Connect diary', true, items.length > 0, lines.length, items.length ? '' : 'no diary evidence in window (Connect off/empty)');
   }
   const links = Array.isArray(src.links) ? src.links.filter(Boolean) : [];
   if (links.length) {
-    parts.push('### Links to investigate (open and pull real details before writing)');
-    parts.push(links.map(l => `- ${l}`).join('\n'));
+    const fetched = [];
+    let okCount = 0, chars = 0;
+    for (const l of links.slice(0, 6)) {
+      try {
+        const r = await _composeWithTimeout(F.url(l), TMO, 'link');
+        if (r && r.ok !== false && r.text && r.text.trim()) {
+          fetched.push(`#### ${l}\n${r.text.trim()}`);
+          okCount++; chars += r.text.length;
+        } else { fetched.push(`#### ${l}\n(could not fetch — HTTP ${r && r.status || '?'})`); }
+      } catch (e) { fetched.push(`#### ${l}\n(could not fetch — ${e.message})`); }
+    }
+    parts.push('### Linked pages (fetched content below — cite what you actually use)');
+    parts.push(fetched.join('\n\n---\n\n'));
+    evidenceCount += okCount;
+    report('links', 'Links', true, okCount > 0, chars, okCount ? `${okCount}/${links.length} fetched` : 'none reachable server-side');
   }
-  // Reference sources — the writer investigates these and cites ONLY what it can
-  // genuinely find. Never fabricate details you could not verify.
+  // Reference sources — fetched + INLINED server-side so they reach the assistant
+  // regardless of its live tool access. Fallback = the old investigate instruction.
   if (src.pr && String(src.prRef || '').trim()) {
-    parts.push('### Pull request to investigate');
-    parts.push(`Open this pull request and read its diff, description, and review threads before writing; ground any claims about it in what you actually find:\n- ${String(src.prRef).trim()}`);
+    const m = _composeParsePrRef(src.prRef);
+    let done = false;
+    if (m) {
+      try {
+        const { pr, files } = await _composeWithTimeout(F.pr(m), TMO, 'pull request');
+        if (pr && (pr.title || pr.description)) {
+          const fileList = (files || []).slice(0, 40).map(f => `- ${f.path || f}`).join('\n');
+          const body = [
+            `**${pr.title || 'Pull request #' + m.prId}** (#${pr.id || m.prId}, ${pr.status || '?'}${pr.isDraft ? ', draft' : ''})`,
+            `${m.org}/${m.project}/${m.repo} · ${pr.sourceBranch || '?'} → ${pr.targetBranch || '?'}${pr.createdBy && pr.createdBy.name ? ' · by ' + pr.createdBy.name : ''}`,
+            pr.description ? `\n${String(pr.description).slice(0, 4000)}` : '',
+            fileList ? `\nChanged files:\n${fileList}` : '',
+          ].filter(Boolean).join('\n');
+          parts.push('### Pull request (fetched)');
+          parts.push(body);
+          evidenceCount++;
+          report('pr', 'Pull request', true, true, body.length, '');
+          done = true;
+        }
+      } catch (e) { report('pr', 'Pull request', true, false, 0, `couldn't reach ADO — ${e.message}`); }
+    }
+    if (!done) {
+      parts.push('### Pull request to investigate');
+      parts.push(`Open this pull request and read its diff, description, and review threads before writing; ground any claims about it in what you actually find:\n- ${String(src.prRef).trim()}`);
+      if (!m) report('pr', 'Pull request', true, false, 0, 'unrecognized ref — expected an ADO PR url or repo!123');
+    }
   }
   if (src.pursuit && String(src.pursuitRef || '').trim()) {
-    parts.push('### Pursuit compendium to read');
-    parts.push(`Read the findings/compendium for this pursuit and weave in its evidence and conclusions:\n- ${String(src.pursuitRef).trim()}`);
+    let done = false;
+    try {
+      const text = await _composeWithTimeout(F.pursuit(String(src.pursuitRef).trim()), TMO, 'pursuit');
+      if (text && text.trim()) {
+        parts.push('### Pursuit findings (folded from the pursuit journal)');
+        parts.push(text.trim());
+        evidenceCount++;
+        report('pursuit', 'Pursuit compendium', true, true, text.length, '');
+        done = true;
+      }
+    } catch (e) { report('pursuit', 'Pursuit compendium', true, false, 0, `couldn't fold the pursuit — ${e.message}`); }
+    if (!done) {
+      parts.push('### Pursuit compendium to read');
+      parts.push(`Read the findings/compendium for this pursuit and weave in its evidence and conclusions:\n- ${String(src.pursuitRef).trim()}`);
+      report('pursuit', 'Pursuit compendium', true, false, 0, 'no folded findings for that pursuit id');
+    }
   }
   if (src.workitems && String(src.workitemsRef || '').trim()) {
-    parts.push('### Work items to investigate (Azure DevOps)');
-    parts.push(`Look up these work items and reflect their real state/detail; cite only what you can confirm:\n- ${String(src.workitemsRef).trim()}`);
+    const refs = _composeParseWorkItemRefs(src.workitemsRef);
+    let okCount = 0, chars = 0;
+    const blocks = [];
+    for (const m of refs) {
+      try {
+        const wi = await _composeWithTimeout(F.workitem(m), TMO, 'work item');
+        if (wi && (wi.title || wi.description)) {
+          const b = [
+            `**#${wi.id || m.workItemId} · ${wi.type || 'Work item'} · ${wi.state || '?'}** — ${wi.title || ''}`,
+            wi.assignedTo ? `Assigned: ${wi.assignedTo}` : '',
+            wi.description ? _composeHtmlText(wi.description).slice(0, 2000) : '',
+          ].filter(Boolean).join('\n');
+          blocks.push(b); okCount++; chars += b.length;
+        }
+      } catch (_) { /* skip this one */ }
+    }
+    if (okCount) {
+      parts.push('### Work items (fetched from Azure DevOps)');
+      parts.push(blocks.join('\n\n'));
+      evidenceCount += okCount;
+      report('workitems', 'Work items', true, true, chars, `${okCount}/${refs.length || '?'} fetched`);
+    } else {
+      parts.push('### Work items to investigate (Azure DevOps)');
+      parts.push(`Look up these work items and reflect their real state/detail; cite only what you can confirm:\n- ${String(src.workitemsRef).trim()}`);
+      report('workitems', 'Work items', true, false, 0, refs.length ? "couldn't reach ADO (sign-in?)" : 'no recognizable work-item ids');
+    }
   }
   if (src.repos && String(src.reposRef || '').trim()) {
     const repos = String(src.reposRef).split(/[,\n]/).map(s => s.trim()).filter(Boolean);
     if (repos.length) {
+      const def = _composeAdoDefault();
+      const confirmed = [];
+      for (const r of repos.slice(0, 20)) {
+        // "org/project/name", "project/name", or bare "name" (+ defaults).
+        const seg = r.split('/').map(x => x.trim()).filter(Boolean);
+        let org = def.org, project = def.project, name = r;
+        if (seg.length === 3) { [org, project, name] = seg; }
+        else if (seg.length === 2) { [project, name] = seg; }
+        else name = seg[0] || r;
+        if (!org || !project || !name) continue;
+        try {
+          const info = await _composeWithTimeout(F.repo({ org, project, repo: name }), TMO, 'repo');
+          if (info && (info.name || info.id)) confirmed.push({ ref: `${org}/${project}/${name}`, branch: (info.defaultBranch || '').replace(/^refs\/heads\//, '') });
+        } catch (_) { /* unconfirmed */ }
+      }
       parts.push('### Repositories to reference / search for context');
-      parts.push('Search these repositories for code, docs, config, structure, and naming relevant to the brief, and ground concrete details (real component/file/path names, APIs, patterns) in what you actually find. Cite only what you can confirm:\n' + repos.map(r => `- ${r}`).join('\n'));
+      const listing = repos.map(r => `- ${r}`).join('\n');
+      const confirmedNote = confirmed.length ? ('\nConfirmed to exist: ' + confirmed.map(c => `${c.ref}${c.branch ? ' @' + c.branch : ''}`).join('; ')) : '';
+      parts.push('Search these repositories for code, docs, config, structure, and naming relevant to the brief, and ground concrete details (real component/file/path names, APIs, patterns) in what you actually find. Cite only what you can confirm:\n' + listing + confirmedNote);
+      report('repos', 'Repositories', true, confirmed.length > 0, listing.length, confirmed.length ? `${confirmed.length}/${repos.length} confirmed to exist` : 'listed for search (existence unconfirmed)');
     }
   }
   // Reference another composition / the Newsletter — we already hold these drafts
@@ -12106,17 +12333,23 @@ function _composeSourceContext(c) {
       parts.push('### Existing compositions to reuse as source material');
       parts.push('Draw on the substance below (facts, framing, data, structure) where relevant. Do not copy verbatim — synthesize it into this composition.');
       parts.push(blocks.join('\n\n---\n\n'));
+      report('composition', 'Compositions / Newsletter', true, true, blocks.join('').length, `${blocks.length} inlined`);
+    } else {
+      report('composition', 'Compositions / Newsletter', true, false, 0, 'referenced draft(s) empty or missing');
     }
   }
   if (src.m365) {
     parts.push('### Microsoft 365 (WorkIQ)');
     parts.push('If you have M365/WorkIQ access, pull relevant mail, meetings, and files for this brief and cite what you actually find. If you cannot access it, say so rather than inventing content.');
+    report('m365', 'Microsoft 365 (WorkIQ)', true, false, 0, 'needs the WorkIQ tool in the agent runtime — not resolvable server-side');
   }
   if (src.pasted && String(src.pasted).trim()) {
+    const t = String(src.pasted).trim().slice(0, 12000);
     parts.push('### Pasted context provided by the user');
-    parts.push(String(src.pasted).trim().slice(0, 12000));
+    parts.push(t);
+    report('pasted', 'Pasted context', true, true, t.length, '');
   }
-  return { block: parts.length ? parts.join('\n\n') : '(no external sources selected — ground the work in the brief and your own investigation)', evidenceCount };
+  return { block: parts.length ? parts.join('\n\n') : '(no external sources selected — ground the work in the brief and your own investigation)', evidenceCount, resolved };
 }
 
 // Wrap raw inner HTML in a minimal self-contained document (used only when the
@@ -12206,7 +12439,7 @@ async function runComposeGeneration(id, runId) {
     try { broadcastSSE('compose-progress', { id, runId: runId || null, icon, text, done: !!done, at: Date.now(), seq: ++_seq }); } catch (_) { /* ignore */ }
   };
   emit('🧭', `Composing a ${(compose.purposeById(c.purpose) || {}).label || c.purpose} for ${c.format}…`);
-  const { block, evidenceCount } = _composeSourceContext(c);
+  const { block, evidenceCount } = await _composeSourceContext(c);
   if (evidenceCount) emit('📖', `Reading ${evidenceCount} source item${evidenceCount === 1 ? '' : 's'}`);
   const prompt = _composeGeneratePrompt(c, block);
   const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };
@@ -12249,7 +12482,7 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     try { broadcastSSE('compose-progress', { id, runId: runId || null, chat: true, icon, text, done: !!done, at: Date.now(), seq: ++_seq }); } catch (_) { /* ignore */ }
   };
   emit('💬', atts.length ? 'Reading your message and attached image(s)…' : 'Reading your feedback…');
-  const { block } = _composeSourceContext(c);
+  const { block } = await _composeSourceContext(c);
   const p = compose.purposeById(c.purpose) || { label: c.purpose };
   // Honour the live editor buffer the client sends (unsaved edits) over the stored draft.
   const curDraft = String(draft != null ? draft : ((c.draft && c.draft.content) || '')).trim();
@@ -12625,6 +12858,18 @@ app.post('/api/compose/:id/chat', async (req, res) => {
     const { message, history, runId, draft, attachments } = req.body || {};
     const out = await runComposeChat(req.params.id, { message, history, runId, draft, attachments });
     res.json({ ok: true, ...out });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Resolve every checked source server-side and report what actually reaches the
+// assistant. Powers the Sources rail "what reached the assistant" indicator and
+// the automated source-validation harness — so the user never has to hand-test.
+app.get('/api/compose/:id/sources/preview', async (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const { block, evidenceCount, resolved } = await _composeSourceContext(c);
+    res.json({ ok: true, evidenceCount, resolved: resolved || [], blockChars: (block || '').length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

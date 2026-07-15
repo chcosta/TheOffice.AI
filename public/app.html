@@ -20506,6 +20506,16 @@
               .cmpx-wirow .mid .ti{font-size:13px;line-height:1.3;color:var(--cp-text)}
               .cmpx-wirow .mid .mt{font-size:11px;color:var(--cp-text-secondary)}
               .cmpx-src{border:1px solid var(--cp-border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--cp-surface)}
+              /* "What reaches the assistant" — calm per-source resolution report (no pills) */
+              .cmpx-srccheck{margin-top:12px;padding-top:10px;border-top:1px solid var(--cp-border)}
+              .cmpx-srccheck-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--cp-text-secondary)}
+              .cmpx-srccheck-list{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+              .cmpx-srccheck-row{display:flex;align-items:baseline;gap:8px;font-size:12px;line-height:1.4}
+              .cmpx-srccheck-row .mk{flex:0 0 auto;font-weight:700}
+              .cmpx-srccheck-row.ok .mk{color:var(--cp-success,#2e9e5b)}
+              .cmpx-srccheck-row.bad .mk{color:var(--cp-text-secondary)}
+              .cmpx-srccheck-row .lb{flex:0 0 auto;color:var(--cp-text);font-weight:500}
+              .cmpx-srccheck-row .mt{min-width:0;color:var(--cp-text-secondary)}
               .cmpx-srcrow{display:flex;align-items:center;gap:10px}
               .cmpx-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
               /* Studio */
@@ -20935,6 +20945,24 @@
                               <div style="display:flex;gap:6px;margin-top:6px"><input class="field-input" type="text" x-model="compose.studioLinkInput" @keydown.enter.prevent="composeStudioAddLink()" placeholder="https://…" /><button class="btn ghost" type="button" style="padding:5px 10px" @click="composeStudioAddLink()">Add</button></div>
                             </div>
                             <div class="nlx-fld"><label>Pasted context</label><textarea class="field-input" rows="3" style="resize:vertical" x-model="compose.current.sources.pasted" @input="composeMarkBriefDirty()" placeholder="Paste notes, data, or excerpts the writer should use…"></textarea></div>
+                            <div class="cmpx-srccheck">
+                              <div class="cmpx-srccheck-h">
+                                <span>What reaches the assistant</span>
+                                <button type="button" class="btn ghost" style="padding:3px 8px;font-size:11px" @click="composeSourcesCheck()" :disabled="compose.sourcesChecking" x-text="compose.sourcesChecking ? 'Checking…' : 'Check sources'"></button>
+                              </div>
+                              <template x-if="!compose.sourcesChecking && compose.sourcesResolved.length">
+                                <div class="cmpx-srccheck-list">
+                                  <template x-for="r in compose.sourcesResolved" :key="r.id">
+                                    <div class="cmpx-srccheck-row" :class="{ ok: r.ok, bad: !r.ok }">
+                                      <span class="mk" x-text="r.ok ? '✓' : '—'"></span>
+                                      <span class="lb" x-text="r.label"></span>
+                                      <span class="mt" x-text="r.ok ? (r.chars ? (Math.round(r.chars/100)/10 + 'k chars reached the assistant') + (r.note ? ' · ' + r.note : '') : (r.note || 'reached the assistant')) : (r.note || 'could not be reached')"></span>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
+                              <div class="hint" style="margin-top:4px" x-show="!compose.sourcesChecking && compose.sourcesChecked && !compose.sourcesResolved.length">No sources selected yet — the draft will be grounded in the brief alone.</div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -29572,6 +29600,9 @@
           zoom: 1,                // preview zoom (markdown docs)
           briefDirty: false,      // rail brief edited but not regenerated
           studioLinkInput: '',    // add-a-link buffer in the studio rail
+          sourcesResolved: [],    // per-source "what reaches the assistant" report
+          sourcesChecking: false, // preview fetch in flight
+          sourcesChecked: false,  // a check has completed at least once
           generating: false,
           runId: null,
           progress: [],
@@ -46628,6 +46659,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           co.draftDirty = false;
           co.briefDirty = false;
           co.studioLinkInput = '';
+          co.sourcesResolved = [];
+          co.sourcesChecked = false;
+          co.sourcesChecking = false;
           co.tab = 'compose';
           co.preview = true;
           co.chat.messages = Array.isArray(c.chat) ? c.chat.map(m => ({ role: m.role, text: m.content || m.text || '' })) : [];
@@ -46693,6 +46727,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.toast('Could not save framing: ' + (e.message || e), 'error');
           }
+        },
+        // Persist the framing first, then ask the server EXACTLY what content each
+        // checked source resolves to — so the user can see (and we can test) that a
+        // source really reaches the assistant instead of hand-checking each one.
+        async composeSourcesCheck() {
+          const co = this.compose;
+          if (!co.current || co.sourcesChecking) return;
+          co.sourcesChecking = true;
+          try {
+            await this.composePersistMeta();
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/sources/preview');
+            co.sourcesResolved = (r && Array.isArray(r.resolved)) ? r.resolved : [];
+            co.sourcesChecked = true;
+          } catch (e) {
+            this.toast('Could not check sources: ' + (e.message || e), 'error');
+          } finally { co.sourcesChecking = false; }
         },
         async composeGenerate() {
           const co = this.compose;

@@ -599,7 +599,7 @@ await t.test('compose prototype: interactive scenario (site format lock, sandbox
 
   const src = readFileSync('server.js', 'utf8');
   // writer prompt: interactive prototype (JS allowed), repos ref branch
-  const ctx = _win(src, '_composeSourceContext', 3000);
+  const ctx = _win(src, '_composeSourceContext', 9000);
   t.ok(/reposRef/.test(ctx), '_composeSourceContext reads a repos ref');
   const gen = _win(src, 'Prototype requirements', 1200);
   t.ok(gen, 'generate prompt has a prototype-requirements block');
