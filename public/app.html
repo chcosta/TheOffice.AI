@@ -20760,7 +20760,7 @@
                 </div>
                 <div class="spacer"></div>
                 <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="composeOpenLibrary()">📁 Documents</button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeBackToLauncher()" title="Start a new composition — pick a purpose">✚ New</button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeNewSamePurpose()" :title="'Start a new ' + (composePurposeLabel((compose.current &amp;&amp; compose.current.purpose) || '') || 'composition') + ' — same purpose as this one'">✚ New</button>
                 <button class="btn ghost" type="button" x-show="compose.view !== 'launcher'" @click="compose.view === 'studio' ? composeBackToLauncher() : (compose.view = 'launcher')">← All compositions</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
               </div>
@@ -46414,11 +46414,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             co.capture = (r && r.capture) || null;
             co.diaryHasEvidence = !!(r && r.diaryHasEvidence);
             co.loaded = true;
-            // Land on the launcher unless we're already deep in a composition
-            // or browsing the documents library.
-            if (!co.current && co.view !== 'library') co.view = 'launcher';
-            // Honor a purpose picked from the global FAB launcher.
+            // Honor a purpose picked from the global FAB launcher — a deep link always wins.
             if (co._pendingStart) { const pid = co._pendingStart; co._pendingStart = null; this.composeStart(pid); }
+            // Otherwise restore the last-viewed composition so a refresh or a return trip lands
+            // back in the studio where the user left off — not on the launcher. Falls back to the
+            // launcher when nothing is saved or the saved doc was since deleted. The library view
+            // is left as-is.
+            else if (!co.current && co.view !== 'library') {
+              let lastId = '';
+              try { lastId = localStorage.getItem('compose-last-id') || ''; } catch {}
+              if (lastId && (co.compositions || []).some(c => c.id === lastId)) {
+                await this.composeOpen(lastId);
+              } else {
+                if (lastId) { try { localStorage.removeItem('compose-last-id'); } catch {} }
+                co.view = 'launcher';
+              }
+            }
           } catch (e) {
             this.toast('Failed to load Compose.AI: ' + (e.message || e), 'error');
           } finally { co.loading = false; }
@@ -46962,6 +46973,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (c && !c.sources) c.sources = this.composeSourcesDefault();
           if (c && c.sources) { c.sources = { ...this.composeSourcesDefault(), ...c.sources }; if (!Array.isArray(c.sources.links)) c.sources.links = []; }
           co.current = c;
+          try { if (c && c.id) localStorage.setItem('compose-last-id', c.id); } catch {}
           co.draftText = (c.draft && c.draft.content) || '';
           co.draftFormat = (c.draft && c.draft.contentFormat) || (c.format === 'site' ? 'html' : 'markdown');
           co.draftDirty = false;
@@ -47003,7 +47015,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.switcherOpen = false;
           this.compose.current = null;
           this.compose.view = 'launcher';
+          try { localStorage.removeItem('compose-last-id'); } catch {}
           this.loadCompose();
+        },
+        // "✚ New" from inside the studio: start a fresh composition of the SAME purpose the
+        // user is currently working in (e.g. another "Brainstorm & options"), rather than
+        // bouncing them back to the launcher to re-pick. Falls back to the launcher when the
+        // current purpose is somehow unknown.
+        composeNewSamePurpose() {
+          if (this.compose.draftDirty && !confirm('Discard unsaved edits to this draft?')) return;
+          this.compose.switcherOpen = false;
+          const purpose = this.compose.current && this.compose.current.purpose;
+          if (purpose) { this.composeStart(purpose, { forceNew: true }); }
+          else { this.composeBackToLauncher(); }
         },
         composeToggleSwitcher() {
           this.compose.switcherOpen = !this.compose.switcherOpen;
@@ -47593,7 +47617,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!opts.silent && !confirm('Delete this composition? This cannot be undone.')) return;
           try {
             await this.request('/api/compose/' + encodeURIComponent(id), { method: 'DELETE' });
-            if (this.compose.current && this.compose.current.id === id) { this.compose.current = null; this.compose.view = 'launcher'; }
+            if (this.compose.current && this.compose.current.id === id) { this.compose.current = null; this.compose.view = 'launcher'; try { localStorage.removeItem('compose-last-id'); } catch {} }
             const sel = this.compose.lib && this.compose.lib.sel;
             if (sel) { const i = sel.indexOf(id); if (i !== -1) sel.splice(i, 1); }
             await this.loadCompose();

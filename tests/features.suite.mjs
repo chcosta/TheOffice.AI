@@ -976,7 +976,7 @@ await t.test('Compose.AI documents library — real list/search/sort/filter/grid
   t.ok(/async composeLibShare\(id\)\s*\{[\s\S]*?await this\.composeOpen\(id\)[\s\S]*?composeOpenDeliver/.test(methods), 'share opens the studio deliver flow');
   t.ok(/composeDelete\(c\.id, \{ silent: true \}\)/.test(methods), 'bulk delete uses the silent delete path');
   // loadCompose must not clobber an explicit library view.
-  t.ok(/if \(!co\.current && co\.view !== 'library'\) co\.view = 'launcher'/.test(methods), 'loadCompose preserves the library view');
+  t.ok(/else if \(!co\.current && co\.view !== 'library'\)/.test(methods), 'loadCompose preserves the library view');
 });
 
 await t.test('Me-agent view is its own page (agenda hidden), not an overlay flashed over the agenda', () => {
@@ -1276,11 +1276,20 @@ await t.test('compose: version rename in place (+ promote fork still available) 
   const rc = _win(html, 'async composeRenameCurrent(newTitle, el)', 700);
   t.ok(/method: 'PATCH'/.test(rc) && /\/api\/compose\/' \+ encodeURIComponent\(co\.current\.id\)/.test(rc), 'composeRenameCurrent PATCHes the composition');
   t.ok(/co\.current\.title = nt;/.test(rc), 'composeRenameCurrent updates the current title');
-  // Studio view exposes an explicit "New" affordance (not just the buried switcher item).
-  t.ok(/x-show="compose\.view === 'studio'"[\s\S]{0,120}Start a new composition/.test(html), 'studio header has a visible New button');
+  // Studio view exposes an explicit "New" affordance (not just the buried switcher item),
+  // and it starts a NEW composition of the SAME purpose the user is in.
+  t.ok(/@click="composeNewSamePurpose\(\)"[\s\S]{0,240}✚ New/.test(html), 'studio header New button calls composeNewSamePurpose');
+  const nsp = _win(html, 'composeNewSamePurpose() {', 500);
+  t.ok(/const purpose = this\.compose\.current && this\.compose\.current\.purpose;/.test(nsp), 'New reads the current purpose');
+  t.ok(/this\.composeStart\(purpose, \{ forceNew: true \}\);/.test(nsp), 'New starts a fresh same-purpose composition');
   // Layout: studio fills the content area (flex column) so panels scroll independently.
   t.ok(/\.cmpx-studio-fill\{flex:1;min-height:0/.test(html), 'studio-fill wrapper fills remaining height');
   t.ok(/\.cmpx-wrap:has\(\.cmpx-paired\)\{[^}]*var\(--ql-h,0px\)/.test(html), 'studio height subtracts the quick-launch bar');
+  // Refresh/return restores the last-viewed composition instead of dumping to the launcher.
+  t.ok(/localStorage\.setItem\('compose-last-id', c\.id\)/.test(html), 'opening a composition persists its id');
+  const lc = _win(html, 'async loadCompose() {', 2400);
+  t.ok(/localStorage\.getItem\('compose-last-id'\)/.test(lc), 'loadCompose reads the saved id');
+  t.ok(/\(co\.compositions \|\| \[\]\)\.some\(c => c\.id === lastId\)[\s\S]{0,80}this\.composeOpen\(lastId\)/.test(lc), 'loadCompose reopens the saved doc when it still exists');
 });
 
 await t.test('compose: version quick-view (read-only preview without restoring)', () => {
