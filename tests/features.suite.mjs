@@ -1271,6 +1271,16 @@ await t.test('compose: version rename in place (+ promote fork still available) 
   t.ok(/method: 'PATCH'/.test(rm), 'composeRenameVersion PATCHes the version');
   t.ok(/v\.title = nt;/.test(rm), 'composeRenameVersion updates v.title locally so the row sticks');
   t.ok(/v\.title = was;/.test(rm), 'composeRenameVersion reverts the input on failure');
+  // Current draft is renamable in place from the history view (PATCHes the composition title).
+  t.ok(/@change="composeRenameCurrent\(\$event\.target\.value, \$event\.target\)"/.test(html), 'current-draft row calls composeRenameCurrent');
+  const rc = _win(html, 'async composeRenameCurrent(newTitle, el)', 700);
+  t.ok(/method: 'PATCH'/.test(rc) && /\/api\/compose\/' \+ encodeURIComponent\(co\.current\.id\)/.test(rc), 'composeRenameCurrent PATCHes the composition');
+  t.ok(/co\.current\.title = nt;/.test(rc), 'composeRenameCurrent updates the current title');
+  // Studio view exposes an explicit "New" affordance (not just the buried switcher item).
+  t.ok(/x-show="compose\.view === 'studio'"[\s\S]{0,120}Start a new composition/.test(html), 'studio header has a visible New button');
+  // Layout: studio fills the content area (flex column) so panels scroll independently.
+  t.ok(/\.cmpx-studio-fill\{flex:1;min-height:0/.test(html), 'studio-fill wrapper fills remaining height');
+  t.ok(/\.cmpx-wrap:has\(\.cmpx-paired\)\{[^}]*var\(--ql-h,0px\)/.test(html), 'studio height subtracts the quick-launch bar');
 });
 
 await t.test('compose: version quick-view (read-only preview without restoring)', () => {
@@ -1303,8 +1313,9 @@ await t.test('compose studio: independent per-panel scroll + rail resize preserv
   t.ok(/overflow:visible/.test(railCss), 'rail is non-scrolling (grip not clipped)');
   // resize grip still present + wired
   t.ok(/class="cmpx-rail-resize"[\s\S]{0,120}composeRailResizeStart/.test(html), 'rail resize grip is present + wired');
-  // the paired studio binds to the viewport so each column scrolls on its own
-  t.ok(/\.nlx-studio\.cmpx-paired\{[^}]*height:calc\(100vh/.test(html), 'paired studio is viewport-bound for independent scroll');
+  // the paired studio fills its flex parent (which is viewport-bound via .cmpx-wrap) so each column scrolls on its own
+  t.ok(/\.nlx-studio\.cmpx-paired\{height:100%;min-height:0/.test(html), 'paired studio fills its container for independent scroll');
+  t.ok(/\.cmpx-wrap:has\(\.cmpx-paired\)\{[^}]*height:calc\(100vh/.test(html), 'the studio wrap is viewport-bound (page does not scroll)');
 });
 
 await t.test('compose chat: auto-grow input + type-while-busy (Send gated on busy)', () => {

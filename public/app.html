@@ -20665,21 +20665,29 @@
               /* Studio uses the FULL viewport width (not a centered 1520px column) so a
                  wider left rail draws from the surrounding slack, never from the stage or
                  the assistant. The launcher/library keep the calm 1180px reading column. */
-              .cmpx-wrap:has(.cmpx-paired){max-width:none;width:100%;padding-inline:clamp(8px,1.4vw,26px)}
+              /* Studio fills the content area exactly (content height = 100vh - header - quick-launch,
+                 minus .content's 48px vertical padding) and lays out as a flex column: the compose
+                 header takes its natural height, the studio-fill wrapper takes the rest. This keeps the
+                 PAGE from scrolling so the rail, stage, and paired assistant each own their scroll. */
+              .cmpx-wrap:has(.cmpx-paired){max-width:none;width:100%;padding-inline:clamp(8px,1.4vw,26px);display:flex;flex-direction:column;height:calc(100vh - var(--header-height,56px) - var(--ql-h,0px) - 48px);min-height:480px}
+              .cmpx-studio-fill{flex:1;min-height:0;display:flex;flex-direction:column}
               .nlx-studio.cmpx-paired{grid-template-columns:var(--cmpx-rail-col,300px) minmax(0,1fr) var(--cmpx-pair-col,360px)}
               /* Independent per-panel scrolling: bind the studio to the viewport height so the
                  rail, the center stage, and the paired assistant each own their own scroll region
                  (the page itself doesn't scroll). Fullscreen (.cmpx-fs) overrides this below. */
-              .nlx-studio.cmpx-paired{height:calc(100vh - var(--header-height, 56px) - 62px);min-height:440px;align-items:stretch}
+              .nlx-studio.cmpx-paired{height:100%;min-height:0;align-items:stretch}
               .nlx-studio.cmpx-paired > .nlx-rail{height:100%;min-height:0;display:flex;flex-direction:column;overflow:visible}
               .nlx-studio.cmpx-paired > .nlx-rail > .nlx-rail-scroll{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:14px;padding-right:5px}
               .nlx-studio.cmpx-paired > .nlx-stage{height:100%;min-height:0;display:flex;flex-direction:column}
               .nlx-studio.cmpx-paired > .nlx-stage .nlx-scroll,
               .nlx-studio.cmpx-paired > .nlx-stage .nlx-hist{flex:1;min-height:0;overflow:auto}
               .cmpx-fs .nlx-studio.cmpx-paired{height:auto;min-height:0}
+              /* Fullscreen returns to normal flow so its own stage-height rules govern. */
+              .cmpx-fs .cmpx-wrap:has(.cmpx-paired){height:auto;min-height:0;display:block}
+              .cmpx-fs .cmpx-studio-fill{flex:none;display:block}
               .cmpx-pair{position:sticky;top:12px;height:calc(100vh - var(--header-height, 56px) - 62px);min-height:440px;display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);overflow:hidden}
               /* In the viewport-bound studio the pair is a normal full-height column (its own scroll). */
-              .nlx-studio.cmpx-paired > .cmpx-pair{position:relative;top:0;height:100%}
+              .nlx-studio.cmpx-paired > .cmpx-pair{position:relative;top:0;height:100%;min-height:0}
               .cmpx-fs .cmpx-pair{height:calc(100vh - 120px);top:0}
               .cmpx-pair.drop{outline:2px dashed var(--cp-accent);outline-offset:-4px}
               .cmpx-pair-resize{position:absolute;left:0;top:0;bottom:0;width:7px;cursor:col-resize;z-index:3}
@@ -20752,6 +20760,7 @@
                 </div>
                 <div class="spacer"></div>
                 <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="composeOpenLibrary()">📁 Documents</button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeBackToLauncher()" title="Start a new composition — pick a purpose">✚ New</button>
                 <button class="btn ghost" type="button" x-show="compose.view !== 'launcher'" @click="compose.view === 'studio' ? composeBackToLauncher() : (compose.view = 'launcher')">← All compositions</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
               </div>
@@ -20913,7 +20922,7 @@
 
               <!-- ============ STUDIO ============ -->
               <template x-if="compose.view === 'studio' && compose.current && !compose.loading">
-                <div>
+                <div class="cmpx-studio-fill">
                   <!-- ===== Studio: rail · stage · paired assistant ===== -->
                   <div class="nlx-studio cmpx-paired" :class="{ 'paired-open': compose.chat.open, 'paired-collapsed': !compose.chat.open, 'rail-open': composeRailOpen(), 'rail-collapsed': !composeRailOpen() }" :style="'--cmpx-rail-col:' + (composeRailOpen() ? composeRailW()+'px' : '40px') + ';--cmpx-pair-col:' + (compose.chat.open ? composePairW()+'px' : '40px')">
 
@@ -21234,7 +21243,7 @@
                           <div class="connect-version-row cmpx-ver-current">
                             <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
                               <div style="min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                <strong x-text="composeCurrentVersion().title || 'Current draft'"></strong>
+                                <input class="cmpx-ver-title" type="text" :value="composeCurrentVersion().title || 'Current draft'" @keydown.enter.prevent="$event.target.blur()" @change="composeRenameCurrent($event.target.value, $event.target)" title="Rename the current draft" />
                                 <span class="connect-src-badge" x-show="composeCurrentVersion().source === 'ai'" style="background:var(--cp-accent-soft);color:var(--cp-text)">✨ AI</span>
                                 <span class="cmpx-ver-cur-tag">current</span>
                               </div>
@@ -21246,6 +21255,7 @@
                               <div class="cmpx-prov-hist-note" x-show="composeCurrentVersion().prompt" x-text="'“' + composeCurrentVersion().prompt + '”'"></div>
                               <div class="cmpx-prov-hist-fr" x-show="composeProvFraming(composeCurrentVersion())" x-text="composeProvFraming(composeCurrentVersion())"></div>
                             </div>
+                            <div class="cmpx-ver-hint">Edit the title and press Enter to rename this document.</div>
                           </div>
                         </template>
                         <!-- Prior snapshots. Editing a title promotes that version to its own document. -->
@@ -47518,6 +47528,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             v.title = was; // revert the input on failure
             this.toast('Could not rename version: ' + (e.message || e), 'error');
+          }
+        },
+        // Rename the CURRENT working draft from the history view. The current
+        // version's title IS the composition title, so this PATCHes the composition
+        // and updates compose.current + the library row. Reverts the input on
+        // failure/no-op (the row's :value re-reads composeCurrentVersion()).
+        async composeRenameCurrent(newTitle, el) {
+          const co = this.compose;
+          if (!co.current) return;
+          const title = String(newTitle || '').trim();
+          const was = String(co.current.title || '').trim();
+          if (!title || title === was) { if (el) el.value = was || 'Current draft'; return; }
+          try {
+            await this.request('/api/compose/' + encodeURIComponent(co.current.id), {
+              method: 'PATCH', body: JSON.stringify({ title }),
+            });
+            const nt = title.slice(0, 200);
+            co.current.title = nt;
+            const item = (co.compositions || []).find(x => x.id === co.current.id);
+            if (item) item.title = nt;
+            if (el) el.value = nt;
+            this.toast('Renamed to “' + nt + '”.', 'success');
+          } catch (e) {
+            if (el) el.value = was || 'Current draft';
+            this.toast('Could not rename: ' + (e.message || e), 'error');
           }
         },
         // Read-only quick view of a version's content — see what a snapshot contains
