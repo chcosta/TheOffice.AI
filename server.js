@@ -28358,6 +28358,8 @@ app.get('/api/me-ai/task/:id/report/latest', (req, res) => {
       artifactId,
       reportUrl: artifactId ? ('/api/me-ai/task/' + encodeURIComponent(id) + '/report/' + encodeURIComponent(artifactId) + '/view') : null,
       format: format || null,
+      nodes: legCount,
+      updatedAt: (t && (t.updatedAt || t.date)) || (tree && tree.updatedAt) || '',
       body,
     });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }

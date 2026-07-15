@@ -29707,6 +29707,11 @@
         _boardDocLoaded: false,
         _boardDocLoading: false,
         boardDocDetail: {},
+        // Lightweight metadata cache (id → { purpose, format, updatedAt, preview, title })
+        // for document board/map cards — one batched /api/compose fetch feeds every
+        // pinned doc card so cards show type, last-modified + a summary without N calls.
+        _boardDocMeta: {},
+        _boardDocMetaLoaded: false,
         boardMeAiCandidates: [],
         _boardMeAiLoaded: false,
         _boardMeAiLoading: false,
@@ -50846,11 +50851,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             let resp = null;
             try { resp = await this.request('/api/compose'); } catch { resp = null; }
             const comps = (resp && resp.compositions) || [];
+            const metaMap = {};
+            for (const c of comps) {
+              if (!c || !c.id) continue;
+              metaMap[c.id] = { purpose: c.purpose || '', format: c.format || '', updatedAt: c.updatedAt || '', preview: c.preview || '', title: c.title || '' };
+            }
+            this._boardDocMeta = metaMap;
+            this._boardDocMetaLoaded = true;
             this.boardDocCandidates = comps.filter(c => c && c.kind !== 'newsletter').map(c => ({
               kind: 'document', refId: c.id,
               label: c.title || 'Untitled',
               sublabel: [this.composePurposeLabel(c.purpose), this.composeFormatLabel(c.format)].filter(Boolean).join(' · '),
-              meta: { compositionId: c.id, title: c.title || '', format: c.format || '', purpose: c.purpose || '' },
+              meta: { compositionId: c.id, title: c.title || '', format: c.format || '', purpose: c.purpose || '', updatedAt: c.updatedAt || '', preview: c.preview || '' },
             }));
             this._boardDocLoaded = true;
           } finally {
@@ -51783,6 +51795,53 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         boardDocState(item) {
           return (item && this.boardDocDetail[item.refId]) || { loading: true };
         },
+        // One batched load of composition metadata (purpose/format/updatedAt/preview)
+        // for every document map card — reuses loadBoardDocCandidates (which fills the
+        // _boardDocMeta cache). Safe to call repeatedly; loads at most once.
+        ensureBoardDocMeta() {
+          if (this._boardDocMetaLoaded || this._boardDocLoading) return;
+          try { this.loadBoardDocCandidates(); } catch {}
+        },
+        // Best-available metadata for a document pin: prefer the batched cache (keyed by
+        // composition id), fall back to whatever the pin itself carries. Kicks off the
+        // batched load lazily the first time a doc card asks.
+        _bmapDocMeta(p) {
+          try {
+            const it = (p && p.item) || {};
+            const id = it.refId;
+            const base = it.meta || {};
+            if (!this._boardDocMetaLoaded) this.ensureBoardDocMeta();
+            const c = (id && this._boardDocMeta && this._boardDocMeta[id]) || null;
+            return {
+              purpose: (c && c.purpose) || base.purpose || '',
+              format: (c && c.format) || base.format || '',
+              updatedAt: (c && c.updatedAt) || base.updatedAt || '',
+              preview: (c && c.preview) || base.preview || it.summary || '',
+              title: (c && c.title) || it.label || base.title || '',
+            };
+          } catch { return { purpose: '', format: '', updatedAt: '', preview: '', title: '' }; }
+        },
+        // Best-available metadata for a Me.AI run pin card on the map: lazily folds the
+        // run's report info into boardMeAiDetail (nodes / status / last-run / report link),
+        // falling back to whatever the pin itself carries until the fetch lands.
+        _bmapMeAiMeta(p) {
+          try {
+            const it = (p && p.item) || {};
+            const id = it.refId;
+            const base = it.meta || {};
+            if (id && this.boardMeAiDetail[id] === undefined) { try { this.boardMeAiEnsure(it); } catch {} }
+            const c = (id && this.boardMeAiDetail && this.boardMeAiDetail[id]) || null;
+            return {
+              status: (c && (c.status || c.stage)) || base.status || base.stage || '',
+              nodes: (c && c.nodes) || 0,
+              updatedAt: (c && c.updatedAt) || base.updatedAt || '',
+              hasReport: !!(c ? c.hasReport : base.hasReport),
+              reportUrl: (c && c.reportUrl) || '',
+              goal: (c && c.goal) || it.summary || '',
+              title: (c && c.title) || it.label || base.title || '',
+            };
+          } catch { return { status: '', nodes: 0, updatedAt: '', hasReport: false, reportUrl: '', goal: '', title: '' }; }
+        },
         // Lazy-load a pinned Me.AI run's final report for inline preview + quick access
         // on its board card. Uses the lean /report/latest endpoint (no full-tree fold
         // client-side). Cached in boardMeAiDetail keyed by run id.
@@ -51791,7 +51850,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!item || !item.refId) return;
           if (this.boardMeAiDetail[item.refId] !== undefined) return;
           this.boardMeAiDetail = { ...this.boardMeAiDetail, [item.refId]: { loading: true } };
-          let st = { loading: false, hasReport: false, reportUrl: '', html: '', site: '', empty: true, goal: '', stage: '', status: '', mode: '', title: item.label || '' };
+          let st = { loading: false, hasReport: false, reportUrl: '', html: '', site: '', empty: true, goal: '', stage: '', status: '', mode: '', nodes: 0, updatedAt: '', title: item.label || '' };
           try {
             const r = await this.request('/api/me-ai/task/' + encodeURIComponent(item.refId) + '/report/latest');
             if (r && r.ok) {
@@ -51800,6 +51859,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               st.stage = r.stage || '';
               st.status = r.status || '';
               st.mode = r.mode || '';
+              st.nodes = r.nodes || 0;
+              st.updatedAt = r.updatedAt || '';
               st.hasReport = !!r.hasReport;
               st.reportUrl = r.reportUrl || '';
               const body = r.body || '';
@@ -53159,7 +53220,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             pr: '#a371f7', dev: '#3fb950', agent: '#4493f8', manager: '#db61a2',
             task: '#e0823d', assignment: '#f0776c', flow: '#d29922', session: '#8b949e',
             chat: '#39c5cf', comment: '#26a3ab', location: '#6e7681',
-            note: '#f2cc60', checklist: '#2dd4bf', summary: '#79c0ff', pin: '#adbac7'
+            note: '#f2cc60', checklist: '#2dd4bf', summary: '#79c0ff', pin: '#adbac7',
+            document: '#f778ba', meairun: '#2ec4b6'
           };
           return map[this.bmapKindKey(p)] || map.pin;
         },
@@ -53225,6 +53287,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (kind === 'agent') { const a = this._bmapLive(p); const d = a && a.config && a.config.description; if (d) return String(d).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
               if (kind === 'manager') { const m = this._bmapLive(p); const d = m && m.config && m.config.description; if (d) return String(d).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
               if (kind === 'task' || kind === 'assignment') { const t = this._bmapLive(p); const d = t && (t.prompt || t.goal); if (d) return String(d).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
+              if (kind === 'document') { const d = this._bmapDocMeta(p); if (d.preview) return String(d.preview).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
+              if (kind === 'meairun') { const d = this._bmapMeAiMeta(p); if (d.goal) return String(d.goal).replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
               const body = it.summary || it.body || '';
               let meta = it.sublabel || '';
               if (kind === 'pr') { const m = it.meta || {}; meta = [m.state || m.status || it.state, m.repo || it.repo].filter(Boolean).join(' · ') || meta; }
@@ -53341,7 +53405,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return '';
           } catch { return ''; }
         },
-        bmapShowSummary(p) { return ['dev', 'agent', 'manager', 'task', 'assignment', 'note', 'chat', 'comment', 'location', 'summary'].includes(this.bmapKindKey(p)); },
+        bmapShowSummary(p) { return ['dev', 'agent', 'manager', 'task', 'assignment', 'note', 'chat', 'comment', 'location', 'summary', 'document', 'meairun'].includes(this.bmapKindKey(p)); },
         bmapProgress(p) {
           try {
             if (p.type !== 'checklist') return null;
@@ -53373,6 +53437,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (k === 'agent' || k === 'manager') {
               return { icon: '💬', label: 'Chat', title: 'Chat with this agent' };
             }
+            if (k === 'document') {
+              return { icon: '↗', label: 'Open in Compose', title: 'Open this document in Compose.AI' };
+            }
+            if (k === 'meairun') {
+              const d = this._bmapMeAiMeta(p);
+              if (d.hasReport && d.reportUrl) return { icon: '📄', label: 'Read the report', title: 'Open the final report' };
+              return { icon: '🔭', label: 'Open pursuit', title: 'Open this Me.AI run' };
+            }
             return null;
           } catch { return null; }
         },
@@ -53380,6 +53452,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const k = this.bmapKindKey(p);
             if (!p || !p.item) return;
+            // Me.AI run with a report → open the report directly in a new tab.
+            if (k === 'meairun') {
+              const d = this._bmapMeAiMeta(p);
+              if (d.hasReport && d.reportUrl) { window.open(d.reportUrl, '_blank', 'noopener'); return; }
+            }
             // Agents/managers open their detail page, which lands on the Chat tab.
             this.boardJump(p.item);
           } catch {}
@@ -53547,6 +53624,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               push('With', c.targetName || c.target);
             } else if (k === 'location') {
               push('Symbol', m.symbol); push('Lines', m.lines);
+            } else if (k === 'document') {
+              const d = this._bmapDocMeta(p);
+              push('Type', this.composePurposeLabel(d.purpose));
+              if (d.format) push('Format', this.composeFormatLabel(d.format));
+              push('Modified', this._bmapAgo(d.updatedAt));
+            } else if (k === 'meairun') {
+              const d = this._bmapMeAiMeta(p);
+              push('Status', d.status);
+              if (d.nodes) push('Nodes', d.nodes);
+              push('Last run', this._bmapAgo(d.updatedAt));
+              push('Report', d.hasReport ? 'Ready' : 'None', d.hasReport ? 'ok' : '');
             }
             return out.slice(0, 4);
           } catch { return []; }
@@ -53606,6 +53694,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         bmapCardMeta(p) {
           try {
             const k = this.bmapKindKey(p); const it = p.item || {}; const m = it.meta || {};
+            if (k === 'document') { const d = this._bmapDocMeta(p); const ago = this._bmapAgo(d.updatedAt); if (ago) return 'edited ' + ago; }
+            if (k === 'meairun') { const d = this._bmapMeAiMeta(p); const ago = this._bmapAgo(d.updatedAt); if (ago) return ago; }
             if (k === 'pr' && this.boardPrFull && this.boardPrFull(it)) { const pr = this.boardPrFor(it); const a = this.codeflowAgeLabel ? this.codeflowAgeLabel(pr) : ''; if (a) return a; }
             const st = this._bmapStat(p);
             if (st && st.relative) return st.relative;

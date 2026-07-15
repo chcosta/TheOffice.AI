@@ -1431,7 +1431,7 @@ await t.test('boards: pin Compose.AI documents (backend + picker + card + assist
   // FRONTEND — icon/label, picker candidates, jump, card detail, inline preview.
   t.ok(/document: 'Document'/.test(html), 'boardKindLabel maps document');
   t.ok(/document: '📄'/.test(html), 'boardKindIcon maps document');
-  const loader = _win(html, 'async loadBoardDocCandidates(force)', 600);
+  const loader = _win(html, 'async loadBoardDocCandidates(force)', 1000);
   t.ok(/\/api\/compose/.test(loader) && /newsletter/.test(loader), 'loadBoardDocCandidates GETs compositions and filters newsletters');
   t.ok(/this\.boardPinKind === 'document'/.test(html), 'pinCandidates has a document branch');
   // boardJump routes documents into the Compose studio on that composition.
@@ -1480,6 +1480,37 @@ await t.test('boards: pin Me.AI runs (backend + picker + card + report access + 
   t.ok(/report\/latest/.test(ensure) && /boardMeAiDetail/.test(ensure), 'boardMeAiEnsure lazy-loads the report into boardMeAiDetail');
   t.ok(/boardMeAiDetail: \{\}/.test(html), 'boardMeAiDetail cache is declared in state');
   t.ok(/boardPinHasDetail[\s\S]{0,200}'meairun'/.test(html), 'boardPinHasDetail includes meairun');
+});
+
+await t.test('board map: document + Me.AI-run cards are enriched (color, facts, meta, summary, action)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  // Distinct gradients: document = pink/rose, meairun = teal.
+  t.ok(/document: '#f778ba'/.test(html), 'bmapKindColor maps document to a pink/rose gradient');
+  t.ok(/meairun: '#2ec4b6'/.test(html), 'bmapKindColor maps meairun to a teal gradient');
+  // Batched doc-meta cache + per-card meta accessors.
+  t.ok(/_bmapDocMeta\(p\)/.test(html), '_bmapDocMeta accessor exists');
+  t.ok(/_bmapMeAiMeta\(p\)/.test(html), '_bmapMeAiMeta accessor exists');
+  t.ok(/_boardDocMeta\b/.test(html) && /_boardDocMetaLoaded/.test(html), 'batched document meta cache is present');
+  t.ok(/ensureBoardDocMeta\(\)/.test(html), 'ensureBoardDocMeta lazily kicks the batched load');
+  // Facts: document (Type/Format/Modified) + meairun (Status/Nodes/Last run/Report).
+  const facts = _win(html, 'bmapFacts(p) {', 8000);
+  t.ok(/k === 'document'[\s\S]{0,220}composePurposeLabel[\s\S]{0,160}Modified/.test(facts), 'bmapFacts has a document branch (type/format/modified)');
+  t.ok(/k === 'meairun'[\s\S]{0,260}push\('Status'[\s\S]{0,160}Last run/.test(facts), 'bmapFacts has a meairun branch (status/nodes/last-run/report)');
+  // Footer meta shows last-modified / last-run age for existing pins.
+  t.ok(/k === 'document'[\s\S]{0,140}edited/.test(_win(html, 'bmapCardMeta(p) {', 900)), 'bmapCardMeta shows document edited-age');
+  t.ok(/k === 'meairun'[\s\S]{0,120}_bmapAgo/.test(_win(html, 'bmapCardMeta(p) {', 900)), 'bmapCardMeta shows meairun last-run age');
+  // Summary + show-summary include both kinds.
+  t.ok(/bmapShowSummary/.test(html) && /'document'/.test(_win(html, 'bmapShowSummary(p) {', 400)) && /'meairun'/.test(_win(html, 'bmapShowSummary(p) {', 400)), 'bmapShowSummary renders document + meairun summaries');
+  // Card action: meairun opens the final report when present.
+  const act = _win(html, 'bmapCardAction(p) {', 1200);
+  t.ok(/k === 'meairun'[\s\S]{0,200}Read the report/.test(act), 'bmapCardAction offers "Read the report" for a Me.AI run');
+  t.ok(/k === 'document'[\s\S]{0,160}Open in Compose/.test(act), 'bmapCardAction offers "Open in Compose" for a document');
+  t.ok(/hasReport && d\.reportUrl[\s\S]{0,120}window\.open/.test(_win(html, 'bmapDoCardAction(p) {', 700)), 'bmapDoCardAction opens the report url in a new tab');
+  // Server /report/latest carries nodes + updatedAt for the card facts/footer.
+  t.ok(/report\/latest/.test(srv), 'report/latest endpoint present');
+  const rep = _win(srv, 'report/latest', 2600);
+  t.ok(/nodes:/.test(rep) && /updatedAt:/.test(rep), 'report/latest returns nodes + updatedAt');
 });
 
 await t.test('compose library: pin a document to a board (row/card/studio) + non-overlapping row actions', () => {
