@@ -21319,9 +21319,12 @@
                     </div>
                   </div>
 
-                  <!-- Version quick-view modal -->
-                  <div x-show="compose.verPreview.open" @click.self="composeVersionPreviewClose()"
-                       style="position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center">
+                  <!-- Version quick-view modal (teleported to body so position:fixed
+                       resolves to the viewport, not a transformed studio ancestor) -->
+                  <template x-teleport="body">
+                  <div x-show="compose.verPreview.open" @click.self="composeVersionPreviewClose()" x-cloak
+                       @keydown.escape.window="composeVersionPreviewClose()"
+                       style="position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center">
                     <div class="card" style="width:min(1200px,96vw);max-width:96vw;height:94vh;max-height:94vh;padding:0;display:flex;flex-direction:column" @click.stop>
                       <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cp-border)">
                         <h3 style="margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="compose.verPreview.title || 'Version preview'"></h3>
@@ -21339,6 +21342,7 @@
                       </div>
                     </div>
                   </div>
+                  </template>
                 </div>
               </template>
             </div>
