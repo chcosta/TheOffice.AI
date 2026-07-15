@@ -20557,6 +20557,14 @@
               .cmpx-prov-hist{margin-top:6px;padding-left:2px}
               .cmpx-prov-hist-note{font-size:12.5px;color:var(--cp-text);font-style:italic}
               .cmpx-prov-hist-fr{font-size:11.5px;color:var(--cp-text-dim);margin-top:2px}
+              /* Version history: the current working iteration sits at the top, marked
+                 "current"; prior titles are inline-editable (rename → promote to own doc). */
+              .cmpx-ver-current{border-color:var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 5%,var(--cp-surface,var(--cp-bg)))}
+              .cmpx-ver-cur-tag{font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--cp-accent);text-transform:uppercase}
+              .cmpx-ver-title{border:1px solid transparent;background:transparent;color:var(--cp-text);font-weight:700;font-size:14px;padding:2px 6px;border-radius:6px;min-width:120px;max-width:340px;font-family:inherit}
+              .cmpx-ver-title:hover{border-color:var(--cp-border)}
+              .cmpx-ver-title:focus{border-color:var(--cp-accent);background:var(--cp-bg);outline:none}
+              .cmpx-ver-hint{margin-top:5px;font-size:11px;color:var(--cp-text-dim)}
               /* Activity log during generation */
               .cmpx-activity{border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);padding:14px;margin-bottom:14px}
               .cmpx-actline{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--cp-text)}
@@ -20600,9 +20608,24 @@
               .cmpx-fs .nlx-stage{height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0}
               .cmpx-fs .nlx-scroll{flex:1;min-height:0;overflow:auto}
               /* Docked paired assistant (replaces the What-to-say brief) */
-              .cmpx-wrap:has(.cmpx-paired){max-width:1520px}
+              /* Studio uses the FULL viewport width (not a centered 1520px column) so a
+                 wider left rail draws from the surrounding slack, never from the stage or
+                 the assistant. The launcher/library keep the calm 1180px reading column. */
+              .cmpx-wrap:has(.cmpx-paired){max-width:none;width:100%;padding-inline:clamp(8px,1.4vw,26px)}
               .nlx-studio.cmpx-paired{grid-template-columns:var(--cmpx-rail-col,300px) minmax(0,1fr) var(--cmpx-pair-col,360px)}
+              /* Independent per-panel scrolling: bind the studio to the viewport height so the
+                 rail, the center stage, and the paired assistant each own their own scroll region
+                 (the page itself doesn't scroll). Fullscreen (.cmpx-fs) overrides this below. */
+              .nlx-studio.cmpx-paired{height:calc(100vh - var(--header-height, 56px) - 62px);min-height:440px;align-items:stretch}
+              .nlx-studio.cmpx-paired > .nlx-rail{height:100%;min-height:0;display:flex;flex-direction:column;overflow:visible}
+              .nlx-studio.cmpx-paired > .nlx-rail > .nlx-rail-scroll{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:14px;padding-right:5px}
+              .nlx-studio.cmpx-paired > .nlx-stage{height:100%;min-height:0;display:flex;flex-direction:column}
+              .nlx-studio.cmpx-paired > .nlx-stage .nlx-scroll,
+              .nlx-studio.cmpx-paired > .nlx-stage .nlx-hist{flex:1;min-height:0;overflow:auto}
+              .cmpx-fs .nlx-studio.cmpx-paired{height:auto;min-height:0}
               .cmpx-pair{position:sticky;top:12px;height:calc(100vh - var(--header-height, 56px) - 62px);min-height:440px;display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);overflow:hidden}
+              /* In the viewport-bound studio the pair is a normal full-height column (its own scroll). */
+              .nlx-studio.cmpx-paired > .cmpx-pair{position:relative;top:0;height:100%}
               .cmpx-fs .cmpx-pair{height:calc(100vh - 120px);top:0}
               .cmpx-pair.drop{outline:2px dashed var(--cp-accent);outline-offset:-4px}
               .cmpx-pair-resize{position:absolute;left:0;top:0;bottom:0;width:7px;cursor:col-resize;z-index:3}
@@ -20630,7 +20653,7 @@
               .cmpx-pair-att .chip img{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--cp-border);display:block}
               .cmpx-pair-att .chip button{position:absolute;top:-6px;right:-6px;border:0;background:var(--cp-text);color:var(--cp-bg);border-radius:50%;width:16px;height:16px;font-size:10px;line-height:1;cursor:pointer}
               .cmpx-pair-in{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--cp-border)}
-              .cmpx-pair-in textarea{flex:1;resize:none;border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--cp-bg);color:var(--cp-text);min-height:40px;max-height:140px;font-family:inherit}
+              .cmpx-pair-in textarea{flex:1;resize:none;border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--cp-bg);color:var(--cp-text);min-height:40px;max-height:220px;font-family:inherit;overflow-y:auto}
               .cmpx-pair-in .send{border:0;background:var(--cp-accent);color:#fff;border-radius:8px;width:40px;font-size:15px;cursor:pointer;flex:none}
               .cmpx-pair-in .send:disabled{opacity:.5;cursor:default}
               .cmpx-pair-tab{align-self:start;position:sticky;top:12px;display:flex;flex-direction:column;align-items:center;gap:8px;writing-mode:vertical-rl;transform:rotate(180deg);border:1px solid var(--cp-border);background:var(--cp-surface);color:var(--cp-text);border-radius:10px;padding:14px 8px;cursor:pointer;font-size:12px;font-weight:600}
@@ -20816,6 +20839,7 @@
                     <!-- LEFT RAIL: brief + sources live here, out of the content's way -->
                     <aside class="nlx-rail" x-show="composeRailOpen()">
                       <button type="button" class="cmpx-rail-collapse" @click="composeToggleRail()" title="Collapse panel">‹ Collapse</button>
+                      <div class="nlx-rail-scroll">
                       <div class="nlx-card">
                         <div class="nlx-win">
                           <div>
@@ -20916,6 +20940,7 @@
                                           <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPursuits(true)" :disabled="compose.pickers.pursuitsLoading" title="Refresh pursuits">↻</button>
                                         </div>
                                         <div class="hint" style="margin-top:4px" x-show="compose.pickers.pursuitsLoading">Loading…</div>
+                                        <div class="hint" style="margin-top:4px" x-show="compose.current.sources.pursuitRef">Selected: <span x-text="composePursuitSelectedLabel()"></span></div>
                                       </div>
                                     </div>
                                   </template>
@@ -21041,6 +21066,7 @@
                           </div>
                         </div>
                       </div>
+                      </div>
                       <div class="cmpx-rail-resize" @pointerdown="composeRailResizeStart($event)" title="Drag to resize"></div>
                     </aside>
                     <!-- Collapsed rail: a slim reopen tab -->
@@ -21120,15 +21146,38 @@
 
                       <!-- history stage -->
                       <div class="nlx-hist" x-show="compose.tab === 'history'">
+                        <!-- Current working iteration — always at the top, marked "current".
+                             No Restore link (it IS the current draft); swap to a prior version
+                             via its Restore link below. -->
+                        <template x-if="composeCurrentVersion()">
+                          <div class="connect-version-row cmpx-ver-current">
+                            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+                              <div style="min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                <strong x-text="composeCurrentVersion().title || 'Current draft'"></strong>
+                                <span class="connect-src-badge" x-show="composeCurrentVersion().source === 'ai'" style="background:var(--cp-accent-soft);color:var(--cp-text)">✨ AI</span>
+                                <span class="cmpx-ver-cur-tag">current</span>
+                              </div>
+                              <div class="connect-mem-actions">
+                                <a href="#" @click.prevent="composeVersionPreview(composeCurrentVersion())">Quick view</a>
+                              </div>
+                            </div>
+                            <div class="cmpx-prov-hist" x-show="composeProvHas(composeCurrentVersion())">
+                              <div class="cmpx-prov-hist-note" x-show="composeCurrentVersion().prompt" x-text="'“' + composeCurrentVersion().prompt + '”'"></div>
+                              <div class="cmpx-prov-hist-fr" x-show="composeProvFraming(composeCurrentVersion())" x-text="composeProvFraming(composeCurrentVersion())"></div>
+                            </div>
+                          </div>
+                        </template>
+                        <!-- Prior snapshots. Editing a title promotes that version to its own document. -->
                         <template x-for="v in compose.versions" :key="v.id">
                           <div class="connect-version-row">
                             <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
-                              <div style="min-width:0">
-                                <strong x-text="v.title || 'Version'"></strong>
+                              <div style="min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                <input class="cmpx-ver-title" type="text" :value="v.title || 'Version'" @keydown.enter.prevent="$event.target.blur()" @change="composePromoteVersion(v, $event.target.value); $event.target.value = (v.title || 'Version')" title="Rename to save this version as its own document" />
                                 <span class="connect-src-badge" x-show="v.source === 'ai'" style="background:var(--cp-accent-soft);color:var(--cp-text)">✨ AI</span>
                                 <span class="hint" x-text="'· ' + (v.reason || 'saved') + ' · ' + formatRelative(v.savedAt)"></span>
                               </div>
                               <div class="connect-mem-actions">
+                                <a href="#" @click.prevent="composeVersionPreview(v)">Quick view</a>
                                 <a href="#" @click.prevent="composeRestoreVersion(v.id)">Restore</a>
                               </div>
                             </div>
@@ -21137,6 +21186,7 @@
                               <div class="cmpx-prov-hist-note" x-show="v.prompt" x-text="'“' + v.prompt + '”'"></div>
                               <div class="cmpx-prov-hist-fr" x-show="composeProvFraming(v)" x-text="composeProvFraming(v)"></div>
                             </div>
+                            <div class="cmpx-ver-hint">Rename to save this version as its own document.</div>
                           </div>
                         </template>
                         <div class="nlx-empty" x-show="!compose.versions.length"><div class="big">🕘</div><p>No earlier versions yet. Each generation and saved edit is snapshotted here.</p></div>
@@ -21194,7 +21244,7 @@
                         <div class="chip" x-show="compose.chat.uploading" style="display:flex;align-items:center;justify-content:center;width:44px;height:44px"><span class="hint" style="font-size:10px">…</span></div>
                       </div>
                       <div class="cmpx-pair-in">
-                        <textarea rows="2" :value="compose.chat.input" @input="compose.chat.input = $event.target.value" :placeholder="asstPlaceholder()" :disabled="compose.chat.busy" @paste="composeChatPaste($event)" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); composeChatSend(); }"></textarea>
+                        <textarea x-ref="composeChatInput" rows="1" :value="compose.chat.input" @input="compose.chat.input = $event.target.value; composeChatGrow($event.target)" :placeholder="asstPlaceholder()" @paste="composeChatPaste($event); $nextTick(() => composeChatGrow($refs.composeChatInput))" @keydown.enter="if(!$event.shiftKey && !compose.chat.busy){ $event.preventDefault(); composeChatSend(); }"></textarea>
                         <button class="send" type="button" @click="composeChatSend()" :disabled="compose.chat.busy || (!(compose.chat.input||'').trim() && !(compose.chat.attachments && compose.chat.attachments.length))" title="Send">➤</button>
                       </div>
                     </aside>
@@ -21213,6 +21263,27 @@
                       <div style="display:flex;gap:8px;justify-content:flex-end">
                         <button class="btn ghost" type="button" @click="compose.deliver.open = false">Cancel</button>
                         <button class="btn primary" type="button" :disabled="compose.busy" @click="composeEmail()" x-text="compose.busy ? 'Opening…' : 'Open draft'"></button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Version quick-view modal -->
+                  <div x-show="compose.verPreview.open" @click.self="composeVersionPreviewClose()"
+                       style="position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center">
+                    <div class="card" style="width:920px;max-width:94vw;height:86vh;max-height:86vh;padding:0;display:flex;flex-direction:column" @click.stop>
+                      <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cp-border)">
+                        <h3 style="margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="compose.verPreview.title || 'Version preview'"></h3>
+                        <button class="btn ghost" type="button" @click="composeVersionPreviewClose()">Close</button>
+                      </div>
+                      <div style="flex:1;min-height:0;overflow:auto;padding:0">
+                        <div class="hint" x-show="compose.verPreview.loading" style="padding:24px 20px">Loading…</div>
+                        <template x-if="!compose.verPreview.loading && compose.verPreview.site">
+                          <iframe :srcdoc="compose.verPreview.html" sandbox="allow-scripts" referrerpolicy="no-referrer"
+                                  style="width:100%;height:100%;border:0;display:block;background:#fff"></iframe>
+                        </template>
+                        <template x-if="!compose.verPreview.loading && !compose.verPreview.site">
+                          <div class="nl-preview md-output" x-html="compose.verPreview.html" style="padding:24px 28px"></div>
+                        </template>
                       </div>
                     </div>
                   </div>
@@ -29698,6 +29769,7 @@
           railOpen: true,         // left rail expanded vs collapsed to a reopen tab
           chat: { open: true, busy: false, input: '', messages: [], progress: [], attachments: [], uploading: false, dragging: false, runId: null, _seen: null, _stick: true },
           deliver: { open: false, to: '', subject: '' },
+          verPreview: { open: false, loading: false, title: '', html: '', content: '', site: false },
           // Source pickers: real pursuit / PR / work-item lists so the user
           // selects instead of typing raw refs. Populated lazily on demand.
           pickers: {
@@ -46582,6 +46654,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (_) { pk.pursuits = []; }
           finally { pk.pursuitsLoading = false; }
         },
+        // Resolve the persisted pursuitRef to a friendly label so the picker always
+        // SHOWS what's selected (and that it persisted), even before the list loads or
+        // when the ref points at an archived/uncapped pursuit not in the current list.
+        composePursuitSelectedLabel() {
+          try {
+            const ref = this.compose && this.compose.current && this.compose.current.sources && this.compose.current.sources.pursuitRef;
+            if (!ref) return '';
+            const list = (this.compose.pickers && this.compose.pickers.pursuits) || [];
+            const p = list.find(x => x && String(x.id) === String(ref));
+            if (p) return p.title + (p.stage ? ' · ' + p.stage : '') + (p.archived ? ' (archived)' : '');
+            return String(ref);
+          } catch (_) { return ''; }
+        },
         composeWiSearch() {
           const pk = this.compose.pickers;
           if (pk._wiTimer) clearTimeout(pk._wiTimer);
@@ -47014,6 +47099,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
         },
         // Assistant chat — revise the draft conversationally.
+        // Auto-grow the paired-assistant input to fit the user's text (capped by CSS
+        // max-height, after which it scrolls). Called on input + paste.
+        composeChatGrow(el) {
+          if (!el) return;
+          el.style.height = 'auto';
+          el.style.height = Math.min(el.scrollHeight, 220) + 'px';
+        },
         async composeChatSend() {
           const co = this.compose, c = co.chat;
           const msg = String(c.input || '').trim();
@@ -47033,6 +47125,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           c._seen = new Set();
           c._lastActivityAt = Date.now();
           c._stick = true; // the user just sent — always ride the bottom for their own message
+          // Collapse the auto-grown input back to one row now that it's cleared.
+          try { const _ta = this.$refs && this.$refs.composeChatInput; if (_ta) _ta.style.height = 'auto'; } catch (_) {}
           this.$nextTick(() => this._composeChatScroll(true));
           // Idle watchdog — mirror the newsletter assistant. A deep-dive can run for many
           // minutes, so we disable the absolute request timeout and only give up after a
@@ -47144,12 +47238,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         composeRailW() {
           let w = this.compose && this.compose.railW;
           if (!w) { try { const s = parseInt(localStorage.getItem('compose-rail-w') || '', 10); if (s) w = s; } catch {} if (w && this.compose) this.compose.railW = w; }
-          w = w || 300; if (w < 240) w = 240; if (w > 480) w = 480; return w;
+          w = w || 300; if (w < 240) w = 240; if (w > 640) w = 640; return w;
         },
         composeRailResizeStart(e) {
           try { e.preventDefault(); } catch {}
           const startX = e.clientX, startW = this.composeRailW(), self = this;
-          const move = (ev) => { let w = startW + (ev.clientX - startX); if (w < 240) w = 240; if (w > 480) w = 480; self.compose.railW = w; };
+          const move = (ev) => { let w = startW + (ev.clientX - startX); if (w < 240) w = 240; if (w > 640) w = 640; self.compose.railW = w; };
           const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); try { localStorage.setItem('compose-rail-w', String(self.compose.railW || 300)); } catch {} };
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up);
@@ -47293,6 +47387,77 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast('Restored version', 'success');
           } catch (e) { this.toast('Restore failed: ' + (e.message || e), 'error'); }
         },
+        // The current working iteration, shaped like a version row so it can sit at the
+        // top of Version history (marked "current") and reuse the provenance helpers.
+        composeCurrentVersion() {
+          try {
+            const c = this.compose && this.compose.current;
+            const d = c && c.draft;
+            if (!d || !String(d.content || '').trim()) return null;
+            return {
+              id: '__current__', current: true,
+              title: (c.title && String(c.title).trim()) || d.title || 'Current draft',
+              source: d.source || 'manual', reason: 'current',
+              prompt: d.prompt || '', framing: d.framing || null,
+              contentFormat: d.contentFormat || 'markdown',
+              savedAt: d.updatedAt || d.generatedAt || c.updatedAt || Date.now(),
+            };
+          } catch (_) { return null; }
+        },
+        // Renaming a prior version promotes it to its OWN document (a fork): a new
+        // composition cloned from that version's content + framing, appearing in
+        // Documents. The original version is left untouched in this composition.
+        async composePromoteVersion(v, newTitle) {
+          const co = this.compose;
+          if (!co.current || !v) return;
+          const title = String(newTitle || '').trim();
+          const was = String(v.title || '').trim();
+          if (!title || title === was) return; // no-op unless the title actually changed
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/versions/' + encodeURIComponent(v.id) + '/promote', {
+              method: 'POST', body: JSON.stringify({ title }),
+            });
+            if (r && r.composition) {
+              this.toast('Promoted to a new document: “' + (r.composition.title || title) + '” — find it in Documents.', 'success');
+            } else {
+              this.toast('Promoted to a new document.', 'success');
+            }
+          } catch (e) { this.toast('Could not promote version: ' + (e.message || e), 'error'); }
+        },
+        // Read-only quick view of a version's content — see what a snapshot contains
+        // WITHOUT restoring it. Fetches the full body on demand and opens a preview modal.
+        // Accepts the current-draft pseudo-version (__current__) too.
+        async composeVersionPreview(v) {
+          const co = this.compose;
+          if (!co.current || !v) return;
+          const p = co.verPreview;
+          p.open = true; p.loading = true; p.title = v.title || 'Version';
+          p.html = ''; p.site = false; p.content = '';
+          try {
+            let ver = v;
+            if (v.id !== '__current__') {
+              const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/versions/' + encodeURIComponent(v.id));
+              ver = (r && r.version) || {};
+            } else {
+              ver = { content: (co.current.draft && co.current.draft.content) || '', contentFormat: (co.current.draft && co.current.draft.contentFormat) || 'markdown' };
+            }
+            const content = String(ver.content || '');
+            const isSite = ver.contentFormat === 'html';
+            p.content = content;
+            p.site = isSite;
+            if (isSite) {
+              p.html = content; // rendered via sandboxed iframe srcdoc
+            } else {
+              try {
+                p.html = this.newsletterRenderHtml(content).replace(/\/api\/newsletter\/asset\//g, '/api/compose/' + encodeURIComponent(co.current.id) + '/asset/');
+              } catch (_) { p.html = ''; }
+            }
+          } catch (e) {
+            this.toast('Could not load version: ' + (e.message || e), 'error');
+            p.open = false;
+          } finally { p.loading = false; }
+        },
+        composeVersionPreviewClose() { this.compose.verPreview.open = false; },
         async composeDelete(id, opts = {}) {
           if (!opts.silent && !confirm('Delete this composition? This cannot be undone.')) return;
           try {

@@ -533,7 +533,44 @@ function restoreVersion(id, vid) {
   return c;
 }
 
-// Append an assistant conversation turn ({ role:'user'|'assistant', text }).
+// Promote a prior version into its OWN document: a NEW composition (fork) cloned
+// from the parent's framing (purpose/format/audience/sources) + this version's
+// content, with a new title. The parent composition and its versions are left
+// untouched. The fork starts with fresh (empty) version + chat history. Returns
+// the new composition, or null if the parent/version doesn't exist.
+function promoteVersion(id, vid, title) {
+  const st = _readAll();
+  const parent = st.items.find(x => x.id === id);
+  if (!parent) return null;
+  const v = (parent.versions || []).find(x => x.id === vid);
+  if (!v) return null;
+  const newTitle = (typeof title === 'string' && title.trim())
+    ? title.trim().slice(0, 200)
+    : (v.title || parent.title || 'Untitled');
+  let sources = {};
+  try { sources = JSON.parse(JSON.stringify(parent.sources || {})); } catch (_) { sources = { ...(parent.sources || {}) }; }
+  const c = _defaultComposition({
+    purpose: parent.purpose,
+    format: parent.format,
+    title: newTitle,
+    audience: parent.audience,
+    brief: parent.brief,
+    sources,
+  });
+  c.draft = {
+    content: v.content || '',
+    contentFormat: v.contentFormat === 'html' ? 'html' : 'markdown',
+    source: v.source === 'ai' ? 'ai' : 'manual',
+    generatedAt: v.createdAt || '',
+    updatedAt: _now(),
+    prompt: typeof v.prompt === 'string' ? v.prompt : '',
+    framing: v.framing || null,
+  };
+  c.meta.updatedAt = c.draft.updatedAt;
+  st.items.unshift(c);
+  _writeAll(st);
+  return c;
+}
 function appendChat(id, msg) {
   const st = _readAll();
   const c = st.items.find(x => x.id === id);
@@ -589,6 +626,7 @@ module.exports = {
   getVersion,
   deleteVersion,
   restoreVersion,
+  promoteVersion,
   appendChat,
   markDelivered,
   exportComposition,

@@ -1243,4 +1243,69 @@ await t.test('compose: Brainstorm purpose blueprints options + strength scores +
   t.ok(!/pasted\.slice\(0, 16000\)/.test(cjs) && /pasted\.slice\(0, 200000\)/.test(cjs), 'pasted source clamp raised (not truncated at 16000)');
 });
 
+await t.test('compose: version promote (rename → own document) — server + core + UI', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  const src = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  // compose.js core: promoteVersion forks a new composition from a version's content
+  t.ok(/function promoteVersion\(id, vid, title\)/.test(cjs), 'compose.js has promoteVersion(id,vid,title)');
+  const pv = _win(cjs, 'function promoteVersion(id, vid, title)', 1400);
+  t.ok(/_defaultComposition\(/.test(pv), 'promote clones a new composition (fork)');
+  t.ok(/st\.items\.unshift\(c\)/.test(pv), 'the fork is added as its own document');
+  t.ok(/return null/.test(pv), 'promote returns null when parent/version is missing');
+  t.ok(/promoteVersion,/.test(cjs), 'promoteVersion is exported');
+  // server route
+  t.ok(/app\.post\('\/api\/compose\/:id\/versions\/:vid\/promote'/.test(src), 'promote route present');
+  // UI: editable title input on prior versions drives the promote
+  t.ok(/composePromoteVersion\(v, \$event\.target\.value\)/.test(html), 'renaming a version calls composePromoteVersion');
+  t.ok(/async composePromoteVersion\(v, newTitle\)/.test(html), 'composePromoteVersion method present');
+});
+
+await t.test('compose: version quick-view (read-only preview without restoring)', () => {
+  const src = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  // server: single-version GET returns the full content for preview
+  t.ok(/app\.get\('\/api\/compose\/:id\/versions\/:vid'/.test(src), 'single-version GET route present');
+  // UI: Quick view links on both the current row and prior versions
+  t.ok(/composeVersionPreview\(composeCurrentVersion\(\)\)/.test(html), 'current draft has a Quick view');
+  t.ok(/@click\.prevent="composeVersionPreview\(v\)"/.test(html), 'each prior version has a Quick view');
+  // method fetches on demand + renders markdown vs sandboxed site
+  const m = _win(html, 'async composeVersionPreview(v) {', 1400);
+  t.ok(/__current__/.test(m), 'preview handles the current-draft pseudo-version');
+  t.ok(/newsletterRenderHtml/.test(m), 'markdown versions render to HTML');
+  t.ok(/p\.site = isSite/.test(m), 'html versions flagged for the sandboxed frame');
+  // modal markup: sandboxed iframe for sites, x-html for markdown, close
+  t.ok(/compose\.verPreview\.open/.test(html), 'preview modal is gated on verPreview.open');
+  t.ok(/sandbox="allow-scripts"[\s\S]{0,80}:srcdoc="compose\.verPreview\.html"|:srcdoc="compose\.verPreview\.html"[\s\S]{0,80}sandbox="allow-scripts"/.test(html), 'site preview uses a sandboxed srcdoc iframe');
+  t.ok(/composeVersionPreviewClose\(\)/.test(html), 'preview modal can be closed');
+  t.ok(/verPreview: \{ open: false/.test(html), 'compose state seeds verPreview');
+});
+
+await t.test('compose studio: independent per-panel scroll + rail resize preserved', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // rail cards scroll inside an inner wrapper so the absolute resize grip is not clipped/scrolled
+  t.ok(/class="nlx-rail-scroll"/.test(html), 'rail cards are wrapped in a scroll container');
+  t.ok(/\.nlx-rail-scroll\{[^}]*overflow:auto/.test(html), '.nlx-rail-scroll scrolls');
+  // the rail itself stays non-scrolling so the grip (right:-9px) stays visible
+  const railCss = _win(html, '.nlx-studio.cmpx-paired > .nlx-rail{', 200);
+  t.ok(/overflow:visible/.test(railCss), 'rail is non-scrolling (grip not clipped)');
+  // resize grip still present + wired
+  t.ok(/class="cmpx-rail-resize"[\s\S]{0,120}composeRailResizeStart/.test(html), 'rail resize grip is present + wired');
+  // the paired studio binds to the viewport so each column scrolls on its own
+  t.ok(/\.nlx-studio\.cmpx-paired\{[^}]*height:calc\(100vh/.test(html), 'paired studio is viewport-bound for independent scroll');
+});
+
+await t.test('compose chat: auto-grow input + type-while-busy (Send gated on busy)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // textarea auto-grows and is NOT disabled while busy (can compose while assistant works)
+  const ta = _win(html, 'x-ref="composeChatInput"', 400);
+  t.ok(/@input=.*composeChatGrow/.test(ta), 'chat input auto-grows on input');
+  t.ok(!/:disabled="compose\.chat\.busy"/.test(ta), 'chat input is not disabled while busy');
+  // Enter only sends when not shift + not busy
+  t.ok(/!\$event\.shiftKey && !compose\.chat\.busy/.test(html), 'Enter sends only when idle (Shift/busy inserts newline)');
+  // grow helper caps at 220px
+  const grow = _win(html, 'composeChatGrow(el)', 300);
+  t.ok(/220/.test(grow), 'auto-grow caps at 220px');
+});
+
 await t.done();

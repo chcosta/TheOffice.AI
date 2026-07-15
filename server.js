@@ -13069,6 +13069,14 @@ app.get('/api/compose/:id/versions', (req, res) => {
   try { res.json({ versions: compose.listVersions(req.params.id) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
+// Fetch ONE version's full content (for a read-only quick view — no restore).
+app.get('/api/compose/:id/versions/:vid', (req, res) => {
+  try {
+    const v = compose.getVersion(req.params.id, req.params.vid);
+    if (!v) return res.status(404).json({ error: 'Version not found.' });
+    res.json({ ok: true, version: v });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 app.delete('/api/compose/:id/versions/:vid', (req, res) => {
   try {
     const ok = compose.deleteVersion(req.params.id, req.params.vid);
@@ -13079,6 +13087,17 @@ app.delete('/api/compose/:id/versions/:vid', (req, res) => {
 app.post('/api/compose/:id/versions/:vid/restore', (req, res) => {
   try {
     const c = compose.restoreVersion(req.params.id, req.params.vid);
+    if (!c) return res.status(404).json({ error: 'Version not found.' });
+    res.json({ ok: true, composition: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Promote a prior version into its own document (a fork). Renaming a version in the
+// UI hits this: it clones the parent's framing + the version's content into a NEW
+// composition with the given title, leaving the parent untouched.
+app.post('/api/compose/:id/versions/:vid/promote', (req, res) => {
+  try {
+    const title = (req.body && typeof req.body.title === 'string') ? req.body.title : '';
+    const c = compose.promoteVersion(req.params.id, req.params.vid, title);
     if (!c) return res.status(404).json({ error: 'Version not found.' });
     res.json({ ok: true, composition: c });
   } catch (err) { res.status(500).json({ error: err.message }); }
