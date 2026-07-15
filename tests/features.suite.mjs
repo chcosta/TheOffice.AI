@@ -1337,13 +1337,16 @@ await t.test('compose studio: in-studio document switcher + roomy quick-view', (
   // quick-view overlay is roomy (uses the viewport height, not a squat 86vh) and is a
   // TOP-LEVEL teleport to <body> — it must not be nested in a <template x-if>, or Alpine
   // won't teleport it and position:fixed stays trapped in the studio container.
-  const qv = _win(html, 'Compose version quick-view — top-level teleport', 900);
+  const qv = _win(html, 'Compose version quick-view — top-level teleport', 2600);
   t.ok(/height:94vh/.test(qv) && /min\(1200px,96vw\)/.test(qv), 'quick-view uses available viewport so scrollbars are last-resort');
   t.ok(/x-teleport="body"/.test(qv), 'quick-view is teleported to body (fixed resolves to viewport)');
   // centering MUST come from the .modal-backdrop stylesheet class (display:grid;place-items:center),
   // NOT inline display:flex — Alpine's x-show clears inline `display` on show, which would strand
   // the card top-left. Regression guard for that exact bug.
   t.ok(/class="modal-backdrop modal-overlay"[^>]*x-show="compose\.verPreview\.open"/.test(qv), 'quick-view backdrop centers via .modal-backdrop class (survives x-show clearing inline display)');
+  // the rendered doc must NOT inherit the base .md-output max-height:300px cap — it should flow
+  // full-height so the modal pane (not an inner 300px box) provides the single scrollbar.
+  t.ok(/cmpx-doc"[^>]*max-height:none[^>]*overflow:visible/.test(qv), 'quick-view content is uncapped (no inner .md-output 300px scroll box)');
 });
 
 await t.done();
