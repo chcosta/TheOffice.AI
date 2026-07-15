@@ -1310,6 +1310,12 @@ await t.test('compose: version quick-view (read-only preview without restoring)'
   t.ok(/sandbox="allow-scripts"[\s\S]{0,80}:srcdoc="compose\.verPreview\.html"|:srcdoc="compose\.verPreview\.html"[\s\S]{0,80}sandbox="allow-scripts"/.test(html), 'site preview uses a sandboxed srcdoc iframe');
   t.ok(/composeVersionPreviewClose\(\)/.test(html), 'preview modal can be closed');
   t.ok(/verPreview: \{ open: false/.test(html), 'compose state seeds verPreview');
+  // Library documents get the SAME read-only quick view (reuses the verPreview overlay).
+  t.ok(/title="Quick view \(read-only\)" @click\.stop="composeLibPreview\(c\)"/.test(html), 'library rows/cards expose a Quick view action');
+  const lp = _win(html, 'async composeLibPreview(c) {', 1200);
+  t.ok(/this\.compose\.verPreview/.test(lp), 'composeLibPreview drives the shared verPreview overlay');
+  t.ok(/\/api\/compose\/' \+ encodeURIComponent\(c\.id\)/.test(lp), 'composeLibPreview fetches the row document by its own id');
+  t.ok(/newsletterRenderHtml/.test(lp) && /p\.site = isSite/.test(lp), 'composeLibPreview renders markdown vs sandboxed site like the version preview');
 });
 
 await t.test('compose studio: independent per-panel scroll + rail resize preserved', () => {

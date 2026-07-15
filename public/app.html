@@ -20886,6 +20886,7 @@
                         <div class="col-size rt" x-text="composeLibSize(c.size)"></div>
                         <div class="rowacts">
                           <button class="icobtn" title="Open" @click.stop="composeLibOpen(c)">↗</button>
+                          <button class="icobtn" x-show="c.kind!=='newsletter'" title="Quick view (read-only)" @click.stop="composeLibPreview(c)">👁</button>
                           <button class="icobtn" x-show="c.kind!=='newsletter'" title="Rename" @click.stop="composeLibRenameStart(c)">✎</button>
                           <button class="icobtn" title="Share" @click.stop="composeLibShareItem(c)">⤴</button>
                           <button class="icobtn" title="Export" @click.stop="composeLibExportItem(c)">⬇</button>
@@ -20903,6 +20904,7 @@
                           <span class="ico" x-text="c.kind==='newsletter' ? '📰' : ((composePurpose(c.purpose)||{}).icon || '📄')"></span>
                           <div class="ttl" x-text="c.title || 'Untitled'"></div>
                           <span class="spacer" style="flex:1"></span>
+                          <button class="icobtn" x-show="c.kind!=='newsletter'" title="Quick view (read-only)" @click.stop="composeLibPreview(c)">👁</button>
                           <span class="cbx" x-show="c.kind!=='newsletter'" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
                         </div>
                         <div class="prev" x-text="composeLibRowMeta(c) || (c.hasDraft ? '' : 'Draft empty — nothing generated yet.')"></div>
@@ -47613,6 +47615,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { p.loading = false; }
         },
         composeVersionPreviewClose() { this.compose.verPreview.open = false; },
+        // Read-only quick view of a library document — see its content WITHOUT opening it
+        // into the studio. Mirrors composeVersionPreview but keys off the library row's own
+        // id (there's no compose.current here). Newsletters have their own reader, so the
+        // Quick view affordance is gated to composed docs.
+        async composeLibPreview(c) {
+          if (!c || !c.id) return;
+          const p = this.compose.verPreview;
+          p.open = true; p.loading = true; p.title = c.title || 'Document';
+          p.html = ''; p.site = false; p.content = '';
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(c.id));
+            const doc = (r && r.composition) || {};
+            const content = String((doc.draft && doc.draft.content) || '');
+            const isSite = ((doc.draft && doc.draft.contentFormat) || (doc.format === 'site' ? 'html' : 'markdown')) === 'html';
+            p.title = doc.title || c.title || 'Document';
+            p.content = content;
+            p.site = isSite;
+            if (!content) {
+              p.html = '<p class="hint" style="padding:24px 20px">Draft empty — nothing generated yet.</p>';
+            } else if (isSite) {
+              p.html = content; // rendered via sandboxed iframe srcdoc
+            } else {
+              try { p.html = this.newsletterRenderHtml(content).replace(/\/api\/newsletter\/asset\//g, '/api/compose/' + encodeURIComponent(c.id) + '/asset/'); }
+              catch (_) { p.html = ''; }
+            }
+          } catch (e) {
+            this.toast('Could not load document: ' + (e.message || e), 'error');
+            p.open = false;
+          } finally { p.loading = false; }
+        },
         async composeDelete(id, opts = {}) {
           if (!opts.silent && !confirm('Delete this composition? This cannot be undone.')) return;
           try {
