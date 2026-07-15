@@ -732,6 +732,30 @@ await t.test('compose one-pager: DNCEng epic one-pager blueprint drives writer +
   t.ok(/cmpx-blueprint/.test(html), 'framing rail surfaces the blueprint sections calmly');
 });
 
+await t.test('compose roadmap: a visual + documented Roadmap purpose (catalog + blueprint + sources)', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  // Purpose catalog: a first-class Roadmap purpose that defaults to a document.
+  t.ok(/id: 'roadmap',\s*label: 'Roadmap'/.test(cjs), 'compose.js exposes a Roadmap purpose');
+  t.ok(/id: 'roadmap'[\s\S]{0,160}defaultFormat: 'doc'/.test(cjs), 'Roadmap defaults to a doc (documented artifact)');
+  // Source defaults ground it in real features/requests/deliverables.
+  t.ok(/roadmap:\s*\['workitems', 'pursuit'\]/.test(cjs), 'Roadmap seeds work-items + pursuit sources');
+  // Blueprint: BOTH visual and documented, with the sequencing sections in order.
+  const bp = _win(cjs, 'roadmap: {', 4600);
+  t.ok(/title: 'Roadmap'/.test(bp), 'roadmap blueprint is titled Roadmap');
+  t.ok(/BOTH visual AND documented/.test(bp), 'roadmap intro mandates a visual + documented plan');
+  t.ok(/Now \/ Next \/ Later|Now · Next · Later/.test(bp), 'roadmap frames horizons (Now/Next/Later or quarters)');
+  ['Objectives & themes', 'Workstreams & scope', 'Visual roadmap', 'Milestones & deliverables', 'Dependencies & sequencing', 'Resourcing & capacity', 'Risks, assumptions & open questions'].forEach(h => {
+    t.ok(bp.includes(h), `roadmap blueprint has the "${h}" section`);
+  });
+  // The visual section demands a REAL, offline-rendering visual (svg/table) — the
+  // compose doc viewer renders inline SVG + tables verbatim, so this actually shows.
+  const vis = _win(cjs, "h: 'Visual roadmap'", 900);
+  t.ok(/<svg>|`<svg>`|inline `<svg>`/.test(vis) && /<table>|`<table>`/.test(vis), 'Visual roadmap section asks for an inline SVG or HTML-table timeline');
+  t.ok(/render offline|no external assets/.test(vis), 'the visual must render offline (no external assets)');
+  t.ok(/no pills/.test(vis), 'the visual keeps the no-pills convention');
+  t.ok(/never fabricate a date|TBD|est\./.test(bp), 'roadmap forbids fabricating dates (TBD/est.)');
+});
+
 await t.test('director clash: high-level area summary + option comparison', () => {
   const src = readFileSync('server.js', 'utf8');
   // AI prompt asks for a clashSummary (area + compare) on clash stops

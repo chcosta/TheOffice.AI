@@ -43,6 +43,7 @@ function settings() {
 const PURPOSES = [
   { id: 'proposal',     label: 'Proposal',           blurb: 'Argue a recommendation and make the ask unmissable.', defaultFormat: 'doc',   icon: '📌' },
   { id: 'brainstorm',   label: 'Brainstorm & options', blurb: 'Explore options with honest pros/cons, score each, then recommend.', defaultFormat: 'doc', icon: '💡' },
+  { id: 'roadmap',      label: 'Roadmap',            blurb: 'Sequence features, deliverables & resources into a visual, dated plan.', defaultFormat: 'doc', icon: '🗺️' },
   { id: 'alignment',    label: 'Alignment memo',     blurb: 'Build shared understanding and gain buy-in.',          defaultFormat: 'email', icon: '🤝' },
   { id: 'status',       label: 'Status update',      blurb: 'Report progress, risks, and asks at a glance.',        defaultFormat: 'email', icon: '📈' },
   { id: 'onepager',     label: 'One-pager',          blurb: 'The team’s epic one-pager: how the v-team will build & support it.', defaultFormat: 'doc', icon: '📄' },
@@ -91,6 +92,7 @@ const SOURCES = [
 const SOURCE_DEFAULTS = {
   proposal:     ['pursuit', 'workitems'],
   brainstorm:   ['workitems', 'pasted'],
+  roadmap:      ['workitems', 'pursuit'],
   alignment:    ['pr'],
   status:       ['diary', 'workitems'],
   onepager:     ['workitems', 'pursuit'],
@@ -128,6 +130,19 @@ const PURPOSE_BLUEPRINTS = {
       { h: 'Evaluation & strength scores', ask: 'Score EVERY option 0–100 (its “strength score”) against the criteria from section 1, with a one-line justification for each score. Present a compact comparison table (options as rows, criteria as columns, plus a total/strength score column). Be discriminating — spread the scores; do not cluster everything in a narrow band.' },
       { h: 'Recommendation', ask: 'Name the single recommended option (and any close runner-up), explain concisely WHY it wins on the criteria, state the trade-offs you are consciously accepting, and give the first 2–3 concrete steps to move on it plus what to validate earliest.' },
       { h: 'Risks & open questions', ask: 'The biggest risks of the recommended path, how you would de-risk each, and the open questions that still need a human decision before committing.' },
+    ],
+  },
+  roadmap: {
+    title: 'Roadmap',
+    intro: 'A clear, reasonable, sequenced plan — not a wish list. Examine the real inputs (features, incoming requests, committed deliverables, and the resources/capacity available), group them into themes and workstreams, then lay them out over time with honest dependencies and a realistic sense of what fits. The roadmap must be BOTH visual AND documented: a visual timeline the reader grasps in seconds, backed by prose that explains the sequencing and the trade-offs. Ground every item in the sources — pull real work items, deliverables, and pursuits; where a date, owner, or estimate is an inference or still unknown, say so (mark it “TBD” or “est.”) rather than inventing precision. Prefer a Now / Next / Later framing when hard dates are not yet known, and quarters/months when they are. Be realistic about capacity: do not stack more into a horizon than the stated resources can plausibly deliver, and call it out when demand exceeds capacity.',
+    sections: [
+      { h: 'Objectives & themes', ask: 'The business objectives this roadmap serves and the 2–5 themes (outcome-oriented groupings) that everything else rolls up to. One or two sentences each: what the theme delivers and why it matters now. This is the "why" the timeline hangs on.' },
+      { h: 'Workstreams & scope', ask: 'The parallel workstreams/tracks of delivery (these become the rows of the visual). For each: a short name, what it covers, and which features/requests/deliverables from the sources belong to it. Note anything explicitly OUT of scope so the plan is honest about its edges.' },
+      { h: 'Visual roadmap', ask: 'Produce a REAL visual here — not a description of one. Draw the roadmap as an inline `<svg>` swimlane/timeline OR an HTML `<table>` grid with workstreams as rows and time horizons as columns (Now · Next · Later when dates are soft, or quarters/months when they are firm), placing each deliverable in its cell/lane and shading by workstream. It must be self-contained and render offline (no external assets, fonts, or scripts), read clearly in light and dark, and use calm styling with modest corners — no pills as an organizing device. Keep it legible: group by workstream, label milestones, and show sequencing/overlap at a glance. This visual is the centerpiece of the deliverable.' },
+      { h: 'Milestones & deliverables', ask: 'A dated table of the concrete milestones and deliverables (name, workstream, target horizon/date, current status, owner if known, and the source reference such as the work item id). Order by time. Mark inferred dates “est.” and unknowns “TBD” — never fabricate a date.' },
+      { h: 'Dependencies & sequencing', ask: 'The dependencies that drive the order — what must land before what, cross-workstream hand-offs, and any external dependencies (other teams, throttled/limited resources). Explain WHY the sequence is what it is, and flag the critical path.' },
+      { h: 'Resourcing & capacity', ask: 'The resources the plan assumes (people/roles, teams, budget or infra) mapped against the workload per horizon. Be explicit where demand exceeds capacity and what that forces — descope, slip, or add resources. If capacity is unknown, state the assumption you are planning against.' },
+      { h: 'Risks, assumptions & open questions', ask: 'The biggest risks to the plan and how you would de-risk each, the key assumptions the dates rest on, and the open questions that need a human decision before this roadmap is committed.' },
     ],
   },
   onepager: {
