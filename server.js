@@ -12096,7 +12096,7 @@ function _composeParseWorkItemRefs(ref, def) {
     let m = null;
     try { m = _meAiParseWorkItem(tok); } catch (_) { m = null; }
     if (!m) {
-      const num = tok.match(/^#?(\d{1,8})$/);
+      const num = tok.match(/^(?:AB)?#?(\d{1,8})$/i);
       if (num && def.org && def.project) m = { provider: 'azdo', org: def.org, project: def.project, workItemId: num[1] };
     }
     if (m && String(m.provider || 'azdo') === 'azdo' && m.org && m.project && m.workItemId) {
@@ -12134,6 +12134,49 @@ function _composePursuitCorpusText(ref) {
   }
   return blocks.join('\n\n') || null;
 }
+// Fold an agent's recent task runs into a compact evidence corpus: for each run in
+// the lookback window, its status, a compact step trail, and the run output/error.
+// agentRef is an agent id (or name); days bounds the window. Budget-capped.
+function _composeAgentRunsCorpusText(agentRef, opts = {}) {
+  const id = String(agentRef || '').trim();
+  if (!id) return null;
+  const days = Math.max(1, Math.min(90, Math.round(Number(opts.days) || 14)));
+  let agentName = id, resolvedId = id;
+  try {
+    const a = loadAgents().find(x => x && (x.id === id || x.name === id));
+    if (a) { agentName = a.name || a.id; resolvedId = a.id; }
+  } catch (_) {}
+  let runs = [];
+  try { runs = supervisor.getRunHistory(resolvedId, 40) || []; } catch (_) { runs = []; }
+  if (!runs.length) return null;
+  const since = Date.now() - days * 86400000;
+  const recent = runs.filter(r => {
+    const t = Date.parse(r.started_at || r.finished_at || '');
+    return !Number.isFinite(t) || t >= since; // keep runs missing a timestamp too
+  });
+  const use = (recent.length ? recent : runs).slice(0, 12);
+  if (!use.length) return null;
+  const blocks = [`Agent: ${agentName} (${resolvedId}) — ${use.length} run(s) within the last ${days} day(s). Ground any claims about this agent's work in these runs; do not invent outcomes.`];
+  let budget = 10000;
+  for (const r of use) {
+    if (budget <= 0) break;
+    const when = r.started_at ? String(r.started_at).slice(0, 19).replace('T', ' ') : '(unknown time)';
+    const status = (r.exit_code === 0 || r.exit_code == null) ? 'ok' : `failed (exit ${r.exit_code})`;
+    const trig = r.triggered_by ? ` · ${r.triggered_by}` : '';
+    const model = r.model ? ` · ${r.model}` : '';
+    const head = `#### Run ${when} — ${status}${trig}${model}`;
+    let steps = '';
+    if (Array.isArray(r.steps) && r.steps.length) {
+      const trail = r.steps.slice(0, 8).map(s => (s && (s.title || s.tool || s.type)) || '').filter(Boolean).join(' → ');
+      if (trail) steps = ('Steps: ' + trail).slice(0, 400);
+    }
+    const body = String(r.output || r.error || '').replace(/\s+$/, '').slice(0, 1600);
+    const seg = [head, steps, body].filter(Boolean).join('\n');
+    budget -= seg.length;
+    blocks.push(seg);
+  }
+  return blocks.join('\n\n') || null;
+}
 async function _composeFetchUrl(url, timeoutMs = 8000) {
   const ac = new AbortController();
   const to = setTimeout(() => ac.abort(), timeoutMs);
@@ -12148,6 +12191,7 @@ async function _composeFetchUrl(url, timeoutMs = 8000) {
 // Real server-side fetchers (overridable in tests via opts.fetchers).
 const _composeSourceFetchers = {
   pursuit: async (ref) => _composePursuitCorpusText(ref),
+  agentruns: async (ref, opts) => _composeAgentRunsCorpusText(ref, opts || {}),
   pr: async (m) => {
     const pr = await azdo.getPullRequest(m.org, m.project, m.repo, m.prId);
     let files = [];
@@ -12244,6 +12288,25 @@ async function _composeSourceContext(c, opts = {}) {
       parts.push('### Pursuit compendium to read');
       parts.push(`Read the findings/compendium for this pursuit and weave in its evidence and conclusions:\n- ${String(src.pursuitRef).trim()}`);
       report('pursuit', 'Pursuit compendium', true, false, 0, 'no folded findings for that pursuit id');
+    }
+  }
+  if (src.agentruns && String(src.agentRunsRef || '').trim()) {
+    const days = Math.max(1, Math.min(90, Math.round(Number(src.agentRunsDays) || 14)));
+    let done = false;
+    try {
+      const text = await _composeWithTimeout(F.agentruns(String(src.agentRunsRef).trim(), { days }), TMO, 'agentruns');
+      if (text && text.trim()) {
+        parts.push('### Agent task runs (folded from recent runs)');
+        parts.push(text.trim());
+        evidenceCount++;
+        report('agentruns', 'Agent task runs', true, true, text.length, `last ${days} day(s)`);
+        done = true;
+      }
+    } catch (e) { report('agentruns', 'Agent task runs', true, false, 0, `couldn't read the agent's runs — ${e.message}`); }
+    if (!done) {
+      parts.push('### Agent task runs to review');
+      parts.push(`Review the recent task runs for this agent (last ${days} day(s)) and ground any claims in what they actually produced:\n- ${String(src.agentRunsRef).trim()}`);
+      report('agentruns', 'Agent task runs', true, false, 0, 'no runs found for that agent in the window');
     }
   }
   if (src.workitems && String(src.workitemsRef || '').trim()) {
@@ -12751,6 +12814,39 @@ app.get('/api/compose/sources/pursuits', (req, res) => {
     }
     items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     res.json({ ok: true, pursuits: items.slice(0, 60) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/compose/sources/agents?q= → the user's agents (authoritative list from
+// agents.json), annotated with last-run time + a run count, for the agent-task-runs
+// picker. Each item's `ref` is the agent id stored in sources.agentRunsRef.
+app.get('/api/compose/sources/agents', (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    let agents = [];
+    try { agents = loadAgents() || []; } catch (_) { agents = []; }
+    const items = [];
+    for (const a of agents) {
+      if (!a || !a.id) continue;
+      const name = a.name || a.id;
+      if (q && !name.toLowerCase().includes(q) && !String(a.id).toLowerCase().includes(q)) continue;
+      let lastRunAt = '', runCount = 0;
+      try {
+        const st = supervisor.getStatus(a.id);
+        if (st && st.lastRun) lastRunAt = st.lastRun.started_at || st.lastRun.finished_at || '';
+      } catch (_) {}
+      try {
+        const row = db.prepare('SELECT COUNT(*) AS n FROM agent_runs WHERE agent_id = ?').get(a.id);
+        runCount = (row && row.n) || 0;
+      } catch (_) {}
+      items.push({
+        id: a.id, name, ref: a.id,
+        group: a.group || '', description: a.description || '',
+        lastRunAt, runCount,
+      });
+    }
+    items.sort((x, y) => String(y.lastRunAt).localeCompare(String(x.lastRunAt)) || x.name.localeCompare(y.name));
+    res.json({ ok: true, agents: items.slice(0, 100) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

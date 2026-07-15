@@ -1082,4 +1082,45 @@ await t.test('newsletter: multi-document model (revision vs new) end to end', ()
   t.ok(!/lib\.newsletter\b(?!s)/.test(html.replace(/newsletters/g, 'NLS')), 'no stale singular lib.newsletter reference');
 });
 
+await t.test('compose sources: agent task runs (pick an agent, fold recent runs)', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  // catalog + defaults + clamp
+  t.ok(/id:\s*'agentruns'/.test(cjs), 'compose.js SOURCES catalog has an agentruns source');
+  const defs = _win(cjs, '_defaultSources', 1400);
+  t.ok(/agentruns:\s*false/.test(defs) && /agentRunsRef:\s*''/.test(defs) && /agentRunsDays:\s*14/.test(defs), '_defaultSources seeds agentruns + ref + days window');
+  t.ok(/'agentRunsRef'/.test(cjs), 'updateComposition clamps agentRunsRef');
+  t.ok(/agentRunsDays/.test(cjs), 'updateComposition clamps agentRunsDays');
+
+  const src = readFileSync('server.js', 'utf8');
+  // corpus helper + fetcher + source-context branch + picker route
+  t.ok(/function _composeAgentRunsCorpusText\s*\(/.test(src), 'server has an agent-runs corpus helper');
+  const corpus = _win(src, 'function _composeAgentRunsCorpusText', 1600);
+  t.ok(/getRunHistory/.test(corpus), 'corpus reads the agent run history');
+  t.ok(/loadAgents\(\)/.test(corpus), 'corpus resolves the agent via loadAgents');
+  t.ok(/86400000/.test(corpus), 'corpus bounds runs to a lookback window');
+  t.ok(/agentruns:\s*async/.test(src), '_composeSourceFetchers registers an agentruns fetcher');
+  const ctx = _win(src, '_composeSourceContext', 12000);
+  t.ok(/agentRunsRef/.test(ctx), '_composeSourceContext reads the agent-runs ref');
+  t.ok(/'\/api\/compose\/sources\/agents'/.test(src), 'picker route GET /api/compose/sources/agents');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/composeLoadAgents\s*\(/.test(html), 'client has a composeLoadAgents loader');
+  t.ok(/\/api\/compose\/sources\/agents/.test(html), 'client fetches the agents picker');
+  t.ok(/sources\.agentRunsRef/.test(html), 'sources rail binds the agent-runs ref');
+  t.ok(/sources\.agentRunsDays/.test(html), 'sources rail binds the look-back window');
+  const sd = _win(html, 'composeSourcesDefault() {', 700);
+  t.ok(/agentruns:\s*false/.test(sd) && /agentRunsRef/.test(sd) && /agentRunsDays/.test(sd), 'composeSourcesDefault seeds the agentruns keys');
+});
+
+await t.test('compose sources: work-item refs accept an AB#-prefixed token', () => {
+  const src = readFileSync('server.js', 'utf8');
+  const fn = _win(src, 'function _composeParseWorkItemRefs', 900);
+  t.ok(/\(\?:AB\)\?#\?/i.test(fn), 'numeric fallback accepts an optional AB# prefix');
+  // prove the actual regex maps AB#10503 → 10503 (the bug the user hit)
+  const re = /^(?:AB)?#?(\d{1,8})$/i;
+  t.ok((('AB#10503'.match(re) || [])[1]) === '10503', 'AB#10503 resolves to 10503');
+  t.ok((('10503'.match(re) || [])[1]) === '10503', 'bare 10503 still resolves');
+  t.ok(!re.test('GH#5'), 'a GH#-prefixed token is not caught by the AzDO numeric fallback');
+});
+
 await t.done();

@@ -20934,6 +20934,27 @@
                               </div>
                               <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
                             </div>
+                            <div class="nlx-fld" x-show="compose.current.sources.agentruns" x-init="compose.current.sources.agentruns && composeLoadAgents(); $watch('compose.current.sources.agentruns', v => v && composeLoadAgents())"><label>Agent task runs</label>
+                              <div style="display:flex;gap:6px;align-items:center">
+                                <select class="field-input" x-model="compose.current.sources.agentRunsRef" @change="composeMarkBriefDirty()">
+                                  <option value="">Select an agent…</option>
+                                  <template x-for="a in compose.pickers.agents" :key="a.id"><option :value="a.id" x-text="a.name + (a.runCount ? ' · ' + a.runCount + ' run' + (a.runCount === 1 ? '' : 's') : ' · no runs yet')"></option></template>
+                                </select>
+                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadAgents(true)" :disabled="compose.pickers.agentsLoading" title="Refresh agents">↻</button>
+                              </div>
+                              <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                                <label style="font-size:11px;opacity:.75;margin:0">Look back</label>
+                                <select class="field-input" style="max-width:150px" x-model.number="compose.current.sources.agentRunsDays" @change="composeMarkBriefDirty()">
+                                  <option :value="7">7 days</option>
+                                  <option :value="14">14 days</option>
+                                  <option :value="30">30 days</option>
+                                  <option :value="90">90 days</option>
+                                </select>
+                              </div>
+                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.agentsLoading">Loading agents…</div>
+                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.agentsLoading && !compose.pickers.agents.length && compose.pickers.agentsLoaded">No agents found — create one on the Agents page first.</div>
+                              <div class="hint" style="margin-top:4px">The assistant folds this agent’s recent runs — their output &amp; findings within the window — as evidence.</div>
+                            </div>
                             <div class="nlx-fld" x-show="compose.current.sources.repos" x-init="compose.current.sources.repos && composeLoadRepos(); $watch('compose.current.sources.repos', v => v && composeLoadRepos())"><label>Repositories to reference</label>
                               <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
                                 <input class="field-input" type="text" x-model="compose.pickers.repoQuery" placeholder="Filter repositories…" />
@@ -29640,6 +29661,7 @@
             wiQuery: '', wiResults: [], wiLoading: false, wiNote: '', _wiTimer: null,
             refs: [], refsLoaded: false, refsLoading: false,
             repos: [], reposLoaded: false, reposLoading: false, reposNote: '', repoQuery: '',
+            agents: [], agentsLoaded: false, agentsLoading: false,
           },
         },
         // ===== Newsletter (Connect diary → polished, emailable digest) =====
@@ -46457,6 +46479,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (c.sources && c.sources.pr) this.composeLoadPRs();
             if (c.sources && c.sources.pursuit) this.composeLoadPursuits();
             if (c.sources && c.sources.repos) this.composeLoadRepos();
+            if (c.sources && c.sources.agentruns) this.composeLoadAgents();
             // No auto-generate: the empty stage invites the user to author the brief
             // in the rail, then hit ✨ Generate draft (parity with Newsletter).
           } catch (e) {
@@ -46465,7 +46488,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // A fully-populated source object so older/partial records get new fields.
         composeSourcesDefault() {
-          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', repos: false, reposRef: '', composition: false, compositionRef: '', m365: false, links: [], pasted: '' };
+          return { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', repos: false, reposRef: '', composition: false, compositionRef: '', agentruns: false, agentRunsRef: '', agentRunsDays: 14, m365: false, links: [], pasted: '' };
         },
         composeToggleSource(sources, s) {
           if (!sources || !s) return;
@@ -46475,6 +46498,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             else if (s.id === 'pursuit') this.composeLoadPursuits();
             else if (s.id === 'composition') this.composeLoadCompositionRefs();
             else if (s.id === 'repos') this.composeLoadRepos();
+            else if (s.id === 'agentruns') this.composeLoadAgents();
           }
         },
         composeSourceIsText(id) { const s = (this.compose.sourceCatalog || []).find(x => x.id === id); return !!(s && s.kind === 'text'); },
@@ -46597,6 +46621,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (_) { pk.repos = []; pk.reposNote = 'Could not load repositories.'; pk.reposLoaded = true; }
           finally { pk.reposLoading = false; }
         },
+        // --- Agent task-runs picker ------------------------------------------
+        // Lists the user's agents (from agents.json), annotated with a run count +
+        // last-run time. The chosen agent id is stored in sources.agentRunsRef; the
+        // server folds that agent's recent runs (within agentRunsDays) as evidence.
+        async composeLoadAgents(force) {
+          const pk = this.compose.pickers;
+          if (pk.agentsLoading || (pk.agentsLoaded && !force)) return;
+          pk.agentsLoading = true;
+          try {
+            const j = await this.request('/api/compose/sources/agents');
+            pk.agents = (j && j.agents) || [];
+            pk.agentsLoaded = true;
+          } catch (_) { pk.agents = []; pk.agentsLoaded = true; }
+          finally { pk.agentsLoading = false; }
+        },
         composeRepoFiltered() {
           const pk = this.compose.pickers;
           const q = String(pk.repoQuery || '').trim().toLowerCase();
@@ -46708,6 +46747,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (c.sources && c.sources.pr) this.composeLoadPRs();
             if (c.sources && c.sources.pursuit) this.composeLoadPursuits();
             if (c.sources && c.sources.repos) this.composeLoadRepos();
+            if (c.sources && c.sources.agentruns) this.composeLoadAgents();
           } catch (e) {
             this.toast('Could not open composition: ' + (e.message || e), 'error');
           } finally { this.compose.busy = false; }
