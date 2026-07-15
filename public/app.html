@@ -20496,6 +20496,9 @@
               .cmpx-srccard .cbx{flex:0 0 auto;width:16px;height:16px;border:1.5px solid var(--cp-border);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#fff}
               .cmpx-srccard.on .cbx{background:var(--cp-accent);border-color:var(--cp-accent)}
               .cmpx-srccard .bl{font-size:11.5px;color:var(--cp-text-secondary);line-height:1.4;padding-left:24px}
+              .cmpx-srcgrid.cmpx-srclist{grid-template-columns:1fr;gap:6px}
+              .cmpx-srcitem{display:flex;flex-direction:column}
+              .cmpx-srccfg{margin:6px 0 4px 24px;padding:10px 12px;border:1px solid var(--cp-border);border-left:2px solid var(--cp-accent);border-radius:0 8px 8px 0;background:color-mix(in srgb,var(--cp-accent) 4%,transparent);display:flex;flex-direction:column;gap:8px}
               .cmpx-srcref{margin-top:8px;display:flex;flex-direction:column;gap:6px}
               .cmpx-links{display:flex;flex-direction:column;gap:6px}
               .cmpx-link{display:flex;align-items:center;gap:8px;font-size:13px}
@@ -20598,9 +20601,8 @@
               .cmpx-fs .nlx-scroll{flex:1;min-height:0;overflow:auto}
               /* Docked paired assistant (replaces the What-to-say brief) */
               .cmpx-wrap:has(.cmpx-paired){max-width:1520px}
-              .nlx-studio.cmpx-paired.paired-open{grid-template-columns:300px minmax(0,1fr) var(--cmpx-pair-w,360px)}
-              .nlx-studio.cmpx-paired.paired-collapsed{grid-template-columns:300px minmax(0,1fr) 40px}
-              .cmpx-pair{position:sticky;top:12px;height:calc(100vh - 96px);min-height:440px;display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);overflow:hidden}
+              .nlx-studio.cmpx-paired{grid-template-columns:var(--cmpx-rail-col,300px) minmax(0,1fr) var(--cmpx-pair-col,360px)}
+              .cmpx-pair{position:sticky;top:12px;height:calc(100vh - var(--header-height, 56px) - 62px);min-height:440px;display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);overflow:hidden}
               .cmpx-fs .cmpx-pair{height:calc(100vh - 120px);top:0}
               .cmpx-pair.drop{outline:2px dashed var(--cp-accent);outline-offset:-4px}
               .cmpx-pair-resize{position:absolute;left:0;top:0;bottom:0;width:7px;cursor:col-resize;z-index:3}
@@ -20809,15 +20811,12 @@
               <template x-if="compose.view === 'studio' && compose.current && !compose.loading">
                 <div>
                   <!-- ===== Studio: rail · stage · paired assistant ===== -->
-                  <div class="nlx-studio cmpx-paired" :class="{ 'paired-open': compose.chat.open, 'paired-collapsed': !compose.chat.open }" :style="'--cmpx-pair-w:' + composePairW() + 'px'">
+                  <div class="nlx-studio cmpx-paired" :class="{ 'paired-open': compose.chat.open, 'paired-collapsed': !compose.chat.open, 'rail-open': composeRailOpen(), 'rail-collapsed': !composeRailOpen() }" :style="'--cmpx-rail-col:' + (composeRailOpen() ? composeRailW()+'px' : '40px') + ';--cmpx-pair-col:' + (compose.chat.open ? composePairW()+'px' : '40px')">
 
                     <!-- LEFT RAIL: brief + sources live here, out of the content's way -->
-                    <aside class="nlx-rail">
+                    <aside class="nlx-rail" x-show="composeRailOpen()">
+                      <button type="button" class="cmpx-rail-collapse" @click="composeToggleRail()" title="Collapse panel">‹ Collapse</button>
                       <div class="nlx-card">
-                        <button class="btn primary nlx-gen" type="button" :disabled="compose.generating" @click="composeGenerate()">
-                          <span x-show="!compose.generating" x-text="compose.draftText.trim() ? '✨ Regenerate draft' : '✨ Generate draft'"></span>
-                          <span x-show="compose.generating">Composing…</span>
-                        </button>
                         <div class="nlx-win">
                           <div>
                             <b x-text="composePurposeLabel(compose.current.purpose)"></b>
@@ -20877,111 +20876,142 @@
                             </template>
                           </div>
                         </div>
-                        <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
-                          <div class="nlx-acc-head" @click="o=!o">🔎 Sources <span class="chev">›</span></div>
-                          <div class="nlx-acc-body">
-                            <div class="cmpx-srcgrid" style="margin-bottom:10px">
-                              <template x-for="s in compose.sourceCatalog" :key="s.id">
-                                <button type="button" class="cmpx-srccard" :class="{ on: compose.current.sources[s.id] }" @click="composeToggleSource(compose.current.sources, s); composeMarkBriefDirty()">
-                                  <span class="hd"><span class="cbx" x-text="compose.current.sources[s.id] ? '✓' : ''"></span><span x-text="s.label"></span></span>
-                                </button>
+                        <div class="nlx-acc open">
+                          <div class="nlx-acc-head" style="cursor:default">🔎 Sources</div>
+                          <div class="nlx-acc-body" style="display:block">
+                            <div class="cmpx-srcgrid cmpx-srclist" style="margin-bottom:10px">
+                              <template x-for="s in compose.sourceCatalog.filter(x => x.id !== 'pasted')" :key="s.id">
+                                <div class="cmpx-srcitem">
+                                  <button type="button" class="cmpx-srccard" :class="{ on: compose.current.sources[s.id] }" @click="composeToggleSource(compose.current.sources, s); composeMarkBriefDirty()">
+                                    <span class="hd"><span class="cbx" x-text="compose.current.sources[s.id] ? '✓' : ''"></span><span x-text="s.label"></span></span>
+                                  </button>
+                                  <!-- Per-source configuration renders directly beneath its own checkbox -->
+                                  <template x-if="s.id==='diary'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.diary">
+                                      <div class="nlx-fld"><label>Diary timeframe</label><select class="field-input" x-model.number="compose.current.sources.diaryDays" @change="composeMarkBriefDirty()"><option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option></select></div>
+                                    </div>
+                                  </template>
+                                  <template x-if="s.id==='pr'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.pr" x-init="compose.current.sources.pr && composeLoadPRs(); $watch('compose.current.sources.pr', v => v && composeLoadPRs())">
+                                      <div class="nlx-fld"><label>Pull request</label>
+                                        <div style="display:flex;gap:6px;align-items:center">
+                                          <select class="field-input" x-model="compose.current.sources.prRef" @change="composeMarkBriefDirty()">
+                                            <option value="">Select a pull request…</option>
+                                            <template x-for="p in compose.pickers.prs" :key="p.url"><option :value="p.url" x-text="(p.repo ? p.repo + ' #' + p.id + ' · ' : '') + p.title"></option></template>
+                                          </select>
+                                          <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPRs(true)" :disabled="compose.pickers.prsLoading" title="Refresh pull requests">↻</button>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px" x-show="compose.pickers.prsLoading">Loading…</div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template x-if="s.id==='pursuit'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.pursuit" x-init="compose.current.sources.pursuit && composeLoadPursuits(); $watch('compose.current.sources.pursuit', v => v && composeLoadPursuits())">
+                                      <div class="nlx-fld"><label>Pursuit</label>
+                                        <div style="display:flex;gap:6px;align-items:center">
+                                          <select class="field-input" x-model="compose.current.sources.pursuitRef" @change="composeMarkBriefDirty()">
+                                            <option value="">Select a pursuit…</option>
+                                            <template x-for="p in compose.pickers.pursuits" :key="p.id"><option :value="p.id" x-text="p.title + (p.stage ? ' · ' + p.stage : '') + (p.archived ? ' (archived)' : '')"></option></template>
+                                          </select>
+                                          <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPursuits(true)" :disabled="compose.pickers.pursuitsLoading" title="Refresh pursuits">↻</button>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px" x-show="compose.pickers.pursuitsLoading">Loading…</div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template x-if="s.id==='workitems'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.workitems">
+                                      <div class="nlx-fld"><label>Work items</label>
+                                        <input class="field-input" type="text" x-model="compose.pickers.wiQuery" @input="composeWiSearch()" placeholder="Search by title…" />
+                                        <div class="hint" style="margin-top:4px" x-show="compose.pickers.wiLoading">Searching…</div>
+                                        <div class="hint" style="margin-top:4px" x-show="!compose.pickers.wiLoading && compose.pickers.wiNote" x-text="compose.pickers.wiNote"></div>
+                                        <div class="cmpx-wilist" x-show="compose.pickers.wiResults.length">
+                                          <template x-for="wi in compose.pickers.wiResults" :key="wi.id">
+                                            <button type="button" class="cmpx-wirow" :class="{ on: composeWiIsSelected(compose.current.sources, wi.id) }" @click="composeWiToggle(compose.current.sources, wi, true)">
+                                              <span class="cbx" x-text="composeWiIsSelected(compose.current.sources, wi.id) ? '✓' : ''"></span>
+                                              <span class="mid"><span class="ti" x-text="wi.title"></span><span class="mt" x-text="'AB#' + wi.id + (wi.state ? ' · ' + wi.state : '')"></span></span>
+                                            </button>
+                                          </template>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px" x-show="compose.current.sources.workitemsRef">Selected: <span x-text="compose.current.sources.workitemsRef"></span></div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template x-if="s.id==='composition'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.composition" x-init="compose.current.sources.composition && composeLoadCompositionRefs(); $watch('compose.current.sources.composition', v => v && composeLoadCompositionRefs())">
+                                      <div class="nlx-fld"><label>Compositions to reuse</label>
+                                        <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.refsLoading">Loading…</div>
+                                        <div class="cmpx-wilist" x-show="compose.pickers.refs.length">
+                                          <template x-for="rf in compose.pickers.refs" :key="rf.id">
+                                            <button type="button" class="cmpx-wirow" :class="{ on: composeRefIsSelected(compose.current.sources, rf.id) }" @click="composeRefToggle(compose.current.sources, rf, true)">
+                                              <span class="cbx" x-text="composeRefIsSelected(compose.current.sources, rf.id) ? '✓' : ''"></span>
+                                              <span class="mid"><span class="ti" x-text="rf.title"></span><span class="mt" x-text="(rf.isNewsletter ? '📰 Newsletter' : (rf.purpose || 'composition')) + (rf.hasDraft ? '' : ' · no draft yet')"></span></span>
+                                            </button>
+                                          </template>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template x-if="s.id==='agentruns'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.agentruns" x-init="compose.current.sources.agentruns && composeLoadAgents(); $watch('compose.current.sources.agentruns', v => v && composeLoadAgents())">
+                                      <div class="nlx-fld"><label>Agent task runs</label>
+                                        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                                          <input class="field-input" type="text" x-model="compose.pickers.agentQuery" placeholder="Filter your agents…" />
+                                          <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadAgents(true)" :disabled="compose.pickers.agentsLoading" title="Refresh agents">↻</button>
+                                        </div>
+                                        <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.agentsLoading">Loading agents…</div>
+                                        <div class="cmpx-wilist" x-show="!compose.pickers.agentsLoading && composeAgentFiltered().length">
+                                          <template x-for="ag in composeAgentFiltered()" :key="ag.id">
+                                            <button type="button" class="cmpx-wirow" :class="{ on: composeAgentIsSelected(compose.current.sources, ag.id) }" @click="composeAgentToggle(compose.current.sources, ag, true)">
+                                              <span class="cbx" x-text="composeAgentIsSelected(compose.current.sources, ag.id) ? '✓' : ''"></span>
+                                              <span class="mid"><span class="ti" x-text="ag.name"></span><span class="mt" x-text="(ag.runCount ? ag.runCount + ' run' + (ag.runCount === 1 ? '' : 's') : 'no runs yet') + (ag.group ? ' · ' + ag.group : '')"></span></span>
+                                            </button>
+                                          </template>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px" x-show="compose.current.sources.agentRunsRef">Selected: <span x-text="composeAgentSelectedList(compose.current.sources)"></span></div>
+                                        <div class="hint" style="margin-top:4px" x-show="!compose.pickers.agentsLoading && !compose.pickers.agents.length && compose.pickers.agentsLoaded">No agents found — create one on the Agents page first.</div>
+                                        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                                          <label style="font-size:11px;opacity:.75;margin:0">Look back</label>
+                                          <select class="field-input" style="max-width:150px" x-model.number="compose.current.sources.agentRunsDays" @change="composeMarkBriefDirty()">
+                                            <option :value="7">7 days</option>
+                                            <option :value="14">14 days</option>
+                                            <option :value="30">30 days</option>
+                                            <option :value="90">90 days</option>
+                                          </select>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px">The assistant folds each selected agent’s recent runs — their output &amp; findings within the window — as evidence.</div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template x-if="s.id==='repos'">
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.repos" x-init="compose.current.sources.repos && composeLoadRepos(); $watch('compose.current.sources.repos', v => v && composeLoadRepos())">
+                                      <div class="nlx-fld"><label>Repositories to reference</label>
+                                        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                                          <input class="field-input" type="text" x-model="compose.pickers.repoQuery" placeholder="Filter repositories…" />
+                                          <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadRepos(true)" :disabled="compose.pickers.reposLoading" title="Refresh repositories from your org/project">↻</button>
+                                        </div>
+                                        <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.reposLoading">Loading repositories…</div>
+                                        <div class="hint" style="margin-bottom:4px" x-show="!compose.pickers.reposLoading && compose.pickers.reposNote" x-text="compose.pickers.reposNote"></div>
+                                        <div class="cmpx-wilist" x-show="!compose.pickers.reposLoading && composeRepoFiltered().length">
+                                          <template x-for="rp in composeRepoFiltered()" :key="rp.ref">
+                                            <button type="button" class="cmpx-wirow" :class="{ on: composeRepoIsSelected(compose.current.sources, rp.ref) }" @click="composeRepoToggle(compose.current.sources, rp, true)">
+                                              <span class="cbx" x-text="composeRepoIsSelected(compose.current.sources, rp.ref) ? '✓' : ''"></span>
+                                              <span class="mid"><span class="ti" x-text="rp.name"></span><span class="mt" x-text="rp.org + ' / ' + rp.project"></span></span>
+                                            </button>
+                                          </template>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px" x-show="compose.current.sources.reposRef">Selected: <span x-text="composeRepoSelectedList(compose.current.sources)"></span></div>
+                                        <div class="hint" style="margin-top:4px" x-show="!compose.pickers.reposLoading && !compose.pickers.repos.length && compose.pickers.reposLoaded && !compose.pickers.reposNote">No repositories found — add an org/project in Settings, or type one below.</div>
+                                        <div class="nlx-fld" x-show="!compose.pickers.reposLoading && !compose.pickers.repos.length && compose.pickers.reposLoaded" style="margin-top:6px"><label style="font-size:11px;opacity:.75">Or specify manually</label>
+                                          <textarea class="field-input" rows="2" style="resize:vertical" x-model="compose.current.sources.reposRef" @input="composeMarkBriefDirty()" placeholder="org/project/repo, org/repo — one per line or comma-separated"></textarea>
+                                        </div>
+                                        <div class="hint" style="margin-top:4px">The writer searches these repos for real code, docs &amp; structure, and cites only what it can confirm.</div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                </div>
                               </template>
-                            </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.diary"><label>Diary timeframe</label><select class="field-input" x-model.number="compose.current.sources.diaryDays" @change="composeMarkBriefDirty()"><option :value="7">Last 7 days</option><option :value="14">Last 14 days</option><option :value="30">Last 30 days</option><option :value="90">Last quarter</option></select></div>
-                            <div class="nlx-fld" x-show="compose.current.sources.pr" x-init="compose.current.sources.pr && composeLoadPRs(); $watch('compose.current.sources.pr', v => v && composeLoadPRs())"><label>Pull request</label>
-                              <div style="display:flex;gap:6px;align-items:center">
-                                <select class="field-input" x-model="compose.current.sources.prRef" @change="composeMarkBriefDirty()">
-                                  <option value="">Select a pull request…</option>
-                                  <template x-for="p in compose.pickers.prs" :key="p.url"><option :value="p.url" x-text="(p.repo ? p.repo + ' #' + p.id + ' · ' : '') + p.title"></option></template>
-                                </select>
-                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPRs(true)" :disabled="compose.pickers.prsLoading" title="Refresh pull requests">↻</button>
-                              </div>
-                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.prsLoading">Loading…</div>
-                            </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.pursuit" x-init="compose.current.sources.pursuit && composeLoadPursuits(); $watch('compose.current.sources.pursuit', v => v && composeLoadPursuits())"><label>Pursuit</label>
-                              <div style="display:flex;gap:6px;align-items:center">
-                                <select class="field-input" x-model="compose.current.sources.pursuitRef" @change="composeMarkBriefDirty()">
-                                  <option value="">Select a pursuit…</option>
-                                  <template x-for="p in compose.pickers.pursuits" :key="p.id"><option :value="p.id" x-text="p.title + (p.stage ? ' · ' + p.stage : '') + (p.archived ? ' (archived)' : '')"></option></template>
-                                </select>
-                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadPursuits(true)" :disabled="compose.pickers.pursuitsLoading" title="Refresh pursuits">↻</button>
-                              </div>
-                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.pursuitsLoading">Loading…</div>
-                            </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.workitems"><label>Work items</label>
-                              <input class="field-input" type="text" x-model="compose.pickers.wiQuery" @input="composeWiSearch()" placeholder="Search by title…" />
-                              <div class="hint" style="margin-top:4px" x-show="compose.pickers.wiLoading">Searching…</div>
-                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.wiLoading && compose.pickers.wiNote" x-text="compose.pickers.wiNote"></div>
-                              <div class="cmpx-wilist" x-show="compose.pickers.wiResults.length">
-                                <template x-for="wi in compose.pickers.wiResults" :key="wi.id">
-                                  <button type="button" class="cmpx-wirow" :class="{ on: composeWiIsSelected(compose.current.sources, wi.id) }" @click="composeWiToggle(compose.current.sources, wi, true)">
-                                    <span class="cbx" x-text="composeWiIsSelected(compose.current.sources, wi.id) ? '✓' : ''"></span>
-                                    <span class="mid"><span class="ti" x-text="wi.title"></span><span class="mt" x-text="'AB#' + wi.id + (wi.state ? ' · ' + wi.state : '')"></span></span>
-                                  </button>
-                                </template>
-                              </div>
-                              <div class="hint" style="margin-top:4px" x-show="compose.current.sources.workitemsRef">Selected: <span x-text="compose.current.sources.workitemsRef"></span></div>
-                            </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.composition" x-init="compose.current.sources.composition && composeLoadCompositionRefs(); $watch('compose.current.sources.composition', v => v && composeLoadCompositionRefs())"><label>Compositions to reuse</label>
-                              <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.refsLoading">Loading…</div>
-                              <div class="cmpx-wilist" x-show="compose.pickers.refs.length">
-                                <template x-for="rf in compose.pickers.refs" :key="rf.id">
-                                  <button type="button" class="cmpx-wirow" :class="{ on: composeRefIsSelected(compose.current.sources, rf.id) }" @click="composeRefToggle(compose.current.sources, rf, true)">
-                                    <span class="cbx" x-text="composeRefIsSelected(compose.current.sources, rf.id) ? '✓' : ''"></span>
-                                    <span class="mid"><span class="ti" x-text="rf.title"></span><span class="mt" x-text="(rf.isNewsletter ? '📰 Newsletter' : (rf.purpose || 'composition')) + (rf.hasDraft ? '' : ' · no draft yet')"></span></span>
-                                  </button>
-                                </template>
-                              </div>
-                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.refsLoading && compose.pickers.refs.length <= 1">No other compositions yet — generate one first, or reuse the Newsletter.</div>
-                            </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.agentruns" x-init="compose.current.sources.agentruns && composeLoadAgents(); $watch('compose.current.sources.agentruns', v => v && composeLoadAgents())"><label>Agent task runs</label>
-                              <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-                                <input class="field-input" type="text" x-model="compose.pickers.agentQuery" placeholder="Filter your agents…" />
-                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadAgents(true)" :disabled="compose.pickers.agentsLoading" title="Refresh agents">↻</button>
-                              </div>
-                              <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.agentsLoading">Loading agents…</div>
-                              <div class="cmpx-wilist" x-show="!compose.pickers.agentsLoading && composeAgentFiltered().length">
-                                <template x-for="ag in composeAgentFiltered()" :key="ag.id">
-                                  <button type="button" class="cmpx-wirow" :class="{ on: composeAgentIsSelected(compose.current.sources, ag.id) }" @click="composeAgentToggle(compose.current.sources, ag, true)">
-                                    <span class="cbx" x-text="composeAgentIsSelected(compose.current.sources, ag.id) ? '✓' : ''"></span>
-                                    <span class="mid"><span class="ti" x-text="ag.name"></span><span class="mt" x-text="(ag.runCount ? ag.runCount + ' run' + (ag.runCount === 1 ? '' : 's') : 'no runs yet') + (ag.group ? ' · ' + ag.group : '')"></span></span>
-                                  </button>
-                                </template>
-                              </div>
-                              <div class="hint" style="margin-top:4px" x-show="compose.current.sources.agentRunsRef">Selected: <span x-text="composeAgentSelectedList(compose.current.sources)"></span></div>
-                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.agentsLoading && !compose.pickers.agents.length && compose.pickers.agentsLoaded">No agents found — create one on the Agents page first.</div>
-                              <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-                                <label style="font-size:11px;opacity:.75;margin:0">Look back</label>
-                                <select class="field-input" style="max-width:150px" x-model.number="compose.current.sources.agentRunsDays" @change="composeMarkBriefDirty()">
-                                  <option :value="7">7 days</option>
-                                  <option :value="14">14 days</option>
-                                  <option :value="30">30 days</option>
-                                  <option :value="90">90 days</option>
-                                </select>
-                              </div>
-                              <div class="hint" style="margin-top:4px">The assistant folds each selected agent’s recent runs — their output &amp; findings within the window — as evidence.</div>
-                            </div>
-                            <div class="nlx-fld" x-show="compose.current.sources.repos" x-init="compose.current.sources.repos && composeLoadRepos(); $watch('compose.current.sources.repos', v => v && composeLoadRepos())"><label>Repositories to reference</label>
-                              <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-                                <input class="field-input" type="text" x-model="compose.pickers.repoQuery" placeholder="Filter repositories…" />
-                                <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadRepos(true)" :disabled="compose.pickers.reposLoading" title="Refresh repositories from your org/project">↻</button>
-                              </div>
-                              <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.reposLoading">Loading repositories…</div>
-                              <div class="hint" style="margin-bottom:4px" x-show="!compose.pickers.reposLoading && compose.pickers.reposNote" x-text="compose.pickers.reposNote"></div>
-                              <div class="cmpx-wilist" x-show="!compose.pickers.reposLoading && composeRepoFiltered().length">
-                                <template x-for="rp in composeRepoFiltered()" :key="rp.ref">
-                                  <button type="button" class="cmpx-wirow" :class="{ on: composeRepoIsSelected(compose.current.sources, rp.ref) }" @click="composeRepoToggle(compose.current.sources, rp, true)">
-                                    <span class="cbx" x-text="composeRepoIsSelected(compose.current.sources, rp.ref) ? '✓' : ''"></span>
-                                    <span class="mid"><span class="ti" x-text="rp.name"></span><span class="mt" x-text="rp.org + ' / ' + rp.project"></span></span>
-                                  </button>
-                                </template>
-                              </div>
-                              <div class="hint" style="margin-top:4px" x-show="compose.current.sources.reposRef">Selected: <span x-text="composeRepoSelectedList(compose.current.sources)"></span></div>
-                              <div class="hint" style="margin-top:4px" x-show="!compose.pickers.reposLoading && !compose.pickers.repos.length && compose.pickers.reposLoaded && !compose.pickers.reposNote">No repositories found — add an org/project in Settings, or type one below.</div>
-                              <div class="nlx-fld" x-show="!compose.pickers.reposLoading && !compose.pickers.repos.length && compose.pickers.reposLoaded" style="margin-top:6px"><label style="font-size:11px;opacity:.75">Or specify manually</label>
-                                <textarea class="field-input" rows="2" style="resize:vertical" x-model="compose.current.sources.reposRef" @input="composeMarkBriefDirty()" placeholder="org/project/repo, org/repo — one per line or comma-separated"></textarea>
-                              </div>
-                              <div class="hint" style="margin-top:4px">The writer searches these repos for real code, docs & structure, and cites only what it can confirm.</div>
                             </div>
                             <div class="nlx-fld"><label>Reference links</label>
                               <template x-for="(l, i) in compose.current.sources.links" :key="i">
@@ -21011,7 +21041,10 @@
                           </div>
                         </div>
                       </div>
+                      <div class="cmpx-rail-resize" @pointerdown="composeRailResizeStart($event)" title="Drag to resize"></div>
                     </aside>
+                    <!-- Collapsed rail: a slim reopen tab -->
+                    <button type="button" class="cmpx-pair-tab" x-show="!composeRailOpen()" @click="composeToggleRail()" title="Show sources panel"><span>🔎 Sources</span></button>
 
                     <!-- CENTER STAGE: the composition is the hero -->
                     <main class="nlx-stage">
@@ -21205,7 +21238,11 @@
               .nlx-studio { display:grid; grid-template-columns:300px minmax(0,1fr); gap:18px; align-items:start; }
               .nlx-studio.chat-open { grid-template-columns:300px minmax(0,1fr) 340px; }
 
-              .nlx-rail { display:flex; flex-direction:column; gap:14px; position:sticky; top:12px; }
+              .nlx-rail { display:flex; flex-direction:column; gap:14px; position:relative; min-width:0; }
+              .cmpx-rail-resize{position:absolute;right:-9px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:3}
+              .cmpx-rail-resize:hover{background:color-mix(in srgb,var(--cp-accent) 22%,transparent)}
+              .cmpx-rail-collapse{align-self:flex-start;border:1px solid var(--cp-border);background:var(--cp-surface);color:var(--cp-text-soft);border-radius:8px;padding:3px 9px;font-size:13px;line-height:1;cursor:pointer}
+              .cmpx-rail-collapse:hover{border-color:var(--cp-accent);color:var(--cp-accent)}
               .nlx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); padding:14px; }
               .nlx-gen { width:100%; justify-content:center; padding:12px; font-size:14px; }
               .nlx-newdoc { display:block; text-align:center; margin-top:8px; font-size:12.5px; color:var(--cp-muted); text-decoration:none; }
@@ -29657,6 +29694,8 @@
           versions: [],
           showVersions: false,
           pairW: 360,             // docked paired-assistant column width (px), persisted
+          railW: 300,             // left rail (brief + sources) width (px), persisted
+          railOpen: true,         // left rail expanded vs collapsed to a reopen tab
           chat: { open: true, busy: false, input: '', messages: [], progress: [], attachments: [], uploading: false, dragging: false, runId: null, _seen: null, _stick: true },
           deliver: { open: false, to: '', subject: '' },
           // Source pickers: real pursuit / PR / work-item lists so the user
@@ -47082,6 +47121,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ── Paired-assistant studio helpers ───────────────────────────────
         composePairedOpen() { return !!(this.compose && this.compose.chat && this.compose.chat.open); },
+        composeRailOpen() {
+          if (this.compose && this.compose._railOpenLoaded) return !!this.compose.railOpen;
+          try { const s = localStorage.getItem('compose-rail-open'); if (s === '0') this.compose.railOpen = false; else if (s === '1') this.compose.railOpen = true; } catch {}
+          if (this.compose) this.compose._railOpenLoaded = true;
+          return !!(this.compose && this.compose.railOpen);
+        },
         composePairW() {
           let w = this.compose && this.compose.pairW;
           if (!w) { try { const s = parseInt(localStorage.getItem('compose-pair-w') || '', 10); if (s) w = s; } catch {} if (w && this.compose) this.compose.pairW = w; }
@@ -47094,6 +47139,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); try { localStorage.setItem('compose-pair-w', String(self.compose.pairW || 360)); } catch {} };
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up);
+        },
+        // ── Left rail (brief + sources): expand / shrink / collapse ──────────
+        composeRailW() {
+          let w = this.compose && this.compose.railW;
+          if (!w) { try { const s = parseInt(localStorage.getItem('compose-rail-w') || '', 10); if (s) w = s; } catch {} if (w && this.compose) this.compose.railW = w; }
+          w = w || 300; if (w < 240) w = 240; if (w > 480) w = 480; return w;
+        },
+        composeRailResizeStart(e) {
+          try { e.preventDefault(); } catch {}
+          const startX = e.clientX, startW = this.composeRailW(), self = this;
+          const move = (ev) => { let w = startW + (ev.clientX - startX); if (w < 240) w = 240; if (w > 480) w = 480; self.compose.railW = w; };
+          const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); try { localStorage.setItem('compose-rail-w', String(self.compose.railW || 300)); } catch {} };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        },
+        composeToggleRail() {
+          this.compose.railOpen = !this.compose.railOpen;
+          try { localStorage.setItem('compose-rail-open', this.compose.railOpen ? '1' : '0'); } catch {}
         },
         composePairOpener() {
           const c = this.compose && this.compose.current;

@@ -259,6 +259,48 @@ await t.test('compose: paired-assistant studio replaces the free-text brief', ()
   t.ok(/chat: \{ open: true,/.test(html), 'the docked panel is open by default');
 });
 
+// The left rail can expand/shrink/collapse and scrolls with the view (not sticky); the
+// Sources section is always open (non-collapsible); each source's config renders directly
+// beneath its own checkbox; the regenerate/generate-draft button is gone (assistant-driven).
+await t.test('compose: rail resize/collapse + inline source config + no regenerate button', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // Regenerate/Generate-draft button removed — generation is initiated by the assistant.
+  // The composeGenerate() method is retained, but nothing in the markup invokes it via a button.
+  t.ok(/async composeGenerate\(\)/.test(html), 'composeGenerate() method is retained');
+  t.ok(!/@click="composeGenerate\(\)"/.test(html), 'no button invokes composeGenerate() (assistant-driven)');
+
+  // Left rail: state + helpers for width + collapse, persisted.
+  t.ok(/railW: 300,/.test(html), 'railW default is in compose state');
+  t.ok(/railOpen: true,/.test(html), 'railOpen default is in compose state');
+  for (const fn of ['composeRailW', 'composeRailResizeStart', 'composeToggleRail', 'composeRailOpen']) {
+    t.ok(new RegExp('\\b' + fn + '\\s*\\(').test(html), fn + ' is defined');
+  }
+  t.ok(/composeRailResizeStart\(\$event\)/.test(html), 'the rail has a drag resizer');
+  t.ok(/class="cmpx-rail-collapse"[\s\S]{0,120}?composeToggleRail\(\)/.test(html), 'the rail has a collapse control');
+  t.ok(/x-show="!composeRailOpen\(\)"[\s\S]{0,120}?composeToggleRail\(\)/.test(html), 'a collapsed reopen tab restores the rail');
+  t.ok(/'rail-open': composeRailOpen\(\)/.test(html), 'grid reacts to the rail open/collapsed state');
+  t.ok(/--cmpx-rail-col:/.test(html), 'the grid rail column is driven by a width var');
+
+  // Rail scrolls with the view: .nlx-rail is NOT sticky (relative for the resize handle).
+  const railCss = _win(html, '.nlx-rail {', 200);
+  t.ok(!/position:sticky/.test(railCss), 'the rail is not sticky (scrolls with the view)');
+  t.ok(/position:relative/.test(railCss), 'the rail is positioned relative for its resize handle');
+
+  // Sources section is always open + non-collapsible (no x-data toggle, no chevron click).
+  t.ok(/<div class="nlx-acc open">\s*<div class="nlx-acc-head" style="cursor:default">🔎 Sources<\/div>/.test(html),
+    'the Sources section is always open (no collapse toggle)');
+
+  // Each source's config sits directly under its card via id-matched x-if templates in one loop.
+  t.ok(/class="cmpx-srcitem"/.test(html), 'each source is a self-contained item (card + its own config)');
+  t.ok(/class="cmpx-srccfg"/.test(html), 'a per-source config wrapper renders inline under the card');
+  t.ok(/x-if="s\.id==='pr'"/.test(html) && /x-if="s\.id==='agentruns'"/.test(html) && /x-if="s\.id==='repos'"/.test(html),
+    'id-matched config templates live inside the single source loop');
+  // pasted is a text field (a string) — kept standalone, NOT toggled as a checkbox card.
+  t.ok(/compose\.sourceCatalog\.filter\(x => x\.id !== 'pasted'\)/.test(html), 'the text-only pasted source is excluded from the checkbox loop');
+  t.ok(/x-model="compose\.current\.sources\.pasted"/.test(html), 'the Pasted context textarea still binds the real field');
+});
+
 // Compose areas resume the last composition of a purpose by default (so users land
 // on their last generated draft + its history) and can still start a fresh one.
 await t.test('compose: purpose picker resumes latest by default, forceNew starts blank', () => {
