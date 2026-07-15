@@ -1410,7 +1410,7 @@ await t.test('boards: pin Compose.AI documents (backend + picker + card + assist
   // FRONTEND — icon/label, picker candidates, jump, card detail, inline preview.
   t.ok(/document: 'Document'/.test(html), 'boardKindLabel maps document');
   t.ok(/document: '📄'/.test(html), 'boardKindIcon maps document');
-  const loader = _win(html, 'loadBoardDocCandidates(', 600);
+  const loader = _win(html, 'async loadBoardDocCandidates(force)', 600);
   t.ok(/\/api\/compose/.test(loader) && /newsletter/.test(loader), 'loadBoardDocCandidates GETs compositions and filters newsletters');
   t.ok(/this\.boardPinKind === 'document'/.test(html), 'pinCandidates has a document branch');
   // boardJump routes documents into the Compose studio on that composition.
@@ -1423,6 +1423,42 @@ await t.test('boards: pin Compose.AI documents (backend + picker + card + assist
   t.ok(/\/api\/compose\/'/.test(ensure) && /boardDocDetail/.test(ensure), 'boardDocEnsure lazy-loads the draft into boardDocDetail');
   t.ok(/boardDocDetail: \{\}/.test(html), 'boardDocDetail cache is declared in state');
   t.ok(/boardPinHasDetail[\s\S]{0,160}'document'/.test(html), 'boardPinHasDetail includes document');
+});
+
+await t.test('boards: pin Me.AI runs (backend + picker + card + report access + assistant awareness)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  // BACKEND — 'meairun' is a pinnable board kind + resolves through _resolveBoardItems so
+  // both the Briefing and the Workspace Assistant see the run's goal + final report.
+  t.ok(/BOARD_KINDS[\s\S]{0,220}'meairun'/.test(srv), "'meairun' is a recognized board kind");
+  t.ok(/it\.kind === 'meairun'/.test(srv), '_resolveBoardItems has a meairun branch');
+  const branch = _win(srv, "it.kind === 'meairun'", 1400);
+  t.ok(/meAiTasks\.get\(/.test(branch) && /_meAiLoadTask/.test(branch), 'meairun branch resolves the task');
+  t.ok(/kind ?=== ?'report'|kind==='report'/.test(branch), 'meairun branch finds the latest report artifact');
+  // Lean per-run report endpoint powering the card's inline preview + quick access.
+  t.ok(/\/api\/me-ai\/task\/:id\/report\/latest/.test(srv), 'GET /report/latest route exists');
+  const rpt = _win(srv, "/report/latest'", 1400);
+  t.ok(/hasReport/.test(rpt) && /reportUrl/.test(rpt), '/report/latest returns hasReport + reportUrl');
+  // Assistant catalog exposes AVAILABLE ME.AI RUNS + can pin_item kind meairun.
+  t.ok(/AVAILABLE ME\.AI RUNS/.test(srv), 'assistant prints an AVAILABLE ME.AI RUNS catalog');
+  t.ok(/offer\('meairun'/.test(srv), 'assistant offers Me.AI runs into catalogByKey');
+  t.ok(/agent\|task\|flow\|pr\|document\|meairun/.test(srv), 'pin_item system-prompt lists meairun as a kind');
+  // FRONTEND — icon/label, picker candidates, jump, card detail, inline preview.
+  t.ok(/meairun: 'Me\.AI Run'/.test(html), 'boardKindLabel maps meairun');
+  t.ok(/meairun: '🔭'/.test(html), 'boardKindIcon maps meairun');
+  const loader = _win(html, 'async loadBoardMeAiCandidates(force)', 700);
+  t.ok(/\/api\/compose\/sources\/pursuits/.test(loader), 'loadBoardMeAiCandidates GETs the pursuits source');
+  t.ok(/this\.boardPinKind === 'meairun'/.test(html), 'pinCandidates has a meairun branch');
+  // boardJump + route deep-link into the pursuit map.
+  t.ok(/case 'meairun': return '#\/me-ai\/' \+ encodeURIComponent\(item\.refId\)/.test(html), 'boardItemRoute maps meairun to #/me-ai/<id>');
+  // Card detail: goal/stage meta + Open pursuit + Read final report + inline preview, lazy-loaded.
+  t.ok(/board-meai-detail/.test(html), 'meairun pin card has a detail template');
+  t.ok(/🔭 Open pursuit/.test(html), 'card exposes Open pursuit');
+  t.ok(/Read the final report →/.test(html), 'card exposes Read the final report');
+  const ensure = _win(html, 'async boardMeAiEnsure(item)', 1400);
+  t.ok(/report\/latest/.test(ensure) && /boardMeAiDetail/.test(ensure), 'boardMeAiEnsure lazy-loads the report into boardMeAiDetail');
+  t.ok(/boardMeAiDetail: \{\}/.test(html), 'boardMeAiDetail cache is declared in state');
+  t.ok(/boardPinHasDetail[\s\S]{0,200}'meairun'/.test(html), 'boardPinHasDetail includes meairun');
 });
 
 await t.test('compose library: pin a document to a board (row/card/studio) + non-overlapping row actions', () => {

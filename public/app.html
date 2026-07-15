@@ -9989,6 +9989,28 @@
                                               </template>
                                             </div>
                                           </template>
+                                          <!-- Me.AI run: goal/stage meta + Open pursuit + Read final report + inline preview. -->
+                                          <template x-if="item.kind === 'meairun'">
+                                            <div class="board-meai-detail" x-init="boardPinEnsureDetail(item)" @click.stop>
+                                              <div class="cf-meta-line" x-show="boardMeAiState(item).goal || boardMeAiState(item).stage || boardMeAiState(item).status" x-text="[boardMeAiState(item).goal, [boardMeAiState(item).stage, boardMeAiState(item).status].filter(Boolean).join(' · ')].filter(Boolean).join(' — ')"></div>
+                                              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+                                                <button class="btn ghost" style="font-size:0.72rem" type="button" title="Open this Me.AI run" @click.stop="boardJump(item)">🔭 Open pursuit</button>
+                                                <a class="btn ghost" style="font-size:0.72rem" x-show="boardMeAiState(item).hasReport && boardMeAiState(item).reportUrl" :href="boardMeAiState(item).reportUrl" target="_blank" rel="noopener" title="Open the final report in a new tab">Read the final report →</a>
+                                              </div>
+                                              <template x-if="boardMeAiState(item).loading">
+                                                <div class="hint" style="padding:2px">Loading run…</div>
+                                              </template>
+                                              <template x-if="!boardMeAiState(item).loading && boardMeAiState(item).empty">
+                                                <div class="hint" style="padding:2px">No final report yet.</div>
+                                              </template>
+                                              <template x-if="!boardMeAiState(item).loading && !boardMeAiState(item).empty && boardMeAiState(item).site">
+                                                <iframe class="board-meai-site" :srcdoc="boardMeAiState(item).site" sandbox="allow-scripts" referrerpolicy="no-referrer" style="width:100%;height:260px;border:1px solid var(--cp-border,#e5e7eb);border-radius:8px;background:#fff"></iframe>
+                                              </template>
+                                              <template x-if="!boardMeAiState(item).loading && !boardMeAiState(item).empty && !boardMeAiState(item).site && boardMeAiState(item).html">
+                                                <div class="md-output board-meai-preview" style="max-height:260px;overflow:auto" x-html="boardMeAiState(item).html"></div>
+                                              </template>
+                                            </div>
+                                          </template>
                                           <!-- Agent: inline full-featured chat (thinking / tools / response) — no navigation. -->
                                           <template x-if="item.kind === 'agent'">
                                             <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px;min-height:0;max-height:min(56vh,460px)" x-init="boardAgentChatEnsure(item); boardAgentChatResume(item)" @click.stop>
@@ -11352,15 +11374,16 @@
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <template x-for="k in ['session','chat','task','flow','agent','manager','location','pr','document']" :key="k">
+                    <template x-for="k in ['session','chat','task','flow','agent','manager','location','pr','document','meairun']" :key="k">
                       <button type="button" class="btn ghost" :class="{ primary: boardPinKind === k }" @click="setPinKind(k)" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
                     </template>
                   </div>
                   <input class="field-input" type="text" x-show="boardPinKind !== 'location'" x-model="boardPinSearch" placeholder="Search…" />
                   <div x-show="boardPinKind === 'pr' && _boardPrLoading" class="hint" style="padding:8px 2px">Loading pull requests…</div>
                   <div x-show="boardPinKind === 'document' && _boardDocLoading" class="hint" style="padding:8px 2px">Loading documents…</div>
+                  <div x-show="boardPinKind === 'meairun' && _boardMeAiLoading" class="hint" style="padding:8px 2px">Loading Me.AI runs…</div>
                   <div x-show="boardPinKind !== 'location'" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
-                    <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading) && !(boardPinKind==='document' && _boardDocLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : (boardPinKind === 'document' ? 'No documents yet. Create one in Compose.AI.' : 'No matching items in this team.')"></div>
+                    <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading) && !(boardPinKind==='document' && _boardDocLoading) && !(boardPinKind==='meairun' && _boardMeAiLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : (boardPinKind === 'document' ? 'No documents yet. Create one in Compose.AI.' : (boardPinKind === 'meairun' ? 'No Me.AI runs yet. Start one from Me.AI.' : 'No matching items in this team.'))"></div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
                       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px">
                         <div style="min-width:0">
@@ -29684,6 +29707,10 @@
         _boardDocLoaded: false,
         _boardDocLoading: false,
         boardDocDetail: {},
+        boardMeAiCandidates: [],
+        _boardMeAiLoaded: false,
+        _boardMeAiLoading: false,
+        boardMeAiDetail: {},
         boardLocPath: '',
         boardLocPreview: null,
         boardLocBusy: false,
@@ -50760,10 +50787,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Task', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', document: 'Document', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Task', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', document: 'Document', meairun: 'Me.AI Run', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
         },
         boardKindIcon(kind) {
-          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄', document: '📄', dev: '🧰' })[kind] || '📌';
+          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄', document: '📄', meairun: '🔭', dev: '🧰' })[kind] || '📌';
         },
         openPinPicker() {
           if (!this.activeBoard()) { this.showToast('Board', 'Select or create a board first', 'error'); return; }
@@ -50779,6 +50806,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardPinKind = k;
           if (k === 'pr' && !this._boardPrLoaded) this.loadBoardPrCandidates();
           if (k === 'document' && !this._boardDocLoaded) this.loadBoardDocCandidates();
+          if (k === 'meairun' && !this._boardMeAiLoaded) this.loadBoardMeAiCandidates();
+        },
+        // Me.AI runs/pursuits to pin. Fetched once from the picker source endpoint
+        // /api/compose/sources/pursuits (same list Compose uses as a source); deleted
+        // runs are already filtered server-side.
+        async loadBoardMeAiCandidates(force) {
+          if (this._boardMeAiLoading) return;
+          this._boardMeAiLoading = true;
+          if (force) this._boardMeAiLoaded = false;
+          try {
+            let resp = null;
+            try { resp = await this.request('/api/compose/sources/pursuits'); } catch { resp = null; }
+            const runs = (resp && resp.pursuits) || [];
+            this.boardMeAiCandidates = runs.map(p => ({
+              kind: 'meairun', refId: p.id,
+              label: p.title || 'Me.AI run',
+              sublabel: [p.stage || p.status, p.mode === 'tree' ? 'pursuit' : '', p.hasReport ? 'has report' : ''].filter(Boolean).join(' · '),
+              meta: { mode: p.mode || '', status: p.status || '', stage: p.stage || '', hasReport: !!p.hasReport },
+            }));
+            this._boardMeAiLoaded = true;
+          } finally {
+            this._boardMeAiLoading = false;
+          }
         },
         // Compose.AI documents to pin. Fetched once from /api/compose (the same list the
         // Documents library uses); newsletters are excluded (they have their own reader).
@@ -50864,6 +50914,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out = (this.boardPrCandidates || []).map(p => ({ ...p }));
           } else if (this.boardPinKind === 'document') {
             out = (this.boardDocCandidates || []).map(d => ({ ...d }));
+          } else if (this.boardPinKind === 'meairun') {
+            out = (this.boardMeAiCandidates || []).map(r => ({ ...r }));
           }
           if (q) out = out.filter(o => (o.label || '').toLowerCase().includes(q) || (o.sublabel || '').toLowerCase().includes(q));
           // Mark already-pinned
@@ -51052,6 +51104,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'comment': return '#/chat/' + encodeURIComponent(this._commentChatId(item.refId));
             case 'session': return '#/sessions';
             case 'pr': return '#/codeflow/' + encodeURIComponent(item.refId);
+            case 'meairun': return '#/me-ai/' + encodeURIComponent(item.refId);
             default: return null;
           }
         },
@@ -51100,13 +51153,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.$nextTick(() => { try { this.composeOpen(item.refId); } catch {} });
             return;
           }
+          // Me.AI runs open on their own run/pursuit page (the #/me-ai/<id> deep link
+          // resolves single runs and tree pursuits alike).
+          if (item.kind === 'meairun') {
+            this.goTo('#/me-ai/' + encodeURIComponent(item.refId));
+            return;
+          }
           const r = item.route || this.boardItemRoute(item);
           if (r) this.goTo(r);
         },
         boardItemsByKind() {
           const board = this.activeBoard();
           const items = (board && board.items) || [];
-          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location', 'pr', 'document'];
+          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location', 'pr', 'document', 'meairun'];
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
@@ -51174,7 +51233,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Which pin kinds can show their last run/output (with steps & reasoning) or,
         // for chats, their most recent message right on the board card.
         boardPinHasDetail(item) {
-          return !!item && ['agent', 'task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr', 'document'].includes(item.kind);
+          return !!item && ['agent', 'task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr', 'document', 'meairun'].includes(item.kind);
         },
         // ── Inline agent chat (agent board cards) ──────────────────────────────
         // A full-featured chat embedded on an agent card: shows the user turn, the
@@ -51681,6 +51740,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.loadBoardPrs();
           } else if (item.kind === 'document') {
             if (this.boardDocDetail[item.refId] === undefined) this.boardDocEnsure(item);
+          } else if (item.kind === 'meairun') {
+            if (this.boardMeAiDetail[item.refId] === undefined) this.boardMeAiEnsure(item);
           }
         },
         // Lazy-load a pinned document's draft for inline preview on its board card.
@@ -51715,6 +51776,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         boardDocState(item) {
           return (item && this.boardDocDetail[item.refId]) || { loading: true };
+        },
+        // Lazy-load a pinned Me.AI run's final report for inline preview + quick access
+        // on its board card. Uses the lean /report/latest endpoint (no full-tree fold
+        // client-side). Cached in boardMeAiDetail keyed by run id.
+        // state: { loading, hasReport, reportUrl, html, site, empty, goal, stage, status, mode }.
+        async boardMeAiEnsure(item) {
+          if (!item || !item.refId) return;
+          if (this.boardMeAiDetail[item.refId] !== undefined) return;
+          this.boardMeAiDetail = { ...this.boardMeAiDetail, [item.refId]: { loading: true } };
+          let st = { loading: false, hasReport: false, reportUrl: '', html: '', site: '', empty: true, goal: '', stage: '', status: '', mode: '', title: item.label || '' };
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(item.refId) + '/report/latest');
+            if (r && r.ok) {
+              st.title = r.title || st.title;
+              st.goal = r.goal || '';
+              st.stage = r.stage || '';
+              st.status = r.status || '';
+              st.mode = r.mode || '';
+              st.hasReport = !!r.hasReport;
+              st.reportUrl = r.reportUrl || '';
+              const body = r.body || '';
+              if (body) {
+                st.empty = false;
+                if ((r.format || '') === 'html') {
+                  st.site = body;
+                } else {
+                  st.html = this.newsletterRenderHtml ? this.newsletterRenderHtml(body) : body;
+                }
+              }
+            }
+          } catch { st.empty = true; }
+          this.boardMeAiDetail = { ...this.boardMeAiDetail, [item.refId]: st };
+        },
+        boardMeAiState(item) {
+          return (item && this.boardMeAiDetail[item.refId]) || { loading: true };
         },
         // board so cards and the Briefing's Sources reflect the latest runs without the
         // user clicking Refresh. Called after data loads (refreshAll) and on board open.
