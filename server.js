@@ -12120,13 +12120,13 @@ function _composePursuitCorpusText(ref) {
   const legs = (corpus && corpus.legs) || [];
   if (!legs.length) return null;
   const blocks = [];
-  let budget = 16000;
+  let budget = 200000;
   for (const l of legs) {
     if (budget <= 0) break;
     const head = `#### ${l.title || 'Angle'}${l.outcome === 'dead-end' ? ' (dead-end)' : ''}`;
-    const sum = l.summary ? String(l.summary).slice(0, 1400) : '';
-    const finds = (l.findings || []).slice(0, 6)
-      .map(f => `- ${f.claim}${f.evidence ? ` — ${String(f.evidence).slice(0, 260)}` : ''}${Array.isArray(f.sources) && f.sources.length ? ` [${f.sources.slice(0, 3).join(', ')}]` : ''}`)
+    const sum = l.summary ? String(l.summary) : '';
+    const finds = (l.findings || [])
+      .map(f => `- ${f.claim}${f.evidence ? ` — ${String(f.evidence)}` : ''}${Array.isArray(f.sources) && f.sources.length ? ` [${f.sources.join(', ')}]` : ''}`)
       .join('\n');
     const seg = [head, sum, finds].filter(Boolean).join('\n');
     budget -= seg.length;
@@ -12166,10 +12166,10 @@ function _composeAgentRunsForOne(agentRef, days, budget) {
     const head = `#### Run ${when} — ${status}${trig}${model}`;
     let steps = '';
     if (Array.isArray(r.steps) && r.steps.length) {
-      const trail = r.steps.slice(0, 8).map(s => (s && (s.title || s.tool || s.type)) || '').filter(Boolean).join(' → ');
-      if (trail) steps = ('Steps: ' + trail).slice(0, 400);
+      const trail = r.steps.map(s => (s && (s.title || s.tool || s.type)) || '').filter(Boolean).join(' → ');
+      if (trail) steps = 'Steps: ' + trail;
     }
-    const body = String(r.output || r.error || '').replace(/\s+$/, '').slice(0, 1600);
+    const body = String(r.output || r.error || '').replace(/\s+$/, '');
     const seg = [head, steps, body].filter(Boolean).join('\n');
     left -= seg.length;
     segs.push(seg);
@@ -12185,8 +12185,8 @@ function _composeAgentRunsCorpusText(agentRef, opts = {}) {
   if (!ids.length) return null;
   const days = Math.max(1, Math.min(90, Math.round(Number(opts.days) || 14)));
   const capped = ids.slice(0, 6); // keep the corpus focused
-  let budget = 12000;
-  const perAgent = Math.max(1500, Math.floor(budget / capped.length));
+  let budget = 200000;
+  const perAgent = Math.max(20000, Math.floor(budget / capped.length));
   const sections = [];
   for (const id of capped) {
     if (budget <= 0) break;
@@ -12207,7 +12207,7 @@ async function _composeFetchUrl(url, timeoutMs = 8000) {
     const ct = r.headers.get('content-type') || '';
     const body = await r.text();
     const text = (/html|xml/i.test(ct) || /^\s*</.test(body)) ? _composeHtmlText(body) : body;
-    return { ok: r.ok, status: r.status, text: String(text || '').slice(0, 8000) };
+    return { ok: r.ok, status: r.status, text: String(text || '').slice(0, 200000) };
   } finally { clearTimeout(to); }
 }
 // Real server-side fetchers (overridable in tests via opts.fetchers).
@@ -12277,7 +12277,7 @@ async function _composeSourceContext(c, opts = {}) {
           const body = [
             `**${pr.title || 'Pull request #' + m.prId}** (#${pr.id || m.prId}, ${pr.status || '?'}${pr.isDraft ? ', draft' : ''})`,
             `${m.org}/${m.project}/${m.repo} · ${pr.sourceBranch || '?'} → ${pr.targetBranch || '?'}${pr.createdBy && pr.createdBy.name ? ' · by ' + pr.createdBy.name : ''}`,
-            pr.description ? `\n${String(pr.description).slice(0, 4000)}` : '',
+            pr.description ? `\n${String(pr.description)}` : '',
             fileList ? `\nChanged files:\n${fileList}` : '',
           ].filter(Boolean).join('\n');
           parts.push('### Pull request (fetched)');
@@ -12342,7 +12342,7 @@ async function _composeSourceContext(c, opts = {}) {
           const b = [
             `**#${wi.id || m.workItemId} · ${wi.type || 'Work item'} · ${wi.state || '?'}** — ${wi.title || ''}`,
             wi.assignedTo ? `Assigned: ${wi.assignedTo}` : '',
-            wi.description ? _composeHtmlText(wi.description).slice(0, 2000) : '',
+            wi.description ? _composeHtmlText(wi.description) : '',
           ].filter(Boolean).join('\n');
           blocks.push(b); okCount++; chars += b.length;
         }
@@ -12390,7 +12390,7 @@ async function _composeSourceContext(c, opts = {}) {
   if (src.composition && String(src.compositionRef || '').trim()) {
     const refs = String(src.compositionRef).split(',').map(s => s.trim()).filter(Boolean);
     const blocks = [];
-    let budget = 24000;
+    let budget = 400000;
     for (const ref of refs) {
       if (budget <= 0) break;
       if (ref === c.id) continue; // never let a composition cite itself
@@ -12409,9 +12409,8 @@ async function _composeSourceContext(c, opts = {}) {
       }
       body = String(body || '').trim();
       if (!body) continue;
-      const slice = body.slice(0, Math.min(12000, budget));
-      budget -= slice.length;
-      blocks.push(`#### ${title}\n\n${slice}`);
+      budget -= body.length;
+      blocks.push(`#### ${title}\n\n${body}`);
       evidenceCount++;
     }
     if (blocks.length) {
@@ -12429,7 +12428,7 @@ async function _composeSourceContext(c, opts = {}) {
     report('m365', 'Microsoft 365 (WorkIQ)', true, false, 0, 'needs the WorkIQ tool in the agent runtime — not resolvable server-side');
   }
   if (src.pasted && String(src.pasted).trim()) {
-    const t = String(src.pasted).trim().slice(0, 12000);
+    const t = String(src.pasted).trim();
     parts.push('### Pasted context provided by the user');
     parts.push(t);
     report('pasted', 'Pasted context', true, true, t.length, '');

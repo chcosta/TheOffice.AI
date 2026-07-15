@@ -1132,4 +1132,24 @@ await t.test('compose sources: work-item refs accept an AB#-prefixed token', () 
   t.ok(!re.test('GH#5'), 'a GH#-prefixed token is not caught by the AzDO numeric fallback');
 });
 
+await t.test('compose sources: discrete selected sources are inlined in full — never truncated', () => {
+  const src = readFileSync('server.js', 'utf8');
+  // The user hit an assistant reporting a source as "truncated" (work item #10503
+  // epic cut off mid-section). None of the selected sources should be truncated.
+  const ctx = _win(src, 'async function _composeSourceContext', 16000);
+  // work-item description: inlined in full (no .slice cap on the description)
+  t.ok(/_composeHtmlText\(wi\.description\)\s*:/.test(ctx), 'work-item description is inlined in full');
+  t.ok(!/_composeHtmlText\(wi\.description\)\.slice\(/.test(ctx), 'work-item description is NOT sliced/truncated');
+  // PR description: full, not clipped at 4000
+  t.ok(/String\(pr\.description\)\}`/.test(ctx), 'PR description is inlined in full');
+  t.ok(!/String\(pr\.description\)\.slice\(/.test(ctx), 'PR description is NOT sliced/truncated');
+  // pasted context: the user's own text, inlined verbatim
+  t.ok(/String\(src\.pasted\)\.trim\(\);/.test(ctx), 'pasted context is inlined in full (no trailing slice)');
+  // composition reuse: full body, no per-item 12000 clip
+  t.ok(!/body\.slice\(0, Math\.min\(12000/.test(ctx), 'composition reuse no longer clips each body at 12000');
+  // pursuit / agent-run folds keep only a high safety ceiling (not a low cap)
+  const pur = _win(src, 'function _composePursuitCorpusText', 900);
+  t.ok(!/\.slice\(0, 1400\)/.test(pur) && !/\.slice\(0, 260\)/.test(pur), 'pursuit fold no longer clips summaries/evidence at low caps');
+});
+
 await t.done();
