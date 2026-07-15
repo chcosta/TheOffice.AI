@@ -21590,7 +21590,7 @@ function _meAiFoldJournal(id) {
             // consecutive-failure count the Director uses to cull a doomed path. A genuine 'done'
             // clears it so an occasional-but-recovering leg is never culled.
             if (r.status === 'error') leg.failCount = (leg.failCount || 0) + 1;
-            else if (r.status === 'done') leg.failCount = 0;
+            else if (r.status === 'done') { leg.failCount = 0; leg.stallCount = 0; }
           }
         }
         break;
@@ -21629,7 +21629,24 @@ function _meAiFoldJournal(id) {
           leg.events = leg.events || [];
           leg.events.push(Object.assign({ at: r.at, legId: r.legId }, r.ev));
           if (leg.events.length > 200) leg.events.splice(0, leg.events.length - 200);
+          // A substep is a liveness heartbeat: while a leg genuinely runs it streams
+          // thinking/tool/response events every few seconds, so stamping updatedAt here
+          // keeps the stale-running detector honest — a 'running' leg is only "stale"
+          // (orphaned by a crash/restart) when it has emitted NOTHING for the stale window,
+          // never merely because a single deep turn is taking a while.
+          if (leg.status === 'running') leg.updatedAt = r.at;
         }
+        break;
+      }
+      case 'leg_stall': {
+        // Durable stall counter. Incremented each time Resume (or the stuck-watchdog) has to
+        // re-drive an orphaned leg that STILL hasn't reached a terminal state — i.e. the leg is
+        // not crashing (that's failCount) but is failing to make progress across recovery cycles
+        // (repeated restarts, a hung session, a dependency that never clears). At the ceiling the
+        // Director culls the path so the pursuit converges instead of the user re-clicking Resume
+        // forever. A genuine 'done' clears it (see leg_status), so a leg that recovers is safe.
+        const leg = state.legs[r.legId];
+        if (leg) { leg.stallCount = (leg.stallCount || 0) + 1; leg.updatedAt = r.at; }
         break;
       }
       case 'checkpoint': state.checkpoints.push(r.checkpoint || {}); break;
@@ -21789,6 +21806,11 @@ const ME_AI_MAX_TREE_RECOVERIES = 2;
 // culls it so the pursuit can converge on the work that succeeded instead of the user re-driving
 // a leg that will only crash again.
 const MEAI_LEG_MAX_FAILS = 3;
+// A leg that keeps failing to make PROGRESS across recovery cycles (not crashing — that's
+// MEAI_LEG_MAX_FAILS — but staying orphaned through repeated Resume/watchdog re-drives) is a
+// doomed path. At this many stall re-drives the Director culls it so the pursuit converges on
+// the work that succeeded instead of the user re-clicking "Resume" into the same stuck state.
+const MEAI_LEG_MAX_STALLS = 3;
 const _meAiOrphanTrees = [];
 // Rehydrate tree tasks on boot: fold each journal, reconcile its outbox, re-arm.
 function _meAiHydrateTrees() {
@@ -21936,6 +21958,42 @@ setInterval(() => {
     _meAiWriteDayShape(today); // deduped internally
   } catch (_) { /* best-effort */ }
 }, ME_AI_DAYSHAPE_INTERVAL_MS);
+
+// Stuck-pursuit auto-recovery watchdog. The user must never have to click "Resume" — a pursuit
+// that gets orphaned (server restart mid-run, a leg's session dies, an indefinite hang) should heal
+// itself. Every tick, for each tree-mode pursuit that is effectively IDLE (by liveness, not the raw
+// flag — see _meAiPursuitIdle) yet still has stalled orphans, run the SAME resume/recover core the
+// manual button uses (stalledOnly, so it never nudges a merely-unfinished pursuit on a timer). That
+// re-drives recoverable orphans and, via stallCount, culls the ones that keep failing to progress so
+// the pursuit converges on its own. Leader-gated (executes work, per I1); throttled per task so a
+// genuinely-slow recovery isn't hammered.
+const ME_AI_STUCK_WATCHDOG_MS = 60 * 1000;
+const ME_AI_STUCK_RECOVER_THROTTLE_MS = 90 * 1000;
+const _meAiStuckLastRecover = new Map();
+let _meAiStuckBusy = false;
+setInterval(() => {
+  if (_meAiStuckBusy) return;
+  try {
+    if (!leaderCheck()) return;
+    if (!featureEnabled('me-ai')) return;
+    _meAiStuckBusy = true;
+    const now = Date.now();
+    for (const [id, t] of meAiTasks) {
+      try {
+        if (!t || t.mode !== 'tree') continue;
+        // Only touch effectively-idle pursuits — never yank a leg out from under a live wave.
+        if (!_meAiPursuitIdle(id)) continue;
+        const last = _meAiStuckLastRecover.get(id) || 0;
+        if ((now - last) < ME_AI_STUCK_RECOVER_THROTTLE_MS) continue;
+        const r = _meAiResumeStalled(id, { stalledOnly: true });
+        // Only stamp the throttle when we actually acted (recovered/culled something) so a pursuit
+        // with nothing stalled is re-checked promptly once it does stall, not blocked for 90s.
+        if (r && r.ok && (r.resumed || r.culled) ) _meAiStuckLastRecover.set(id, now);
+      } catch (_) { /* per-task best-effort */ }
+    }
+  } catch (_) { /* best-effort */ }
+  finally { _meAiStuckBusy = false; }
+}, ME_AI_STUCK_WATCHDOG_MS);
 
 // REQ-8 Proactive attention poller: keep the attention inbox fresh so email/Teams
 // asks surface even while the user is head-down (NOT active-window gated). New items
@@ -23984,6 +24042,40 @@ function _meAiAutoCullCrashLoop(t, leg, fails, err) {
   } catch (_) { /* auto-converge is best-effort; manual Resume remains available */ }
 }
 
+// Cull a leg that keeps STALLING — orphaned across repeated recovery cycles without ever crashing
+// (that's _meAiAutoCullCrashLoop / failCount) or completing. This is the missing half of "recover
+// from ANY stuck state": a leg whose session died on a restart, or that hangs indefinitely, never
+// emits 'error', so failCount stays 0 and the crash-loop cull never fires — the pursuit would sit
+// stuck forever and the user would re-click "Resume" into the same state. stallCount (bumped each
+// time it must be re-driven while still un-terminal) reaching MEAI_LEG_MAX_STALLS marks it doomed.
+// Does NOT auto-converge by default: the resume core re-engages the spine ONCE after culling a whole
+// batch of doomed orphans, so a multi-cull pass doesn't fire N redundant spine waves. Pass
+// { converge:true } for a standalone cull that should try to hand back a deliverable on its own.
+function _meAiCullStalled(t, leg, stalls, opts) {
+  const id = t.id; const converge = !!(opts && opts.converge);
+  try {
+    _meAiTreeEmit(id, 'leg_invalidate', { legId: leg.id });
+    _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: 'Culled — stayed stuck through ' + stalls + ' recovery cycles without progressing (never crashed, never completed). The Director dropped this stalled path so the pursuit can converge on the work that succeeded.', confidence: 'low' }) });
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    let gr = {};
+    try { const pol = _meAiDirectorPolicy(id, tree); gr = (pol && pol.grant) || {}; } catch (_) {}
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'culled-stalled', target: leg.id, why: 'Leg “' + String(leg.title || leg.goal || leg.id).slice(0, 80) + '” stayed stuck through ' + stalls + ' resume cycles without progressing — culled so the pursuit converges instead of stalling on it forever.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
+  } catch (_) { /* cull ledger is best-effort */ }
+  if (!converge) return;
+  try {
+    if (!_meAiDirectorLeaderOk() || !_meAiPursuitIdle(id)) return;
+    const fresh = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const liveLeft = (fresh.order || []).some(lid => { const l = fresh.legs[lid]; return l && (l.status === 'running' || l.status === 'blocked'); });
+    if (liveLeft) return;
+    const tk = meAiTasks.get(id);
+    if (!tk || tk.mode !== 'tree') return;
+    tk.error = null; tk._lastError = null; tk.question = null; tk.pauseReason = null; tk.nextActions = [];
+    _meAiSetStage(tk, 'working', 'running');
+    _meAiTreeEmit(id, 'stage', { stage: 'working' });
+    _meAiTreeReAct(tk, 'continue', 'A persistently-stalled leg was just culled. Verify what the other legs established, then converge and produce the final deliverable from the work that succeeded — do not re-attempt the culled path.', 'Auto-recovered after culling a stalled leg');
+  } catch (_) { /* auto-converge is best-effort */ }
+}
+
 async function _meAiRunLeg(t, leg) {
   const id = t.id;
   _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'running' });
@@ -25573,16 +25665,36 @@ function _meAiDirectorStalledLegs(tree, opts) {
   }
   return out;
 }
-// A leg claiming 'running' this long after its last update, on a pursuit with no live loop,
-// is a restart/crash orphan — the loop is gone, so it never advances on its own.
-const ME_AI_STALE_RUNNING_MS = 90 * 1000;
-// A pursuit is "idle" (not live) when no orchestrator loop is driving it — errored, paused,
-// or parked. In that state a leg's 'running' status is stale, so stale-running orphans should
-// count toward the stalled/resumable set the desk surfaces and Resume acts on (they agree).
-function _meAiPursuitIdle(id) {
+// A leg claiming 'running' this long after its last substep, on a pursuit with no live loop,
+// is a restart/crash orphan — the loop is gone, so it never advances on its own. This now
+// drives ACTIVE recovery (widening the resume detector + the stuck-watchdog), so it is set
+// conservatively: a live SDK leg streams thinking/tool/response substeps that heartbeat
+// updatedAt (see the leg_event fold), so 3 minutes of TOTAL silence means genuinely stuck,
+// never merely a single slow turn.
+const ME_AI_STALE_RUNNING_MS = 180 * 1000;
+// A pursuit is "idle" (no live orchestrator loop driving it) when it is errored/paused/parked
+// OR — the subtle case that trapped "Resume all N → 0 resumed" — when the task FLAG still says
+// running/working but every 'running' leg is actually stale (orphaned by a crash/restart). In
+// that stuck state the task looks live, so the blocked-only detector never reaches the stale
+// legs and Resume can never recover them. Treating it as idle (so the detector widens to
+// stale-running + planned orphans) breaks that deadlock. A single genuinely-fresh running leg
+// (heartbeating within the stale window) means a real loop IS alive → not idle.
+function _meAiPursuitIdle(id, tree) {
   const t = meAiTasks.get(id);
   if (!t) return true;
-  return !(t.status === 'running' || t.stage === 'working');
+  if (!(t.status === 'running' || t.stage === 'working')) return true;
+  try {
+    const tr = tree || meAiTrees.get(id) || _meAiFoldJournal(id);
+    if (!tr || !tr.legs) return false;
+    const now = Date.now();
+    const anyFresh = (tr.order || []).some(lid => {
+      const l = tr.legs[lid];
+      if (!l || l.status !== 'running') return false;
+      const t0 = Date.parse(l.updatedAt || l.startedAt || l.createdAt || 0);
+      return t0 && (now - t0) <= ME_AI_STALE_RUNNING_MS;
+    });
+    return !anyFresh;
+  } catch (_) { return false; }
 }
 
 // ---- AI reasoning pass ----------------------------------------------------
@@ -27183,10 +27295,10 @@ app.get('/api/me-ai/task/:id/director', (req, res) => {
       leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan,
+      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id, tree), includePlanned: _meAiPursuitIdle(id, tree) }),
       reasonedAt: policy.aiReasonedAt || null,
       ledger: (tree.director && tree.director.ledger) || [],
       lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
-      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id), includePlanned: _meAiPursuitIdle(id) }),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -27207,7 +27319,7 @@ app.post('/api/me-ai/task/:id/director/reason', async (req, res) => {
       enabled: policy.enabled, autonomy: policy.autonomy, paused: policy.paused, leader: _meAiDirectorLeaderOk(),
       grant: { id: grant.id, active: !!grant.expiresAt, expiresAt: grant.expiresAt || null, paths: grant.paths || [], ops: grant.ops || [], classes: grant.classes || [], policyVersion: grant.policyVersion, minClashConfidence: grant.minClashConfidence },
       plan, ledger: (tree.director && tree.director.ledger) || [], lastSweepAt: (tree.director && tree.director.lastSweepAt) || null,
-      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id), includePlanned: _meAiPursuitIdle(id) }),
+      stalled: _meAiDirectorStalledLegs(tree, { includeStaleRunning: _meAiPursuitIdle(id, tree), includePlanned: _meAiPursuitIdle(id, tree) }),
       pr: _meAiDirectorPrSummary(tree),
     });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -27326,129 +27438,136 @@ app.post('/api/me-ai/task/:id/director/spawn', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Resume legs stalled by an interruption (restart-orphaned; blocked with no open gate).
+// Reusable resume/recover core, shared by the manual Director "Resume" action AND the stuck-pursuit
+// watchdog (below). Returns a plain result object so the HTTP endpoint can map codes → status while
+// the watchdog just logs. Result: { ok, code?, message?, resumed, rerun?, culled?, running?,
+// nudged?, noop?, stalled }. opts.stalledOnly — when true, do NOT fire the generic idle-nudge if
+// nothing is stalled (the watchdog must not re-engage every idle-but-unfinished pursuit on a timer);
+// the manual endpoint leaves it false so a user click always does something useful.
+function _meAiResumeStalled(id, opts) {
+  opts = opts || {};
+  // Prefer a FRESH fold from the journal: the in-memory tree can lag (e.g. after an
+  // interruption the user is trying to recover from), which is exactly the case where
+  // "Resume all" appeared to do nothing. If disk sees more stalled legs than memory,
+  // trust disk and rehydrate the live tree so the re-engage steers the real legs.
+  const mem = meAiTrees.get(id);
+  const fresh = _meAiFoldJournal(id);
+  const t = meAiTasks.get(id);
+  // LIVENESS, not the raw task flag — THE fix for the recurring "Resume all N → 0 resumed / still
+  // stuck" loop. A pursuit whose flag still says running/working but whose only 'running' legs are
+  // all STALE (orphaned by a crash/restart, no live loop behind them) is effectively idle+stuck.
+  // Branching on the raw flag (t.status==='running') took the "running" short-circuit and the
+  // blocked-only detector never reached those stale orphans, so Resume kept re-reporting the same N
+  // forever and nothing converged. Idle-by-liveness widens the detector to stale-running + planned
+  // orphans so they can finally be recovered/culled. A genuinely-fresh running leg (heartbeating a
+  // substep within the stale window — see the leg_event fold) still means a real loop is alive.
+  const idle = _meAiPursuitIdle(id, fresh);
+  const running = !idle;
+  // When idle, widen the detector to catch EVERY restart/crash orphan: 'blocked' (was running when
+  // the process died) + stale-'running' (a parent waiting on a scout that died with it) + 'planned'
+  // (fan-out legs the wave created but never dispatched — the "parallel explore agents that never
+  // showed on the map"). Nothing else reschedules those, so on an idle pursuit each is an orphan to
+  // recover. A LIVE pursuit counts blocked-only, so we never yank a leg out from under a live wave.
+  const detOpts = idle ? { includeStaleRunning: true, includePlanned: true } : {};
+  const memStalled = mem ? _meAiDirectorStalledLegs(mem, detOpts) : [];
+  const freshStalled = _meAiDirectorStalledLegs(fresh, detOpts);
+  let tree = mem || fresh;
+  let stalled = memStalled;
+  if (freshStalled.length > memStalled.length) { tree = fresh; stalled = freshStalled; meAiTrees.set(id, fresh); }
+
+  // Re-drive one orphan — but CULL it instead if it is a doomed path. Two doom signals:
+  //  • failCount ≥ MEAI_LEG_MAX_FAILS — the leg keeps crashing on its own (via _meAiRunLeg's error
+  //    branch); culling it here rather than re-driving toward another crash is the honest recovery.
+  //  • stallCount ≥ MEAI_LEG_MAX_STALLS — the missing half: a leg that NEVER crashes and NEVER
+  //    completes, just keeps getting orphaned across recovery cycles (dead session, indefinite hang,
+  //    a dependency that never clears). It emits no 'error', so failCount stays 0 and the crash cull
+  //    never fires — this is precisely why the user hit "Resume does nothing / still stuck" over and
+  //    over. Each re-drive bumps the DURABLE stallCount; at the ceiling we cull so the pursuit
+  //    converges on the work that succeeded instead of the user re-clicking Resume forever. A leg
+  //    that recovers reaches 'done', which resets both counters, so it is never wrongly culled.
+  // Returns 'culled-crash' | 'culled-stall' | 'rerun'.
+  const driveOrphan = (leg) => {
+    if ((leg.failCount || 0) >= MEAI_LEG_MAX_FAILS && !leg.invalidated) { _meAiAutoCullCrashLoop(t, leg, leg.failCount || MEAI_LEG_MAX_FAILS, null); return 'culled-crash'; }
+    let sc = (leg.stallCount || 0) + 1;
+    try { const st = _meAiTreeEmit(id, 'leg_stall', { legId: leg.id }); if (st && st.legs && st.legs[leg.id]) sc = st.legs[leg.id].stallCount || sc; } catch (_) {}
+    if (sc >= MEAI_LEG_MAX_STALLS && !leg.invalidated) { _meAiCullStalled(t, leg, sc); return 'culled-stall'; }
+    _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
+    return 'rerun';
+  };
+
+  // No restart-orphaned legs. Distinguish the real states so the user always gets an honest,
+  // useful outcome instead of silence — while the watchdog (stalledOnly) stays quiet.
+  if (!stalled.length) {
+    if (running) return { ok: true, resumed: 0, running: true, stalled: [] };
+    if (!t || t.mode !== 'tree') return { ok: true, resumed: 0, stalled: [] };
+    // The watchdog must NOT nudge every idle-but-unfinished pursuit on a timer — only recover
+    // genuinely stalled orphans. A user click (stalledOnly false) still gets a useful nudge.
+    if (opts.stalledOnly) return { ok: true, resumed: 0, noop: true, stalled: [] };
+    // NOTE: a DONE/errored tree is intentionally NOT dead-ended — the user explicitly wants to
+    // resume/nudge a finished run back into progress to fold in a new direction. Give it a
+    // generic "verify-then-continue" nudge so it pushes any unfinished angle to done (or converges).
+    if (!_meAiDirectorLeaderOk()) return { ok: false, code: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to continue.' };
+    const nudge = 'The pursuit is idle but not yet concluded, and nothing is formally waiting on you. FIRST verify what every leg already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action. THEN pick up any unfinished or unexplored angle and drive it to done. If every angle is genuinely complete, converge and produce the final compendium deliverable.';
+    t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
+    _meAiSetStage(t, 'working', 'running');
+    _meAiTreeEmit(id, 'stage', { stage: 'working' });
+    // Give a resumed run a FRESH restart-recovery budget — otherwise a pursuit force-errored after
+    // ME_AI_MAX_TREE_RECOVERIES restarts would re-error on the next restart (the "can't unblock" loop).
+    try { _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: 0 } }); } catch (_) {}
+    _meAiTreeReAct(t, 'continue', nudge, 'Nudged to continue');
+    try { const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {}; _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'nudged-continue', why: 'Pursuit was idle but unfinished — re-engaged to continue any open angle or converge.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) }); } catch (_) {}
+    return { ok: true, resumed: 0, nudged: true, stalled: [] };
+  }
+  if (!_meAiDirectorLeaderOk()) return { ok: false, code: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' };
+  if (!t || t.mode !== 'tree') return { ok: false, code: 'not-a-pursuit' };
+  if (running) {
+    // The pursuit is genuinely live (a fresh leg is heartbeating) but there are ALSO stalled legs a
+    // restart orphaned — the live spine re-plans AROUND them so they linger forever. Re-drive just
+    // the stuck legs directly (read-only/idempotent; external actions stay permission-gated); do NOT
+    // re-engage the spine (that would stack a duplicate wave on the live one).
+    let rerunR = 0, culledR = 0;
+    for (const sl of stalled) {
+      const leg = tree.legs && tree.legs[sl.legId];
+      if (!leg) continue;
+      if (driveOrphan(leg) === 'rerun') rerunR++; else culledR++;
+    }
+    try { const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {}; _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: rerunR + ' stalled ' + (rerunR === 1 ? 'leg was' : 'legs were') + ' re-driven while the pursuit was otherwise running (no new spine wave, to avoid duplication)' + (culledR ? '; ' + culledR + ' doomed ' + (culledR === 1 ? 'leg was' : 'legs were') + ' culled' : '') + '.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) }); } catch (_) {}
+    return { ok: true, resumed: rerunR, rerun: rerunR, culled: culledR, running: true, stalled };
+  }
+  // Idle + stuck. Reflect recovery at the TASK level SYNCHRONOUSLY, before scheduling anything —
+  // the leg re-runs + spine re-engagement all go through the concurrency gate, so relying on the
+  // stage-flip inside the queued _meAiTreeReAct would leave the card showing "error · Interrupted"
+  // for minutes while legs quietly re-run (which is exactly why Resume read as "nothing happened").
+  t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
+  _meAiSetStage(t, 'working', 'running');
+  _meAiTreeEmit(id, 'stage', { stage: 'working' });
+  try { _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: 0 } }); } catch (_) {}
+  const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
+  const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
+  // Re-drive the stalled legs THEMSELVES (a restart flips each in-flight leg running → blocked; a
+  // bare spine re-plan leaves them untouched so the user sees nothing move), culling doomed ones.
+  let rerun = 0, culled = 0;
+  for (const sl of stalled) {
+    const leg = tree.legs && tree.legs[sl.legId];
+    if (!leg) continue;
+    if (driveOrphan(leg) === 'rerun') rerun++; else culled++;
+  }
+  // Also re-engage the spine ONCE so recovered legs get merged into the deliverable (and, if every
+  // orphan was culled, so the pursuit converges on what succeeded — the culls above don't re-engage).
+  _meAiTreeReAct(t, 'continue', steer, 'Resumed ' + stalled.length + ' stalled ' + (stalled.length === 1 ? 'leg' : 'legs'));
+  try { const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {}; _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-ran ' + rerun + ' directly' + (culled ? ', culled ' + culled + ' doomed' : '') + ' + re-engaged the spine to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) }); } catch (_) {}
+  return { ok: true, resumed: rerun, rerun, culled, stalled };
+}
+
+// Resume legs stalled by an interruption (restart-orphaned; blocked/stale-running/planned).
 // Re-engages the orchestrator with a steer to pick up the named legs without repeating
 // finished work. Leader-gated (this executes work, per I1) — a read-only follower can't.
 app.post('/api/me-ai/task/:id/director/resume', (req, res) => {
   try {
-    const id = req.params.id;
-    // Prefer a FRESH fold from the journal: the in-memory tree can lag (e.g. after an
-    // interruption the user is trying to recover from), which is exactly the case where
-    // "Resume all" appeared to do nothing. If disk sees more stalled legs than memory,
-    // trust disk and rehydrate the live tree so the re-engage steers the real legs.
-    const mem = meAiTrees.get(id);
-    const fresh = _meAiFoldJournal(id);
-    const t = meAiTasks.get(id);
-    const running = !!(t && (t.status === 'running' || t.stage === 'working'));
-    // When the pursuit isn't live, widen the detector to catch EVERY restart/crash orphan:
-    // 'blocked' (was running when the process died) + stale-'running' (a parent waiting on a
-    // scout that died with the process) + 'planned' (fan-out legs the wave created but never
-    // dispatched — the "parallel explore agents that never showed on the map"). Nothing else
-    // reschedules a planned leg, so on an idle pursuit it is an orphan to recover. A LIVE
-    // pursuit still counts blocked-only, so we never yank a leg out from under a running wave.
-    const detOpts = running ? {} : { includeStaleRunning: true, includePlanned: true };
-    const memStalled = mem ? _meAiDirectorStalledLegs(mem, detOpts) : [];
-    const freshStalled = _meAiDirectorStalledLegs(fresh, detOpts);
-    let tree = mem || fresh;
-    let stalled = memStalled;
-    if (freshStalled.length > memStalled.length) { tree = fresh; stalled = freshStalled; meAiTrees.set(id, fresh); }
-    // (Orphan widening — stale-running + planned — now happens up front via detOpts whenever the
-    // pursuit isn't live, so blocked/stale/planned legs are all in `stalled` already.)
-    // No restart-orphaned legs. This is the case that made "Resume all" look like a no-op:
-    // the button fires off a stale client snapshot, the server recomputes fresh and finds
-    // 0 stalled, and (previously) returned resumed:0 with no action. Distinguish the three
-    // real states so the user always gets an honest, useful outcome instead of silence.
-    if (!stalled.length) {
-      if (running) return res.json({ ok: true, resumed: 0, running: true, stalled: [] });
-      // NOTE: a DONE tree is intentionally NOT dead-ended here. The user explicitly wants to
-      // resume/nudge a finished (or errored) run back into progress to fold in new direction —
-      // so a concluded pursuit with nothing stalled falls through to the nudge below, which
-      // flips it back to 'working' and re-engages the spine. Never a "nothing to resume" wall.
-      if (!t || t.mode !== 'tree') return res.json({ ok: true, resumed: 0, stalled: [] });
-      // Idle, unfinished, nothing formally waiting on the user and nothing orphaned →
-      // give the pursuit a generic "verify-then-continue" nudge so it actually pushes any
-      // unfinished/unexplored angle to done (or converges + delivers if truly complete).
-      if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to continue.' });
-      const nudge = 'The pursuit is idle but not yet concluded, and nothing is formally waiting on you. FIRST verify what every leg already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action. THEN pick up any unfinished or unexplored angle and drive it to done. If every angle is genuinely complete, converge and produce the final compendium deliverable.';
-      // Same honesty fix as the stalled path: flip the task out of error/idle SYNCHRONOUSLY so
-      // the card reflects the re-engagement immediately rather than waiting on the queued reAct.
-      t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
-      _meAiSetStage(t, 'working', 'running');
-      _meAiTreeEmit(id, 'stage', { stage: 'working' });
-      // Give a resumed run a FRESH restart-recovery budget — otherwise a pursuit that was
-      // force-errored after ME_AI_MAX_TREE_RECOVERIES restarts would re-error on the very next
-      // restart, stranding the user again (the "still can't unblock it" loop).
-      try { _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: 0 } }); } catch (_) {}
-      _meAiTreeReAct(t, 'continue', nudge, 'Nudged to continue');
-      try {
-        const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
-        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'nudged-continue', why: 'Pursuit was idle but unfinished — re-engaged to continue any open angle or converge.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
-      } catch (_) {}
-      return res.json({ ok: true, resumed: 0, nudged: true, stalled: [] });
-    }
-    if (!_meAiDirectorLeaderOk()) return res.status(200).json({ ok: false, error: 'not-leader', message: 'Another synced instance holds leadership — take leadership on this machine to resume.' });
-    if (!t || t.mode !== 'tree') return res.status(400).json({ ok: false, error: 'not-a-pursuit' });
-    if (running) {
-      // The task reads "running" because a DIFFERENT leg/wave is live — but there are ALSO
-      // stalled blocked legs a restart orphaned (they never reach the desk and the running
-      // spine re-plans AROUND them, so they linger "Blocked" forever). Bailing here with
-      // resumed:0 is exactly the recurring "2 to resume → 0 resumed" bug. Re-drive just the
-      // stuck legs directly (read-only/idempotent; any external action stays permission-gated),
-      // but DON'T re-engage the spine — that would stack a duplicate wave on the live one.
-      let rerunR = 0, culledR = 0;
-      for (const sl of stalled) {
-        const leg = tree.legs && tree.legs[sl.legId];
-        if (!leg) continue;
-        // A leg that already crash-looped is doomed — culling it now (rather than re-driving
-        // it toward a 4th crash) is the honest recovery. Everything else gets re-driven.
-        if ((leg.failCount || 0) >= MEAI_LEG_MAX_FAILS && !leg.invalidated) { culledR++; _meAiAutoCullCrashLoop(t, leg, leg.failCount || MEAI_LEG_MAX_FAILS, null); continue; }
-        rerunR++;
-        _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
-      }
-      try {
-        const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
-        _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: rerunR + ' stalled ' + (rerunR === 1 ? 'leg was' : 'legs were') + ' re-driven while the pursuit was otherwise running (no new spine wave, to avoid duplication)' + (culledR ? '; ' + culledR + ' crash-looping ' + (culledR === 1 ? 'leg was' : 'legs were') + ' culled' : '') + '.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
-      } catch (_) {}
-      return res.json({ ok: true, resumed: rerunR, rerun: rerunR, culled: culledR, running: true, stalled });
-    }
-    // Reflect recovery at the TASK level SYNCHRONOUSLY, before scheduling anything. The
-    // leg re-runs + the spine re-engagement below all go through the concurrency gate
-    // (ME_AI_MAX_CONCURRENT), so the stage-flip inside _meAiTreeReAct is queued BEHIND the
-    // freshly-scheduled legs and won't run for minutes. If we let that be the only stage
-    // change, the pursuit keeps showing "error · Interrupted repeatedly" the whole time
-    // legs are actually re-running in the background — which is exactly why Resume read as
-    // "nothing happened". Clearing the error + flipping to working here broadcasts an SSE
-    // stage event immediately so the card honestly shows the pursuit is recovering.
-    t.error = null; t._lastError = null; t.question = null; t.pauseReason = null; t.nextActions = [];
-    _meAiSetStage(t, 'working', 'running');
-    _meAiTreeEmit(id, 'stage', { stage: 'working' });
-    try { _meAiTreeEmit(id, 'rootstate', { patch: { recoveries: 0 } }); } catch (_) {}
-    const names = stalled.map(s => '“' + String(s.title).slice(0, 60) + '”').slice(0, 6).join(', ');
-    const steer = 'Some legs stalled after an interruption (' + names + (stalled.length > 6 ? ', and more' : '') + '). FIRST verify what each already completed — check the pursuit journal and any artifacts — so you never repeat finished work or re-fire an external action, THEN pick up exactly where each left off and drive them to done.';
-    // Re-drive the stalled legs THEMSELVES — not just a fresh spine that re-plans AROUND
-    // them. A restart flips each in-flight leg 'running' → 'blocked' (see _meAiHydrateTrees);
-    // _meAiTreeReAct alone spawns a NEW spine wave and leaves those blocked legs untouched,
-    // so they linger "Blocked" on the map and the user sees nothing happen. Re-run each on
-    // its own durable session so it visibly goes running → done (or surfaces a real gate).
-    // Read-only scout legs are idempotent; any external action stays gated by the
-    // permission gate, so re-running can never re-fire a push/deploy.
-    let rerun = 0, culled = 0;
-    for (const sl of stalled) {
-      const leg = tree.legs && tree.legs[sl.legId];
-      if (!leg) continue;
-      // Cull a leg that already crash-looped rather than sending it toward another crash.
-      if ((leg.failCount || 0) >= MEAI_LEG_MAX_FAILS && !leg.invalidated) { culled++; _meAiAutoCullCrashLoop(t, leg, leg.failCount || MEAI_LEG_MAX_FAILS, null); continue; }
-      rerun++;
-      _meAiSchedule(async () => { try { await _meAiRunLeg(t, leg); } catch (_) { /* best-effort per leg */ } });
-    }
-    // Also re-engage the spine so the pursuit re-plans and eventually MERGES the recovered
-    // legs into the deliverable, rather than leaving them completed but un-woven.
-    _meAiTreeReAct(t, 'continue', steer, 'Resumed ' + stalled.length + ' stalled ' + (stalled.length === 1 ? 'leg' : 'legs'));
-    try {
-      const pol = _meAiDirectorPolicy(id, tree); const gr = (pol && pol.grant) || {};
-      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'resumed-stalled', why: stalled.length + ' ' + (stalled.length === 1 ? 'leg was' : 'legs were') + ' stalled by an interruption — re-ran ' + rerun + ' directly' + (culled ? ', culled ' + culled + ' crash-looping' : '') + ' + re-engaged the spine to pick up where they left off.', policyVersion: gr.policyVersion, grantId: gr.id, state: 'applied', reversible: false }) });
-    } catch (_) {}
-    res.json({ ok: true, resumed: rerun, rerun, culled, stalled });
+    const r = _meAiResumeStalled(req.params.id, {});
+    if (r && r.code === 'not-leader') return res.status(200).json({ ok: false, error: 'not-leader', message: r.message });
+    if (r && r.code === 'not-a-pursuit') return res.status(400).json({ ok: false, error: 'not-a-pursuit' });
+    return res.json(r);
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

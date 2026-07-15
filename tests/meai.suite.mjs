@@ -727,13 +727,13 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 // ─────────────────────────────────────────────────────────────────────────────
 {
   await t.test('resume running-branch re-drives stalled legs instead of bailing', () => {
-    // slice the stalled-exists tail of the resume route (AFTER the `if (!stalled.length)`
+    // slice the stalled-exists RUNNING branch of the resume core (AFTER the `if (!stalled.length)`
     // block, whose own running bail with resumed:0 is legitimate — nothing to re-drive there).
-    const run = sliceSource(SERVER, 'let rerunR = 0, culledR = 0;', '// Reflect recovery at the TASK level');
+    const run = sliceSource(SERVER, 'let rerunR = 0, culledR = 0;', '// Idle + stuck.');
     t.ok(run.length > 0, 'resume stalled+running branch found');
     t.ok(/for \(const sl of stalled\)/.test(run), 'it iterates the stalled legs');
-    t.ok(/await _meAiRunLeg\(t, leg\)/.test(run), 'it re-drives each stalled leg directly while running');
-    t.ok(/return res\.json\(\{ ok: true, resumed: rerunR, rerun: rerunR, culled: culledR, running: true, stalled \}\)/.test(run), 'it reports the real re-driven count, not 0');
+    t.ok(/driveOrphan\(leg\) === 'rerun'/.test(run), 'it re-drives (or culls) each stalled leg via driveOrphan while running');
+    t.ok(/return \{ ok: true, resumed: rerunR, rerun: rerunR, culled: culledR, running: true, stalled \}/.test(run), 'it reports the real re-driven count, not 0');
     t.ok(/resumed-stalled/.test(run), 'a ledger entry records the direct re-runs');
   });
 }
@@ -747,9 +747,9 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 // Source-slice guard (the effect is async + scheduler-gated, hard to assert live).
 // ─────────────────────────────────────────────────────────────────────────────
 {
-  const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
+  const route = sliceSource(SERVER, 'function _meAiResumeStalled(id, opts) {', "// Resume legs stalled by an interruption");
   await t.test('resume flips stage to working synchronously before scheduling reruns', () => {
-    t.ok(route.length > 0, 'resume route found');
+    t.ok(route.length > 0, 'resume core found');
     // both recovery branches (stalled legs + idle nudge) must clear the error…
     const clears = (route.match(/t\.error = null;\s*t\._lastError = null;/g) || []).length;
     t.ok(clears >= 2, `error cleared in both branches (found ${clears})`);
@@ -788,25 +788,28 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
     t.ok(/let stalled = leg\.status === 'blocked'/.test(detector), 'blocked is still the base case');
   });
   await t.test('resume widens to stale-running + planned orphans up front when idle', () => {
-    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
-    // opts chosen up front from live-ness: blocked-only while running, the full orphan set
-    // (stale-running + planned) when idle.
-    t.ok(/const detOpts = running \? \{\} : \{ includeStaleRunning: true, includePlanned: true \}/.test(route),
+    // The recovery logic lives in the reusable core _meAiResumeStalled (the route is a thin wrapper).
+    const core = sliceSource(SERVER, 'function _meAiResumeStalled(id, opts) {', "// Resume legs stalled by an interruption");
+    t.ok(core.length > 0, '_meAiResumeStalled core found');
+    // opts chosen up front from live-NESS (not the raw flag): blocked-only while a real loop is
+    // alive, the full orphan set (stale-running + planned) when idle-but-stuck.
+    t.ok(/const idle = _meAiPursuitIdle\(id, fresh\)/.test(core), 'branches on liveness (idle), not the raw task flag');
+    t.ok(/const detOpts = idle \? \{ includeStaleRunning: true, includePlanned: true \} : \{\}/.test(core),
       'idle pursuits scan for stale-running + planned orphans, live pursuits stay blocked-only');
-    t.ok(/_meAiDirectorStalledLegs\(fresh, detOpts\)/.test(route), 'the fold is scanned with the idle-aware opts');
+    t.ok(/_meAiDirectorStalledLegs\(fresh, detOpts\)/.test(core), 'the fold is scanned with the idle-aware opts');
     // a DONE run is no longer dead-ended — it falls through to the nudge so the user can reopen it
-    t.ok(!/if \(treeDone\) return res\.json\(\{ ok: true, resumed: 0, done: true/.test(route),
+    t.ok(!/if \(treeDone\) return res\.json\(\{ ok: true, resumed: 0, done: true/.test(core),
       'a finished run is not walled off — it can be nudged back into progress');
   });
   await t.test('resume resets the restart-recovery budget so it cannot re-error', () => {
-    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
-    const resets = (route.match(/_meAiTreeEmit\(id, 'rootstate', \{ patch: \{ recoveries: 0 \} \}\)/g) || []).length;
+    const core = sliceSource(SERVER, 'function _meAiResumeStalled(id, opts) {', "// Resume legs stalled by an interruption");
+    const resets = (core.match(/_meAiTreeEmit\(id, 'rootstate', \{ patch: \{ recoveries: 0 \} \}\)/g) || []).length;
     t.ok(resets >= 2, `recovery counter reset in both recovery branches (found ${resets})`);
   });
   await t.test('state routes surface the idle-aware stalled count (stale + planned)', () => {
-    const n = (src.match(/_meAiDirectorStalledLegs\(tree, \{ includeStaleRunning: _meAiPursuitIdle\(id\), includePlanned: _meAiPursuitIdle\(id\) \}\)/g) || []).length;
+    const n = (src.match(/_meAiDirectorStalledLegs\(tree, \{ includeStaleRunning: _meAiPursuitIdle\(id, tree\), includePlanned: _meAiPursuitIdle\(id, tree\) \}\)/g) || []).length;
     t.ok(n >= 2, `both GET /director and /director/reason use the idle-aware count (found ${n})`);
-    t.ok(/function _meAiPursuitIdle\(id\)/.test(src), '_meAiPursuitIdle helper exists');
+    t.ok(/function _meAiPursuitIdle\(id, tree\)/.test(src), '_meAiPursuitIdle helper exists');
   });
 }
 
@@ -840,8 +843,8 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
   await t.test('fold reducer tracks consecutive leg crashes (failCount)', () => {
     t.ok(/if \(r\.status === 'error'\) leg\.failCount = \(leg\.failCount \|\| 0\) \+ 1;/.test(foldSrc),
       'an error increments the durable failCount');
-    t.ok(/else if \(r\.status === 'done'\) leg\.failCount = 0;/.test(foldSrc),
-      'a genuine done clears the failCount (only consecutive crashes count)');
+    t.ok(/else if \(r\.status === 'done'\) \{ leg\.failCount = 0; leg\.stallCount = 0; \}/.test(foldSrc),
+      'a genuine done clears the failCount and stallCount (only consecutive crashes/stalls count)');
   });
 
   await t.test('crash-loop cull threshold + helper exist', () => {
@@ -868,11 +871,83 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
   });
 
   await t.test('resume culls crash-loopers instead of re-driving them', () => {
-    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/resume'", "app.post('/api/me-ai/task/:id/director/pr/bind'");
-    // both re-drive loops must short-circuit a leg that already crash-looped
-    const guards = (route.match(/\(leg\.failCount \|\| 0\) >= MEAI_LEG_MAX_FAILS && !leg\.invalidated/g) || []).length;
-    t.ok(guards >= 2, `both re-drive loops cull crash-loopers (found ${guards})`);
-    t.ok(/culled: culledR/.test(route) && /culled,/.test(route), 'the response reports the culled count honestly');
+    const core = sliceSource(SERVER, 'function _meAiResumeStalled(id, opts) {', "// Resume legs stalled by an interruption");
+    // Both re-drive loops delegate to a single driveOrphan closure that culls a doomed leg rather
+    // than re-driving it toward another crash (failCount) OR endless orphaning (stallCount).
+    t.ok(/const driveOrphan = \(leg\) =>/.test(core), 'a driveOrphan closure centralizes re-drive-vs-cull');
+    t.ok(/\(leg\.failCount \|\| 0\) >= MEAI_LEG_MAX_FAILS && !leg\.invalidated/.test(core),
+      'driveOrphan culls a crash-looper (failCount ceiling)');
+    t.ok(/sc >= MEAI_LEG_MAX_STALLS && !leg\.invalidated/.test(core),
+      'driveOrphan culls a stall-looper (stallCount ceiling) — the never-crash-never-complete case');
+    // both the running-branch and the idle-branch loops route each orphan through driveOrphan
+    const uses = (core.match(/driveOrphan\(leg\)/g) || []).length;
+    t.ok(uses >= 2, `both re-drive loops go through driveOrphan (found ${uses})`);
+    t.ok(/culled: culledR/.test(core) && /culled,/.test(core), 'the response reports the culled count honestly');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Durable stuck-state fix — the recurring "Resume all N → 0 resumed / still
+  // stuck" loop. THREE new invariants: (1) a running leg heartbeats updatedAt on
+  // every substep so the stale detector only flags TRUE silence; (2) idle is a
+  // LIVENESS judgement, not the raw task flag, so a flag-says-running-but-all-
+  // stale pursuit is treated as idle+stuck and its orphans become recoverable;
+  // (3) a leg that never crashes and never completes (stallCount) is culled so
+  // the pursuit converges; and a leader-gated watchdog auto-recovers with no click.
+  // ───────────────────────────────────────────────────────────────────────────
+  await t.test('a running leg heartbeats updatedAt on every substep (stale detector honesty)', () => {
+    const ev = sliceSource(SERVER, "case 'leg_event': {", "case 'leg_stall': {");
+    t.ok(ev.length > 0, 'leg_event reducer case found');
+    t.ok(/if \(leg\.status === 'running'\) leg\.updatedAt = r\.at;/.test(ev),
+      'a substep stamps updatedAt while running — a genuinely-busy leg never looks stale');
+  });
+
+  await t.test('leg_stall fold increments a durable stallCount', () => {
+    const st = sliceSource(SERVER, "case 'leg_stall': {", "case 'checkpoint':");
+    t.ok(st.length > 0, 'leg_stall reducer case found');
+    t.ok(/leg\.stallCount = \(leg\.stallCount \|\| 0\) \+ 1; leg\.updatedAt = r\.at;/.test(st),
+      'each re-drive of an un-terminal orphan bumps the durable stallCount + stamps updatedAt');
+  });
+
+  await t.test('_meAiPursuitIdle is liveness-based, not the raw task flag', () => {
+    const idle = sliceSource(SERVER, 'function _meAiPursuitIdle(id, tree) {', '// ---- AI reasoning pass');
+    t.ok(idle.length > 0, '_meAiPursuitIdle found');
+    // errored/paused/parked → idle
+    t.ok(/if \(!\(t\.status === 'running' \|\| t\.stage === 'working'\)\) return true;/.test(idle),
+      'a task not flagged running/working is idle');
+    // the subtle case: flag says live but every running leg is stale → still idle
+    t.ok(/const anyFresh = /.test(idle) && /l\.status !== 'running'/.test(idle) && /ME_AI_STALE_RUNNING_MS/.test(idle),
+      'a flag-says-running pursuit with only STALE running legs is treated as idle+stuck');
+    t.ok(/return !anyFresh;/.test(idle), 'a single genuinely-fresh running leg means a real loop is alive → not idle');
+  });
+
+  await t.test('stall-cull helper exists + is opt-in on auto-converge', () => {
+    const src = readFileSync(SERVER, 'utf8');
+    t.ok(/const MEAI_LEG_MAX_STALLS = 3;/.test(src), 'MEAI_LEG_MAX_STALLS threshold defined');
+    t.ok(/function _meAiCullStalled\(t, leg, stalls, opts\) \{/.test(src), 'stall-cull helper defined');
+    const cull = sliceSource(SERVER, 'function _meAiCullStalled(t, leg, stalls, opts) {', 'async function _meAiRunLeg(t, leg) {');
+    t.ok(/_meAiTreeEmit\(id, 'leg_invalidate', \{ legId: leg\.id \}\)/.test(cull), 'it culls (invalidates) the stalled leg');
+    t.ok(/culled-stalled/.test(cull), 'it records a director ledger entry');
+    // default OFF so a batch cull in the resume core does not fire N redundant spine waves
+    t.ok(/const converge = !!\(opts && opts\.converge\)/.test(cull) && /if \(!converge\) return;/.test(cull),
+      'auto-converge is opt-in (the resume core re-engages the spine once for the whole batch)');
+  });
+
+  await t.test('stuck-pursuit watchdog auto-recovers idle+stuck pursuits, leader-gated', () => {
+    const wd = sliceSource(SERVER, 'const ME_AI_STUCK_WATCHDOG_MS', '// REQ-8 Proactive attention poller');
+    t.ok(wd.length > 0, 'watchdog block found');
+    t.ok(/if \(!leaderCheck\(\)\) return;/.test(wd), 'leader-gated (executes work, per I1)');
+    t.ok(/if \(!featureEnabled\('me-ai'\)\) return;/.test(wd), 'feature-gated');
+    t.ok(/t\.mode !== 'tree'/.test(wd), 'only tree-mode pursuits');
+    t.ok(/if \(!_meAiPursuitIdle\(id\)\) continue;/.test(wd), 'only touches effectively-idle pursuits — never a live wave');
+    t.ok(/_meAiResumeStalled\(id, \{ stalledOnly: true \}\)/.test(wd),
+      'uses the SAME core the manual button uses, with stalledOnly so it never nudges a merely-unfinished pursuit');
+    t.ok(/_meAiStuckLastRecover/.test(wd), 'throttles per task');
+  });
+
+  await t.test('resume core stalledOnly suppresses the generic idle-nudge (watchdog quiet)', () => {
+    const core = sliceSource(SERVER, 'function _meAiResumeStalled(id, opts) {', "// Resume legs stalled by an interruption");
+    t.ok(/if \(opts\.stalledOnly\) return \{ ok: true, resumed: 0, noop: true, stalled: \[\] \}/.test(core),
+      'with nothing stalled + stalledOnly, it noops instead of nudging every idle pursuit on a timer');
   });
 
   const { _meAiFmtDurMs } = extractFns(SERVER, ['_meAiFmtDurMs']);
