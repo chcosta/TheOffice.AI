@@ -44,7 +44,7 @@ const PURPOSES = [
   { id: 'proposal',     label: 'Proposal',           blurb: 'Argue a recommendation and make the ask unmissable.', defaultFormat: 'doc',   icon: '📌' },
   { id: 'alignment',    label: 'Alignment memo',     blurb: 'Build shared understanding and gain buy-in.',          defaultFormat: 'email', icon: '🤝' },
   { id: 'status',       label: 'Status update',      blurb: 'Report progress, risks, and asks at a glance.',        defaultFormat: 'email', icon: '📈' },
-  { id: 'onepager',     label: 'One-pager',          blurb: 'A single tight page that makes the point.',            defaultFormat: 'doc',   icon: '📄' },
+  { id: 'onepager',     label: 'One-pager',          blurb: 'The team’s epic one-pager: how the v-team will build & support it.', defaultFormat: 'doc', icon: '📄' },
   { id: 'technical',    label: 'Technical doc',      blurb: 'Specify a design, interface, or approach precisely.',  defaultFormat: 'doc',   icon: '🛠️' },
   { id: 'architecture', label: 'Architecture doc',   blurb: 'Context, components, decisions, and a diagram.',       defaultFormat: 'doc',   icon: '🏛️' },
   { id: 'reference',    label: 'Reference',          blurb: 'Scannable, complete, optimized for lookup.',           defaultFormat: 'doc',   icon: '📚' },
@@ -90,7 +90,7 @@ const SOURCE_DEFAULTS = {
   proposal:     ['pursuit', 'workitems'],
   alignment:    ['pr'],
   status:       ['diary', 'workitems'],
-  onepager:     ['pursuit'],
+  onepager:     ['workitems', 'pursuit'],
   technical:    ['pr', 'pasted'],
   architecture: ['pasted', 'pr'],
   reference:    ['pasted'],
@@ -102,6 +102,41 @@ const SOURCE_DEFAULTS = {
 function purposeById(id) {
   return PURPOSES.find(p => p.id === id) || null;
 }
+
+// ---- Purpose blueprints -----------------------------------------------------
+// Some purposes are a SPECIFIC team document with an established template, not a
+// generic shape. A blueprint pins the required sections + naming/process rules so
+// the writer and the paired editor produce THAT document — not a loose page. The
+// UI also surfaces the section list so the user knows what they'll get.
+//
+// Only purposes with a real house template appear here; everything else stays
+// intentionally open-ended (no blueprint ⇒ the assistant owns the structure).
+//
+// `onepager` mirrors the DNCEng Services Wiki one-pager template
+// (Documentation › Project Docs › one pager template): the epic one-pager that
+// captures HOW the v-team will implement and support a slice of an epic's goal.
+const PURPOSE_BLUEPRINTS = {
+  onepager: {
+    title: 'DNCEng epic one-pager',
+    intro: 'The team’s standard epic one-pager. Epics carry the high-level business objective; the one-pager brings clarity to HOW the v-team will implement and support a specific aspect of that goal — the practical thinking the epic leaves out. It is signed off by stakeholders and linked to the epic’s GitHub issue.',
+    sections: [
+      { h: 'Goal and motivation', ask: 'Which aspect of the epic’s business goal does this cover, and why does the v-team need a one-pager for it — what practical implementation thinking does the epic itself not capture?' },
+      { h: 'Stakeholders', ask: 'Who is this work for — the stakeholders and those who should sign off on the POC — and what problem(s) are they asking us to solve?' },
+      { h: 'Proof of concept (POC)', ask: 'What POC(s) prove the approach is viable? What gaps, assumptions, or feedback does each POC surface before we commit? (More than one POC is fine.)' },
+      { h: 'Risk', ask: 'Breaking changes for existing consumers? Your assumptions and unknowns? Dependencies — and are they ready to consume now or do they need updating? A target date and the risk of missing it (OKRs, consumer pain, product release)? Any limited/throttled API resource — estimated max usage, intelligent back-off, and the plan for more capacity if the feature both must exist and needs more?' },
+      { h: 'Usage telemetry', ask: 'How will we measure the “usefulness” to stakeholders, and how will we track usage of the new feature?' },
+      { h: 'Serviceability of the feature', ask: 'How will the change be operated and supported once shipped — monitoring, alerting, runbooks, and on-call/support impact?' },
+    ],
+    naming: 'Name the document “<epic name> - <epic issue number>” (e.g. “Coordinate migration from master to main in all dotnet org repos - core-eng10412”). It lives under the wiki Documentation folder, discussion happens via the PR process, it is signed off by stakeholders, then linked to the epic’s GitHub issue for discoverability.',
+    reference: 'Template: DNCEng Services Wiki › Documentation › Project Docs › one pager template.',
+  },
+};
+
+// Blueprint for a purpose (or null when the purpose is open-ended).
+function blueprintFor(id) {
+  return PURPOSE_BLUEPRINTS[id] || null;
+}
+
 
 // Content format that the writer produces for a given medium. `site` is a full
 // self-contained HTML document; everything else is Markdown.
@@ -515,7 +550,9 @@ module.exports = {
   AUDIENCES,
   SOURCES,
   SOURCE_DEFAULTS,
+  PURPOSE_BLUEPRINTS,
   purposeById,
+  blueprintFor,
   contentFormatFor,
   storageDir,
   assetsDir,

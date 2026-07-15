@@ -623,6 +623,41 @@ await t.test('compose prototype: interactive scenario (site format lock, sandbox
   t.ok(/sources\.reposRef/.test(html), 'sources rail binds a repos ref input');
 });
 
+await t.test('compose one-pager: DNCEng epic one-pager blueprint drives writer + editor', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  // blueprint catalog + helper exported
+  t.ok(/PURPOSE_BLUEPRINTS\s*=\s*\{/.test(cjs), 'compose.js defines PURPOSE_BLUEPRINTS');
+  t.ok(/function blueprintFor\(/.test(cjs), 'compose.js exports blueprintFor');
+  t.ok(/PURPOSE_BLUEPRINTS,/.test(cjs) && /blueprintFor,/.test(cjs), 'module.exports includes the blueprint API');
+  const bp = _win(cjs, 'onepager: {', 2600);
+  t.ok(/DNCEng epic one-pager/.test(bp), 'onepager blueprint is the DNCEng epic one-pager');
+  // all six template sections from the wiki template are present, in order
+  ['Goal and motivation', 'Stakeholders', 'Proof of concept', 'Risk', 'Usage telemetry', 'Serviceability'].forEach(h => {
+    t.ok(bp.includes(h), `onepager blueprint has the "${h}" section`);
+  });
+  t.ok(/epic issue number|epic’s GitHub issue/.test(bp), 'onepager blueprint carries the naming + sign-off process');
+  // source defaults reflect an epic doc (work items + pursuit)
+  t.ok(/onepager:\s*\['workitems'/.test(cjs), 'onepager seeds the work-items (epic) source');
+
+  const src = readFileSync('server.js', 'utf8');
+  // blueprint block helper + injection into BOTH prompts
+  t.ok(/function _composeBlueprintBlock\(/.test(src), 'server has a _composeBlueprintBlock helper');
+  const blk = _win(src, 'function _composeBlueprintBlock(', 1400);
+  t.ok(/Required structure/.test(blk), 'blueprint block emits a Required structure heading');
+  t.ok(/role === 'editor'/.test(blk), 'blueprint block tunes framing for the paired editor');
+  t.ok(/never fabricate|TBD/.test(blk), 'writer framing forbids fabricating empty sections');
+  const genP = _win(src, 'function _composeGeneratePrompt(', 1400);
+  t.ok(/_composeBlueprintBlock\(c\.purpose,\s*'writer'\)/.test(genP), 'generation prompt injects the writer blueprint');
+  t.ok(/_composeBlueprintBlock\(c\.purpose,\s*'editor'\)/.test(src), 'chat prompt injects the editor blueprint');
+  // list route exposes blueprints to the client
+  t.ok(/blueprints:\s*compose\.PURPOSE_BLUEPRINTS/.test(src), '/api/compose exposes blueprints');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/composeCurrentBlueprint\(\)/.test(html), 'client has a composeCurrentBlueprint helper');
+  t.ok(/co\.blueprints\s*=/.test(html), 'client stores blueprints from the response');
+  t.ok(/cmpx-blueprint/.test(html), 'framing rail surfaces the blueprint sections calmly');
+});
+
 await t.test('director clash: high-level area summary + option comparison', () => {
   const src = readFileSync('server.js', 'utf8');
   // AI prompt asks for a clashSummary (area + compare) on clash stops

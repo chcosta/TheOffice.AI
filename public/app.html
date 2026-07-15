@@ -20398,6 +20398,12 @@
               .cmpx-purpose .bl{font-size:12.5px;color:var(--cp-text-secondary);line-height:1.45}
               .cmpx-purpose .lk{font-size:12px;color:var(--cp-accent);margin-top:2px}
               .cmpx-purpose .rk{font-size:11.5px;color:var(--cp-accent);margin-top:auto;padding-top:6px}
+              .cmpx-blueprint{margin-top:8px;padding:10px 12px;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-2,rgba(0,0,0,.02))}
+              .cmpx-blueprint .hd{font-weight:650;font-size:12.5px;color:var(--cp-text)}
+              .cmpx-blueprint .in{font-size:11.5px;color:var(--cp-text-secondary);line-height:1.5;margin-top:3px}
+              .cmpx-blueprint .secs{margin:7px 0 0;padding-left:18px}
+              .cmpx-blueprint .secs li{font-size:12px;color:var(--cp-text);line-height:1.6}
+              .cmpx-blueprint .ft{font-size:11px;color:var(--cp-text-muted);margin-top:6px;line-height:1.45}
               .cmpx-secttl{font-size:13px;font-weight:650;color:var(--cp-text-secondary);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px}
               .cmpx-recent{display:flex;flex-direction:column;border:1px solid var(--cp-border);border-radius:10px;overflow:hidden;background:var(--cp-surface)}
               .cmpx-rrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--cp-border);cursor:pointer}
@@ -20857,6 +20863,18 @@
                               </template>
                             </div>
                             <p class="hint" style="margin:2px 0 4px;line-height:1.5">Set the framing here, then shape the draft with the <strong>paired assistant</strong> on the right — tell it what you want to land and it drafts &amp; revises live.</p>
+                            <template x-if="composeCurrentBlueprint()">
+                              <div class="cmpx-blueprint">
+                                <div class="hd" x-text="'Follows the ' + composeCurrentBlueprint().title"></div>
+                                <div class="in" x-text="composeCurrentBlueprint().intro"></div>
+                                <ol class="secs">
+                                  <template x-for="s in composeCurrentBlueprint().sections" :key="s.h">
+                                    <li x-text="s.h"></li>
+                                  </template>
+                                </ol>
+                                <div class="ft" x-show="composeCurrentBlueprint().reference" x-text="composeCurrentBlueprint().reference"></div>
+                              </div>
+                            </template>
                           </div>
                         </div>
                         <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
@@ -29575,6 +29593,7 @@
           loaded: false,
           loading: false,
           purposes: [],
+          blueprints: {},         // established team templates keyed by purpose id
           formats: [],
           audiences: [],          // selectable audience presets
           sourceCatalog: [],      // source cards catalog
@@ -46158,6 +46177,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/compose');
             co.purposes = (r && r.purposes) || [];
+            co.blueprints = (r && r.blueprints) || {};
             co.formats = (r && r.formats) || [];
             co.audiences = (r && r.audiences) || [];
             co.sourceCatalog = (r && r.sources) || [];
@@ -46176,6 +46196,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { co.loading = false; }
         },
         composePurpose(id) { return (this.compose.purposes || []).find(p => p.id === id) || null; },
+        // Blueprint (established team template) for a purpose, or null when open-ended.
+        composeBlueprint(id) { const bps = this.compose.blueprints || {}; return bps[id] || null; },
+        composeCurrentBlueprint() { const c = this.compose.current; return c ? this.composeBlueprint(c.purpose) : null; },
         composePurposeLabel(id) { if (id === 'newsletter') return 'Newsletter'; const p = this.composePurpose(id); return p ? p.label : id; },
         composeFormatLabel(id) { const f = (this.compose.formats || []).find(x => x.id === id); return f ? f.label : id; },
         // Default medium for a purpose when the user first picks it.

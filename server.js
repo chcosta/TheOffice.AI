@@ -12388,10 +12388,37 @@ function _composeExtractDeliverable(out, format) {
   return { content: s, contentFormat: 'markdown' };
 }
 
+// Render a purpose blueprint as prompt text, or '' when the purpose is
+// open-ended. `role` tunes the framing: the writer MUST produce the template's
+// sections; the paired editor OWNS the structure but keeps the house template
+// unless the user explicitly steers away from it.
+function _composeBlueprintBlock(purpose, role) {
+  let bp = null;
+  try { bp = compose.blueprintFor(purpose); } catch (_) { bp = null; }
+  if (!bp) return '';
+  const lines = [];
+  lines.push(`## Required structure — ${bp.title}`);
+  if (bp.intro) lines.push(bp.intro);
+  lines.push('');
+  if (role === 'editor') {
+    lines.push('This purpose is a SPECIFIC team document with an established template. You own the wording and flow, but keep these sections (in this order) unless I explicitly ask to drop or reorder one. Fold the real source material into each; where a section has no substance yet, keep the heading and note what is still needed rather than inventing content.');
+  } else {
+    lines.push('This purpose is a SPECIFIC team document with an established template — produce exactly these sections, in this order, as `##` headings. Fold the real source material into each. Where a section has no substance in the sources, keep the heading and state plainly what is still needed (an open question or “TBD by the v-team”) — never fabricate.');
+  }
+  lines.push('');
+  bp.sections.forEach((s, i) => {
+    lines.push(`${i + 1}. **${s.h}** — ${s.ask}`);
+  });
+  if (bp.naming) { lines.push(''); lines.push(`Naming & process: ${bp.naming}`); }
+  if (bp.reference) lines.push(bp.reference);
+  return lines.join('\n');
+}
+
 // Build the purpose-aware generation prompt for the writer agent.
 function _composeGeneratePrompt(c, sourceBlock) {
   const p = compose.purposeById(c.purpose) || { label: c.purpose };
   const isSite = c.format === 'site';
+  const bp = _composeBlueprintBlock(c.purpose, 'writer');
   return [
     `Compose a finished, sendable deliverable from the brief below. Follow the compose-standards skill and your output protocol exactly.`,
     '',
@@ -12403,6 +12430,7 @@ function _composeGeneratePrompt(c, sourceBlock) {
     '',
     '## What the user wants (their own words — the primary instruction)',
     c.brief && c.brief.trim() ? c.brief.trim() : '(no extra detail — infer intent from the purpose and sources)',
+    ...(bp ? ['', bp] : []),
     '',
     '## Sources',
     sourceBlock,
@@ -12515,6 +12543,7 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     '',
     '## Structure (you own this — refine it, don\'t just accept it)',
     structureCtx,
+    ...(_composeBlueprintBlock(c.purpose, 'editor') ? ['', _composeBlueprintBlock(c.purpose, 'editor')] : []),
     '',
     '## Sources',
     block,
@@ -12680,6 +12709,7 @@ app.get('/api/compose', (req, res) => {
     res.json({
       compositions: compose.listCompositions(),
       purposes: compose.PURPOSES,
+      blueprints: compose.PURPOSE_BLUEPRINTS,
       formats: compose.FORMATS.map(f => ({ id: f, label: ({ email: 'Email', teams: 'Teams message', doc: 'Document', site: 'Prototype site' })[f] || f })),
       audiences: compose.AUDIENCES,
       sources: compose.SOURCES,
