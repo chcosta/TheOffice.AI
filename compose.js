@@ -540,7 +540,9 @@ function appendChat(id, msg) {
   if (!c) return null;
   const role = msg && msg.role === 'assistant' ? 'assistant' : 'user';
   const text = String(msg && msg.text || '');
-  c.chat.push({ role, text, at: _now() });
+  const entry = { role, text, at: _now() };
+  if (msg && msg.structure) entry.structure = true;
+  c.chat.push(entry);
   if (c.chat.length > MAX_CHAT) c.chat = c.chat.slice(-MAX_CHAT);
   c.meta.updatedAt = _now();
   _writeAll(st);

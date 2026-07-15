@@ -46798,7 +46798,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           co.sourcesChecking = false;
           co.tab = 'compose';
           co.preview = true;
-          co.chat.messages = Array.isArray(c.chat) ? c.chat.map(m => ({ role: m.role, text: m.content || m.text || '' })) : [];
+          co.chat.messages = Array.isArray(c.chat) ? c.chat.map(m => ({ role: m.role, text: m.content || m.text || '', structure: !!m.structure })) : [];
           co.chat.attachments = [];
           co.chat.progress = [];
           co.chat.input = '';
@@ -47055,7 +47055,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/chat', {
               method: 'POST', timeoutMs: 0, signal: controller ? controller.signal : undefined, body: JSON.stringify({
                 message: msg || 'Please embed the attached image(s) where they fit and reflow the layout so it reads well.',
-                history, draft: co.draftText, runId: c.runId,
+                display: shown, history, draft: co.draftText, runId: c.runId,
                 attachments: atts.map(a => ({ file: a.file, ref: a.ref, name: a.name })),
               }),
             });

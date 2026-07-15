@@ -12582,12 +12582,18 @@ function _composeAllowedFormats(purpose) {
   return purpose === 'prototype' ? ['site'] : compose.FORMATS.filter(f => f !== 'site');
 }
 
-async function runComposeChat(id, { message, history, runId, draft, attachments }) {
+async function runComposeChat(id, { message, history, runId, draft, attachments, display }) {
   const c = compose.getComposition(id);
   if (!c) throw new Error('Composition not found.');
   const msg = String(message || '').trim();
   const atts = Array.isArray(attachments) ? attachments.filter(a => a && (a.ref || a.file)) : [];
   if (!msg && !atts.length) throw new Error('Say what you would like to change or ask about the composition.');
+  // Persist the user's turn to the composition transcript up front, so it survives even
+  // if the writer errors out — navigating away and back always picks up where we left off.
+  // `display` is the exact bubble the client rendered (incl. inline image thumbnails); fall
+  // back to the plain message, or an attachment-only placeholder.
+  const userTurn = String(display || msg || (atts.length ? '(shared image)' : '')).trim();
+  if (userTurn) { try { compose.appendChat(id, { role: 'user', text: userTurn }); } catch (_) { /* non-fatal */ } }
   let _seq = 0;
   const emit = (icon, text, done) => {
     if (!text) return;
@@ -12701,6 +12707,18 @@ async function runComposeChat(id, { message, history, runId, draft, attachments 
     .replace(/===STRUCTURE===[\s\S]*?===END STRUCTURE===/i, '')
     .trim();
   if (!reply) reply = newDraft ? 'Updated the draft below — review the changes.' : (structure && structure.note ? structure.note : 'Done.');
+  // Persist the assistant's turn to the transcript, in the SAME order the client renders it
+  // (reply, then the framing-change note, then any follow-up question) so a reopened
+  // composition reads identically to the live session.
+  try {
+    compose.appendChat(id, { role: 'assistant', text: reply });
+    if (structure && (Object.keys(structure.patch || {}).length || structure.note)) {
+      compose.appendChat(id, { role: 'assistant', text: '🧭 ' + (structure.note || 'Updated the framing.'), structure: true });
+    }
+    if (structure && structure.ask && !reply.includes(structure.ask)) {
+      compose.appendChat(id, { role: 'assistant', text: structure.ask });
+    }
+  } catch (_) { /* non-fatal — transcript persistence is best-effort */ }
   emit('✅', newDraft ? 'Revision ready' : (structure ? 'Structure updated' : 'Done'), true);
   return { reply, draft: newDraft, structure };
 }
@@ -13002,8 +13020,8 @@ app.post('/api/compose/:id/generate', async (req, res) => {
 // Conversationally revise the draft. Returns { reply, draft? } — never saves.
 app.post('/api/compose/:id/chat', async (req, res) => {
   try {
-    const { message, history, runId, draft, attachments } = req.body || {};
-    const out = await runComposeChat(req.params.id, { message, history, runId, draft, attachments });
+    const { message, history, runId, draft, attachments, display } = req.body || {};
+    const out = await runComposeChat(req.params.id, { message, history, runId, draft, attachments, display });
     res.json({ ok: true, ...out });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -301,6 +301,32 @@ await t.test('compose: rail resize/collapse + inline source config + no regenera
   t.ok(/x-model="compose\.current\.sources\.pasted"/.test(html), 'the Pasted context textarea still binds the real field');
 });
 
+// The paired-assistant conversation is persisted PER COMPOSITION server-side, so navigating
+// away from a composition and back restores the full transcript exactly where it left off.
+await t.test('compose: paired-assistant transcript persists per composition (survives reopen)', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const src = readFileSync(SERVER, 'utf8');
+  const cjs = readFileSync('compose.js', 'utf8');
+
+  // Server owns the transcript: runComposeChat writes both turns via compose.appendChat.
+  const chatFn = _win(src, 'async function runComposeChat(', 4000);
+  t.ok(/compose\.appendChat\(id, \{ role: 'user'/.test(chatFn), 'the user turn is persisted up front (survives a writer error)');
+  t.ok(/compose\.appendChat\(id, \{ role: 'assistant', text: reply \}\)/.test(src), 'the assistant reply is persisted');
+  t.ok(/compose\.appendChat\(id, \{ role: 'assistant'[\s\S]{0,80}?structure: true \}\)/.test(src), 'a framing-change note is persisted with its structure flag');
+
+  // The exact rendered user bubble (incl. inline image thumbnails) round-trips via `display`.
+  t.ok(/display: shown,/.test(html), 'the client sends the displayed bubble text so reopen is identical');
+  t.ok(/const \{ message, history, runId, draft, attachments, display \}/.test(src), 'the chat route threads display through');
+  t.ok(/String\(display \|\| msg/.test(src), 'the server prefers the displayed text for the persisted user turn');
+
+  // On reopen, _composeSetCurrent hydrates messages from the stored chat, preserving structure.
+  t.ok(/co\.chat\.messages = Array\.isArray\(c\.chat\)[\s\S]{0,160}?structure: !!m\.structure/.test(html),
+    'reopening a composition rebuilds the transcript from c.chat (structure flag preserved)');
+
+  // compose.js appendChat keeps the optional structure flag it now receives.
+  t.ok(/if \(msg && msg\.structure\) entry\.structure = true;/.test(cjs), 'appendChat preserves the structure flag');
+});
+
 // Compose areas resume the last composition of a purpose by default (so users land
 // on their last generated draft + its history) and can still start a fresh one.
 await t.test('compose: purpose picker resumes latest by default, forceNew starts blank', () => {
