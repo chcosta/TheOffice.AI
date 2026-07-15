@@ -19254,7 +19254,9 @@
               .pc .pc-g-badge { font-weight:500; letter-spacing:0; text-transform:none; color:var(--cp-text-muted); }
               .pc .pc-entry { padding:14px; border-bottom:1px solid var(--cp-border); }
               .pc .pc-entry:last-child { border-bottom:0; }
-              .pc .pc-term { font-size:14.5px; font-weight:660; color:var(--cp-text); margin-bottom:6px; }
+              .pc .pc-term { display:flex; align-items:baseline; gap:10px; font-size:14.5px; font-weight:660; color:var(--cp-text); margin-bottom:6px; }
+              .pc .pc-term .pc-term-t { flex:1 1 auto; min-width:0; }
+              .pc .pc-entry .pc-share-btn { flex:0 0 auto; align-self:flex-start; }
               .pc .pc-def { font-size:13.5px; line-height:1.6; color:var(--cp-text-soft); text-wrap:pretty; max-width:74ch; }
 
               .pc .pc-foothint { margin-top:22px; font-size:11.5px; line-height:1.6; color:var(--cp-text-muted); text-wrap:pretty; }
@@ -20108,13 +20110,13 @@
 
                           <!-- The Guide -->
                           <div class="pc-sec" x-show="pulseActiveComedy().guide && pulseActiveComedy().guide.length">
-                            <div class="pc-sec-h"><span class="i">📖</span><span class="t">The Guide to your team</span></div>
+                            <div class="pc-sec-h"><span class="i">📖</span><span class="t">The Guide to your team</span><button class="pc-share-btn" @click="pulseShareGuide()">Share all</button></div>
                             <div class="pc-sec-sub">Deadpan, encyclopedic entries on what actually happened today. Affectionate. Occasionally too honest.</div>
                             <div class="pc-guide">
                               <div class="pc-g-top">THE GUIDE · ENTRY LOG <span class="pc-g-badge"><span x-text="pulseGenStamp(pulse.gatheredAt)"></span> · verify before quoting to your VP</span></div>
                               <template x-for="(e, ei) in pulseActiveComedy().guide" :key="ei">
                                 <div class="pc-entry">
-                                  <div class="pc-term" x-text="e.subject"></div>
+                                  <div class="pc-term"><span class="pc-term-t" x-text="e.subject"></span><button class="pc-share-btn" @click="pulseShareGuideEntry(e)">Share</button></div>
                                   <div class="pc-def" x-text="e.riff"></div>
                                 </div>
                               </template>
@@ -21282,7 +21284,7 @@
                                   style="width:100%;height:100%;border:0;display:block;background:#fff"></iframe>
                         </template>
                         <template x-if="!compose.verPreview.loading && !compose.verPreview.site">
-                          <div class="nl-preview md-output" x-html="compose.verPreview.html" style="padding:24px 28px"></div>
+                          <div class="nl-preview md-output cmpx-doc" x-html="compose.verPreview.html" style="padding:28px 28px 40px;margin:0 auto;width:100%"></div>
                         </template>
                       </div>
                     </div>
@@ -39018,6 +39020,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const foot = [o.who || '', o.where || ''].filter(Boolean).join(' · ');
           if (foot) md += '\n\n*' + foot + '*';
           this.pulseShareOpen({ kind: 'overheard', title: 'Overheard on the team', markdown: md });
+        },
+        pulseShareGuideEntry(e) {
+          if (!e) return;
+          let md = '### The Guide to your team\n\n**' + (e.subject || '') + '**';
+          if (e.riff) md += '\n\n' + e.riff;
+          md += '\n\n*The Guide · verify before quoting to your VP.*';
+          this.pulseShareOpen({ kind: 'guide', title: (e.subject || 'From The Guide') + ' — The Guide to your team', markdown: md });
+        },
+        pulseShareGuide() {
+          const g = (this.pulseActiveComedy() || {}).guide;
+          if (!Array.isArray(g) || !g.length) return;
+          const lines = ['## The Guide to your team', '', '_Deadpan, encyclopedic entries on what actually happened today._', ''];
+          g.forEach(e => { lines.push('**' + (e.subject || '') + '**'); if (e.riff) lines.push('', e.riff); lines.push(''); });
+          lines.push('*The Guide · verify before quoting to your VP.*');
+          this.pulseShareOpen({ kind: 'guide-all', title: 'The Guide to your team', markdown: lines.join('\n') });
         },
         pulseShareReel(it) {
           if (!it) return;

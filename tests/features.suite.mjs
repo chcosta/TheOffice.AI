@@ -1308,4 +1308,19 @@ await t.test('compose chat: auto-grow input + type-while-busy (Send gated on bus
   t.ok(/220/.test(grow), 'auto-grow caps at 220px');
 });
 
+await t.test('pulse guide: share one or all "Guide to your team" entries', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // Guide section header carries a calm "Share all" action + each entry a per-entry Share
+  const guide = _win(html, '<!-- The Guide -->', 1500);
+  t.ok(/pulseShareGuide\(\)/.test(guide) && />Share all</.test(guide), 'Guide header shares all entries');
+  t.ok(/pulseShareGuideEntry\(e\)/.test(guide) && /class="pc-entry"/.test(guide), 'each guide entry has a Share action');
+  // methods build a markdown share payload and open the existing share sheet
+  const one = _win(html, 'pulseShareGuideEntry(e) {', 360);
+  t.ok(/pulseShareOpen\(/.test(one) && /e\.subject/.test(one) && /e\.riff/.test(one), 'share-one composes subject + riff into the share sheet');
+  const all = _win(html, 'pulseShareGuide() {', 720);
+  t.ok(/pulseActiveComedy\(\)/.test(all) && /\.guide/.test(all) && /forEach/.test(all) && /pulseShareOpen\(/.test(all), 'share-all folds every entry into one share payload');
+  // no pills: the term row uses the calm .pc-share-btn text button
+  t.ok(/class="pc-term"><span class="pc-term-t"/.test(html), 'guide term row hosts the share button inline (no pill)');
+});
+
 await t.done();
