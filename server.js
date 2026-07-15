@@ -31346,7 +31346,7 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
 // references to CLI sessions, chats, tasks, flows, and agents, plus
 // freeform notes and checklists. Boards are team-scoped (teamId) or global (teamId
 // null). Stored wholesale in boards.json.
-const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'agent', 'location', 'pr'];
+const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'agent', 'location', 'pr', 'document'];
 
 function _boardId(name) {
   return 'board-' + String(name || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) + '-' + Date.now().toString(36).slice(-4);
@@ -32766,6 +32766,25 @@ function _resolveBoardItems(b, opts = {}) {
               if (!detail) detail = clip(tl[tl.length - 1], 240);
             }
             context = tl.join('\n').slice(0, JOIN_CAP);
+          }
+        } catch {}
+      } else if (it.kind === 'document') {
+        // Compose.AI composition (proposal, brief, status update, one-pager, …).
+        // Feed its framing + draft body so BOTH the briefing and the assistant can
+        // read, quote, and summarize the document, and reference it via its route.
+        route = '#/compose';
+        try {
+          const c = compose.getComposition(it.refId);
+          if (c) {
+            when = (c.meta && (c.meta.updatedAt || c.meta.lastGeneratedAt)) || when;
+            status = c.purpose || c.format || 'document';
+            const body = (c.draft && c.draft.content) || '';
+            const plain = String(body).replace(/<[^>]+>/g, ' ');
+            detail = clip(plain, 240) || (body ? '' : 'Draft is empty — nothing generated yet.');
+            const head = ['Purpose: ' + (c.purpose || '—'), 'Format: ' + (c.format || '—'), c.audience ? ('Audience: ' + c.audience) : ''].filter(Boolean).join(' · ');
+            const brief = c.brief ? ('\nBrief: ' + clip(c.brief, 400)) : '';
+            const content = plain ? clip(plain, CTX_CLIP) : '(no draft content yet)';
+            context = (head + brief + '\n\n' + content).slice(0, JOIN_CAP);
           }
         } catch {}
       }
@@ -36501,6 +36520,14 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       offer('flow', c.id, c.name || c.id, 'Flow' + ((c.steps || []).length ? ' · ' + c.steps.length + ' steps' : ''));
     }
   } catch {}
+  try {
+    // Compose.AI documents (drafts) the assistant can propose pinning. Newsletters
+    // have their own reader surface, so they are excluded here.
+    for (const c of (compose.listCompositions() || [])) {
+      if (!c || c.kind === 'newsletter') continue;
+      offer('document', c.id, c.title || 'Untitled', 'Document · ' + (c.purpose || 'draft') + (c.format ? ' · ' + c.format : ''));
+    }
+  } catch {}
   if (catalogByKey.size) {
     const byKind = {};
     for (const v of catalogByKey.values()) (byKind[v.kind] = byKind[v.kind] || []).push(v);
@@ -36514,6 +36541,11 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       for (const v of arr) lines.push(`- (${v.kind}:${v.refId}) "${v.label}"${v.sublabel ? ' — ' + v.sublabel : ''}`);
     }
     if (lines.length) catalogCtx.push('## AVAILABLE OPERATIONS & EMPLOYEES (' + (boardTeamId ? 'in this team, ' : '') + 'NOT pinned — propose pin_item to add)\n' + lines.join('\n'));
+    const docCatalog = [...catalogByKey.values()].filter(v => v.kind === 'document');
+    if (docCatalog.length) {
+      catalogCtx.push('## AVAILABLE DOCUMENTS (Compose.AI drafts, NOT pinned — propose pin_item kind:document to add)\n' +
+        docCatalog.slice(0, 25).map(v => `- (document:${v.refId}) "${v.label}"${v.sublabel ? ' — ' + v.sublabel : ''}`).join('\n'));
+    }
   }
   // Fold in the board's own "Where was I?" briefing so the assistant can answer
   // questions about it and build on it (it's the user's latest synthesized view of
@@ -36553,7 +36585,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"edit_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>","text":"<new item text>"}  (rewrites one item)',
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
-    '- {"type":"pin_item","kind":"<agent|task|flow|pr>","refId":"<kind:refId from AVAILABLE AGENTS, AVAILABLE OPERATIONS & EMPLOYEES, or AVAILABLE PULL REQUESTS>"}  (adds an existing employee, operation, or pull request to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow that already does the work, or a PR the user wants to track/work on. Employees: agent. Operations: task, flow. Pull requests: pr.)',
+    '- {"type":"pin_item","kind":"<agent|task|flow|pr|document>","refId":"<kind:refId from AVAILABLE AGENTS, AVAILABLE OPERATIONS & EMPLOYEES, AVAILABLE PULL REQUESTS, or AVAILABLE DOCUMENTS>"}  (adds an existing employee, operation, pull request, or document to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow that already does the work, a PR the user wants to track/work on, or a Compose.AI document the user wants on the board. Employees: agent. Operations: task, flow. Pull requests: pr. Documents: document.)',
     (prPins.length ? '- {"type":"pr_action","prRefId":"<refId from PINNED PULL REQUESTS>","action":"<review|create-worktree|sync|push|post-comments|refresh|open-worktree|remove-worktree>"}  (drive a pinned PR: create-worktree clones+checks out the PR branch; review runs the AI code review on the worktree; sync pulls the worktree up to date with the PR branch; push pushes local commits (your PRs); post-comments posts the AI review comments (PRs you review); refresh re-reads the worktree/review state; open-worktree opens it in the editor; remove-worktree deletes the on-disk worktree. push/post-comments touch the remote — propose only on explicit request.)' : ''),
     (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV CARDS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev card: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
     '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","homeBoardId":"<board id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. The card is PINNED to a board: omit homeBoardId to pin it to the current board, or pass a board id to pin it elsewhere. Set createWorktree true if the user wants the worktree created right away.)',
@@ -36613,6 +36645,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
     '- SECTIONS / LAYOUT REQUESTS: to organize the workspace, work with SECTIONS/BOARDS — add_section, rename_section, delete_section, place_card, move_card, remove_card, pack_section — using the "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS" context below. Examples: "make a section for the release work" → add_section (then place_card the relevant items); "move the autoscaler agent to the Ops tab" → move_card; "put the release checklist on this board" → place_card; "get rid of the empty Scratch tab" → delete_section. CARD POSITIONS: each card sits at a real grid position on its board, and gaps CAN accumulate after cards are moved, resized or removed. When the user asks to "move the cards to the top", "line them up", "tidy / clean up / pack this board", or "remove the dead space", DO propose pack_section — that repacks the cards tightly to the top-left and closes the gaps. OMIT the sectionId (or use the current board\'s id) so it packs the board the user is looking at. GRID GEOMETRY: you are given each board\'s column count and every card\'s (x,y) WxH footprint in the "## GRID GEOMETRY" / "## BOARD SECTIONS" context. USE IT to COMPUTE clean, non-overlapping positions yourself and pass explicit "x"/"y" on place_card / move_card whenever the user asks to arrange, align, place side-by-side, stack, or drop something in a specific spot ("put the notes in a row across the top", "place the agent next to the checklist", "two columns"). pack_section is just the shortcut for "tidy / close gaps"; for deliberate placement, reason over the geometry and give x/y rather than relying on pack_section or auto-placement. Do NOT dismiss these requests as "already packed / no action needed", and NEVER respond to "top of the board" by creating or targeting a section literally named "Board" or by re-adding the cards elsewhere — that is wrong; pack_section the CURRENT board instead. DEFAULT TO THE CURRENT BOARD: whenever the user does not name a specific section, assume every section action (place_card, move_card, remove_card, pack_section) targets the CURRENT board shown in context; only target a different board when the user names it explicitly. NOTE: the OLD free-form "pins" canvas (dragging panels to x/y coordinates, pin-ifying, collapsing/locking panels) and the per-panel "tabs" view are DEPRECATED and no longer available — do not offer them or talk about pinning to positions, collapsing, stashing, or locking panels. For a bare zoom/font nudge you may still use one set_layout, but never for arranging content. Placing an item as a card does NOT duplicate or move the underlying content — the same item can appear on multiple boards.',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
+    '- PINNED DOCUMENTS are Compose.AI drafts (proposals, briefs, status updates, one-pagers, brainstorms, etc.) pinned to this board. Their framing (purpose/format/audience) and full draft body are included under PINNED ITEMS as "DOCUMENT: <title>". READ them, quote and summarize their content, answer questions grounded in them, and reference a document with its [source link] when you cite it. To bring another Compose.AI document onto the board, propose pin_item with kind document — but ONLY for ids listed under AVAILABLE DOCUMENTS; never invent a document id. When the user asks you to build a note/checklist/plan "from" a document, ground it in that document\'s pinned content.',
     '- MAP RELATIONSHIPS: this board is a MAP, so beyond placing cards you can express how cards RELATE. The current map\'s cards, existing links, and groups (with any AI group summaries) are under "## MAP (current board)". That block also lists which cards are ON the map versus available in the toolbox ("Cards NOT on this map"), so you KNOW the board\'s composition and can answer questions like "what\'s on this board?" or "is the release PR on the map?". You can CHANGE the composition: propose map_add to bring a toolbox card onto the map ("add the autoscaler PR to the board"), map_remove to take a card off it, and map_move to reposition one. When the user asks you to "look at the relationships", "link related cards", "connect the cards that go together", "draw the connections", or "group the related work", STUDY that map: find pairs of cards with a REAL, concrete relationship — a PR that implements a work item, a dev card that delivers a PR, an issue that a PR closes, two items in the same initiative — and propose ONE add_link per pair (dir:"uni" from the derived/dependent card to the thing it derives from or implements; dir:"bi" for equal peers). Skip pairs that only share a vague theme, and skip links that already exist in context. Prefer a handful of MEANINGFUL links over linking everything. To box a coherent cluster together propose create_group with its members. Only propose remove_link when the user explicitly asks to unlink/disconnect cards.',
     '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry NOTES (freeform status jots — general OR scoped to one repo section), ARTIFACTS (user-attached LINKS, each shown as "label → url (lnk-id)", plus read-only agent REPORTS), and extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)"). Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). NOTES are fully editable: add_dev_note (optionally scope it to a repo section with repoId = the slot id shown after "slot "), edit_dev_note, check_dev_note / uncheck_dev_note (toggle done), delete_dev_note (destructive) — identify a note by its (note-id). Notes often explain WHY a card matters, so read them when deciding what is interesting. For the card\'s ARTIFACT LINKS use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). Artifact REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link / delete_dev_note are destructive — only on explicit request.',
     // Dedup / merge awareness.

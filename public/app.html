@@ -9967,6 +9967,28 @@
                                               </template>
                                             </div>
                                           </template>
+                                          <!-- Document: inline preview of the Compose.AI draft + Open / Quick view. -->
+                                          <template x-if="item.kind === 'document'">
+                                            <div class="board-doc-detail" x-init="boardPinEnsureDetail(item)" @click.stop>
+                                              <div class="cf-meta-line" x-show="boardDocState(item).meta" x-text="boardDocState(item).meta"></div>
+                                              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+                                                <button class="btn ghost" style="font-size:0.72rem" type="button" title="Open this document in Compose.AI" @click.stop="boardJump(item)">↗ Open in Compose</button>
+                                                <button class="btn ghost" style="font-size:0.72rem" type="button" title="Quick view this document" @click.stop="composeLibPreview({ id: item.refId, title: item.label })">👁 Quick view</button>
+                                              </div>
+                                              <template x-if="boardDocState(item).loading">
+                                                <div class="hint" style="padding:2px">Loading document…</div>
+                                              </template>
+                                              <template x-if="!boardDocState(item).loading && boardDocState(item).empty">
+                                                <div class="hint" style="padding:2px">Draft empty — nothing generated yet.</div>
+                                              </template>
+                                              <template x-if="!boardDocState(item).loading && !boardDocState(item).empty && boardDocState(item).site">
+                                                <iframe class="board-doc-site" :srcdoc="boardDocState(item).site" sandbox="allow-scripts" referrerpolicy="no-referrer" style="width:100%;height:260px;border:1px solid var(--cp-border,#e5e7eb);border-radius:8px;background:#fff"></iframe>
+                                              </template>
+                                              <template x-if="!boardDocState(item).loading && !boardDocState(item).empty && !boardDocState(item).site && boardDocState(item).html">
+                                                <div class="md-output board-doc-preview" style="max-height:260px;overflow:auto" x-html="boardDocState(item).html"></div>
+                                              </template>
+                                            </div>
+                                          </template>
                                           <!-- Agent: inline full-featured chat (thinking / tools / response) — no navigation. -->
                                           <template x-if="item.kind === 'agent'">
                                             <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px;min-height:0;max-height:min(56vh,460px)" x-init="boardAgentChatEnsure(item); boardAgentChatResume(item)" @click.stop>
@@ -11330,14 +11352,15 @@
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <template x-for="k in ['session','chat','task','flow','agent','manager','location','pr']" :key="k">
+                    <template x-for="k in ['session','chat','task','flow','agent','manager','location','pr','document']" :key="k">
                       <button type="button" class="btn ghost" :class="{ primary: boardPinKind === k }" @click="setPinKind(k)" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
                     </template>
                   </div>
                   <input class="field-input" type="text" x-show="boardPinKind !== 'location'" x-model="boardPinSearch" placeholder="Search…" />
                   <div x-show="boardPinKind === 'pr' && _boardPrLoading" class="hint" style="padding:8px 2px">Loading pull requests…</div>
+                  <div x-show="boardPinKind === 'document' && _boardDocLoading" class="hint" style="padding:8px 2px">Loading documents…</div>
                   <div x-show="boardPinKind !== 'location'" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
-                    <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : 'No matching items in this team.'"></div>
+                    <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading) && !(boardPinKind==='document' && _boardDocLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : (boardPinKind === 'document' ? 'No documents yet. Create one in Compose.AI.' : 'No matching items in this team.')"></div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
                       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px">
                         <div style="min-width:0">
@@ -29655,6 +29678,10 @@
         boardPrCandidates: [],
         _boardPrLoaded: false,
         _boardPrLoading: false,
+        boardDocCandidates: [],
+        _boardDocLoaded: false,
+        _boardDocLoading: false,
+        boardDocDetail: {},
         boardLocPath: '',
         boardLocPreview: null,
         boardLocBusy: false,
@@ -50717,10 +50744,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Task', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Task', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', document: 'Document', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
         },
         boardKindIcon(kind) {
-          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄', dev: '🧰' })[kind] || '📌';
+          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄', document: '📄', dev: '🧰' })[kind] || '📌';
         },
         openPinPicker() {
           if (!this.activeBoard()) { this.showToast('Board', 'Select or create a board first', 'error'); return; }
@@ -50735,6 +50762,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         setPinKind(k) {
           this.boardPinKind = k;
           if (k === 'pr' && !this._boardPrLoaded) this.loadBoardPrCandidates();
+          if (k === 'document' && !this._boardDocLoaded) this.loadBoardDocCandidates();
+        },
+        // Compose.AI documents to pin. Fetched once from /api/compose (the same list the
+        // Documents library uses); newsletters are excluded (they have their own reader).
+        async loadBoardDocCandidates(force) {
+          if (this._boardDocLoading) return;
+          this._boardDocLoading = true;
+          if (force) this._boardDocLoaded = false;
+          try {
+            let resp = null;
+            try { resp = await this.request('/api/compose'); } catch { resp = null; }
+            const comps = (resp && resp.compositions) || [];
+            this.boardDocCandidates = comps.filter(c => c && c.kind !== 'newsletter').map(c => ({
+              kind: 'document', refId: c.id,
+              label: c.title || 'Untitled',
+              sublabel: [this.composePurposeLabel(c.purpose), this.composeFormatLabel(c.format)].filter(Boolean).join(' · '),
+              meta: { compositionId: c.id, title: c.title || '', format: c.format || '', purpose: c.purpose || '' },
+            }));
+            this._boardDocLoaded = true;
+          } finally {
+            this._boardDocLoading = false;
+          }
         },
         async loadBoardPrCandidates(force) {
           if (this._boardPrLoading) return;
@@ -50797,6 +50846,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out = (this.cliSessions || []).map(s => ({ kind: 'session', refId: s.id, label: s.label || s.summary || s.id, sublabel: s.agentName || s.cwd || '' }));
           } else if (this.boardPinKind === 'pr') {
             out = (this.boardPrCandidates || []).map(p => ({ ...p }));
+          } else if (this.boardPinKind === 'document') {
+            out = (this.boardDocCandidates || []).map(d => ({ ...d }));
           }
           if (q) out = out.filter(o => (o.label || '').toLowerCase().includes(q) || (o.sublabel || '').toLowerCase().includes(q));
           // Mark already-pinned
@@ -51025,13 +51076,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.goTo('#/codeflow/' + encodeURIComponent(item.refId));
             return;
           }
+          // Documents open in the Compose.AI studio on that composition. Stash the id so
+          // the studio restores it, route to Compose, then open the doc once loaded.
+          if (item.kind === 'document') {
+            try { localStorage.setItem('compose-last-id', item.refId); } catch {}
+            this.goTo('#/compose');
+            this.$nextTick(() => { try { this.composeOpen(item.refId); } catch {} });
+            return;
+          }
           const r = item.route || this.boardItemRoute(item);
           if (r) this.goTo(r);
         },
         boardItemsByKind() {
           const board = this.activeBoard();
           const items = (board && board.items) || [];
-          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location', 'pr'];
+          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location', 'pr', 'document'];
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
@@ -51099,7 +51158,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Which pin kinds can show their last run/output (with steps & reasoning) or,
         // for chats, their most recent message right on the board card.
         boardPinHasDetail(item) {
-          return !!item && ['agent', 'task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr'].includes(item.kind);
+          return !!item && ['agent', 'task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr', 'document'].includes(item.kind);
         },
         // ── Inline agent chat (agent board cards) ──────────────────────────────
         // A full-featured chat embedded on an agent card: shows the user turn, the
@@ -51604,9 +51663,43 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (item.kind === 'pr') {
             if (!this._cfWtLoadedForBoard) { this._cfWtLoadedForBoard = true; this.loadCfWorktrees(); }
             this.loadBoardPrs();
+          } else if (item.kind === 'document') {
+            if (this.boardDocDetail[item.refId] === undefined) this.boardDocEnsure(item);
           }
         },
-        // Proactively refresh the run history for every task/assignment pin on the active
+        // Lazy-load a pinned document's draft for inline preview on its board card.
+        // Renders the draft to HTML (markdown or a sandboxed site iframe) once, cached
+        // in boardDocDetail keyed by composition id. state: { loading, html, site, empty }.
+        async boardDocEnsure(item) {
+          if (!item || !item.refId) return;
+          if (this.boardDocDetail[item.refId] !== undefined) return;
+          this.boardDocDetail = { ...this.boardDocDetail, [item.refId]: { loading: true } };
+          let st = { loading: false, html: '', site: '', empty: true, title: item.label || '', meta: '' };
+          try {
+            const resp = await this.request('/api/compose/' + encodeURIComponent(item.refId));
+            const c = (resp && (resp.composition || resp)) || null;
+            if (c) {
+              st.title = c.title || st.title;
+              st.meta = [this.composePurposeLabel(c.purpose), this.composeFormatLabel(c.format), (c.meta && c.meta.updatedAt) ? ('edited ' + this.formatRelative(c.meta.updatedAt)) : ''].filter(Boolean).join(' · ');
+              const draft = c.draft || {};
+              const body = draft.content || '';
+              if (body) {
+                st.empty = false;
+                if ((draft.contentFormat || '') === 'html' || (c.format === 'site')) {
+                  st.site = body;
+                } else {
+                  let html = this.newsletterRenderHtml ? this.newsletterRenderHtml(body) : body;
+                  html = String(html).replace(/\/api\/newsletter\/asset\//g, '/api/compose/' + encodeURIComponent(item.refId) + '/asset/');
+                  st.html = html;
+                }
+              }
+            }
+          } catch { st.empty = true; }
+          this.boardDocDetail = { ...this.boardDocDetail, [item.refId]: st };
+        },
+        boardDocState(item) {
+          return (item && this.boardDocDetail[item.refId]) || { loading: true };
+        },
         // board so cards and the Briefing's Sources reflect the latest runs without the
         // user clicking Refresh. Called after data loads (refreshAll) and on board open.
         // Force-reloads even when cached so a stale snapshot is replaced with the newest run.

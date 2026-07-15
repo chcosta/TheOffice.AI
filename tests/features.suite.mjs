@@ -1393,4 +1393,36 @@ await t.test('compose studio: in-studio document switcher + roomy quick-view', (
   t.ok(/cmpx-doc"[^>]*max-height:none[^>]*overflow:visible/.test(qv), 'quick-view content is uncapped (no inner .md-output 300px scroll box)');
 });
 
+await t.test('boards: pin Compose.AI documents (backend + picker + card + assistant awareness)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  // BACKEND — 'document' is a pinnable board kind + resolves through _resolveBoardItems so
+  // both the Briefing and the Workspace Assistant see the draft content.
+  t.ok(/BOARD_KINDS[\s\S]{0,200}'document'/.test(srv), "'document' is a recognized board kind");
+  t.ok(/it\.kind === 'document'/.test(srv), '_resolveBoardItems has a document branch');
+  const docBranch = _win(srv, "it.kind === 'document'", 1200);
+  t.ok(/compose\.getComposition\(/.test(docBranch), 'document branch resolves the composition draft');
+  t.ok(/replace\(\/<\[\^>\]\+>\/g/.test(docBranch), 'document branch strips HTML tags for the plain-text context');
+  // Assistant catalog exposes AVAILABLE DOCUMENTS + can pin_item kind document.
+  t.ok(/AVAILABLE DOCUMENTS/.test(srv), 'assistant prints an AVAILABLE DOCUMENTS catalog');
+  t.ok(/offer\('document'/.test(srv), 'assistant offers documents into catalogByKey');
+  t.ok(/agent\|task\|flow\|pr\|document/.test(srv), 'pin_item system-prompt lists document as a kind');
+  // FRONTEND — icon/label, picker candidates, jump, card detail, inline preview.
+  t.ok(/document: 'Document'/.test(html), 'boardKindLabel maps document');
+  t.ok(/document: '📄'/.test(html), 'boardKindIcon maps document');
+  const loader = _win(html, 'loadBoardDocCandidates(', 600);
+  t.ok(/\/api\/compose/.test(loader) && /newsletter/.test(loader), 'loadBoardDocCandidates GETs compositions and filters newsletters');
+  t.ok(/this\.boardPinKind === 'document'/.test(html), 'pinCandidates has a document branch');
+  // boardJump routes documents into the Compose studio on that composition.
+  const jump = _win(html, "localStorage.setItem('compose-last-id', item.refId)", 300);
+  t.ok(/#\/compose/.test(jump) && /composeOpen\(item\.refId\)/.test(jump), 'boardJump opens the document in Compose');
+  // Card detail: meta + Open + Quick view + inline preview, lazy-loaded.
+  t.ok(/board-doc-detail/.test(html), 'document pin card has a detail template');
+  t.ok(/composeLibPreview\(\{ id: item\.refId, title: item\.label \}\)/.test(html), 'card exposes a Quick view reusing composeLibPreview');
+  const ensure = _win(html, 'async boardDocEnsure(item)', 1200);
+  t.ok(/\/api\/compose\/'/.test(ensure) && /boardDocDetail/.test(ensure), 'boardDocEnsure lazy-loads the draft into boardDocDetail');
+  t.ok(/boardDocDetail: \{\}/.test(html), 'boardDocDetail cache is declared in state');
+  t.ok(/boardPinHasDetail[\s\S]{0,160}'document'/.test(html), 'boardPinHasDetail includes document');
+});
+
 await t.done();
