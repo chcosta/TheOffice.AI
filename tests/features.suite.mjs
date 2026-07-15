@@ -1115,6 +1115,10 @@ await t.test('compose sources: agent task runs (pick one or more agents, fold re
   t.ok(/sources\.agentRunsDays/.test(html), 'sources rail binds the look-back window');
   const sd = _win(html, 'composeSourcesDefault() {', 700);
   t.ok(/agentruns:\s*false/.test(sd) && /agentRunsRef/.test(sd) && /agentRunsDays/.test(sd), 'composeSourcesDefault seeds the agentruns keys');
+  // regression: the explicit PATCH payload must carry the agentruns fields, or
+  // Check-sources would persist sources without them and reset the toggle.
+  const pm = _win(html, 'async composePersistMeta() {', 1400);
+  t.ok(/agentruns:\s*!!\(c\.sources/.test(pm) && /agentRunsRef:/.test(pm) && /agentRunsDays:/.test(pm), 'composePersistMeta persists the agentruns fields');
 });
 
 await t.test('compose sources: work-item refs accept an AB#-prefixed token', () => {

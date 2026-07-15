@@ -46812,6 +46812,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   workitems: !!(c.sources && c.sources.workitems), workitemsRef: (c.sources && c.sources.workitemsRef) || '',
                   repos: !!(c.sources && c.sources.repos), reposRef: (c.sources && c.sources.reposRef) || '',
                   composition: !!(c.sources && c.sources.composition), compositionRef: (c.sources && c.sources.compositionRef) || '',
+                  agentruns: !!(c.sources && c.sources.agentruns), agentRunsRef: (c.sources && c.sources.agentRunsRef) || '', agentRunsDays: (c.sources && c.sources.agentRunsDays) || 14,
                   m365: !!(c.sources && c.sources.m365),
                   links: (c.sources && Array.isArray(c.sources.links)) ? c.sources.links.slice() : [],
                   pasted: (c.sources && c.sources.pasted) || '',
