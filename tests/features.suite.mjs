@@ -960,7 +960,7 @@ await t.test('Compose.AI documents library — real list/search/sort/filter/grid
   const html = readFileSync('public/app.html', 'utf8');
   // A distinct library view exists, reachable from the launcher header.
   t.ok(/compose\.view === 'library'/.test(html), 'library is its own compose view');
-  t.ok(/@click="composeOpenLibrary\(\)">📁 Documents/.test(html), 'launcher header opens the Documents library');
+  t.ok(/@click="goTo\('#\/documents'\)">📁 Documents/.test(html), 'launcher header opens the Documents page');
   // The library is driven by real bindings, not the mock DOCS array.
   t.ok(/composeLibFiltered\(\)/.test(html), 'rows/cards render composeLibFiltered()');
   t.ok(/x-model="compose\.lib\.q"/.test(html), 'search binds to compose.lib.q');
@@ -1442,6 +1442,35 @@ await t.test('compose library: pin a document to a board (row/card/studio) + non
   t.ok(/openQuickPin\('document', compose\.current\.id, compose\.current\.title \|\| 'Untitled', composePurposeLabel\(compose\.current\.purpose\)\)/.test(html), 'studio header pins the current document');
   const pinBtns = _win(html, "title=\"Pin to a workspace\"", 400);
   t.ok(/x-show="c\.kind!=='newsletter' " ?title="Pin to a workspace"|x-show="c\.kind!=='newsletter'" title="Pin to a workspace"/.test(html), 'row pin button is gated to non-newsletter documents');
+});
+
+await t.test('documents-page: Documents is its own top-level route + nav item (app.html)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // 1. #/documents is a real route in the whitelist.
+  t.ok(/'compose', 'documents', 'me-ai'/.test(html), "'documents' is registered in the parseHash route whitelist");
+  // 2. the documents route dispatches to the library; #/compose scrubs a leftover library view.
+  const disp = _win(html, "} else if (this.route === 'compose') {", 700);
+  t.ok(/if \(this\.compose\.view === 'library'\) \{ this\.compose\.view = 'launcher'; this\.compose\.current = null; \}/.test(disp), 'compose route scrubs a leftover library view so refresh restores the studio');
+  t.ok(/} else if \(this\.route === 'documents'\) \{\s*await this\.composeOpenLibrary\(\);/.test(disp), 'documents route opens the library');
+  // 3. the compose section renders for BOTH routes.
+  t.ok(/route === 'compose' \|\| route === 'documents'/.test(html), 'the compose section renders for #/compose and #/documents');
+  // 4. the header title reflects the Documents page.
+  t.ok(/route === 'documents' \? '📄 Documents' : '✍️ Compose\.AI'/.test(html), 'header title switches to Documents on the documents route');
+  // 5. in-compose "Documents" affordances navigate to the route (not a view flip).
+  t.ok(/x-show="compose\.view === 'launcher'" @click="goTo\('#\/documents'\)">📁 Documents/.test(html), 'launcher header Documents button routes to #/documents');
+  t.ok(/@click="compose\.switcherOpen=false; goTo\('#\/documents'\)">📁 All documents/.test(html), 'studio switcher "All documents" routes to #/documents');
+  t.ok(/@click="goTo\('#\/compose'\)">Iterations studio/.test(html), 'library "Iterations studio" routes back to #/compose');
+  // 6. opening/creating a document from the library routes to #/compose (stable URL).
+  const libOpen = _win(html, 'async composeLibOpen(c) {', 900);
+  t.ok(/localStorage\.setItem\('compose-last-id', c\.id\)/.test(libOpen) && /goTo\('#\/compose'\)/.test(libOpen), 'composeLibOpen stashes the id + routes to #/compose');
+  const libNew = _win(html, 'composeLibNew() {', 400);
+  t.ok(/goTo\('#\/compose'\)/.test(libNew), 'composeLibNew routes to the Compose launcher');
+  // 7. nav item + default keys (gated on the Compose.AI/newsletter feature).
+  t.ok(/case 'documents': return mk\('Documents', '📄', '#\/documents', 'documents'\);/.test(html), '_navItemDef defines the Documents nav item');
+  t.ok(/if \(en\('newsletter'\)\) out\.push\('newsletter', 'documents'\);/.test(html), "_navDefaultKeys offers 'documents' alongside Compose.AI");
+  // 8. tier registration: routeMode + basic/advanced visibility.
+  t.ok(/'compose', 'documents', 'me-ai'/.test(html), 'routeMode maps documents to the workspace mode');
+  t.ok(/newsletter: \['newsletter', 'compose', 'documents'\]/.test(html), 'documents is visible under the newsletter feature gate (basic + advanced)');
 });
 
 await t.done();

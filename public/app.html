@@ -20432,7 +20432,7 @@
           </section>
 
           <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
-          <section x-show="!loading && !errorMessage && route === 'compose'" :class="{ 'cmpx-fs': compose.fullscreen }">
+          <section x-show="!loading && !errorMessage && (route === 'compose' || route === 'documents')" :class="{ 'cmpx-fs': compose.fullscreen }">
             <style>
               .cmpx-wrap{max-width:1180px;margin:0 auto}
               .cmpx-head{display:flex;align-items:flex-end;gap:14px;margin:0 0 6px}
@@ -20750,7 +20750,7 @@
               <!-- Header -->
               <div class="cmpx-head">
                 <div style="min-width:0">
-                  <h1>✍️ Compose.AI</h1>
+                  <h1 x-text="route === 'documents' ? '📄 Documents' : '✍️ Compose.AI'"></h1>
                   <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
                   <div class="cmpx-switch" x-show="compose.view === 'studio' && compose.current" @click.outside="compose.switcherOpen = false" @keydown.escape.window="compose.switcherOpen = false">
                     <button type="button" class="cmpx-switch-btn" @click="composeToggleSwitcher()" :aria-expanded="compose.switcherOpen">
@@ -20775,16 +20775,16 @@
                         <div class="cmpx-switch-empty" x-show="!compose.compositions.length">No other documents yet.</div>
                       </div>
                       <div class="cmpx-switch-f">
-                        <button type="button" @click="compose.switcherOpen=false; composeOpenLibrary()">📁 All documents…</button>
+                        <button type="button" @click="compose.switcherOpen=false; goTo('#/documents')">📁 All documents…</button>
                         <button type="button" @click="compose.switcherOpen=false; composeBackToLauncher()">✚ Start something new</button>
                       </div>
                     </div>
                   </div>
                 </div>
                 <div class="spacer"></div>
-                <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="composeOpenLibrary()">📁 Documents</button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="goTo('#/documents')">📁 Documents</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeNewSamePurpose()" :title="'Start a new ' + (composePurposeLabel((compose.current &amp;&amp; compose.current.purpose) || '') || 'composition') + ' — same purpose as this one'">✚ New</button>
-                <button class="btn ghost" type="button" x-show="compose.view !== 'launcher'" @click="compose.view === 'studio' ? composeBackToLauncher() : (compose.view = 'launcher')">← All compositions</button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeBackToLauncher()">← All compositions</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.current && compose.current.kind !== 'newsletter'" @click="openQuickPin('document', compose.current.id, compose.current.title || 'Untitled', composePurposeLabel(compose.current.purpose))" title="Pin this document to a workspace">📌 Pin</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
               </div>
@@ -20852,7 +20852,7 @@
                       <button type="button" :class="{on: compose.lib.mode==='list'}" @click="compose.lib.mode='list'" title="List">☰</button>
                       <button type="button" :class="{on: compose.lib.mode==='grid'}" @click="compose.lib.mode='grid'" title="Grid">▦</button>
                     </div>
-                    <button class="btn" type="button" @click="compose.view='launcher'">Iterations studio →</button>
+                    <button class="btn" type="button" @click="goTo('#/compose')">Iterations studio →</button>
                     <button class="btn primary" type="button" @click="composeLibNew()">＋ New</button>
                   </div>
 
@@ -31279,7 +31279,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -31665,7 +31665,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'newsletter') {
             await this.loadNewsletter();
           } else if (this.route === 'compose') {
+            // Documents is its own page now (#/documents) — the studio route never
+            // shows the library. Scrub a leftover library view so a return trip to
+            // #/compose restores the last-viewed doc (or the launcher), not the list.
+            if (this.compose.view === 'library') { this.compose.view = 'launcher'; this.compose.current = null; }
             await this.loadCompose();
+          } else if (this.route === 'documents') {
+            await this.composeOpenLibrary();
           } else if (this.route === 'codeflow') {
             const cfFocus = this.app.routeParam || '';
             if (!cfFocus) this.codeflow.focusKey = '';
@@ -32645,6 +32651,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'connect': return mk('Connect', '🌟', '#/connect', 'connect');
             case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
             case 'newsletter': return mk('Compose.AI', '✍️', '#/compose', 'compose', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
+            case 'documents': return mk('Documents', '📄', '#/documents', 'documents');
             case 'watercooler': return mk('Agent Chats', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
             case 'playbooks': return mk('Playbooks', '📘', '#/playbooks', 'playbooks');
@@ -32673,7 +32680,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (en('sessions')) out.push('sessions');
             if (en('news')) { out.push('activity', 'reports'); }
             if (en('connect')) out.push('connect');
-            if (en('newsletter')) out.push('newsletter');
+            if (en('newsletter')) out.push('newsletter', 'documents');
             return out;
           }
           // workspace (Advanced) — every feature is on by default; the user opts OUT
@@ -32689,7 +32696,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           out.push('marketplace');
           if (en('diary')) out.push('diary');
           if (en('connect')) out.push('connect');
-          if (en('newsletter')) out.push('newsletter');
+          if (en('newsletter')) out.push('newsletter', 'documents');
           if (en('watercooler')) out.push('watercooler');
           if (en('sessions')) out.push('sessions');
           if (en('news')) { out.push('activity', 'reports'); }
@@ -33171,7 +33178,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks',
+          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -33310,7 +33317,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sessions: ['sessions'],
             news: ['activity', 'reports'],
             connect: ['connect'],
-            newsletter: ['newsletter', 'compose'],
+            newsletter: ['newsletter', 'compose', 'documents'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -33334,7 +33341,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sessions: ['sessions'],
             news: ['activity', 'reports'],
             connect: ['connect'],
-            newsletter: ['newsletter', 'compose'],
+            newsletter: ['newsletter', 'compose', 'documents'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -46613,8 +46620,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (i === -1) sel.push(id); else sel.splice(i, 1);
         },
         composeLibNew() {
-          // Fresh blank composition — land in the launcher to pick a purpose.
+          // Fresh blank composition — route to the Compose launcher to pick a purpose.
+          try { localStorage.removeItem('compose-last-id'); } catch {}
+          this.compose.current = null;
           this.compose.view = 'launcher';
+          this.goTo('#/compose');
           this.toast('Pick a purpose to start a fresh composition.', 'info');
         },
         // Kind-aware row actions: a newsletter row opens THAT document (promoting it
@@ -46622,7 +46632,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // compose studio + APIs.
         async composeLibOpen(c) {
           if (c && c.kind === 'newsletter') { await this._newsletterOpenDoc(c); this.goTo('#/newsletter'); return; }
-          this.composeOpen(c.id);
+          // Documents is its own page; editing a document happens in the Compose studio.
+          // Stash the id and route to #/compose so loadCompose restores it in the studio —
+          // this also gives the open document a stable URL that survives a refresh.
+          try { localStorage.setItem('compose-last-id', c.id); } catch {}
+          this.goTo('#/compose');
         },
         // Promote a specific newsletter document to the active draft (idempotent for
         // the already-active one). Shared by Open/Export/Share.
