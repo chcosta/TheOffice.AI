@@ -756,6 +756,30 @@ await t.test('compose roadmap: a visual + documented Roadmap purpose (catalog + 
   t.ok(/never fabricate a date|TBD|est\./.test(bp), 'roadmap forbids fabricating dates (TBD/est.)');
 });
 
+await t.test('compose paired assistant: heartbeat keeps the idle watchdog alive during active work', () => {
+  const src = readFileSync('server.js', 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  // Server: _composeRunAgent beats on ANY activity — streamed tokens + steps.
+  const runAgent = _win(src, 'async function _composeRunAgent(', 1600);
+  t.ok(/onActivity/.test(runAgent), '_composeRunAgent takes an onActivity heartbeat');
+  t.ok(/onChunk:\s*\(c\)\s*=>\s*\{\s*acc\s*\+=\s*c;\s*if\s*\(beat\)/.test(runAgent), 'onChunk beats on every streamed token');
+  t.ok(/if\s*\(beat\)[\s\S]{0,40}beat\(\)[\s\S]{0,80}if\s*\(userStep\)/.test(runAgent), 'onStep beats even when the step has no user-facing message');
+  // Both run paths emit a throttled, text-less heartbeat compose-progress event.
+  const genFn = _win(src, 'async function runComposeGeneration(', 2200);
+  t.ok(/heartbeat:\s*true/.test(genFn) && /now\s*-\s*_lastBeat\s*<\s*4000/.test(genFn), 'generation heartbeat is throttled + flagged');
+  t.ok(/_composeRunAgent\('writer', prompt, onStep, beat\)/.test(genFn), 'writer run is passed the heartbeat');
+  const chatFn = _win(src, 'async function runComposeChat(', 7400);
+  t.ok(/chat:\s*true,\s*heartbeat:\s*true/.test(chatFn), 'chat heartbeat carries chat:true + heartbeat:true');
+  t.ok(/_composeRunAgent\('editor', prompt, onStep, beat\)/.test(chatFn), 'editor run is passed the heartbeat');
+  // Client: the compose-progress handler consumes a heartbeat to feed the watchdog, renders nothing.
+  const handler = _win(html, "source.addEventListener('compose-progress'", 2000);
+  t.ok(/if\s*\(d\.heartbeat\)\s*\{\s*c\._lastActivityAt\s*=\s*Date\.now\(\);\s*return;\s*\}/.test(handler), 'chat branch resets _lastActivityAt on a heartbeat and renders nothing');
+  t.ok(/if\s*\(d\.heartbeat\)\s*\{\s*co\._lastActivityAt\s*=\s*Date\.now\(\);\s*return;\s*\}/.test(handler), 'generate branch consumes a heartbeat');
+  // Client: the idle floor is a generous safety net now that the heartbeat is the real signal.
+  const watchdog = _win(html, 'async composeChatSend()', 2200);
+  t.ok(/const IDLE_MS = 600000, CEILING_MS = 60 \* 60000;/.test(watchdog), 'compose chat idle floor raised to 10 min with a 60 min ceiling');
+});
+
 await t.test('director clash: high-level area summary + option comparison', () => {
   const src = readFileSync('server.js', 'utf8');
   // AI prompt asks for a clashSummary (area + compare) on clash stops

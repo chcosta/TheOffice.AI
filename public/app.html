@@ -32440,6 +32440,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   const c = co.chat;
                   if (!c || !c.busy) return;
                   if (c.runId && d.runId && d.runId !== c.runId) return;
+                  // Heartbeat — the writer is actively streaming/working but has no line to show.
+                  // Feed the idle watchdog and render nothing, so a long-but-active revise never
+                  // trips the silence timeout.
+                  if (d.heartbeat) { c._lastActivityAt = Date.now(); return; }
                   if (!d.text) return;
                   const key = (d.seq != null) ? ('s' + d.seq) : ((d.at || '') + '|' + (d.icon || '') + '|' + d.text);
                   if (!c._seen) c._seen = new Set();
@@ -32454,6 +32458,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 }
                 if (!co.generating) return;
                 if (co.runId && d.runId && d.runId !== co.runId) return;
+                if (d.heartbeat) { co._lastActivityAt = Date.now(); return; }
                 if (d.text) {
                   const key = (d.seq != null) ? ('s' + d.seq) : ((d.at || '') + '|' + (d.icon || '') + '|' + d.text);
                   if (!co._seen) co._seen = new Set();
@@ -47356,8 +47361,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.$nextTick(() => this._composeChatScroll(true));
           // Idle watchdog — mirror the newsletter assistant. A deep-dive can run for many
           // minutes, so we disable the absolute request timeout and only give up after a
-          // true silence (reset _lastActivityAt on every SSE compose-progress event).
-          const IDLE_MS = 300000, CEILING_MS = 45 * 60000;
+          // TRUE silence. The server now beats a heartbeat on any streamed token / step (see
+          // the compose-progress handler), so an active-but-quiet revise keeps _lastActivityAt
+          // fresh; IDLE_MS is a generous safety net for a genuinely dead stream, not a work cap.
+          const IDLE_MS = 600000, CEILING_MS = 60 * 60000;
           const startedAt = Date.now();
           const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
           let idleAborted = false;

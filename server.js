@@ -12012,12 +12012,20 @@ app.get('/api/newsletter/export', (req, res) => {
 // ============================================================================
 
 // Run the compose plugin's writer/editor agent (mirrors _newsletterRunAgent).
-async function _composeRunAgent(agentName, prompt, onStep) {
+async function _composeRunAgent(agentName, prompt, onStep, onActivity) {
   if (!composePluginDir || !fs.existsSync(composePluginDir)) {
     throw new Error('Compose plugin is not available yet — restart the server.');
   }
   const _saId = agentName === 'editor' ? 'compose-editor' : 'compose-writer';
   let acc = '';
+  // The idle watchdog (client-side) only knows the agent is alive from what streams back.
+  // Many real activities produce NO user-facing progress line — streamed output tokens
+  // (a long final generation) and steps that map to null (tool_complete, sub-line thinking).
+  // So beat a heartbeat on ANY genuine activity: every streamed chunk and every step. This
+  // is the true "is work happening?" signal, so a long-but-active revise never trips the
+  // silence timeout. `beat()` is expected to throttle itself.
+  const beat = typeof onActivity === 'function' ? onActivity : null;
+  const userStep = typeof onStep === 'function' ? onStep : null;
   const result = await sdkRunner.runChat({
     config: _systemAgentCfg(_saId, { pluginDir: composePluginDir, agent: agentName, cwd: __dirname }),
     prompt: prompt + _systemAgentInstr(_saId),
@@ -12025,8 +12033,11 @@ async function _composeRunAgent(agentName, prompt, onStep) {
     resume: false,
     cwd: __dirname,
     meta: { source: 'compose', category: 'compose' },
-    onChunk: (c) => { acc += c; },
-    onStep: typeof onStep === 'function' ? onStep : undefined,
+    onChunk: (c) => { acc += c; if (beat) { try { beat(); } catch (_) { /* ignore */ } } },
+    onStep: (userStep || beat) ? ((step) => {
+      if (beat) { try { beat(); } catch (_) { /* ignore */ } }
+      if (userStep) { try { userStep(step); } catch (_) { /* ignore */ } }
+    }) : undefined,
   });
   if (result && result.fallback) throw new Error(result.error || 'Compose agent runtime unavailable');
   return acc.trim() ? acc : ((result && result.output) || '');
@@ -12555,7 +12566,17 @@ async function runComposeGeneration(id, runId) {
   if (evidenceCount) emit('📖', `Reading ${evidenceCount} source item${evidenceCount === 1 ? '' : 's'}`);
   const prompt = _composeGeneratePrompt(c, block);
   const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };
-  const text = await _composeRunAgent('writer', prompt, onStep);
+  // Heartbeat: any streamed token / step keeps the client's idle watchdog fed even when the
+  // work produces no user-facing progress line (a long draft generation streams silently).
+  // Throttled so a token flood doesn't spam SSE.
+  let _lastBeat = 0;
+  const beat = () => {
+    const now = Date.now();
+    if (now - _lastBeat < 4000) return;
+    _lastBeat = now;
+    try { broadcastSSE('compose-progress', { id, runId: runId || null, heartbeat: true, at: now, seq: ++_seq }); } catch (_) { /* ignore */ }
+  };
+  const text = await _composeRunAgent('writer', prompt, onStep, beat);
   emit('✍️', 'Finishing the draft…');
   const { content, contentFormat } = _composeExtractDeliverable(text, c.format);
   if (!content || !content.trim()) throw new Error('The compose writer returned an empty draft. Try again.');
@@ -12669,7 +12690,17 @@ async function runComposeChat(id, { message, history, runId, draft, attachments,
     'Include ONLY the fields you are actually changing or asking about (omit the rest). Decisions in the fields take effect immediately and update my structure panel; open questions go in "ask". Keep it valid JSON. Always still write your normal conversational reply.',
   ].join('\n');
   const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emit(m.icon, m.text); } catch (_) { /* ignore */ } };
-  const text = await _composeRunAgent('editor', prompt, onStep);
+  // Heartbeat: keep the client's idle watchdog fed on ANY activity — streamed tokens of a long
+  // revise + steps that carry no user-facing message — so an active deep revise never trips the
+  // silence timeout. Throttled server-side; carries no text so the client renders nothing.
+  let _lastBeat = 0;
+  const beat = () => {
+    const now = Date.now();
+    if (now - _lastBeat < 4000) return;
+    _lastBeat = now;
+    try { broadcastSSE('compose-progress', { id, runId: runId || null, chat: true, heartbeat: true, at: now, seq: ++_seq }); } catch (_) { /* ignore */ }
+  };
+  const text = await _composeRunAgent('editor', prompt, onStep, beat);
   const raw = String(text || '').trim();
   let newDraft = null;
   const m = raw.match(/===DRAFT===\s*([\s\S]*?)\s*===END DRAFT===/i);
