@@ -1152,4 +1152,27 @@ await t.test('compose sources: discrete selected sources are inlined in full —
   t.ok(!/\.slice\(0, 1400\)/.test(pur) && !/\.slice\(0, 260\)/.test(pur), 'pursuit fold no longer clips summaries/evidence at low caps');
 });
 
+await t.test('compose: sources auto-flush before a chat ask (Check sources not a prerequisite)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // composeChatSend must persist the framing/sources before hitting /chat, so the
+  // assistant sees whatever is toggled on right now without a manual Check-sources.
+  const send = _win(html, 'async composeChatSend() {', 2800);
+  t.ok(/await this\.composePersistMeta\(\)/.test(send), 'composeChatSend flushes framing/sources before asking');
+  const persistIdx = send.indexOf('composePersistMeta');
+  const chatIdx = send.indexOf("/chat'");
+  t.ok(persistIdx >= 0 && (chatIdx < 0 || persistIdx < chatIdx), 'the persist happens before the /chat request');
+});
+
+await t.test('compose: Brainstorm purpose blueprints options + strength scores + a recommendation', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  t.ok(/id:\s*'brainstorm'/.test(cjs), 'compose has a brainstorm purpose');
+  const bp = _win(cjs, 'brainstorm: {', 2600);
+  t.ok(/Pros/.test(bp) && /Cons/.test(bp), 'brainstorm asks for honest pros/cons per option');
+  t.ok(/strength score/i.test(bp), 'brainstorm scores each option (strength score)');
+  t.ok(/Recommendation/.test(bp), 'brainstorm lands a recommendation');
+  t.ok(/best practice/i.test(bp) && /modern technolog/i.test(bp), 'brainstorm researches industry best practices + modern tech');
+  // pasted source clamp lifted to a generous ceiling (no low truncation)
+  t.ok(!/pasted\.slice\(0, 16000\)/.test(cjs) && /pasted\.slice\(0, 200000\)/.test(cjs), 'pasted source clamp raised (not truncated at 16000)');
+});
+
 await t.done();

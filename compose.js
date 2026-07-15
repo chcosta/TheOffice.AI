@@ -42,6 +42,7 @@ function settings() {
 // the writer/editor agents (which are purpose-agnostic and read these labels).
 const PURPOSES = [
   { id: 'proposal',     label: 'Proposal',           blurb: 'Argue a recommendation and make the ask unmissable.', defaultFormat: 'doc',   icon: '📌' },
+  { id: 'brainstorm',   label: 'Brainstorm & options', blurb: 'Explore options with honest pros/cons, score each, then recommend.', defaultFormat: 'doc', icon: '💡' },
   { id: 'alignment',    label: 'Alignment memo',     blurb: 'Build shared understanding and gain buy-in.',          defaultFormat: 'email', icon: '🤝' },
   { id: 'status',       label: 'Status update',      blurb: 'Report progress, risks, and asks at a glance.',        defaultFormat: 'email', icon: '📈' },
   { id: 'onepager',     label: 'One-pager',          blurb: 'The team’s epic one-pager: how the v-team will build & support it.', defaultFormat: 'doc', icon: '📄' },
@@ -89,6 +90,7 @@ const SOURCES = [
 // user can toggle any of them; these just prime the brief.
 const SOURCE_DEFAULTS = {
   proposal:     ['pursuit', 'workitems'],
+  brainstorm:   ['workitems', 'pasted'],
   alignment:    ['pr'],
   status:       ['diary', 'workitems'],
   onepager:     ['workitems', 'pursuit'],
@@ -117,6 +119,17 @@ function purposeById(id) {
 // (Documentation › Project Docs › one pager template): the epic one-pager that
 // captures HOW the v-team will implement and support a slice of an epic's goal.
 const PURPOSE_BLUEPRINTS = {
+  brainstorm: {
+    title: 'Options brainstorm & recommendation',
+    intro: 'A decision-support brief. Explore the solution space genuinely (breadth before judgement — don’t anchor on the first idea), weigh each option honestly, score them against explicit criteria, then land a clear recommendation. Look beyond the obvious in-house approach: research relevant industry best practices, established patterns, and modern technologies/tooling that apply to this problem, and fold the credible ones in as options (or as evidence strengthening an option). Ground every option and score in the real sources; where you’re inferring or drawing on outside practice, say so and cite it.',
+    sections: [
+      { h: 'Problem & decision criteria', ask: 'Restate the problem in one or two sentences, the goal a solution must achieve, the hard constraints, and the explicit criteria you will judge options against (e.g. measurability, engineering effort, durability, adoption/operational cost, time-to-value). These criteria are what you score against later — make them concrete.' },
+      { h: 'Options', ask: 'Lay out at least 3–5 genuinely DIFFERENT options (distinct approaches, not variations of one). For each: a short name, a 1–2 sentence description of how it works, then an honest **Pros** list and **Cons** list. Include the obvious approaches AND at least one non-obvious or hybrid one. Draw on industry best practices and modern technologies/tools where they genuinely fit — name the specific pattern, product, or standard and note where it has worked. Do not favour any option yet — stay even-handed here.' },
+      { h: 'Evaluation & strength scores', ask: 'Score EVERY option 0–100 (its “strength score”) against the criteria from section 1, with a one-line justification for each score. Present a compact comparison table (options as rows, criteria as columns, plus a total/strength score column). Be discriminating — spread the scores; do not cluster everything in a narrow band.' },
+      { h: 'Recommendation', ask: 'Name the single recommended option (and any close runner-up), explain concisely WHY it wins on the criteria, state the trade-offs you are consciously accepting, and give the first 2–3 concrete steps to move on it plus what to validate earliest.' },
+      { h: 'Risks & open questions', ask: 'The biggest risks of the recommended path, how you would de-risk each, and the open questions that still need a human decision before committing.' },
+    ],
+  },
   onepager: {
     title: 'DNCEng epic one-pager',
     intro: 'The team’s standard epic one-pager. Epics carry the high-level business objective; the one-pager brings clarity to HOW the v-team will implement and support a specific aspect of that goal — the practical thinking the epic leaves out. It is signed off by stakeholders and linked to the epic’s GitHub issue.',
@@ -354,7 +367,7 @@ function updateComposition(id, patch) {
       const d = Math.round(Number(c.sources.agentRunsDays));
       c.sources.agentRunsDays = Number.isFinite(d) ? Math.max(1, Math.min(90, d)) : 14;
     }
-    if (typeof c.sources.pasted === 'string') c.sources.pasted = c.sources.pasted.slice(0, 16000);
+    if (typeof c.sources.pasted === 'string') c.sources.pasted = c.sources.pasted.slice(0, 200000);
   }
   c.meta.updatedAt = _now();
   _writeAll(st);
