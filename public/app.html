@@ -21055,8 +21055,12 @@
                                     </div>
                                   </template>
                                   <template x-if="s.id==='composition'">
-                                    <div class="cmpx-srccfg" x-show="compose.current.sources.composition" x-init="compose.current.sources.composition && composeLoadCompositionRefs(); $watch('compose.current.sources.composition', v => v && composeLoadCompositionRefs())">
-                                      <div class="nlx-fld"><label>Compositions to reuse</label>
+                                    <div class="cmpx-srccfg" x-show="compose.current.sources.composition" x-init="compose.current.sources.composition && composeLoadCompositionRefs(true); $watch('compose.current.sources.composition', v => v && composeLoadCompositionRefs(true))">
+                                      <div class="nlx-fld">
+                                        <div style="display:flex;align-items:center;gap:6px;justify-content:space-between">
+                                          <label style="margin:0">Compositions to reuse</label>
+                                          <button type="button" class="btn ghost" style="padding:5px 9px" @click="composeLoadCompositionRefs(true)" :disabled="compose.pickers.refsLoading" title="Refresh the list">↻</button>
+                                        </div>
                                         <div class="hint" style="margin-bottom:4px" x-show="compose.pickers.refsLoading">Loading…</div>
                                         <div class="cmpx-wilist" x-show="compose.pickers.refs.length">
                                           <template x-for="rf in compose.pickers.refs" :key="rf.id">
@@ -46715,7 +46719,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (sources[s.id]) {
             if (s.id === 'pr') this.composeLoadPRs();
             else if (s.id === 'pursuit') this.composeLoadPursuits();
-            else if (s.id === 'composition') this.composeLoadCompositionRefs();
+            else if (s.id === 'composition') this.composeLoadCompositionRefs(true);
             else if (s.id === 'repos') this.composeLoadRepos();
             else if (s.id === 'agentruns') this.composeLoadAgents();
           }
@@ -46994,6 +46998,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           co.chat._stick = true;
           co.versions = [];
           co.showVersions = false;
+          try { if (co.pickers) co.pickers.refsLoaded = false; } catch {}
           this.composeLoadVersions();
         },
         async composeOpen(id) {

@@ -358,6 +358,12 @@ await t.test('compose: another-composition/newsletter source is wired end-to-end
   t.ok(/composeRefToggle\s*\(/.test(html) && /composeRefIsSelected\s*\(/.test(html), 'ref toggle/isSelected helpers exist');
   t.ok(/composition: !!\(c\.sources && c\.sources\.composition\), compositionRef:/.test(html), 'regenerate PATCH payload includes the composition source');
   t.ok(/compose\.current\.sources\.composition/.test(html), 'rail renders the composition picker');
+  // Stale-cache fix: the picker force-refreshes on enable/studio-entry, exposes a manual ↻,
+  // and the refs cache is invalidated whenever the current composition changes — so a
+  // newly-created composition can't be hidden by the frozen `refsLoaded` cache.
+  t.ok(/composeLoadCompositionRefs\(true\); \$watch\('compose\.current\.sources\.composition', v => v && composeLoadCompositionRefs\(true\)\)/.test(html), 'composition picker x-init/$watch force a fresh refetch');
+  t.ok(/@click="composeLoadCompositionRefs\(true\)"/.test(html), 'composition picker has a manual refresh button');
+  t.ok(/if \(co\.pickers\) co\.pickers\.refsLoaded = false;/.test(html), '_composeSetCurrent invalidates the refs cache on composition change');
 });
 
 await t.test('compose: email subject comes from the draft Subject: line, not the placeholder title', () => {
