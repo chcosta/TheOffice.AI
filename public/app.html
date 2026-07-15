@@ -5864,6 +5864,13 @@
     .bmap-selpanel-head button { width: 22px; height: 22px; padding: 0; font-size: 12px; color: var(--cp-muted); background: transparent; border: none; border-radius: 6px; cursor: pointer; }
     .bmap-selpanel-head button:hover { background: color-mix(in srgb, var(--cp-ink) 10%, transparent); color: var(--cp-ink); }
     .bmap-selpanel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px; }
+    .bmap-selpanel-grip {
+      position: absolute; left: 0; bottom: 0; width: 16px; height: 16px; z-index: 2;
+      cursor: nesw-resize; touch-action: none;
+      background: linear-gradient(135deg, transparent 0 45%, var(--cp-border) 45% 55%, transparent 55% 70%, var(--cp-border) 70% 80%, transparent 80%);
+      border-bottom-left-radius: 12px; opacity: .6;
+    }
+    .bmap-selpanel-grip:hover { opacity: 1; }
     .bmap-sel-item { padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 60%, transparent); }
     .bmap-sel-item:last-child { border-bottom: none; }
     .bmap-sel-item-ttl { font-size: 12.5px; font-weight: 600; color: var(--cp-ink); margin-bottom: 2px; }
@@ -9547,7 +9554,7 @@
                           </div>
 
                           <!-- group summary panel -->
-                          <div class="bmap-selpanel" x-show="!!bmapSummaryGroupObj() && !bmap.full" x-cloak @pointerdown.stop @wheel.stop>
+                          <div class="bmap-selpanel" :style="bmapSummaryStyle()" x-show="!!bmapSummaryGroupObj() && !bmap.full" x-cloak @pointerdown.stop @wheel.stop>
                             <template x-if="bmapSummaryGroupObj()">
                               <div style="display:flex; flex-direction:column; min-height:0; flex:1 1 auto;">
                                 <div class="bmap-selpanel-head">
@@ -9593,6 +9600,7 @@
                                 </div>
                               </div>
                             </template>
+                            <div class="bmap-selpanel-grip" title="Drag to resize" @pointerdown.stop.prevent="bmapSummaryResizeStart($event)" @click.stop></div>
                           </div>
 
                           <!-- full-view overlay -->
@@ -11385,13 +11393,15 @@
                   <div x-show="boardPinKind !== 'location'" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
                     <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading) && !(boardPinKind==='document' && _boardDocLoading) && !(boardPinKind==='meairun' && _boardMeAiLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : (boardPinKind === 'document' ? 'No documents yet. Create one in Compose.AI.' : (boardPinKind === 'meairun' ? 'No Me.AI runs yet. Start one from Me.AI.' : 'No matching items in this team.'))"></div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
-                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px">
-                        <div style="min-width:0">
-                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="cand.label"></div>
-                          <div class="hint" x-show="cand.sublabel" x-text="cand.sublabel"></div>
-                        </div>
-                        <button class="btn" type="button" :disabled="cand.pinned" @click="pinCandidate(cand)" x-text="cand.pinned ? '✓ Pinned' : '📌 Pin'"></button>
-                      </div>
+                      <button type="button" class="card clickable" :disabled="cand.pinned"
+                        style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px;text-align:left;width:100%;min-width:0;background:none"
+                        @click="pinCandidate(cand)" :title="cand.pinned ? 'Already pinned' : ('Pin ' + cand.label)">
+                        <span style="min-width:0;flex:1 1 auto">
+                          <span style="display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="cand.label"></span>
+                          <span class="hint" x-show="cand.sublabel" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="cand.sublabel"></span>
+                        </span>
+                        <span style="flex:0 0 auto;font-weight:600;color:var(--cp-accent)" x-text="cand.pinned ? '✓ Pinned' : '📌 Pin'"></span>
+                      </button>
                     </template>
                   </div>
                   <div x-show="boardPinKind === 'location'" style="display:flex;flex-direction:column;gap:10px">
@@ -29613,6 +29623,9 @@
           sel: [], hover: null, full: null, editGroup: null, summaryGroup: null,
           groupPreview: [], aiSummary: {},
           geomTick: 0,
+          sumW: (() => { const n = parseInt(localStorage.getItem('bmap-sum-w') || '', 10); return (n >= 260 && n <= 720) ? n : 300; })(),
+          sumH: (() => { const n = parseInt(localStorage.getItem('bmap-sum-h') || '', 10); return (n >= 200 && n <= 2000) ? n : 0; })(),
+          sumResize: null,
           _boardId: null, _persistT: null, _suppressClick: false,
         },
         // Global "you are here" identity store (spans every board map + Code Flow).
@@ -50809,6 +50822,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardPinSearch = '';
           this.boardPinOpen = true;
           if (!this.cliSessions.length) this.loadCliSessions();
+          // Prefetch the async-backed kinds in the background so switching to their
+          // tabs is instant instead of showing a "Loading…" wait on first click.
+          if (!this._boardMeAiLoaded && !this._boardMeAiLoading) this.loadBoardMeAiCandidates();
+          if (!this._boardDocLoaded && !this._boardDocLoading) this.loadBoardDocCandidates();
         },
         // Switch the pin picker's active kind. For PRs the candidates come from a live
         // AzDo fetch (both mine+reviews) rather than a static catalog, so lazy-load them
@@ -54380,6 +54397,38 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (opening) { const obj = this.bmapSummaryGroupObj(); if (obj) this.bmapGroupAiSummary(obj, false); }
         },
         bmapSummaryGroupObj() { const id = this.bmap.summaryGroup; if (!id) return null; const m = this.bmapData(); return (m.groups || []).find(x => x.id === id) || null; },
+        // Inline size for the group-summary panel (user-resizable via the corner grip).
+        // Width is always applied; height is applied only when the user has set one,
+        // otherwise the panel auto-sizes up to the CSS max-height.
+        bmapSummaryStyle() {
+          const w = (this.bmap.sumW >= 260 && this.bmap.sumW <= 720) ? this.bmap.sumW : 300;
+          let s = `width:${w}px`;
+          if (this.bmap.sumH && this.bmap.sumH >= 200) s += `;height:${this.bmap.sumH}px`;
+          return s;
+        },
+        // Resize the panel from its bottom-left corner. It is anchored top-right, so
+        // dragging left widens it and dragging down makes it taller. Clamped + persisted.
+        bmapSummaryResizeStart(ev) {
+          const startX = ev.clientX, startY = ev.clientY;
+          const startW = (this.bmap.sumW >= 260 && this.bmap.sumW <= 720) ? this.bmap.sumW : 300;
+          const panel = ev.target.closest('.bmap-selpanel');
+          const startH = this.bmap.sumH && this.bmap.sumH >= 200 ? this.bmap.sumH : (panel ? panel.getBoundingClientRect().height : 320);
+          const canvas = panel ? panel.parentElement : null;
+          const maxH = canvas ? Math.max(240, canvas.getBoundingClientRect().height - 24) : 1600;
+          try { ev.target.setPointerCapture(ev.pointerId); } catch (_) {}
+          const move = (e) => {
+            const nw = Math.max(260, Math.min(720, Math.round(startW - (e.clientX - startX))));
+            const nh = Math.max(200, Math.min(maxH, Math.round(startH + (e.clientY - startY))));
+            this.bmap.sumW = nw; this.bmap.sumH = nh;
+          };
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            try { localStorage.setItem('bmap-sum-w', String(this.bmap.sumW)); localStorage.setItem('bmap-sum-h', String(this.bmap.sumH)); } catch (_) {}
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        },
         bmapGroupItems(g) { return (g.members || []).map(b => { const p = this._panelByBase(b); return p ? { base: b, p } : null; }).filter(Boolean); },
         bmapGroupRels(g) {
           const m = this.bmapData(); const mem = new Set(g.members || []); const out = [];

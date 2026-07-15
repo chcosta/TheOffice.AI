@@ -1482,6 +1482,31 @@ await t.test('boards: pin Me.AI runs (backend + picker + card + report access + 
   t.ok(/boardPinHasDetail[\s\S]{0,200}'meairun'/.test(html), 'boardPinHasDetail includes meairun');
 });
 
+await t.test('board pin picker: candidate rows are fully clickable + prefetch on open + summary panel resizes', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // meai-pin-click: candidate rows are a full-width clickable <button>, pin affordance can't overflow.
+  const row = _win(html, 'pinCandidate(cand)', 900);
+  t.ok(/<button[^>]*class="card clickable"/.test(html), 'candidate row is a clickable card button');
+  t.ok(/:disabled="cand\.pinned"/.test(html), 'already-pinned candidate is disabled');
+  t.ok(/min-width:0;flex:1 1 auto/.test(html), 'candidate label wrapper can shrink with ellipsis');
+  t.ok(/flex:0 0 auto/.test(html), 'pin affordance is fixed-size so it cannot overflow the modal');
+  t.ok(/✓ Pinned|📌 Pin/.test(html), 'pin affordance shows Pinned/Pin state inline (not a stray button)');
+  // meai-pin-slow: opening the picker prefetches Me.AI + document candidates in the background.
+  const opener = _win(html, 'openPinPicker() {', 900);
+  t.ok(/boardPinOpen ?= ?true/.test(opener), 'openPinPicker opens the picker');
+  t.ok(/loadBoardMeAiCandidates\(\)/.test(opener), 'openPinPicker prefetches Me.AI candidates');
+  t.ok(/loadBoardDocCandidates\(\)/.test(opener), 'openPinPicker prefetches document candidates');
+  // grp-summary-resize: resizable group-summary panel with persisted state.
+  t.ok(/sumW:/.test(html) && /sumH:/.test(html), 'bmap state carries sumW/sumH');
+  t.ok(/bmap-selpanel-grip/.test(html), 'summary panel has a resize grip element');
+  t.ok(/:style="bmapSummaryStyle\(\)"/.test(html), 'summary panel binds bmapSummaryStyle');
+  const rs = _win(html, 'bmapSummaryResizeStart(ev)', 1600);
+  t.ok(/setPointerCapture/.test(rs), 'resize uses pointer capture');
+  t.ok(/startW - \(e\.clientX - startX\)/.test(rs), 'width grows as the grip drags left (panel anchored right)');
+  t.ok(/startH \+ \(e\.clientY - startY\)/.test(rs), 'height grows as the grip drags down');
+  t.ok(/localStorage\.setItem\('bmap-sum-w'/.test(rs) && /localStorage\.setItem\('bmap-sum-h'/.test(rs), 'resize persists width + height');
+});
+
 await t.test('board map: document + Me.AI-run cards are enriched (color, facts, meta, summary, action)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
