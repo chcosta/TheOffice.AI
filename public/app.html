@@ -20387,6 +20387,29 @@
               .cmpx-head h1{margin:0;font-size:26px;letter-spacing:-.01em}
               .cmpx-head .cmpx-sub{color:var(--cp-text-secondary);font-size:14px;margin:2px 0 0}
               .cmpx-head .spacer{flex:1}
+              /* In-studio document switcher (jump to any composition) */
+              .cmpx-switch{position:relative;margin:3px 0 0}
+              .cmpx-switch-btn{display:flex;align-items:baseline;gap:8px;max-width:min(680px,60vw);padding:3px 8px 3px 4px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--cp-text);cursor:pointer;font-size:14px;text-align:left}
+              .cmpx-switch-btn:hover{border-color:var(--cp-border);background:var(--cp-surface)}
+              .cmpx-switch-btn .ic{flex:0 0 auto}
+              .cmpx-switch-btn .tt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+              .cmpx-switch-btn .mt{flex:0 0 auto;color:var(--cp-text-secondary);font-size:13px;white-space:nowrap}
+              .cmpx-switch-btn .cv{flex:0 0 auto;color:var(--cp-text-secondary);font-size:11px}
+              .cmpx-switch-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:420px;max-width:86vw;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.28);overflow:hidden}
+              .cmpx-switch-h{padding:10px 14px 6px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--cp-text-secondary)}
+              .cmpx-switch-list{max-height:min(420px,52vh);overflow:auto;padding:2px 6px 6px}
+              .cmpx-switch-row{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--cp-text);cursor:pointer;text-align:left}
+              .cmpx-switch-row:hover{background:var(--cp-elevated,rgba(127,127,127,.12))}
+              .cmpx-switch-row.is-cur{background:var(--cp-elevated,rgba(127,127,127,.1))}
+              .cmpx-switch-row .ic{flex:0 0 auto}
+              .cmpx-switch-row .mn{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+              .cmpx-switch-row .mn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:13px}
+              .cmpx-switch-row .mn .m{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--cp-text-secondary)}
+              .cmpx-switch-row .cur{flex:0 0 auto;font-size:11px;color:var(--cp-accent)}
+              .cmpx-switch-empty{padding:14px;color:var(--cp-text-secondary);font-size:13px}
+              .cmpx-switch-f{display:flex;gap:8px;padding:8px 10px;border-top:1px solid var(--cp-border)}
+              .cmpx-switch-f button{flex:1 1 auto;padding:6px 8px;border:1px solid var(--cp-border);border-radius:8px;background:transparent;color:var(--cp-text);cursor:pointer;font-size:12px}
+              .cmpx-switch-f button:hover{border-color:var(--cp-accent);color:var(--cp-accent)}
               /* Launcher: purpose gallery + recent */
               .cmpx-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin:18px 0 26px}
               .cmpx-purpose{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface);cursor:pointer;text-align:left;transition:border-color .12s,transform .12s,box-shadow .12s}
@@ -20666,10 +20689,37 @@
             <div class="cmpx-wrap">
               <!-- Header -->
               <div class="cmpx-head">
-                <div>
+                <div style="min-width:0">
                   <h1>✍️ Compose.AI</h1>
                   <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
-                  <div class="cmpx-sub" x-show="compose.view === 'studio' && compose.current" x-text="compose.current ? (composePurposeLabel(compose.current.purpose) + ' · ' + composeFormatLabel(compose.current.format)) : ''"></div>
+                  <div class="cmpx-switch" x-show="compose.view === 'studio' && compose.current" @click.outside="compose.switcherOpen = false" @keydown.escape.window="compose.switcherOpen = false">
+                    <button type="button" class="cmpx-switch-btn" @click="composeToggleSwitcher()" :aria-expanded="compose.switcherOpen">
+                      <span class="ic" x-text="(composePurpose((compose.current||{}).purpose)||{}).icon || '📝'"></span>
+                      <span class="tt" x-text="(compose.current||{}).title || 'Untitled'"></span>
+                      <span class="mt" x-text="'· ' + composePurposeLabel((compose.current||{}).purpose) + ' · ' + composeFormatLabel((compose.current||{}).format)"></span>
+                      <span class="cv" x-text="compose.switcherOpen ? '▴' : '▾'"></span>
+                    </button>
+                    <div class="cmpx-switch-menu" x-show="compose.switcherOpen" x-transition.opacity>
+                      <div class="cmpx-switch-h">Jump to another document</div>
+                      <div class="cmpx-switch-list">
+                        <template x-for="c in compose.compositions" :key="c.id">
+                          <button type="button" class="cmpx-switch-row" :class="{ 'is-cur': compose.current && c.id === compose.current.id }" @click="composeSwitchTo(c.id)">
+                            <span class="ic" x-text="(composePurpose(c.purpose)||{}).icon || '📝'"></span>
+                            <span class="mn">
+                              <span class="t" x-text="c.title || 'Untitled'"></span>
+                              <span class="m" x-text="composePurposeLabel(c.purpose) + ' · ' + composeFormatLabel(c.format) + (c.hasDraft ? '' : ' · draft empty') + ' · ' + formatRelative(c.updatedAt)"></span>
+                            </span>
+                            <span class="cur" x-show="compose.current && c.id === compose.current.id">current</span>
+                          </button>
+                        </template>
+                        <div class="cmpx-switch-empty" x-show="!compose.compositions.length">No other documents yet.</div>
+                      </div>
+                      <div class="cmpx-switch-f">
+                        <button type="button" @click="compose.switcherOpen=false; composeOpenLibrary()">📁 All documents…</button>
+                        <button type="button" @click="compose.switcherOpen=false; composeBackToLauncher()">✚ Start something new</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="spacer"></div>
                 <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="composeOpenLibrary()">📁 Documents</button>
@@ -21272,7 +21322,7 @@
                   <!-- Version quick-view modal -->
                   <div x-show="compose.verPreview.open" @click.self="composeVersionPreviewClose()"
                        style="position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center">
-                    <div class="card" style="width:920px;max-width:94vw;height:86vh;max-height:86vh;padding:0;display:flex;flex-direction:column" @click.stop>
+                    <div class="card" style="width:min(1200px,96vw);max-width:96vw;height:94vh;max-height:94vh;padding:0;display:flex;flex-direction:column" @click.stop>
                       <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cp-border)">
                         <h3 style="margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="compose.verPreview.title || 'Version preview'"></h3>
                         <button class="btn ghost" type="button" @click="composeVersionPreviewClose()">Close</button>
@@ -29740,6 +29790,7 @@
           diaryHasEvidence: false,
           view: 'launcher',       // 'launcher' | 'brief' | 'studio' | 'library'
           fullscreen: false,
+          switcherOpen: false,    // in-studio "jump to another document" menu
           // Documents library (whole body of composed work).
           lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletters: [], renaming: '', renameVal: '' },
           _pendingStart: null,    // purpose queued by a deep link, applied after load
@@ -46928,9 +46979,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         composeBackToLauncher() {
           if (this.compose.draftDirty && !confirm('Discard unsaved edits to this draft?')) return;
+          this.compose.switcherOpen = false;
           this.compose.current = null;
           this.compose.view = 'launcher';
           this.loadCompose();
+        },
+        composeToggleSwitcher() {
+          this.compose.switcherOpen = !this.compose.switcherOpen;
+          // Refresh the list so it reflects any renames/new docs since we opened.
+          if (this.compose.switcherOpen) this.loadCompose();
+        },
+        async composeSwitchTo(id) {
+          this.compose.switcherOpen = false;
+          if (this.compose.current && id === this.compose.current.id) return;
+          if (this.compose.draftDirty && !confirm('Discard unsaved edits to this draft?')) return;
+          await this.composeOpen(id);
         },
         // Persist the rail's framing (title / audience / format / sources) to the server.
         // The paired-programming studio dropped the free-text brief + its "Update & regenerate"

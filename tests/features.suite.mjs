@@ -1323,4 +1323,20 @@ await t.test('pulse guide: share one or all "Guide to your team" entries', () =>
   t.ok(/class="pc-term"><span class="pc-term-t"/.test(html), 'guide term row hosts the share button inline (no pill)');
 });
 
+await t.test('compose studio: in-studio document switcher + roomy quick-view', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // Header switcher lets you see the current doc and jump to any composition
+  const sw = _win(html, 'class="cmpx-switch"', 2600);
+  t.ok(/composeToggleSwitcher\(\)/.test(sw), 'header shows a clickable switcher control');
+  t.ok(/x-for="c in compose\.compositions"/.test(sw) && /composeSwitchTo\(c\.id\)/.test(sw), 'switcher lists every composition and jumps on click');
+  t.ok(/All documents…/.test(sw) && /Start something new/.test(sw), 'switcher offers library + new-doc escapes');
+  // methods exist and guard unsaved edits
+  const m = _win(html, 'async composeSwitchTo(id) {', 320);
+  t.ok(/draftDirty/.test(m) && /composeOpen\(id\)/.test(m), 'composeSwitchTo confirms unsaved edits before opening');
+  t.ok(/switcherOpen: false/.test(html), 'switcher menu state is declared');
+  // quick-view overlay is roomy (uses the viewport height, not a squat 86vh)
+  const qv = _win(html, 'Version quick-view modal', 700);
+  t.ok(/height:94vh/.test(qv) && /min\(1200px,96vw\)/.test(qv), 'quick-view uses available viewport so scrollbars are last-resort');
+});
+
 await t.done();
