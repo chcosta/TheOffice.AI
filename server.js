@@ -30556,7 +30556,7 @@ function _pulseShareHtml(markdown, images) {
     const svg = String(im.svg || '').trim();
     const cap = String(im.caption || '').trim();
     const capText = cap ? cap.replace(/&/g, '&amp;').replace(/</g, '&lt;') : '';
-    if (url && /^(https?:|data:image\/)/i.test(url)) {
+    if (url && /^(https?:|data:image\/|\.\.\/hostedContents\/)/i.test(url)) {
       art += `<div style="margin:14px 0;"><img src="${url.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:8px;border:1px solid #e5e2dc;" alt="${capText}">${cap ? `<div style="font-size:13px;color:#3a352c;margin-top:6px;font-weight:560;">${capText}</div>` : ''}</div>`;
     } else if (svg && /^<svg[\s>]/i.test(svg)) {
       // Inline SVG is stripped by many mail clients (Outlook), so ALWAYS repeat the joke
@@ -30636,7 +30636,23 @@ app.post('/api/me-ai/pulse/share/teams', async (req, res) => {
     const linkImgs = (Array.isArray(b.images) ? b.images : [])
       .map(im => (im && /^https?:\/\//i.test(String(im.url || '')) ? String(im.url).trim() : ''))
       .filter(Boolean);
-    let html = _pulseShareHtml(markdown, b.images);
+    // Data-URI images (e.g. a rasterized comic strip) CANNOT be posted as an inline
+    // <img src="data:…"> — Teams strips them, and the huge base64 both truncates in the
+    // message body and bloats the WorkIQ prompt (the reported timeout). Post them as Graph
+    // hostedContents instead: the body references ../hostedContents/{id}/$value (short) and
+    // the base64 bytes travel in a separate hostedContents array (not sliced out of the body).
+    const hosted = [];
+    const teamsImages = (Array.isArray(b.images) ? b.images : []).map(im => {
+      if (!im || typeof im !== 'object') return im;
+      const m = String(im.url || '').trim().match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+      if (m) {
+        const id = String(hosted.length + 1);
+        hosted.push({ '@microsoft.graph.temporaryId': id, contentType: m[1], contentBytes: m[2] });
+        return Object.assign({}, im, { url: `../hostedContents/${id}/$value` });
+      }
+      return im;
+    });
+    let html = _pulseShareHtml(markdown, teamsImages);
     if (linkImgs.length) {
       html = html.replace('</body>', `<hr><p>Images: ${linkImgs.map((u, i) => `<a href="${u.replace(/"/g, '&quot;')}">image ${i + 1}</a>`).join(' · ')}</p></body>`);
     }
@@ -30644,15 +30660,19 @@ app.post('/api/me-ai/pulse/share/teams', async (req, res) => {
     const inner = (html.match(/<body>([\s\S]*)<\/body>/i) || [, html])[1];
     const safeInner = inner.replace(/`/g, "'").replace(/\r?\n/g, ' ').slice(0, 24000);
     const heading = subject ? `<h3>${subject.replace(/</g, '&lt;')}</h3>` : '';
+    const bodyObj = { body: { contentType: 'html', content: heading + safeInner } };
+    if (hosted.length) bodyObj.hostedContents = hosted;
     const prompt = [
       'Using WorkIQ, post a NEW message to a Microsoft Teams channel.',
       `Create the message with create_entity on the path /teams/${teamId}/channels/${channelId}/messages.`,
-      'The JSON body MUST be exactly:',
-      '{ "body": { "contentType": "html", "content": <<<CONTENT>>> } }',
-      `where <<<CONTENT>>> is this HTML string: ${JSON.stringify(heading + safeInner)}`,
+      'The JSON body MUST be exactly this object (pass it verbatim — do not alter, re-encode, or truncate the hostedContents contentBytes):',
+      JSON.stringify(bodyObj),
+      (hosted.length
+        ? 'The body references inline images via ../hostedContents/{id}/$value and supplies their bytes in the hostedContents array; both MUST be sent together in the one create_entity call. If posting WITH hostedContents fails, retry the SAME create_entity but with the hostedContents array removed and the body.content unchanged, so the text still posts.'
+        : ''),
       'After posting, return ONLY a JSON object (no prose, no code fence): {"ok":true,"id":"<message id>","webUrl":"<the message webUrl if present>"}.',
       'If the post fails for any reason, return {"ok":false,"error":"<the real error>"} — never claim success you cannot verify.'
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     let parsed = null;
     try { parsed = _connectExtractJson(await _connectRunAgent('collector', prompt)); } catch (e) { parsed = { ok: false, error: e.message }; }
     if (parsed && parsed.ok) {

@@ -39042,8 +39042,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const img = new Image();
               img.onload = () => {
                 try {
-                  const w = img.naturalWidth || img.width || 800;
-                  const h = img.naturalHeight || img.height || 300;
+                  const nw = img.naturalWidth || img.width || 800;
+                  const nh = img.naturalHeight || img.height || 300;
+                  // Cap the raster so the base64 payload stays small — a huge data URI both
+                  // bloats the Teams/WorkIQ prompt (slow → timeout) and blows past size limits.
+                  const MAXW = 1000;
+                  const scale = nw > MAXW ? (MAXW / nw) : 1;
+                  const w = Math.max(1, Math.round(nw * scale));
+                  const h = Math.max(1, Math.round(nh * scale));
                   const c = document.createElement('canvas'); c.width = w; c.height = h;
                   const ctx = c.getContext('2d');
                   if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }

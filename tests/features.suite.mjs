@@ -881,9 +881,30 @@ await t.test('Pulse.AI Reel — forward/back nav, tap-to-fullscreen, copy-in-ful
   // Server reel order: today first, then RANDOM older art (doom-scroll).
   t.ok(/const today = items\.filter\(isToday\)\.sort/.test(srv), 'server puts today\'s art first');
   t.ok(/const older = items\.filter\(x => !isToday\(x\)\);[\s\S]{0,200}Math\.random\(\)/.test(srv), 'older art is shuffled randomly');
-  // Email share accepts data: image URIs and never drops the joke caption.
-  t.ok(/\/\^\(https\?:\|data:image\\\/\)\/i\.test\(url\)/.test(srv), 'email image renderer accepts data: URIs');
+  // Email/Teams image renderer accepts data: URIs AND hostedContents refs; never drops the caption.
+  t.ok(/\/\^\(https\?:\|data:image\\\/\|\\\.\\\.\\\/hostedContents\\\/\)\/i\.test\(url\)/.test(srv), 'image renderer accepts data: URIs + hostedContents refs');
   t.ok(/No renderable image — keep the caption/.test(srv), 'email keeps the caption when no image renders');
+});
+
+await t.test('Pulse.AI Teams share — data-URI comics post via Graph hostedContents (not truncated inline base64) + capped raster', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  // Client caps the rasterized PNG so the base64 payload stays small (avoids the timeout).
+  t.ok(/const MAXW = 1000;/.test(src), 'raster width is capped');
+  t.ok(/const scale = nw > MAXW \? \(MAXW \/ nw\) : 1;/.test(src), 'raster scales down oversized art');
+  // Server: data-URI images are lifted OUT of the body into a Graph hostedContents array,
+  // and the body references them by ../hostedContents/{id}/$value (short, never truncated).
+  const route = (srv.match(/app\.post\('\/api\/me-ai\/pulse\/share\/teams'[\s\S]*?\n\}\);/) || [''])[0];
+  t.ok(/const hosted = \[\];/.test(route), 'route collects hostedContents');
+  t.ok(/\^data:\(image\\\/\[a-z0-9\.\+\-\]\+\);base64,\(\.\+\)\$/i.test(route), 'data-URI images are matched + split');
+  t.ok(/'@microsoft\.graph\.temporaryId': id, contentType: m\[1\], contentBytes: m\[2\]/.test(route), 'each image becomes a hostedContents entry');
+  t.ok(/\.\.\/hostedContents\/\$\{id\}\/\$value/.test(route), 'body references the hosted image by its temporary id');
+  t.ok(/if \(hosted\.length\) bodyObj\.hostedContents = hosted;/.test(route), 'hostedContents attached to the body only when present');
+  // The whole body object (with contentBytes) is passed verbatim; retry-without-images fallback.
+  t.ok(/pass it verbatim/.test(route), 'agent is told to pass the body verbatim');
+  t.ok(/retry the SAME create_entity but with the hostedContents array removed/.test(route), 'text still posts if the image post fails');
+  // The 24000-char body slice no longer carries base64 (only the short hostedContents ref).
+  t.ok(/let html = _pulseShareHtml\(markdown, teamsImages\);/.test(route), 'body is built from the hostedContents-rewritten images');
 });
 
 await t.test('Pulse.AI share — inline-SVG comic is rasterized to a PNG data URI so the baked-in joke text survives Outlook', () => {
