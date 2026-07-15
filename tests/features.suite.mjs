@@ -1334,9 +1334,10 @@ await t.test('compose studio: in-studio document switcher + roomy quick-view', (
   const m = _win(html, 'async composeSwitchTo(id) {', 320);
   t.ok(/draftDirty/.test(m) && /composeOpen\(id\)/.test(m), 'composeSwitchTo confirms unsaved edits before opening');
   t.ok(/switcherOpen: false/.test(html), 'switcher menu state is declared');
-  // quick-view overlay is roomy (uses the viewport height, not a squat 86vh) and
-  // teleported to <body> so position:fixed escapes transformed studio ancestors
-  const qv = _win(html, 'Version quick-view modal', 900);
+  // quick-view overlay is roomy (uses the viewport height, not a squat 86vh) and is a
+  // TOP-LEVEL teleport to <body> — it must not be nested in a <template x-if>, or Alpine
+  // won't teleport it and position:fixed stays trapped in the studio container.
+  const qv = _win(html, 'Compose version quick-view — top-level teleport', 900);
   t.ok(/height:94vh/.test(qv) && /min\(1200px,96vw\)/.test(qv), 'quick-view uses available viewport so scrollbars are last-resort');
   t.ok(/x-teleport="body"/.test(qv), 'quick-view is teleported to body (fixed resolves to viewport)');
 });
