@@ -1934,34 +1934,65 @@ await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars
   t.ok(/monx-table/.test(html) && /monx-nodata/.test(html), 'SPA has table + honest no-data render surfaces');
 });
 
-await t.test('monitoring.ai: hybrid embed — real Grafana panels + native data path coexist', () => {
+await t.test('monitoring.ai: Grafana view — live whole-dashboard iframe + rendered-image fallback + native data path', () => {
   const html = readFileSync(APP_HTML, 'utf8');
+  const server = readFileSync(SERVER, 'utf8');
+  const grafanaSrc = readFileSync('grafana.js', 'utf8');
 
   // Large-series crash fix: no Math.min/max.apply spreads left in the mon renderers.
   t.ok(!/Math\.(min|max)\.apply\(null,\s*(all|s|data)/.test(html), 'no Math.min/max.apply spreads in the panel renderers (stack-overflow guard)');
 
   // State + persisted toggle.
   t.ok(/embedMode:/.test(html) && /localStorage\.getItem\('mon-embed-mode'\)/.test(html), 'embedMode state is persisted');
+  t.ok(/embedNonce:/.test(html), 'embedNonce state (refresh buster) exists');
   t.ok(/monSetEmbedMode\(/.test(html), 'View toggle wired to monSetEmbedMode');
 
-  // Methods present.
-  t.ok(/monEmbedActive\(p\)\s*\{/.test(html), 'monEmbedActive gate exists');
-  t.ok(/monPanelEmbedUrl\(p\)\s*\{/.test(html), 'monPanelEmbedUrl builder exists');
-  t.ok(/monPanelGrafanaUrl\(p\)\s*\{/.test(html), 'monPanelGrafanaUrl (open-in-Grafana) builder exists');
+  // Methods present. monEmbedActive is now no-arg (whole-dashboard).
+  t.ok(/monEmbedActive\(\)\s*\{/.test(html), 'monEmbedActive (no-arg) gate exists');
+  t.ok(/monDashRenderUrl\(\)\s*\{/.test(html), 'monDashRenderUrl (whole-dashboard server render) builder exists');
+  t.ok(/monDashGrafanaUrl\(\)\s*\{/.test(html), 'monDashGrafanaUrl (open whole dashboard in Grafana) exists');
+  t.ok(/monEmbedRefresh\(\)\s*\{/.test(html), 'monEmbedRefresh bumps the nonce to re-render');
+  t.ok(/monPanelRenderUrl\(p, h\)\s*\{/.test(html), 'monPanelRenderUrl kept for the single-panel deep dive');
+  t.ok(/monEmbedErr\(p\)/.test(html) && /monEmbedFail\(p\)/.test(html) && /monEmbedOk\(p\)/.test(html), 'render error/ok fallback helpers exist (keyed)');
 
   // Embed only when connected to a non-local dashboard.
   t.ok(/w\.embedMode === 'grafana'/.test(html) && /!w\.dash\.local/.test(html) && /w\.conn && w\.conn\.url/.test(html), 'embed gated on grafana mode + non-local dash + a configured connection');
 
-  // d-solo URL carries panelId + time + theme; deep link carries viewPanel.
-  t.ok(/\/d-solo\//.test(html) && /params\.set\('panelId'/.test(html) && /params\.set\('theme'/.test(html), 'solo embed URL includes panelId + theme');
-  t.ok(/params\.set\('viewPanel'/.test(html), 'deep link uses viewPanel');
+  // The real dashboard is ONE same-origin server render (not N per-panel iframes
+  // — AMG blocks a naked iframe at the AAD login framing wall, and per-panel
+  // renders trip AMG's concurrent-render limit).
+  t.ok(/'\/api\/monitoring\/render\/' \+ encodeURIComponent/.test(html), 'render URL points at our same-origin /api/monitoring/render proxy');
+  t.ok(!/d-solo/.test(html), 'no client-side d-solo iframe URL remains (that path is AAD-framing-blocked)');
+  t.ok(/params\.set\('whole', '1'\)/.test(html), 'dashboard render URL requests the whole dashboard (whole=1)');
+  t.ok(/params\.set\('theme'/.test(html) && /params\.set\('width'/.test(html) && /params\.set\('height'/.test(html), 'render URL carries theme + width + height');
   t.ok(/params\.set\('from'/.test(html) && /params\.set\('to'/.test(html) && /append\('var-' \+ name/.test(html), 'embed URLs thread from/to + var-* (multi-value repeated)');
 
-  // Markup: conditional iframe vs native body + an open-in-Grafana affordance; Grab stays either way.
-  t.ok(/x-if="monEmbedActive\(p\)"/.test(html) && /class="monx-embed"/.test(html), 'panel renders a real Grafana iframe when embed is active');
-  t.ok(/x-if="!monEmbedActive\(p\)"/.test(html) && /x-html="monPanelBody\(p\)"/.test(html), 'native renderer kept as the default branch');
-  t.ok(/class="monx-open"/.test(html) && /monPanelGrafanaUrl\(p\)/.test(html), 'per-panel open-in-Grafana fallback link');
-  t.ok(/@click="monGrabToggle\(p\.id\)"/.test(html), 'Grab (native data path for AI) stays available in both modes');
+  // Markup: the primary Grafana view is now a LIVE iframe (Grafana's own nav/filters),
+  // with a manual server-rendered-image fallback (XFO framing can't be auto-detected
+  // cross-origin, so the fallback is a manual toggle, not @error-driven).
+  t.ok(/x-if="monEmbedActive\(\)"/.test(html) && /class="monx-dashimg"/.test(html), 'Grafana view renders one whole-dashboard container');
+  t.ok(/<iframe class="monx-dashframe"/.test(html) && /:src="monDashLiveUrl\(\)"/.test(html), 'the primary Grafana view is a live iframe fed by monDashLiveUrl');
+  t.ok(/x-if="monGrafanaRenderMode\(\) !== 'image'"/.test(html) && /x-if="monGrafanaRenderMode\(\) === 'image'"/.test(html), 'live iframe vs rendered-image sub-branches gate on monGrafanaRenderMode');
+  t.ok(/<img class="monx-dashimg-img"/.test(html) && /:src="monDashRenderUrl\(\)"/.test(html), 'the rendered-image fallback is fed by monDashRenderUrl');
+  t.ok(/@click="monToggleGrafanaRender\(\)"/.test(html) && /monx-embedfail/.test(html), 'a manual View-rendered-image toggle + open-in-Grafana fallback exist');
+  // Live-iframe URL builder: Grafana deep link WITHOUT kiosk (so its nav shows), + theme.
+  t.ok(/monDashLiveUrl\(\)\s*\{/.test(html) && /'\/d\/' \+ encodeURIComponent\(w\.dash\.uid\)/.test(html), 'monDashLiveUrl builds a {base}/d/{uid}/{slug} live URL');
+  t.ok(!/kiosk/.test(html), 'no kiosk param — the user WANTS Grafana\'s own nav inside the frame');
+  t.ok(/grafanaRender:/.test(html) && /localStorage\.getItem\('mon-grafana-render'\)/.test(html), 'grafanaRender (live|image) state is persisted');
+  // Left DASHBOARDS rail auto-collapses in the live Grafana view (Grafana's nav supersedes it).
+  t.ok(/railOpen:/.test(html) && /monRailOpen\(\)/.test(html) && /monToggleRail\(\)/.test(html), 'railOpen state + monRailOpen/monToggleRail exist');
+  t.ok(/this\.monitoring\.railOpen = \(mode !== 'grafana'\)/.test(html), 'entering the Grafana view auto-collapses the DASHBOARDS rail');
+  t.ok(/class="monx-studio" :class="\{ railhidden: !monRailOpen\(\) \}"/.test(html) && /\.monx-studio\.railhidden\{/.test(html), 'studio reclaims the rail column when hidden (railhidden grid)');
+  t.ok(/<div class="monx-rail" x-show="monRailOpen\(\)">/.test(html) && /☰ Dashboards/.test(html), 'rail is x-show-gated + a reopen affordance appears when collapsed');
+  t.ok(/x-if="!monEmbedActive\(\)"/.test(html) && /class="monx-board"/.test(html) && /x-html="monPanelBody\(p\)"/.test(html), 'native per-panel grid is the default (non-Grafana) branch');
+  t.ok(/@click="monGrabToggle\(p\.id\)"/.test(html), 'Grab (native data path for AI) stays available in the native view');
+
+  // Server + bridge: authenticated render proxy, whole-dashboard capable.
+  t.ok(/app\.get\('\/api\/monitoring\/render\/:uid'/.test(server), 'server exposes the /api/monitoring/render/:uid route');
+  t.ok(/grafana\.renderPanel\(/.test(server) && /whole: q\.whole === '1'/.test(server), 'server route delegates to grafana.renderPanel and passes whole');
+  t.ok(/async function renderPanel\(/.test(grafanaSrc) && /whole \? 'd' : 'd-solo'/.test(grafanaSrc), 'grafana.js renderPanel supports both /render/d (whole) and /render/d-solo (panel)');
+  t.ok(/_acquireRenderSlot\(\)/.test(grafanaSrc) && /_releaseRenderSlot\(\)/.test(grafanaSrc) && /_renderCache\.set\(/.test(grafanaSrc), 'renderPanel uses the concurrency gate + TTL cache');
+  t.ok(/renderPanel,/.test(grafanaSrc), 'renderPanel is exported');
 });
 
 await t.done();

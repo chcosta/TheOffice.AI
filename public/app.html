@@ -20537,6 +20537,8 @@
               /* studio */
               .monx-studio{ display:grid; grid-template-columns:236px 1fr 360px; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:560px; }
               .monx-studio.nochat{ grid-template-columns:236px 1fr; }
+              .monx-studio.railhidden{ grid-template-columns:1fr 360px; }
+              .monx-studio.railhidden.nochat{ grid-template-columns:1fr; }
               .monx-rail{ border-right:1px solid var(--cp-border); padding:12px; background:var(--cp-bg); overflow:auto; }
               .monx-newbtn{ width:100%; background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); border:0; border-radius:8px; padding:10px; font-weight:600; color:#fff; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px; }
               .monx-rlabel{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; margin:14px 4px 7px; }
@@ -20592,8 +20594,26 @@
               .monx-ptools .monx-open:hover{ color:var(--mon-graf); border-color:var(--mon-graf); }
               .monx-pbody{ padding:2px 10px 12px; }
               .monx-embedwrap{ padding:0; }
-              .monx-embed{ display:block; width:100%; height:150px; border:0; background:transparent; border-radius:0 0 11px 11px; }
+              .monx-embed{ display:block; width:100%; height:150px; border:0; background:#fff; object-fit:contain; border-radius:0 0 11px 11px; }
+              [data-theme="dark"] .monx-embed{ background:#0f1419; }
               .monx-panel.wide .monx-embed{ height:200px; }
+              .monx-embedfail{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:150px; color:var(--cp-text-faint); font-size:12.5px; text-align:center; padding:0 14px; }
+              .monx-embedfail a{ color:var(--mon-graf, var(--mon-accent)); text-decoration:none; font-weight:600; }
+              .monx-embedfail a:hover{ text-decoration:underline; }
+              .monx-panel.wide .monx-embedfail{ height:200px; }
+              /* Grafana view: single whole-dashboard render */
+              .monx-dashimg{ border:1px solid var(--cp-border); border-radius:11px; overflow:hidden; background:#fff; }
+              [data-theme="dark"] .monx-dashimg{ background:#0f1419; }
+              .monx-dashimg-bar{ display:flex; align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg); }
+              .monx-dashimg-live{ font-size:11.5px; font-weight:600; color:var(--mon-graf, var(--mon-accent)); }
+              .monx-dashimg-bar .sp{ flex:1; }
+              .monx-dashimg-bar .monx-open{ color:var(--mon-graf, var(--mon-accent)); text-decoration:none; font-size:12px; font-weight:600; background:none; border:0; cursor:pointer; padding:2px 4px; }
+              .monx-dashimg-bar .monx-open:hover{ text-decoration:underline; }
+              .monx-dashimg-img{ display:block; width:100%; height:auto; }
+              /* Live Grafana view: the whole dashboard as an interactive iframe (Grafana's own nav/filters/renderers). */
+              .monx-dashframe{ display:block; width:100%; height:calc(100vh - 250px); min-height:600px; border:0; background:#fff; }
+              [data-theme="dark"] .monx-dashframe{ background:#0f1419; }
+              .monx-dashimg-bar .monx-open.alt{ color:var(--cp-text-faint); font-weight:500; }
               .monx-pbody svg{ display:block; width:100%; }
               .monx-gauge{ display:flex; flex-direction:column; align-items:center; padding:6px 0 8px; }
               .monx-gauge .gv{ font-size:20px; font-weight:700; margin-top:-28px; }
@@ -20760,9 +20780,9 @@
 
               <!-- ============ STUDIO ============ -->
               <div class="monx-wrap" x-show="monitoring.view === 'studio'" style="max-width:none;">
-                <div class="monx-studio" x-show="monitoring.dash">
+                <div class="monx-studio" :class="{ railhidden: !monRailOpen() }" x-show="monitoring.dash">
                   <!-- rail -->
-                  <div class="monx-rail">
+                  <div class="monx-rail" x-show="monRailOpen()">
                     <button class="monx-newbtn" @click="monNewPrompt()">✨ New from prompt</button>
                     <div class="monx-rlabel">Dashboards</div>
                     <input class="monx-railsearch" type="text" x-model="monitoring.railFilter" placeholder="Filter dashboards…" />
@@ -20795,6 +20815,7 @@
                   <div class="monx-canvas">
                     <div class="monx-dbar">
                       <button class="monx-homebtn" @click="monBackToLauncher()" title="Back to Monitoring home">⌂ Home</button>
+                      <button class="monx-ibtn" x-show="!monRailOpen()" @click="monToggleRail()" title="Show the dashboards list">☰ Dashboards</button>
                       <h2><span x-text="monitoring.dash ? monitoring.dash.title : ''"></span><span class="gtag">GRAFANA</span></h2>
                       <span class="sp"></span>
                       <div class="monx-selc" x-show="monitoring.grabbed.length">
@@ -20843,32 +20864,60 @@
                         </label>
                       </template>
                     </div>
-                    <div class="monx-varhint">Hover a panel and click <b>Grab</b> to add its data to the copilot, then Analyze.</div>
-                    <div class="monx-board">
-                      <template x-for="p in (monitoring.dash ? monitoring.dash.panels : [])" :key="p.id">
-                        <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'table' || (p.type === 'timeseries' && p.series && p.series.length > 1) }">
-                          <div class="monx-ph">
-                            <span class="pt" x-text="p.title"></span>
-                            <span class="psrc" x-text="'· ' + p.unit"></span>
-                            <span class="sp"></span>
-                            <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
-                            <div class="monx-ptools">
-                              <button :class="{ on: monIsGrabbed(p.id) }" @click="monGrabToggle(p.id)" title="Grab data for AI">Grab</button>
-                              <template x-if="monEmbedActive(p)"><a class="monx-open" :href="monPanelGrafanaUrl(p)" target="_blank" rel="noopener" title="Open this panel in Grafana">↗</a></template>
-                              <button @click="monOpenDeep(p.id)" title="Deep dive">⤢</button>
-                            </div>
-                          </div>
-                          <template x-if="monEmbedActive(p)">
-                            <div class="monx-pbody monx-embedwrap">
-                              <iframe class="monx-embed" :src="monPanelEmbedUrl(p)" loading="lazy" referrerpolicy="no-referrer" title="Grafana panel"></iframe>
-                            </div>
-                          </template>
-                          <template x-if="!monEmbedActive(p)">
-                            <div class="monx-pbody" x-html="monPanelBody(p)"></div>
-                          </template>
+                    <div class="monx-varhint" x-show="!monEmbedActive()">Hover a panel and click <b>Grab</b> to add its data to the copilot, then Analyze.</div>
+                    <div class="monx-varhint" x-show="monEmbedActive()">Live Grafana dashboard — use Grafana's own filters, time picker &amp; navigation inside the frame. Switch <b>View → Native</b> to grab panels for AI. If the frame is blank, your workspace may need embedding enabled — use <b>View rendered image</b> or <b>Open in Grafana</b>.</div>
+
+                    <!-- Grafana view: the whole dashboard as a LIVE interactive iframe (Grafana's own nav/filters/renderers). -->
+                    <template x-if="monEmbedActive()">
+                      <div class="monx-dashimg">
+                        <div class="monx-dashimg-bar">
+                          <span class="monx-dashimg-live" x-text="monGrafanaRenderMode() === 'image' ? '● Rendered image' : '● Live Grafana'"></span>
+                          <span class="sp"></span>
+                          <button class="monx-open alt" @click="monToggleGrafanaRender()" x-text="monGrafanaRenderMode() === 'image' ? '↺ Back to live' : 'View rendered image'" :title="monGrafanaRenderMode() === 'image' ? 'Switch back to the live interactive dashboard' : 'Frame blank? Fall back to a server-rendered image'"></button>
+                          <button class="monx-open" @click="monEmbedRefresh()" title="Reload">↻ Refresh</button>
+                          <a class="monx-open" :href="monDashGrafanaUrl()" target="_blank" rel="noopener" title="Open this dashboard in Grafana">Open in Grafana ↗</a>
                         </div>
-                      </template>
-                    </div>
+                        <!-- live interactive dashboard -->
+                        <template x-if="monGrafanaRenderMode() !== 'image'">
+                          <iframe class="monx-dashframe" :src="monDashLiveUrl()" title="Grafana dashboard (live)" referrerpolicy="no-referrer"></iframe>
+                        </template>
+                        <!-- server-rendered image fallback (when framing is blocked) -->
+                        <template x-if="monGrafanaRenderMode() === 'image'">
+                          <div>
+                            <template x-if="!monEmbedErr()">
+                              <img class="monx-dashimg-img" :src="monDashRenderUrl()" alt="Grafana dashboard render" @load="monEmbedOk()" @error="monEmbedFail()">
+                            </template>
+                            <template x-if="monEmbedErr()">
+                              <div class="monx-embedfail" style="height:320px">
+                                <span>Grafana couldn't render this dashboard here.</span>
+                                <a :href="monDashGrafanaUrl()" target="_blank" rel="noopener">Open in Grafana ↗</a>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <!-- Native view: our renderer, with per-panel Grab / deep-dive. -->
+                    <template x-if="!monEmbedActive()">
+                      <div class="monx-board">
+                        <template x-for="p in (monitoring.dash ? monitoring.dash.panels : [])" :key="p.id">
+                          <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'table' || (p.type === 'timeseries' && p.series && p.series.length > 1) }">
+                            <div class="monx-ph">
+                              <span class="pt" x-text="p.title"></span>
+                              <span class="psrc" x-text="'· ' + p.unit"></span>
+                              <span class="sp"></span>
+                              <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
+                              <div class="monx-ptools">
+                                <button :class="{ on: monIsGrabbed(p.id) }" @click="monGrabToggle(p.id)" title="Grab data for AI">Grab</button>
+                                <button @click="monOpenDeep(p.id)" title="Deep dive">⤢</button>
+                              </div>
+                            </div>
+                            <div class="monx-pbody" x-html="monPanelBody(p)"></div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
                   </div>
 
                   <!-- copilot -->
@@ -20927,7 +20976,17 @@
                       <div class="monx-bigpanel">
                         <div style="color:var(--cp-text-muted);font-size:12px;margin-bottom:6px" x-text="monDeepPanel().series ? monDeepPanel().series.map(s => s.name).join(', ') : ''"></div>
                         <template x-if="monEmbedActive(monDeepPanel())">
-                          <iframe class="monx-embed" style="height:280px" :src="monPanelEmbedUrl(monDeepPanel())" loading="lazy" referrerpolicy="no-referrer" title="Grafana panel"></iframe>
+                          <div class="monx-embedwrap">
+                            <template x-if="!monEmbedErr(monDeepPanel())">
+                              <img class="monx-embed" style="height:280px" :src="monPanelRenderUrl(monDeepPanel(), 320)" loading="lazy" alt="Grafana panel render" @load="monEmbedOk(monDeepPanel())" @error="monEmbedFail(monDeepPanel())">
+                            </template>
+                            <template x-if="monEmbedErr(monDeepPanel())">
+                              <div class="monx-embedfail" style="height:280px">
+                                <span>Grafana couldn't render this panel here.</span>
+                                <a :href="monPanelGrafanaUrl(monDeepPanel())" target="_blank" rel="noopener">Open in Grafana ↗</a>
+                              </div>
+                            </template>
+                          </div>
                         </template>
                         <template x-if="!monEmbedActive(monDeepPanel())">
                           <div x-html="monPanelBody(monDeepPanel(), 230)"></div>
@@ -31114,6 +31173,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           filters: { from: 'now-6h', to: 'now', vars: {} }, // active time range + template variables
           refreshing: false,       // re-querying panels with current filters
           embedMode: (() => { try { return localStorage.getItem('mon-embed-mode') === 'grafana' ? 'grafana' : 'native'; } catch (_) { return 'native'; } })(), // 'native' (our renderer) | 'grafana' (embed real panels)
+          embedErr: {}, // key ('__dash__' or panelId) -> true when the server-side Grafana render failed
+          embedNonce: 0, // bumped by Refresh to force a fresh dashboard render
+          grafanaRender: (() => { try { return localStorage.getItem('mon-grafana-render') === 'image' ? 'image' : 'live'; } catch (_) { return 'live'; } })(), // live iframe (default) | server-rendered image fallback
+          railOpen: true, // left DASHBOARDS rail; auto-collapses in the live Grafana view (Grafana's own nav supersedes it)
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -39343,20 +39406,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const w = this.monitoring;
           return (w.dash && w.dash.variables) || [];
         },
-        // --- Hybrid embed: render the real Grafana panel in an iframe while our own
-        // query bridge still powers Grab & Analyze. Native stays the default; the
-        // "View" control flips this per session. ------------------------------------
+        // --- Grafana view: show the REAL dashboard as one server-rendered PNG
+        // (fast — a single request, no per-panel concurrency limit), with our own
+        // filter/time controls overlaid. Native view keeps per-panel Grab for AI.
+        // The iframe path is unusable for AMG (AAD login sends X-Frame-Options:
+        // DENY), so we render server-side and serve same-origin. ------------------
         monSetEmbedMode(v) {
           const mode = v === 'grafana' ? 'grafana' : 'native';
           this.monitoring.embedMode = mode;
+          this.monitoring.embedErr = {};
+          // Grafana's embedded nav supersedes our DASHBOARDS rail → give the live frame the room.
+          this.monitoring.railOpen = (mode !== 'grafana');
           try { localStorage.setItem('mon-embed-mode', mode); } catch (e) {}
         },
-        monEmbedActive(p) {
+        monRailOpen() { return this.monitoring.railOpen !== false; },
+        monToggleRail() { this.monitoring.railOpen = !this.monRailOpen(); },
+        // Live-iframe vs server-rendered-image fallback for the whole-dashboard Grafana view.
+        monGrafanaRenderMode() { return this.monitoring.grafanaRender === 'image' ? 'image' : 'live'; },
+        monToggleGrafanaRender() {
+          const next = this.monGrafanaRenderMode() === 'image' ? 'live' : 'image';
+          this.monitoring.grafanaRender = next;
+          this.monitoring.embedErr = { ...(this.monitoring.embedErr || {}), __dash__: false };
+          try { localStorage.setItem('mon-grafana-render', next); } catch (e) {}
+        },
+        monEmbedActive() {
           const w = this.monitoring;
           return w.embedMode === 'grafana' && !!(w.dash && !w.dash.local && w.dash.uid) && !!(w.conn && w.conn.url);
         },
-        // Append from/to + var-* (multi-value → repeated params) shared by the solo
-        // embed URL and the "open in Grafana" deep link.
+        monEmbedRefresh() {
+          const w = this.monitoring;
+          w.embedNonce = (w.embedNonce || 0) + 1;
+          w.embedErr = { ...(w.embedErr || {}), __dash__: false };
+        },
+        // Append from/to + var-* (multi-value → repeated params) shared by the
+        // server render URL and the "open in Grafana" deep link.
         _monEmbedParams() {
           const w = this.monitoring;
           const f = w.filters || {};
@@ -39372,18 +39455,61 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           return params;
         },
-        monPanelEmbedUrl(p) {
+        _monTheme() {
+          try { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; } catch (e) { return 'dark'; }
+        },
+        // Whole-dashboard PNG, rendered server-side and served same-origin.
+        monDashRenderUrl() {
+          const w = this.monitoring;
+          if (!w.dash || !w.dash.uid) return '';
+          const params = this._monEmbedParams();
+          params.set('whole', '1');
+          params.set('theme', this._monTheme());
+          params.set('width', '1400');
+          const n = (w.dash.panels && w.dash.panels.length) || 6;
+          params.set('height', String(Math.min(8000, Math.max(800, Math.ceil(n / 2) * 320 + 160))));
+          if (w.dash.slug) params.set('slug', w.dash.slug);
+          if (w.embedNonce) params.set('_r', String(w.embedNonce));
+          return '/api/monitoring/render/' + encodeURIComponent(w.dash.uid) + '?' + params.toString();
+        },
+        // Deep link to the whole dashboard in Grafana (full navigation — the
+        // browser's AAD session handles auth there).
+        monDashGrafanaUrl() {
           const w = this.monitoring;
           const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
-          if (!base || !w.dash || !w.dash.uid || !p) return '';
+          if (!base || !w.dash || !w.dash.uid) return '';
+          const params = this._monEmbedParams();
+          const slug = w.dash.slug || 'dashboard';
+          return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
+        },
+        // Live interactive dashboard for the iframe: the Grafana deep link (full nav +
+        // native filters, NOT the trimmed panel-only mode) + theme + a nonce so Refresh
+        // busts the frame. Auth rides the browser's existing AAD session with Grafana.
+        monDashLiveUrl() {
+          const w = this.monitoring;
+          const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
+          if (!base || !w.dash || !w.dash.uid) return '';
+          const params = this._monEmbedParams();
+          params.set('theme', this._monTheme());
+          if (w.embedNonce) params.set('_r', String(w.embedNonce));
+          const slug = w.dash.slug || 'dashboard';
+          return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
+        },
+        monPanelRenderUrl(p, h) {
+          const w = this.monitoring;
+          if (!w.dash || !w.dash.uid || !p) return '';
           const params = this._monEmbedParams();
           params.set('panelId', String(p.id));
-          let theme = 'dark';
-          try { theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; } catch (e) {}
-          params.set('theme', theme);
-          const slug = w.dash.slug || '_';
-          return base + '/d-solo/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
+          params.set('theme', this._monTheme());
+          params.set('width', '1000');
+          params.set('height', String(h || 300));
+          if (w.dash.slug) params.set('slug', w.dash.slug);
+          return '/api/monitoring/render/' + encodeURIComponent(w.dash.uid) + '?' + params.toString();
         },
+        _monErrKey(p) { return (p && p.id != null) ? String(p.id) : '__dash__'; },
+        monEmbedErr(p) { const k = this._monErrKey(p); return !!(this.monitoring.embedErr && this.monitoring.embedErr[k]); },
+        monEmbedFail(p) { const w = this.monitoring; const k = this._monErrKey(p); w.embedErr = { ...(w.embedErr || {}), [k]: true }; },
+        monEmbedOk(p) { const w = this.monitoring; const k = this._monErrKey(p); if (w.embedErr && w.embedErr[k]) w.embedErr = { ...w.embedErr, [k]: false }; },
         monPanelGrafanaUrl(p) {
           const w = this.monitoring;
           const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');

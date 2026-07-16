@@ -9511,7 +9511,34 @@ app.get('/api/monitoring/dashboard/:uid', async (req, res) => {
   catch (e) { res.status(200).json({ error: e.message, uid: req.params.uid, panels: [] }); }
 });
 
-// Spin up a dashboard from a natural-language prompt. Uses the model to draft a
+// Server-side PNG render of a single panel (real Grafana pixels) using the
+// app's Azure identity. The browser loads this as a same-origin <img>, which
+// sidesteps the AMG iframe/AAD framing wall entirely. On any failure we return
+// a small error payload the client can turn into a graceful fallback.
+app.get('/api/monitoring/render/:uid', async (req, res) => {
+  try {
+    const q = req.query || {};
+    const vars = {};
+    for (const k of Object.keys(q)) { if (k.startsWith('var-')) vars[k.slice(4)] = q[k]; }
+    const { buffer, contentType } = await grafana.renderPanel(req.params.uid, {
+      panelId: q.panelId,
+      whole: q.whole === '1',
+      from: q.from || undefined,
+      to: q.to || undefined,
+      width: q.width,
+      height: q.height,
+      theme: q.theme,
+      slug: q.slug || undefined,
+      vars,
+    });
+    res.set('Content-Type', contentType || 'image/png');
+    res.set('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (e) {
+    const status = e.status && e.status >= 400 ? e.status : 502;
+    res.status(status).json({ error: e.message, detail: e.body || '', contentType: e.contentType || '' });
+  }
+});
 // spec (title + panels), then stores it locally and best-effort pushes to Grafana.
 app.post('/api/monitoring/generate', async (req, res) => {
   const prompt = String((req.body && req.body.prompt) || '').trim();

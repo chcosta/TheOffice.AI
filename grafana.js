@@ -618,6 +618,102 @@ async function getDashboard(uid, opts = {}) {
   return { configured: true, uid, title: model.title || 'Dashboard', tags: model.tags || [], variables, time: { from, to }, panels, sample: false };
 }
 
+// AMG's image renderer caps concurrent renders. Firing one request per panel
+// (a dozen at once) trips "Concurrent server side render limit reached", and
+// Grafana bakes that message into the returned PNG (HTTP 200, image/png) — so
+// we can't detect it after the fact. The only reliable fix is to never exceed
+// the limit: serialize upstream renders through a small semaphore, and cache
+// results briefly so scroll / view-toggle / refresh don't re-hit the renderer.
+const _RENDER_MAX = 2;
+let _renderActive = 0;
+const _renderWaiters = [];
+function _acquireRenderSlot() {
+  if (_renderActive < _RENDER_MAX) { _renderActive++; return Promise.resolve(); }
+  return new Promise((resolve) => _renderWaiters.push(resolve));
+}
+function _releaseRenderSlot() {
+  const next = _renderWaiters.shift();
+  if (next) next(); // hand the still-held slot straight to the next waiter
+  else _renderActive = Math.max(0, _renderActive - 1);
+}
+const _renderCache = new Map(); // apiPath -> { at, buffer, contentType }
+const _RENDER_TTL_MS = 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Server-side PNG render of a single panel via Grafana's image renderer.
+//
+// Why this exists: a client-side <iframe> pointed at Azure Managed Grafana
+// can't authenticate — AMG redirects to login.microsoftonline.com, which sends
+// X-Frame-Options: DENY, so the browser refuses to frame it ("refused to
+// connect"). Instead we render server-side: the SAME Azure bearer token we use
+// for queries hits Grafana's /render/d-solo endpoint (AMG installs the image
+// renderer automatically) and we stream the PNG back. The browser only ever
+// loads a same-origin <img>, so there is no cross-origin framing or cookie/AAD
+// dance at all.
+// ---------------------------------------------------------------------------
+async function renderPanel(uid, opts = {}) {
+  const c = cfg();
+  if (!c.url) { const e = new Error('grafana-not-configured'); e.code = 'NO_CONFIG'; throw e; }
+  if (typeof fetch !== 'function') { const e = new Error('fetch-unavailable'); e.code = 'NO_FETCH'; throw e; }
+
+  // A whole-dashboard render (one PNG for the entire dashboard) via /render/d,
+  // vs a single panel via /render/d-solo. One dashboard request is far cheaper
+  // than N per-panel requests and never trips the concurrent-render limit.
+  const whole = !!opts.whole || opts.panelId == null || opts.panelId === '';
+  const params = new URLSearchParams();
+  if (!whole) params.set('panelId', String(opts.panelId));
+  params.set('orgId', String(c.orgId || 1));
+  params.set('from', String(opts.from || 'now-6h'));
+  params.set('to', String(opts.to || 'now'));
+  params.set('width', String(Math.max(240, Math.min(2400, parseInt(opts.width, 10) || (whole ? 1400 : 1000)))));
+  const maxH = whole ? 8000 : 1200;
+  params.set('height', String(Math.max(120, Math.min(maxH, parseInt(opts.height, 10) || (whole ? 1600 : 300)))));
+  params.set('theme', opts.theme === 'light' ? 'light' : 'dark');
+  params.set('tz', opts.tz || 'UTC');
+  const vars = opts.vars || {};
+  for (const [name, val] of Object.entries(vars)) {
+    const arr = Array.isArray(val) ? val : [val];
+    for (const v of arr) params.append('var-' + name, String(v));
+  }
+  const slug = opts.slug ? String(opts.slug).replace(/[^a-z0-9-]/gi, '') || '_' : '_';
+  const apiPath = `/render/${whole ? 'd' : 'd-solo'}/${encodeURIComponent(uid)}/${slug}?${params.toString()}`;
+
+  // Serve a fresh cached render if we have one (keyed on the exact request).
+  const cached = _renderCache.get(apiPath);
+  if (cached && (Date.now() - cached.at) < _RENDER_TTL_MS) {
+    return { buffer: cached.buffer, contentType: cached.contentType };
+  }
+
+  let bearer;
+  if (c.authMode === 'aad') bearer = await _aadBearer();
+  else { if (!c.token) { const e = new Error('grafana-not-configured'); e.code = 'NO_CONFIG'; throw e; } bearer = c.token; }
+
+  await _acquireRenderSlot();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || (whole ? 110000 : 45000));
+  try {
+    const headers = { Authorization: `Bearer ${bearer}`, Accept: 'image/png' };
+    if (c.orgId) headers['X-Grafana-Org-Id'] = String(c.orgId);
+    const res = await fetch(c.url + apiPath, { headers, signal: ctrl.signal });
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok || !/^image\//i.test(ct)) {
+      const txt = await res.text().catch(() => '');
+      const e = new Error(`grafana-render-${res.status}`);
+      e.status = res.status;
+      e.contentType = ct;
+      e.body = (txt || '').slice(0, 400);
+      throw e;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    const out = { buffer: buf, contentType: ct || 'image/png' };
+    _renderCache.set(apiPath, { at: Date.now(), buffer: buf, contentType: out.contentType });
+    return out;
+  } finally {
+    clearTimeout(timer);
+    _releaseRenderSlot();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Spin-up: turn a spec into a stored (and optionally pushed) dashboard
 // ---------------------------------------------------------------------------
@@ -793,6 +889,7 @@ module.exports = {
   status,
   listDashboards,
   getDashboard,
+  renderPanel,
   createDashboard,
   pushDashboard,
   setDashboardOptions,
