@@ -20562,6 +20562,8 @@
               .monx-canvas{ display:flex; flex-direction:column; min-height:0; }
               .monx-dbar{ display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--cp-border); flex-wrap:wrap; }
               .monx-dbar h2{ margin:0; font-size:16px; font-weight:650; display:flex; align-items:center; gap:9px; }
+              .monx-homebtn{ background:transparent; border:1px solid var(--cp-border); border-radius:8px; padding:6px 11px; color:var(--cp-text-muted); font-size:12.5px; font-weight:550; white-space:nowrap; }
+              .monx-homebtn:hover{ background:var(--cp-surface); color:var(--cp-text); }
               .monx-dbar .gtag{ font-size:10px; font-weight:600; color:var(--mon-graf); border:1px solid var(--mon-graf); border-radius:6px; padding:1px 6px; }
               .monx-dbar .sp{ flex:1; }
               .monx-pushc{ display:flex; align-items:center; gap:10px; font-size:12px; }
@@ -20787,6 +20789,7 @@
                   <!-- canvas -->
                   <div class="monx-canvas">
                     <div class="monx-dbar">
+                      <button class="monx-homebtn" @click="monBackToLauncher()" title="Back to Monitoring home">⌂ Home</button>
                       <h2><span x-text="monitoring.dash ? monitoring.dash.title : ''"></span><span class="gtag">GRAFANA</span></h2>
                       <span class="sp"></span>
                       <div class="monx-selc" x-show="monitoring.grabbed.length">
@@ -39515,8 +39518,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return folder === 'My dashboards';
         },
         monFolderToggle(folder) {
-          const st = this.monitoring.folderOpen;
-          st[folder] = !this.monFolderIsOpen(folder);
+          // Reassign the whole map (not a bare new-key mutation) so Alpine's
+          // reactivity reliably re-renders the folder — setting a fresh key on the
+          // nested object isn't observed by effects that never read that key.
+          const st = this.monitoring.folderOpen || {};
+          this.monitoring.folderOpen = { ...st, [folder]: !this.monFolderIsOpen(folder) };
         },
         monGrabbedPanels() {
           const dash = this.monitoring.dash;
