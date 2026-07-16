@@ -10290,7 +10290,7 @@
                                                <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
                                                  <div class="note-view">
                                                    <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                                                   <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                                                   <span class="note-text" :class="{ done: n.done }" x-html="linkifyNote(n.text)"></span>
                                                    <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
                                                    <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
                                                  </div>
@@ -10540,7 +10540,7 @@
                                                    <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
                                                      <div class="note-view">
                                                        <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                                                       <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                                                       <span class="note-text" :class="{ done: n.done }" x-html="linkifyNote(n.text)"></span>
                                                        <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
                                                        <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
                                                      </div>
@@ -11820,7 +11820,7 @@
                                          <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
                                            <div class="note-view">
                                              <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                                             <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                                             <span class="note-text" :class="{ done: n.done }" x-html="linkifyNote(n.text)"></span>
                                              <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
                                              <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
                                            </div>
@@ -12201,7 +12201,7 @@
                                                    <template x-if="!(devNoteEdit[n.id] && devNoteEdit[n.id].open)">
                                                      <div class="note-view">
                                                        <button class="note-check" type="button" :class="{ done: n.done }" @click="toggleDevNoteDone(d,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                                                       <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                                                       <span class="note-text" :class="{ done: n.done }" x-html="linkifyNote(n.text)"></span>
                                                        <button class="board-act note-act" type="button" data-tip="Edit note" @click="startDevNoteEdit(n)">✎</button>
                                                        <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removeDevNote(d,n)">✕</button>
                                                      </div>
@@ -22637,7 +22637,7 @@
                           <template x-if="!(prNoteEdit[n.id] && prNoteEdit[n.id].open)">
                             <div class="note-view">
                               <button class="note-check" type="button" :class="{ done: n.done }" @click="togglePrNoteDone(pr,n)" :title="n.done ? 'Mark not done' : 'Mark done'" x-text="n.done ? '☑' : '☐'"></button>
-                              <span class="note-text" :class="{ done: n.done }" x-text="n.text"></span>
+                              <span class="note-text" :class="{ done: n.done }" x-html="linkifyNote(n.text)"></span>
                               <button class="board-act note-act" type="button" data-tip="Edit note" @click="startPrNoteEdit(n)">✎</button>
                               <button class="board-act note-act danger" type="button" data-tip="Delete note" @click="removePrNote(pr,n)">✕</button>
                             </div>
@@ -62416,6 +62416,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Restore stashed anchors
           s = s.replace(/\u0000L(\d+)\u0000/g, (m, i) => stash[Number(i)] || '');
           return s;
+        },
+
+        // Lightweight linkifier for compact notes (PR / dev cards). Escapes HTML
+        // then turns bare http(s):// or www. URLs into clickable links — WITHOUT
+        // applying the rest of markdown (no bold/italic/code), so note text is
+        // rendered verbatim except that links become clickable. Escaping happens
+        // first so query-string ampersands (now &amp;) carry safely into href.
+        linkifyNote(text) {
+          const esc = String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return esc.replace(/(^|[\s(])((?:https?:\/\/|www\.)[^\s<]+[^\s<.,;:!?)])/g, (m, pre, url) => {
+            const href = url.startsWith('www.') ? 'https://' + url : url;
+            return `${pre}<a href="${href}" target="_blank" rel="noopener" class="md-link">${url}</a>`;
+          });
         },
 
         chatStatusClass(chat) {

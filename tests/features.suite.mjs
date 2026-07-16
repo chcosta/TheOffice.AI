@@ -1785,4 +1785,20 @@ await t.test('connect: storage-folder change migrates diary data', () => {
   t.ok(/'connectStorageDir' in body/.test(route) && /connect\.migrateStorageDir\(_connectDirBefore/.test(route), 'settings route migrates on a connectStorageDir change');
 });
 
+await t.test('notes: PR/dev card note URLs render as clickable links (escaped, no XSS)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // A dedicated linkifier: escapes HTML first, then only linkifies bare URLs
+  // (no full markdown), so note text is verbatim except links become clickable.
+  const fn = _win(html, 'linkifyNote(text) {', 700);
+  t.ok(fn, 'linkifyNote helper exists');
+  t.ok(/replace\(\/&\/g, '&amp;'\)/.test(fn), 'linkifyNote HTML-escapes & (XSS-safe)');
+  t.ok(/replace\(\/</.test(fn) && /&lt;/.test(fn), 'linkifyNote HTML-escapes < ');
+  t.ok(/https\?:\\\/\\\//.test(fn) && /www\\\./.test(fn), 'linkifyNote matches http(s):// and www. URLs');
+  t.ok(/target="_blank" rel="noopener"/.test(fn), 'links open safely in a new tab');
+  // Every note-text span renders THROUGH the linkifier, not raw x-text.
+  t.ok(!/class="note-text"[^>]*x-text="n\.text"/.test(html), 'no note span still uses plain x-text');
+  const spans = html.match(/class="note-text"[^>]*x-html="linkifyNote\(n\.text\)"/g) || [];
+  t.gte(spans.length, 5, 'all note-text spans linkify (PR + dev cards)');
+});
+
 await t.done();
