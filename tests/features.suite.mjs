@@ -963,6 +963,23 @@ await t.test('Pulse.AI Teams share — data-URI comics post via Graph hostedCont
   t.ok(/let html = _pulseShareHtml\(markdown, teamsImages\);/.test(route), 'body is built from the hostedContents-rewritten images');
 });
 
+await t.test('Pulse.AI Teams share — channel picker polls the lazy stale-while-revalidate load + shows progress', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  const fn = (src.match(/async pulseShareLoadChannels\(teamId\)\s*\{[\s\S]*?\n        \},/) || [''])[0];
+  t.ok(fn, 'pulseShareLoadChannels found');
+  // A cold team returns []+refreshing while a background WorkIQ fetch fills channels in;
+  // the picker must poll rather than silently show an empty dropdown.
+  t.ok(/const refreshing = !!\(r && \(r\.refreshing \|\| r\.stale\)\);/.test(fn), 'reads the refreshing/stale flag');
+  t.ok(/sh\.chanRefreshing = true;/.test(fn), 'raises a refreshing flag while channels are still loading');
+  t.ok(/setTimeout\(\(\)\s*=>\s*\{[^}]*this\.pulseShareLoadChannels\(teamId\); \}, 4000\)/.test(fn), 'polls again while the background refresh runs');
+  t.ok(/if \(sh\.teamId !== teamId \|\| !sh\.open\) return;/.test(fn), 'bails if the user switched teams or closed the sheet');
+  // The poll timer is cancelled when the sheet closes (no leaked polling).
+  t.ok(/pulseShareClose\(\)\s*\{[^}]*clearTimeout\(sh\._chanPollT\)/.test(src), 'closing the sheet cancels the channel poll');
+  // The UI surfaces the in-progress state + a genuine empty result (never a blank dropdown).
+  t.ok(/Fetching this team's channels/.test(src), 'shows a fetching hint while channels load');
+  t.ok(/No channels found for this team\./.test(src), 'shows an explicit empty state when there really are none');
+});
+
 await t.test('Pulse.AI share — inline-SVG comic is rasterized to a PNG data URI so the baked-in joke text survives Outlook', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // A browser-side rasterizer turns an SVG (with its <text> panels) into a PNG data URI.

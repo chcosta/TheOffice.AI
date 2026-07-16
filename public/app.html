@@ -19283,6 +19283,7 @@
               .pc-share-seg button.on { border-color:var(--joy-line); color:var(--joy); background:var(--joy-soft, transparent); }
               .pc-share-teams { display:flex; flex-direction:column; gap:6px; }
               .pc-share-meta { font-size:12px; color:var(--cp-text-muted); margin-top:8px; }
+              .pc-share-hint { font-size:12px; color:var(--cp-text-muted); margin-top:6px; }
               .pc-share-err { font-size:12.5px; color:var(--cp-danger,#c0392b); margin-top:8px; }
               .pc-share-done { font-size:12.5px; color:var(--joy); margin-top:8px; }
               .pc-share-f { display:flex; justify-content:flex-end; gap:8px; padding:12px 18px 16px; border-top:1px solid var(--cp-border); }
@@ -20088,12 +20089,14 @@
                                       </template>
                                     </select>
                                     <label class="pc-share-lab" x-show="pulse._share.teamId">Channel</label>
-                                    <select class="pc-share-in" x-show="pulse._share.teamId" x-model="pulse._share.channelId" :disabled="pulse._share.loadingChannels">
-                                      <option value="" x-text="pulse._share.loadingChannels ? 'Loading channels…' : 'Choose a channel…'"></option>
+                                    <select class="pc-share-in" x-show="pulse._share.teamId" x-model="pulse._share.channelId" :disabled="pulse._share.loadingChannels || pulse._share.chanRefreshing">
+                                      <option value="" x-text="(pulse._share.loadingChannels || pulse._share.chanRefreshing) ? 'Fetching channels…' : 'Choose a channel…'"></option>
                                       <template x-for="ch in pulse._share.channels" :key="ch.id">
                                         <option :value="ch.id" x-text="ch.displayName"></option>
                                       </template>
                                     </select>
+                                    <div class="pc-share-hint" x-show="pulse._share.teamId &amp;&amp; pulse._share.chanRefreshing">↻ Fetching this team's channels — first load can take a moment…</div>
+                                    <div class="pc-share-hint" x-show="pulse._share.teamId &amp;&amp; !pulse._share.loadingChannels &amp;&amp; !pulse._share.chanRefreshing &amp;&amp; !pulse._share.channels.length">No channels found for this team.</div>
                                   </div>
                                 </template>
                                 <label class="pc-share-lab">Add a note (optional)</label>
@@ -30027,7 +30030,7 @@
           silencedBusy: false,
           autoResolved: [],    // items auto-completed this load (dev card / PR already finished)
         },
-        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, _mtgOpen: {}, _actState: {}, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _reelCopied: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, note: '', sending: false, err: '', done: '' } },
+        pulse: { loaded: false, busy: false, stage: '', consent: false, threads: [], muted: [], meetings: [], mutedCount: 0, gatheredAt: '', filter: 'all', lens: (function(){ try { return localStorage.getItem('pulse-lens') || 'focus'; } catch (e) { return 'focus'; } })(), showMuted: false, _mtgOpen: {}, _actState: {}, summary: null, summaryStale: false, summaryNoDm: null, summaryNoDmStale: false, comedy: null, comedyStale: false, comedyNoDm: null, comedyNoDmStale: false, comedyReel: [], _reelIdx: 0, includeDms: (function(){ try { return localStorage.getItem('pulse-include-dms') !== '0'; } catch (e) { return true; } })(), counts: { all: 0, teams: 0, email: 0, mentions: 0 }, fingerprint: '', tailOpen: false, _byKey: {}, _open: {}, _autoRefreshed: false, autoMin: null, monitorCount: 0, monitorSummary: null, monitor: { open: false, loading: false, saving: false, refreshing: false, teams: [], sel: {}, channels: {}, chanLoading: {}, chanRefreshing: {}, expanded: {}, q: '', gatheredAt: '', _selSeeded: false, _pollT: null, _chanPollT: {} }, _reelFull: null, _reelFullReel: false, _reelCopied: false, _share: { open: false, kind: '', title: '', markdown: '', images: [], target: 'email', teamId: '', channelId: '', teams: [], channels: [], loadingTeams: false, loadingChannels: false, chanRefreshing: false, _chanPollT: null, note: '', sending: false, err: '', done: '' } },
         meai: {
           loaded: false,
           loading: false,
@@ -39130,7 +39133,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           sh.open = true;
           if (this.pulse.consent) this.pulseShareLoadTeams();
         },
-        pulseShareClose() { this.pulse._share.open = false; },
+        pulseShareClose() { const sh = this.pulse._share; if (sh._chanPollT) { clearTimeout(sh._chanPollT); sh._chanPollT = null; } sh.open = false; },
         async pulseShareLoadTeams() {
           const sh = this.pulse._share;
           if (sh.loadingTeams || (sh.teams && sh.teams.length)) return;
@@ -39143,14 +39146,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async pulseShareLoadChannels(teamId) {
           const sh = this.pulse._share;
-          sh.channelId = ''; sh.channels = [];
-          if (!teamId) return;
+          if (sh._chanPollT) { clearTimeout(sh._chanPollT); sh._chanPollT = null; }
+          sh.channelId = ''; sh.channels = []; sh.chanRefreshing = false;
+          if (!teamId) { sh.loadingChannels = false; return; }
+          // Channels are lazy + stale-while-revalidate on the server: a cold team returns
+          // an empty list + refreshing:true while a background WorkIQ fetch fills it in.
+          // Poll until the channels arrive (or the refresh clears) so it never just looks
+          // empty with no explanation. Bail if the user switched teams or closed the sheet.
           sh.loadingChannels = true;
           try {
             const r = await this.request('/api/me-ai/pulse/teams/' + encodeURIComponent(teamId) + '/channels');
+            if (sh.teamId !== teamId || !sh.open) return;
             sh.channels = (r && Array.isArray(r.channels)) ? r.channels : [];
             if (sh.channels.length === 1) sh.channelId = sh.channels[0].id;
-          } catch (e) { sh.err = 'Could not load channels: ' + (e.message || e); }
+            const refreshing = !!(r && (r.refreshing || r.stale));
+            if (!sh.channels.length && refreshing) {
+              sh.chanRefreshing = true;
+              sh._chanPollT = setTimeout(() => { sh._chanPollT = null; this.pulseShareLoadChannels(teamId); }, 4000);
+            } else {
+              sh.chanRefreshing = false;
+            }
+          } catch (e) { if (sh.teamId === teamId) sh.err = 'Could not load channels: ' + (e.message || e); }
           finally { sh.loadingChannels = false; }
         },
         async pulseShareSend() {
