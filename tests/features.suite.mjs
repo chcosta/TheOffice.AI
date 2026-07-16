@@ -1441,10 +1441,15 @@ await t.test('compose studio: separate full-screen for the view panel vs the pai
   const html = readFileSync('public/app.html', 'utf8');
   // State is a mode, not a boolean — records which panel is full-screened.
   t.ok(/fsMode: ''/.test(html), 'compose.fsMode drives which panel is full-screened');
-  // Two clearly-labeled header buttons, each toggling its own panel; the other hides while one is active.
-  t.ok(/composeToggleFullscreen\('view'\)[\s\S]{0,220}Full-screen view/.test(html), 'a Full-screen view button targets the document/preview stage');
-  t.ok(/composeToggleFullscreen\('pair'\)[\s\S]{0,240}Full-screen assistant/.test(html), 'a Full-screen assistant button targets the paired assistant');
-  t.ok(/x-show="compose\.view === 'studio' && compose\.fsMode !== 'pair'"/.test(html) && /x-show="compose\.view === 'studio' && compose\.fsMode !== 'view'"/.test(html), 'the inactive full-screen button hides while the other mode is active');
+  // Full-screen is now a per-panel ICON on each panel — NOT two lazy page-header buttons.
+  t.ok(!/Full-screen view/.test(html) && !/Full-screen assistant/.test(html), 'the old page-header full-screen buttons are gone');
+  // The view-panel toolbar carries its own full-screen toggle icon (🗖 / 🗕 by mode).
+  t.ok(/🕘 History[\s\S]{0,320}composeToggleFullscreen\('view'\)[\s\S]{0,120}compose\.fsMode === 'view' \? '🗕' : '🗖'/.test(html), 'the view panel toolbar has a full-screen icon after History');
+  // The paired-assistant head carries its own full-screen toggle icon.
+  t.ok(/cmpx-pair-head-actions[\s\S]{0,200}composeToggleFullscreen\('pair'\)[\s\S]{0,120}compose\.fsMode === 'pair' \? '🗕' : '🗖'/.test(html), 'the assistant head has a full-screen icon');
+  // Exactly one of each panel icon (no duplicate header buttons lingering).
+  t.ok((html.match(/@click="composeToggleFullscreen\('view'\)"/g) || []).length === 1, 'exactly one view full-screen control');
+  t.ok((html.match(/@click="composeToggleFullscreen\('pair'\)"/g) || []).length === 1, 'exactly one assistant full-screen control');
   // Section class carries variant modifiers so the CSS can show only the chosen panel.
   t.ok(/'cmpx-fs': compose\.fsMode, 'cmpx-fs-view': compose\.fsMode === 'view', 'cmpx-fs-pair': compose\.fsMode === 'pair'/.test(html), 'the compose section exposes cmpx-fs-view / cmpx-fs-pair variants');
   // View mode hides rail + assistant; assistant mode hides rail + stage.
@@ -1454,8 +1459,22 @@ await t.test('compose studio: separate full-screen for the view panel vs the pai
   const fn = _win(html, 'composeToggleFullscreen(mode) {', 320);
   t.ok(/if \(this\.compose\.fsMode === mode\) \{ this\.compose\.fsMode = ''; return; \}/.test(fn), 're-clicking the active full-screen button exits');
   t.ok(/if \(mode === 'pair'\) this\.compose\.chat\.open = true/.test(fn), 'assistant full-screen opens the assistant');
-  // The assistant header swaps its collapse control for an Exit button while full-screened (no blank screen).
-  t.ok(/x-show="compose\.fsMode === 'pair'"[\s\S]{0,160}composeToggleFullscreen\('pair'\)[\s\S]{0,60}Exit full screen/.test(html), 'the full-screened assistant offers an in-panel Exit');
+});
+
+await t.test('compose studio: unified collapse chevrons + hover-reveal action clusters', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // Both side panels collapse with the SAME simple bare chevron — no "‹ Collapse" text.
+  t.ok(/class="cmpx-rail-collapse"[^>]*>‹<\/button>/.test(html), 'the sources rail collapses with a bare ‹ chevron (no text)');
+  t.ok(!/cmpx-rail-collapse[^>]*>‹ Collapse/.test(html), 'the old "‹ Collapse" text button is gone');
+  t.ok(/composeToggleChat\(\)"[^>]*title="Collapse the assistant">⟩<\/button>/.test(html), 'the assistant collapses with the matching ⟩ chevron');
+  // Header right-side buttons live in a hover-revealed cluster.
+  t.ok(/class="cmpx-head-actions"/.test(html), 'the header actions are grouped for hover-reveal');
+  // Every compose section keeps its upper-right cluster invisible until hover/focus.
+  t.ok(/\.cmpx-head \.cmpx-head-actions,\s*\.cmpx-paired \.nlx-stage-actions,\s*\.cmpx-paired \.cmpx-pair-head-actions,\s*\.cmpx-paired \.cmpx-rail-collapse\{opacity:0;transition:opacity[^}]*\}/.test(html), 'compose action clusters start at opacity:0');
+  t.ok(/\.cmpx-head:hover \.cmpx-head-actions,\s*\.cmpx-head:focus-within \.cmpx-head-actions/.test(html), 'hovering or focusing the header reveals its actions');
+  t.ok(/\.cmpx-paired \.nlx-stage:hover \.nlx-stage-actions,\s*\.cmpx-paired \.nlx-stage:focus-within \.nlx-stage-actions/.test(html), 'hovering or focusing the view panel reveals its toolbar');
+  t.ok(/\.cmpx-paired \.cmpx-pair:hover \.cmpx-pair-head-actions,\s*\.cmpx-paired \.cmpx-pair:focus-within \.cmpx-pair-head-actions/.test(html), 'hovering or focusing the assistant reveals its head actions');
+  t.ok(/\.cmpx-paired \.nlx-rail:hover \.cmpx-rail-collapse,\s*\.cmpx-paired \.nlx-rail:focus-within \.cmpx-rail-collapse\{opacity:1\}/.test(html), 'hovering or focusing the rail reveals its collapse control');
 });
 
 await t.test('compose chat: auto-grow input + type-while-busy (Send gated on busy)', () => {

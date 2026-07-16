@@ -20824,12 +20824,12 @@
                   </div>
                 </div>
                 <div class="spacer"></div>
-                <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="goTo('#/documents')">📁 Documents</button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeNewSamePurpose()" :title="'Start a new ' + (composePurposeLabel((compose.current &amp;&amp; compose.current.purpose) || '') || 'composition') + ' — same purpose as this one'">✚ New</button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeBackToLauncher()">← All compositions</button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.current && compose.current.kind !== 'newsletter'" @click="openQuickPin('document', compose.current.id, compose.current.title || 'Untitled', composePurposeLabel(compose.current.purpose))" title="Pin this document to a workspace">📌 Pin</button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.fsMode !== 'pair'" @click="composeToggleFullscreen('view')" x-text="compose.fsMode === 'view' ? '🗕 Exit full screen' : '🗖 Full-screen view'" :title="compose.fsMode === 'view' ? 'Exit full screen' : 'Full-screen the document / preview panel'"></button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.fsMode !== 'view'" @click="composeToggleFullscreen('pair')" x-text="compose.fsMode === 'pair' ? '🗕 Exit full screen' : '🗖 Full-screen assistant'" :title="compose.fsMode === 'pair' ? 'Exit full screen' : 'Full-screen the paired assistant panel'"></button>
+                <div class="cmpx-head-actions">
+                  <button class="btn ghost" type="button" x-show="compose.view === 'launcher'" @click="goTo('#/documents')">📁 Documents</button>
+                  <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeNewSamePurpose()" :title="'Start a new ' + (composePurposeLabel((compose.current &amp;&amp; compose.current.purpose) || '') || 'composition') + ' — same purpose as this one'">✚ New</button>
+                  <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeBackToLauncher()">← All compositions</button>
+                  <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.current && compose.current.kind !== 'newsletter'" @click="openQuickPin('document', compose.current.id, compose.current.title || 'Untitled', composePurposeLabel(compose.current.purpose))" title="Pin this document to a workspace">📌 Pin</button>
+                </div>
               </div>
 
               <div x-show="compose.loading" class="hint" style="padding:20px 0">Loading…</div>
@@ -20998,7 +20998,7 @@
 
                     <!-- LEFT RAIL: brief + sources live here, out of the content's way -->
                     <aside class="nlx-rail" x-show="composeRailOpen()">
-                      <button type="button" class="cmpx-rail-collapse" @click="composeToggleRail()" title="Collapse panel">‹ Collapse</button>
+                      <button type="button" class="cmpx-rail-collapse" @click="composeToggleRail()" title="Collapse panel">‹</button>
                       <div class="nlx-rail-scroll">
                       <div class="nlx-card">
                         <div class="nlx-win">
@@ -21269,6 +21269,7 @@
                             <button type="button" @click="composeExport('json')">JSON</button>
                           </div>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: compose.tab === 'history' }" @click="composeSetTab(compose.tab === 'history' ? 'compose' : 'history')" x-text="compose.tab === 'history' ? '← Back' : ('🕘 History (' + (compose.versions ? compose.versions.length : 0) + ')')"></button>
+                          <button class="btn ghost" type="button" style="padding:5px 9px;font-size:14px;line-height:1" @click="composeToggleFullscreen('view')" :title="compose.fsMode === 'view' ? 'Exit full screen' : 'Full-screen this panel'" x-text="compose.fsMode === 'view' ? '🗕' : '🗖'"></button>
                         </div>
                       </div>
 
@@ -21371,8 +21372,10 @@
                       <div class="cmpx-pair-head">
                         <span>✨ Paired assistant</span>
                         <span class="hint" x-show="compose.chat.busy">· working…</span>
-                        <button class="btn ghost" type="button" x-show="compose.fsMode !== 'pair'" style="margin-left:auto;padding:3px 9px;font-size:14px;line-height:1" @click="composeToggleChat()" title="Collapse the assistant">⟩</button>
-                        <button class="btn ghost" type="button" x-show="compose.fsMode === 'pair'" style="margin-left:auto;padding:3px 9px;font-size:13px;line-height:1" @click="composeToggleFullscreen('pair')" title="Exit full screen">🗕 Exit full screen</button>
+                        <span class="cmpx-pair-head-actions">
+                          <button class="btn ghost" type="button" style="padding:3px 9px;font-size:14px;line-height:1" @click="composeToggleFullscreen('pair')" :title="compose.fsMode === 'pair' ? 'Exit full screen' : 'Full-screen this panel'" x-text="compose.fsMode === 'pair' ? '🗕' : '🗖'"></button>
+                          <button class="btn ghost" type="button" x-show="compose.fsMode !== 'pair'" style="padding:3px 9px;font-size:14px;line-height:1" @click="composeToggleChat()" title="Collapse the assistant">⟩</button>
+                        </span>
                       </div>
                       <div id="composePairScroll" class="cmpx-pair-log"
                            @scroll="compose.chat._stick = ($event.target.scrollHeight - $event.target.scrollTop - $event.target.clientHeight) < 60">
@@ -21462,6 +21465,26 @@
               .cmpx-rail-resize:hover{background:color-mix(in srgb,var(--cp-accent) 22%,transparent)}
               .cmpx-rail-collapse{align-self:flex-start;border:1px solid var(--cp-border);background:var(--cp-surface);color:var(--cp-text-soft);border-radius:8px;padding:3px 9px;font-size:13px;line-height:1;cursor:pointer}
               .cmpx-rail-collapse:hover{border-color:var(--cp-accent);color:var(--cp-accent)}
+              /* Full-screen + collapse live as icons ON each panel now (not in the page
+                 header). The pair head groups them on the right. */
+              .cmpx-head-actions{display:flex;gap:10px;align-items:center}
+              .cmpx-pair-head-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
+              /* Calm surface: the upper-right action cluster in each compose section stays
+                 invisible until you hover (or keyboard-focus into) that section — controls
+                 appear on approach instead of cluttering the header/panels. Scoped to the
+                 compose studio so other studios (newsletter, code flow, dev) are unaffected. */
+              .cmpx-head .cmpx-head-actions,
+              .cmpx-paired .nlx-stage-actions,
+              .cmpx-paired .cmpx-pair-head-actions,
+              .cmpx-paired .cmpx-rail-collapse{opacity:0;transition:opacity .14s ease}
+              .cmpx-head:hover .cmpx-head-actions,
+              .cmpx-head:focus-within .cmpx-head-actions,
+              .cmpx-paired .nlx-stage:hover .nlx-stage-actions,
+              .cmpx-paired .nlx-stage:focus-within .nlx-stage-actions,
+              .cmpx-paired .cmpx-pair:hover .cmpx-pair-head-actions,
+              .cmpx-paired .cmpx-pair:focus-within .cmpx-pair-head-actions,
+              .cmpx-paired .nlx-rail:hover .cmpx-rail-collapse,
+              .cmpx-paired .nlx-rail:focus-within .cmpx-rail-collapse{opacity:1}
               .nlx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 12px); padding:14px; }
               .nlx-gen { width:100%; justify-content:center; padding:12px; font-size:14px; }
               .nlx-newdoc { display:block; text-align:center; margin-top:8px; font-size:12.5px; color:var(--cp-muted); text-decoration:none; }
