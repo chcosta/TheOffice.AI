@@ -53,12 +53,14 @@ function configured() {
 }
 
 // ---------------------------------------------------------------------------
-// Azure identity — Azure Managed Grafana accepts Azure AD bearer tokens
-// (scope https://grafana.azure.com/.default). DefaultAzureCredential lets the
-// same identity that runs the app (az login / VS / managed identity) authorize
-// Grafana, so there is no service-account token to store or rotate.
+// Azure identity — Azure Managed Grafana accepts Azure AD bearer tokens for the
+// audience https://dashboard.azure.com (scope .../.default). AMG rejects the
+// older https://grafana.azure.com audience with a 401, so we must request this
+// one. DefaultAzureCredential lets the same identity that runs the app (az login
+// / VS / managed identity) authorize Grafana, so there is no service-account
+// token to store or rotate.
 // ---------------------------------------------------------------------------
-const AMG_SCOPE = 'https://grafana.azure.com/.default';
+const AMG_SCOPE = 'https://dashboard.azure.com/.default';
 let _aadCred = null, _aadTok = '', _aadExp = 0;
 // Drop the cached Azure identity + token so the next call re-mints. Needed after
 // a Grafana role is assigned: the role is baked into the token at mint time, so a

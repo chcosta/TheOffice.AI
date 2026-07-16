@@ -1850,7 +1850,7 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   t.ok(/grafana:\s*\{[^}]*enabled:\s*false/.test(setj), 'settings default grafana.enabled=false (opt-in)');
   // --- Azure identity auth + push-by-default (per-dashboard auto-push) ---
   t.ok(/authMode:\s*'aad'/.test(setj) && /pushByDefault:\s*true/.test(setj), 'settings default to Azure identity + push-by-default');
-  t.ok(/grafana\.azure\.com\/\.default/.test(graf), 'grafana.js requests the AMG token scope');
+  t.ok(/dashboard\.azure\.com\/\.default/.test(graf), 'grafana.js requests the AMG token scope');
   t.ok(/DefaultAzureCredential/.test(graf), 'grafana.js uses DefaultAzureCredential for Azure identity');
   t.ok(/function pushDashboard\(/.test(graf) && /function setDashboardOptions\(/.test(graf), 'grafana.js exposes manual push + per-dashboard options');
   t.ok(/pushDashboard,/.test(graf) && /setDashboardOptions,/.test(graf), 'push helpers are exported');
@@ -1872,6 +1872,7 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   // Reconnect / retry credentials (clear the cached Azure token so a freshly-granted role is picked up)
   t.ok(/function resetAuthCache\(\)/.test(graf) && /_aadCred = null; _aadTok = ''; _aadExp = 0;/.test(graf), 'grafana.js clears the cached Azure token on reconnect');
   t.ok(/\bresetAuthCache,/.test(graf), 'resetAuthCache is exported');
+  t.ok(/AMG_SCOPE = 'https:\/\/dashboard\.azure\.com\/\.default'/.test(graf), 'grafana.js uses the dashboard.azure.com AMG audience (grafana.azure.com 401s)');
   t.ok(srv.includes("app.post('/api/monitoring/reconnect'") && /grafana\.resetAuthCache\(\); res\.json\(\{ ok: true, status: await grafana\.status\(\)/.test(srv), 'server reconnect route clears cache then re-checks status');
   t.ok(/async monReconnect\(\)/.test(html) && /\/api\/monitoring\/reconnect/.test(html), 'SPA monReconnect posts the reconnect route');
   t.ok(/@click="monReconnect\(\)"/.test(html) && /Retry connection/.test(html), 'connection panel has a Retry connection button');
