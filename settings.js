@@ -167,6 +167,14 @@ const DEFAULTS = {
   connectWorkIqCommand: 'npx',
   connectWorkIqArgs: '-y @microsoft/workiq@latest mcp',
 
+  // ---- Monitoring.AI (Azure Managed Grafana) --------------------------------
+  // Connection to a Grafana instance (Azure Managed Grafana or any Grafana). When
+  // enabled + url + token are set, the Monitoring.AI page reads live dashboards;
+  // otherwise it runs entirely on honest sample data so it is explorable out of
+  // the box. token = a Grafana service-account token (Bearer). orgId is optional
+  // (X-Grafana-Org-Id header) for multi-org instances.
+  grafana: { enabled: false, url: '', token: '', orgId: '' },
+
   // ---- Newsletter -----------------------------------------------------------
   // The Newsletter feature turns the Connect impact diary into a polished,
   // emailable digest over a timeframe. It REQUIRES Connect (reads its diary) and

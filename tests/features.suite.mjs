@@ -1801,4 +1801,53 @@ await t.test('notes: PR/dev card note URLs render as clickable links (escaped, n
   t.gte(spans.length, 5, 'all note-text spans linkify (PR + dev cards)');
 });
 
+await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/methods/server)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // --- section markup (single copy) ---
+  const secs = html.match(/route === 'monitoring'/g) || [];
+  t.gte(secs.length, 1, 'monitoring section present');
+  t.ok(/x-show="!loading && !errorMessage && route === 'monitoring'"/.test(html), 'monitoring <section> gated on the route');
+  t.ok(/monitoring\.view === 'launcher'/.test(html) && /monitoring\.view === 'studio'/.test(html) && /monitoring\.view === 'deep'/.test(html), 'launcher/studio/deep views present');
+  t.ok(/class="monx-studio"/.test(html), 'studio grid markup present');
+  // teal accent per the user ask (gradient uses --mon-graf teal #2fb2a6)
+  t.ok(/--mon-graf:#2fb2a6/.test(html), 'gradient uses a teal (#2fb2a6) Grafana accent');
+  t.ok(/linear-gradient\([^)]*var\(--mon-graf\)/.test(html), 'generate button gradient keys off the teal token');
+  // --- state block ---
+  const st = _win(html, 'monitoring: {', 1100);
+  t.ok(st, 'monitoring state block exists');
+  t.ok(/view:/.test(st) && /dashboards:/.test(st) && /grabbed:/.test(st) && /convo:/.test(st) && /conn:/.test(st), 'state carries view/dashboards/grabbed/convo/conn');
+  // --- key methods defined ---
+  for (const m of ['async monLoad(', 'async monLoadDashboard(', 'async monGenerate(', 'async monAnalyze(', 'async monAskFree(', 'monGrabToggle(', 'monOpenDeep(', 'monPanelBody(', 'monAnalysisHtml(', 'monSaveConnection(']) {
+    t.ok(html.includes(m), 'method defined: ' + m);
+  }
+  // monLoadDashboard reads the dashboard object directly (route is not wrapped in {dashboard:…})
+  const mld = _win(html, 'async monLoadDashboard(uid)', 400);
+  t.ok(/w\.dash = r;/.test(mld), 'monLoadDashboard stores the raw dashboard response');
+  // monAnalysisHtml escapes (XSS-safe)
+  t.ok(/monAnalysisHtml/.test(html) && /&lt;/.test(_win(html, 'monAnalysisHtml(a)', 900) || ''), 'analysis HTML is escaped');
+  // --- routing / tier / nav ---
+  t.ok(/if \(first === 'monitoring' && second\) return \{ route: 'monitoring', param: second \};/.test(html), 'parseHash handles #/monitoring/<uid>');
+  t.ok(/this\.route === 'monitoring'\) \{[\s\S]*?monLoad\(/.test(html), 'handleRouteChange calls monLoad');
+  t.ok(/case 'monitoring': return mk\('Monitoring\.AI', '📊', '#\/monitoring', 'monitoring'\);/.test(html), 'nav item defined');
+  t.ok(/routeMode\(route\)[\s\S]*?'monitoring'[\s\S]*?return 'workspace';/.test(html), 'routeMode maps monitoring → workspace');
+  const cats = html.match(/key: 'monitoring', label: 'Monitoring\.AI'/g) || [];
+  t.gte(cats.length, 2, 'monitoring in both feature catalogs (opt-in)');
+  const rv = html.match(/monitoring: \['monitoring'\]/g) || [];
+  t.gte(rv.length, 2, 'monitoring in both routeVisible maps');
+  // --- server routes + modules ---
+  const srv = readFileSync('server.js', 'utf8');
+  for (const r of ["/api/monitoring/status", "/api/monitoring/connection", "/api/monitoring/dashboards", "/api/monitoring/dashboard/:uid", "/api/monitoring/generate", "/api/monitoring/analyze"]) {
+    t.ok(srv.includes(r), 'server route: ' + r);
+  }
+  t.ok(/const grafana = require\('\.\/grafana'\);/.test(srv), 'grafana module required');
+  // connection route never echoes the token back
+  t.ok(/hasToken: !!g\.token/.test(srv), 'connection GET reports hasToken, never the token');
+  const graf = readFileSync('grafana.js', 'utf8');
+  for (const fn of ['createDashboard', 'deterministicAnalysis', 'panelSummary', 'listDashboards', 'getDashboard', 'deterministicSpec']) {
+    t.ok(graf.includes(fn), 'grafana.js exports ' + fn);
+  }
+  const setj = readFileSync('settings.js', 'utf8');
+  t.ok(/grafana:\s*\{[^}]*enabled:\s*false/.test(setj), 'settings default grafana.enabled=false (opt-in)');
+});
+
 await t.done();

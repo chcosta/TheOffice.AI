@@ -20467,6 +20467,377 @@
 
           </section>
 
+          <!-- ===== Monitoring.AI (Grafana + AI dashboard studio) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'monitoring'">
+            <style>
+              .monx{ --mon-accent: var(--cp-accent, #58a6ff); --mon-ai: var(--cp-accent-2, #a371f7); --mon-graf:#2fb2a6; }
+              .monx-wrap{ max-width:1180px; margin:0 auto; padding:8px 4px 60px; }
+              .monx-hero .kick{ color:var(--mon-graf); font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px; }
+              .monx-hero h1{ font-size:24px; margin:0 0 8px; font-weight:650; letter-spacing:-.01em; }
+              .monx-hero p{ margin:0; color:var(--cp-text-muted); max-width:680px; font-size:14.5px; }
+              .monx-ask{ margin:20px 0 8px; display:flex; gap:10px; align-items:center; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:12px 14px; }
+              .monx-ask input{ flex:1; background:transparent; border:0; outline:0; color:var(--cp-text); font-size:15px; }
+              .monx-ask .go{ background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); border:0; border-radius:8px; padding:9px 16px; font-weight:600; color:#fff; display:flex; align-items:center; gap:7px; }
+              .monx-ask .go[disabled]{ opacity:.6; cursor:default; }
+              .monx-hints{ display:flex; gap:14px; flex-wrap:wrap; margin:0 0 22px; color:var(--cp-text-faint); font-size:12.5px; align-items:center; }
+              .monx-hints .h{ color:var(--cp-text-muted); cursor:pointer; }
+              .monx-hints .h:hover{ color:var(--cp-text); text-decoration:underline; }
+              .monx-sech{ display:flex; align-items:baseline; gap:10px; margin:26px 0 12px; }
+              .monx-sech h2{ font-size:15px; margin:0; font-weight:600; }
+              .monx-sech .c{ color:var(--cp-text-faint); font-size:13px; }
+              .monx-sech .more{ margin-left:auto; color:var(--mon-accent); font-size:12.5px; text-decoration:none; cursor:pointer; }
+              .monx-sech .more:hover{ text-decoration:underline; }
+              /* connection */
+              .monx-conn{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:12px 14px; margin:0 0 4px; }
+              .monx-conn-head{ display:flex; align-items:center; gap:10px; }
+              .monx-conn-head .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+              .monx-conn-head b{ font-weight:600; }
+              .monx-conn-head .toggle{ margin-left:auto; color:var(--mon-accent); font-size:12.5px; cursor:pointer; background:none; border:0; }
+              .monx-conn-body{ margin-top:12px; display:grid; grid-template-columns:1fr 140px; gap:10px; }
+              .monx-conn-body input{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; padding:8px 10px; color:var(--cp-text); font-size:13px; outline:0; }
+              .monx-conn-body .full{ grid-column:1 / -1; }
+              .monx-conn-actions{ grid-column:1 / -1; display:flex; align-items:center; gap:10px; margin-top:2px; }
+              .monx-conn-actions .save{ background:var(--mon-accent); border:0; border-radius:8px; padding:8px 16px; color:#fff; font-weight:600; }
+              .monx-conn-actions .msg{ color:var(--cp-text-muted); font-size:12.5px; }
+              /* template grid */
+              .monx-grid3{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:12px; }
+              .monx-tcard{ text-align:left; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; cursor:pointer; }
+              .monx-tcard:hover{ border-color:var(--mon-ai); background:var(--cp-surface-2, var(--cp-surface)); }
+              .monx-tcard .ic{ width:34px; height:34px; border-radius:9px; display:grid; place-items:center; font-size:18px; background:var(--cp-bg); }
+              .monx-tcard h3{ margin:0; font-size:14px; font-weight:600; }
+              .monx-tcard .d{ color:var(--cp-text-muted); font-size:12.5px; line-height:1.45; }
+              /* recent */
+              .monx-recent{ display:flex; flex-direction:column; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; }
+              .monx-rrow{ display:flex; align-items:center; gap:13px; padding:11px 14px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); cursor:pointer; }
+              .monx-rrow:last-child{ border-bottom:0; }
+              .monx-rrow:hover{ background:var(--cp-surface-2, var(--cp-bg)); }
+              .monx-rrow .ric{ width:30px; height:30px; border-radius:8px; background:var(--cp-bg); display:grid; place-items:center; font-size:15px; flex:none; }
+              .monx-rrow .rt{ flex:1; min-width:0; }
+              .monx-rrow .rt b{ font-weight:550; }
+              .monx-rrow .rt .sub{ color:var(--cp-text-faint); font-size:12px; }
+              .monx-rrow .spark{ width:120px; height:30px; flex:none; opacity:.9; }
+              .monx-rrow .rmeta{ color:var(--cp-text-faint); font-size:12px; text-align:right; min-width:90px; }
+              .monx-rrow .rmeta .st{ font-weight:600; }
+              .mon-ok{ color:var(--cp-success, #3fb950); } .mon-warn{ color:var(--cp-warning, #d29922); } .mon-bad{ color:var(--cp-danger, #f85149); }
+              /* sources */
+              .monx-srcgrid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(215px,1fr)); gap:11px; }
+              .monx-srccard{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:12px 13px; display:flex; gap:11px; align-items:flex-start; }
+              .monx-srccard .si{ width:30px; height:30px; border-radius:8px; background:var(--cp-bg); display:grid; place-items:center; font-size:15px; flex:none; }
+              .monx-srccard .sn{ font-size:13px; font-weight:600; }
+              .monx-srccard .ss{ color:var(--cp-text-faint); font-size:11.5px; display:flex; align-items:center; gap:6px; margin-top:2px; }
+              .monx-srccard .ss .dot{ width:7px; height:7px; border-radius:50%; }
+              /* studio */
+              .monx-studio{ display:grid; grid-template-columns:236px 1fr 360px; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:560px; }
+              .monx-studio.nochat{ grid-template-columns:236px 1fr; }
+              .monx-rail{ border-right:1px solid var(--cp-border); padding:12px; background:var(--cp-bg); overflow:auto; }
+              .monx-newbtn{ width:100%; background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); border:0; border-radius:8px; padding:10px; font-weight:600; color:#fff; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px; }
+              .monx-rlabel{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; margin:14px 4px 7px; }
+              .monx-folder > .frow{ display:flex; align-items:center; gap:7px; padding:6px 7px; border-radius:7px; color:var(--cp-text-muted); cursor:pointer; font-size:13px; }
+              .monx-folder > .frow:hover{ background:var(--cp-surface); color:var(--cp-text); }
+              .monx-folder .chev{ font-size:10px; width:10px; transition:.15s; }
+              .monx-folder.open .chev{ transform:rotate(90deg); }
+              .monx-dash{ display:flex; align-items:center; gap:8px; padding:6px 7px 6px 24px; border-radius:7px; color:var(--cp-text-muted); cursor:pointer; font-size:12.5px; }
+              .monx-dash:hover{ background:var(--cp-surface); color:var(--cp-text); }
+              .monx-dash.on{ color:var(--cp-text); background:var(--cp-surface); }
+              .monx-dash .dc{ margin-left:auto; color:var(--cp-text-faint); font-size:11px; }
+              .monx-srcmini{ display:flex; align-items:center; gap:9px; padding:5px 7px; font-size:12.5px; color:var(--cp-text-muted); }
+              .monx-srcmini .dot{ width:7px; height:7px; border-radius:50%; flex:none; }
+              .monx-canvas{ display:flex; flex-direction:column; min-height:0; }
+              .monx-dbar{ display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--cp-border); flex-wrap:wrap; }
+              .monx-dbar h2{ margin:0; font-size:16px; font-weight:650; display:flex; align-items:center; gap:9px; }
+              .monx-dbar .gtag{ font-size:10px; font-weight:600; color:var(--mon-graf); border:1px solid var(--mon-graf); border-radius:6px; padding:1px 6px; }
+              .monx-dbar .sp{ flex:1; }
+              .monx-selc{ display:flex; align-items:center; gap:8px; color:var(--mon-ai); font-size:12.5px; font-weight:550; }
+              .monx-selc .an{ background:linear-gradient(135deg, var(--mon-ai), var(--mon-accent)); border:0; border-radius:7px; padding:5px 11px; color:#fff; font-size:12px; font-weight:600; }
+              .monx-ibtn{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:6px 10px; color:var(--cp-text-muted); }
+              .monx-ibtn:hover{ color:var(--cp-text); }
+              .monx-varhint{ padding:8px 16px; border-bottom:1px solid var(--cp-border); color:var(--cp-text-faint); font-size:12.5px; }
+              .monx-varhint b{ color:var(--mon-ai); }
+              .monx-board{ flex:1; min-height:0; overflow:auto; padding:16px; display:grid; grid-template-columns:repeat(2,1fr); gap:14px; align-content:start; }
+              .monx-panel{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; }
+              .monx-panel.sel{ border-color:var(--mon-ai); box-shadow:0 0 0 1px var(--mon-ai); }
+              .monx-panel.wide{ grid-column:1 / -1; }
+              .monx-ph{ display:flex; align-items:center; gap:8px; padding:10px 12px 6px; }
+              .monx-ph .pt{ font-size:12.5px; font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .monx-ph .psrc{ color:var(--cp-text-faint); font-size:10.5px; flex:none; }
+              .monx-ph .sp{ flex:1; }
+              .monx-ptools{ display:flex; gap:4px; opacity:0; transition:.12s; }
+              .monx-panel:hover .monx-ptools{ opacity:1; }
+              .monx-ptools button{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:6px; padding:3px 7px; color:var(--cp-text-muted); font-size:11px; }
+              .monx-ptools button:hover{ color:var(--cp-text); }
+              .monx-ptools button.on{ color:var(--mon-ai); border-color:var(--mon-ai); }
+              .monx-pbody{ padding:2px 10px 12px; }
+              .monx-pbody svg{ display:block; width:100%; }
+              .monx-gauge{ display:flex; flex-direction:column; align-items:center; padding:6px 0 8px; }
+              .monx-gauge .gv{ font-size:20px; font-weight:700; margin-top:-28px; }
+              .monx-gauge .gl{ color:var(--cp-text-faint); font-size:11px; margin-top:2px; }
+              .monx-badge{ font-size:10px; font-weight:600; border-radius:6px; padding:1px 6px; }
+              /* copilot */
+              .monx-cop{ border-left:1px solid var(--cp-border); display:flex; flex-direction:column; min-height:0; background:var(--cp-bg); }
+              .monx-coph{ display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--cp-border); }
+              .monx-coph .ci{ width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg, var(--mon-ai), var(--mon-accent)); display:grid; place-items:center; font-size:13px; }
+              .monx-coph b{ font-weight:650; font-size:14px; }
+              .monx-coph .sub{ color:var(--cp-text-faint); font-size:11.5px; }
+              .monx-ctx{ padding:9px 14px; border-bottom:1px solid var(--cp-border); }
+              .monx-ctx .cl{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:7px; }
+              .monx-chips{ display:flex; flex-wrap:wrap; gap:6px; }
+              .monx-chip{ display:flex; align-items:center; gap:6px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:3px 8px; font-size:11.5px; color:var(--cp-text); }
+              .monx-chip .sd{ width:12px; height:7px; border-radius:2px; flex:none; }
+              .monx-chip .rm{ color:var(--cp-text-faint); cursor:pointer; }
+              .monx-ctx .empty{ color:var(--cp-text-faint); font-size:12px; }
+              .monx-conv{ flex:1; min-height:0; overflow:auto; padding:14px; }
+              .monx-msg{ margin-bottom:16px; font-size:13px; }
+              .monx-msg .mwho{ font-size:11px; color:var(--cp-text-faint); font-weight:600; letter-spacing:.03em; text-transform:uppercase; margin-bottom:6px; }
+              .monx-msg.you .mwho{ color:var(--mon-accent); }
+              .monx-msg.ai .mwho{ color:var(--mon-ai); }
+              .monx-msg .mbody{ color:var(--cp-text); line-height:1.6; }
+              .monx-msg .mbody p{ margin:0 0 8px; }
+              .monx-findings{ list-style:none; margin:6px 0 10px; padding:0; }
+              .monx-findings li{ display:flex; gap:9px; padding:6px 0; border-top:1px solid var(--cp-border); font-size:12.5px; color:var(--cp-text-muted); }
+              .monx-findings li:first-child{ border-top:0; }
+              .monx-sugg{ display:flex; flex-direction:column; gap:2px; margin-top:6px; }
+              .monx-sugg .sl{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:4px; }
+              .monx-sugg li{ color:var(--cp-text-muted); font-size:12.5px; padding:3px 0; }
+              .monx-composer{ border-top:1px solid var(--cp-border); padding:11px 12px; }
+              .monx-composer .crow{ display:flex; gap:8px; align-items:flex-end; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:8px 10px; }
+              .monx-composer textarea{ flex:1; background:transparent; border:0; outline:0; color:var(--cp-text); font:inherit; font-size:13px; resize:none; max-height:120px; }
+              .monx-composer .send{ background:linear-gradient(135deg, var(--mon-ai), var(--mon-accent)); border:0; border-radius:8px; width:34px; height:34px; color:#fff; flex:none; }
+              .monx-qk{ display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+              .monx-qk button{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:5px 9px; font-size:11.5px; color:var(--cp-text-muted); }
+              .monx-qk button:hover{ color:var(--cp-text); }
+              /* deep */
+              .monx-back{ background:none; border:0; color:var(--cp-text-muted); padding:0; margin-bottom:14px; font-size:13px; cursor:pointer; }
+              .monx-back:hover{ color:var(--cp-text); }
+              .monx-deep{ display:grid; grid-template-columns:1fr 380px; gap:22px; }
+              @media (max-width:900px){ .monx-deep{ grid-template-columns:1fr; } .monx-studio{ grid-template-columns:1fr; } .monx-board{ grid-template-columns:1fr; } }
+              .monx-bigpanel{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px 18px; }
+              .monx-metricrow{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:16px 0; }
+              .monx-metric{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:12px 13px; }
+              .monx-metric .ml{ color:var(--cp-text-faint); font-size:11.5px; }
+              .monx-metric .mv{ font-size:20px; font-weight:700; margin-top:3px; }
+              .monx-analysis{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; align-self:start; }
+              .monx-analysis .ah{ display:flex; align-items:center; gap:9px; padding:13px 15px; border-bottom:1px solid var(--cp-border); }
+              .monx-analysis .ah .ci{ width:24px; height:24px; border-radius:7px; background:linear-gradient(135deg, var(--mon-ai), var(--mon-accent)); display:grid; place-items:center; font-size:12px; }
+              .monx-analysis .ab{ padding:15px; }
+              .monx-verdict{ display:flex; gap:10px; align-items:flex-start; background:var(--cp-bg); border:1px solid var(--cp-border); border-left:3px solid var(--cp-warning, #d29922); border-radius:8px; padding:11px 13px; margin-bottom:14px; font-size:13px; }
+              .monx-empty{ text-align:center; color:var(--cp-text-muted); padding:40px 20px; }
+            </style>
+
+            <div class="monx">
+              <!-- ============ LAUNCHER ============ -->
+              <div class="monx-wrap" x-show="monitoring.view === 'launcher'">
+                <div class="monx-hero">
+                  <div class="kick">Monitoring.AI · Grafana + AI</div>
+                  <h1>Describe what you want to watch. Get a live Grafana dashboard.</h1>
+                  <p>Spin up dashboards from a prompt against your Azure Managed Grafana data sources, view them here, then hand any panel or dataset to the copilot to read trends, status and anomalies.</p>
+                </div>
+
+                <div class="monx-ask">
+                  <input type="text" placeholder="p95 latency and 5xx error rate for the payments service, last 24h, split by region"
+                    x-model="monitoring.prompt" @keydown.enter="monGenerate()" />
+                  <button class="go" @click="monGenerate()" :disabled="monitoring.generating || !monitoring.prompt.trim()">
+                    <span x-text="monitoring.generating ? 'Generating…' : '✨ Generate dashboard'"></span>
+                  </button>
+                </div>
+                <div class="monx-hints">
+                  <span>Try:</span>
+                  <template x-for="(h, i) in monitoring.hints" :key="i">
+                    <span class="h" @click="monitoring.prompt = h; monGenerate()" x-text="h"></span>
+                  </template>
+                </div>
+
+                <!-- connection -->
+                <div class="monx-conn">
+                  <div class="monx-conn-head">
+                    <span class="dot" :style="`background:${monConnDotColor()}`"></span>
+                    <b x-text="monConnLabel()"></b>
+                    <button class="toggle" @click="monitoring.connOpen = !monitoring.connOpen" x-text="monitoring.connOpen ? 'Hide' : (monitoring.conn.url ? 'Edit connection' : 'Connect Grafana')"></button>
+                  </div>
+                  <div class="monx-conn-body" x-show="monitoring.connOpen" x-cloak>
+                    <input class="full" type="text" placeholder="https://your-grafana.grafana.azure.com" x-model="monitoring.conn.url" />
+                    <input type="text" placeholder="Org ID (optional)" x-model="monitoring.conn.orgId" />
+                    <input type="password" :placeholder="monitoring.conn.hasToken ? '•••••• (unchanged)' : 'Service account token'" x-model="monitoring.conn.token" />
+                    <label class="full" style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--cp-text-muted);">
+                      <input type="checkbox" x-model="monitoring.conn.enabled" /> Use live Grafana (off = sample data)
+                    </label>
+                    <div class="monx-conn-actions">
+                      <button class="save" @click="monSaveConnection()" :disabled="monitoring.connSaving" x-text="monitoring.connSaving ? 'Saving…' : 'Save connection'"></button>
+                      <span class="msg" x-text="monitoring.connMsg"></span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="monx-sech"><h2>Start from a template</h2><span class="c">AI fills in queries for your data sources</span></div>
+                <div class="monx-grid3">
+                  <template x-for="t in monTemplates()" :key="t.t">
+                    <div class="monx-tcard" @click="monitoring.prompt = t.prompt; monGenerate()">
+                      <div class="ic" x-text="t.ic"></div>
+                      <h3 x-text="t.t"></h3>
+                      <div class="d" x-text="t.d"></div>
+                    </div>
+                  </template>
+                </div>
+
+                <div class="monx-sech"><h2>Recent dashboards</h2><span class="c" x-text="monitoring.status && monitoring.status.configured ? 'synced from Grafana' : 'sample data — connect Grafana for live dashboards'"></span></div>
+                <div class="monx-recent" x-show="monitoring.dashboards.length">
+                  <template x-for="d in monitoring.dashboards" :key="d.uid">
+                    <div class="monx-rrow" @click="monLoadDashboard(d.uid)">
+                      <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
+                      <div class="rt"><b x-text="d.title"></b><div class="sub" x-text="monDashSub(d)"></div></div>
+                      <div class="spark" x-html="monSpark(d.spark, monStatusColor(monSparkStatus(d)))"></div>
+                      <div class="rmeta"><div class="st" :class="monStatusClass(monSparkStatus(d))" x-text="monSparkStatus(d)"></div><div style="color:var(--cp-text-faint)" x-text="d.updated ? formatRelative(d.updated) : ''"></div></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="monx-empty" x-show="!monitoring.dashboards.length && !monitoring.loading">No dashboards yet — describe one above to spin it up.</div>
+
+                <div class="monx-sech"><h2>Data sources</h2><span class="c" x-text="monitoring.status && monitoring.status.configured ? 'from Azure Managed Grafana' : 'sample'"></span></div>
+                <div class="monx-srcgrid">
+                  <template x-for="(s, i) in monSources()" :key="i">
+                    <div class="monx-srccard">
+                      <div class="si">🔷</div>
+                      <div><div class="sn" x-text="s.name"></div><div class="ss"><span class="dot" :style="`background:${s.status === 'ok' ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)'}`"></span><span x-text="s.type + ' · ' + s.status"></span></div></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- ============ STUDIO ============ -->
+              <div class="monx-wrap" x-show="monitoring.view === 'studio'" style="max-width:none;">
+                <button class="monx-back" @click="monBackToLauncher()">← All dashboards</button>
+                <div class="monx-studio" x-show="monitoring.dash">
+                  <!-- rail -->
+                  <div class="monx-rail">
+                    <button class="monx-newbtn" @click="monBackToLauncher()">✨ New from prompt</button>
+                    <div class="monx-rlabel">Dashboards</div>
+                    <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
+                      <div class="monx-folder open">
+                        <div class="frow" @click="$event.currentTarget.parentElement.classList.toggle('open')"><span class="chev">▶</span><span x-text="folder"></span></div>
+                        <template x-for="d in dashes" :key="d.uid">
+                          <div class="monx-dash" :class="{ on: monitoring.dash && monitoring.dash.uid === d.uid }" @click="monLoadDashboard(d.uid)">
+                            <span x-text="d.title"></span><span class="dc" x-text="d.panelCount || ''"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    <div class="monx-rlabel">Data sources</div>
+                    <template x-for="(s, i) in monSources()" :key="i">
+                      <div class="monx-srcmini"><span class="dot" :style="`background:${s.status === 'ok' ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)'}`"></span><span x-text="s.name"></span></div>
+                    </template>
+                  </div>
+
+                  <!-- canvas -->
+                  <div class="monx-canvas">
+                    <div class="monx-dbar">
+                      <h2><span x-text="monitoring.dash ? monitoring.dash.title : ''"></span><span class="gtag">GRAFANA</span></h2>
+                      <span class="sp"></span>
+                      <div class="monx-selc" x-show="monitoring.grabbed.length">
+                        <span><b x-text="monitoring.grabbed.length"></b> panel(s) grabbed</span>
+                        <button class="an" @click="monAnalyze('grabbed')" :disabled="monitoring.analyzing" x-text="monitoring.analyzing ? 'Analyzing…' : '✨ Analyze'"></button>
+                      </div>
+                      <button class="monx-ibtn" @click="monAnalyze('all')" :disabled="monitoring.analyzing" title="Analyze the whole dashboard">Analyze dashboard</button>
+                      <button class="monx-ibtn" @click="monLoadDashboard(monitoring.dash.uid)" title="Refresh">↻</button>
+                    </div>
+                    <div class="monx-varhint">Hover a panel and click <b>Grab</b> to add its data to the copilot, then Analyze.</div>
+                    <div class="monx-board">
+                      <template x-for="p in (monitoring.dash ? monitoring.dash.panels : [])" :key="p.id">
+                        <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'timeseries' && p.series && p.series.length > 1 }">
+                          <div class="monx-ph">
+                            <span class="pt" x-text="p.title"></span>
+                            <span class="psrc" x-text="'· ' + p.unit"></span>
+                            <span class="sp"></span>
+                            <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
+                            <div class="monx-ptools">
+                              <button :class="{ on: monIsGrabbed(p.id) }" @click="monGrabToggle(p.id)" title="Grab data for AI">Grab</button>
+                              <button @click="monOpenDeep(p.id)" title="Deep dive">⤢</button>
+                            </div>
+                          </div>
+                          <div class="monx-pbody" x-html="monPanelBody(p)"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- copilot -->
+                  <div class="monx-cop">
+                    <div class="monx-coph">
+                      <div class="ci">✨</div>
+                      <div><b>Monitoring copilot</b><div class="sub">reads your grabbed panels &amp; datasets</div></div>
+                    </div>
+                    <div class="monx-ctx">
+                      <div class="cl">Context · grabbed panels</div>
+                      <div class="monx-chips">
+                        <template x-if="!monitoring.grabbed.length"><div class="empty">No panels grabbed yet — hover a panel and click Grab.</div></template>
+                        <template x-for="p in monGrabbedPanels()" :key="p.id">
+                          <span class="monx-chip"><span class="sd" :style="`background:${monPanelColor(p)}`"></span><span x-text="p.title"></span><span class="rm" @click="monGrabToggle(p.id)">✕</span></span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="monx-conv" x-ref="monConv">
+                      <template x-if="!monitoring.convo.length">
+                        <div class="monx-msg ai"><div class="mwho">✨ Copilot</div><div class="mbody"><p>Grab a panel or two and click <b>Analyze</b> — I'll read the datasets behind them and summarize status, trends and anomalies.</p></div></div>
+                      </template>
+                      <template x-for="(m, i) in monitoring.convo" :key="i">
+                        <div class="monx-msg" :class="m.role">
+                          <div class="mwho" x-text="m.role === 'you' ? 'You' : '✨ Copilot'"></div>
+                          <div class="mbody">
+                            <template x-if="!m.analysis"><p x-text="m.text"></p></template>
+                            <template x-if="m.analysis"><div x-html="monAnalysisHtml(m.analysis)"></div></template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="monx-composer">
+                      <div class="crow">
+                        <textarea rows="1" placeholder="Ask about the grabbed panels…" x-model="monitoring.copilotQ" @keydown.enter.prevent="monAskFree()"></textarea>
+                        <button class="send" @click="monAskFree()">➤</button>
+                      </div>
+                      <div class="monx-qk">
+                        <button @click="monAnalyze('grabbed')">Summarize status</button>
+                        <button @click="monitoring.copilotQ='What changed in the last window?'; monAskFree()">What changed?</button>
+                        <button @click="monitoring.copilotQ='Correlate the spikes across these panels'; monAskFree()">Correlate spikes</button>
+                        <button @click="monitoring.copilotQ='Draft a short status report'; monAskFree()">Draft report</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ============ DEEP DIVE ============ -->
+              <div class="monx-wrap" x-show="monitoring.view === 'deep'">
+                <button class="monx-back" @click="monitoring.view = 'studio'">← Back to dashboard</button>
+                <template x-if="monDeepPanel()">
+                  <div class="monx-deep">
+                    <div>
+                      <h1 style="font-size:20px;margin:2px 0 3px;font-weight:650" x-text="monDeepPanel().title"></h1>
+                      <div style="color:var(--cp-text-faint);font-size:12.5px;margin-bottom:16px" x-text="(monitoring.dash ? monitoring.dash.title : '') + ' · ' + monDeepPanel().unit"></div>
+                      <div class="monx-bigpanel">
+                        <div style="color:var(--cp-text-muted);font-size:12px;margin-bottom:6px" x-text="monDeepPanel().series ? monDeepPanel().series.map(s => s.name).join(', ') : ''"></div>
+                        <div x-html="monPanelBody(monDeepPanel(), 230)"></div>
+                      </div>
+                      <div class="monx-metricrow">
+                        <div class="monx-metric"><div class="ml">Latest</div><div class="mv" x-text="monPanelLast(monDeepPanel())"></div></div>
+                        <div class="monx-metric"><div class="ml">Trend (~6h)</div><div class="mv" :class="monStatusClass(monTrendStatus(monDeepPanel()))" x-text="monTrendLabel(monDeepPanel())"></div></div>
+                        <div class="monx-metric"><div class="ml">Unit</div><div class="mv" style="font-size:16px" x-text="monDeepPanel().unit || '—'"></div></div>
+                      </div>
+                    </div>
+                    <div class="monx-analysis">
+                      <div class="ah"><div class="ci">✨</div><b>AI trend &amp; status analysis</b></div>
+                      <div class="ab">
+                        <template x-if="!monitoring.analysis">
+                          <div><button class="monx-selc an" style="border:0" @click="monAnalyze('deep')" :disabled="monitoring.analyzing" x-text="monitoring.analyzing ? 'Analyzing…' : '✨ Analyze this panel'"></button></div>
+                        </template>
+                        <template x-if="monitoring.analysis">
+                          <div x-html="monAnalysisHtml(monitoring.analysis)"></div>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </section>
+
           <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
           <section x-show="!loading && !errorMessage && (route === 'compose' || route === 'documents')" :class="{ 'cmpx-fs': compose.fsMode, 'cmpx-fs-view': compose.fsMode === 'view', 'cmpx-fs-pair': compose.fsMode === 'pair' }">
             <style>
@@ -30598,6 +30969,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         shareSubject: '',
         shareContext: '',
         newTaskOpen: false,
+        // Monitoring.AI — Grafana + AI dashboard studio (default OFF opt-in feature)
+        monitoring: {
+          view: 'launcher',        // 'launcher' | 'studio' | 'deep'
+          loading: false,
+          loaded: false,
+          status: null,            // GET /status
+          dashboards: [],          // GET /dashboards
+          dash: null,              // GET /dashboard/:uid (current dashboard + panels)
+          grabbed: [],             // panel ids grabbed for AI context
+          deepPanel: null,         // panel id shown in deep-dive
+          prompt: '',
+          hints: ['Helix queue health — wait time, running, errors', 'Autoscaler saturation + demand signals', 'Service availability + p95 latency + error rate'],
+          generating: false,
+          analysis: null,          // POST /analyze result
+          analyzing: false,
+          convo: [],               // copilot turns { role:'you'|'ai', text, analysis? }
+          copilotQ: '',
+          conn: { url: '', orgId: '', token: '', hasToken: false, enabled: false },
+          connOpen: false,
+          connSaving: false,
+          connMsg: '',
+        },
         chainModalOpen: false,
         chainSearch: '',
         autoView: (() => { try { const v = localStorage.getItem('automation-view'); return (v === 'flows' || v === 'meai') ? v : 'tasks'; } catch (_) { return 'tasks'; } })(),
@@ -31522,7 +31915,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (first === 'monitoring' && second) return { route: 'monitoring', param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'monitoring', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -31900,6 +32294,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } else if (this.route === 'pulse') {
             await this.loadPulse();
+          } else if (this.route === 'monitoring') {
+            await this.monLoad(this.app.routeParam || '');
           } else if (this.route === 'backlog') {
             if (!this.meai.loaded) await this.loadMeAi();
             await this.loadMeaiBacklog();
@@ -32900,6 +33296,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
             case 'newsletter': return mk('Compose.AI', '✍️', '#/compose', 'compose', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
             case 'documents': return mk('Documents', '📄', '#/documents', 'documents');
+            case 'monitoring': return mk('Monitoring.AI', '📊', '#/monitoring', 'monitoring');
             case 'watercooler': return mk('Agent Chats', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
             case 'playbooks': return mk('Playbooks', '📘', '#/playbooks', 'playbooks');
@@ -32929,6 +33326,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (en('news')) { out.push('activity', 'reports'); }
             if (en('connect')) out.push('connect');
             if (en('newsletter')) out.push('newsletter', 'documents');
+            if (en('monitoring')) out.push('monitoring');
             return out;
           }
           // workspace (Advanced) — every feature is on by default; the user opts OUT
@@ -32945,6 +33343,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (en('diary')) out.push('diary');
           if (en('connect')) out.push('connect');
           if (en('newsletter')) out.push('newsletter', 'documents');
+          if (en('monitoring')) out.push('monitoring');
           if (en('watercooler')) out.push('watercooler');
           if (en('sessions')) out.push('sessions');
           if (en('news')) { out.push('activity', 'reports'); }
@@ -33426,7 +33825,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'pulse', 'backlog', 'diary', 'playbooks',
+          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'monitoring', 'pulse', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -33466,6 +33865,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
+            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt and hand panels to AI for trend & status analysis.' },
           ];
         },
         // Catalog of optional features that can be switched OFF while in Advanced mode
@@ -33483,6 +33883,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
+            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt and hand panels to AI for trend & status analysis.' },
           ];
         },
         setExperienceLevel(level) {
@@ -33566,6 +33967,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             news: ['activity', 'reports'],
             connect: ['connect'],
             newsletter: ['newsletter', 'compose', 'documents'],
+            monitoring: ['monitoring'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -33590,6 +33992,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             news: ['activity', 'reports'],
             connect: ['connect'],
             newsletter: ['newsletter', 'compose', 'documents'],
+            monitoring: ['monitoring'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -38712,6 +39115,344 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         // ── Pulse.AI (ambient team-conversation + meeting digest) ──────────
+        // ===== Monitoring.AI (Grafana + AI) =====
+        async monLoad(uid) {
+          const w = this.monitoring;
+          w.loading = true;
+          try {
+            const [st, dl, conn] = await Promise.all([
+              this.request('/api/monitoring/status').catch(() => null),
+              this.request('/api/monitoring/dashboards').catch(() => ({ dashboards: [] })),
+              this.request('/api/monitoring/connection').catch(() => null),
+            ]);
+            if (st) w.status = st;
+            w.dashboards = (dl && dl.dashboards) || [];
+            if (conn) {
+              w.conn.url = conn.url || '';
+              w.conn.orgId = conn.orgId || '';
+              w.conn.enabled = !!conn.enabled;
+              w.conn.hasToken = !!conn.hasToken;
+              w.conn.token = '';
+            }
+            w.loaded = true;
+            if (uid) { await this.monLoadDashboard(uid); }
+            else { w.view = 'launcher'; }
+          } catch (e) {
+            this.toast('Failed to load Monitoring.AI: ' + (e.message || e), 'error');
+          } finally {
+            w.loading = false;
+          }
+        },
+        async monLoadDashboard(uid) {
+          const w = this.monitoring;
+          try {
+            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(uid));
+            w.dash = r;
+            w.grabbed = [];
+            w.analysis = null;
+            w.convo = [];
+            w.deepPanel = null;
+            w.view = 'studio';
+          } catch (e) {
+            this.toast('Failed to open dashboard: ' + (e.message || e), 'error');
+          }
+        },
+        async monGenerate() {
+          const w = this.monitoring;
+          const prompt = (w.prompt || '').trim();
+          if (!prompt || w.generating) return;
+          w.generating = true;
+          try {
+            const r = await this.request('/api/monitoring/generate', { method: 'POST', body: JSON.stringify({ prompt }) });
+            try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
+            const uid = r && r.dashboard && r.dashboard.uid;
+            if (uid) { await this.monLoadDashboard(uid); this.toast(r.ai ? 'Dashboard generated' : 'Dashboard generated (sample)', 'success'); }
+            else { this.toast('Could not generate a dashboard', 'error'); }
+          } catch (e) {
+            this.toast('Generate failed: ' + (e.message || e), 'error');
+          } finally {
+            w.generating = false;
+          }
+        },
+        _monPanelsForScope(scope) {
+          const dash = this.monitoring.dash;
+          if (!dash || !dash.panels) return [];
+          if (scope === 'all') return dash.panels;
+          if (scope === 'deep') { const p = this.monDeepPanel(); return p ? [p] : []; }
+          return this.monGrabbedPanels();
+        },
+        async monAnalyze(scope) {
+          const w = this.monitoring;
+          if (w.analyzing) return;
+          let panels = this._monPanelsForScope(scope);
+          if (!panels.length && scope === 'grabbed') panels = (w.dash && w.dash.panels) || [];
+          if (!panels.length) { this.toast('No panels to analyze', 'error'); return; }
+          w.analyzing = true;
+          try {
+            const r = await this.request('/api/monitoring/analyze', { method: 'POST', body: JSON.stringify({ panels }) });
+            w.analysis = r;
+            if (scope !== 'deep') w.convo.push({ role: 'ai', text: '', analysis: r });
+            this._monScrollConv();
+          } catch (e) {
+            this.toast('Analyze failed: ' + (e.message || e), 'error');
+          } finally {
+            w.analyzing = false;
+          }
+        },
+        async monAskFree() {
+          const w = this.monitoring;
+          const q = (w.copilotQ || '').trim();
+          if (!q) return;
+          w.copilotQ = '';
+          w.convo.push({ role: 'you', text: q });
+          this._monScrollConv();
+          let panels = this.monGrabbedPanels();
+          if (!panels.length) panels = (w.dash && w.dash.panels) || [];
+          w.analyzing = true;
+          try {
+            const r = await this.request('/api/monitoring/analyze', { method: 'POST', body: JSON.stringify({ panels, question: q }) });
+            w.analysis = r;
+            w.convo.push({ role: 'ai', text: '', analysis: r });
+            this._monScrollConv();
+          } catch (e) {
+            w.convo.push({ role: 'ai', text: 'Sorry — analysis failed: ' + (e.message || e) });
+          } finally {
+            w.analyzing = false;
+          }
+        },
+        _monScrollConv() {
+          this.$nextTick(() => { try { const el = this.$refs.monConv; if (el) el.scrollTop = el.scrollHeight; } catch (_) {} });
+        },
+        async monSaveConnection() {
+          const w = this.monitoring;
+          if (w.connSaving) return;
+          w.connSaving = true;
+          w.connMsg = '';
+          try {
+            const body = { enabled: !!w.conn.enabled, url: w.conn.url || '', orgId: w.conn.orgId || '' };
+            if (w.conn.token && w.conn.token.trim()) body.token = w.conn.token.trim();
+            const r = await this.request('/api/monitoring/connection', { method: 'PUT', body: JSON.stringify(body) });
+            if (r && r.connection) {
+              w.conn.url = r.connection.url || '';
+              w.conn.orgId = r.connection.orgId || '';
+              w.conn.enabled = !!r.connection.enabled;
+              w.conn.hasToken = !!r.connection.hasToken;
+              w.conn.token = '';
+            }
+            if (r && r.status) w.status = r.status;
+            try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
+            w.connMsg = 'Saved.';
+            w.connOpen = false;
+          } catch (e) {
+            w.connMsg = 'Save failed: ' + (e.message || e);
+          } finally {
+            w.connSaving = false;
+          }
+        },
+        monTemplates() {
+          return [
+            { ic: '🌐', t: 'Service golden signals', d: 'Request rate, error rate, latency (p50/p95) and availability for a service.', prompt: 'Golden signals for my service: request rate, 5xx error rate, p50 and p95 latency, and availability, last 24h.' },
+            { ic: '🖥️', t: 'Fleet / host health', d: 'CPU, memory, disk I/O, network and load across a host fleet.', prompt: 'Host fleet health: CPU, memory, disk I/O, network throughput and load average, last 6h.' },
+            { ic: '🗄️', t: 'Database health', d: 'Connections, query duration p99, cache hit ratio, deadlocks and replication lag.', prompt: 'Postgres primary health: active connections, query duration p99, cache hit ratio, deadlocks and replication lag.' },
+            { ic: '📊', t: 'Helix queue health', d: 'Queue wait time, running jobs and error rate across Helix queues.', prompt: 'Helix queue health: wait time, running jobs and error rate per queue, last 12h.' },
+            { ic: '⚡', t: 'Autoscaler saturation', d: 'Capacity, demand signals and saturation for the autoscaler.', prompt: 'Autoscaler saturation: current capacity vs demand signals and saturation percentage, last 24h.' },
+            { ic: '💸', t: 'Cost & usage', d: 'Spend trend, resource usage and utilisation efficiency.', prompt: 'Cost and usage: daily spend trend, resource utilisation and efficiency, last 30 days.' },
+          ];
+        },
+        monSources() { const st = this.monitoring.status; return (st && st.sources) || []; },
+        monConnDotColor() {
+          const st = this.monitoring.status;
+          if (st && st.configured) return st.healthy ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)';
+          return 'var(--cp-text-faint,#8b949e)';
+        },
+        monConnLabel() {
+          const st = this.monitoring.status;
+          if (st && st.configured) return st.healthy ? ('Connected to Grafana' + (st.version ? ' · v' + st.version : '')) : 'Grafana configured — health check failed';
+          return 'Sample data (Grafana not connected)';
+        },
+        monDashSub(d) {
+          const parts = [];
+          if (d.folder) parts.push(d.folder);
+          if (d.panelCount != null) parts.push(d.panelCount + ' panel' + (d.panelCount === 1 ? '' : 's'));
+          parts.push(d.local ? (d.pushed ? 'local · pushed to Grafana' : 'local · not pushed') : (d.sample ? 'sample' : 'live'));
+          return parts.join(' · ');
+        },
+        monDashboardsByFolder() {
+          const out = {};
+          (this.monitoring.dashboards || []).forEach(d => {
+            const f = d.folder || 'General';
+            (out[f] = out[f] || []).push(d);
+          });
+          return out;
+        },
+        monGrabbedPanels() {
+          const dash = this.monitoring.dash;
+          if (!dash || !dash.panels) return [];
+          return dash.panels.filter(p => this.monitoring.grabbed.includes(p.id));
+        },
+        monIsGrabbed(id) { return this.monitoring.grabbed.includes(id); },
+        monGrabToggle(id) {
+          const g = this.monitoring.grabbed;
+          const i = g.indexOf(id);
+          if (i >= 0) g.splice(i, 1); else g.push(id);
+        },
+        monPanelColor(p) { return this.monStatusColor(this.monTrendStatus(p)); },
+        monOpenDeep(id) { this.monitoring.deepPanel = id; this.monitoring.analysis = null; this.monitoring.view = 'deep'; },
+        monDeepPanel() {
+          const dash = this.monitoring.dash;
+          if (!dash || !dash.panels) return null;
+          return dash.panels.find(p => p.id === this.monitoring.deepPanel) || null;
+        },
+        monBackToLauncher() {
+          const w = this.monitoring;
+          w.view = 'launcher';
+          w.dash = null;
+          w.grabbed = [];
+          w.analysis = null;
+          w.convo = [];
+        },
+        monStatusColor(s) {
+          if (s === 'critical' || s === 'bad') return 'var(--cp-danger,#f85149)';
+          if (s === 'warn') return 'var(--cp-warning,#d29922)';
+          return 'var(--cp-success,#3fb950)';
+        },
+        monStatusClass(s) {
+          if (s === 'critical' || s === 'bad') return 'mon-bad';
+          if (s === 'warn') return 'mon-warn';
+          return 'mon-ok';
+        },
+        _monTrend(p) {
+          const s0 = (p && p.series || [])[0];
+          const d = (s0 && s0.data) || [];
+          if (d.length < 4) return { dir: 'flat', pct: 0 };
+          const q = Math.max(2, Math.floor(d.length / 4));
+          const head = d.slice(0, q), tail = d.slice(-q);
+          const avg = a => a.reduce((x, pt) => x + pt[1], 0) / a.length;
+          const a = avg(head), b = avg(tail);
+          const pct = a === 0 ? 0 : Math.round(((b - a) / Math.abs(a)) * 100);
+          return { dir: pct > 6 ? 'up' : pct < -6 ? 'down' : 'flat', pct };
+        },
+        monTrendStatus(p) {
+          if (!p) return 'ok';
+          const tr = this._monTrend(p);
+          const isErr = /error|5xx|deadlock|lag|saturation|cpu|latency|duration/i.test(p.title || '');
+          if (isErr && tr.dir === 'up' && Math.abs(tr.pct) >= 15) return /error|5xx/i.test(p.title || '') ? 'critical' : 'warn';
+          if (tr.dir === 'down' && /availability|cache|hit|uptime/i.test(p.title || '')) return 'warn';
+          if (p.alert) return 'warn';
+          return 'ok';
+        },
+        monTrendLabel(p) {
+          const tr = this._monTrend(p);
+          const arrow = tr.dir === 'up' ? '▲' : tr.dir === 'down' ? '▼' : '→';
+          return arrow + ' ' + Math.abs(tr.pct) + '%';
+        },
+        monPanelLast(p) {
+          const s0 = (p && p.series || [])[0];
+          const d = (s0 && s0.data) || [];
+          const last = d.length ? d[d.length - 1][1] : 0;
+          return (Math.round(last * 100) / 100) + (p && p.unit || '');
+        },
+        monSparkStatus(d) {
+          const s = (d && d.spark) || [];
+          if (s.length < 4) return 'ok';
+          const q = Math.max(2, Math.floor(s.length / 4));
+          const a = s.slice(0, q).reduce((x, y) => x + y, 0) / q;
+          const b = s.slice(-q).reduce((x, y) => x + y, 0) / q;
+          const pct = a === 0 ? 0 : ((b - a) / Math.abs(a)) * 100;
+          return pct >= 25 ? 'warn' : 'ok';
+        },
+        monSpark(spark, color) {
+          const s = spark || [];
+          if (!s.length) return '';
+          const w = 120, h = 30, pad = 2;
+          let mn = Math.min.apply(null, s), mx = Math.max.apply(null, s);
+          if (mn === mx) { mn -= 1; mx += 1; }
+          const x = i => pad + (i / Math.max(1, s.length - 1)) * (w - 2 * pad);
+          const y = v => (h - pad) - ((v - mn) / (mx - mn)) * (h - 2 * pad);
+          let d = '';
+          s.forEach((v, i) => { d += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; });
+          return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:120px;height:30px"><path d="' + d + '" fill="none" stroke="' + (color || 'var(--cp-accent)') + '" stroke-width="1.5"/></svg>';
+        },
+        _monTsSvg(series, height) {
+          const w = 600, h = height || 120, pad = 4;
+          const all = [];
+          (series || []).forEach(s => (s.data || []).forEach(pt => all.push(pt[1])));
+          if (!all.length) return '<div style="height:' + h + 'px"></div>';
+          let mn = Math.min.apply(null, all), mx = Math.max.apply(null, all);
+          if (mn === mx) { mn -= 1; mx += 1; }
+          const pal = ['#2fb2a6', '#58a6ff', '#a371f7', '#d29922', '#f85149'];
+          const x = (i, n) => pad + (i / Math.max(1, n - 1)) * (w - 2 * pad);
+          const y = v => (h - pad) - ((v - mn) / (mx - mn)) * (h - 2 * pad);
+          let paths = '';
+          (series || []).forEach((s, si) => {
+            const d = (s.data || []);
+            if (!d.length) return;
+            const col = pal[si % pal.length];
+            let dpath = '';
+            d.forEach((pt, i) => { dpath += (i ? 'L' : 'M') + x(i, d.length).toFixed(1) + ' ' + y(pt[1]).toFixed(1) + ' '; });
+            if (si === 0) {
+              const area = dpath + 'L' + x(d.length - 1, d.length).toFixed(1) + ' ' + (h - pad) + ' L' + x(0, d.length).toFixed(1) + ' ' + (h - pad) + ' Z';
+              paths += '<path d="' + area + '" fill="' + col + '" opacity="0.10"/>';
+            }
+            paths += '<path d="' + dpath + '" fill="none" stroke="' + col + '" stroke-width="1.6"/>';
+          });
+          return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:' + h + 'px">' + paths + '</svg>';
+        },
+        monPanelBody(p, height) {
+          if (!p) return '';
+          if (p.type === 'gauge') {
+            const s0 = (p.series || [])[0];
+            const data = (s0 && s0.data) || [];
+            const last = data.length ? data[data.length - 1][1] : 0;
+            let pct;
+            if ((p.unit || '') === '%') pct = Math.max(0, Math.min(100, last));
+            else { const mx = Math.max.apply(null, data.map(d => d[1]).concat([1])); pct = Math.max(0, Math.min(100, (last / mx) * 100)); }
+            const r = 46;
+            const circ = Math.PI * r;
+            const off = circ * (1 - pct / 100);
+            const col = this.monStatusColor(this.monTrendStatus(p));
+            const h = height || 120;
+            return '<div class="monx-gauge">'
+              + '<svg viewBox="0 0 120 70" style="width:150px;height:' + Math.min(96, h) + 'px">'
+              + '<path d="M14 60 A46 46 0 0 1 106 60" fill="none" stroke="var(--cp-border)" stroke-width="9" stroke-linecap="round"/>'
+              + '<path d="M14 60 A46 46 0 0 1 106 60" fill="none" stroke="' + col + '" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>'
+              + '</svg>'
+              + '<div class="gv">' + (Math.round(last * 100) / 100) + (p.unit || '') + '</div>'
+              + '<div class="gl">' + (s0 ? s0.name : '') + '</div>'
+              + '</div>';
+          }
+          return this._monTsSvg(p.series, height || 120);
+        },
+        monAnalysisHtml(a) {
+          if (!a) return '';
+          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const cls = this.monStatusClass(a.status);
+          let h = '';
+          h += '<div class="monx-verdict" style="border-left-color:' + this.monStatusColor(a.status) + '">';
+          h += '<span class="' + cls + '" style="font-weight:700">' + esc(a.statusText || '') + '</span>';
+          h += '<span>' + esc(a.headline || '') + (a.ai ? '' : ' <span style="color:var(--cp-text-faint);font-size:11px">· deterministic</span>') + '</span>';
+          h += '</div>';
+          if (a.findings && a.findings.length) {
+            h += '<ul class="monx-findings">';
+            a.findings.forEach(f => { h += '<li><span>•</span><span>' + esc(f) + '</span></li>'; });
+            h += '</ul>';
+          }
+          if (a.suggestions && a.suggestions.length) {
+            h += '<div class="monx-sugg"><div class="sl">Suggested next steps</div><ul style="list-style:none;padding:0;margin:0">';
+            a.suggestions.forEach(s => { h += '<li>→ ' + esc(s) + '</li>'; });
+            h += '</ul></div>';
+          }
+          if (a.metrics && a.metrics.length) {
+            h += '<div class="monx-sugg" style="margin-top:10px"><div class="sl">Metrics</div><ul style="list-style:none;padding:0;margin:0">';
+            a.metrics.forEach(m => {
+              const arrow = m.trend === 'up' ? '▲' : m.trend === 'down' ? '▼' : '→';
+              h += '<li>' + esc(m.title) + ' — ' + esc(m.last) + esc(m.unit || '') + ' <span style="color:var(--cp-text-faint)">' + arrow + ' ' + Math.abs(m.changePct || 0) + '%</span></li>';
+            });
+            h += '</ul></div>';
+          }
+          return h;
+        },
+
         async loadPulse() {
           try {
             const r = await this.request('/api/me-ai/pulse');

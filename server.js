@@ -917,6 +917,8 @@ function recordActivity(ev) {
 
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
+// Monitoring.AI — Azure Managed Grafana bridge (live dashboards + sample fallback).
+const grafana = require('./grafana');
 // Wire the canonical usage sink once: EVERY AI run that flows through the
 // sdk-runner (runAgent/runChat/runPrompt) — present or future — auto-appends a
 // row to the usage ledger, so all AI usage shows up in Reports with no per-call
@@ -9424,10 +9426,138 @@ app.put('/api/settings', (req, res) => {
   }
 });
 
-// --- System agents: read the registry + save per-agent behavior overrides ------
-// GET returns each built-in AI system agent (role, where-used, tools, model
-// category, output contract) merged with the user's saved override (custom
-// instructions + optional pinned model). PUT saves ONE agent's override.
+// ============================================================================
+// Monitoring.AI — Azure Managed Grafana + AI
+// ----------------------------------------------------------------------------
+// Spin up dashboards from a prompt, view Grafana panels locally, grab panels/
+// datasets, and hand them to an AI copilot for trend/status analysis. Degrades
+// to honest sample data when Grafana is unconfigured so the page is usable out
+// of the box. LLM calls (generate/analyze) fall back to deterministic helpers
+// in grafana.js when the model is unavailable.
+// ============================================================================
+
+// Connection status + data sources.
+app.get('/api/monitoring/status', async (req, res) => {
+  try { res.json(await grafana.status()); }
+  catch (e) { res.status(200).json({ configured: false, error: e.message, sources: [] }); }
+});
+
+// Read/update the Grafana connection (thin wrapper over settings.grafana so the
+// Monitoring.AI page can connect inline without visiting the settings screen).
+app.get('/api/monitoring/connection', (req, res) => {
+  const g = grafana.cfg();
+  // Never echo the token back; report only whether one is set.
+  res.json({ enabled: g.enabled, url: g.url, orgId: g.orgId, hasToken: !!g.token });
+});
+app.put('/api/monitoring/connection', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = settings.getSettings().grafana || {};
+    const next = {
+      enabled: typeof b.enabled === 'boolean' ? b.enabled : !!cur.enabled,
+      url: typeof b.url === 'string' ? b.url.trim() : (cur.url || ''),
+      orgId: typeof b.orgId === 'string' ? b.orgId.trim() : (cur.orgId || ''),
+      // Only overwrite the token when a non-empty one is supplied; blank keeps the current token.
+      token: (typeof b.token === 'string' && b.token.trim()) ? b.token.trim() : (cur.token || ''),
+    };
+    settings.updateSettings({ grafana: next });
+    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    const status = await grafana.status();
+    res.json({ ok: true, connection: { enabled: next.enabled, url: next.url, orgId: next.orgId, hasToken: !!next.token }, status });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// Dashboard list (live when connected; sample + local spun-up otherwise).
+app.get('/api/monitoring/dashboards', async (req, res) => {
+  try { res.json(await grafana.listDashboards()); }
+  catch (e) { res.status(200).json({ configured: grafana.configured(), error: e.message, dashboards: [] }); }
+});
+
+// One dashboard with its panels + series.
+app.get('/api/monitoring/dashboard/:uid', async (req, res) => {
+  try { res.json(await grafana.getDashboard(req.params.uid)); }
+  catch (e) { res.status(200).json({ error: e.message, uid: req.params.uid, panels: [] }); }
+});
+
+// Spin up a dashboard from a natural-language prompt. Uses the model to draft a
+// spec (title + panels), then stores it locally and best-effort pushes to Grafana.
+app.post('/api/monitoring/generate', async (req, res) => {
+  const prompt = String((req.body && req.body.prompt) || '').trim();
+  if (!prompt) return res.status(400).json({ ok: false, error: 'A prompt is required.' });
+  let spec = null;
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null,
+      prompt:
+        'You are a monitoring dashboard designer. Given a request, output ONLY a JSON object describing a dashboard:\n' +
+        '{"title": string, "tags": string[], "panels": [{"title": string, "type": "timeseries"|"gauge", "unit": string}]}\n' +
+        'Rules: 4–7 focused panels; pick real observability signals (rate, errors, latency, saturation, availability, etc.); ' +
+        'units like "%", "ms", "req/s", "MB/s"; no prose, no code fences.\n\nRequest: ' + prompt,
+      sessionId: require('crypto').randomUUID(),
+      resume: false,
+      cwd: __dirname,
+      availableTools: [],
+      meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
+      onChunk: (c) => { acc += c; },
+    });
+    if (!(result && result.fallback)) {
+      const j = _connectExtractJson(acc || (result && result.output) || '');
+      if (j && Array.isArray(j.panels) && j.panels.length) spec = { ...j, ai: true, prompt };
+    }
+  } catch (e) { /* fall back below */ }
+  if (!spec) spec = grafana.deterministicSpec(prompt);
+  try {
+    const created = await grafana.createDashboard(spec);
+    res.json({ ok: true, ai: !!spec.ai, dashboard: created, spec: { title: spec.title, panels: spec.panels } });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// Analyze a set of grabbed panels (trend/status) + answer an optional question.
+app.post('/api/monitoring/analyze', async (req, res) => {
+  const panels = Array.isArray(req.body && req.body.panels) ? req.body.panels : [];
+  const question = String((req.body && req.body.question) || '').trim();
+  if (!panels.length) return res.status(400).json({ ok: false, error: 'No panels to analyze.' });
+  const deterministic = grafana.deterministicAnalysis(panels, question);
+  try {
+    const brief = panels.map(p => grafana.panelSummary(p));
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null,
+      prompt:
+        'You are a monitoring analyst. Given panel summaries (each: title, unit, latest value, trend, changePct over ~6h) ' +
+        'and an optional question, assess the status and give findings + actionable suggestions grounded ONLY in the data.\n' +
+        'Output ONLY JSON: {"status":"ok"|"warn"|"critical","statusText":string,"headline":string,"findings":string[],"suggestions":string[]}\n' +
+        'Be specific, cite the metric + number. No fabrication beyond the summaries. No code fences.\n\n' +
+        'Panels:\n' + JSON.stringify(brief, null, 2) +
+        (question ? ('\n\nQuestion: ' + question) : ''),
+      sessionId: require('crypto').randomUUID(),
+      resume: false,
+      cwd: __dirname,
+      availableTools: [],
+      meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
+      onChunk: (c) => { acc += c; },
+    });
+    if (!(result && result.fallback)) {
+      const j = _connectExtractJson(acc || (result && result.output) || '');
+      if (j && (Array.isArray(j.findings) || j.headline)) {
+        return res.json({
+          ok: true, ai: true,
+          status: j.status || deterministic.status,
+          statusText: j.statusText || deterministic.statusText,
+          headline: j.headline || deterministic.headline,
+          findings: Array.isArray(j.findings) && j.findings.length ? j.findings : deterministic.findings,
+          suggestions: Array.isArray(j.suggestions) && j.suggestions.length ? j.suggestions : deterministic.suggestions,
+          metrics: deterministic.metrics,
+          question,
+        });
+      }
+    }
+  } catch (e) { /* fall back to deterministic */ }
+  res.json({ ok: true, ...deterministic });
+});
+
+
 app.get('/api/system-agents', (req, res) => {
   try {
     const overrides = settings.getSettings().systemAgentOverrides || {};
