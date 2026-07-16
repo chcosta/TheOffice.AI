@@ -39078,10 +39078,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 try {
                   const nw = img.naturalWidth || img.width || 800;
                   const nh = img.naturalHeight || img.height || 300;
-                  // Cap the raster so the base64 payload stays small — a huge data URI both
-                  // bloats the Teams/WorkIQ prompt (slow → timeout) and blows past size limits.
-                  const MAXW = 1000;
-                  const scale = nw > MAXW ? (MAXW / nw) : 1;
+                  // Render the vector SVG at a fixed, display-friendly width so the comic
+                  // stays crisp in Teams/Outlook. The source is an SVG (not a bitmap), so
+                  // drawing it larger RE-RASTERIZES the vector — text + line art stay sharp
+                  // at any size (a 1:1 render of a small SVG is what looked blurry once the
+                  // client upscaled it). Bytes now travel in a direct Graph POST (not an LLM
+                  // prompt), so a larger PNG is fine.
+                  const TARGET = 2000;
+                  const scale = nw > 0 ? (TARGET / nw) : 1;
                   const w = Math.max(1, Math.round(nw * scale));
                   const h = Math.max(1, Math.round(nh * scale));
                   const c = document.createElement('canvas'); c.width = w; c.height = h;

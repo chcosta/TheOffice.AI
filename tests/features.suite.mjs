@@ -938,9 +938,10 @@ await t.test('Pulse.AI Reel — forward/back nav, tap-to-fullscreen, copy-in-ful
 await t.test('Pulse.AI Teams share — data-URI comics post via Graph hostedContents (not truncated inline base64) + capped raster', () => {
   const src = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
-  // Client caps the rasterized PNG so the base64 payload stays small (avoids the timeout).
-  t.ok(/const MAXW = 1000;/.test(src), 'raster width is capped');
-  t.ok(/const scale = nw > MAXW \? \(MAXW \/ nw\) : 1;/.test(src), 'raster scales down oversized art');
+  // Client renders the vector SVG at a fixed display width so the comic stays crisp
+  // (a 1:1 raster of a small SVG looked blurry once the client upscaled it).
+  t.ok(/const TARGET = 2000;/.test(src), 'raster targets a crisp display width');
+  t.ok(/const scale = nw > 0 \? \(TARGET \/ nw\) : 1;/.test(src), 'the vector is re-rasterized to the target width (up or down)');
   // Server: data-URI images are lifted OUT of the body into a Graph hostedContents array,
   // and the body references them by ../hostedContents/{id}/$value (short, never truncated).
   const route = (srv.match(/app\.post\('\/api\/me-ai\/pulse\/share\/teams'[\s\S]*?\n\}\);/) || [''])[0];
