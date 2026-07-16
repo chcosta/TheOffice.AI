@@ -1934,4 +1934,34 @@ await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars
   t.ok(/monx-table/.test(html) && /monx-nodata/.test(html), 'SPA has table + honest no-data render surfaces');
 });
 
+await t.test('monitoring.ai: hybrid embed — real Grafana panels + native data path coexist', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // Large-series crash fix: no Math.min/max.apply spreads left in the mon renderers.
+  t.ok(!/Math\.(min|max)\.apply\(null,\s*(all|s|data)/.test(html), 'no Math.min/max.apply spreads in the panel renderers (stack-overflow guard)');
+
+  // State + persisted toggle.
+  t.ok(/embedMode:/.test(html) && /localStorage\.getItem\('mon-embed-mode'\)/.test(html), 'embedMode state is persisted');
+  t.ok(/monSetEmbedMode\(/.test(html), 'View toggle wired to monSetEmbedMode');
+
+  // Methods present.
+  t.ok(/monEmbedActive\(p\)\s*\{/.test(html), 'monEmbedActive gate exists');
+  t.ok(/monPanelEmbedUrl\(p\)\s*\{/.test(html), 'monPanelEmbedUrl builder exists');
+  t.ok(/monPanelGrafanaUrl\(p\)\s*\{/.test(html), 'monPanelGrafanaUrl (open-in-Grafana) builder exists');
+
+  // Embed only when connected to a non-local dashboard.
+  t.ok(/w\.embedMode === 'grafana'/.test(html) && /!w\.dash\.local/.test(html) && /w\.conn && w\.conn\.url/.test(html), 'embed gated on grafana mode + non-local dash + a configured connection');
+
+  // d-solo URL carries panelId + time + theme; deep link carries viewPanel.
+  t.ok(/\/d-solo\//.test(html) && /params\.set\('panelId'/.test(html) && /params\.set\('theme'/.test(html), 'solo embed URL includes panelId + theme');
+  t.ok(/params\.set\('viewPanel'/.test(html), 'deep link uses viewPanel');
+  t.ok(/params\.set\('from'/.test(html) && /params\.set\('to'/.test(html) && /append\('var-' \+ name/.test(html), 'embed URLs thread from/to + var-* (multi-value repeated)');
+
+  // Markup: conditional iframe vs native body + an open-in-Grafana affordance; Grab stays either way.
+  t.ok(/x-if="monEmbedActive\(p\)"/.test(html) && /class="monx-embed"/.test(html), 'panel renders a real Grafana iframe when embed is active');
+  t.ok(/x-if="!monEmbedActive\(p\)"/.test(html) && /x-html="monPanelBody\(p\)"/.test(html), 'native renderer kept as the default branch');
+  t.ok(/class="monx-open"/.test(html) && /monPanelGrafanaUrl\(p\)/.test(html), 'per-panel open-in-Grafana fallback link');
+  t.ok(/@click="monGrabToggle\(p\.id\)"/.test(html), 'Grab (native data path for AI) stays available in both modes');
+});
+
 await t.done();

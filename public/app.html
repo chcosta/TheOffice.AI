@@ -20588,7 +20588,12 @@
               .monx-ptools button{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:6px; padding:3px 7px; color:var(--cp-text-muted); font-size:11px; }
               .monx-ptools button:hover{ color:var(--cp-text); }
               .monx-ptools button.on{ color:var(--mon-ai); border-color:var(--mon-ai); }
+              .monx-ptools .monx-open{ display:inline-flex; align-items:center; justify-content:center; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:6px; padding:3px 7px; color:var(--cp-text-muted); font-size:11px; text-decoration:none; }
+              .monx-ptools .monx-open:hover{ color:var(--mon-graf); border-color:var(--mon-graf); }
               .monx-pbody{ padding:2px 10px 12px; }
+              .monx-embedwrap{ padding:0; }
+              .monx-embed{ display:block; width:100%; height:150px; border:0; background:transparent; border-radius:0 0 11px 11px; }
+              .monx-panel.wide .monx-embed{ height:200px; }
               .monx-pbody svg{ display:block; width:100%; }
               .monx-gauge{ display:flex; flex-direction:column; align-items:center; padding:6px 0 8px; }
               .monx-gauge .gv{ font-size:20px; font-weight:700; margin-top:-28px; }
@@ -20815,6 +20820,13 @@
                           </template>
                         </select>
                       </label>
+                      <label class="monx-ctl" x-show="monitoring.conn && monitoring.conn.url" title="Native = our renderer (full data + AI). Grafana = pixel-perfect embedded panels; Grab &amp; Analyze still use the live data either way.">
+                        <span class="cl">View</span>
+                        <select @change="monSetEmbedMode($event.target.value)">
+                          <option value="native" :selected="monitoring.embedMode !== 'grafana'">Native</option>
+                          <option value="grafana" :selected="monitoring.embedMode === 'grafana'">Grafana</option>
+                        </select>
+                      </label>
                       <template x-for="v in monDashVariables()" :key="v.name">
                         <label class="monx-ctl">
                           <span class="cl" x-text="v.label"></span>
@@ -20842,10 +20854,18 @@
                             <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
                             <div class="monx-ptools">
                               <button :class="{ on: monIsGrabbed(p.id) }" @click="monGrabToggle(p.id)" title="Grab data for AI">Grab</button>
+                              <template x-if="monEmbedActive(p)"><a class="monx-open" :href="monPanelGrafanaUrl(p)" target="_blank" rel="noopener" title="Open this panel in Grafana">↗</a></template>
                               <button @click="monOpenDeep(p.id)" title="Deep dive">⤢</button>
                             </div>
                           </div>
-                          <div class="monx-pbody" x-html="monPanelBody(p)"></div>
+                          <template x-if="monEmbedActive(p)">
+                            <div class="monx-pbody monx-embedwrap">
+                              <iframe class="monx-embed" :src="monPanelEmbedUrl(p)" loading="lazy" referrerpolicy="no-referrer" title="Grafana panel"></iframe>
+                            </div>
+                          </template>
+                          <template x-if="!monEmbedActive(p)">
+                            <div class="monx-pbody" x-html="monPanelBody(p)"></div>
+                          </template>
                         </div>
                       </template>
                     </div>
@@ -20906,7 +20926,12 @@
                       <div style="color:var(--cp-text-faint);font-size:12.5px;margin-bottom:16px" x-text="(monitoring.dash ? monitoring.dash.title : '') + ' · ' + monDeepPanel().unit"></div>
                       <div class="monx-bigpanel">
                         <div style="color:var(--cp-text-muted);font-size:12px;margin-bottom:6px" x-text="monDeepPanel().series ? monDeepPanel().series.map(s => s.name).join(', ') : ''"></div>
-                        <div x-html="monPanelBody(monDeepPanel(), 230)"></div>
+                        <template x-if="monEmbedActive(monDeepPanel())">
+                          <iframe class="monx-embed" style="height:280px" :src="monPanelEmbedUrl(monDeepPanel())" loading="lazy" referrerpolicy="no-referrer" title="Grafana panel"></iframe>
+                        </template>
+                        <template x-if="!monEmbedActive(monDeepPanel())">
+                          <div x-html="monPanelBody(monDeepPanel(), 230)"></div>
+                        </template>
                       </div>
                       <div class="monx-metricrow">
                         <div class="monx-metric"><div class="ml">Latest</div><div class="mv" x-text="monPanelLast(monDeepPanel())"></div></div>
@@ -31088,6 +31113,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           folderOpen: {},          // folder-name -> bool (collapsed by default)
           filters: { from: 'now-6h', to: 'now', vars: {} }, // active time range + template variables
           refreshing: false,       // re-querying panels with current filters
+          embedMode: (() => { try { return localStorage.getItem('mon-embed-mode') === 'grafana' ? 'grafana' : 'native'; } catch (_) { return 'native'; } })(), // 'native' (our renderer) | 'grafana' (embed real panels)
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -39316,6 +39342,56 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         monDashVariables() {
           const w = this.monitoring;
           return (w.dash && w.dash.variables) || [];
+        },
+        // --- Hybrid embed: render the real Grafana panel in an iframe while our own
+        // query bridge still powers Grab & Analyze. Native stays the default; the
+        // "View" control flips this per session. ------------------------------------
+        monSetEmbedMode(v) {
+          const mode = v === 'grafana' ? 'grafana' : 'native';
+          this.monitoring.embedMode = mode;
+          try { localStorage.setItem('mon-embed-mode', mode); } catch (e) {}
+        },
+        monEmbedActive(p) {
+          const w = this.monitoring;
+          return w.embedMode === 'grafana' && !!(w.dash && !w.dash.local && w.dash.uid) && !!(w.conn && w.conn.url);
+        },
+        // Append from/to + var-* (multi-value → repeated params) shared by the solo
+        // embed URL and the "open in Grafana" deep link.
+        _monEmbedParams() {
+          const w = this.monitoring;
+          const f = w.filters || {};
+          const params = new URLSearchParams();
+          params.set('orgId', String((w.conn && w.conn.orgId) || 1));
+          params.set('from', f.from || 'now-6h');
+          params.set('to', f.to || 'now');
+          const vars = (f.vars) || {};
+          Object.keys(vars).forEach(name => {
+            const val = vars[name];
+            if (Array.isArray(val)) val.forEach(v => { if (v != null && v !== '') params.append('var-' + name, v); });
+            else if (val != null && val !== '') params.append('var-' + name, val);
+          });
+          return params;
+        },
+        monPanelEmbedUrl(p) {
+          const w = this.monitoring;
+          const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
+          if (!base || !w.dash || !w.dash.uid || !p) return '';
+          const params = this._monEmbedParams();
+          params.set('panelId', String(p.id));
+          let theme = 'dark';
+          try { theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; } catch (e) {}
+          params.set('theme', theme);
+          const slug = w.dash.slug || '_';
+          return base + '/d-solo/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
+        },
+        monPanelGrafanaUrl(p) {
+          const w = this.monitoring;
+          const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
+          if (!base || !w.dash || !w.dash.uid || !p) return '';
+          const params = this._monEmbedParams();
+          params.set('viewPanel', String(p.id));
+          const slug = w.dash.slug || 'dashboard';
+          return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
         },
         async monGenerate() {
           const w = this.monitoring;
