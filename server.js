@@ -9469,6 +9469,14 @@ app.put('/api/monitoring/connection', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// Force the connection to re-authenticate: drop the cached Azure identity token
+// (needed after assigning a Grafana role, since the role is baked into the token)
+// and re-run the health check with a freshly minted token.
+app.post('/api/monitoring/reconnect', async (req, res) => {
+  try { grafana.resetAuthCache(); res.json({ ok: true, status: await grafana.status() }); }
+  catch (e) { res.status(200).json({ ok: false, error: e.message }); }
+});
+
 // Manually push a local (spun-up) dashboard to Grafana.
 app.post('/api/monitoring/dashboard/:uid/push', async (req, res) => {
   try { res.json(await grafana.pushDashboard(req.params.uid)); }

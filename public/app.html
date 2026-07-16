@@ -20502,6 +20502,11 @@
               .monx-conn-actions{ grid-column:1 / -1; display:flex; align-items:center; gap:10px; margin-top:2px; }
               .monx-conn-actions .save{ background:var(--mon-accent); border:0; border-radius:8px; padding:8px 16px; color:#fff; font-weight:600; }
               .monx-conn-actions .msg{ color:var(--cp-text-muted); font-size:12.5px; }
+              .monx-conn-actions .retry{ background:transparent; border:1px solid var(--cp-border); border-radius:8px; padding:8px 14px; color:var(--cp-text); font-weight:600; cursor:pointer; }
+              .monx-conn-actions .retry:hover{ border-color:var(--mon-accent); color:var(--mon-accent); }
+              .monx-conn-actions .retry:disabled{ opacity:.55; cursor:default; }
+              .monx-conn-hint{ grid-column:1 / -1; margin:6px 0 0; font-size:12px; line-height:1.5; color:var(--cp-text-muted); }
+              .monx-conn-hint code{ background:var(--cp-surface-2, rgba(127,127,127,.14)); padding:1px 5px; border-radius:4px; font-size:11.5px; }
               /* template grid */
               .monx-grid3{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:12px; }
               .monx-tcard{ text-align:left; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; cursor:pointer; }
@@ -20684,8 +20689,10 @@
                     </label>
                     <div class="monx-conn-actions">
                       <button class="save" @click="monSaveConnection()" :disabled="monitoring.connSaving" x-text="monitoring.connSaving ? 'Saving…' : 'Save connection'"></button>
+                      <button class="retry" @click="monReconnect()" :disabled="monitoring.connReconnecting" x-show="monitoring.conn.enabled && monitoring.conn.authMode !== 'token'" x-text="monitoring.connReconnecting ? 'Reconnecting…' : 'Retry connection'"></button>
                       <span class="msg" x-text="monitoring.connMsg"></span>
                     </div>
+                    <p class="monx-conn-hint" x-show="monitoring.conn.enabled && monitoring.conn.authMode !== 'token'">After assigning yourself a Grafana role in Azure, click <strong>Retry connection</strong> to re-authenticate with a fresh token. If it still fails, the sign-in token may need a minute to refresh (role changes can take a few minutes to propagate) — wait briefly and retry, or run <code>az login</code> again.</p>
                   </div>
                 </div>
 
@@ -31021,6 +31028,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           conn: { url: '', orgId: '', token: '', hasToken: false, enabled: false, authMode: 'aad', pushByDefault: true },
           connOpen: false,
           connSaving: false,
+          connReconnecting: false,
           connMsg: '',
         },
         chainModalOpen: false,
@@ -39288,6 +39296,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             w.connMsg = 'Save failed: ' + (e.message || e);
           } finally {
             w.connSaving = false;
+          }
+        },
+        async monReconnect() {
+          const w = this.monitoring;
+          if (w.connReconnecting) return;
+          w.connReconnecting = true;
+          w.connMsg = 'Reconnecting…';
+          try {
+            const r = await this.request('/api/monitoring/reconnect', { method: 'POST', body: '{}' });
+            if (r && r.status) w.status = r.status;
+            if (w.status && w.status.healthy) {
+              w.connMsg = 'Connected.';
+              try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
+            } else if (w.status && w.status.authError) {
+              w.connMsg = w.status.authError;
+            } else {
+              w.connMsg = 'Still not connected.';
+            }
+          } catch (e) {
+            w.connMsg = 'Reconnect failed: ' + (e.message || e);
+          } finally {
+            w.connReconnecting = false;
           }
         },
         monTemplates() {

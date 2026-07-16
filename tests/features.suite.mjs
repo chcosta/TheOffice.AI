@@ -1869,6 +1869,12 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   t.ok(/w\.dashboards\.find\(d => d\.local\) \|\| w\.dashboards\[0\]/.test(html), 'monLoad lands in the studio by auto-opening a dashboard');
   t.ok(/out\['My dashboards'\]/.test(html), 'rail groups My dashboards vs Azure Grafana folders');
   t.ok(/monNewPrompt\(\)/.test(html) && /monEditConnection\(\)/.test(html) && /monBackToStudio\(\)/.test(html), 'studio nav: new-prompt, edit-connection, back-to-studio');
+  // Reconnect / retry credentials (clear the cached Azure token so a freshly-granted role is picked up)
+  t.ok(/function resetAuthCache\(\)/.test(graf) && /_aadCred = null; _aadTok = ''; _aadExp = 0;/.test(graf), 'grafana.js clears the cached Azure token on reconnect');
+  t.ok(/\bresetAuthCache,/.test(graf), 'resetAuthCache is exported');
+  t.ok(srv.includes("app.post('/api/monitoring/reconnect'") && /grafana\.resetAuthCache\(\); res\.json\(\{ ok: true, status: await grafana\.status\(\)/.test(srv), 'server reconnect route clears cache then re-checks status');
+  t.ok(/async monReconnect\(\)/.test(html) && /\/api\/monitoring\/reconnect/.test(html), 'SPA monReconnect posts the reconnect route');
+  t.ok(/@click="monReconnect\(\)"/.test(html) && /Retry connection/.test(html), 'connection panel has a Retry connection button');
 });
 
 await t.done();

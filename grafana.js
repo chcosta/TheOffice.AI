@@ -60,6 +60,10 @@ function configured() {
 // ---------------------------------------------------------------------------
 const AMG_SCOPE = 'https://grafana.azure.com/.default';
 let _aadCred = null, _aadTok = '', _aadExp = 0;
+// Drop the cached Azure identity + token so the next call re-mints. Needed after
+// a Grafana role is assigned: the role is baked into the token at mint time, so a
+// stale cached token would keep failing until it expired on its own.
+function resetAuthCache() { _aadCred = null; _aadTok = ''; _aadExp = 0; }
 async function _aadBearer() {
   const now = Date.now();
   if (_aadTok && now < _aadExp - 60000) return _aadTok;
@@ -589,6 +593,7 @@ function deterministicSpec(prompt) {
 module.exports = {
   cfg,
   configured,
+  resetAuthCache,
   status,
   listDashboards,
   getDashboard,
