@@ -20717,13 +20717,19 @@
               .cmpx-fs .nlx-studio.chat-open,
               .cmpx-fs .nlx-studio.cmpx-paired.paired-open,
               .cmpx-fs .nlx-studio.cmpx-paired.paired-collapsed{grid-template-columns:1fr}
-              /* View full screen — only the document / preview stage. */
+              /* View full screen — only the document / preview stage. NOTE: these must
+                 out-specify `.nlx-studio.cmpx-paired > .nlx-stage` (0,3,0) below, so we
+                 scope the stage rule through the studio (0,4,0) rather than the plain
+                 `.cmpx-fs-view .nlx-stage` (0,2,0) which would lose the cascade. */
               .cmpx-fs-view .nlx-rail,
               .cmpx-fs-view .cmpx-pair{display:none}
-              .cmpx-fs-view .nlx-stage{height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0}
-              /* Assistant full screen — only the paired assistant. */
+              .cmpx-fs-view .nlx-studio.cmpx-paired > .nlx-stage{height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0}
+              /* Assistant full screen — only the paired assistant. Same specificity trap:
+                 the plain `.cmpx-fs-pair .nlx-stage{display:none}` (0,2,0) loses to the
+                 `.nlx-studio.cmpx-paired > .nlx-stage` rule, leaving the view visible — so
+                 scope the stage hide through the studio (0,4,0). */
               .cmpx-fs-pair .nlx-rail,
-              .cmpx-fs-pair .nlx-stage{display:none}
+              .cmpx-fs-pair .nlx-studio.cmpx-paired > .nlx-stage{display:none}
               .cmpx-fs .cmpx-pair-resize{display:none}
               .cmpx-fs .nlx-scroll{flex:1;min-height:0;overflow:auto}
               /* Docked paired assistant (replaces the What-to-say brief) */

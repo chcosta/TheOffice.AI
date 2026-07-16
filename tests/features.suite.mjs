@@ -862,8 +862,11 @@ await t.test('compose prototype preview auto-sizes to content (no arbitrary vert
     // Fullscreen collapses the studio to a single panel (a genuine focus, not just covering the
     // topbar). Two variants: view hides rail + assistant; assistant hides rail + stage.
     t.ok(/\.cmpx-fs-view \.nlx-rail,\s*\.cmpx-fs-view \.cmpx-pair\{display:none\}/.test(src), 'view fullscreen hides the sources rail + paired assistant');
-    t.ok(/\.cmpx-fs-pair \.nlx-rail,\s*\.cmpx-fs-pair \.nlx-stage\{display:none\}/.test(src), 'assistant fullscreen hides the sources rail + stage');
-    t.ok(/\.cmpx-fs-view \.nlx-stage\{height:calc\(100vh - 96px\)/.test(src), 'view fullscreen stage fills the viewport height');
+    // The stage-hide (assistant fs) + stage-fill (view fs) rules MUST be scoped through the
+    // studio so they out-specify `.nlx-studio.cmpx-paired > .nlx-stage` (0,3,0); otherwise the
+    // plain `.cmpx-fs-pair .nlx-stage` (0,2,0) loses and the view stays visible in pair fs.
+    t.ok(/\.cmpx-fs-pair \.nlx-rail,\s*\.cmpx-fs-pair \.nlx-studio\.cmpx-paired > \.nlx-stage\{display:none\}/.test(src), 'assistant fullscreen hides the rail + stage (studio-scoped to win specificity)');
+    t.ok(/\.cmpx-fs-view \.nlx-studio\.cmpx-paired > \.nlx-stage\{height:calc\(100vh - 96px\)/.test(src), 'view fullscreen stage fills the viewport height (studio-scoped)');
     t.ok(/\.cmpx-fs \.nlx-scroll\{flex:1;min-height:0;overflow:auto\}/.test(src), 'fullscreen scrolls inside the panel');
     // Provenance — the driving comment + framing that produced the CURRENT draft and every version.
     t.ok(/composeProvHas\(compose\.current && compose\.current\.draft\)/.test(src), 'current iteration renders its provenance');
@@ -1454,7 +1457,7 @@ await t.test('compose studio: separate full-screen for the view panel vs the pai
   t.ok(/'cmpx-fs': compose\.fsMode, 'cmpx-fs-view': compose\.fsMode === 'view', 'cmpx-fs-pair': compose\.fsMode === 'pair'/.test(html), 'the compose section exposes cmpx-fs-view / cmpx-fs-pair variants');
   // View mode hides rail + assistant; assistant mode hides rail + stage.
   t.ok(/\.cmpx-fs-view \.nlx-rail,\s*\.cmpx-fs-view \.cmpx-pair\{display:none\}/.test(html), 'view full-screen hides the rail + assistant');
-  t.ok(/\.cmpx-fs-pair \.nlx-rail,\s*\.cmpx-fs-pair \.nlx-stage\{display:none\}/.test(html), 'assistant full-screen hides the rail + stage');
+  t.ok(/\.cmpx-fs-pair \.nlx-rail,\s*\.cmpx-fs-pair \.nlx-studio\.cmpx-paired > \.nlx-stage\{display:none\}/.test(html), 'assistant full-screen hides the rail + stage (studio-scoped so it wins specificity)');
   // Toggling to the assistant opens it; re-clicking the active mode exits.
   const fn = _win(html, 'composeToggleFullscreen(mode) {', 320);
   t.ok(/if \(this\.compose\.fsMode === mode\) \{ this\.compose\.fsMode = ''; return; \}/.test(fn), 're-clicking the active full-screen button exits');
