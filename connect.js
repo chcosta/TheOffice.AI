@@ -523,6 +523,50 @@ function setMeetingBacklog(windows) {
   return st.meta.meetingBacklog;
 }
 
+// ---- Storage-location migration ---------------------------------------------
+
+// Resolve the effective storage dir for an EXPLICIT connectStorageDir value
+// (as it would be stored in settings) without consulting the live settings.
+// An empty/blank value resolves to the default per-user location. Used by the
+// settings route to compute the old vs. new dir around a connectStorageDir change.
+function resolveStorageDir(explicit) {
+  const v = (explicit || '').trim();
+  return v || dataPath('connect');
+}
+
+// Copy the Connect backing files from one storage dir to another WITHOUT
+// clobbering any file already present at the destination. Called when the user
+// changes the connectStorageDir setting so their existing diary/draft data
+// follows the move instead of being orphaned. Best-effort and never throws.
+// Returns { moved, copied:[names], skipped:[names], error? }.
+const _CONNECT_FILES = ['state.json', 'evidence.json', 'draft-versions.json', 'memories.json'];
+function migrateStorageDir(from, to) {
+  const res = { moved: false, copied: [], skipped: [] };
+  try {
+    const src = path.resolve(resolveStorageDir(from));
+    const dst = path.resolve(resolveStorageDir(to));
+    if (src === dst) return res;
+    if (!fs.existsSync(src)) return res; // nothing to migrate
+    try { fs.mkdirSync(dst, { recursive: true }); } catch { /* best effort */ }
+    for (const name of _CONNECT_FILES) {
+      const s = path.join(src, name);
+      const d = path.join(dst, name);
+      if (!fs.existsSync(s)) continue;
+      if (fs.existsSync(d)) { res.skipped.push(name); continue; } // never clobber
+      try {
+        fs.copyFileSync(s, d);
+        res.copied.push(name);
+        res.moved = true;
+      } catch (e) {
+        res.error = e.message;
+      }
+    }
+  } catch (e) {
+    res.error = e.message;
+  }
+  return res;
+}
+
 // ---- Export -----------------------------------------------------------------
 
 // Full backing-data export (state + evidence) for the "Export data" action.
@@ -561,5 +605,7 @@ module.exports = {
   markCollected,
   getMeetingBacklog,
   setMeetingBacklog,
+  resolveStorageDir,
+  migrateStorageDir,
   exportAll,
 };

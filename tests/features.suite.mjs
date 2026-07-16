@@ -1663,7 +1663,7 @@ await t.test('compose library: pin a document to a board (row/card/studio) + non
   // Icon overlap fix: the list-row action toolbar is a floating, occluding overlay
   // (absolute, pointer-events gated, backing gradient) instead of a too-small grid column,
   // and the grid dropped the dead 6th column (now 5 cells: cbx/doc/purpose/when/size).
-  t.ok(/grid-template-columns:26px 1fr 150px 118px 92px;/.test(html), 'list grid is 5 columns (actions no longer reserve a column)');
+  t.ok(/grid-template-columns:26px minmax\(0,1fr\) 150px 118px 92px;/.test(html), 'list grid is 5 columns (actions no longer reserve a column)');
   const rowacts = _win(html, '.cmpx-lib-trow .rowacts{', 400);
   t.ok(/position:absolute/.test(rowacts) && /pointer-events:none/.test(rowacts), 'rowacts floats as an overlay, click-through when hidden');
   t.ok(/linear-gradient\([\s\S]{0,120}var\(--cp-surface\)/.test(rowacts), 'rowacts has an occluding backing so icons never bleed into the size text');
@@ -1749,6 +1749,40 @@ await t.test('documents explorer: folder tree, drag-move, and additive-only grou
   t.ok(/composeLibOpen\(c\)/.test(docRow), 'explorer doc rows still open via composeLibOpen (Compose.AI + version history)');
   t.ok(/openQuickPin\('document'/.test(docRow), 'explorer doc rows remain pinnable to a workspace');
   t.ok(/draggable="true"/.test(docRow) && /composeDocMove\(compose\.lib\.dragDoc/.test(html), 'documents drag onto folders to file them');
+});
+
+await t.test('compose explorer: doc rows are not clipped (grid min-width floor)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // The doc-row grid must floor the flexible title track at 0, not at min-content,
+  // so the row never overflows the narrow explorer docs pane (was 1fr → clipped by
+  // .cmpx-fx-docs overflow:hidden). Headless-verified: scrollWidth==clientWidth.
+  t.ok(/26px minmax\(0,1fr\) 150px 118px 92px/.test(html), 'doc-row grid uses minmax(0,1fr) for the title track');
+  t.ok(/\.cmpx-lib-trow \.doc\{min-width:0\}/.test(html), '.doc grid item allows shrinking below content width');
+});
+
+await t.test('data-paths: SUPERVISOR_DATA_DIR env aligns to the resolved dir', () => {
+  const src = readFileSync('data-paths.js', 'utf8');
+  // The split-brain fix: modules that read process.env.SUPERVISOR_DATA_DIR directly
+  // (capabilities/marketplace/marketplace-design/agentPackage) must see the SAME dir
+  // the redirect breadcrumb resolves to. data-paths sets the env to DATA_DIR.
+  t.ok(/process\.env\.SUPERVISOR_DATA_DIR = DATA_DIR;/.test(src), 'data-paths exports the resolved DATA_DIR to the env var');
+  // Must be set AFTER DATA_DIR is resolved (env line comes after the DATA_DIR const).
+  t.ok(src.indexOf('const DATA_DIR =') < src.indexOf('process.env.SUPERVISOR_DATA_DIR = DATA_DIR;'), 'env is set after DATA_DIR resolves');
+});
+
+await t.test('connect: storage-folder change migrates diary data', () => {
+  const csrc = readFileSync('connect.js', 'utf8');
+  t.ok(/function resolveStorageDir\(explicit\)/.test(csrc), 'connect.resolveStorageDir exists');
+  const mig = _win(csrc, 'function migrateStorageDir(from, to)', 900);
+  t.ok(mig, 'connect.migrateStorageDir exists');
+  t.ok(/state\.json.*evidence\.json.*draft-versions\.json.*memories\.json/s.test(csrc), 'all four Connect files are migrated');
+  t.ok(/if \(src === dst\) return res;/.test(mig), 'no-op when source and destination resolve to the same dir');
+  t.ok(/fs\.existsSync\(d\)/.test(mig) && /res\.skipped\.push/.test(mig), 'never clobbers a file already at the destination');
+  t.ok(/resolveStorageDir,\s*\n\s*migrateStorageDir,/.test(csrc), 'both helpers exported');
+  const ssrc = readFileSync('server.js', 'utf8');
+  const route = _win(ssrc, "app.put('/api/settings'", 1400);
+  t.ok(/_connectDirBefore/.test(route), 'settings route captures the previous connect dir before the update');
+  t.ok(/'connectStorageDir' in body/.test(route) && /connect\.migrateStorageDir\(_connectDirBefore/.test(route), 'settings route migrates on a connectStorageDir change');
 });
 
 await t.done();

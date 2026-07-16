@@ -9375,7 +9375,20 @@ app.put('/api/settings', (req, res) => {
     const before = settings.isExternalAccessDisabled();
     const _grpKeys = ['codeflowMyGroups', 'codeflowMyGroupsGithub', 'codeflowMyGroupsAzdo'];
     const beforeGroups = JSON.stringify(_grpKeys.map(k => (settings.getSettings()[k]) || []));
+    // Capture the effective Connect storage dir BEFORE the update so that, if the
+    // user is changing connectStorageDir, we can migrate their existing diary/draft
+    // data to the new location instead of orphaning it.
+    const _connectDirBefore = (settings.getSettings().connectStorageDir || '');
     const next = settings.updateSettings(body);
+    // Migrate Connect diary/draft data when the storage folder changes so nothing
+    // is lost (copy without clobbering anything already at the new location).
+    try {
+      if ('connectStorageDir' in body && (next.connectStorageDir || '') !== _connectDirBefore) {
+        const mig = connect.migrateStorageDir(_connectDirBefore, next.connectStorageDir || '');
+        if (mig && mig.moved) console.log('[connect] migrated diary data to new folder:', mig.copied.join(', '));
+        if (mig && mig.error) console.warn('[connect] storage migration warning:', mig.error);
+      }
+    } catch (e) { console.warn('[connect] storage migration failed:', e.message); }
     // If any of the user's reviewer-group lists changed, the cached Code Flow PR lists were
     // built against the OLD group set (group-reviewer detection is per-gather) — bust the
     // cache so newly-configured group PRs surface immediately instead of after the TTL.

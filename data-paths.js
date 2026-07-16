@@ -41,6 +41,16 @@ const DATA_DIR = ENV_OVERRIDE || REDIRECT_TARGET || DEFAULT_DATA_DIR;
 
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* best effort */ }
 
+// Align the SUPERVISOR_DATA_DIR env var with the RESOLVED dir. A few modules
+// (capabilities.js, marketplace.js, marketplace-design.js, agentPackage.js) read
+// `process.env.SUPERVISOR_DATA_DIR || <default>` directly and do NOT consult the
+// redirect breadcrumb. Without this, a user-redirected data location would be
+// honored by everything EXCEPT those modules (plugins, marketplace cache,
+// generated packages/agents/skills), splitting data across two dirs. Setting the
+// env here — data-paths is required first, before those modules load — makes them
+// resolve to the same dir. Idempotent when the env override was the source.
+process.env.SUPERVISOR_DATA_DIR = DATA_DIR;
+
 // Resolve a runtime data file/dir to its on-disk location under the profile dir.
 function dataPath(name) {
   return path.join(DATA_DIR, name);
