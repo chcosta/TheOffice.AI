@@ -307,13 +307,49 @@ function _hydrate(raw) {
 function _readAll() {
   const raw = _readJson(_statePath(), null);
   if (!raw) {
-    const seeded = { items: [], meta: { createdAt: _now() } };
+    const seeded = { items: [], folders: [], assignments: {}, meta: { createdAt: _now() } };
     _writeJson(_statePath(), seeded);
     return seeded;
   }
   raw.items = Array.isArray(raw.items) ? raw.items.map(_hydrate).filter(Boolean) : [];
   raw.meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : { createdAt: _now() };
+  // Folders are a flat list of { id, name, parentId } nodes; assignments maps a
+  // document id (composition OR newsletter "nl:…") to its folder id. Membership is
+  // pure metadata — it never touches the document body, versions, or pins, so a doc
+  // stays fully accessible from the studio/history/pin flows regardless of folder.
+  raw.folders = Array.isArray(raw.folders) ? raw.folders.map(_hydrateFolder).filter(Boolean) : [];
+  raw.assignments = (raw.assignments && typeof raw.assignments === 'object') ? raw.assignments : {};
+  // Drop assignments that point at a folder that no longer exists (defensive — keeps
+  // orphaned docs visible at the root instead of stranded under a phantom folder).
+  const fset = new Set(raw.folders.map(f => f.id));
+  for (const k of Object.keys(raw.assignments)) {
+    if (!fset.has(raw.assignments[k])) delete raw.assignments[k];
+  }
   return raw;
+}
+
+function _hydrateFolder(raw) {
+  if (!raw || typeof raw !== 'object' || !raw.id) return null;
+  return {
+    id: String(raw.id),
+    name: (typeof raw.name === 'string' && raw.name.trim()) ? raw.name.trim().slice(0, 120) : 'Untitled folder',
+    parentId: raw.parentId ? String(raw.parentId) : null,
+    createdAt: raw.createdAt || _now(),
+    updatedAt: raw.updatedAt || raw.createdAt || _now(),
+  };
+}
+
+// The set of a folder's descendant ids (children, grandchildren, …). Used to keep
+// reparenting acyclic and to cascade a delete.
+function _descendantFolderIds(folders, id) {
+  const out = new Set();
+  const walk = (pid) => {
+    for (const f of folders) {
+      if (f.parentId === pid && !out.has(f.id)) { out.add(f.id); walk(f.id); }
+    }
+  };
+  walk(id);
+  return out;
 }
 
 function _writeAll(state) { return _writeJson(_statePath(), state); }
@@ -332,6 +368,7 @@ function listCompositions() {
         purpose: c.purpose,
         audience: c.audience,
         format: c.format,
+        folderId: st.assignments[c.id] || null,
         hasDraft: !!(content || '').trim(),
         draftSource: c.draft ? c.draft.source : 'manual',
         versionCount: (c.versions || []).length,
@@ -394,9 +431,99 @@ function deleteComposition(id) {
   const next = st.items.filter(c => c.id !== id);
   if (next.length === st.items.length) return false;
   st.items = next;
+  if (st.assignments && st.assignments[id]) delete st.assignments[id];
   _writeAll(st);
-  try { fs.rmSync(assetsDir(id), { recursive: true, force: true }); } catch { /* best effort */ }
   return true;
+}
+
+function listFolders() {
+  const st = _readAll();
+  // Count documents assigned directly to each folder (compositions + newsletters).
+  const counts = {};
+  for (const k of Object.keys(st.assignments || {})) {
+    const fid = st.assignments[k];
+    counts[fid] = (counts[fid] || 0) + 1;
+  }
+  return st.folders.map(f => ({ ...f, count: counts[f.id] || 0 }));
+}
+
+// The full docId → folderId map (a copy), so the client can resolve a folder for
+// newsletter rows too (they aren't compositions, so they carry no folderId field).
+function getAssignments() {
+  const st = _readAll();
+  return { ...(st.assignments || {}) };
+}
+
+function createFolder(patch) {
+  const p = patch && typeof patch === 'object' ? patch : {};
+  const name = (typeof p.name === 'string' ? p.name : '').trim().slice(0, 120);
+  if (!name) throw new Error('A folder name is required.');
+  const st = _readAll();
+  let parentId = p.parentId ? String(p.parentId) : null;
+  if (parentId && !st.folders.some(f => f.id === parentId)) parentId = null;
+  const now = _now();
+  const folder = { id: _id('fld'), name, parentId, createdAt: now, updatedAt: now };
+  st.folders.push(folder);
+  _writeAll(st);
+  return { ...folder, count: 0 };
+}
+
+function updateFolder(id, patch) {
+  const st = _readAll();
+  const f = st.folders.find(x => x.id === id);
+  if (!f) return null;
+  const p = patch && typeof patch === 'object' ? patch : {};
+  if (typeof p.name === 'string' && p.name.trim()) f.name = p.name.trim().slice(0, 120);
+  if (p.parentId !== undefined) {
+    let parentId = p.parentId ? String(p.parentId) : null;
+    // Reject cycles: a folder can't be moved under itself or any of its descendants.
+    if (parentId === id) parentId = f.parentId;
+    else if (parentId && !st.folders.some(x => x.id === parentId)) parentId = null;
+    else if (parentId && _descendantFolderIds(st.folders, id).has(parentId)) parentId = f.parentId;
+    f.parentId = parentId;
+  }
+  f.updatedAt = _now();
+  _writeAll(st);
+  const count = Object.values(st.assignments || {}).filter(v => v === id).length;
+  return { ...f, count };
+}
+
+// Delete a folder WITHOUT deleting the documents inside it. Child folders and any
+// documents assigned to it are lifted up to this folder's parent (or the root),
+// so nothing is lost — the grouping just collapses one level.
+function deleteFolder(id) {
+  const st = _readAll();
+  const f = st.folders.find(x => x.id === id);
+  if (!f) return false;
+  const parentId = f.parentId || null;
+  // Reparent direct child folders to this folder's parent.
+  for (const child of st.folders) {
+    if (child.parentId === id) { child.parentId = parentId; child.updatedAt = _now(); }
+  }
+  // Reassign documents in this folder to the parent (or unfile them at the root).
+  for (const k of Object.keys(st.assignments || {})) {
+    if (st.assignments[k] === id) {
+      if (parentId) st.assignments[k] = parentId;
+      else delete st.assignments[k];
+    }
+  }
+  st.folders = st.folders.filter(x => x.id !== id);
+  _writeAll(st);
+  return true;
+}
+
+// Move a document (composition OR newsletter "nl:…" id) into a folder. A null/empty
+// folderId unfiles it to the root. Returns the resolved { docId, folderId }.
+function moveDocument(docId, folderId) {
+  const id = String(docId || '').trim();
+  if (!id) throw new Error('A document id is required.');
+  const st = _readAll();
+  let fid = folderId ? String(folderId) : null;
+  if (fid && !st.folders.some(f => f.id === fid)) fid = null;
+  if (fid) st.assignments[id] = fid;
+  else delete st.assignments[id];
+  _writeAll(st);
+  return { docId: id, folderId: fid };
 }
 
 // Derive a display title from generated content: a leading "Subject:" line
@@ -651,6 +778,12 @@ module.exports = {
   createComposition,
   updateComposition,
   deleteComposition,
+  listFolders,
+  getAssignments,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  moveDocument,
   saveDraft,
   listVersions,
   getVersion,

@@ -20588,6 +20588,43 @@
               .cmpx-lib-bulk .spacer{flex:1}
               .cmpx-lib-bulk a{color:var(--cp-text-secondary);text-decoration:none;cursor:pointer;padding:3px 6px;border-radius:6px}
               .cmpx-lib-bulk a:hover{color:var(--cp-accent)}
+              /* Explorer (folders / file-explorer view) */
+              .cmpx-lib-explorer{display:grid;grid-template-columns:244px 1fr;gap:14px;align-items:start}
+              .cmpx-fx-rail{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;padding:6px;max-height:70vh;overflow:auto}
+              .cmpx-fx-railhead{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--cp-text-secondary)}
+              .cmpx-fx-node{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--cp-text);position:relative}
+              .cmpx-fx-node:hover{background:var(--cp-surface-hover,rgba(0,0,0,.03))}
+              .cmpx-fx-node.on{background:color-mix(in srgb,var(--cp-accent) 12%,transparent);color:var(--cp-accent)}
+              .cmpx-fx-node.drop{outline:2px dashed var(--cp-accent);outline-offset:-2px}
+              .cmpx-fx-node .tw{width:14px;flex:0 0 auto;font-size:10px;color:var(--cp-text-secondary);text-align:center;cursor:pointer}
+              .cmpx-fx-node .fic{flex:0 0 auto;font-size:13px}
+              .cmpx-fx-node .fnm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-fx-node .fct{flex:0 0 auto;font-size:11.5px;color:var(--cp-text-secondary);opacity:.75}
+              .cmpx-fx-node .facts{flex:0 0 auto;display:flex;gap:0;opacity:0;transition:opacity .12s}
+              .cmpx-fx-node:hover .facts{opacity:1}
+              .cmpx-fx-node .facts .icobtn{padding:2px 4px;font-size:12px}
+              .cmpx-fx-rename{flex:1;min-width:0}
+              .cmpx-fx-rename input,.cmpx-fx-newf input{width:100%;padding:4px 7px;border:1px solid var(--cp-accent);border-radius:6px;background:var(--cp-surface);color:var(--cp-text);font:inherit;font-size:13px}
+              .cmpx-fx-newf{padding:3px 8px 5px 22px}
+              .cmpx-fx-main{min-width:0}
+              .cmpx-fx-crumbs{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12.5px;color:var(--cp-text-secondary);margin:2px 0 12px}
+              .cmpx-fx-crumbs a{color:var(--cp-text-secondary);text-decoration:none;cursor:pointer}
+              .cmpx-fx-crumbs a:hover{color:var(--cp-accent)}
+              .cmpx-fx-crumbs .sep{opacity:.5;margin:0 3px}
+              .cmpx-fx-frow{display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:10px;margin:0 0 7px;cursor:pointer;font-size:13.5px}
+              .cmpx-fx-frow:hover{border-color:var(--cp-accent)}
+              .cmpx-fx-frow.drop{outline:2px dashed var(--cp-accent);outline-offset:-2px}
+              .cmpx-fx-frow .fic{font-size:15px;flex:0 0 auto}
+              .cmpx-fx-frow .fnm{font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-fx-frow .fct{font-size:12px;color:var(--cp-text-secondary);opacity:.8;flex:0 0 auto}
+              .cmpx-fx-docs{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;overflow:hidden;margin-top:2px}
+              .cmpx-fx-doc{cursor:grab}
+              .cmpx-fx-doc:active{cursor:grabbing}
+              .cmpx-fx-move{position:relative;display:inline-flex}
+              .cmpx-fx-movemenu{position:absolute;right:0;top:100%;margin-top:4px;z-index:40;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:4px;min-width:200px;max-height:280px;overflow:auto}
+              .cmpx-fx-movemenu a{display:block;padding:6px 9px;font-size:12.5px;color:var(--cp-text);text-decoration:none;cursor:pointer;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+              .cmpx-fx-movemenu a:hover{background:var(--cp-surface-hover,rgba(0,0,0,.05));color:var(--cp-accent)}
+              .cmpx-fx-empty{padding:34px 24px;text-align:center;color:var(--cp-text-secondary);font-size:13px}
               /* Brief form */
               .cmpx-brief{max-width:720px;margin:14px auto 0;display:flex;flex-direction:column;gap:14px}
               .cmpx-fld{display:flex;flex-direction:column;gap:5px}
@@ -20900,13 +20937,14 @@
                     <div class="cmpx-lib-viewtog">
                       <button type="button" :class="{on: compose.lib.mode==='list'}" @click="compose.lib.mode='list'" title="List">☰</button>
                       <button type="button" :class="{on: compose.lib.mode==='grid'}" @click="compose.lib.mode='grid'" title="Grid">▦</button>
+                      <button type="button" :class="{on: compose.lib.mode==='explorer'}" @click="compose.lib.mode='explorer'" title="Folders (file explorer)">🗂</button>
                     </div>
                     <button class="btn" type="button" @click="goTo('#/compose')">Iterations studio →</button>
                     <button class="btn primary" type="button" @click="composeLibNew()">＋ New</button>
                   </div>
 
                   <!-- quiet filter index row (NO pills) -->
-                  <div class="cmpx-lib-filt">
+                  <div class="cmpx-lib-filt" x-show="compose.lib.mode!=='explorer'">
                     <span class="lbl">Filter</span>
                     <a :class="{on: !compose.lib.filter}" @click="compose.lib.filter=''">All <span class="cnt" x-text="compose.compositions.length"></span></a>
                     <template x-for="f in composeLibFacets()" :key="f.id">
@@ -20923,10 +20961,10 @@
                     <a @click="compose.lib.sel = []">Clear</a>
                   </div>
 
-                  <div class="cmpx-lib-sum" x-text="composeLibSummary()"></div>
+                  <div class="cmpx-lib-sum" x-show="compose.lib.mode!=='explorer'" x-text="composeLibSummary()"></div>
 
                   <!-- empty -->
-                  <div class="cmpx-lib-panel" x-show="!composeLibFiltered().length">
+                  <div class="cmpx-lib-panel" x-show="compose.lib.mode!=='explorer' && !composeLibFiltered().length">
                     <div class="cmpx-lib-empty" x-text="compose.compositions.length ? 'Nothing matches. Try a different search or filter.' : 'Nothing composed yet. Start one from the iterations studio.'"></div>
                   </div>
 
@@ -20988,6 +21026,121 @@
                         </div>
                       </div>
                     </template>
+                  </div>
+
+                  <!-- EXPLORER (folders / file-explorer view) -->
+                  <div class="cmpx-lib-explorer" x-show="compose.lib.mode==='explorer'">
+                    <!-- folder tree rail -->
+                    <div class="cmpx-fx-rail">
+                      <div class="cmpx-fx-railhead">
+                        <span>Folders</span>
+                        <button class="icobtn" type="button" title="New folder" @click.stop="composeFolderNewOpen('')">＋</button>
+                      </div>
+                      <!-- All documents (root) -->
+                      <div class="cmpx-fx-node" :class="{on: compose.lib.folder==='', drop: compose.lib.dragOver==='__root__'}"
+                           @click="compose.lib.folder=''"
+                           @dragover.prevent="compose.lib.dragOver='__root__'" @dragleave="compose.lib.dragOver=''"
+                           @drop.prevent="composeDocMove(compose.lib.dragDoc,''); compose.lib.dragOver=''">
+                        <span class="tw"></span>
+                        <span class="fic">🗂</span>
+                        <span class="fnm">All documents</span>
+                        <span class="fct" x-text="composeLibAll().length"></span>
+                      </div>
+                      <div class="cmpx-fx-newf" x-show="compose.lib.nfParent===''" @click.stop>
+                        <input type="text" x-model="compose.lib.nfName" placeholder="Folder name…"
+                          @keydown.enter.prevent="composeFolderCreate()" @keydown.escape.prevent="composeFolderNewCancel()" @blur="composeFolderCreate()">
+                      </div>
+                      <template x-for="n in composeFolderTree()" :key="n.id">
+                        <div>
+                          <div class="cmpx-fx-node" :class="{on: compose.lib.folder===n.id, drop: compose.lib.dragOver===n.id}"
+                               :style="'padding-left:'+(8+n.depth*15)+'px'"
+                               @click="composeFolderSelect(n.id)"
+                               @dragover.prevent="compose.lib.dragOver=n.id" @dragleave="compose.lib.dragOver=''"
+                               @drop.prevent="composeDocMove(compose.lib.dragDoc,n.id); compose.lib.dragOver=''">
+                            <span class="tw" @click.stop="composeFolderToggleExpand(n.id)" x-text="n.hasChildren ? (n.expanded ? '▾' : '▸') : ''"></span>
+                            <span class="fic">📁</span>
+                            <template x-if="compose.lib.frenaming!==n.id"><span class="fnm" x-text="n.name"></span></template>
+                            <span class="cmpx-fx-rename" x-show="compose.lib.frenaming===n.id" @click.stop>
+                              <input type="text" x-model="compose.lib.frenameVal" @keydown.enter.prevent="composeFolderRenameCommit(n)" @keydown.escape.prevent="composeFolderRenameCancel()" @blur="composeFolderRenameCommit(n)">
+                            </span>
+                            <span class="fct" x-text="n.count"></span>
+                            <span class="facts">
+                              <button class="icobtn" type="button" title="New subfolder" @click.stop="composeFolderNewOpen(n.id)">＋</button>
+                              <button class="icobtn" type="button" title="Rename folder" @click.stop="composeFolderRenameStart(n)">✎</button>
+                              <button class="icobtn danger" type="button" title="Delete folder" @click.stop="composeFolderDelete(n)">🗑</button>
+                            </span>
+                          </div>
+                          <div class="cmpx-fx-newf" x-show="compose.lib.nfParent===n.id" :style="'padding-left:'+(22+n.depth*15)+'px'" @click.stop>
+                            <input type="text" x-model="compose.lib.nfName" placeholder="Folder name…"
+                              @keydown.enter.prevent="composeFolderCreate()" @keydown.escape.prevent="composeFolderNewCancel()" @blur="composeFolderCreate()">
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+
+                    <!-- content pane -->
+                    <div class="cmpx-fx-main">
+                      <div class="cmpx-fx-crumbs">
+                        <a @click="compose.lib.folder=''">All documents</a>
+                        <template x-for="b in composeFolderBreadcrumb()" :key="b.id">
+                          <span><span class="sep">›</span><a @click="composeFolderSelect(b.id)" x-text="b.name"></a></span>
+                        </template>
+                      </div>
+
+                      <!-- child folders (navigable rows) -->
+                      <template x-for="f in composeExplorerFolders()" :key="f.id">
+                        <div class="cmpx-fx-frow" :class="{drop: compose.lib.dragOver===f.id}" @click="composeFolderSelect(f.id)"
+                             @dragover.prevent="compose.lib.dragOver=f.id" @dragleave="compose.lib.dragOver=''"
+                             @drop.prevent="composeDocMove(compose.lib.dragDoc,f.id); compose.lib.dragOver=''">
+                          <span class="fic">📁</span>
+                          <span class="fnm" x-text="f.name"></span>
+                          <span class="fct" x-text="(f.count||0) + ((f.count||0)===1 ? ' item' : ' items')"></span>
+                        </div>
+                      </template>
+
+                      <!-- documents in this folder -->
+                      <div class="cmpx-fx-docs" x-show="composeExplorerDocs().length">
+                        <template x-for="c in composeExplorerDocs()" :key="c.id">
+                          <div class="cmpx-lib-trow cmpx-fx-doc" :class="{sel: compose.lib.sel.includes(c.id)}" draggable="true"
+                               @dragstart="compose.lib.dragDoc=c.id" @dragend="compose.lib.dragDoc=''; compose.lib.dragOver=''"
+                               @click="composeLibOpen(c)">
+                            <span class="cbx" x-show="c.kind!=='newsletter'" :class="{on: compose.lib.sel.includes(c.id)}" @click.stop="composeLibToggle(c.id)" x-text="compose.lib.sel.includes(c.id) ? '✓' : ''"></span>
+                            <span x-show="c.kind==='newsletter'"></span>
+                            <div class="doc">
+                              <div class="ttl">
+                                <span class="ico" x-text="c.kind==='newsletter' ? '📰' : ((composePurpose(c.purpose)||{}).icon || '📄')"></span>
+                                <span x-text="c.title || 'Untitled'"></span>
+                              </div>
+                              <div class="meta" x-text="composeLibRowMeta(c)"></div>
+                            </div>
+                            <div class="col-purpose" x-text="composePurposeLabel(c.purpose)"></div>
+                            <div class="col-when" x-text="formatRelative(c.updatedAt)"></div>
+                            <div class="col-size rt" x-text="composeLibSize(c.size)"></div>
+                            <div class="rowacts">
+                              <button class="icobtn" title="Open" @click.stop="composeLibOpen(c)">↗</button>
+                              <button class="icobtn" x-show="c.kind!=='newsletter'" title="Quick view (read-only)" @click.stop="composeLibPreview(c)">👁</button>
+                              <button class="icobtn" x-show="c.kind!=='newsletter'" title="Pin to a workspace" @click.stop="openQuickPin('document', c.id, c.title || 'Untitled', composePurposeLabel(c.purpose))">📌</button>
+                              <span class="cmpx-fx-move" @click.stop>
+                                <button class="icobtn" title="Move to folder" @click.stop="compose.lib.moveMenu = (compose.lib.moveMenu===c.id ? '' : c.id)">📁</button>
+                                <div class="cmpx-fx-movemenu" x-show="compose.lib.moveMenu===c.id" @click.outside="compose.lib.moveMenu=''" x-cloak>
+                                  <a @click.stop="composeDocMove(c.id,''); compose.lib.moveMenu=''">🗂 All documents (root)</a>
+                                  <template x-for="n in composeFolderTree(true)" :key="n.id">
+                                    <a :style="'padding-left:'+(10+n.depth*14)+'px'" @click.stop="composeDocMove(c.id,n.id); compose.lib.moveMenu=''"><span x-text="'📁 '+n.name"></span></a>
+                                  </template>
+                                </div>
+                              </span>
+                              <button class="icobtn" title="Share" @click.stop="composeLibShareItem(c)">⤴</button>
+                              <button class="icobtn" title="Export" @click.stop="composeLibExportItem(c)">⬇</button>
+                              <button class="icobtn danger" x-show="c.kind!=='newsletter'" title="Delete" @click.stop="composeDelete(c.id)">🗑</button>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <div class="cmpx-fx-empty" x-show="!composeExplorerFolders().length && !composeExplorerDocs().length">
+                        This folder is empty. Drag documents onto a folder to file them, or create a subfolder.
+                      </div>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -29933,7 +30086,11 @@
           fsMode: '',             // '' | 'view' | 'pair' — which studio panel is full-screened
           switcherOpen: false,    // in-studio "jump to another document" menu
           // Documents library (whole body of composed work).
-          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletters: [], renaming: '', renameVal: '' },
+          lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletters: [], renaming: '', renameVal: '',
+            // File-explorer view: purely-additive folder grouping. `folders`/`assignments`
+            // come from /api/compose; `folder` is the selected folder id ('' = All documents/root).
+            folders: [], assignments: {}, folder: '', expanded: {}, moveMenu: '', dragDoc: '', dragOver: '',
+            nfParent: null, nfName: '', frenaming: '', frenameVal: '' },
           _pendingStart: null,    // purpose queued by a deep link, applied after load
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
@@ -46566,6 +46723,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             co.sourceCatalog = (r && r.sources) || [];
             co.sourceDefaults = (r && r.sourceDefaults) || {};
             co.compositions = (r && r.compositions) || [];
+            co.lib.folders = (r && r.folders) || [];
+            co.lib.assignments = (r && r.assignments) || {};
             co.capture = (r && r.capture) || null;
             co.diaryHasEvidence = !!(r && r.diaryHasEvidence);
             co.loaded = true;
@@ -46820,6 +46979,158 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.compose.lib.sel = [];
             this.toast('Deleted ' + comps.length + ' document' + (comps.length === 1 ? '' : 's') + (nls.length ? ' (newsletters skipped)' : '') + '.', 'success');
           }
+        },
+
+        // ===== File-explorer folders (purely-additive grouping) =====
+        // Folders are metadata only: they NEVER change how a document is stored,
+        // opened, versioned, or pinned. A doc's folder = its assignment (keyed by
+        // the library row id, which is the composition id or 'nl:<docId>'); an
+        // absent/empty assignment means the document lives at the root.
+        composeFolderOf(c) {
+          if (!c) return '';
+          const a = this.compose.lib.assignments || {};
+          if (Object.prototype.hasOwnProperty.call(a, c.id)) return a[c.id] || '';
+          return c.folderId || '';
+        },
+        composeFolderDocCount(fid) {
+          return this.composeLibAll().filter(c => this.composeFolderOf(c) === fid).length;
+        },
+        // Flatten the parentId hierarchy into a depth-ordered list of nodes. When
+        // `all` is false, children of collapsed folders are skipped (tree view);
+        // when true, every folder is included (used by the "Move to…" menu).
+        composeFolderTree(all) {
+          const folders = (this.compose.lib.folders || []).slice();
+          const byParent = {};
+          folders.forEach(f => { const p = f.parentId || ''; (byParent[p] = byParent[p] || []).push(f); });
+          Object.keys(byParent).forEach(p => byParent[p].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))));
+          const exp = this.compose.lib.expanded || {};
+          const out = [];
+          const walk = (parent, depth) => {
+            const kids = byParent[parent || ''] || [];
+            kids.forEach(f => {
+              const hasChildren = !!(byParent[f.id] && byParent[f.id].length);
+              const expanded = !!exp[f.id];
+              out.push({ id: f.id, name: f.name, parentId: f.parentId || '', depth, count: this.composeFolderDocCount(f.id), hasChildren, expanded });
+              if (all || expanded) walk(f.id, depth + 1);
+            });
+          };
+          walk('', 0);
+          return out;
+        },
+        composeFolderSelect(id) {
+          this.compose.lib.folder = id || '';
+          if (id) this.compose.lib.expanded = { ...(this.compose.lib.expanded || {}), [id]: true };
+        },
+        composeFolderToggleExpand(id) {
+          const e = this.compose.lib.expanded || {};
+          this.compose.lib.expanded = { ...e, [id]: !e[id] };
+        },
+        composeFolderBreadcrumb() {
+          const id = this.compose.lib.folder;
+          if (!id) return [];
+          const byId = {}; (this.compose.lib.folders || []).forEach(f => { byId[f.id] = f; });
+          const chain = []; let cur = byId[id]; let guard = 0;
+          while (cur && guard++ < 64) { chain.unshift({ id: cur.id, name: cur.name }); cur = cur.parentId ? byId[cur.parentId] : null; }
+          return chain;
+        },
+        composeExplorerFolders() {
+          const sel = this.compose.lib.folder || '';
+          return (this.compose.lib.folders || [])
+            .filter(f => (f.parentId || '') === sel)
+            .map(f => {
+              const docs = this.composeFolderDocCount(f.id);
+              const subs = (this.compose.lib.folders || []).filter(x => (x.parentId || '') === f.id).length;
+              return { id: f.id, name: f.name, count: docs + subs };
+            })
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        },
+        // Direct documents of the selected folder ('' = unfiled/root), honoring
+        // the same search/filter/sort the flat list uses.
+        composeExplorerDocs() {
+          const lib = this.compose.lib;
+          const sel = lib.folder || '';
+          const q = String(lib.q || '').toLowerCase().trim();
+          let list = this.composeLibAll().filter(c => {
+            if (this.composeFolderOf(c) !== sel) return false;
+            if (lib.filter && c.purpose !== lib.filter) return false;
+            if (q) {
+              const hay = (String(c.title || '') + ' ' + this.composePurposeLabel(c.purpose) + ' ' + String(c.preview || '')).toLowerCase();
+              if (!hay.includes(q)) return false;
+            }
+            return true;
+          });
+          const s = lib.sort;
+          list = list.slice().sort((a, b) => {
+            if (s === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
+            if (s === 'size') return (b.size || 0) - (a.size || 0);
+            if (s === 'created') return String(b.createdAt).localeCompare(String(a.createdAt));
+            return String(b.updatedAt).localeCompare(String(a.updatedAt));
+          });
+          return list;
+        },
+        // ----- folder create -----
+        composeFolderNewOpen(parent) {
+          this.compose.lib.nfParent = (parent === '' ? '' : parent);
+          this.compose.lib.nfName = '';
+          if (parent) this.compose.lib.expanded = { ...(this.compose.lib.expanded || {}), [parent]: true };
+          this.$nextTick(() => { const el = this.$root && this.$root.querySelector('.cmpx-fx-newf input'); if (el) el.focus(); });
+        },
+        composeFolderNewCancel() { this.compose.lib.nfParent = null; this.compose.lib.nfName = ''; },
+        async composeFolderCreate() {
+          const parent = this.compose.lib.nfParent;   // '' (root) or folder id; null = closed
+          if (parent === null) return;
+          const name = String(this.compose.lib.nfName || '').trim();
+          if (!name) { this.composeFolderNewCancel(); return; }
+          this.compose.lib.nfParent = null; this.compose.lib.nfName = '';
+          try {
+            await this.request('/api/compose/folders', { method: 'POST', body: JSON.stringify({ name, parentId: parent || null }) });
+            await this.composeReloadFolders();
+          } catch (e) { this.toast('Could not create folder: ' + (e.message || e), 'error'); }
+        },
+        // ----- folder rename -----
+        composeFolderRenameStart(n) {
+          this.compose.lib.frenaming = n.id;
+          this.compose.lib.frenameVal = n.name || '';
+          this.$nextTick(() => { const el = this.$root && this.$root.querySelector('.cmpx-fx-rename input'); if (el) { el.focus(); el.select(); } });
+        },
+        composeFolderRenameCancel() { this.compose.lib.frenaming = ''; this.compose.lib.frenameVal = ''; },
+        async composeFolderRenameCommit(n) {
+          const id = this.compose.lib.frenaming;
+          if (!id) return;
+          const name = String(this.compose.lib.frenameVal || '').trim();
+          this.compose.lib.frenaming = '';
+          if (!name || name === n.name) return;
+          try {
+            await this.request('/api/compose/folders/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ name }) });
+            await this.composeReloadFolders();
+          } catch (e) { this.toast('Rename failed: ' + (e.message || e), 'error'); }
+        },
+        // ----- folder delete (documents inside reparent up; none deleted) -----
+        async composeFolderDelete(n) {
+          if (typeof confirm === 'function' && !confirm('Delete the folder "' + (n.name || 'folder') + '"? Documents inside move up to its parent — no document is deleted.')) return;
+          try {
+            await this.request('/api/compose/folders/' + encodeURIComponent(n.id), { method: 'DELETE' });
+            if (this.compose.lib.folder === n.id) this.compose.lib.folder = n.parentId || '';
+            await this.composeReloadFolders();
+          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+        },
+        // ----- move a document into a folder ('' = root/unfiled) -----
+        async composeDocMove(docId, folderId) {
+          if (!docId) return;
+          try {
+            await this.request('/api/compose/move', { method: 'POST', body: JSON.stringify({ docId, folderId: folderId || '' }) });
+            await this.composeReloadFolders();
+          } catch (e) { this.toast('Move failed: ' + (e.message || e), 'error'); }
+        },
+        // Re-fetch folders/assignments after any folder mutation. Reassign the whole
+        // objects so Alpine reacts to added/removed keys.
+        async composeReloadFolders() {
+          try {
+            const r = await this.request('/api/compose');
+            this.compose.lib.folders = (r && r.folders) || [];
+            this.compose.lib.assignments = (r && r.assignments) || {};
+            if (r && r.compositions) this.compose.compositions = r.compositions;
+          } catch (_) { }
         },
         async composeStart(purposeId, opts = {}) {
           const p = this.composePurpose(purposeId);

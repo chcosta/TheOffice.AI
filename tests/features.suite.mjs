@@ -1706,4 +1706,49 @@ await t.test('documents-page: Documents is its own top-level route + nav item (a
   t.ok(/newsletter: \['newsletter', 'compose', 'documents'\]/.test(html), 'documents is visible under the newsletter feature gate (basic + advanced)');
 });
 
+// Feature — Documents file-explorer view. A third library mode ('explorer') adds
+// folders/subfolders (create/rename/delete) + drag-to-file, as purely-additive
+// grouping metadata. Documents stay fully accessible via Compose.AI + version
+// history and remain pinnable — folders never touch storage/opening/versions.
+await t.test('documents explorer: folder tree, drag-move, and additive-only grouping', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  // model: folder CRUD + a docId→folderId assignment map, no document deletion on folder delete.
+  t.ok(/function listFolders\(/.test(cjs) && /function getAssignments\(/.test(cjs), 'compose.js exposes listFolders + getAssignments');
+  t.ok(/function createFolder\(/.test(cjs) && /function updateFolder\(/.test(cjs) && /function deleteFolder\(/.test(cjs), 'compose.js exposes folder CRUD');
+  t.ok(/function moveDocument\(docId, folderId\)/.test(cjs), 'compose.js exposes moveDocument');
+  const del = _win(cjs, 'function deleteFolder(id)', 700);
+  t.ok(/st\.folders = st\.folders\.filter/.test(del) && !/deleteComposition|delete st\.items/.test(del), 'deleteFolder removes only the folder, never documents');
+
+  const src = readFileSync('server.js', 'utf8');
+  // GET payload carries folders + assignments; folder/move routes exist BEFORE /api/compose/:id.
+  t.ok(/folders: compose\.listFolders\(\)/.test(src) && /assignments: compose\.getAssignments\(\)/.test(src), 'GET /api/compose returns folders + assignments');
+  const fpost = src.indexOf("app.post('/api/compose/folders'");
+  const mpost = src.indexOf("app.post('/api/compose/move'");
+  const idget = src.indexOf("app.get('/api/compose/:id'");
+  t.ok(fpost > 0 && mpost > 0 && idget > 0, 'folder + move + :id routes all present');
+  t.ok(fpost < idget && mpost < idget, 'folder/move routes precede the /api/compose/:id catch-all');
+  t.ok(/app\.patch\('\/api\/compose\/folders\/:fid'/.test(src) && /app\.delete\('\/api\/compose\/folders\/:fid'/.test(src), 'folder rename + delete routes present');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  // the explorer view toggle + state.
+  t.ok(/compose\.lib\.mode==='explorer'/.test(html), 'library has an explorer view mode');
+  t.ok(/folders: \[\], assignments: \{\}, folder: '', expanded: \{\}, moveMenu: '', dragDoc: '', dragOver: '',/.test(html), 'compose.lib carries the folder-explorer state');
+  // loadCompose populates folders/assignments; reload re-fetches them.
+  t.ok(/co\.lib\.folders = \(r && r\.folders\) \|\| \[\];/.test(html) && /co\.lib\.assignments = \(r && r\.assignments\) \|\| \{\};/.test(html), 'loadCompose populates folders + assignments');
+  const reload = _win(html, 'async composeReloadFolders() {', 500);
+  t.ok(/this\.compose\.lib\.folders = \(r && r\.folders\)/.test(reload) && /this\.compose\.lib\.assignments = \(r && r\.assignments\)/.test(reload), 'composeReloadFolders re-fetches + reassigns folders/assignments');
+  // the folder methods exist.
+  t.ok(/composeFolderTree\(all\) \{/.test(html), 'composeFolderTree builds a depth-ordered node list');
+  t.ok(/composeExplorerDocs\(\) \{/.test(html) && /composeExplorerFolders\(\) \{/.test(html), 'explorer content helpers exist');
+  t.ok(/async composeFolderCreate\(\) \{/.test(html) && /async composeFolderRenameCommit\(n\) \{/.test(html) && /async composeFolderDelete\(n\) \{/.test(html), 'folder create/rename/delete methods exist');
+  const move = _win(html, 'async composeDocMove(docId, folderId) {', 400);
+  t.ok(/\/api\/compose\/move/.test(move) && /composeReloadFolders\(\)/.test(move), 'composeDocMove posts to /move then reloads');
+  // documents in the explorer still open via the same library-open path (Compose.AI + versions),
+  // and remain pinnable — the row reuses composeLibOpen + openQuickPin.
+  const docRow = _win(html, 'cmpx-lib-trow cmpx-fx-doc', 2600);
+  t.ok(/composeLibOpen\(c\)/.test(docRow), 'explorer doc rows still open via composeLibOpen (Compose.AI + version history)');
+  t.ok(/openQuickPin\('document'/.test(docRow), 'explorer doc rows remain pinnable to a workspace');
+  t.ok(/draggable="true"/.test(docRow) && /composeDocMove\(compose\.lib\.dragDoc/.test(html), 'documents drag onto folders to file them');
+});
+
 await t.done();

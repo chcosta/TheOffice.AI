@@ -12841,6 +12841,8 @@ app.get('/api/compose', (req, res) => {
   try {
     res.json({
       compositions: compose.listCompositions(),
+      folders: compose.listFolders(),
+      assignments: compose.getAssignments(),
       purposes: compose.PURPOSES,
       blueprints: compose.PURPOSE_BLUEPRINTS,
       formats: compose.FORMATS.map(f => ({ id: f, label: ({ email: 'Email', teams: 'Teams message', doc: 'Document', site: 'Prototype site' })[f] || f })),
@@ -12858,6 +12860,50 @@ app.get('/api/compose', (req, res) => {
 app.post('/api/compose', (req, res) => {
   try { res.json({ ok: true, composition: compose.createComposition(req.body || {}) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Documents folders (organization only) ----------------------------------
+// Folders group documents on the Documents page for browsing. They are pure
+// metadata over the flat composition + newsletter stores — a folder never owns
+// a document's body/versions/pins, so a doc stays fully accessible from the
+// Compose studio, version history, and workspace pins regardless of its folder.
+// NOTE: /folders and /move are declared BEFORE /api/compose/:id so the router
+// doesn't capture "folders"/"move" as an :id.
+
+app.post('/api/compose/folders', (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json({ ok: true, folder: compose.createFolder({ name: b.name, parentId: b.parentId || null }) });
+  } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
+});
+
+app.patch('/api/compose/folders/:fid', (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (typeof b.name === 'string') patch.name = b.name;
+    if (b.parentId !== undefined) patch.parentId = b.parentId || null;
+    const folder = compose.updateFolder(req.params.fid, patch);
+    if (!folder) return res.status(404).json({ ok: false, error: 'Folder not found.' });
+    res.json({ ok: true, folder });
+  } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
+});
+
+app.delete('/api/compose/folders/:fid', (req, res) => {
+  try {
+    const ok = compose.deleteFolder(req.params.fid);
+    if (!ok) return res.status(404).json({ ok: false, error: 'Folder not found.' });
+    res.json({ ok: true });
+  } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
+});
+
+// Move a document (composition OR newsletter "nl:…" id) into a folder. A null
+// folderId unfiles it to the root. Kind-agnostic so newsletters move too.
+app.post('/api/compose/move', (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json({ ok: true, moved: compose.moveDocument(b.docId, b.folderId || null) });
+  } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
 });
 
 // --- Compose source pickers -------------------------------------------------
