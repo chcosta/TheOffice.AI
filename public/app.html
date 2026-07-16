@@ -20545,6 +20545,10 @@
               .monx-dash .dc{ margin-left:auto; color:var(--cp-text-faint); font-size:11px; }
               .monx-srcmini{ display:flex; align-items:center; gap:9px; padding:5px 7px; font-size:12.5px; color:var(--cp-text-muted); }
               .monx-srcmini .dot{ width:7px; height:7px; border-radius:50%; flex:none; }
+              .monx-connmini{ width:100%; text-align:left; display:flex; align-items:center; gap:9px; margin-top:14px; padding:8px 9px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); color:var(--cp-text-muted); font-size:12px; cursor:pointer; }
+              .monx-connmini:hover{ border-color:var(--mon-accent); color:var(--cp-text); }
+              .monx-connmini .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+              .monx-connmini .ct{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .monx-canvas{ display:flex; flex-direction:column; min-height:0; }
               .monx-dbar{ display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--cp-border); flex-wrap:wrap; }
               .monx-dbar h2{ margin:0; font-size:16px; font-weight:650; display:flex; align-items:center; gap:9px; }
@@ -20632,6 +20636,7 @@
             <div class="monx">
               <!-- ============ LAUNCHER ============ -->
               <div class="monx-wrap" x-show="monitoring.view === 'launcher'">
+                <button class="monx-back" x-show="monitoring.dash" @click="monBackToStudio()">← Back to <span x-text="monitoring.dash ? monitoring.dash.title : ''"></span></button>
                 <div class="monx-hero">
                   <div class="kick">Monitoring.AI · Grafana + AI</div>
                   <h1>Describe what you want to watch. Get a live Grafana dashboard.</h1>
@@ -20721,11 +20726,10 @@
 
               <!-- ============ STUDIO ============ -->
               <div class="monx-wrap" x-show="monitoring.view === 'studio'" style="max-width:none;">
-                <button class="monx-back" @click="monBackToLauncher()">← All dashboards</button>
                 <div class="monx-studio" x-show="monitoring.dash">
                   <!-- rail -->
                   <div class="monx-rail">
-                    <button class="monx-newbtn" @click="monBackToLauncher()">✨ New from prompt</button>
+                    <button class="monx-newbtn" @click="monNewPrompt()">✨ New from prompt</button>
                     <div class="monx-rlabel">Dashboards</div>
                     <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
                       <div class="monx-folder open">
@@ -20741,6 +20745,10 @@
                     <template x-for="(s, i) in monSources()" :key="i">
                       <div class="monx-srcmini"><span class="dot" :style="`background:${s.status === 'ok' ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)'}`"></span><span x-text="s.name"></span></div>
                     </template>
+                    <button class="monx-connmini" @click="monEditConnection()" :title="monConnLabel()">
+                      <span class="dot" :style="`background:${monConnDotColor()}`"></span>
+                      <span class="ct" x-text="monConnLabel()"></span>
+                    </button>
                   </div>
 
                   <!-- canvas -->
@@ -39162,6 +39170,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
             w.loaded = true;
             if (uid) { await this.monLoadDashboard(uid); }
+            else if ((w.dashboards || []).length) {
+              // Land in the studio (persistent dashboard tree + copilot), matching the design.
+              const first = w.dashboards.find(d => d.local) || w.dashboards[0];
+              await this.monLoadDashboard(first.uid);
+            }
             else { w.view = 'launcher'; }
           } catch (e) {
             this.toast('Failed to load Monitoring.AI: ' + (e.message || e), 'error');
@@ -39297,7 +39310,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const st = this.monitoring.status;
           const via = (this.monitoring.conn.authMode === 'token') ? 'token' : 'Azure identity';
           if (st && st.configured) {
-            if (st.authError) return 'Grafana configured — Azure identity failed (run az login or assign a role)';
+            if (st.authError) return 'Grafana configured — ' + st.authError;
             return st.healthy ? ('Connected to Grafana via ' + via + (st.version ? ' · v' + st.version : '')) : 'Grafana configured — health check failed';
           }
           return 'Sample data (Grafana not connected)';
@@ -39336,11 +39349,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return parts.join(' · ');
         },
         monDashboardsByFolder() {
-          const out = {};
+          // Group the rail tree as the user thinks about it: "My dashboards"
+          // (AI-generated / local) first, then dashboards surfaced from Azure
+          // Managed Grafana, grouped by their Grafana folder.
+          const mine = [], byFolder = {};
           (this.monitoring.dashboards || []).forEach(d => {
-            const f = d.folder || 'General';
-            (out[f] = out[f] || []).push(d);
+            if (d.local) { mine.push(d); return; }
+            const f = d.folder || 'Grafana';
+            (byFolder[f] = byFolder[f] || []).push(d);
           });
+          const out = {};
+          if (mine.length) out['My dashboards'] = mine;
+          Object.keys(byFolder).sort().forEach(f => { out[f] = byFolder[f]; });
           return out;
         },
         monGrabbedPanels() {
@@ -39361,13 +39381,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!dash || !dash.panels) return null;
           return dash.panels.find(p => p.id === this.monitoring.deepPanel) || null;
         },
-        monBackToLauncher() {
+        monNewPrompt() {
+          // Open the prompt surface without discarding the open dashboard, so the
+          // user can cancel back to it.
           const w = this.monitoring;
           w.view = 'launcher';
-          w.dash = null;
-          w.grabbed = [];
-          w.analysis = null;
-          w.convo = [];
+          w.prompt = '';
+        },
+        monEditConnection() {
+          const w = this.monitoring;
+          w.view = 'launcher';
+          w.connOpen = true;
+        },
+        monBackToStudio() {
+          if (this.monitoring.dash) this.monitoring.view = 'studio';
+        },
+        monBackToLauncher() {
+          // Retained for compatibility; behaves like "New from prompt" and keeps
+          // the current dashboard so the studio is one click away.
+          this.monNewPrompt();
         },
         monStatusColor(s) {
           if (s === 'critical' || s === 'bad') return 'var(--cp-danger,#f85149)';

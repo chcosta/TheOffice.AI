@@ -1863,6 +1863,12 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   t.ok(/x-model="monitoring\.conn\.pushByDefault"/.test(html), 'connection panel has a push-by-default toggle');
   t.ok(/@click="monPushDashboard\(\)"/.test(html) && /@change="monToggleAutoPush\(\)"/.test(html), 'studio has push + auto-push controls');
   t.ok(/async monPushDashboard\(/.test(html) && /async monToggleAutoPush\(/.test(html), 'push methods defined');
+  // Studio-first experience + actionable connection errors
+  t.ok(/_authErrorMessage/.test(graf) && /needs a Grafana role/.test(graf), 'grafana.js surfaces an actionable auth error (role guidance)');
+  t.ok(/Grafana configured — ' \+ st\.authError/.test(html), 'monConnLabel shows the real authError');
+  t.ok(/w\.dashboards\.find\(d => d\.local\) \|\| w\.dashboards\[0\]/.test(html), 'monLoad lands in the studio by auto-opening a dashboard');
+  t.ok(/out\['My dashboards'\]/.test(html), 'rail groups My dashboards vs Azure Grafana folders');
+  t.ok(/monNewPrompt\(\)/.test(html) && /monEditConnection\(\)/.test(html) && /monBackToStudio\(\)/.test(html), 'studio nav: new-prompt, edit-connection, back-to-studio');
 });
 
 await t.done();

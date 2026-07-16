@@ -259,6 +259,22 @@ function _localToListItem(d) {
 // ---------------------------------------------------------------------------
 // Public API — status / dashboards / dashboard / query
 // ---------------------------------------------------------------------------
+// Turn a low-level _api()/AAD error into an actionable, human-readable reason
+// so the UI never shows a bare "health check failed".
+function _authErrorMessage(e, c) {
+  if (!e) return '';
+  if (e.code === 'NO_AAD_SDK') return 'Azure identity SDK unavailable — reinstall dependencies or switch to a service-account token.';
+  if (e.code === 'NO_AAD') return 'No Azure identity available — run `az login` (or assign a managed identity), then reconnect.';
+  if (e.status === 401 || e.status === 403) {
+    return c.authMode === 'aad'
+      ? `Signed in to Azure, but Grafana rejected the request (HTTP ${e.status}). Your identity needs a Grafana role (Viewer/Editor/Admin) on this Managed Grafana workspace — assign it in the Azure portal, then reconnect.`
+      : `Grafana rejected the token (HTTP ${e.status}). Check the service-account token and that its role is still valid.`;
+  }
+  if (e.status) return `Grafana returned HTTP ${e.status}.`;
+  if (e.name === 'AbortError') return 'Grafana did not respond in time (timeout). Check the URL and that the workspace is reachable from here.';
+  return e.message || 'Could not reach Grafana.';
+}
+
 async function status() {
   const c = cfg();
   if (!configured()) {
@@ -273,7 +289,7 @@ async function status() {
   }
   let health = null, sources = [], authError = '';
   try { health = await _api('/api/health', { timeoutMs: 6000 }); }
-  catch (e) { if (c.authMode === 'aad' && (e.code === 'NO_AAD' || e.code === 'NO_AAD_SDK')) authError = e.message; }
+  catch (e) { authError = _authErrorMessage(e, c); }
   try {
     const ds = await _api('/api/datasources', { timeoutMs: 8000 });
     if (Array.isArray(ds)) sources = ds.map(d => ({ name: d.name, type: d.type, status: 'ok', default: !!d.isDefault }));
