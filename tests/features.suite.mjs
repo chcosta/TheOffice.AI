@@ -859,11 +859,12 @@ await t.test('compose prototype preview auto-sizes to content (no arbitrary vert
 
   await t.test('compose fullscreen is a focus mode + iterations show their provenance', () => {
     const src = readFileSync('public/app.html', 'utf8');
-    // Fullscreen collapses the studio to the deliverable: single column, rail + paired
-    // assistant hidden, the stage owns the viewport (a genuine focus, not just covering the topbar).
-    t.ok(/\.cmpx-fs \.nlx-rail,\s*\.cmpx-fs \.cmpx-pair\{display:none\}/.test(src), 'fullscreen hides the sources rail + paired assistant');
-    t.ok(/\.cmpx-fs \.nlx-stage\{height:calc\(100vh - 96px\)/.test(src), 'fullscreen stage fills the viewport height');
-    t.ok(/\.cmpx-fs \.nlx-scroll\{flex:1;min-height:0;overflow:auto\}/.test(src), 'fullscreen scrolls inside the stage');
+    // Fullscreen collapses the studio to a single panel (a genuine focus, not just covering the
+    // topbar). Two variants: view hides rail + assistant; assistant hides rail + stage.
+    t.ok(/\.cmpx-fs-view \.nlx-rail,\s*\.cmpx-fs-view \.cmpx-pair\{display:none\}/.test(src), 'view fullscreen hides the sources rail + paired assistant');
+    t.ok(/\.cmpx-fs-pair \.nlx-rail,\s*\.cmpx-fs-pair \.nlx-stage\{display:none\}/.test(src), 'assistant fullscreen hides the sources rail + stage');
+    t.ok(/\.cmpx-fs-view \.nlx-stage\{height:calc\(100vh - 96px\)/.test(src), 'view fullscreen stage fills the viewport height');
+    t.ok(/\.cmpx-fs \.nlx-scroll\{flex:1;min-height:0;overflow:auto\}/.test(src), 'fullscreen scrolls inside the panel');
     // Provenance — the driving comment + framing that produced the CURRENT draft and every version.
     t.ok(/composeProvHas\(compose\.current && compose\.current\.draft\)/.test(src), 'current iteration renders its provenance');
     t.ok(/composeProvHas\(v\)/.test(src), 'each history version renders its provenance');
@@ -1111,15 +1112,18 @@ await t.test('Director diagnosis explains zero automated handling + zero redunda
   t.ok(/\.meai-dir-why\s*\{/.test(src), 'why block CSS present');
 });
 
-await t.test('compose fullscreen fills width (real classes) + single fullscreen button (app.html)', () => {
+await t.test('compose fullscreen fills width (real classes) + two labeled panel buttons (app.html)', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // Fullscreen must widen the capped wrap and NOT target the stale .cmpx-studio/.cmpx-stage
   // classes that don't exist in the compose markup (real grid is .nlx-studio/.nlx-stage).
   t.ok(/\.cmpx-fs\s+\.cmpx-wrap\s*\{[^}]*max-width:\s*none/.test(src), 'fullscreen wrap uncaps width');
   t.ok(!/\.cmpx-fs\s+\.cmpx-studio\s*,\s*\.cmpx-fs\s+\.cmpx-stage/.test(src), 'stale .cmpx-studio/.cmpx-stage height rule removed');
-  // Exactly one fullscreen toggle button remains (the labeled header one).
-  const btnCount = (src.match(/@click="composeToggleFullscreen\(\)"/g) || []).length;
-  t.ok(btnCount === 1, 'exactly one compose fullscreen button (was two): ' + btnCount);
+  // The single ambiguous button is gone; there are two mode-specific header buttons now.
+  t.ok((src.match(/@click="composeToggleFullscreen\(\)"/g) || []).length === 0, 'the old arg-less fullscreen button is gone');
+  const viewBtns = (src.match(/@click="composeToggleFullscreen\('view'\)"/g) || []).length;
+  const pairBtns = (src.match(/@click="composeToggleFullscreen\('pair'\)"/g) || []).length;
+  t.ok(viewBtns === 1, 'exactly one Full-screen view button: ' + viewBtns);
+  t.ok(pairBtns >= 1, 'at least one Full-screen assistant control: ' + pairBtns);
 });
 
 await t.test('me-ai run open: evicted DEEP run falls back to durable /tree map, never a blank page (app.html)', () => {
@@ -1406,6 +1410,27 @@ await t.test('compose studio: independent per-panel scroll + rail resize preserv
   // the paired studio fills its flex parent (which is viewport-bound via .cmpx-wrap) so each column scrolls on its own
   t.ok(/\.nlx-studio\.cmpx-paired\{height:100%;min-height:0/.test(html), 'paired studio fills its container for independent scroll');
   t.ok(/\.cmpx-wrap:has\(\.cmpx-paired\)\{[^}]*height:calc\(100vh/.test(html), 'the studio wrap is viewport-bound (page does not scroll)');
+});
+
+await t.test('compose studio: separate full-screen for the view panel vs the paired assistant', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // State is a mode, not a boolean — records which panel is full-screened.
+  t.ok(/fsMode: ''/.test(html), 'compose.fsMode drives which panel is full-screened');
+  // Two clearly-labeled header buttons, each toggling its own panel; the other hides while one is active.
+  t.ok(/composeToggleFullscreen\('view'\)[\s\S]{0,220}Full-screen view/.test(html), 'a Full-screen view button targets the document/preview stage');
+  t.ok(/composeToggleFullscreen\('pair'\)[\s\S]{0,240}Full-screen assistant/.test(html), 'a Full-screen assistant button targets the paired assistant');
+  t.ok(/x-show="compose\.view === 'studio' && compose\.fsMode !== 'pair'"/.test(html) && /x-show="compose\.view === 'studio' && compose\.fsMode !== 'view'"/.test(html), 'the inactive full-screen button hides while the other mode is active');
+  // Section class carries variant modifiers so the CSS can show only the chosen panel.
+  t.ok(/'cmpx-fs': compose\.fsMode, 'cmpx-fs-view': compose\.fsMode === 'view', 'cmpx-fs-pair': compose\.fsMode === 'pair'/.test(html), 'the compose section exposes cmpx-fs-view / cmpx-fs-pair variants');
+  // View mode hides rail + assistant; assistant mode hides rail + stage.
+  t.ok(/\.cmpx-fs-view \.nlx-rail,\s*\.cmpx-fs-view \.cmpx-pair\{display:none\}/.test(html), 'view full-screen hides the rail + assistant');
+  t.ok(/\.cmpx-fs-pair \.nlx-rail,\s*\.cmpx-fs-pair \.nlx-stage\{display:none\}/.test(html), 'assistant full-screen hides the rail + stage');
+  // Toggling to the assistant opens it; re-clicking the active mode exits.
+  const fn = _win(html, 'composeToggleFullscreen(mode) {', 320);
+  t.ok(/if \(this\.compose\.fsMode === mode\) \{ this\.compose\.fsMode = ''; return; \}/.test(fn), 're-clicking the active full-screen button exits');
+  t.ok(/if \(mode === 'pair'\) this\.compose\.chat\.open = true/.test(fn), 'assistant full-screen opens the assistant');
+  // The assistant header swaps its collapse control for an Exit button while full-screened (no blank screen).
+  t.ok(/x-show="compose\.fsMode === 'pair'"[\s\S]{0,160}composeToggleFullscreen\('pair'\)[\s\S]{0,60}Exit full screen/.test(html), 'the full-screened assistant offers an in-panel Exit');
 });
 
 await t.test('compose chat: auto-grow input + type-while-busy (Send gated on busy)', () => {

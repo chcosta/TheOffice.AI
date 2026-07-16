@@ -20465,7 +20465,7 @@
           </section>
 
           <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
-          <section x-show="!loading && !errorMessage && (route === 'compose' || route === 'documents')" :class="{ 'cmpx-fs': compose.fullscreen }">
+          <section x-show="!loading && !errorMessage && (route === 'compose' || route === 'documents')" :class="{ 'cmpx-fs': compose.fsMode, 'cmpx-fs-view': compose.fsMode === 'view', 'cmpx-fs-pair': compose.fsMode === 'pair' }">
             <style>
               .cmpx-wrap{max-width:1180px;margin:0 auto}
               .cmpx-head{display:flex;align-items:flex-end;gap:14px;margin:0 0 6px}
@@ -20706,16 +20706,22 @@
               .cmpx-fs{position:fixed;inset:0;z-index:1000;background:var(--cp-bg);padding:14px 22px;overflow:auto}
               .cmpx-fs .cmpx-wrap{max-width:none;width:100%}
               /* Focused full screen: this is a FOCUS mode, not just "cover the topbar".
-                 Collapse the studio to the deliverable only — hide the sources rail + the
-                 paired assistant and let the stage own the whole viewport, with the content
-                 (document or prototype) scrolling inside it. Exiting restores all panels. */
+                 Two variants — view (deliverable only) and pair (paired assistant only).
+                 Each collapses the studio to a single 1fr column and hides the other panels,
+                 letting the chosen panel own the whole viewport with its content scrolling
+                 inside it. Exiting restores all three panels. */
               .cmpx-fs .nlx-studio,
               .cmpx-fs .nlx-studio.chat-open,
               .cmpx-fs .nlx-studio.cmpx-paired.paired-open,
               .cmpx-fs .nlx-studio.cmpx-paired.paired-collapsed{grid-template-columns:1fr}
-              .cmpx-fs .nlx-rail,
-              .cmpx-fs .cmpx-pair{display:none}
-              .cmpx-fs .nlx-stage{height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0}
+              /* View full screen — only the document / preview stage. */
+              .cmpx-fs-view .nlx-rail,
+              .cmpx-fs-view .cmpx-pair{display:none}
+              .cmpx-fs-view .nlx-stage{height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0}
+              /* Assistant full screen — only the paired assistant. */
+              .cmpx-fs-pair .nlx-rail,
+              .cmpx-fs-pair .nlx-stage{display:none}
+              .cmpx-fs .cmpx-pair-resize{display:none}
               .cmpx-fs .nlx-scroll{flex:1;min-height:0;overflow:auto}
               /* Docked paired assistant (replaces the What-to-say brief) */
               /* Studio uses the FULL viewport width (not a centered 1520px column) so a
@@ -20819,7 +20825,8 @@
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeNewSamePurpose()" :title="'Start a new ' + (composePurposeLabel((compose.current &amp;&amp; compose.current.purpose) || '') || 'composition') + ' — same purpose as this one'">✚ New</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeBackToLauncher()">← All compositions</button>
                 <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.current && compose.current.kind !== 'newsletter'" @click="openQuickPin('document', compose.current.id, compose.current.title || 'Untitled', composePurposeLabel(compose.current.purpose))" title="Pin this document to a workspace">📌 Pin</button>
-                <button class="btn ghost" type="button" x-show="compose.view === 'studio'" @click="composeToggleFullscreen()" x-text="compose.fullscreen ? '🗕 Exit full screen' : '🗖 Full screen'"></button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.fsMode !== 'pair'" @click="composeToggleFullscreen('view')" x-text="compose.fsMode === 'view' ? '🗕 Exit full screen' : '🗖 Full-screen view'" :title="compose.fsMode === 'view' ? 'Exit full screen' : 'Full-screen the document / preview panel'"></button>
+                <button class="btn ghost" type="button" x-show="compose.view === 'studio' && compose.fsMode !== 'view'" @click="composeToggleFullscreen('pair')" x-text="compose.fsMode === 'pair' ? '🗕 Exit full screen' : '🗖 Full-screen assistant'" :title="compose.fsMode === 'pair' ? 'Exit full screen' : 'Full-screen the paired assistant panel'"></button>
               </div>
 
               <div x-show="compose.loading" class="hint" style="padding:20px 0">Loading…</div>
@@ -21361,7 +21368,8 @@
                       <div class="cmpx-pair-head">
                         <span>✨ Paired assistant</span>
                         <span class="hint" x-show="compose.chat.busy">· working…</span>
-                        <button class="btn ghost" type="button" style="margin-left:auto;padding:3px 9px;font-size:14px;line-height:1" @click="composeToggleChat()" title="Collapse the assistant">⟩</button>
+                        <button class="btn ghost" type="button" x-show="compose.fsMode !== 'pair'" style="margin-left:auto;padding:3px 9px;font-size:14px;line-height:1" @click="composeToggleChat()" title="Collapse the assistant">⟩</button>
+                        <button class="btn ghost" type="button" x-show="compose.fsMode === 'pair'" style="margin-left:auto;padding:3px 9px;font-size:13px;line-height:1" @click="composeToggleFullscreen('pair')" title="Exit full screen">🗕 Exit full screen</button>
                       </div>
                       <div id="composePairScroll" class="cmpx-pair-log"
                            @scroll="compose.chat._stick = ($event.target.scrollHeight - $event.target.scrollTop - $event.target.clientHeight) < 60">
@@ -29890,7 +29898,7 @@
           capture: null,
           diaryHasEvidence: false,
           view: 'launcher',       // 'launcher' | 'brief' | 'studio' | 'library'
-          fullscreen: false,
+          fsMode: '',             // '' | 'view' | 'pair' — which studio panel is full-screened
           switcherOpen: false,    // in-studio "jump to another document" menu
           // Documents library (whole body of composed work).
           lib: { q: '', sort: 'updated', dir: 'desc', mode: 'list', filter: '', sel: [], newsletters: [], renaming: '', renameVal: '' },
@@ -47762,7 +47770,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!opts.silent) this.toast('Deleted', 'success');
           } catch (e) { if (!opts.silent) this.toast('Delete failed: ' + (e.message || e), 'error'); else throw e; }
         },
-        composeToggleFullscreen() { this.compose.fullscreen = !this.compose.fullscreen; },
+        composeToggleFullscreen(mode) {
+          mode = mode || 'view';
+          if (this.compose.fsMode === mode) { this.compose.fsMode = ''; return; }
+          if (mode === 'pair') this.compose.chat.open = true; // the assistant must be open to full-screen it
+          this.compose.fsMode = mode;
+        },
         async loadDataLocation() {
           try {
             const r = await this.request('/api/data-location');
