@@ -9497,6 +9497,98 @@ app.get('/api/monitoring/dashboards', async (req, res) => {
   catch (e) { res.status(200).json({ configured: grafana.configured(), error: e.message, dashboards: [] }); }
 });
 
+// Context & data catalog: internal Workspace sources (tasks, Me.AI runs, agenda,
+// diary, activity, agents, docs) + connected external Grafana datasources. Each
+// source reports which roles it supports — ground (AI reads), chart (AI charts),
+// alert (threshold rules) — plus a live best-effort count.
+app.get('/api/monitoring/catalog', async (req, res) => {
+  try { res.json(await grafana.catalog()); }
+  catch (e) { res.status(200).json({ workspace: [], external: [], configured: grafana.configured(), error: e.message }); }
+});
+
+// Query a single internal Workspace source into native timeseries (for previews
+// and ad-hoc charting). External datasources are queried through the dashboard path.
+app.get('/api/monitoring/workspace/:id/query', (req, res) => {
+  try {
+    const q = req.query || {};
+    res.json(grafana.queryWorkspace(req.params.id, {
+      days: q.days ? Number(q.days) : undefined,
+      bin: q.bin || undefined,
+      split: q.split === '0' ? false : true,
+    }));
+  } catch (e) { res.status(200).json({ id: req.params.id, series: [], error: e.message }); }
+});
+
+// Ground context for a source — the text the AI reads (NOT charted).
+app.get('/api/monitoring/workspace/:id/ground', (req, res) => {
+  try { res.json(grafana.groundContext(req.params.id)); }
+  catch (e) { res.status(200).json({ id: req.params.id, text: '', error: e.message }); }
+});
+
+// ---- Alerts on internal Workspace collections -----------------------------
+// Threshold rules over ws.* sources (tasks/Me.AI/agenda/activity/agents). A
+// leader-gated scheduler evaluates them; a firing rule broadcasts an in-app
+// notification (and, for target:'email', opens a prepared .eml).
+app.get('/api/monitoring/alerts', (req, res) => {
+  try { res.json({ ok: true, alerts: grafana.listAlerts() }); }
+  catch (e) { res.status(200).json({ ok: false, alerts: [], error: e.message }); }
+});
+app.post('/api/monitoring/alerts', (req, res) => {
+  try { res.json({ ok: true, alert: grafana.saveAlert(req.body || {}) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.put('/api/monitoring/alerts/:id', (req, res) => {
+  try { res.json({ ok: true, alert: grafana.saveAlert({ ...(req.body || {}), id: req.params.id }) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.delete('/api/monitoring/alerts/:id', (req, res) => {
+  try { res.json(grafana.deleteAlert(req.params.id)); }
+  catch (e) { res.status(200).json({ ok: false, error: e.message }); }
+});
+// Evaluate now (manual test) — notifies on any ok→firing transition.
+app.post('/api/monitoring/alerts/evaluate', async (req, res) => {
+  try { const r = await _runMonitoringAlerts('manual'); res.json({ ok: true, ...r }); }
+  catch (e) { res.status(200).json({ ok: false, error: e.message }); }
+});
+
+// One evaluation pass. Notifications fire only on a state change (ok→firing) so
+// a persistently-breaching rule doesn't spam every cycle.
+async function _runMonitoringAlerts(trigger) {
+  let out = { fired: [], evaluated: 0 };
+  try { out = grafana.evaluateAlerts(); } catch (e) { return { fired: [], evaluated: 0, error: e.message }; }
+  for (const rule of out.fired) {
+    const detail = {
+      id: rule.id, name: rule.name, sourceId: rule.sourceId,
+      observed: rule.observed, threshold: rule.threshold, op: rule.op, agg: rule.agg,
+      windowDays: rule.window && rule.window.days, at: Date.now(), trigger: trigger || 'schedule',
+    };
+    try { broadcastSSE('monitoring-alert', detail); } catch (_) {}
+    if (rule.target === 'email') {
+      try {
+        const subj = `Monitoring alert — ${rule.name}`;
+        const body = `Alert "${rule.name}" fired.\n\nSource: ${rule.sourceId}\nCondition: ${rule.agg} ${rule.op} ${rule.threshold} over ${detail.windowDays}d\nObserved: ${rule.observed}\n`;
+        const eml = `To: \r\nSubject: ${subj}\r\nX-Unsent: 1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
+        const p = path.join(require('os').tmpdir(), `mon-alert-${rule.id}.eml`);
+        fs.writeFileSync(p, eml);
+        require('child_process').exec(`start "" "${p}"`);
+      } catch (e) { console.warn('[monitoring] alert email failed:', e.message); }
+    }
+    console.log(`[monitoring] alert fired: ${rule.name} (${rule.sourceId}) observed=${rule.observed} ${rule.op} ${rule.threshold}`);
+  }
+  return out;
+}
+
+// Leader-gated scheduled evaluation — one designated instance evaluates so a
+// firing rule notifies exactly once across synced machines.
+setInterval(() => {
+  try {
+    if (configSync && configSync.enabled && !configSync.isLeader) return;
+    if (!featureEnabled('monitoring')) return;
+    if (!grafana.listAlerts().some(a => a.enabled)) return;
+    _runMonitoringAlerts('schedule').catch(e => console.warn('[monitoring] alert pass error:', e.message));
+  } catch (_) {}
+}, 300000);
+
 // One dashboard with its panels + series.
 app.get('/api/monitoring/dashboard/:uid', async (req, res) => {
   try {
@@ -9539,20 +9631,102 @@ app.get('/api/monitoring/render/:uid', async (req, res) => {
     res.status(status).json({ error: e.message, detail: e.body || '', contentType: e.contentType || '' });
   }
 });
+// Mine a Workspaces.AI board for dashboard context: harvest the human text off
+// every pin / note / checklist / dev card / summary, and sniff out concrete data
+// references (Kusto/ADX clusters, App Insights, repos). Feeds the generator so it
+// designs over the signals the board is actually about. Defensive — never throws.
+function _monBoardContext(board) {
+  const out = { brief: '', refs: { kusto: [], appInsights: [], repos: [], grafana: [] } };
+  if (!board) return out;
+  const lines = [];
+  const push = (s) => { const t = String(s || '').trim(); if (t) lines.push(t.slice(0, 400)); };
+  try {
+    push('Board: ' + (board.name || '(untitled)'));
+    for (const it of (board.items || [])) push([it && it.label, it && it.sublabel].filter(Boolean).join(' — '));
+    for (const n of (board.notes || [])) push((n && (n.text || n.title)) || '');
+    for (const cl of (board.checklists || [])) {
+      push(cl && cl.title);
+      for (const ci of ((cl && cl.items) || [])) push(ci && (ci.text || ci.label));
+    }
+    for (const d of (board.devItems || [])) {
+      push([d && d.title, d && d.summary].filter(Boolean).join(' — '));
+      if (d && (d.workItem && d.workItem.title)) push('Work item: ' + d.workItem.title);
+      if (d && (d.pr && d.pr.title)) push('PR: ' + d.pr.title);
+      if (d && d.repo) out.refs.repos.push([d.org, d.project, d.repo].filter(Boolean).join('/'));
+    }
+    if (board.summary && (board.summary.text || board.summary.markdown)) push(board.summary.text || board.summary.markdown);
+  } catch {}
+  const blob = lines.join('\n');
+  const uniq = (arr) => Array.from(new Set(arr.filter(Boolean))).slice(0, 12);
+  try {
+    for (const m of blob.matchAll(/https?:\/\/[a-z0-9._-]*kusto\.(?:windows\.net|fabric\.microsoft\.com)[^\s)"']*/gi)) out.refs.kusto.push(m[0]);
+    for (const m of blob.matchAll(/\b([a-z0-9-]+)\.[a-z0-9-]+\.kusto\.windows\.net\b/gi)) out.refs.kusto.push(m[0]);
+    if (/\b(app\s*insights|application\s*insights|app-?insights)\b/i.test(blob)) out.refs.appInsights.push('Application Insights');
+    if (/\b(log\s*analytics|azure\s*monitor)\b/i.test(blob)) out.refs.appInsights.push('Azure Monitor / Log Analytics');
+    for (const m of blob.matchAll(/https?:\/\/[a-z0-9._-]*grafana\.azure\.com[^\s)"']*/gi)) out.refs.grafana.push(m[0]);
+  } catch {}
+  out.refs.kusto = uniq(out.refs.kusto);
+  out.refs.appInsights = uniq(out.refs.appInsights);
+  out.refs.repos = uniq(out.refs.repos);
+  out.refs.grafana = uniq(out.refs.grafana);
+  out.brief = blob.slice(0, 6000);
+  return out;
+}
+
+// Map a spec panel's declared source id to honest provenance using the catalog:
+// workspace (internal, always direct), external direct connector, or AMG-MCP fallback.
+function _monPanelProvenance(sourceId, catalog) {
+  const id = String(sourceId || '');
+  if (!id) return { source: '', kind: 'unknown', access: 'none' };
+  if (grafana.isWorkspaceSource(id)) return { source: id, kind: 'workspace', access: 'direct' };
+  const ext = (catalog && catalog.external || []).find(s => s.id === id || s.name === id);
+  if (ext) return { source: ext.id, kind: 'external', access: ext.access || 'amg-mcp', dsType: ext.dsType || '' };
+  return { source: id, kind: 'unknown', access: 'amg-mcp' };
+}
+
 // spec (title + panels), then stores it locally and best-effort pushes to Grafana.
+// When a boardId is supplied, the board's items are mined for context (referenced
+// Kusto clusters, repos, App Insights, plus the human narrative) and the selected
+// catalog sources (internal ws.* / external ds.*) steer which signals it charts.
 app.post('/api/monitoring/generate', async (req, res) => {
   const prompt = String((req.body && req.body.prompt) || '').trim();
-  if (!prompt) return res.status(400).json({ ok: false, error: 'A prompt is required.' });
+  const boardId = String((req.body && req.body.boardId) || '').trim();
+  const chosenSources = Array.isArray(req.body && req.body.sources) ? req.body.sources.map(String) : [];
+  let board = null, boardCtx = null, catalog = null;
+  if (boardId) {
+    try { board = (loadBoards().find(b => b.id === boardId) || null); if (board) board = _normalizeBoard(board); } catch {}
+    if (board) boardCtx = _monBoardContext(board);
+  }
+  if (!prompt && !board) return res.status(400).json({ ok: false, error: 'A prompt or a board is required.' });
+  try { catalog = await grafana.catalog(); } catch { catalog = { workspace: [], external: [] }; }
+
+  // Describe the sources the designer may bind panels to.
+  const srcLines = [];
+  for (const s of (catalog.workspace || [])) if (s.chart) srcLines.push(`- ${s.id} (internal · ${s.name}${s.alertable ? ' · alertable' : ''})`);
+  for (const s of (catalog.external || [])) srcLines.push(`- ${s.id} (external · ${s.name} · ${s.access})`);
+  const selectedNote = chosenSources.length ? ('\nThe user selected these sources — prefer them: ' + chosenSources.join(', ')) : '';
+  const boardBlock = boardCtx ? (
+    '\n\n=== BOARD CONTEXT (mine this for what to monitor) ===\n' + boardCtx.brief +
+    (boardCtx.refs.kusto.length ? ('\nReferenced Kusto/ADX clusters: ' + boardCtx.refs.kusto.join(', ')) : '') +
+    (boardCtx.refs.appInsights.length ? ('\nReferenced telemetry: ' + boardCtx.refs.appInsights.join(', ')) : '') +
+    (boardCtx.refs.repos.length ? ('\nReferenced repos: ' + boardCtx.refs.repos.join(', ')) : '')
+  ) : '';
+
   let spec = null;
   try {
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null,
       prompt:
-        'You are a monitoring dashboard designer. Given a request, output ONLY a JSON object describing a dashboard:\n' +
-        '{"title": string, "tags": string[], "panels": [{"title": string, "type": "timeseries"|"gauge", "unit": string}]}\n' +
-        'Rules: 4–7 focused panels; pick real observability signals (rate, errors, latency, saturation, availability, etc.); ' +
-        'units like "%", "ms", "req/s", "MB/s"; no prose, no code fences.\n\nRequest: ' + prompt,
+        'You are a monitoring dashboard designer. Output ONLY a JSON object describing a dashboard:\n' +
+        '{"title": string, "tags": string[], "panels": [{"title": string, "type": "timeseries"|"gauge", "unit": string, "source": string, "alert": string|null}]}\n' +
+        'Rules: 4–8 focused panels; pick real signals (rate, errors, latency, saturation, availability, backlog, throughput, etc.); ' +
+        'units like "%", "ms", "req/s", "MB/s", "count"; set "source" to one of the available source ids below when a panel maps to it ' +
+        '(prefer internal ws.* sources for TheOffice.AI\'s own work, external ds.* for Azure telemetry); ' +
+        'set "alert" to a short threshold phrase (e.g. "> 60 for 10m") when the signal is worth alerting on, else null. No prose, no code fences.\n\n' +
+        'AVAILABLE SOURCES:\n' + (srcLines.join('\n') || '(none connected — design generic panels)') + selectedNote +
+        boardBlock +
+        '\n\nRequest: ' + (prompt || ('Build a monitoring dashboard for this board: ' + (board && board.name || ''))),
       sessionId: require('crypto').randomUUID(),
       resume: false,
       cwd: __dirname,
@@ -9562,13 +9736,29 @@ app.post('/api/monitoring/generate', async (req, res) => {
     });
     if (!(result && result.fallback)) {
       const j = _connectExtractJson(acc || (result && result.output) || '');
-      if (j && Array.isArray(j.panels) && j.panels.length) spec = { ...j, ai: true, prompt };
+      if (j && Array.isArray(j.panels) && j.panels.length) spec = { ...j, ai: true, prompt: prompt || ('Board: ' + (board && board.name || '')) };
     }
   } catch (e) { /* fall back below */ }
-  if (!spec) spec = grafana.deterministicSpec(prompt);
+  if (!spec) {
+    spec = grafana.deterministicSpec(prompt || (board && board.name) || 'monitoring');
+    // Seed deterministic board dashboards with the alertable internal sources so a
+    // board-driven build without AI still charts real workspace signals.
+    if (board && (!chosenSources.length)) {
+      const ws = (catalog.workspace || []).filter(s => s.chart).slice(0, 4);
+      if (ws.length) spec.panels = ws.map(s => ({ title: s.name, type: 'timeseries', unit: 'count', source: s.id, alert: s.alertable ? '> 0' : null }));
+    }
+  }
+  if (boardId) { spec.boardId = boardId; if (!Array.isArray(spec.tags)) spec.tags = []; if (board && !spec.tags.includes('board')) spec.tags.push('board'); }
   try {
     const created = await grafana.createDashboard(spec);
-    res.json({ ok: true, ai: !!spec.ai, dashboard: created, spec: { title: spec.title, panels: spec.panels } });
+    const provenance = (spec.panels || []).map(p => ({ title: p.title, ...(_monPanelProvenance(p.source, catalog)), alert: p.alert || null }));
+    res.json({
+      ok: true, ai: !!spec.ai, dashboard: created,
+      spec: { title: spec.title, panels: spec.panels },
+      provenance,
+      board: board ? { id: board.id, name: board.name } : null,
+      boardRefs: boardCtx ? boardCtx.refs : null,
+    });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 

@@ -22,6 +22,9 @@ const fs = require('fs');
 const path = require('path');
 const { dataPath } = require('./data-paths');
 const settings = require('./settings');
+// Internal "Workspace" data-source provider — makes TheOffice.AI's own collections
+// (tasks, Me.AI runs, agenda, diary, activity, agents, docs) queryable/chartable.
+const workspace = require('./workspace-source');
 
 const MON_DIR = dataPath('monitoring');
 try { fs.mkdirSync(MON_DIR, { recursive: true }); } catch {}
@@ -597,7 +600,15 @@ async function getDashboard(uid, opts = {}) {
   // Local (spun-up) dashboard?
   const local = _readLocalDashboards().find(d => d.uid === uid);
   if (local) {
-    return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels: local.panels, variables: [], time: { from: 'now-6h', to: 'now' }, sample: true, local: true, pushed: !!local.pushed, autoPush: !!local.autoPush, grafanaUid: local.grafanaUid || '', pushedAt: local.pushedAt || '' };
+    // Re-query any Workspace-backed panels so internal series are live, not stale.
+    const panels = (local.panels || []).map(p => {
+      if (p && typeof p.source === 'string' && workspace.isWorkspaceSource(p.source)) {
+        const q = workspace.query(p.source, { days: 30, split: p.split !== false });
+        return { ...p, series: (q.series || []).map(s => ({ ...s, unit: p.unit || '' })), empty: !!q.empty, sample: false, provider: 'workspace', origin: 'workspace' };
+      }
+      return p;
+    });
+    return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels, variables: [], time: { from: 'now-6h', to: 'now' }, sample: true, local: true, pushed: !!local.pushed, autoPush: !!local.autoPush, grafanaUid: local.grafanaUid || '', pushedAt: local.pushedAt || '' };
   }
   // Sample dashboards are always available.
   const samp = SAMPLE_DASHBOARDS.find(d => d.uid === uid);
@@ -717,9 +728,35 @@ async function renderPanel(uid, opts = {}) {
 // ---------------------------------------------------------------------------
 // Spin-up: turn a spec into a stored (and optionally pushed) dashboard
 // ---------------------------------------------------------------------------
+// Build a native panel backed by an internal Workspace source (tasks, Me.AI runs,
+// agenda, diary, activity, agents). The panel carries { source } so getDashboard
+// can re-query live series each time it's opened, and provenance shows it's ours.
+function _workspacePanel(pn, i) {
+  const src = pn.source;
+  const q = workspace.query(src, { days: 30, split: pn.split !== false });
+  return {
+    id: i + 1,
+    title: pn.title || q.name || `Panel ${i + 1}`,
+    type: (pn.type === 'gauge' || pn.type === 'stat') ? 'gauge' : 'timeseries',
+    unit: pn.unit || q.unit || '',
+    source: src,
+    provider: 'workspace',
+    origin: 'workspace',
+    split: pn.split !== false,
+    series: (q.series || []).map(s => ({ ...s, unit: pn.unit || '' })),
+    sample: false,
+    empty: !!q.empty,
+    alert: pn.alert || null,
+  };
+}
+
 function _specToPanels(spec, uid) {
   const list = (spec.panels || []).slice(0, 12);
   return list.map((pn, i) => {
+    // Internal Workspace source? Resolve live series instead of synthesizing.
+    if (pn && typeof pn.source === 'string' && workspace.isWorkspaceSource(pn.source)) {
+      return _workspacePanel(pn, i);
+    }
     const type = (pn.type === 'gauge' || pn.type === 'stat') ? 'gauge' : 'timeseries';
     const unit = pn.unit || '';
     const kind = _kindFromTitle(pn.title);
@@ -732,6 +769,7 @@ function _specToPanels(spec, uid) {
       unit,
       series: proto.series.map(s => ({ ...s, unit })),
       sample: true,
+      source: pn.source || null,
       alert: pn.alert || null,
     };
   });
@@ -882,6 +920,110 @@ function deterministicSpec(prompt) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Context & data catalog — the unified list of sources the AI can GROUND on or
+// CHART from. Internal Workspace sources come from workspace-source.js; external
+// sources are the connected Grafana datasources (queried directly where we have a
+// connector, else via the AMG MCP fallback).
+// ---------------------------------------------------------------------------
+async function catalog() {
+  const internal = workspace.catalog();
+  let external = [];
+  try {
+    const st = await status();
+    external = (st.sources || [])
+      .filter(s => s.type && s.type !== 'sample')
+      .map(s => ({
+        id: 'ds.' + String(s.name || s.type).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        name: s.name || s.type,
+        icon: /kusto|adx|data ?explorer/i.test(s.type) ? '🔷' : /prom/i.test(s.type) ? '📈' : /insight|log/i.test(s.type) ? '🧠' : '☁️',
+        group: 'grafana',
+        provider: 'grafana',
+        dsType: s.type,
+        roles: { ground: true, chart: true, alert: true },
+        chartable: true,
+        alertable: true,
+        // Direct connector today = Kusto/ADX; everything else falls back to AMG MCP.
+        access: /kusto|adx|data ?explorer/i.test(s.type) ? 'direct' : 'amg-mcp',
+        count: null,
+      }));
+  } catch { external = []; }
+  return { workspace: internal, external, configured: configured() };
+}
+
+// Query a chartable source by catalog id (internal 'ws.*' → workspace provider).
+function queryWorkspace(id, opts) { return workspace.query(id, opts || {}); }
+function groundContext(id) { return workspace.groundContext(id); }
+function evaluateWorkspaceAlert(rule) { return workspace.evaluateAlert(rule); }
+function isWorkspaceSource(id) { return workspace.isWorkspaceSource(id); }
+
+// ---- Alert rules on Workspace collections ---------------------------------
+// Persisted threshold rules over internal ws.* sources (tasks/Me.AI/agenda/…).
+// Rule: { id, sourceId, name, agg, op, value, window:{days}, enabled, lastFired,
+//         lastState, lastValue, createdAt, updatedAt }. Evaluation is pure (reads
+//         live workspace series); firing/notification is the caller's concern.
+const ALERTS_FILE = path.join(MON_DIR, 'alerts.json');
+function _readAlerts() {
+  try { const j = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8')); return Array.isArray(j) ? j : []; }
+  catch { return []; }
+}
+function _writeAlerts(arr) {
+  try { fs.writeFileSync(ALERTS_FILE, JSON.stringify(arr || [], null, 2)); } catch (e) { console.warn('[monitoring] alerts save failed:', e.message); }
+}
+function listAlerts() { return _readAlerts(); }
+function saveAlert(rule) {
+  const r = rule || {};
+  if (!isWorkspaceSource(r.sourceId)) throw new Error('Alerts are supported on internal Workspace sources only.');
+  const src = (workspace.catalog() || []).find(s => s.id === r.sourceId);
+  if (!src || !src.alertable) throw new Error('That source is not alertable.');
+  const all = _readAlerts();
+  const now = new Date().toISOString();
+  const clean = {
+    id: r.id || ('al-' + Math.random().toString(36).slice(2, 9)),
+    sourceId: r.sourceId,
+    name: String(r.name || src.name || r.sourceId).slice(0, 120),
+    agg: ['last', 'sum', 'max', 'avg'].includes(r.agg) ? r.agg : 'sum',
+    op: ['>', '>=', '<', '<=', '=='].includes(r.op) ? r.op : '>',
+    value: Number.isFinite(Number(r.value)) ? Number(r.value) : 0,
+    window: { days: Math.max(1, Math.min(90, Number(r.window && r.window.days) || 7)) },
+    enabled: r.enabled !== false,
+    target: ['app', 'email'].includes(r.target) ? r.target : 'app',
+    lastFired: null, lastState: 'ok', lastValue: null,
+    createdAt: now, updatedAt: now,
+  };
+  const idx = all.findIndex(a => a.id === clean.id);
+  if (idx >= 0) { clean.createdAt = all[idx].createdAt || now; clean.lastFired = all[idx].lastFired || null; all[idx] = { ...all[idx], ...clean }; }
+  else all.unshift(clean);
+  _writeAlerts(all.slice(0, 200));
+  return clean;
+}
+function deleteAlert(id) {
+  const all = _readAlerts();
+  const next = all.filter(a => a.id !== id);
+  _writeAlerts(next);
+  return { ok: true, removed: all.length - next.length };
+}
+// Evaluate every enabled rule; persist state transitions; return the rules that
+// crossed from ok→firing on THIS pass (so the caller notifies exactly once).
+function evaluateAlerts() {
+  const all = _readAlerts();
+  const fired = [];
+  let changed = false;
+  for (const a of all) {
+    if (!a.enabled) continue;
+    let ev;
+    try { ev = workspace.evaluateAlert(a); } catch { ev = null; }
+    if (!ev) continue;
+    const state = ev.fired ? 'firing' : 'ok';
+    const wasFiring = a.lastState === 'firing';
+    a.lastValue = ev.actual; a.lastState = state; a.updatedAt = new Date().toISOString();
+    if (state === 'firing' && !wasFiring) { a.lastFired = a.updatedAt; fired.push({ ...a, observed: ev.actual, threshold: ev.threshold }); }
+    changed = true;
+  }
+  if (changed) _writeAlerts(all);
+  return { fired, evaluated: all.filter(a => a.enabled).length };
+}
+
 module.exports = {
   cfg,
   configured,
@@ -896,6 +1038,15 @@ module.exports = {
   panelSummary,
   deterministicAnalysis,
   deterministicSpec,
+  catalog,
+  queryWorkspace,
+  groundContext,
+  evaluateWorkspaceAlert,
+  isWorkspaceSource,
+  listAlerts,
+  saveAlert,
+  deleteAlert,
+  evaluateAlerts,
   // exposed for tests
   _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS, _api, _dashboardVariables, _varMap, _formatVarValue, _applyVars, _queryPanel, _timeToMs, _grafanaDuration, _computeIntervalMs, _expandMacros },
 };

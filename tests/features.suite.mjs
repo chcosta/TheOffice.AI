@@ -1995,4 +1995,82 @@ await t.test('monitoring.ai: Grafana view — live whole-dashboard iframe + rend
   t.ok(/renderPanel,/.test(grafanaSrc), 'renderPanel is exported');
 });
 
+await t.test('monitoring.ai v2: internal workspace catalog + board-build + provenance + alerts', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync(SERVER, 'utf8');
+  const graf = readFileSync('grafana.js', 'utf8');
+  const wss = readFileSync('workspace-source.js', 'utf8');
+
+  // --- Context & data catalog: workspace (internal) + external, with Ground/Chart role toggles ---
+  t.ok(/Context &amp; data catalog/.test(html), 'launcher has the context & data catalog section');
+  t.ok(/x-for="s in monitoring\.catalog\.workspace"/.test(html) && /x-for="s in monitoring\.catalog\.external"/.test(html), 'catalog renders workspace + external groups');
+  t.ok(/@click="monToggleRole\(s\.id, 'ground'\)"/.test(html) && /monToggleRole\(s\.id, 'chart'\)/.test(html), 'Ground + Chart role toggles wired');
+  t.ok(/s\.chartable && monToggleRole\(s\.id, 'chart'\)/.test(html), 'Chart toggle is gated on s.chartable (non-chartable sources cannot be charted)');
+  // whole-object reassign so Alpine subscribes (repo reactivity note)
+  const mtr = _win(html, 'monToggleRole(id, role)', 560);
+  t.ok(/w\.catalogRoles = \{ \.\.\.w\.catalogRoles, \[id\]: next \}/.test(mtr), 'monToggleRole reassigns the whole catalogRoles map (Alpine reactivity)');
+  for (const m of ['async monLoadCatalog(', 'monRoleOn(', 'monSelectedChartSources(', 'monCatSub(']) {
+    t.ok(html.includes(m), 'catalog method present: ' + m);
+  }
+  // catalog source drives the generate request
+  t.ok(/const sources = this\.monSelectedChartSources\(\);/.test(html) && /body\.sources = sources;/.test(html), 'monGenerate binds the chart-selected catalog sources');
+
+  // --- Build from a workspace board ---
+  t.ok(/Build from a workspace board/.test(html), 'launcher has the board-build section');
+  t.ok(/x-model="monitoring\.boardBuild\.boardId"/.test(html) && /@click="monBuildFromBoard\(\)"/.test(html), 'board picker + Build button wired');
+  for (const m of ['async monLoadBoards(', 'monBuildFromBoard(', 'monBoardRefGroups(']) {
+    t.ok(html.includes(m), 'board method present: ' + m);
+  }
+  // /api/boards returns a bare array OR {boards:[]}; the loader handles both
+  const mlb = _win(html, 'async monLoadBoards()', 320);
+  t.ok(/Array\.isArray\(r\) \? r : \(r && r\.boards\) \|\| \[\]/.test(mlb), 'monLoadBoards handles a bare-array or {boards} response');
+  // mined board refs surface in the launcher
+  t.ok(/monitoring\.boardRefs/.test(html) && /monBoardRefGroups\(\)/.test(html) && /Context used:/.test(html), 'boardRefs (mined context) are shown after a board build');
+  t.ok(/w\.boardRefs = \(r && r\.boardRefs\) \|\| null;/.test(html), 'monGenerate captures boardRefs from the response');
+
+  // --- Panel provenance badge in the studio ---
+  t.ok(/monPanelProvenance\(panel\)/.test(html) && /monProvLabel\(prov\)/.test(html), 'provenance helpers present');
+  t.ok(/class="monx-provbadge"/.test(html) && /x-text="monProvLabel\(monPanelProvenance\(p\)\)"/.test(html), 'studio panel headers carry a provenance badge');
+  t.ok(/workspace: monPanelProvenance\(p\)\.kind === 'workspace'/.test(html), 'provenance badge distinguishes workspace-kind panels');
+  const mpl = _win(html, 'monProvLabel(prov)', 260);
+  t.ok(/workspace · direct/.test(mpl) && /AMG MCP/.test(mpl) && /· direct/.test(mpl), 'monProvLabel labels workspace/direct/AMG-MCP access');
+  t.ok(/w\.provenance = \(r && r\.provenance\) \|\| \[\];/.test(html), 'monGenerate captures panel provenance');
+
+  // --- Alerts: list + form + CRUD methods (with the two bug fixes) ---
+  t.ok(/<div class="monx-sech"><h2>Alerts<\/h2>/.test(html), 'launcher has the Alerts section');
+  for (const m of ['async monLoadAlerts(', 'monAlertableSources(', 'monAlertNew(', 'async monSaveAlert(', 'async monToggleAlert(', 'async monDeleteAlert(', 'monAlertSummary(', 'monAlertState(']) {
+    t.ok(html.includes(m), 'alert method present: ' + m);
+  }
+  // only alertable workspace sources can back an alert
+  t.ok(/\(this\.monitoring\.catalog\.workspace \|\| \[\]\)\.filter\(s => s\.alertable\)/.test(html), 'monAlertableSources filters to alertable workspace sources');
+  // FIX 1: monSaveAlert sends window:{days} + an id when editing
+  const msa = _win(html, 'async monSaveAlert()', 640);
+  t.ok(/window: \{ days: Number\(d\.windowDays\) \|\| 7 \}/.test(msa), 'monSaveAlert maps the flat windowDays to window:{days}');
+  t.ok(/if \(d\.id\) body\.id = d\.id;/.test(msa), 'monSaveAlert carries an id when editing (no duplicate)');
+  // FIX 2: monToggleAlert PUTs the FULL alert object (sourceId/window/etc.) with a flipped enabled
+  const mta = _win(html, 'async monToggleAlert(a)', 480);
+  t.ok(/sourceId: a\.sourceId/.test(mta) && /window: a\.window/.test(mta) && /enabled: !a\.enabled/.test(mta), 'monToggleAlert PUTs the full alert body with a flipped enabled (server saveAlert needs sourceId)');
+  t.ok(!/body: JSON\.stringify\(\{ enabled: !a\.enabled \}\)/.test(mta), 'monToggleAlert no longer sends a partial {enabled} body');
+
+  // --- monitoring-alert SSE listener ---
+  t.ok(/source\.addEventListener\('monitoring-alert'/.test(html), 'SPA subscribes to the monitoring-alert SSE event');
+  const sse = _win(html, "addEventListener('monitoring-alert'", 1100);
+  t.ok(/w\.alertNotices = \[/.test(sse) && /this\.toast\('🔔 Alert:/.test(sse) && /this\.monLoadAlerts\(\)/.test(sse), 'monitoring-alert listener records a notice, toasts, and refreshes the alert list');
+
+  // --- Server routes ---
+  for (const r of ["/api/monitoring/catalog", "/api/monitoring/alerts", "/api/monitoring/alerts/:id", "/api/monitoring/alerts/evaluate"]) {
+    t.ok(srv.includes(r), 'server route present: ' + r);
+  }
+  t.ok(/app\.get\('\/api\/monitoring\/alerts'/.test(srv) && /app\.post\('\/api\/monitoring\/alerts'/.test(srv) && /app\.put\('\/api\/monitoring\/alerts\/:id'/.test(srv) && /app\.delete\('\/api\/monitoring\/alerts\/:id'/.test(srv), 'alert CRUD routes (GET/POST/PUT/DELETE) exist');
+  t.ok(/async function _runMonitoringAlerts\(/.test(srv) && /broadcastSSE\('monitoring-alert'/.test(srv), 'server evaluates alerts and broadcasts monitoring-alert over SSE');
+
+  // --- grafana.js alert exports + workspace-source alert gate ---
+  for (const fn of ['listAlerts', 'saveAlert', 'deleteAlert', 'evaluateAlerts', 'isWorkspaceSource', 'catalog']) {
+    t.ok(new RegExp('\\b' + fn + '\\b').test(graf) && graf.includes(fn + ','), 'grafana.js exports ' + fn);
+  }
+  t.ok(/Alerts are supported on internal Workspace sources only\./.test(graf), 'saveAlert rejects non-workspace sources');
+  t.ok(/function catalog\(\)/.test(wss) && /function evaluateAlert\(/.test(wss), 'workspace-source.js provides catalog() + evaluateAlert()');
+  t.ok(/catalog,/.test(wss) && /evaluateAlert,/.test(wss), 'workspace-source.js exports catalog + evaluateAlert');
+});
+
 await t.done();

@@ -20470,7 +20470,7 @@
           <!-- ===== Monitoring.AI (Grafana + AI dashboard studio) ===== -->
           <section x-show="!loading && !errorMessage && route === 'monitoring'">
             <style>
-              .monx{ --mon-accent: var(--cp-accent, #58a6ff); --mon-ai: var(--cp-accent-2, #a371f7); --mon-graf:#2fb2a6; }
+              .monx{ --mon-accent: var(--cp-accent, #58a6ff); --mon-ai: var(--cp-accent-2, #a371f7); --mon-ground: var(--cp-accent-2, #a371f7); --mon-graf:#2fb2a6; }
               .monx-wrap{ max-width:1180px; margin:0 auto; padding:8px 4px 60px; }
               .monx-hero .kick{ color:var(--mon-graf); font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px; }
               .monx-hero h1{ font-size:24px; margin:0 0 8px; font-weight:650; letter-spacing:-.01em; }
@@ -20534,7 +20534,47 @@
               .monx-srccard .sn{ font-size:13px; font-weight:600; }
               .monx-srccard .ss{ color:var(--cp-text-faint); font-size:11.5px; display:flex; align-items:center; gap:6px; margin-top:2px; }
               .monx-srccard .ss .dot{ width:7px; height:7px; border-radius:50%; }
-              /* studio */
+              /* v2: context & data catalog */
+              .monx-cat{ display:flex; flex-direction:column; gap:8px; }
+              .monx-catgrp{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; margin:6px 2px 0; }
+              .monx-catrow{ display:flex; align-items:center; gap:11px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:10px 13px; }
+              .monx-catrow .ci{ width:30px; height:30px; border-radius:8px; background:var(--cp-bg); display:grid; place-items:center; font-size:15px; flex:none; }
+              .monx-catrow .cmeta{ min-width:0; flex:1; }
+              .monx-catrow .cn{ font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .monx-catrow .cs{ color:var(--cp-text-faint); font-size:11.5px; margin-top:2px; }
+              .monx-roles{ display:flex; gap:8px; flex:none; }
+              .monx-role{ font-size:12px; padding:5px 11px; border-radius:8px; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-faint); cursor:pointer; user-select:none; }
+              .monx-role:hover{ color:var(--cp-text-muted); }
+              .monx-role.off{ opacity:.5; cursor:not-allowed; }
+              .monx-role.on.ground{ border-color:var(--mon-ground,#a371f7); color:var(--mon-ground,#a371f7); background:color-mix(in srgb, var(--mon-ground,#a371f7) 12%, transparent); }
+              .monx-role.on.chart{ border-color:var(--mon-accent); color:var(--mon-accent); background:color-mix(in srgb, var(--mon-accent) 12%, transparent); }
+              /* v2: new from board */
+              .monx-bboard{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:14px 15px; margin-top:12px; }
+              .monx-bboard .brow{ display:flex; gap:10px; align-items:center; }
+              .monx-bboard select, .monx-bboard input{ flex:1; padding:9px 11px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; }
+              .monx-bboard select:focus, .monx-bboard input:focus{ outline:none; border-color:var(--mon-accent); }
+              .monx-bboard .bbtn{ padding:9px 15px; border:0; border-radius:8px; background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); color:#fff; font-weight:600; font-size:13px; white-space:nowrap; }
+              .monx-bboard .bbtn:disabled{ opacity:.5; }
+              .monx-brefs{ display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:11px; font-size:12px; color:var(--cp-text-muted); }
+              .monx-brefs .rk{ color:var(--cp-text-faint); }
+              /* v2: alerts */
+              .monx-alerts{ display:flex; flex-direction:column; gap:8px; }
+              .monx-alert{ display:flex; align-items:center; gap:11px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:10px 13px; }
+              .monx-alert .an{ font-size:13px; font-weight:600; }
+              .monx-alert .ad{ color:var(--cp-text-faint); font-size:11.5px; margin-top:2px; }
+              .monx-alert .ast{ margin-left:auto; font-size:11.5px; color:var(--cp-text-faint); }
+              .monx-alert .ast.firing{ color:var(--cp-danger,#f85149); font-weight:600; }
+              .monx-alert .axn{ background:none; border:0; color:var(--cp-text-faint); font-size:12px; cursor:pointer; padding:3px 6px; }
+              .monx-alert .axn:hover{ color:var(--cp-text); }
+              .monx-alertform{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:14px 15px; margin-top:10px; display:flex; flex-direction:column; gap:10px; }
+              .monx-alertform .arow{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+              .monx-alertform label{ font-size:12px; color:var(--cp-text-muted); display:flex; align-items:center; gap:6px; }
+              .monx-alertform select, .monx-alertform input{ padding:7px 10px; border:1px solid var(--cp-border); border-radius:7px; background:var(--cp-bg); color:var(--cp-text); font-size:12.5px; }
+              .monx-alertform .abtn{ padding:8px 14px; border:0; border-radius:8px; background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); color:#fff; font-weight:600; font-size:12.5px; }
+              .monx-alertform .abtn.ghost{ background:none; border:1px solid var(--cp-border); color:var(--cp-text-muted); }
+              .monx-provbadge{ font-size:10.5px; color:var(--cp-text-faint); border:1px solid var(--cp-border); border-radius:6px; padding:1px 6px; margin-left:8px; white-space:nowrap; }
+              .monx-provbadge.workspace{ color:var(--mon-accent); border-color:color-mix(in srgb, var(--mon-accent) 40%, var(--cp-border)); }
+              .monx-provbadge.alert{ color:var(--cp-warning,#d29922); border-color:color-mix(in srgb, var(--cp-warning,#d29922) 40%, var(--cp-border)); }
               .monx-studio{ display:grid; grid-template-columns:236px 1fr 360px; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:560px; }
               .monx-studio.nochat{ grid-template-columns:236px 1fr; }
               .monx-studio.railhidden{ grid-template-columns:1fr 360px; }
@@ -20767,14 +20807,118 @@
                 </div>
                 <div class="monx-empty" x-show="!monitoring.dashboards.length && !monitoring.loading">No dashboards yet — describe one above to spin it up.</div>
 
-                <div class="monx-sech"><h2>Data sources</h2><span class="c" x-text="monitoring.status && monitoring.status.configured ? 'from Azure Managed Grafana' : 'sample'"></span></div>
-                <div class="monx-srcgrid">
-                  <template x-for="(s, i) in monSources()" :key="i">
-                    <div class="monx-srccard">
-                      <div class="si">🔷</div>
-                      <div><div class="sn" x-text="s.name"></div><div class="ss"><span class="dot" :style="`background:${s.status === 'ok' ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)'}`"></span><span x-text="s.type + ' · ' + s.status"></span></div></div>
+                <div class="monx-sech"><h2>Build from a workspace board</h2><span class="c">the AI mines the board's items for context — referenced clusters, repos, telemetry</span></div>
+                <div class="monx-bboard">
+                  <div class="brow">
+                    <select x-model="monitoring.boardBuild.boardId">
+                      <option value="">Choose a board…</option>
+                      <template x-for="b in monitoring.boardBuild.boards" :key="b.id">
+                        <option :value="b.id" x-text="b.name"></option>
+                      </template>
+                    </select>
+                    <button class="bbtn" @click="monBuildFromBoard()" :disabled="monitoring.generating || !monitoring.boardBuild.boardId" x-text="monitoring.generating ? 'Building…' : 'Build dashboard'"></button>
+                  </div>
+                  <input style="margin-top:10px;width:100%;box-sizing:border-box;" type="text" placeholder="Optional focus — e.g. autoscaler queue depth and error trends (leave blank to let the AI decide)" x-model="monitoring.boardBuild.prompt" @keydown.enter="monBuildFromBoard()" />
+                  <div class="monx-brefs" x-show="monitoring.boardRefs" x-cloak>
+                    <span class="rk">Context used:</span>
+                    <template x-for="grp in monBoardRefGroups()" :key="grp.k">
+                      <span><span class="rk" x-text="grp.label + ':'"></span> <span x-text="grp.items.join(', ')"></span></span>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="monx-sech"><h2>Context &amp; data catalog</h2><span class="c">workspace collections + external data sources — pick <b style="color:var(--mon-ground)">Ground</b> (AI context) and <b style="color:var(--mon-accent)">Chart</b> (panels)</span></div>
+                <div class="monx-cat">
+                  <template x-if="monitoring.catalog.workspace.length">
+                    <div class="monx-catgrp">Workspace (internal)</div>
+                  </template>
+                  <template x-for="s in monitoring.catalog.workspace" :key="s.id">
+                    <div class="monx-catrow">
+                      <div class="ci" x-text="s.icon || '🗂'"></div>
+                      <div class="cmeta">
+                        <div class="cn" x-text="s.name"></div>
+                        <div class="cs" x-text="monCatSub(s)"></div>
+                      </div>
+                      <div class="monx-roles">
+                        <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
+                        <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
+                      </div>
                     </div>
                   </template>
+                  <template x-if="monitoring.catalog.external.length">
+                    <div class="monx-catgrp">External data sources</div>
+                  </template>
+                  <template x-for="s in monitoring.catalog.external" :key="s.id">
+                    <div class="monx-catrow">
+                      <div class="ci" x-text="s.icon || '🔷'"></div>
+                      <div class="cmeta">
+                        <div class="cn" x-text="s.name"></div>
+                        <div class="cs" x-text="monCatSub(s)"></div>
+                      </div>
+                      <div class="monx-roles">
+                        <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
+                        <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="monx-railempty" x-show="!monitoring.catalog.loaded && monitoring.catalog.loading">Loading catalog…</div>
+                </div>
+
+                <div class="monx-sech"><h2>Alerts</h2><span class="c">watch an alertable workspace collection and notify when a threshold trips</span></div>
+                <div class="monx-alerts">
+                  <template x-for="a in monitoring.alerts.list" :key="a.id">
+                    <div class="monx-alert">
+                      <div>
+                        <div class="an" x-text="a.name"></div>
+                        <div class="ad" x-text="monAlertSummary(a)"></div>
+                      </div>
+                      <div class="ast" :class="{ firing: a.lastState === 'firing' }" x-text="monAlertState(a)"></div>
+                      <button class="axn" @click="monToggleAlert(a)" x-text="a.enabled ? 'Disable' : 'Enable'"></button>
+                      <button class="axn" @click="monDeleteAlert(a)">Delete</button>
+                    </div>
+                  </template>
+                  <div class="monx-railempty" x-show="!monitoring.alerts.list.length && !monitoring.alerts.open">No alerts yet.</div>
+                </div>
+                <button class="monx-qk" style="margin-top:10px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;padding:7px 12px;font-size:12.5px;color:var(--cp-text-muted);" x-show="!monitoring.alerts.open" @click="monAlertNew()">＋ New alert</button>
+                <div class="monx-alertform" x-show="monitoring.alerts.open" x-cloak>
+                  <div class="arow">
+                    <label>Source
+                      <select x-model="monitoring.alerts.draft.sourceId">
+                        <option value="">Choose…</option>
+                        <template x-for="s in monAlertableSources()" :key="s.id">
+                          <option :value="s.id" x-text="s.name"></option>
+                        </template>
+                      </select>
+                    </label>
+                    <label>Name <input type="text" x-model="monitoring.alerts.draft.name" placeholder="e.g. Task backlog spike" style="min-width:180px;" /></label>
+                  </div>
+                  <div class="arow">
+                    <label>When
+                      <select x-model="monitoring.alerts.draft.agg">
+                        <option value="last">latest</option><option value="sum">sum</option><option value="max">max</option><option value="avg">avg</option>
+                      </select>
+                    </label>
+                    <label>
+                      <select x-model="monitoring.alerts.draft.op">
+                        <option value="&gt;">&gt;</option><option value="&gt;=">&ge;</option><option value="&lt;">&lt;</option><option value="&lt;=">&le;</option><option value="==">=</option>
+                      </select>
+                    </label>
+                    <label><input type="number" x-model.number="monitoring.alerts.draft.value" style="width:90px;" /></label>
+                    <label>over
+                      <select x-model.number="monitoring.alerts.draft.windowDays">
+                        <option :value="1">1 day</option><option :value="7">7 days</option><option :value="14">14 days</option><option :value="30">30 days</option>
+                      </select>
+                    </label>
+                    <label>notify
+                      <select x-model="monitoring.alerts.draft.target">
+                        <option value="app">in-app</option><option value="email">email</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="arow">
+                    <button class="abtn" @click="monSaveAlert()" :disabled="monitoring.alerts.saving || !monitoring.alerts.draft.sourceId || !monitoring.alerts.draft.name" x-text="monitoring.alerts.saving ? 'Saving…' : 'Save alert'"></button>
+                    <button class="abtn ghost" @click="monitoring.alerts.open = false">Cancel</button>
+                  </div>
                 </div>
               </div>
 
@@ -20906,6 +21050,9 @@
                             <div class="monx-ph">
                               <span class="pt" x-text="p.title"></span>
                               <span class="psrc" x-text="'· ' + p.unit"></span>
+                              <template x-if="monPanelProvenance(p)">
+                                <span class="monx-provbadge" :class="{ workspace: monPanelProvenance(p).kind === 'workspace' }" x-text="monProvLabel(monPanelProvenance(p))"></span>
+                              </template>
                               <span class="sp"></span>
                               <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
                               <div class="monx-ptools">
@@ -31177,6 +31324,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           embedNonce: 0, // bumped by Refresh to force a fresh dashboard render
           grafanaRender: (() => { try { return localStorage.getItem('mon-grafana-render') === 'image' ? 'image' : 'live'; } catch (_) { return 'live'; } })(), // live iframe (default) | server-rendered image fallback
           railOpen: true, // left DASHBOARDS rail; auto-collapses in the live Grafana view (Grafana's own nav supersedes it)
+          // v2: unified Context & data catalog — workspace (internal) + external sources.
+          catalog: { workspace: [], external: [], loaded: false, loading: false },
+          catalogRoles: {},        // sourceId -> { ground:bool, chart:bool } — steers the next build
+          // v2: build a dashboard from a workspace board (mines its items for context).
+          boardBuild: { open: false, prompt: '', boardId: '', boards: [], loading: false },
+          boardRefs: null,         // last generate's mined refs { kusto, appInsights, repos, grafana }
+          provenance: [],          // last generate's per-panel provenance [{ title, kind, access, alert }]
+          // v2: alert rules over alertable internal Workspace sources.
+          alerts: { list: [], open: false, loading: false, saving: false, evaluating: false, draft: null },
+          alertNotices: [],        // recent fired-alert notices (from the monitoring-alert SSE)
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -33294,6 +33451,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 clearTimeout(this.meai._rebuildTimer);
                 // Safety net: never get stuck "updating" if a 'done' is dropped.
                 this.meai._rebuildTimer = setTimeout(() => { this.meai.rebuilding = false; }, 120000);
+              } catch {}
+            });
+            // Monitoring.AI v2: an internal workspace-source alert fired. Surface a toast + keep a
+            // short notice list so the alerts panel can show recent firings.
+            source.addEventListener('monitoring-alert', (event) => {
+              try {
+                const d = JSON.parse(event.data || '{}');
+                if (!d || !d.id) return;
+                const w = this.monitoring;
+                w.alertNotices = [{ id: d.id, name: d.name || d.id, observed: d.observed, threshold: d.threshold, op: d.op, agg: d.agg, at: d.at || Date.now() }, ...(w.alertNotices || [])].slice(0, 20);
+                this.toast('🔔 Alert: ' + (d.name || d.id) + ' · ' + (d.agg || '') + ' ' + (d.op || '') + ' ' + (d.threshold != null ? d.threshold : '') + (d.observed != null ? ' (now ' + d.observed + ')' : ''), 'warning');
+                // Refresh the alert list if the studio is open so lastFired/lastState update.
+                if (w && w.alerts) { try { this.monLoadAlerts(); } catch (_) {} }
               } catch {}
             });
             const _resilienceRefresh = (event) => {
@@ -39324,6 +39494,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               w.conn.token = '';
             }
             w.loaded = true;
+            // v2: load the context/data catalog, board list, and alert rules in parallel.
+            this.monLoadCatalog();
+            this.monLoadBoards();
+            this.monLoadAlerts();
             if (uid) { await this.monLoadDashboard(uid); }
             else if ((w.dashboards || []).length) {
               // Land in the studio (persistent dashboard tree + copilot), matching the design.
@@ -39519,22 +39693,168 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const slug = w.dash.slug || 'dashboard';
           return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
         },
-        async monGenerate() {
+        async monGenerate(opts) {
           const w = this.monitoring;
-          const prompt = (w.prompt || '').trim();
-          if (!prompt || w.generating) return;
+          opts = opts || {};
+          const prompt = (opts.prompt != null ? opts.prompt : (w.prompt || '')).trim();
+          const boardId = opts.boardId || '';
+          if (!prompt && !boardId) return;
+          if (w.generating) return;
           w.generating = true;
           try {
-            const r = await this.request('/api/monitoring/generate', { method: 'POST', body: JSON.stringify({ prompt }) });
+            const body = { prompt };
+            const sources = this.monSelectedChartSources();
+            if (sources.length) body.sources = sources;
+            if (boardId) body.boardId = boardId;
+            const r = await this.request('/api/monitoring/generate', { method: 'POST', body: JSON.stringify(body) });
+            // Capture v2 provenance + mined board refs so the user sees the context used.
+            w.provenance = (r && r.provenance) || [];
+            w.boardRefs = (r && r.boardRefs) || null;
             try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
             const uid = r && r.dashboard && r.dashboard.uid;
-            if (uid) { await this.monLoadDashboard(uid); this.toast((r.ai ? 'Dashboard generated' : 'Dashboard generated (sample)') + (r.dashboard && r.dashboard.pushed ? ' · pushed to Grafana' : ''), 'success'); }
+            if (uid) { await this.monLoadDashboard(uid); this.toast((r.ai ? 'Dashboard generated' : 'Dashboard generated' + (boardId ? ' from board' : ' (sample)')) + (r.dashboard && r.dashboard.pushed ? ' · pushed to Grafana' : ''), 'success'); }
             else { this.toast('Could not generate a dashboard', 'error'); }
           } catch (e) {
             this.toast('Generate failed: ' + (e.message || e), 'error');
           } finally {
             w.generating = false;
           }
+        },
+        // ---- v2: context & data catalog ----
+        async monLoadCatalog() {
+          const w = this.monitoring;
+          w.catalog.loading = true;
+          try {
+            const r = await this.request('/api/monitoring/catalog');
+            w.catalog.workspace = (r && r.workspace) || [];
+            w.catalog.external = (r && r.external) || [];
+            w.catalog.loaded = true;
+            // Seed role state: chartable sources default to chart-on so the picker isn't empty.
+            const roles = {};
+            [...w.catalog.workspace, ...w.catalog.external].forEach(s => {
+              roles[s.id] = { ground: false, chart: false };
+            });
+            w.catalogRoles = roles;
+          } catch (e) { /* sample/degraded — leave empty */ }
+          finally { w.catalog.loading = false; }
+        },
+        monRoleOn(id, role) { const r = this.monitoring.catalogRoles[id]; return !!(r && r[role]); },
+        monToggleRole(id, role) {
+          const w = this.monitoring;
+          const cur = w.catalogRoles[id] || { ground: false, chart: false };
+          const next = { ground: cur.ground, chart: cur.chart };
+          next[role] = !cur[role];
+          // Reassign the whole map so Alpine picks up the change (per repo reactivity note).
+          w.catalogRoles = { ...w.catalogRoles, [id]: next };
+        },
+        monSelectedChartSources() {
+          const w = this.monitoring;
+          return Object.keys(w.catalogRoles || {}).filter(id => w.catalogRoles[id] && w.catalogRoles[id].chart);
+        },
+        monCatSub(s) {
+          const bits = [];
+          if (s.group) bits.push(s.group);
+          if (s.dsType) bits.push(s.dsType);
+          if (s.count != null) bits.push(s.count + ' item' + (s.count === 1 ? '' : 's'));
+          if (s.access === 'amg-mcp') bits.push('via AMG MCP');
+          else if (s.access === 'direct' && s.kind === 'external') bits.push('direct');
+          if (s.alertable) bits.push('alertable');
+          return bits.join(' · ');
+        },
+        // ---- v2: build from a workspace board ----
+        async monLoadBoards() {
+          const w = this.monitoring;
+          w.boardBuild.loading = true;
+          try {
+            const r = await this.request('/api/boards');
+            const arr = Array.isArray(r) ? r : (r && r.boards) || [];
+            w.boardBuild.boards = arr.map(b => ({ id: b.id, name: b.name || b.title || b.id }));
+          } catch (e) { /* leave empty */ }
+          finally { w.boardBuild.loading = false; }
+        },
+        async monBuildFromBoard() {
+          const w = this.monitoring;
+          if (!w.boardBuild.boardId || w.generating) return;
+          await this.monGenerate({ prompt: w.boardBuild.prompt || '', boardId: w.boardBuild.boardId });
+        },
+        monBoardRefGroups() {
+          const refs = this.monitoring.boardRefs;
+          if (!refs) return [];
+          const out = [];
+          const push = (k, label) => { const items = refs[k]; if (Array.isArray(items) && items.length) out.push({ k, label, items }); };
+          push('kusto', 'Kusto'); push('appInsights', 'App Insights'); push('repos', 'Repos'); push('grafana', 'Grafana');
+          return out;
+        },
+        // ---- v2: alerts ----
+        async monLoadAlerts() {
+          const w = this.monitoring;
+          w.alerts.loading = true;
+          try {
+            const r = await this.request('/api/monitoring/alerts');
+            w.alerts.list = (r && r.alerts) || [];
+          } catch (e) { /* leave empty */ }
+          finally { w.alerts.loading = false; }
+        },
+        monAlertableSources() {
+          return (this.monitoring.catalog.workspace || []).filter(s => s.alertable);
+        },
+        monAlertNew() {
+          this.monitoring.alerts.draft = { sourceId: '', name: '', agg: 'last', op: '>', value: 0, windowDays: 7, target: 'app', enabled: true };
+          this.monitoring.alerts.open = true;
+        },
+        async monSaveAlert() {
+          const w = this.monitoring;
+          const d = w.alerts.draft;
+          if (!d || !d.sourceId || !d.name || w.alerts.saving) return;
+          w.alerts.saving = true;
+          try {
+            const body = { sourceId: d.sourceId, name: d.name, agg: d.agg, op: d.op, value: Number(d.value) || 0, window: { days: Number(d.windowDays) || 7 }, target: d.target, enabled: d.enabled !== false };
+            if (d.id) body.id = d.id;
+            await this.request('/api/monitoring/alerts', { method: 'POST', body: JSON.stringify(body) });
+            await this.monLoadAlerts();
+            w.alerts.open = false;
+            this.toast('Alert saved', 'success');
+          } catch (e) {
+            this.toast('Save alert failed: ' + (e.message || e), 'error');
+          } finally { w.alerts.saving = false; }
+        },
+        async monToggleAlert(a) {
+          try {
+            await this.request('/api/monitoring/alerts/' + encodeURIComponent(a.id), { method: 'PUT', body: JSON.stringify({ sourceId: a.sourceId, name: a.name, agg: a.agg, op: a.op, value: a.value, window: a.window, target: a.target, enabled: !a.enabled }) });
+            await this.monLoadAlerts();
+          } catch (e) { this.toast('Update failed: ' + (e.message || e), 'error'); }
+        },
+        async monDeleteAlert(a) {
+          if (!confirm('Delete alert "' + a.name + '"?')) return;
+          try {
+            await this.request('/api/monitoring/alerts/' + encodeURIComponent(a.id), { method: 'DELETE' });
+            await this.monLoadAlerts();
+          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+        },
+        monAlertSummary(a) {
+          const src = [...(this.monitoring.catalog.workspace || []), ...(this.monitoring.catalog.external || [])].find(s => s.id === a.sourceId);
+          const name = src ? src.name : a.sourceId;
+          const days = (a.window && a.window.days) || 7;
+          return `${name} · ${a.agg} ${a.op} ${a.value} over ${days}d · ${a.target === 'email' ? 'email' : 'in-app'}`;
+        },
+        monAlertState(a) {
+          if (!a.enabled) return 'disabled';
+          if (a.lastState === 'firing') return 'firing' + (a.lastValue != null ? ' (' + a.lastValue + ')' : '');
+          if (a.lastFired) return 'ok · last fired ' + this.formatRelative(a.lastFired);
+          return 'ok';
+        },
+        // Panel provenance label for the studio panel headers.
+        monPanelProvenance(panel) {
+          const list = this.monitoring.provenance || [];
+          if (!list.length || !panel) return null;
+          return list.find(p => p.title && panel.title && p.title === panel.title) || null;
+        },
+        monProvLabel(prov) {
+          if (!prov) return '';
+          if (prov.kind === 'workspace') return 'workspace · direct';
+          if (prov.access === 'amg-mcp') return (prov.dsType || 'external') + ' · AMG MCP';
+          if (prov.access === 'direct') return (prov.dsType || 'external') + ' · direct';
+          return prov.dsType || prov.source || 'external';
         },
         _monPanelsForScope(scope) {
           const dash = this.monitoring.dash;
