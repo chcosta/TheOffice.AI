@@ -39616,7 +39616,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const s = spark || [];
           if (!s.length) return '';
           const w = 120, h = 30, pad = 2;
-          let mn = Math.min.apply(null, s), mx = Math.max.apply(null, s);
+          let mn = Infinity, mx = -Infinity;
+          for (let i = 0; i < s.length; i++) { const v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
           if (mn === mx) { mn -= 1; mx += 1; }
           const x = i => pad + (i / Math.max(1, s.length - 1)) * (w - 2 * pad);
           const y = v => (h - pad) - ((v - mn) / (mx - mn)) * (h - 2 * pad);
@@ -39629,7 +39630,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const all = [];
           (series || []).forEach(s => (s.data || []).forEach(pt => all.push(pt[1])));
           if (!all.length) return '<div style="height:' + h + 'px"></div>';
-          let mn = Math.min.apply(null, all), mx = Math.max.apply(null, all);
+          let mn = Infinity, mx = -Infinity;
+          for (let i = 0; i < all.length; i++) { const v = all[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
           if (mn === mx) { mn -= 1; mx += 1; }
           const pal = ['#2fb2a6', '#58a6ff', '#a371f7', '#d29922', '#f85149'];
           const x = (i, n) => pad + (i / Math.max(1, n - 1)) * (w - 2 * pad);
@@ -39674,7 +39676,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const last = data.length ? data[data.length - 1][1] : 0;
             let pct;
             if ((p.unit || '') === '%') pct = Math.max(0, Math.min(100, last));
-            else { const mx = Math.max.apply(null, data.map(d => d[1]).concat([1])); pct = Math.max(0, Math.min(100, (last / mx) * 100)); }
+            else { let mx = 1; for (let i = 0; i < data.length; i++) { const v = data[i][1]; if (v > mx) mx = v; } pct = Math.max(0, Math.min(100, (last / mx) * 100)); }
             const r = 46;
             const circ = Math.PI * r;
             const off = circ * (1 - pct / 100);
