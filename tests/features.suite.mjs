@@ -1848,6 +1848,21 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   }
   const setj = readFileSync('settings.js', 'utf8');
   t.ok(/grafana:\s*\{[^}]*enabled:\s*false/.test(setj), 'settings default grafana.enabled=false (opt-in)');
+  // --- Azure identity auth + push-by-default (per-dashboard auto-push) ---
+  t.ok(/authMode:\s*'aad'/.test(setj) && /pushByDefault:\s*true/.test(setj), 'settings default to Azure identity + push-by-default');
+  t.ok(/grafana\.azure\.com\/\.default/.test(graf), 'grafana.js requests the AMG token scope');
+  t.ok(/DefaultAzureCredential/.test(graf), 'grafana.js uses DefaultAzureCredential for Azure identity');
+  t.ok(/function pushDashboard\(/.test(graf) && /function setDashboardOptions\(/.test(graf), 'grafana.js exposes manual push + per-dashboard options');
+  t.ok(/pushDashboard,/.test(graf) && /setDashboardOptions,/.test(graf), 'push helpers are exported');
+  t.ok(/authMode === 'aad'\s*\?\s*true\s*:\s*!!c\.token/.test(graf), 'configured() needs only a URL under Azure identity');
+  t.ok(srv.includes('/api/monitoring/dashboard/:uid/push') && srv.includes('/api/monitoring/dashboard/:uid/options'), 'server exposes push + options routes');
+  t.ok(/authMode: g\.authMode, pushByDefault: g\.pushByDefault/.test(srv), 'connection GET reports authMode + pushByDefault');
+  // SPA: auth-mode selector, token hidden under aad, push controls + methods
+  t.ok(/x-model="monitoring\.conn\.authMode"/.test(html), 'connection panel offers an auth-mode selector');
+  t.ok(/monitoring\.conn\.authMode === 'token'/.test(html), 'token field is shown only in token mode');
+  t.ok(/x-model="monitoring\.conn\.pushByDefault"/.test(html), 'connection panel has a push-by-default toggle');
+  t.ok(/@click="monPushDashboard\(\)"/.test(html) && /@change="monToggleAutoPush\(\)"/.test(html), 'studio has push + auto-push controls');
+  t.ok(/async monPushDashboard\(/.test(html) && /async monToggleAutoPush\(/.test(html), 'push methods defined');
 });
 
 await t.done();

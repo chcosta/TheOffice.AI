@@ -38,12 +38,42 @@ function cfg() {
     token: String(g.token || ''),
     orgId: String(g.orgId || ''),
     enabled: !!g.enabled,
+    // 'aad' = authenticate with Azure identity (DefaultAzureCredential); 'token' = service-account PAT.
+    authMode: (g.authMode === 'token') ? 'token' : 'aad',
+    // Push spun-up dashboards to Grafana by default (can be turned off per dashboard).
+    pushByDefault: g.pushByDefault !== false,
   };
 }
 
 function configured() {
   const c = cfg();
-  return !!(c.enabled && c.url && c.token);
+  if (!c.enabled || !c.url) return false;
+  // Azure identity needs only a URL; token mode needs a token.
+  return c.authMode === 'aad' ? true : !!c.token;
+}
+
+// ---------------------------------------------------------------------------
+// Azure identity — Azure Managed Grafana accepts Azure AD bearer tokens
+// (scope https://grafana.azure.com/.default). DefaultAzureCredential lets the
+// same identity that runs the app (az login / VS / managed identity) authorize
+// Grafana, so there is no service-account token to store or rotate.
+// ---------------------------------------------------------------------------
+const AMG_SCOPE = 'https://grafana.azure.com/.default';
+let _aadCred = null, _aadTok = '', _aadExp = 0;
+async function _aadBearer() {
+  const now = Date.now();
+  if (_aadTok && now < _aadExp - 60000) return _aadTok;
+  if (!_aadCred) {
+    let DefaultAzureCredential;
+    try { ({ DefaultAzureCredential } = require('@azure/identity')); }
+    catch { const e = new Error('azure-identity module unavailable'); e.code = 'NO_AAD_SDK'; throw e; }
+    _aadCred = new DefaultAzureCredential();
+  }
+  const t = await _aadCred.getToken(AMG_SCOPE);
+  if (!t || !t.token) { const e = new Error('Azure identity returned no token — run `az login` or assign a Grafana role'); e.code = 'NO_AAD'; throw e; }
+  _aadTok = t.token;
+  _aadExp = t.expiresOnTimestamp || (now + 50 * 60000);
+  return _aadTok;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,12 +81,19 @@ function configured() {
 // ---------------------------------------------------------------------------
 async function _api(apiPath, { method = 'GET', body = null, timeoutMs = 12000 } = {}) {
   const c = cfg();
-  if (!c.url || !c.token) { const e = new Error('grafana-not-configured'); e.code = 'NO_CONFIG'; throw e; }
+  if (!c.url) { const e = new Error('grafana-not-configured'); e.code = 'NO_CONFIG'; throw e; }
   if (typeof fetch !== 'function') { const e = new Error('fetch-unavailable'); e.code = 'NO_FETCH'; throw e; }
+  let bearer;
+  if (c.authMode === 'aad') {
+    bearer = await _aadBearer();
+  } else {
+    if (!c.token) { const e = new Error('grafana-not-configured'); e.code = 'NO_CONFIG'; throw e; }
+    bearer = c.token;
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const headers = { Authorization: `Bearer ${c.token}`, Accept: 'application/json' };
+    const headers = { Authorization: `Bearer ${bearer}`, Accept: 'application/json' };
     if (c.orgId) headers['X-Grafana-Org-Id'] = c.orgId;
     if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(c.url + apiPath, {
@@ -198,6 +235,9 @@ function _readLocalDashboards() {
 function _writeLocalDashboards(arr) {
   try { fs.writeFileSync(LOCAL_DASH_FILE, JSON.stringify(arr || [], null, 2)); } catch (e) { console.warn('[monitoring] save failed:', e.message); }
 }
+function _saveLocalDash(dash) {
+  _writeLocalDashboards(_readLocalDashboards().map(d => d.uid === dash.uid ? dash : d));
+}
 function _localToListItem(d) {
   const first = (d.panels || [])[0];
   return {
@@ -209,6 +249,8 @@ function _localToListItem(d) {
     sample: true,
     local: true,
     pushed: !!d.pushed,
+    autoPush: !!d.autoPush,
+    pushedAt: d.pushedAt || '',
     spark: first ? (first.series[0] ? first.series[0].data.map(pt => pt[1]) : []) : [],
     updated: d.updated || new Date().toISOString(),
   };
@@ -229,19 +271,22 @@ async function status() {
       ],
     };
   }
-  let health = null, sources = [];
-  try { health = await _api('/api/health', { timeoutMs: 6000 }); } catch (e) { /* keep going */ }
+  let health = null, sources = [], authError = '';
+  try { health = await _api('/api/health', { timeoutMs: 6000 }); }
+  catch (e) { if (c.authMode === 'aad' && (e.code === 'NO_AAD' || e.code === 'NO_AAD_SDK')) authError = e.message; }
   try {
     const ds = await _api('/api/datasources', { timeoutMs: 8000 });
     if (Array.isArray(ds)) sources = ds.map(d => ({ name: d.name, type: d.type, status: 'ok', default: !!d.isDefault }));
-  } catch (e) { /* datasource listing may be forbidden for the token */ }
+  } catch (e) { /* datasource listing may be forbidden for the identity */ }
   return {
     configured: true,
     url: c.url,
     orgId: c.orgId || '',
+    authMode: c.authMode,
+    authError,
     version: health && health.version ? health.version : '',
     healthy: !!health,
-    sources: sources.length ? sources : [{ name: 'Grafana', type: 'grafana', status: health ? 'ok' : 'unknown' }],
+    sources: sources.length ? sources : [{ name: 'Grafana', type: 'grafana', status: health ? 'ok' : (authError ? 'error' : 'unknown') }],
   };
 }
 
@@ -340,7 +385,7 @@ async function getDashboard(uid) {
   // Local (spun-up) dashboard?
   const local = _readLocalDashboards().find(d => d.uid === uid);
   if (local) {
-    return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels: local.panels, sample: true, local: true };
+    return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels: local.panels, sample: true, local: true, pushed: !!local.pushed, autoPush: !!local.autoPush, grafanaUid: local.grafanaUid || '', pushedAt: local.pushedAt || '' };
   }
   // Sample dashboards are always available.
   const samp = SAMPLE_DASHBOARDS.find(d => d.uid === uid);
@@ -381,7 +426,9 @@ function _specToPanels(spec, uid) {
 }
 
 async function createDashboard(spec) {
+  const c = cfg();
   const uid = 'mon-' + Math.random().toString(36).slice(2, 9);
+  const autoPush = (typeof spec.autoPush === 'boolean') ? spec.autoPush : c.pushByDefault;
   const dash = {
     uid,
     title: spec.title || 'New dashboard',
@@ -390,22 +437,56 @@ async function createDashboard(spec) {
     panels: _specToPanels(spec, uid),
     updated: new Date().toISOString(),
     pushed: false,
+    autoPush,
     prompt: spec.prompt || '',
   };
   const all = _readLocalDashboards();
   all.unshift(dash);
   _writeLocalDashboards(all.slice(0, 100));
-  // Best-effort push to Grafana when connected.
+  // Push to Grafana by default (unless this dashboard opted out of auto-push).
   let pushed = false, pushError = '';
-  if (configured()) {
+  if (configured() && autoPush) {
     try {
-      const model = _toGrafanaModel(dash);
-      const r = await _api('/api/dashboards/db', { method: 'POST', body: { dashboard: model, overwrite: false, message: 'Created by Monitoring.AI' }, timeoutMs: 12000 });
-      pushed = !!(r && (r.status === 'success' || r.uid));
-      if (pushed && r.uid) { dash.pushed = true; dash.grafanaUid = r.uid; _writeLocalDashboards(_readLocalDashboards().map(d => d.uid === uid ? dash : d)); }
+      const r = await _pushToGrafana(dash, { overwrite: false });
+      pushed = r.ok;
+      if (pushed) { dash.pushed = true; if (r.grafanaUid) dash.grafanaUid = r.grafanaUid; dash.pushedAt = new Date().toISOString(); _saveLocalDash(dash); }
     } catch (e) { pushError = e.message; }
   }
-  return { uid, title: dash.title, panelCount: dash.panels.length, pushed, pushError, local: true };
+  return { uid, title: dash.title, panelCount: dash.panels.length, pushed, pushError, autoPush, local: true };
+}
+
+// Best-effort push of a local dashboard's model to Grafana.
+async function _pushToGrafana(dash, { overwrite = true } = {}) {
+  const model = _toGrafanaModel(dash);
+  const r = await _api('/api/dashboards/db', { method: 'POST', body: { dashboard: model, overwrite, message: 'Synced by Monitoring.AI' }, timeoutMs: 12000 });
+  return { ok: !!(r && (r.status === 'success' || r.uid)), grafanaUid: (r && r.uid) || dash.grafanaUid || '' };
+}
+
+// Manual push of a local dashboard to Grafana (used by the "Push to Grafana" action).
+async function pushDashboard(uid) {
+  const dash = _readLocalDashboards().find(d => d.uid === uid);
+  if (!dash) { const e = new Error('Not a local dashboard'); e.code = 'NOT_LOCAL'; throw e; }
+  if (!configured()) { const e = new Error('grafana-not-configured'); e.code = 'NO_CONFIG'; throw e; }
+  const r = await _pushToGrafana(dash, { overwrite: true });
+  if (r.ok) { dash.pushed = true; if (r.grafanaUid) dash.grafanaUid = r.grafanaUid; dash.pushedAt = new Date().toISOString(); _saveLocalDash(dash); }
+  return { ok: r.ok, uid, pushed: !!dash.pushed, autoPush: !!dash.autoPush, grafanaUid: dash.grafanaUid || '', pushedAt: dash.pushedAt || '' };
+}
+
+// Update per-dashboard options (currently just autoPush). Turning auto-push ON
+// while connected syncs the dashboard immediately if it hasn't been pushed yet.
+async function setDashboardOptions(uid, opts = {}) {
+  const dash = _readLocalDashboards().find(d => d.uid === uid);
+  if (!dash) { const e = new Error('Not a local dashboard'); e.code = 'NOT_LOCAL'; throw e; }
+  if (typeof opts.autoPush === 'boolean') dash.autoPush = opts.autoPush;
+  _saveLocalDash(dash);
+  let pushError = '';
+  if (dash.autoPush && configured() && !dash.pushed) {
+    try {
+      const r = await _pushToGrafana(dash, { overwrite: true });
+      if (r.ok) { dash.pushed = true; if (r.grafanaUid) dash.grafanaUid = r.grafanaUid; dash.pushedAt = new Date().toISOString(); _saveLocalDash(dash); }
+    } catch (e) { pushError = e.message; }
+  }
+  return { ok: true, uid, autoPush: !!dash.autoPush, pushed: !!dash.pushed, pushError, pushedAt: dash.pushedAt || '' };
 }
 
 function _toGrafanaModel(dash) {
@@ -496,6 +577,8 @@ module.exports = {
   listDashboards,
   getDashboard,
   createDashboard,
+  pushDashboard,
+  setDashboardOptions,
   panelSummary,
   deterministicAnalysis,
   deterministicSpec,

@@ -20496,6 +20496,9 @@
               .monx-conn-body{ margin-top:12px; display:grid; grid-template-columns:1fr 140px; gap:10px; }
               .monx-conn-body input{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; padding:8px 10px; color:var(--cp-text); font-size:13px; outline:0; }
               .monx-conn-body .full{ grid-column:1 / -1; }
+              .monx-authmode{ grid-column:1 / -1; display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--cp-text-muted); }
+              .monx-authmode select{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; padding:8px 10px; color:var(--cp-text); font-size:13px; outline:0; }
+              .monx-conn-hint code{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:4px; padding:0 4px; font-size:11px; }
               .monx-conn-actions{ grid-column:1 / -1; display:flex; align-items:center; gap:10px; margin-top:2px; }
               .monx-conn-actions .save{ background:var(--mon-accent); border:0; border-radius:8px; padding:8px 16px; color:#fff; font-weight:600; }
               .monx-conn-actions .msg{ color:var(--cp-text-muted); font-size:12.5px; }
@@ -20547,6 +20550,9 @@
               .monx-dbar h2{ margin:0; font-size:16px; font-weight:650; display:flex; align-items:center; gap:9px; }
               .monx-dbar .gtag{ font-size:10px; font-weight:600; color:var(--mon-graf); border:1px solid var(--mon-graf); border-radius:6px; padding:1px 6px; }
               .monx-dbar .sp{ flex:1; }
+              .monx-pushc{ display:flex; align-items:center; gap:10px; font-size:12px; }
+              .monx-pushc .ps{ white-space:nowrap; }
+              .monx-autopush{ display:flex; align-items:center; gap:5px; color:var(--cp-text-muted); white-space:nowrap; cursor:pointer; }
               .monx-selc{ display:flex; align-items:center; gap:8px; color:var(--mon-ai); font-size:12.5px; font-weight:550; }
               .monx-selc .an{ background:linear-gradient(135deg, var(--mon-ai), var(--mon-accent)); border:0; border-radius:7px; padding:5px 11px; color:#fff; font-size:12px; font-weight:600; }
               .monx-ibtn{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:6px 10px; color:var(--cp-text-muted); }
@@ -20656,9 +20662,20 @@
                   <div class="monx-conn-body" x-show="monitoring.connOpen" x-cloak>
                     <input class="full" type="text" placeholder="https://your-grafana.grafana.azure.com" x-model="monitoring.conn.url" />
                     <input type="text" placeholder="Org ID (optional)" x-model="monitoring.conn.orgId" />
-                    <input type="password" :placeholder="monitoring.conn.hasToken ? '•••••• (unchanged)' : 'Service account token'" x-model="monitoring.conn.token" />
+                    <label class="full monx-authmode">
+                      <span>Authentication</span>
+                      <select x-model="monitoring.conn.authMode">
+                        <option value="aad">Azure identity (recommended — uses az login / managed identity)</option>
+                        <option value="token">Service account token</option>
+                      </select>
+                    </label>
+                    <input x-show="monitoring.conn.authMode === 'token'" type="password" :placeholder="monitoring.conn.hasToken ? '•••••• (unchanged)' : 'Service account token'" x-model="monitoring.conn.token" />
+                    <p class="monx-conn-hint full" x-show="monitoring.conn.authMode === 'aad'" style="margin:0;font-size:12px;color:var(--cp-text-faint);">No token stored — the app authenticates to Azure Managed Grafana with your Azure identity (scope <code>grafana.azure.com</code>). Requires a Grafana Viewer/Editor role on the workspace.</p>
                     <label class="full" style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--cp-text-muted);">
                       <input type="checkbox" x-model="monitoring.conn.enabled" /> Use live Grafana (off = sample data)
+                    </label>
+                    <label class="full" style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--cp-text-muted);">
+                      <input type="checkbox" x-model="monitoring.conn.pushByDefault" /> Push new dashboards to Grafana by default
                     </label>
                     <div class="monx-conn-actions">
                       <button class="save" @click="monSaveConnection()" :disabled="monitoring.connSaving" x-text="monitoring.connSaving ? 'Saving…' : 'Save connection'"></button>
@@ -20737,6 +20754,13 @@
                       </div>
                       <button class="monx-ibtn" @click="monAnalyze('all')" :disabled="monitoring.analyzing" title="Analyze the whole dashboard">Analyze dashboard</button>
                       <button class="monx-ibtn" @click="monLoadDashboard(monitoring.dash.uid)" title="Refresh">↻</button>
+                      <template x-if="monitoring.dash && monitoring.dash.local">
+                        <span class="monx-pushc">
+                          <span class="ps" x-text="monitoring.dash.pushed ? '● pushed to Grafana' : '○ local only'" :style="`color:${monitoring.dash.pushed ? 'var(--cp-success,#3fb950)' : 'var(--cp-text-faint)'}`"></span>
+                          <button class="monx-ibtn" x-show="monitoring.status && monitoring.status.configured" @click="monPushDashboard()" :title="monitoring.dash.pushed ? 'Re-push this dashboard to Grafana' : 'Push this dashboard to Grafana now'" x-text="monitoring.dash.pushed ? 'Re-push' : 'Push to Grafana'"></button>
+                          <label class="monx-autopush" title="Automatically push this dashboard to Grafana when it changes"><input type="checkbox" :checked="monitoring.dash.autoPush" @change="monToggleAutoPush()" /> Auto-push</label>
+                        </span>
+                      </template>
                     </div>
                     <div class="monx-varhint">Hover a panel and click <b>Grab</b> to add its data to the copilot, then Analyze.</div>
                     <div class="monx-board">
@@ -30986,7 +31010,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           analyzing: false,
           convo: [],               // copilot turns { role:'you'|'ai', text, analysis? }
           copilotQ: '',
-          conn: { url: '', orgId: '', token: '', hasToken: false, enabled: false },
+          conn: { url: '', orgId: '', token: '', hasToken: false, enabled: false, authMode: 'aad', pushByDefault: true },
           connOpen: false,
           connSaving: false,
           connMsg: '',
@@ -39132,6 +39156,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               w.conn.orgId = conn.orgId || '';
               w.conn.enabled = !!conn.enabled;
               w.conn.hasToken = !!conn.hasToken;
+              w.conn.authMode = conn.authMode === 'token' ? 'token' : 'aad';
+              w.conn.pushByDefault = conn.pushByDefault !== false;
               w.conn.token = '';
             }
             w.loaded = true;
@@ -39166,7 +39192,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/monitoring/generate', { method: 'POST', body: JSON.stringify({ prompt }) });
             try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
             const uid = r && r.dashboard && r.dashboard.uid;
-            if (uid) { await this.monLoadDashboard(uid); this.toast(r.ai ? 'Dashboard generated' : 'Dashboard generated (sample)', 'success'); }
+            if (uid) { await this.monLoadDashboard(uid); this.toast((r.ai ? 'Dashboard generated' : 'Dashboard generated (sample)') + (r.dashboard && r.dashboard.pushed ? ' · pushed to Grafana' : ''), 'success'); }
             else { this.toast('Could not generate a dashboard', 'error'); }
           } catch (e) {
             this.toast('Generate failed: ' + (e.message || e), 'error');
@@ -39229,7 +39255,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           w.connSaving = true;
           w.connMsg = '';
           try {
-            const body = { enabled: !!w.conn.enabled, url: w.conn.url || '', orgId: w.conn.orgId || '' };
+            const body = { enabled: !!w.conn.enabled, url: w.conn.url || '', orgId: w.conn.orgId || '', authMode: w.conn.authMode === 'token' ? 'token' : 'aad', pushByDefault: !!w.conn.pushByDefault };
             if (w.conn.token && w.conn.token.trim()) body.token = w.conn.token.trim();
             const r = await this.request('/api/monitoring/connection', { method: 'PUT', body: JSON.stringify(body) });
             if (r && r.connection) {
@@ -39237,6 +39263,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               w.conn.orgId = r.connection.orgId || '';
               w.conn.enabled = !!r.connection.enabled;
               w.conn.hasToken = !!r.connection.hasToken;
+              w.conn.authMode = r.connection.authMode === 'token' ? 'token' : 'aad';
+              w.conn.pushByDefault = r.connection.pushByDefault !== false;
               w.conn.token = '';
             }
             if (r && r.status) w.status = r.status;
@@ -39267,8 +39295,38 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         monConnLabel() {
           const st = this.monitoring.status;
-          if (st && st.configured) return st.healthy ? ('Connected to Grafana' + (st.version ? ' · v' + st.version : '')) : 'Grafana configured — health check failed';
+          const via = (this.monitoring.conn.authMode === 'token') ? 'token' : 'Azure identity';
+          if (st && st.configured) {
+            if (st.authError) return 'Grafana configured — Azure identity failed (run az login or assign a role)';
+            return st.healthy ? ('Connected to Grafana via ' + via + (st.version ? ' · v' + st.version : '')) : 'Grafana configured — health check failed';
+          }
           return 'Sample data (Grafana not connected)';
+        },
+        async monPushDashboard(uid) {
+          const w = this.monitoring;
+          const id = uid || (w.dash && w.dash.uid);
+          if (!id) return;
+          try {
+            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(id) + '/push', { method: 'POST', body: '{}' });
+            if (r && r.ok) {
+              if (w.dash && w.dash.uid === id) { w.dash.pushed = true; }
+              const item = (w.dashboards || []).find(d => d.uid === id); if (item) item.pushed = true;
+              this.toast('Pushed to Grafana', 'success');
+            } else { this.toast('Push failed: ' + ((r && r.error) || 'unknown'), 'error'); }
+          } catch (e) { this.toast('Push failed: ' + (e.message || e), 'error'); }
+        },
+        async monToggleAutoPush() {
+          const w = this.monitoring;
+          if (!w.dash || !w.dash.local) return;
+          const next = !w.dash.autoPush;
+          try {
+            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(w.dash.uid) + '/options', { method: 'PUT', body: JSON.stringify({ autoPush: next }) });
+            if (r && r.ok) {
+              w.dash.autoPush = !!r.autoPush;
+              if (r.pushed) w.dash.pushed = true;
+              const item = (w.dashboards || []).find(d => d.uid === w.dash.uid); if (item) { item.autoPush = w.dash.autoPush; item.pushed = w.dash.pushed; }
+            } else { this.toast('Could not update auto-push: ' + ((r && r.error) || 'unknown'), 'error'); }
+          } catch (e) { this.toast('Could not update auto-push: ' + (e.message || e), 'error'); }
         },
         monDashSub(d) {
           const parts = [];

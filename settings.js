@@ -173,7 +173,7 @@ const DEFAULTS = {
   // otherwise it runs entirely on honest sample data so it is explorable out of
   // the box. token = a Grafana service-account token (Bearer). orgId is optional
   // (X-Grafana-Org-Id header) for multi-org instances.
-  grafana: { enabled: false, url: '', token: '', orgId: '' },
+  grafana: { enabled: false, url: '', token: '', orgId: '', authMode: 'aad', pushByDefault: true },
 
   // ---- Newsletter -----------------------------------------------------------
   // The Newsletter feature turns the Connect impact diary into a polished,

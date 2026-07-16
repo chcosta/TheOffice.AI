@@ -9447,7 +9447,7 @@ app.get('/api/monitoring/status', async (req, res) => {
 app.get('/api/monitoring/connection', (req, res) => {
   const g = grafana.cfg();
   // Never echo the token back; report only whether one is set.
-  res.json({ enabled: g.enabled, url: g.url, orgId: g.orgId, hasToken: !!g.token });
+  res.json({ enabled: g.enabled, url: g.url, orgId: g.orgId, hasToken: !!g.token, authMode: g.authMode, pushByDefault: g.pushByDefault });
 });
 app.put('/api/monitoring/connection', async (req, res) => {
   try {
@@ -9459,12 +9459,28 @@ app.put('/api/monitoring/connection', async (req, res) => {
       orgId: typeof b.orgId === 'string' ? b.orgId.trim() : (cur.orgId || ''),
       // Only overwrite the token when a non-empty one is supplied; blank keeps the current token.
       token: (typeof b.token === 'string' && b.token.trim()) ? b.token.trim() : (cur.token || ''),
+      authMode: (b.authMode === 'aad' || b.authMode === 'token') ? b.authMode : (cur.authMode === 'token' ? 'token' : 'aad'),
+      pushByDefault: typeof b.pushByDefault === 'boolean' ? b.pushByDefault : (cur.pushByDefault !== false),
     };
     settings.updateSettings({ grafana: next });
     try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
     const status = await grafana.status();
-    res.json({ ok: true, connection: { enabled: next.enabled, url: next.url, orgId: next.orgId, hasToken: !!next.token }, status });
+    res.json({ ok: true, connection: { enabled: next.enabled, url: next.url, orgId: next.orgId, hasToken: !!next.token, authMode: next.authMode, pushByDefault: next.pushByDefault }, status });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// Manually push a local (spun-up) dashboard to Grafana.
+app.post('/api/monitoring/dashboard/:uid/push', async (req, res) => {
+  try { res.json(await grafana.pushDashboard(req.params.uid)); }
+  catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message }); }
+});
+
+// Update per-dashboard options (autoPush).
+app.put('/api/monitoring/dashboard/:uid/options', async (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json(await grafana.setDashboardOptions(req.params.uid, { autoPush: typeof b.autoPush === 'boolean' ? b.autoPush : undefined }));
+  } catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message }); }
 });
 
 // Dashboard list (live when connected; sample + local spun-up otherwise).
