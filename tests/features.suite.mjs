@@ -1878,4 +1878,60 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   t.ok(/@click="monReconnect\(\)"/.test(html) && /Retry connection/.test(html), 'connection panel has a Retry connection button');
 });
 
+await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const graf = require('../grafana.js');
+  const I = graf._internal;
+
+  // Bug A — Grafana-style value formatting for KQL/Azure Monitor + ADX.
+  t.eq(I._formatVarValue({ values: ['a', 'b'], multi: true }), "'a','b'", 'multi-value → single-quoted CSV');
+  t.eq(I._formatVarValue({ values: ["o'brien"], multi: true }), "'o''brien'", "single-quote escaped as '' in a multi list");
+  t.eq(I._formatVarValue({ values: ['x'], multi: false }), 'x', 'single-value → raw text (no quotes)');
+  t.eq(I._formatVarValue({ values: [] }), '', 'empty value → empty string');
+
+  // _applyVars: bare multi → quoted list; author-quoted single → raw inside quotes (no doubling); boundary respected.
+  const vm = { QueueName: { values: ['a', 'b'], multi: true }, Single: { values: ['linux'], multi: false } };
+  const bare = I._applyVars({ q: 'Jobs | where QueueName in ($QueueName)' }, vm);
+  t.ok(bare.q === "Jobs | where QueueName in ('a','b')", 'bare $QueueName (multi) → quoted CSV');
+  const quoted = I._applyVars({ q: "T | where Name == '$Single'" }, { Single: { values: ['linux'], multi: false } });
+  t.ok(quoted.q === "T | where Name == 'linux'", "author-quoted '$Single' → raw (no doubled quotes)");
+  const boundary = I._applyVars({ q: '$QueueNameX + $QueueName' }, vm);
+  t.ok(/\$QueueNameX/.test(boundary.q) && /'a','b'$/.test(boundary.q), 'word-boundary: $QueueNameX not clobbered by $QueueName');
+
+  // Bug C — hidden (hide:2) textbox variables MUST enter the substitution map (Grafana interpolates them).
+  const model = { templating: { list: [
+    { name: 'QueueName', type: 'query', multi: true, current: { value: ['a', 'b'] } },
+    { name: 'UntrackedQueues', type: 'textbox', hide: 2, query: '"osx", "perf"' },
+    { name: 'ds', type: 'datasource', current: { value: 'x' } },
+  ] } };
+  const map = I._varMap(model, {});
+  t.ok(map.UntrackedQueues && map.UntrackedQueues.values.join('') === '"osx", "perf"', 'hidden textbox var is in the substitution map');
+  t.ok(map.QueueName && map.QueueName.multi === true, 'query var carries its multi flag');
+  t.ok(!map.ds, 'datasource-type variable is excluded from substitution');
+  // UI-facing variable list still hides hidden ones.
+  t.ok(!I._dashboardVariables(model).some(v => v.name === 'UntrackedQueues'), 'hidden var stays out of the UI picker');
+
+  // Bug B — $__interval / $__interval_ms expansion (ADX backend does not expand them).
+  t.eq(I._grafanaDuration(3.6e6), '1h', '1h duration');
+  t.eq(I._grafanaDuration(3e5), '5m', '5m duration');
+  t.eq(I._grafanaDuration(3e4), '30s', '30s duration');
+  const iv = I._computeIntervalMs('now-24h', 'now', 300);
+  t.ok(iv >= 1e3 && iv <= 864e5, 'computed interval snaps into a nice bucket');
+  const exp = I._expandMacros([{ q: 'summarize by bin(t, $__interval) | $__timeFilter(t) | take $__interval_ms' }], 3e5);
+  t.ok(exp[0].q.includes('bin(t, 5m)'), '$__interval → duration string');
+  t.ok(exp[0].q.includes('take 300000'), '$__interval_ms → milliseconds');
+  t.ok(exp[0].q.includes('$__timeFilter(t)'), '$__timeFilter left for the datasource backend');
+
+  // Server route parses the time range + var-* params and threads them to getDashboard.
+  const srv = readFileSync(SERVER, 'utf8');
+  t.ok(/if \(k\.startsWith\('var-'\)\) vars\[k\.slice\(4\)\] = q\[k\];/.test(srv), 'dashboard route extracts var-* query params');
+  t.ok(/from: q\.from \|\| undefined, to: q\.to \|\| undefined, vars/.test(srv), 'route threads from/to/vars into opts');
+  t.ok(/grafana\.getDashboard\(req\.params\.uid, opts\)/.test(srv), 'route passes opts to getDashboard');
+
+  // SPA: filter controls (time range + per-variable) + honest table / no-data rendering.
+  t.ok(/class="monx-controls"/.test(html), 'SPA renders the .monx-controls filter row');
+  t.ok(/monSetTimeRange\(/.test(html) && /monVarSet\(/.test(html) && /monApplyFilters\(/.test(html), 'time-range + var setters + apply wired');
+  t.ok(/monx-table/.test(html) && /monx-nodata/.test(html), 'SPA has table + honest no-data render surfaces');
+});
+
 await t.done();

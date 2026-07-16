@@ -20542,8 +20542,13 @@
               .monx-rlabel{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; margin:14px 4px 7px; }
               .monx-folder > .frow{ display:flex; align-items:center; gap:7px; padding:6px 7px; border-radius:7px; color:var(--cp-text-muted); cursor:pointer; font-size:13px; }
               .monx-folder > .frow:hover{ background:var(--cp-surface); color:var(--cp-text); }
-              .monx-folder .chev{ font-size:10px; width:10px; transition:.15s; }
+              .monx-folder > .frow .fn{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .monx-folder > .frow .fc{ margin-left:auto; color:var(--cp-text-faint); font-size:11px; }
+              .monx-folder .chev{ font-size:10px; width:10px; transition:.15s; flex:none; }
               .monx-folder.open .chev{ transform:rotate(90deg); }
+              .monx-railsearch{ width:100%; box-sizing:border-box; margin:0 0 6px; padding:6px 9px; border:1px solid var(--cp-border); border-radius:7px; background:var(--cp-surface); color:var(--cp-text); font-size:12.5px; }
+              .monx-railsearch:focus{ outline:none; border-color:var(--mon-accent); }
+              .monx-railempty{ color:var(--cp-text-faint); font-size:12px; padding:8px 7px; }
               .monx-dash{ display:flex; align-items:center; gap:8px; padding:6px 7px 6px 24px; border-radius:7px; color:var(--cp-text-muted); cursor:pointer; font-size:12.5px; }
               .monx-dash:hover{ background:var(--cp-surface); color:var(--cp-text); }
               .monx-dash.on{ color:var(--cp-text); background:var(--cp-surface); }
@@ -20587,6 +20592,21 @@
               .monx-gauge .gv{ font-size:20px; font-weight:700; margin-top:-28px; }
               .monx-gauge .gl{ color:var(--cp-text-faint); font-size:11px; margin-top:2px; }
               .monx-badge{ font-size:10px; font-weight:600; border-radius:6px; padding:1px 6px; }
+              /* filter controls (time range + template variables) */
+              .monx-controls{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; padding:10px 16px 2px; }
+              .monx-ctl{ display:flex; flex-direction:column; gap:3px; }
+              .monx-ctl .cl{ font-size:10px; font-weight:600; color:var(--cp-text-faint); text-transform:uppercase; letter-spacing:.04em; }
+              .monx-ctl select, .monx-ctl input{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:5px 8px; color:var(--cp-text); font-size:12.5px; min-width:150px; }
+              .monx-ctl select:focus, .monx-ctl input:focus{ border-color:var(--mon-graf); outline:none; }
+              /* table panel */
+              .monx-tablewrap{ max-height:240px; overflow:auto; border:1px solid var(--cp-border); border-radius:8px; }
+              .monx-table{ width:100%; border-collapse:collapse; font-size:12px; }
+              .monx-table th{ position:sticky; top:0; background:var(--cp-bg); text-align:left; padding:6px 9px; font-weight:600; color:var(--cp-text-muted); border-bottom:1px solid var(--cp-border); white-space:nowrap; }
+              .monx-table td{ padding:5px 9px; border-bottom:1px solid var(--cp-border); color:var(--cp-text); white-space:nowrap; }
+              .monx-table tr:last-child td{ border-bottom:0; }
+              /* no-data */
+              .monx-nodata{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:96px; color:var(--cp-text-faint); font-size:13px; font-weight:600; }
+              .monx-nodata .sub{ font-size:10.5px; font-weight:400; }
               /* copilot */
               .monx-cop{ border-left:1px solid var(--cp-border); display:flex; flex-direction:column; min-height:0; background:var(--cp-bg); }
               .monx-coph{ display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--cp-border); }
@@ -20738,16 +20758,22 @@
                   <div class="monx-rail">
                     <button class="monx-newbtn" @click="monNewPrompt()">✨ New from prompt</button>
                     <div class="monx-rlabel">Dashboards</div>
+                    <input class="monx-railsearch" type="text" x-model="monitoring.railFilter" placeholder="Filter dashboards…" />
                     <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
-                      <div class="monx-folder open">
-                        <div class="frow" @click="$event.currentTarget.parentElement.classList.toggle('open')"><span class="chev">▶</span><span x-text="folder"></span></div>
-                        <template x-for="d in dashes" :key="d.uid">
-                          <div class="monx-dash" :class="{ on: monitoring.dash && monitoring.dash.uid === d.uid }" @click="monLoadDashboard(d.uid)">
-                            <span x-text="d.title"></span><span class="dc" x-text="d.panelCount || ''"></span>
+                      <div class="monx-folder" :class="{ open: monFolderIsOpen(folder) }">
+                        <div class="frow" @click="monFolderToggle(folder)"><span class="chev">▶</span><span class="fn" x-text="folder"></span><span class="fc" x-text="dashes.length"></span></div>
+                        <template x-if="monFolderIsOpen(folder)">
+                          <div>
+                            <template x-for="d in dashes" :key="d.uid">
+                              <div class="monx-dash" :class="{ on: monitoring.dash && monitoring.dash.uid === d.uid }" @click="monLoadDashboard(d.uid)">
+                                <span x-text="d.title"></span><span class="dc" x-text="d.panelCount || ''"></span>
+                              </div>
+                            </template>
                           </div>
                         </template>
                       </div>
                     </template>
+                    <div class="monx-railempty" x-show="!Object.keys(monDashboardsByFolder()).length" x-text="monitoring.railFilter ? 'No dashboards match.' : 'No dashboards yet.'"></div>
                     <div class="monx-rlabel">Data sources</div>
                     <template x-for="(s, i) in monSources()" :key="i">
                       <div class="monx-srcmini"><span class="dot" :style="`background:${s.status === 'ok' ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)'}`"></span><span x-text="s.name"></span></div>
@@ -20768,7 +20794,7 @@
                         <button class="an" @click="monAnalyze('grabbed')" :disabled="monitoring.analyzing" x-text="monitoring.analyzing ? 'Analyzing…' : '✨ Analyze'"></button>
                       </div>
                       <button class="monx-ibtn" @click="monAnalyze('all')" :disabled="monitoring.analyzing" title="Analyze the whole dashboard">Analyze dashboard</button>
-                      <button class="monx-ibtn" @click="monLoadDashboard(monitoring.dash.uid)" title="Refresh">↻</button>
+                      <button class="monx-ibtn" @click="monApplyFilters()" :disabled="monitoring.refreshing" title="Refresh data" x-text="monitoring.refreshing ? '…' : '↻'"></button>
                       <template x-if="monitoring.dash && monitoring.dash.local">
                         <span class="monx-pushc">
                           <span class="ps" x-text="monitoring.dash.pushed ? '● pushed to Grafana' : '○ local only'" :style="`color:${monitoring.dash.pushed ? 'var(--cp-success,#3fb950)' : 'var(--cp-text-faint)'}`"></span>
@@ -20777,10 +20803,35 @@
                         </span>
                       </template>
                     </div>
+                    <div class="monx-controls" x-show="monitoring.dash && !monitoring.dash.local">
+                      <label class="monx-ctl">
+                        <span class="cl">Time range</span>
+                        <select @change="monSetTimeRange($event.target.value)">
+                          <template x-for="tr in monTimeRanges()" :key="tr.v">
+                            <option :value="tr.v" :selected="monitoring.filters && monitoring.filters.from === tr.v" x-text="tr.label"></option>
+                          </template>
+                        </select>
+                      </label>
+                      <template x-for="v in monDashVariables()" :key="v.name">
+                        <label class="monx-ctl">
+                          <span class="cl" x-text="v.label"></span>
+                          <template x-if="v.options && v.options.length">
+                            <select @change="monVarSet(v.name, $event.target.value)">
+                              <template x-for="o in v.options" :key="o.value">
+                                <option :value="o.value" :selected="monitoring.filters && monitoring.filters.vars[v.name] === o.value" x-text="o.text"></option>
+                              </template>
+                            </select>
+                          </template>
+                          <template x-if="!(v.options && v.options.length)">
+                            <input type="text" :value="(monitoring.filters && monitoring.filters.vars[v.name]) || ''" @change="monVarSet(v.name, $event.target.value)" placeholder="all" />
+                          </template>
+                        </label>
+                      </template>
+                    </div>
                     <div class="monx-varhint">Hover a panel and click <b>Grab</b> to add its data to the copilot, then Analyze.</div>
                     <div class="monx-board">
                       <template x-for="p in (monitoring.dash ? monitoring.dash.panels : [])" :key="p.id">
-                        <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'timeseries' && p.series && p.series.length > 1 }">
+                        <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'table' || (p.type === 'timeseries' && p.series && p.series.length > 1) }">
                           <div class="monx-ph">
                             <span class="pt" x-text="p.title"></span>
                             <span class="psrc" x-text="'· ' + p.unit"></span>
@@ -31030,6 +31081,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           connSaving: false,
           connReconnecting: false,
           connMsg: '',
+          railFilter: '',          // rail dashboard search
+          folderOpen: {},          // folder-name -> bool (collapsed by default)
+          filters: { from: 'now-6h', to: 'now', vars: {} }, // active time range + template variables
+          refreshing: false,       // re-querying panels with current filters
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -39200,9 +39255,64 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             w.convo = [];
             w.deepPanel = null;
             w.view = 'studio';
+            // Adopt the dashboard's own time range + template-variable defaults so the
+            // native view mirrors what Grafana would show on first open.
+            const vars = {};
+            (r.variables || []).forEach(v => { vars[v.name] = (v.current && v.current[0] != null) ? v.current[0] : ''; });
+            w.filters = { from: (r.time && r.time.from) || 'now-6h', to: (r.time && r.time.to) || 'now', vars };
           } catch (e) {
             this.toast('Failed to open dashboard: ' + (e.message || e), 'error');
           }
+        },
+        // Re-query the current dashboard with the active time range + variable
+        // selection, keeping grabbed panels / copilot state intact.
+        async monApplyFilters() {
+          const w = this.monitoring;
+          if (!w.dash || !w.dash.uid) return;
+          const f = w.filters || { from: 'now-6h', to: 'now', vars: {} };
+          const qs = new URLSearchParams();
+          if (f.from) qs.set('from', f.from);
+          if (f.to) qs.set('to', f.to);
+          Object.keys(f.vars || {}).forEach(k => { const v = f.vars[k]; if (v !== '' && v != null) qs.set('var-' + k, v); });
+          w.refreshing = true;
+          try {
+            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(w.dash.uid) + (qs.toString() ? ('?' + qs.toString()) : ''));
+            w.dash.panels = r.panels || [];
+            if (r.variables) w.dash.variables = r.variables;
+            if (r.time) w.dash.time = r.time;
+            w.grabbed = (w.grabbed || []).filter(id => (r.panels || []).some(p => p.id === id));
+          } catch (e) {
+            this.toast('Refresh failed: ' + (e.message || e), 'error');
+          } finally {
+            w.refreshing = false;
+          }
+        },
+        monTimeRanges() {
+          return [
+            { v: 'now-15m', label: 'Last 15 min' },
+            { v: 'now-1h', label: 'Last 1 hour' },
+            { v: 'now-6h', label: 'Last 6 hours' },
+            { v: 'now-24h', label: 'Last 24 hours' },
+            { v: 'now-7d', label: 'Last 7 days' },
+            { v: 'now-30d', label: 'Last 30 days' },
+          ];
+        },
+        monSetTimeRange(v) {
+          const w = this.monitoring;
+          if (!w.filters) w.filters = { from: 'now-6h', to: 'now', vars: {} };
+          w.filters.from = v;
+          w.filters.to = 'now';
+          this.monApplyFilters();
+        },
+        monVarSet(name, val) {
+          const w = this.monitoring;
+          if (!w.filters) w.filters = { from: 'now-6h', to: 'now', vars: {} };
+          w.filters.vars[name] = val;
+          this.monApplyFilters();
+        },
+        monDashVariables() {
+          const w = this.monitoring;
+          return (w.dash && w.dash.variables) || [];
         },
         async monGenerate() {
           const w = this.monitoring;
@@ -39381,9 +39491,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         monDashboardsByFolder() {
           // Group the rail tree as the user thinks about it: "My dashboards"
           // (AI-generated / local) first, then dashboards surfaced from Azure
-          // Managed Grafana, grouped by their Grafana folder.
+          // Managed Grafana, grouped by their Grafana folder. Honors the rail filter.
+          const q = (this.monitoring.railFilter || '').trim().toLowerCase();
+          const match = d => !q || String(d.title || '').toLowerCase().includes(q) || String(d.folder || '').toLowerCase().includes(q);
           const mine = [], byFolder = {};
           (this.monitoring.dashboards || []).forEach(d => {
+            if (!match(d)) return;
             if (d.local) { mine.push(d); return; }
             const f = d.folder || 'Grafana';
             (byFolder[f] = byFolder[f] || []).push(d);
@@ -39392,6 +39505,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (mine.length) out['My dashboards'] = mine;
           Object.keys(byFolder).sort().forEach(f => { out[f] = byFolder[f]; });
           return out;
+        },
+        monFolderIsOpen(folder) {
+          // Collapsed by default to tame long Azure folder lists; "My dashboards"
+          // opens by default, and any folder opens automatically while filtering.
+          if ((this.monitoring.railFilter || '').trim()) return true;
+          const st = this.monitoring.folderOpen;
+          if (Object.prototype.hasOwnProperty.call(st, folder)) return !!st[folder];
+          return folder === 'My dashboards';
+        },
+        monFolderToggle(folder) {
+          const st = this.monitoring.folderOpen;
+          st[folder] = !this.monFolderIsOpen(folder);
         },
         monGrabbedPanels() {
           const dash = this.monitoring.dash;
@@ -39520,6 +39645,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         monPanelBody(p, height) {
           if (!p) return '';
+          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          if (p.type === 'table' && p.table && p.table.rows && p.table.rows.length) {
+            const cols = p.table.columns || [];
+            let h = '<div class="monx-tablewrap"><table class="monx-table"><thead><tr>';
+            cols.forEach(c => { h += '<th>' + esc(c) + '</th>'; });
+            h += '</tr></thead><tbody>';
+            p.table.rows.slice(0, 60).forEach(row => {
+              h += '<tr>';
+              row.forEach(cell => { h += '<td>' + esc(cell) + '</td>'; });
+              h += '</tr>';
+            });
+            h += '</tbody></table></div>';
+            return h;
+          }
+          if (p.noData) {
+            return '<div class="monx-nodata">No data<div class="sub">for the selected time range &amp; filters</div></div>';
+          }
           if (p.type === 'gauge') {
             const s0 = (p.series || [])[0];
             const data = (s0 && s0.data) || [];

@@ -9499,7 +9499,15 @@ app.get('/api/monitoring/dashboards', async (req, res) => {
 
 // One dashboard with its panels + series.
 app.get('/api/monitoring/dashboard/:uid', async (req, res) => {
-  try { res.json(await grafana.getDashboard(req.params.uid)); }
+  try {
+    const q = req.query || {};
+    const vars = {};
+    for (const k of Object.keys(q)) {
+      if (k.startsWith('var-')) vars[k.slice(4)] = q[k];
+    }
+    const opts = { from: q.from || undefined, to: q.to || undefined, vars };
+    res.json(await grafana.getDashboard(req.params.uid, opts));
+  }
   catch (e) { res.status(200).json({ error: e.message, uid: req.params.uid, panels: [] }); }
 });
 

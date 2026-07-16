@@ -334,37 +334,199 @@ async function listDashboards() {
   }
 }
 
+// Extract the dashboard's template variables into a simple list the UI can render
+// as filters, with the current value(s) and any selectable options.
+function _dashboardVariables(model) {
+  const list = (model && model.templating && model.templating.list) || [];
+  const out = [];
+  for (const v of list) {
+    if (!v || !v.name) continue;
+    if (v.type === 'constant' || v.type === 'datasource' || v.hide === 2) continue;
+    const cur = v.current || {};
+    const options = (v.options || []).map(o => ({ text: o.text, value: o.value })).slice(0, 200);
+    out.push({
+      name: v.name,
+      label: v.label || v.name,
+      type: v.type || 'query',
+      multi: !!v.multi,
+      current: Array.isArray(cur.value) ? cur.value : (cur.value != null ? [cur.value] : []),
+      currentText: Array.isArray(cur.text) ? cur.text.join(' + ') : (cur.text || ''),
+      options,
+    });
+  }
+  return out;
+}
+
+// The set of variables usable for substitution — like _dashboardVariables but INCLUDING
+// hidden ones (hide:2) and textbox/constant types. Grafana interpolates hidden variables
+// into queries even though they never appear in the dashboard's variable picker, so the
+// substitution map must know about them or their $name literal reaches the datasource and
+// errors (e.g. a hidden textbox $UntrackedQueues → Kusto SEM0100). Only datasource-type
+// variables (which select a datasource, not a query value) are excluded.
+function _substitutableVariables(model) {
+  const list = (model && model.templating && model.templating.list) || [];
+  const out = [];
+  for (const v of list) {
+    if (!v || !v.name) continue;
+    if (v.type === 'datasource') continue;
+    const cur = v.current || {};
+    let current;
+    if (Array.isArray(cur.value)) current = cur.value;
+    else if (cur.value != null) current = [cur.value];
+    else if (v.query != null && (v.type === 'textbox' || v.type === 'constant')) {
+      current = [typeof v.query === 'string' ? v.query : (v.query && v.query.query) || ''];
+    } else current = [];
+    out.push({ name: v.name, multi: !!v.multi, current });
+  }
+  return out;
+}
+
+// Build a { name -> { values, multi } } substitution map from the model's variables,
+// applying any user overrides. Formatting is applied at substitution time (see
+// _applyVars) so it can mirror Grafana: a multi-value variable interpolates to a
+// single-quoted CSV list ('a','b','c'), a single-value variable to its raw value.
+// The datasource backend still expands $__ macros and applies the time range itself.
+function _varMap(model, overrides) {
+  const map = {};
+  for (const v of _substitutableVariables(model)) {
+    let val = v.current;
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, v.name)) {
+      val = Array.isArray(overrides[v.name]) ? overrides[v.name] : [overrides[v.name]];
+    }
+    val = (val || []).map(x => (x == null ? '' : String(x))).filter(x => x !== '');
+    // $__all with no explicit options → drop the filter (let the query match everything)
+    if (val.length === 1 && val[0].toLowerCase() === '$__all') val = [];
+    map[v.name] = { values: val, multi: !!v.multi };
+  }
+  return map;
+}
+
+// Format a variable's value(s) for injection into a KQL/query string, mirroring
+// Grafana: multi-value → single-quoted CSV ('a','b'), single-value → raw text.
+function _formatVarValue(entry) {
+  if (Array.isArray(entry)) entry = { values: entry, multi: entry.length > 1 };
+  const values = (entry && entry.values) || [];
+  if (!values.length) return '';
+  if (entry.multi || values.length > 1) {
+    return values.map(v => "'" + String(v).replace(/'/g, "''") + "'").join(',');
+  }
+  return String(values[0]);
+}
+
+// Parse a Grafana relative ("now-24h"), absolute (ISO), or epoch-ms time expression
+// to epoch milliseconds. Falls back to now on anything unrecognized.
+function _timeToMs(expr, nowMs) {
+  if (expr == null) return nowMs;
+  const s = String(expr).trim();
+  if (/^\d{10,}$/.test(s)) return Number(s);
+  if (s === 'now') return nowMs;
+  const m = s.match(/^now\s*([+-])\s*(\d+)\s*([smhdwMy])$/);
+  if (m) {
+    const sign = m[1] === '-' ? -1 : 1;
+    const mult = { s: 1e3, m: 6e4, h: 3.6e6, d: 8.64e7, w: 6.048e8, M: 2.592e9, y: 3.1536e10 }[m[3]] || 0;
+    return nowMs + sign * Number(m[2]) * mult;
+  }
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : nowMs;
+}
+
+// Format a millisecond span as a Grafana-style interval duration string (e.g. 30s, 5m, 1h).
+function _grafanaDuration(ms) {
+  if (ms % 3.6e6 === 0 && ms >= 3.6e6) return (ms / 3.6e6) + 'h';
+  if (ms % 6e4 === 0 && ms >= 6e4) return (ms / 6e4) + 'm';
+  if (ms % 1e3 === 0 && ms >= 1e3) return (ms / 1e3) + 's';
+  if (ms < 1e3) return '1s';
+  if (ms < 6e4) return Math.round(ms / 1e3) + 's';
+  if (ms < 3.6e6) return Math.round(ms / 6e4) + 'm';
+  return Math.round(ms / 3.6e6) + 'h';
+}
+
+// Compute the auto interval (ms) for a time range + max data points, snapping up to a
+// "nice" bucket the way Grafana's frontend does.
+function _computeIntervalMs(from, to, maxDataPoints) {
+  const now = Date.now();
+  const span = Math.max(1, _timeToMs(to, now) - _timeToMs(from, now));
+  let iv = Math.floor(span / (maxDataPoints || 300));
+  const nice = [1e3, 5e3, 1e4, 3e4, 6e4, 3e5, 6e5, 9e5, 18e5, 36e5, 72e5, 108e5, 216e5, 432e5, 864e5];
+  for (const n of nice) { if (iv <= n) { iv = n; break; } }
+  if (iv < 1e3) iv = 6e4;
+  return iv;
+}
+
+// Expand the built-in $__interval / $__interval_ms macros that the Grafana frontend
+// normally interpolates before dispatch. The ADX (Kusto) datasource backend does NOT
+// expand these (it errors "Failed to resolve scalar expression '$__interval'"), so we
+// substitute them ourselves. $__timeFilter / $__from / $__to stay for the backend.
+function _expandMacros(queries, intervalMs) {
+  const ms = intervalMs || 60000;
+  const dur = _grafanaDuration(ms);
+  let s;
+  try { s = JSON.stringify(queries); } catch { return queries; }
+  s = s.split('$__interval_ms').join(String(ms))
+       .replace(/\$__interval(?![A-Za-z0-9_])/g, dur);
+  try { return JSON.parse(s); } catch { return queries; }
+}
+
+// Deep-substitute $var / ${var} / [[var]] inside a JSON-serializable target object.
+// When a var reference is immediately wrapped in matching single quotes by the
+// query author (e.g. == '$QueueName'), the raw value is injected so we don't produce
+// doubled quotes; otherwise the Grafana-style formatted value is used.
+function _applyVars(obj, varMap) {
+  if (!varMap || !Object.keys(varMap).length) return obj;
+  let s;
+  try { s = JSON.stringify(obj); } catch { return obj; }
+  for (const name of Object.keys(varMap)) {
+    const entry = varMap[name];
+    const values = (entry && entry.values) || (Array.isArray(entry) ? entry : []);
+    const rawVal = values.join(',');
+    const fmtVal = _formatVarValue(entry);
+    const escRaw = rawVal.replace(/[\\"]/g, m => '\\' + m);
+    const escFmt = fmtVal.replace(/[\\"]/g, m => '\\' + m);
+    // author-quoted single: '$name' → inject raw (avoid doubled quotes)
+    s = s.replace(new RegExp("'\\$" + name + "'(?![A-Za-z0-9_])", 'g'), "'" + escRaw + "'")
+         .replace(new RegExp("'\\$\\{" + name + "\\}'", 'g'), "'" + escRaw + "'");
+    // everything else → Grafana-style formatted value
+    s = s.split('${' + name + '}').join(escFmt)
+         .split('[[' + name + ']]').join(escFmt)
+         .replace(new RegExp('\\$' + name + '(?![A-Za-z0-9_])', 'g'), escFmt);
+  }
+  try { return JSON.parse(s); } catch { return obj; }
+}
+
 // Extract a normalized panel list from a real Grafana dashboard model, attaching
-// query results (or sample series when a live query isn't possible).
-async function _panelsFromModel(model, uid) {
+// live query results. When connected we stay honest: an empty result renders as
+// "No data" (like Grafana) rather than fabricated series.
+async function _panelsFromModel(model, uid, ctx = {}) {
   const panels = [];
   const raw = (model && model.panels) || [];
   for (const gp of raw) {
     if (!gp || gp.type === 'row') continue;
     const unit = (gp.fieldConfig && gp.fieldConfig.defaults && gp.fieldConfig.defaults.unit) || '';
-    let series = [];
-    let sample = false;
-    // Live query would require datasource-specific target models; attempt only when
-    // targets carry a raw expression we can pass through. Otherwise synthesize.
-    try {
-      series = await _queryPanel(gp, model);
-    } catch { series = []; }
-    if (!series || !series.length) {
-      const gen = _samplePanels(_kindFromTitle(gp.title), uid);
-      const match = gen.find(x => x.title.toLowerCase() === String(gp.title || '').toLowerCase()) || gen[panels.length % gen.length];
-      series = match.series;
-      sample = true;
-    }
+    let res = { series: [], table: null };
+    try { res = await _queryPanel(gp, model, ctx); } catch { res = { series: [], table: null }; }
+    const type = _panelType(gp, res);
     panels.push({
       id: gp.id,
       title: gp.title || `Panel ${gp.id}`,
-      type: (gp.type === 'stat' || gp.type === 'gauge') ? 'gauge' : 'timeseries',
+      type,
       unit,
-      series,
-      sample,
+      series: res.series || [],
+      table: res.table || null,
+      noData: !(res.series && res.series.length) && !(res.table && res.table.rows && res.table.rows.length),
+      sample: false,
     });
   }
   return panels;
+}
+
+// Map a Grafana panel type to the renderer's supported kinds.
+function _panelType(gp, res) {
+  const t = String((gp && gp.type) || '').toLowerCase();
+  if (res && res.table && res.table.rows) return 'table';
+  if (t === 'table') return 'table';
+  if (t === 'stat' || t === 'gauge' || t === 'bargauge') return 'gauge';
+  if (t === 'barchart') return 'bar';
+  return 'timeseries';
 }
 
 function _kindFromTitle(title) {
@@ -374,54 +536,86 @@ function _kindFromTitle(title) {
   return 'host';
 }
 
-// Best-effort live query for a single panel; returns [] when not feasible.
-async function _queryPanel(gp, model) {
-  const targets = (gp.targets || []).filter(Boolean);
-  if (!targets.length) return [];
+// Best-effort live query for a single panel. Substitutes dashboard template
+// variables into the targets and honors the requested time range; returns
+// { series, table } (either may be empty). Returns empty on any failure.
+async function _queryPanel(gp, model, ctx = {}) {
+  let targets = (gp.targets || []).filter(Boolean);
+  if (!targets.length) return { series: [], table: null };
   const ds = gp.datasource || (targets[0] && targets[0].datasource) || null;
-  const queries = targets.map((t, i) => ({
+  const varMap = ctx.varMap || {};
+  const maxDataPoints = (targets[0] && targets[0].maxDataPoints) || 300;
+  const intervalMs = _computeIntervalMs(ctx.from, ctx.to, maxDataPoints);
+  const queries = targets.map((t, i) => _applyVars({
     ...t,
     refId: t.refId || String.fromCharCode(65 + i),
     datasource: t.datasource || ds || undefined,
-  }));
-  const body = { queries, from: 'now-6h', to: 'now' };
+    intervalMs: t.intervalMs || intervalMs,
+    maxDataPoints: t.maxDataPoints || 300,
+  }, varMap));
+  const body = { queries: _expandMacros(queries, intervalMs), from: ctx.from || 'now-6h', to: ctx.to || 'now' };
   let out;
-  try { out = await _api('/api/ds/query', { method: 'POST', body, timeoutMs: 12000 }); } catch { return []; }
+  try { out = await _api('/api/ds/query', { method: 'POST', body, timeoutMs: 15000 }); } catch { return { series: [], table: null }; }
   const series = [];
+  let table = null;
+  const wantTable = String((gp && gp.type) || '').toLowerCase() === 'table';
   const results = (out && out.results) || {};
   for (const refId of Object.keys(results)) {
     const frames = (results[refId] && results[refId].frames) || [];
     for (const f of frames) {
+      const fields = (f.schema && f.schema.fields) || [];
       const values = (f.data && f.data.values) || [];
-      if (values.length < 2) continue;
-      const times = values[0], vals = values[1];
-      const data = [];
-      for (let i = 0; i < times.length; i++) data.push([Number(times[i]), Number(vals[i])]);
-      if (data.length) series.push({ name: (f.schema && f.schema.name) || refId, unit: '', data, sample: false });
+      if (!fields.length || !values.length) continue;
+      const timeIdx = fields.findIndex(fl => (fl.type === 'time') || /^time$/i.test(fl.name || ''));
+      if (wantTable || timeIdx < 0) {
+        // Table-shaped result: emit rows across all fields.
+        if (!table) table = { columns: fields.map(fl => fl.name || ''), rows: [] };
+        const rowCount = values.reduce((m, col) => Math.max(m, col.length), 0);
+        for (let r = 0; r < Math.min(rowCount, 200); r++) {
+          table.rows.push(values.map(col => col[r]));
+        }
+      } else {
+        const times = values[timeIdx];
+        fields.forEach((fl, ci) => {
+          if (ci === timeIdx || fl.type === 'time') return;
+          if (fl.type && fl.type !== 'number') return;
+          const col = values[ci] || [];
+          const data = [];
+          for (let i = 0; i < times.length; i++) {
+            const y = Number(col[i]);
+            if (Number.isFinite(y)) data.push([Number(times[i]), y]);
+          }
+          if (data.length) series.push({ name: fl.name || refId, unit: (fl.config && fl.config.unit) || '', data, sample: false });
+        });
+      }
     }
   }
-  return series;
+  return { series, table };
 }
 
-async function getDashboard(uid) {
+async function getDashboard(uid, opts = {}) {
   // Local (spun-up) dashboard?
   const local = _readLocalDashboards().find(d => d.uid === uid);
   if (local) {
-    return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels: local.panels, sample: true, local: true, pushed: !!local.pushed, autoPush: !!local.autoPush, grafanaUid: local.grafanaUid || '', pushedAt: local.pushedAt || '' };
+    return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels: local.panels, variables: [], time: { from: 'now-6h', to: 'now' }, sample: true, local: true, pushed: !!local.pushed, autoPush: !!local.autoPush, grafanaUid: local.grafanaUid || '', pushedAt: local.pushedAt || '' };
   }
   // Sample dashboards are always available.
   const samp = SAMPLE_DASHBOARDS.find(d => d.uid === uid);
   if (samp) {
-    return { configured: configured(), uid, title: samp.title, tags: samp.tags, panels: _samplePanels(samp.kind, uid), sample: true };
+    return { configured: configured(), uid, title: samp.title, tags: samp.tags, panels: _samplePanels(samp.kind, uid), variables: [], time: { from: 'now-6h', to: 'now' }, sample: true };
   }
   if (!configured()) {
     // Unknown uid + no Grafana → best-effort host sample.
-    return { configured: false, uid, title: 'Dashboard', tags: [], panels: _samplePanels('host', uid), sample: true };
+    return { configured: false, uid, title: 'Dashboard', tags: [], panels: _samplePanels('host', uid), variables: [], time: { from: 'now-6h', to: 'now' }, sample: true };
   }
   const doc = await _api(`/api/dashboards/uid/${encodeURIComponent(uid)}`, { timeoutMs: 12000 });
   const model = (doc && doc.dashboard) || {};
-  const panels = await _panelsFromModel(model, uid);
-  return { configured: true, uid, title: model.title || 'Dashboard', tags: model.tags || [], panels, sample: panels.every(p => p.sample) };
+  const variables = _dashboardVariables(model);
+  const from = opts.from || (model.time && model.time.from) || 'now-6h';
+  const to = opts.to || (model.time && model.time.to) || 'now';
+  const varMap = _varMap(model, opts.vars || {});
+  const panels = await _panelsFromModel(model, uid, { varMap, from, to });
+  return { configured: true, uid, title: model.title || 'Dashboard', tags: model.tags || [], variables, time: { from, to }, panels, sample: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -606,5 +800,5 @@ module.exports = {
   deterministicAnalysis,
   deterministicSpec,
   // exposed for tests
-  _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS },
+  _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS, _api, _dashboardVariables, _varMap, _formatVarValue, _applyVars, _queryPanel, _timeToMs, _grafanaDuration, _computeIntervalMs, _expandMacros },
 };
