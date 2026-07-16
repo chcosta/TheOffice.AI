@@ -949,6 +949,13 @@ await t.test('Pulse.AI Teams share — data-URI comics post via Graph hostedCont
   t.ok(/'@microsoft\.graph\.temporaryId': id, contentType: m\[1\], contentBytes: m\[2\]/.test(route), 'each image becomes a hostedContents entry');
   t.ok(/\.\.\/hostedContents\/\$\{id\}\/\$value/.test(route), 'body references the hosted image by its temporary id');
   t.ok(/if \(hosted\.length\) bodyObj\.hostedContents = hosted;/.test(route), 'hostedContents attached to the body only when present');
+  // The image bytes are posted DETERMINISTICALLY to Graph over HTTPS — never through the
+  // LLM prompt (the base64 is far too large for the model to echo → the 300s timeout).
+  t.ok(/async function _graphPostChannelMessage\(/.test(srv), 'server has a direct Graph channel-message poster');
+  t.ok(/az account get-access-token --resource https:\/\/graph\.microsoft\.com/.test(srv), 'Graph token minted from the Azure CLI sign-in');
+  t.ok(/const g = await _graphPostChannelMessage\(teamId, channelId, bodyObj\);/.test(route), 'inline-image posts go straight to Graph');
+  t.ok(/if \(g && g\.ok\) return res\.json\(\{ ok: true[^}]*via: 'graph'/.test(route), 'a successful Graph post returns immediately');
+  t.ok(/delete bodyObj\.hostedContents;/.test(route), 'on Graph failure the image bytes are stripped before the agent fallback');
   // The whole body object (with contentBytes) is passed verbatim; retry-without-images fallback.
   t.ok(/pass it verbatim/.test(route), 'agent is told to pass the body verbatim');
   t.ok(/retry the SAME create_entity but with the hostedContents array removed/.test(route), 'text still posts if the image post fails');

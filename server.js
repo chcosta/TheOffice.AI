@@ -30653,6 +30653,55 @@ app.post('/api/me-ai/pulse/share/email', (req, res) => {
 
 // POST /api/me-ai/pulse/share/teams { teamId, channelId, subject?, markdown, images? }
 // Post the shared item to a Teams channel via WorkIQ. The click is the approval.
+// Mint a Microsoft Graph delegated access token from the same Azure CLI sign-in
+// the ADO integration uses (az account get-access-token). Cached until ~2 min
+// before expiry. Throws when `az` is not signed in / the CLI is unavailable —
+// callers treat that as "no direct-Graph path" and fall back.
+let _graphTokenCache = { token: '', expiresAt: 0 };
+function _graphToken(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && _graphTokenCache.token && now < _graphTokenCache.expiresAt - 120_000) {
+    return _graphTokenCache.token;
+  }
+  const raw = require('child_process').execSync(
+    'az account get-access-token --resource https://graph.microsoft.com -o json',
+    { encoding: 'utf-8', timeout: 30_000, shell: true }
+  ).trim();
+  const parsed = JSON.parse(raw);
+  const token = (parsed.accessToken || '').trim();
+  if (!token) throw new Error('Azure CLI returned no Graph access token.');
+  let expiresAt = 0;
+  if (parsed.expires_on) expiresAt = Number(parsed.expires_on) * 1000;
+  else if (parsed.expiresOn) { const t = Date.parse(parsed.expiresOn); if (!Number.isNaN(t)) expiresAt = t; }
+  _graphTokenCache = { token, expiresAt: expiresAt || (now + 3_000_000) };
+  return token;
+}
+// Post a channel message DIRECTLY to Microsoft Graph over HTTPS. Used for messages
+// that carry inline image bytes (hostedContents): the base64 travels in the HTTP
+// body — never through an LLM prompt (which cannot echo hundreds of KB of base64
+// and times out). Returns {ok:true,id,webUrl} on 201, {ok:false,status,error}
+// otherwise; never throws (token/network failures resolve to ok:false).
+async function _graphPostChannelMessage(teamId, channelId, bodyObj) {
+  let token;
+  try { token = _graphToken(); } catch (e) { return { ok: false, status: 0, error: 'no-graph-token: ' + (e.message || e) }; }
+  const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyObj)
+    });
+    if (r.status === 201 || r.ok) {
+      const j = await r.json().catch(() => ({}));
+      return { ok: true, id: j.id || '', webUrl: j.webUrl || '' };
+    }
+    const txt = await r.text().catch(() => '');
+    return { ok: false, status: r.status, error: (txt || `HTTP ${r.status}`).slice(0, 400) };
+  } catch (e) {
+    return { ok: false, status: 0, error: (e.message || String(e)).slice(0, 400) };
+  }
+}
+
 app.post('/api/me-ai/pulse/share/teams', async (req, res) => {
   try {
     const cfg = _meAiConfig();
@@ -30695,12 +30744,23 @@ app.post('/api/me-ai/pulse/share/teams', async (req, res) => {
     const heading = subject ? `<h3>${subject.replace(/</g, '&lt;')}</h3>` : '';
     const bodyObj = { body: { contentType: 'html', content: heading + safeInner } };
     if (hosted.length) bodyObj.hostedContents = hosted;
+    // Inline image bytes (hostedContents) MUST NOT route through the LLM: a 1000px
+    // PNG is ~200–400 KB of base64 (~300 K tokens) — the agent cannot reproduce it
+    // verbatim in a create_entity call, which is the reported 300s timeout. Post it
+    // deterministically to Graph over HTTPS instead. On any token/scope/HTTP failure,
+    // strip the images and fall through to the agent path so at least the TEXT lands.
+    if (hosted.length) {
+      const g = await _graphPostChannelMessage(teamId, channelId, bodyObj);
+      if (g && g.ok) return res.json({ ok: true, id: g.id || '', webUrl: g.webUrl || '', via: 'graph' });
+      delete bodyObj.hostedContents;
+    }
+    const hasHosted = Array.isArray(bodyObj.hostedContents) && bodyObj.hostedContents.length;
     const prompt = [
       'Using WorkIQ, post a NEW message to a Microsoft Teams channel.',
       `Create the message with create_entity on the path /teams/${teamId}/channels/${channelId}/messages.`,
       'The JSON body MUST be exactly this object (pass it verbatim — do not alter, re-encode, or truncate the hostedContents contentBytes):',
       JSON.stringify(bodyObj),
-      (hosted.length
+      (hasHosted
         ? 'The body references inline images via ../hostedContents/{id}/$value and supplies their bytes in the hostedContents array; both MUST be sent together in the one create_entity call. If posting WITH hostedContents fails, retry the SAME create_entity but with the hostedContents array removed and the body.content unchanged, so the text still posts.'
         : ''),
       'After posting, return ONLY a JSON object (no prose, no code fence): {"ok":true,"id":"<message id>","webUrl":"<the message webUrl if present>"}.',
