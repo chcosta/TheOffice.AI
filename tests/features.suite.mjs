@@ -2263,6 +2263,17 @@ await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)'
   t.ok(/'ad', 'app', 'create'/.test(srcStatus) && /_ensureAppRegistration/.test(srcStatus), 'auth step creates a real Entra app registration (_ensureAppRegistration)');
   t.ok(/'ad', 'app', 'credential', 'reset'/.test(srcStatus) && /'--client-id', reg\.appId/.test(srcStatus) && /'--client-secret', reg\.secret/.test(srcStatus), 'the registration client id + secret are wired into Container Apps auth');
   t.ok(/reg\.error \|\| !reg\.appId/.test(srcStatus) && /without sign-in/i.test(srcStatus) && /RedirectToLoginPage/.test(srcStatus), 'require-authentication is only enforced once a registration is wired; otherwise the site stays reachable + warns (no 401 brick)');
+  // no-registration branch must DELETE the auth config (not just AllowAnonymous):
+  // an enabled EasyAuth platform with a broken/incomplete provider fails closed (401)
+  // regardless of the unauthenticated action — deleting authConfigs/current is the real unbrick.
+  t.ok(/_disableContainerAppAuth\(r\)/.test(srcStatus), 'publishing WITHOUT sign-in removes the EasyAuth config so the site is reachable (no 401 brick from a stale provider)');
+  {
+    const cpint2 = require('../compose-publish.js')._internal;
+    t.ok(typeof cpint2._disableContainerAppAuth === 'function', '_disableContainerAppAuth is exported');
+    const disSrc = cpint2._disableContainerAppAuth.toString();
+    t.ok(/authConfigs\/current/.test(disSrc) && /'rest', '--method', 'delete'/.test(disSrc), '_disableContainerAppAuth DELETEs the authConfigs/current sub-resource via az rest');
+    t.ok(/AllowAnonymous/.test(disSrc), '_disableContainerAppAuth falls back to AllowAnonymous if the delete cannot run');
+  }
   t.ok(/Always grant the publisher access to their own site/.test(srcStatus) && /pl\.people = pl\.people\.concat\(\[\{ email: publisher/.test(srcStatus), 'the publisher is seeded into the restricted allow-list by default (never locked out)');
   t.ok(/appRoleAssignmentRequired=true/.test(srcStatus) && /_grantUser\(rec\.appRegistration\.spId/.test(srcStatus), 'restricted apps require assignment + assign the publisher & listed people');
   t.ok(/appRoleAssignedTo/.test(srcStatus) && /'--body', `@\$\{bodyFile\}`/.test(srcStatus), '_grantUser posts the Graph assignment with the body in a temp file (@file) to dodge Windows JSON quoting');

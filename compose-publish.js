@@ -318,6 +318,29 @@ async function _ensureAppRegistration(r, st) {
   } catch (e) { return { error: String((e && e.message) || e) }; }
 }
 
+// Fully remove a container app's EasyAuth config so the site is reachable
+// without sign-in. Deleting the `authConfigs/current` sub-resource is the ONLY
+// reliable unbrick when a prior run left an enabled-but-incomplete Microsoft
+// provider: an enabled auth platform with a broken provider fails closed (401)
+// on every request regardless of `--unauthenticated-client-action AllowAnonymous`.
+// The delete is idempotent (no auth config → 204). Falls back to AllowAnonymous
+// if the delete can't run (e.g. no subscription id to build the ARM URL). Never throws.
+async function _disableContainerAppAuth(r) {
+  const subArgs = r.subscription ? ['--subscription', r.subscription] : [];
+  try {
+    if (r.subscription) {
+      const url = `https://management.azure.com/subscriptions/${r.subscription}/resourceGroups/${r.resourceGroup}/providers/Microsoft.App/containerApps/${r.siteName}/authConfigs/current?api-version=2024-03-01`;
+      const del = await _az(['rest', '--method', 'delete', '--url', url], { json: false });
+      if (del.ok) return { ok: true, via: 'delete' };
+    }
+  } catch (_) { /* fall through */ }
+  // Best-effort fallback: at least flip require-auth off.
+  try {
+    await _az(['containerapp', 'auth', 'update', '--name', r.siteName, '--resource-group', r.resourceGroup, '--unauthenticated-client-action', 'AllowAnonymous'].concat(subArgs), { json: false });
+    return { ok: true, via: 'allow-anonymous' };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+}
+
 // Resolve a user's object id, then grant them the app's default app-role so they
 // can sign in to an assignment-required app. Idempotent (an existing assignment
 // counts as success). The Graph body is written to a temp file and passed as
@@ -818,6 +841,18 @@ async function publish(composition, opts = {}, hooks = {}) {
         hint = 'Published WITHOUT sign-in (reachable by anyone with the link). Re-run once you have Application Administrator rights, or secure it in the Azure portal.';
       }
       rec.authWarning = (reg.error ? reg.error + ' — ' : '') + hint;
+      // Idempotency: a PRIOR publish run may have wired require-authentication
+      // (RedirectToLoginPage) with a Microsoft provider. Publish reuses the same
+      // container app, so if we now can't wire a registration we must remove the
+      // leftover auth config entirely — otherwise the enabled-but-incomplete
+      // (provider-less / secret-less) EasyAuth platform 401-bricks EVERY request
+      // and "reachable by anyone with the link" is a lie. Just flipping the
+      // unauthenticated action to AllowAnonymous is NOT enough: an enabled
+      // platform with a broken provider still fails closed. Deleting the
+      // authConfig sub-resource genuinely unbricks it (verified live). The delete
+      // is idempotent (no auth config → 204). Fall back to AllowAnonymous only if
+      // the delete fails for some reason.
+      await _disableContainerAppAuth(r);
       _saveRecord(rec);
       done('auth', 'Published without sign-in — the app registration could not be created (see the note on the Live step).');
     } else {
@@ -1024,7 +1059,7 @@ module.exports = {
     detectStorageKeys, normalizeAccess,
     injectRemoteStorageShim, buildDeployBundle, _dockerfile, _cfg, SKUS, _friendlyAzError,
     _resolveStorageName, _resolveAcrName, _resolveUniqueName, _ensureProviders, _ensureContainerappExt,
-    _ensureAppRegistration, _grantUser, _revokeAssignment,
+    _ensureAppRegistration, _grantUser, _revokeAssignment, _disableContainerAppAuth,
     ROLE_ACR_PULL, ROLE_STORAGE_TABLE_DATA_CONTRIBUTOR, DEFAULT_APP_ROLE_ID,
   },
 };
