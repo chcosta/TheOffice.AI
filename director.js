@@ -148,6 +148,44 @@ function _clashEvidenceClear(conflict, grant) {
   return false;
 }
 
+// A clash is CHECKABLE — an arbitrator can settle it against a real source of truth
+// (git history, `gh` PR/commit state, the repo working tree, tests) — when its subject
+// or either side's claim asserts a concrete, verifiable FACT: a commit SHA, a PR /
+// merge / branch state, a file or test, a URL, a date, a version/count. That is the
+// arbitrator's job, NOT the human's. Only a matter of taste, priority, or risk appetite
+// with no factual answer is a genuine judgement call. This is what stops the Director
+// punting "is PR #x merged / what is main's HEAD" to the user as a tie-break.
+const _CHECKABLE_RE = /\b([0-9a-f]{7,40}|pr[ -]?#?\d+|#\d+|merg(?:e|ed|es|ing)|commit|branch|origin\/|refs\/|\bmain\b|\bmaster\b|rebas|revert|cherry-?pick|\btag\b|\brelease\b|deploy|pipeline|build\s+#?\d+|tests?\b|passe?[ds]\b|fail(?:s|ed|ing)?\b|exists?\b|present\b|absent\b|missing\b|latest\b|\bHEAD\b|\.(?:js|ts|mjs|cs|py|go|java|rb|yml|yaml|json|md|html|css|sql)\b|https?:\/\/|\bv?\d+\.\d+|\d{4}-\d{2}-\d{2})\b/i;
+function _clashIsCheckable(conflict) {
+  if (!conflict) return false;
+  const text = [
+    conflict.subject || '',
+    (conflict.a && conflict.a.claim) || '',
+    (conflict.b && conflict.b.claim) || '',
+  ].join(' \n ');
+  if (!text.trim()) return false;
+  return _CHECKABLE_RE.test(text);
+}
+
+// Build the arbitration brief a forced probe carries: verify the disputed fact against
+// the actual source of truth, report which side is real (or that both are wrong), so the
+// losing leg is redirected and neither proceeds on a false premise — without the human.
+function _arbitrationProbe(conflict) {
+  const subj = (conflict && conflict.subject) || 'this claim';
+  const a = (conflict && conflict.a && conflict.a.claim) || '';
+  const b = (conflict && conflict.b && conflict.b.claim) || '';
+  const question = 'Which reading of "' + _clip(subj, 90) + '" matches reality'
+    + (a && b ? (' \u2014 A: "' + _clip(a, 110) + '" vs B: "' + _clip(b, 110) + '"?') : '?');
+  const plan = [
+    'ARBITRATE this clash against the real source of truth \u2014 do NOT trust either leg\'s assertion.',
+    'The two legs disagree on a CHECKABLE fact.' + (a ? (' Side A claims: ' + _clip(a, 160) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 160) + '.') : ''),
+    'Verify it directly: read the git history and working tree, check PR + commit state with `gh`, run the relevant lookups or tests \u2014 whatever the claims actually reference.',
+    'Report which side matches the ground truth (or that BOTH are wrong), with concrete evidence: commit SHAs, PR merge status, branch tips, file/test results, timestamps.',
+    'This settles the clash so the losing leg can be redirected and neither proceeds on a false premise \u2014 the human is not the tie-breaker for a provable fact.',
+  ].join(' ');
+  return { question, plan };
+}
+
 // ---- classification ------------------------------------------------------------
 // Map a real engine stop onto one of the 8 policy classes.
 function stopClass(stop, ctx) {
@@ -458,6 +496,23 @@ function planReduction(tree, policy) {
     if (seen.has(sig)) dup.add(s.id); else seen.set(sig, s.id);
   }
   const ctx = { conflictById, duplicateStopIds: dup, grant, now, pursuitId: (tree && tree.id) || null };
+  // Stops that ALREADY had an arbitration/probe sub-agent run to completion — a
+  // director-spawned leg pointing back at the stop (fromStopId) that has reached a
+  // terminal state. The arbitration gate below caps itself to ONE attempt per stop
+  // using this set, so a clash a probe genuinely could not settle still escalates to
+  // the human instead of re-arbitrating forever.
+  const arbitratedStopIds = new Set();
+  {
+    const legsAll = (tree && tree.legs) || {};
+    for (const lid of Object.keys(legsAll)) {
+      const lg = legsAll[lid];
+      if (lg && lg.directorSpawn && lg.fromStopId
+        && ['done', 'error', 'invalidated', 'cancelled'].indexOf(_norm(lg.status)) !== -1) {
+        arbitratedStopIds.add(lg.fromStopId);
+      }
+    }
+  }
+  ctx.arbitratedStopIds = arbitratedStopIds;
 
   const aiVerdicts = (policy.aiVerdicts && typeof policy.aiVerdicts === 'object') ? policy.aiVerdicts : null;
   let unsure = 0;
@@ -468,6 +523,10 @@ function planReduction(tree, policy) {
     // is externally observable and stays with the user. We fall back to the deterministic
     // classifier only when the model has not (yet) weighed in. The rails below apply regardless.
     const av = aiVerdicts ? aiVerdicts[s.id] : null;
+    // The bounded investigation this stop carries into a probe (the AI's own probe plan, if
+    // it supplied one). The arbitration gate below may SYNTHESIZE one for a provable clash the
+    // model tried to punt to the human without proposing a probe. Read into the return below.
+    let aiProbe = (av && av.probe && typeof av.probe === 'object' && (av.probe.question || av.probe.plan)) ? av.probe : null;
     let cls = (av && av.cls && POLICY_MATRIX[av.cls]) ? av.cls : stopClass(s, ctx);
     let disp = (POLICY_MATRIX[cls] && POLICY_MATRIX[cls][autonomy]) || 'ask';
     if (av && av.action) {
@@ -532,6 +591,23 @@ function planReduction(tree, policy) {
     } else if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) { disp = 'ask'; }
     // Rail: a low-confidence verdict never auto-applies — the director declines to guess.
     if (HANDLED.has(disp) && av && typeof av.confidence === 'number' && av.confidence < 0.5) { disp = 'ask'; unsure++; }
+    // ── ARBITRATION GATE — a PROVABLE clash is never the human's tie-break ─────────
+    // The user's complaint: legs "keep reaching conflicting conclusions, but they are
+    // for provable things" (is PR #x merged, what is main's HEAD) and the Director punts
+    // it as "YOUR CALL" ("neither is provable from the repo") — dragging the human in as
+    // a coin-flip for a fact. If this clash is heading to the desk (disp==='ask'), its
+    // claims are CHECKABLE against a real source of truth, an active grant lets the
+    // Director act, and no probe has run for it yet, force a PROBE: the sweep dispatches a
+    // read-only arbitrator sub-agent that verifies the disputed facts and reports which
+    // side is real, so the losing leg is redirected WITHOUT involving the human. Capped to
+    // ONE attempt per stop (arbitratedStopIds) — a clash arbitration genuinely could not
+    // settle still escalates honestly afterward. Paused/offline still overrides just below.
+    if (disp === 'ask' && (cls === 'judgement-clash' || cls === 'factual-clash')
+      && s.conflictId && _grantActive(grant, ctx) && !ctx.arbitratedStopIds.has(s.id)
+      && _clashIsCheckable(conflictById[s.conflictId])) {
+      disp = 'probe';
+      if (!aiProbe) aiProbe = _arbitrationProbe(conflictById[s.conflictId]);
+    }
     // Paused / offline director never auto-applies: raw stops fall back to the desk. A probe
     // is a plan to DISPATCH a sub-agent, so a paused/offline Director can't run it either —
     // it becomes an honest desk item rather than a promise it can't keep.
@@ -578,7 +654,9 @@ function planReduction(tree, policy) {
           area: av.clashSummary.area || null, compare: av.clashSummary.compare || null,
         } : null,
       // A bounded investigation the Director wants to run before deciding (probe disposition).
-      aiProbe: (av && av.probe && typeof av.probe === 'object' && (av.probe.question || av.probe.plan)) ? av.probe : null,
+      // May be the AI's own probe plan, or the arbitration brief the gate synthesized for a
+      // provable clash the model tried to hand to the human without proposing one.
+      aiProbe: aiProbe,
     };
   });
 
@@ -826,5 +904,5 @@ module.exports = {
   PR_GRANT_OPS, PR_LIMITS,
   stopClass, grantCovers, planReduction, ledgerEntry,
   planPrShepherd, prGrantHas,
-  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs },
+  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs, _clashIsCheckable, _arbitrationProbe },
 };

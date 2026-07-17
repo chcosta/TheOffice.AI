@@ -1195,6 +1195,53 @@ await t.test('Director diagnosis explains zero automated handling + zero redunda
   t.ok(/\.meai-dir-why\s*\{/.test(src), 'why block CSS present');
 });
 
+await t.test('Director arbitrates a PROVABLE clash instead of asking the human (arbitration gate)', () => {
+  const director = require('../director.js');
+  const I = director._internal;
+  const grant = { id: 'g', paths: ['/'], classes: ['duplicate', 'reversible-local', 'factual-clash'], ops: ['cull', 'absorb', 'resolve'], expiresAt: Date.now() + 1e7 };
+
+  // Checkable predicate: provable (PR/commit/merge/branch) vs pure taste.
+  const provable = { id: 'c1', status: 'open', subject: 'roadmap-pr-merged',
+    a: { stance: 'affirm', claim: 'PR 63007 is merged to main, merge commit 2f92218 on origin/main' },
+    b: { stance: 'deny', claim: "branch has NOT merged; main's HEAD is 67513f6" } };
+  const taste = { id: 'c2', status: 'open', subject: 'which tone for the summary',
+    a: { stance: 'affirm', claim: 'a warmer, friendlier voice reads better here' },
+    b: { stance: 'deny', claim: 'a terse, formal register is more appropriate' } };
+  t.ok(I._clashIsCheckable(provable) === true, 'a PR/commit/merge clash is checkable');
+  t.ok(I._clashIsCheckable(taste) === false, 'a pure taste clash is not checkable');
+  t.ok(I._clashIsCheckable(null) === false, 'no conflict → not checkable');
+
+  const mkTree = (conflict, legs) => ({ id: 'p1', stops: [{ id: 's1', status: 'open', type: 'needs-decision', conflictId: conflict.id }], legs: legs || {}, conflicts: [conflict] });
+  const aiPunt = { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9, reasoning: 'neither is provable' } } };
+
+  // The AI mislabeled a provable clash judgement-clash → ask. The gate force-routes it to a probe.
+  const forced = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
+  t.ok(forced.per[0].disposition === 'probe', 'provable clash the AI punted is force-routed to probe');
+  t.ok(forced.probeItems.length === 1 && /ARBITRATE/.test(forced.probeItems[0].plan || ''), 'the probe carries an arbitration plan against the source of truth');
+  t.ok(/human is not the tie-breaker/i.test(forced.probeItems[0].plan || ''), 'arbitration plan states the human is not the tie-breaker');
+
+  // A genuine taste clash is NOT arbitrated — it honestly stays on the desk.
+  const kept = director.planReduction(mkTree(taste), Object.assign({ enabled: true, autonomy: 'balanced', grant }, { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9 } } }));
+  t.ok(kept.per[0].disposition === 'ask', 'a genuine taste clash stays on the desk (not arbitrated)');
+
+  // One-attempt cap: a terminal director-spawn probe already ran for this stop → escalate, never loop.
+  const arbitrated = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
+  t.ok(arbitrated.per[0].disposition === 'ask', 'after one arbitration attempt the clash escalates honestly (no infinite probe loop)');
+
+  // No active grant → cannot dispatch a probe, so it must stay an honest ask (never orphan the stop).
+  const nogrant = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced' }, aiPunt));
+  t.ok(nogrant.per[0].disposition === 'ask', 'without an active grant the clash stays a desk ask (probe cannot be dispatched)');
+
+  // Helpers are exported for the server/tests.
+  const dsrc = readFileSync('director.js', 'utf8');
+  t.ok(/_internal:\s*\{[^}]*_clashIsCheckable[^}]*_arbitrationProbe/.test(dsrc), 'director.js exports _clashIsCheckable + _arbitrationProbe');
+
+  // Server reason prompt forbids labeling a checkable fact a judgement-clash and demands a probe.
+  const ssrc = readFileSync('server.js', 'utf8');
+  t.ok(/CHECKABLE FACT[\s\S]{0,240}NEVER[\s\S]{0,240}judgement-clash/i.test(ssrc), 'prompt: a checkable fact is NEVER a judgement-clash');
+  t.ok(/is NEVER the human\\?'s to tie-break/.test(ssrc) && /action "probe" and go check the ground truth/.test(ssrc), 'prompt: provable clash → probe the ground truth, not the human');
+});
+
 await t.test('compose fullscreen fills width (real classes) + two labeled panel buttons (app.html)', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // Fullscreen must widen the capped wrap and NOT target the stale .cmpx-studio/.cmpx-stage
