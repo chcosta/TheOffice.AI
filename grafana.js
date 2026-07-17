@@ -175,7 +175,7 @@ function _samplePanels(kind, uid) {
       data: sampleSeries(`${uid}:${id}:${sp.name}`, sp.opts || {}),
       sample: true,
     }));
-    return { id, title, type, unit, series, sample: true, ...extra };
+    return { id, title, type, unit, series, sample: true, origin: 'sample', source: 'sample', query: 'Synthesized sample series (demo data)', ...extra };
   };
   if (kind === 'api') {
     return [
@@ -301,7 +301,7 @@ async function status() {
   catch (e) { authError = _authErrorMessage(e, c); }
   try {
     const ds = await _api('/api/datasources', { timeoutMs: 8000 });
-    if (Array.isArray(ds)) sources = ds.map(d => ({ name: d.name, type: d.type, status: 'ok', default: !!d.isDefault }));
+    if (Array.isArray(ds)) sources = ds.map(d => ({ name: d.name, type: d.type, uid: d.uid || '', status: 'ok', default: !!d.isDefault }));
   } catch (e) { /* datasource listing may be forbidden for the identity */ }
   return {
     configured: true,
@@ -517,9 +517,30 @@ async function _panelsFromModel(model, uid, ctx = {}) {
       table: res.table || null,
       noData: !(res.series && res.series.length) && !(res.table && res.table.rows && res.table.rows.length),
       sample: false,
+      source: _panelSourceText(gp),
+      query: _panelQueryText(gp),
     });
   }
   return panels;
+}
+
+// The datasource/source label for a live Grafana panel (from its targets/datasource).
+function _panelSourceText(gp) {
+  const ds = (gp && gp.datasource) || (gp && gp.targets && gp.targets[0] && gp.targets[0].datasource) || null;
+  if (ds && typeof ds === 'object') return ds.type || ds.uid || 'grafana';
+  if (typeof ds === 'string' && ds) return ds;
+  return 'grafana';
+}
+
+// The honest query text for a live Grafana panel, pulled from the first target that carries one.
+function _panelQueryText(gp) {
+  const targets = (gp && gp.targets) || [];
+  for (const t of targets) {
+    if (!t) continue;
+    const q = t.expr || t.rawSql || t.query || (t.azureLogAnalytics && t.azureLogAnalytics.query);
+    if (q) return String(q);
+  }
+  return 'Query not exposed by this panel';
 }
 
 // Map a Grafana panel type to the renderer's supported kinds.
@@ -559,9 +580,16 @@ async function _queryPanel(gp, model, ctx = {}) {
   const body = { queries: _expandMacros(queries, intervalMs), from: ctx.from || 'now-6h', to: ctx.to || 'now' };
   let out;
   try { out = await _api('/api/ds/query', { method: 'POST', body, timeoutMs: 15000 }); } catch { return { series: [], table: null }; }
+  const wantTable = String((gp && gp.type) || '').toLowerCase() === 'table';
+  return _framesToSeriesTable(out, wantTable);
+}
+
+// Parse a Grafana /api/ds/query response (dataframes) into the renderer's
+// { series, table } shape. Shared by live-Grafana panels (_queryPanel) and
+// generated external ds.* panels (queryExternal) so both read identically.
+function _framesToSeriesTable(out, wantTable) {
   const series = [];
   let table = null;
-  const wantTable = String((gp && gp.type) || '').toLowerCase() === 'table';
   const results = (out && out.results) || {};
   for (const refId of Object.keys(results)) {
     const frames = (results[refId] && results[refId].frames) || [];
@@ -601,13 +629,19 @@ async function getDashboard(uid, opts = {}) {
   const local = _readLocalDashboards().find(d => d.uid === uid);
   if (local) {
     // Re-query any Workspace-backed panels so internal series are live, not stale.
-    const panels = (local.panels || []).map(p => {
+    // External (Grafana datasource) panels are live-queried through the proxy so
+    // they show REAL data when connected — and stay honest-empty when not.
+    const panels = await Promise.all((local.panels || []).map(async (p) => {
       if (p && typeof p.source === 'string' && workspace.isWorkspaceSource(p.source)) {
-        const q = workspace.query(p.source, { days: 30, split: p.split !== false });
-        return { ...p, series: (q.series || []).map(s => ({ ...s, unit: p.unit || '' })), empty: !!q.empty, sample: false, provider: 'workspace', origin: 'workspace' };
+        const q = workspace.query(p.source, { days: 30, split: p.split !== false, groupBy: p.dimension || p.groupBy || null, metric: p.metric || null });
+        return { ...p, series: (q.series || []).map(s => ({ ...s, unit: p.unit || '' })), query: q.label || p.query, empty: !!q.empty, sample: false, provider: 'workspace', origin: 'workspace' };
+      }
+      if (p && (p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source)))) {
+        const q = await queryExternal(p, { from: opts.from || 'now-6h', to: opts.to || 'now' });
+        return { ...p, series: (q.series || []).map(s => ({ ...s, unit: p.unit || '' })), table: q.table || null, empty: !!q.empty, sample: false, provider: 'external', origin: 'external' };
       }
       return p;
-    });
+    }));
     return { configured: configured(), uid, title: local.title, tags: local.tags || [], panels, variables: [], time: { from: 'now-6h', to: 'now' }, sample: true, local: true, pushed: !!local.pushed, autoPush: !!local.autoPush, grafanaUid: local.grafanaUid || '', pushedAt: local.pushedAt || '' };
   }
   // Sample dashboards are always available.
@@ -733,15 +767,20 @@ async function renderPanel(uid, opts = {}) {
 // can re-query live series each time it's opened, and provenance shows it's ours.
 function _workspacePanel(pn, i) {
   const src = pn.source;
-  const q = workspace.query(src, { days: 30, split: pn.split !== false });
+  const groupBy = pn.dimension || pn.groupBy || null;
+  const metric = pn.metric || null;
+  const q = workspace.query(src, { days: 30, split: pn.split !== false, groupBy, metric });
   return {
     id: i + 1,
     title: pn.title || q.name || `Panel ${i + 1}`,
     type: (pn.type === 'gauge' || pn.type === 'stat') ? 'gauge' : 'timeseries',
     unit: pn.unit || q.unit || '',
     source: src,
+    dimension: groupBy || '',
+    metric: metric || '',
     provider: 'workspace',
     origin: 'workspace',
+    query: q.label || 'Internal workspace collection (direct aggregate)',
     split: pn.split !== false,
     series: (q.series || []).map(s => ({ ...s, unit: pn.unit || '' })),
     sample: false,
@@ -759,6 +798,36 @@ function _specToPanels(spec, uid) {
     }
     const type = (pn.type === 'gauge' || pn.type === 'stat') ? 'gauge' : 'timeseries';
     const unit = pn.unit || '';
+    // External (Grafana datasource) source? Do NOT synthesize demo data. Carry
+    // the AI-authored query + datasource identity so the panel is live-queried
+    // at render time; until then it is honest-empty (never a fake sample).
+    const isExternal = typeof pn.source === 'string' && /^ds\./.test(pn.source);
+    if (isExternal) {
+      const hasQuery = !!(pn.query && pn.datasourceUid);
+      return {
+        id: i + 1,
+        title: pn.title || `Panel ${i + 1}`,
+        type,
+        unit,
+        source: pn.source,
+        provider: 'external',
+        origin: 'external',
+        dsType: pn.dsType || '',
+        datasourceUid: pn.datasourceUid || '',
+        database: pn.database || '',
+        dimension: pn.dimension || '',
+        metric: pn.metric || '',
+        query: pn.query || '',
+        series: [],
+        table: null,
+        sample: false,
+        empty: true,
+        note: hasQuery
+          ? 'Live data loads from the connected data source at render time.'
+          : 'No query was provided for this source — connect the data source and add a query to see live data.',
+        alert: pn.alert || null,
+      };
+    }
     const kind = _kindFromTitle(pn.title);
     const gen = _samplePanels(kind, uid);
     const proto = gen[i % gen.length];
@@ -769,7 +838,9 @@ function _specToPanels(spec, uid) {
       unit,
       series: proto.series.map(s => ({ ...s, unit })),
       sample: true,
-      source: pn.source || null,
+      origin: 'sample',
+      source: pn.source || 'sample',
+      query: pn.query || 'Synthesized sample series (demo data)',
       alert: pn.alert || null,
     };
   });
@@ -940,6 +1011,7 @@ async function catalog() {
         group: 'grafana',
         provider: 'grafana',
         dsType: s.type,
+        uid: s.uid || '',
         roles: { ground: true, chart: true, alert: true },
         chartable: true,
         alertable: true,
@@ -956,6 +1028,157 @@ function queryWorkspace(id, opts) { return workspace.query(id, opts || {}); }
 function groundContext(id) { return workspace.groundContext(id); }
 function evaluateWorkspaceAlert(rule) { return workspace.evaluateAlert(rule); }
 function isWorkspaceSource(id) { return workspace.isWorkspaceSource(id); }
+
+// Discovery: profile what a source actually contains (time field, real
+// categorical dimensions + top values, numeric metrics, a sample). Used to
+// build an honest brief for the dashboard designer so panels bind to REAL
+// discovered signals, not synthesized demo data. Internal ws.* sources profile
+// live records synchronously; external ds.* are profiled asynchronously against
+// the connected Grafana datasource (see discoverExternal).
+function discover(id) {
+  if (isWorkspaceSource(id)) return workspace.discover(id);
+  return null;
+}
+
+// ---- External (Grafana datasource) discovery + query — Phase 2 -------------
+// External sources are the datasources registered in the connected Azure
+// Managed Grafana. We query them through Grafana's own /api/ds/query proxy (the
+// same path _queryPanel uses for live dashboards), so ANY datasource type works
+// uniformly and we never synthesize demo data for a real source.
+
+// Resolve a catalog id (ds.*) back to its Grafana datasource identity.
+async function _resolveExternal(id) {
+  try {
+    const cat = await catalog();
+    return (cat.external || []).find(s => s.id === id) || null;
+  } catch { return null; }
+}
+
+// Classify an ADX/Kusto column type into our discovery shape.
+function _adxRole(cslType) {
+  const t = String(cslType || '').toLowerCase();
+  if (/datetime|timespan/.test(t)) return 'time';
+  if (/real|long|int|decimal|double/.test(t)) return 'metric';
+  return 'dimension'; // string, guid, bool, dynamic → group-by candidate
+}
+
+// Parse the ADX Grafana plugin's schema resource payload into tables→columns.
+// Shape: { Databases: { <db>: { Tables: { <t>: { OrderedColumns: [{Name,CslType}] } } } } }
+function _parseAdxSchema(schema) {
+  const tables = [];
+  const dbs = (schema && schema.Databases) || {};
+  for (const dbName of Object.keys(dbs)) {
+    const tbls = (dbs[dbName] && dbs[dbName].Tables) || {};
+    for (const tName of Object.keys(tbls)) {
+      const cols = (tbls[tName] && tbls[tName].OrderedColumns) || [];
+      if (!cols.length) continue;
+      tables.push({
+        database: dbName,
+        table: tName,
+        columns: cols.map(c => ({ name: c.Name, type: c.CslType, role: _adxRole(c.CslType) })),
+      });
+    }
+  }
+  return tables;
+}
+
+// Build a uniform discovery brief (mirrors workspace.discover) from a chosen
+// ADX table's columns, so the AI designer + _monValidatePanel treat external and
+// internal sources identically.
+function _adxTableToDiscovery(id, name, uid, dsType, tbl) {
+  const cols = tbl.columns || [];
+  const timeField = (cols.find(c => c.role === 'time') || {}).name || '';
+  const dimensions = cols.filter(c => c.role === 'dimension').slice(0, 8)
+    .map(c => ({ field: c.name, cardinality: null, present: null, values: [] }));
+  const metrics = [{ field: 'count', agg: 'count', label: 'Record count over time' }]
+    .concat(cols.filter(c => c.role === 'metric').slice(0, 5).map(c => ({ field: c.name, agg: 'sum', label: `${c.name} (sum)` })));
+  return {
+    id, name, external: true, dsType, uid,
+    database: tbl.database, table: tbl.table,
+    count: null, timeField, dimensions, metrics, sample: [],
+    tables: undefined,
+  };
+}
+
+// Probe a connected external datasource's real schema. Returns a uniform
+// discovery object when we can profile it, or { id, name, profiled:false, ... }
+// (honest — the AI may still target it with a query, but nothing is fabricated).
+// Only ADX/Kusto is profiled today; other datasource types report profiled:false.
+async function discoverExternal(id) {
+  const src = await _resolveExternal(id);
+  if (!src) return { id, name: id, external: true, profiled: false, reason: 'unknown-source' };
+  if (!configured()) return { id, name: src.name, external: true, dsType: src.dsType, uid: src.uid, profiled: false, reason: 'grafana-not-configured' };
+  const base = { id, name: src.name, external: true, dsType: src.dsType, uid: src.uid, access: src.access };
+  if (src.access !== 'direct') return { ...base, profiled: false, reason: 'no-profiler-for-type' };
+  // ADX/Kusto: fetch the schema via the plugin's resource proxy.
+  let tables = [];
+  try {
+    const schema = await _api(`/api/datasources/uid/${encodeURIComponent(src.uid)}/resources/schema`, { timeoutMs: 12000 });
+    tables = _parseAdxSchema(schema && schema.Databases ? schema : (schema && schema.schema) || schema);
+  } catch { tables = []; }
+  if (!tables.length) return { ...base, profiled: false, reason: 'schema-unavailable' };
+  // Represent the source by the table with a time column and the most columns
+  // (best charting candidate); surface the rest as alternatives for the AI.
+  const ranked = tables.slice().sort((a, b) => {
+    const at = a.columns.some(c => c.role === 'time') ? 1 : 0;
+    const bt = b.columns.some(c => c.role === 'time') ? 1 : 0;
+    if (at !== bt) return bt - at;
+    return (b.columns.length) - (a.columns.length);
+  });
+  const chosen = ranked[0];
+  const d = _adxTableToDiscovery(id, src.name, src.uid, src.dsType, chosen);
+  d.profiled = true;
+  d.tables = ranked.slice(0, 12).map(t => ({ database: t.database, table: t.table, columns: t.columns.map(c => ({ name: c.name, type: c.type, role: c.role })) }));
+  return d;
+}
+
+// Build a Grafana /api/ds/query target for an external panel from an
+// AI-authored query string + the datasource identity. Query language is the
+// datasource's own (KQL for ADX, PromQL for Prometheus, etc.).
+function _externalTarget(panel, refId) {
+  const uid = panel.datasourceUid || '';
+  const dsType = String(panel.dsType || '');
+  const query = String(panel.query || '');
+  const ds = uid ? { uid, type: dsType } : undefined;
+  const t = { refId: refId || 'A', datasource: ds };
+  if (/kusto|adx|data ?explorer/i.test(dsType)) {
+    if (panel.database) t.database = panel.database;
+    t.query = query;
+    t.resultFormat = 'time_series';
+    t.querySource = 'raw';
+    t.pluginVersion = t.pluginVersion || undefined;
+  } else if (/prometheus/i.test(dsType)) {
+    t.expr = query;
+    t.range = true;
+  } else {
+    // Generic: most SQL-like plugins accept rawSql; keep the raw query too.
+    t.rawSql = query;
+    t.query = query;
+  }
+  return t;
+}
+
+// Execute an external panel's query live against Grafana's datasource proxy.
+// Returns { series, table, empty }. Best-effort: any failure (not configured,
+// no query, proxy error) yields an honest-empty result — never fabricated data.
+async function queryExternal(panel, ctx = {}) {
+  if (!configured()) return { series: [], table: null, empty: true, reason: 'grafana-not-configured' };
+  if (!panel || !panel.query || !panel.datasourceUid) return { series: [], table: null, empty: true, reason: 'no-query' };
+  const from = ctx.from || 'now-6h';
+  const to = ctx.to || 'now';
+  const intervalMs = _computeIntervalMs(from, to, 300);
+  const target = _externalTarget(panel, 'A');
+  target.intervalMs = intervalMs;
+  target.maxDataPoints = 300;
+  const body = { queries: _expandMacros([target], intervalMs), from, to };
+  let out;
+  try { out = await _api('/api/ds/query', { method: 'POST', body, timeoutMs: 15000 }); }
+  catch (e) { return { series: [], table: null, empty: true, reason: 'query-failed', error: e.message }; }
+  const wantTable = String((panel && panel.type) || '').toLowerCase() === 'table';
+  const parsed = _framesToSeriesTable(out, wantTable);
+  const total = (parsed.series || []).reduce((a, s) => a + (s.data || []).reduce((b, p) => b + (p[1] || 0), 0), 0);
+  return { series: parsed.series, table: parsed.table, empty: !(parsed.series && parsed.series.length) && !(parsed.table && parsed.table.rows && parsed.table.rows.length), total };
+}
 
 // ---- Alert rules on Workspace collections ---------------------------------
 // Persisted threshold rules over internal ws.* sources (tasks/Me.AI/agenda/…).
@@ -1039,6 +1262,9 @@ module.exports = {
   deterministicAnalysis,
   deterministicSpec,
   catalog,
+  discover,
+  discoverExternal,
+  queryExternal,
   queryWorkspace,
   groundContext,
   evaluateWorkspaceAlert,
@@ -1048,5 +1274,5 @@ module.exports = {
   deleteAlert,
   evaluateAlerts,
   // exposed for tests
-  _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS, _api, _dashboardVariables, _varMap, _formatVarValue, _applyVars, _queryPanel, _timeToMs, _grafanaDuration, _computeIntervalMs, _expandMacros },
+  _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS, _api, _dashboardVariables, _varMap, _formatVarValue, _applyVars, _queryPanel, _timeToMs, _grafanaDuration, _computeIntervalMs, _expandMacros, _panelSourceText, _panelQueryText, _framesToSeriesTable, _parseAdxSchema, _adxTableToDiscovery, _externalTarget, _adxRole, _specToPanels },
 };

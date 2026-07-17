@@ -9526,6 +9526,20 @@ app.get('/api/monitoring/workspace/:id/ground', (req, res) => {
   catch (e) { res.status(200).json({ id: req.params.id, text: '', error: e.message }); }
 });
 
+// Discover (profile) a source — the REAL dimensions/metrics/time-field/sample
+// values the data actually has, so the UI can show what's chartable and the
+// designer can bind panels to real fields. Internal ws.* profile from records;
+// external ds.* have no static profiler yet (returns null → not-profiled).
+app.get('/api/monitoring/discover/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const d = /^ds\./.test(id) ? await grafana.discoverExternal(id) : grafana.discover(id);
+    if (!d) return res.json({ ok: true, id, profiled: false });
+    const profiled = d.external ? !!d.profiled : true;
+    res.json({ ok: true, id, profiled, discovery: d });
+  } catch (e) { res.status(200).json({ ok: false, id: req.params.id, profiled: false, error: e.message }); }
+});
+
 // ---- Alerts on internal Workspace collections -----------------------------
 // Threshold rules over ws.* sources (tasks/Me.AI/agenda/activity/agents). A
 // leader-gated scheduler evaluates them; a firing rule broadcasts an in-app
@@ -9685,6 +9699,45 @@ function _monPanelProvenance(sourceId, catalog) {
   return { source: id, kind: 'unknown', access: 'amg-mcp' };
 }
 
+// Validate an AI-designed panel's dimension/metric against the REAL discovered
+// profile for its source. A field the source doesn't actually have is dropped
+// (→ null) so it can't produce a phantom/empty series mislabeled as real data.
+function _monValidatePanel(panel, discovered) {
+  const p = { ...(panel || {}) };
+  const prof = discovered && discovered[p.source];
+  if (!prof) { // unprofiled source (external ds.* / not discovered) — keep as-is, no field binding
+    if (p.dimension) delete p.dimension;
+    if (p.metric && p.metric !== 'count') delete p.metric;
+    return p;
+  }
+  const dimFields = new Set((prof.dimensions || []).map(d => d.field));
+  const metFields = new Set((prof.metrics || []).map(m => m.field));
+  if (p.dimension && !dimFields.has(p.dimension)) p.dimension = null;
+  if (p.metric && p.metric !== 'count' && !metFields.has(p.metric)) p.metric = 'count';
+  return p;
+}
+
+// Discovery-driven deterministic panels (no AI): one panel per profiled source,
+// grouped by its top real dimension (or its top metric when there are no
+// categorical dimensions), so a no-AI build still charts real workspace data.
+function _monDeterministicPanels(discovered) {
+  const panels = [];
+  for (const id of Object.keys(discovered || {})) {
+    const d = discovered[id];
+    const dim = (d.dimensions || [])[0];
+    const met = (d.metrics || []).find(m => m.field !== 'count') || (d.metrics || [])[0];
+    if (dim) {
+      panels.push({ title: `${d.name} by ${dim.field}`, type: 'timeseries', unit: 'count', source: id, dimension: dim.field, metric: 'count', alert: null });
+    } else if (met && met.field !== 'count') {
+      panels.push({ title: `${d.name} — ${met.field}`, type: 'timeseries', unit: 'count', source: id, dimension: null, metric: met.field, alert: null });
+    } else {
+      panels.push({ title: d.name, type: 'timeseries', unit: 'count', source: id, dimension: null, metric: 'count', alert: null });
+    }
+    if (panels.length >= 8) break;
+  }
+  return panels;
+}
+
 // spec (title + panels), then stores it locally and best-effort pushes to Grafana.
 // When a boardId is supplied, the board's items are mined for context (referenced
 // Kusto clusters, repos, App Insights, plus the human narrative) and the selected
@@ -9701,10 +9754,67 @@ app.post('/api/monitoring/generate', async (req, res) => {
   if (!prompt && !board) return res.status(400).json({ ok: false, error: 'A prompt or a board is required.' });
   try { catalog = await grafana.catalog(); } catch { catalog = { workspace: [], external: [] }; }
 
-  // Describe the sources the designer may bind panels to.
+  // ---- DISCOVERY -----------------------------------------------------------
+  // Profile the internal ws.* sources so the designer binds panels to REAL
+  // fields (dimensions/metrics) that actually exist in the data — not fake
+  // template signals. Prefer the user's chosen sources; else every chartable
+  // workspace source. External ds.* have no static profiler yet (Phase 2), so
+  // they're offered by id only.
+  const chosenWs = chosenSources.filter(id => grafana.isWorkspaceSource(id));
+  const wsToProfile = (chosenWs.length ? chosenWs
+    : (catalog.workspace || []).filter(s => s.chartable).map(s => s.id));
+  const discovered = {}; // id -> discover() result (internal ws.* + profiled external ds.*)
+  const extIdentity = {}; // ds.id -> { uid, dsType, database } for binding AI panels to the proxy
+  for (const id of wsToProfile) {
+    try { const d = grafana.discover(id); if (d) discovered[id] = d; } catch {}
+  }
+  // External (Grafana datasource) discovery — profile the user's chosen ds.*
+  // sources (or, if none chosen, a few chartable ones) against the live schema
+  // so the designer binds panels to REAL tables/columns, not fake signals.
+  const chosenExt = chosenSources.filter(id => /^ds\./.test(id));
+  const extToProfile = (chosenExt.length ? chosenExt
+    : (catalog.external || []).filter(s => s.chartable).map(s => s.id).slice(0, 4));
+  for (const id of extToProfile) {
+    try {
+      const d = await grafana.discoverExternal(id);
+      if (d) {
+        extIdentity[id] = { uid: d.uid || '', dsType: d.dsType || '', database: d.database || '' };
+        if (d.profiled) discovered[id] = d;
+      }
+    } catch {}
+  }
+  const discoverLines = [];
+  for (const id of Object.keys(discovered)) {
+    const d = discovered[id];
+    const dims = (d.dimensions || []).map(dm =>
+      dm.cardinality != null
+        ? `${dm.field} (${dm.cardinality} values: ${(dm.values || []).slice(0, 5).map(v => v.value).join(', ')})`
+        : dm.field).join('; ');
+    const mets = (d.metrics || []).map(m => `${m.field} [${m.agg}]`).join(', ');
+    if (d.external) {
+      // Profiled external datasource: the AI must author a query in the source's
+      // own language (KQL for ADX) that aggregates the chosen table over time.
+      const tbls = (d.tables || []).map(t => `${t.database}.${t.table}`).slice(0, 6).join(', ');
+      discoverLines.push(
+        `- ${id} — ${d.name} (external ${d.dsType}): primary table ${d.database}.${d.table}` +
+        (d.timeField ? ` with time column "${d.timeField}"` : ' (no obvious time column)') +
+        (dims ? `\n    group-by columns: ${dims}` : '') +
+        (mets ? `\n    numeric columns: ${mets}` : '') +
+        (tbls ? `\n    other tables: ${tbls}` : '') +
+        `\n    → set "source":"${id}" and write a "query" (KQL) that summarizes this table over time (e.g. summarize count() by bin(${d.timeField || 'TimeGenerated'}, 1h)).`);
+    } else {
+      discoverLines.push(
+        `- ${id} — ${d.name}: ${d.count} records` +
+        (d.timeField ? ` over time field "${d.timeField}"` : ' (no time field — chart as a distribution, not a timeseries)') +
+        (dims ? `\n    dimensions (group-by): ${dims}` : '\n    dimensions: none') +
+        (mets ? `\n    metrics: ${mets}` : ''));
+    }
+  }
+
+  // Describe any source the designer may still bind to (external ds.* + any ws.* not profiled).
   const srcLines = [];
-  for (const s of (catalog.workspace || [])) if (s.chart) srcLines.push(`- ${s.id} (internal · ${s.name}${s.alertable ? ' · alertable' : ''})`);
-  for (const s of (catalog.external || [])) srcLines.push(`- ${s.id} (external · ${s.name} · ${s.access})`);
+  for (const s of (catalog.workspace || [])) if (s.chartable && !discovered[s.id]) srcLines.push(`- ${s.id} (internal · ${s.name}${s.alertable ? ' · alertable' : ''})`);
+  for (const s of (catalog.external || [])) if (!discovered[s.id]) srcLines.push(`- ${s.id} (external · ${s.name} · ${s.dsType} · schema not available — you may target it by writing a "query", but it can't be validated)`);
   const selectedNote = chosenSources.length ? ('\nThe user selected these sources — prefer them: ' + chosenSources.join(', ')) : '';
   const boardBlock = boardCtx ? (
     '\n\n=== BOARD CONTEXT (mine this for what to monitor) ===\n' + boardCtx.brief +
@@ -9719,13 +9829,23 @@ app.post('/api/monitoring/generate', async (req, res) => {
     const result = await sdkRunner.runChat({
       config: null,
       prompt:
-        'You are a monitoring dashboard designer. Output ONLY a JSON object describing a dashboard:\n' +
-        '{"title": string, "tags": string[], "panels": [{"title": string, "type": "timeseries"|"gauge", "unit": string, "source": string, "alert": string|null}]}\n' +
-        'Rules: 4–8 focused panels; pick real signals (rate, errors, latency, saturation, availability, backlog, throughput, etc.); ' +
-        'units like "%", "ms", "req/s", "MB/s", "count"; set "source" to one of the available source ids below when a panel maps to it ' +
-        '(prefer internal ws.* sources for TheOffice.AI\'s own work, external ds.* for Azure telemetry); ' +
-        'set "alert" to a short threshold phrase (e.g. "> 60 for 10m") when the signal is worth alerting on, else null. No prose, no code fences.\n\n' +
-        'AVAILABLE SOURCES:\n' + (srcLines.join('\n') || '(none connected — design generic panels)') + selectedNote +
+        'You are a monitoring dashboard designer. You have been given a DISCOVERY brief describing the REAL data available in each source. ' +
+        'Design panels that surface signals that actually exist in that data — do NOT invent metrics the sources do not have.\n' +
+        'Output ONLY a JSON object:\n' +
+        '{"title": string, "tags": string[], "panels": [{"title": string, "type": "timeseries"|"gauge", "unit": string, "source": string, "dimension": string|null, "metric": string|null, "query": string|null, "alert": string|null}]}\n' +
+        'Rules:\n' +
+        '- 3–8 focused panels. Each panel MUST set "source" to one of the listed source ids.\n' +
+        '- For a profiled INTERNAL (ws.*) source: set "dimension" to one of ITS listed group-by fields to split the chart by that field (e.g. by status), OR null to chart the whole collection. ' +
+        'Set "metric" to one of ITS listed metric fields, or "count" (or null) to count records. NEVER use a field not listed for that source. Leave "query" null.\n' +
+        '- For an EXTERNAL (ds.*) source: you MUST write a "query" in that source\'s own language (KQL for Kusto/ADX) that aggregates its data over time — e.g. TableName | summarize count() by bin(TimeColumn, 1h) | order by TimeColumn asc. ' +
+        'Use only the tables/columns listed for that source. The query should return a time column plus one or more numeric columns so it charts as a timeseries. Leave "dimension"/"metric" null for external sources.\n' +
+        '- Correlate the request with the discovered dimensions/values/columns: pick what best answers what the user asked to monitor.\n' +
+        '- units like "%", "ms", "req/s", "count"; set "alert" to a short threshold phrase (e.g. "> 60 for 10m") when worth alerting, else null.\n' +
+        '- No prose, no code fences.\n\n' +
+        (discoverLines.length ? ('DISCOVERED SOURCES (real data — bind to these fields/tables):\n' + discoverLines.join('\n') + '\n\n') : '') +
+        (srcLines.length ? ('OTHER SOURCES (bind by id only):\n' + srcLines.join('\n') + '\n') : '') +
+        (!discoverLines.length && !srcLines.length ? '(no sources connected — design generic panels)\n' : '') +
+        selectedNote +
         boardBlock +
         '\n\nRequest: ' + (prompt || ('Build a monitoring dashboard for this board: ' + (board && board.name || ''))),
       sessionId: require('crypto').randomUUID(),
@@ -9737,26 +9857,59 @@ app.post('/api/monitoring/generate', async (req, res) => {
     });
     if (!(result && result.fallback)) {
       const j = _connectExtractJson(acc || (result && result.output) || '');
-      if (j && Array.isArray(j.panels) && j.panels.length) spec = { ...j, ai: true, prompt: prompt || ('Board: ' + (board && board.name || '')) };
+      if (j && Array.isArray(j.panels) && j.panels.length) {
+        // Validate every discovered-source panel's dimension/metric against the
+        // real profile so a hallucinated field can't produce a phantom series.
+        j.panels = j.panels.map(p => _monValidatePanel(p, discovered));
+        spec = { ...j, ai: true, prompt: prompt || ('Board: ' + (board && board.name || '')) };
+      }
     }
   } catch (e) { /* fall back below */ }
   if (!spec) {
     spec = grafana.deterministicSpec(prompt || (board && board.name) || 'monitoring');
-    // Seed deterministic board dashboards with the alertable internal sources so a
-    // board-driven build without AI still charts real workspace signals.
-    if (board && (!chosenSources.length)) {
-      const ws = (catalog.workspace || []).filter(s => s.chart).slice(0, 4);
+    // Deterministic fallback also uses discovery: chart each profiled source by
+    // its top real dimension (or its top metric) so a no-AI build still shows
+    // real workspace signals rather than synthesized demo data.
+    const detPanels = _monDeterministicPanels(discovered);
+    if (detPanels.length) spec.panels = detPanels;
+    else if (board && !chosenSources.length) {
+      const ws = (catalog.workspace || []).filter(s => s.chartable).slice(0, 4);
       if (ws.length) spec.panels = ws.map(s => ({ title: s.name, type: 'timeseries', unit: 'count', source: s.id, alert: s.alertable ? '> 0' : null }));
     }
   }
   if (boardId) { spec.boardId = boardId; if (!Array.isArray(spec.tags)) spec.tags = []; if (board && !spec.tags.includes('board')) spec.tags.push('board'); }
+  // Bind external (ds.*) panels to the live datasource identity so createDashboard
+  // and the render path can execute their queries through Grafana's proxy.
+  const extById = {}; for (const s of (catalog.external || [])) extById[s.id] = s;
+  spec.panels = (spec.panels || []).map(p => {
+    if (p && typeof p.source === 'string' && /^ds\./.test(p.source)) {
+      const idn = extIdentity[p.source] || {};
+      const cat = extById[p.source] || {};
+      return { ...p, datasourceUid: idn.uid || cat.uid || '', dsType: idn.dsType || cat.dsType || '', database: p.database || idn.database || '' };
+    }
+    return p;
+  });
   try {
     const created = await grafana.createDashboard(spec);
-    const provenance = (spec.panels || []).map(p => ({ title: p.title, ...(_monPanelProvenance(p.source, catalog)), alert: p.alert || null }));
+    const provenance = (spec.panels || []).map(p => ({
+      title: p.title,
+      ...(_monPanelProvenance(p.source, catalog)),
+      dimension: p.dimension || null,
+      metric: p.metric || null,
+      query: p.query || null,
+      profiled: !!discovered[p.source],
+      alert: p.alert || null,
+    }));
     res.json({
       ok: true, ai: !!spec.ai, dashboard: created,
       spec: { title: spec.title, panels: spec.panels },
       provenance,
+      discovery: Object.keys(discovered).map(id => ({
+        id, name: discovered[id].name, count: discovered[id].count,
+        timeField: discovered[id].timeField || null,
+        dimensions: (discovered[id].dimensions || []).map(d => ({ field: d.field, cardinality: d.cardinality })),
+        metrics: (discovered[id].metrics || []).map(m => ({ field: m.field, agg: m.agg })),
+      })),
       board: board ? { id: board.id, name: board.name } : null,
       boardRefs: boardCtx ? boardCtx.refs : null,
     });

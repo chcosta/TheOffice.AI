@@ -46,6 +46,8 @@ function _tsOf(o) {
   }
   return 0;
 }
+// Call fn() and return its value, or a fallback on any throw / null.
+function _safe(fn, fb) { try { const v = fn(); return v == null ? fb : v; } catch { return fb; } }
 
 // ---------------------------------------------------------------------------
 // Time window + bucketing
@@ -205,18 +207,140 @@ function _readDocs() {
 }
 
 // ---------------------------------------------------------------------------
+// Raw record readers — return the underlying plain objects (not bucketed
+// events) so the discovery profiler can introspect their real shape. Each is
+// fully defensive and returns [] on any problem.
+// ---------------------------------------------------------------------------
+function _rawTasks() { const a = _readJson(dataPath('tasks.json'), []); return Array.isArray(a) ? a : []; }
+function _rawAgents() { const a = _readJson(dataPath('agents.json'), []); return Array.isArray(a) ? a : []; }
+function _rawBoards() { const a = _readJson(dataPath('boards.json'), []); return Array.isArray(a) ? a : []; }
+function _rawMeAiRuns() {
+  const dir = path.join(dataPath('me-ai'), 'runs');
+  const out = [];
+  for (const e of _readDirEntries(dir)) {
+    if (!e.isDirectory()) continue;
+    const runDir = path.join(dir, e.name);
+    let rec = null;
+    for (const fn of ['run.json', 'task.json', 'meta.json', 'index.json']) {
+      const rp = path.join(runDir, fn);
+      if (fs.existsSync(rp)) { rec = _readJson(rp, null); if (rec) break; }
+    }
+    if (rec && typeof rec === 'object' && !Array.isArray(rec)) out.push(rec);
+    else out.push({ name: e.name, status: 'run', createdAt: new Date(_fileTime(runDir) || Date.now()).toISOString() });
+  }
+  return out;
+}
+function _rawAgenda() {
+  const dir = path.join(dataPath('me-ai'), 'agenda');
+  const out = [];
+  for (const e of _readDirEntries(dir)) {
+    if (!e.isFile() || !e.name.endsWith('.json')) continue;
+    const day = _readJson(path.join(dir, e.name), null);
+    const m = e.name.match(/(\d{4}-\d{2}-\d{2})/);
+    const items = day && (Array.isArray(day.items) ? day.items : Array.isArray(day.blocks) ? day.blocks : Array.isArray(day.agenda) ? day.agenda : Array.isArray(day) ? day : []);
+    out.push({ date: m ? m[1] : '', items: Array.isArray(items) ? items.length : 0 });
+  }
+  return out;
+}
+function _rawDiary() {
+  const roots = [dataPath('connect'), path.join(dataPath('connect'), 'diary'), path.join(dataPath('connect'), 'entries')];
+  const out = [];
+  for (const root of roots) {
+    for (const e of _readDirEntries(root)) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const rec = _readJson(path.join(root, e.name), null);
+      if (rec && typeof rec === 'object' && !Array.isArray(rec)) out.push(rec);
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Discovery profiler — introspect an array of plain records and describe what
+// is actually chartable: the time field, categorical dimensions (with their
+// real top values), numeric metrics, and a small trimmed sample. This is what
+// lets the designer reason about a source's real shape instead of guessing.
+// ---------------------------------------------------------------------------
+const _TIME_FIELDS = ['createdAt', 'created', 'created_at', 'ts', 'time', 'timestamp', 'date', 'day', 'startedAt', 'finishedAt', 'completedAt', 'updatedAt', 'updated', 'lastRun', 'lastRunAt'];
+function _looksTime(k, v) {
+  if (_TIME_FIELDS.includes(k)) return true;
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return true;
+  if (typeof v === 'number' && v > 1e9) return true;
+  return false;
+}
+function _profile(records) {
+  const recs = (records || []).filter(r => r && typeof r === 'object' && !Array.isArray(r));
+  const total = recs.length;
+  const fields = new Map(); // field -> stats
+  for (const r of recs) {
+    for (const [k, v] of Object.entries(r)) {
+      if (v == null || typeof v === 'object') continue; // scalar fields only
+      let f = fields.get(k);
+      if (!f) { f = { field: k, present: 0, num: 0, timeHits: 0, str: new Map() }; fields.set(k, f); }
+      f.present++;
+      if (_looksTime(k, v)) f.timeHits++;
+      if (typeof v === 'number') f.num++;
+      else {
+        const label = typeof v === 'boolean' ? (v ? 'true' : 'false') : (v.length > 60 ? v.slice(0, 60) : v);
+        f.str.set(label, (f.str.get(label) || 0) + 1);
+      }
+    }
+  }
+  // Best time field = the scalar field that most often parses as a timestamp.
+  let timeField = ''; let bestTime = 0;
+  for (const f of fields.values()) if (f.timeHits > bestTime) { bestTime = f.timeHits; timeField = f.field; }
+  // Categorical dimensions: string/bool fields (not the time field), 1..20
+  // distinct values, present in a meaningful fraction, not mostly numeric.
+  const dimensions = [];
+  for (const f of fields.values()) {
+    if (f.field === timeField) continue;
+    if (total && f.timeHits > total * 0.5) continue;
+    if (f.num > f.present * 0.5) continue;
+    const card = f.str.size;
+    if (card < 1 || card > 20) continue;
+    if (f.present < Math.max(1, total * 0.2)) continue;
+    // Drop near-unique (identifier-like) fields — they don't group anything.
+    if (total >= 6 && card > f.present * 0.8) continue;
+    const values = [...f.str.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([value, count]) => ({ value, count }));
+    // Groupability: records-per-distinct-value. Higher = more chartable.
+    const score = f.present / Math.max(1, card);
+    dimensions.push({ field: f.field, cardinality: card, present: f.present, score, values });
+  }
+  dimensions.sort((a, b) => b.score - a.score);
+  dimensions.forEach(d => { delete d.score; });
+  // Metrics: record count is always available; numeric fields become sum candidates.
+  const metrics = [{ field: 'count', agg: 'count', label: 'Record count over time' }];
+  for (const f of fields.values()) {
+    if (f.field === timeField) continue;
+    if (f.num >= Math.max(1, total * 0.3) && f.num >= f.str.size) metrics.push({ field: f.field, agg: 'sum', label: `${f.field} (sum)` });
+  }
+  // Sample: first few records trimmed to scalar fields, strings capped.
+  const sample = recs.slice(0, 3).map(r => {
+    const o = {}; let n = 0;
+    for (const [k, v] of Object.entries(r)) {
+      if (v == null || typeof v === 'object') continue;
+      o[k] = (typeof v === 'string' && v.length > 80) ? v.slice(0, 80) + '…' : v;
+      if (++n >= 10) break;
+    }
+    return o;
+  });
+  return { total, timeField, dimensions: dimensions.slice(0, 8), metrics: metrics.slice(0, 6), sample };
+}
+
+// ---------------------------------------------------------------------------
 // Source registry
 // ---------------------------------------------------------------------------
 // group: 'workspace' (ours) | grafana datasources are added by grafana.js.
 // role flags describe what the source SUPPORTS (the user still opts a role on/off).
+// `raw` returns the underlying plain records for the discovery profiler.
 const SOURCES = [
-  { id: 'ws.tasks',    name: 'Tasks',            icon: '✅', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readTasks,   chartLabel: 'Tasks over time by status' },
-  { id: 'ws.meai',     name: 'Me.AI runs',       icon: '⚙️', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readMeAiRuns, chartLabel: 'Me.AI runs over time by outcome' },
-  { id: 'ws.agenda',   name: 'Agenda',           icon: '🗓️', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readAgenda,  chartLabel: 'Agenda item density per day' },
-  { id: 'ws.diary',    name: 'Connect diary',    icon: '📔', group: 'workspace', ground: true, chart: true,  alertable: false, read: _readDiary,   chartLabel: 'Diary evidence cadence' },
-  { id: 'ws.activity', name: 'Activity feed',    icon: '📈', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readBoards,  chartLabel: 'Board activity over time' },
-  { id: 'ws.agents',   name: 'Agents',           icon: '🤖', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readAgents,  chartLabel: 'Agents by type' },
-  { id: 'ws.docs',     name: 'Docs & runbooks',  icon: '📄', group: 'workspace', ground: true, chart: false, alertable: false, read: _readDocs,    chartLabel: '' },
+  { id: 'ws.tasks',    name: 'Tasks',            icon: '✅', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readTasks,   raw: _rawTasks,     chartLabel: 'Tasks over time by status' },
+  { id: 'ws.meai',     name: 'Me.AI runs',       icon: '⚙️', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readMeAiRuns, raw: _rawMeAiRuns, chartLabel: 'Me.AI runs over time by outcome' },
+  { id: 'ws.agenda',   name: 'Agenda',           icon: '🗓️', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readAgenda,  raw: _rawAgenda,    chartLabel: 'Agenda item density per day' },
+  { id: 'ws.diary',    name: 'Connect diary',    icon: '📔', group: 'workspace', ground: true, chart: true,  alertable: false, read: _readDiary,   raw: _rawDiary,     chartLabel: 'Diary evidence cadence' },
+  { id: 'ws.activity', name: 'Activity feed',    icon: '📈', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readBoards,  raw: _rawBoards,    chartLabel: 'Board activity over time' },
+  { id: 'ws.agents',   name: 'Agents',           icon: '🤖', group: 'workspace', ground: true, chart: true,  alertable: true,  read: _readAgents,  raw: _rawAgents,    chartLabel: 'Agents by type' },
+  { id: 'ws.docs',     name: 'Docs & runbooks',  icon: '📄', group: 'workspace', ground: true, chart: false, alertable: false, read: _readDocs,    raw: null,          chartLabel: '' },
 ];
 
 function _source(id) { return SOURCES.find(s => s.id === id) || null; }
@@ -253,22 +377,77 @@ function groundContext(id) {
   return { id: s.id, name: s.name, count: (() => { try { return s.read().count; } catch { return 0; } })(), text: ground.join('\n') };
 }
 
+// Discover the real chartable shape of a source: time field, categorical
+// dimensions (with actual top values), numeric metrics, and a trimmed sample.
+// This is the "what can I chart here?" probe the designer reasons over.
+function discover(id) {
+  const s = _source(id);
+  if (!s) return { id, name: id, count: 0, chartable: false, dimensions: [], metrics: [], sample: [], ground: [] };
+  const raw = (typeof s.raw === 'function') ? _safe(s.raw, []) : [];
+  const prof = _profile(raw);
+  let ground = []; let count = prof.total;
+  try { const rd = s.read(); ground = rd.ground || []; if (!count) count = rd.count || 0; } catch {}
+  return {
+    id: s.id, name: s.name, icon: s.icon, group: s.group,
+    chartable: !!s.chart, alertable: !!s.alertable,
+    count,
+    timeField: prof.timeField,
+    dimensions: prof.dimensions,
+    metrics: s.chart ? prof.metrics : [],
+    sample: prof.sample,
+    ground: ground.slice(0, 20),
+    chartLabel: s.chartLabel || '',
+  };
+}
+
 // Query a chartable internal source into native timeseries panels.
-// opts: { days, bin, split } — split=true yields a series per status/key.
+// opts: { days, bin, split, groupBy, metric } —
+//   * groupBy: a discovered categorical field → one series per distinct value.
+//   * metric:  a discovered numeric field summed per bin (else each record = 1).
+//   * split:   legacy per-key split using the reader's built-in key.
+// When groupBy/metric are given we read raw records and derive events directly,
+// so panels chart the exact real dimension the designer chose.
 function query(id, opts = {}) {
   const s = _source(id);
   if (!s || !s.chart) return { id, series: [], sample: false, empty: true, source: 'workspace' };
   const w = _window(opts);
+  const groupBy = opts.groupBy ? String(opts.groupBy) : '';
+  const metric = (opts.metric && String(opts.metric) !== 'count') ? String(opts.metric) : '';
   let events = [];
-  try { events = s.read().events || []; } catch { events = []; }
-  const series = _bucket(events, w, { splitKey: !!opts.split, topKeys: opts.topKeys || 6 });
+  let dimUsed = null, metricUsed = 'count';
+  if ((groupBy || metric) && typeof s.raw === 'function') {
+    const recs = _safe(s.raw, []);
+    events = recs.map(r => {
+      if (!r || typeof r !== 'object') return null;
+      const t = _tsOf(r);
+      if (!(t > 0)) return null;
+      const e = { t };
+      if (groupBy) e.key = String(r[groupBy] != null ? r[groupBy] : 'other');
+      if (metric && typeof r[metric] === 'number') e.value = r[metric];
+      return e;
+    }).filter(Boolean);
+    dimUsed = groupBy || null;
+    metricUsed = metric || 'count';
+  } else {
+    try { events = s.read().events || []; } catch { events = []; }
+  }
+  const split = groupBy ? true : !!opts.split;
+  const series = _bucket(events, w, { splitKey: split, topKeys: opts.topKeys || 6 });
   const total = series.reduce((acc, ser) => acc + ser.data.reduce((a, p) => a + p[1], 0), 0);
+  // Human label describing the real aggregate we performed.
+  let label = s.chartLabel || '';
+  if (dimUsed || metricUsed !== 'count') {
+    const agg = metricUsed === 'count' ? 'count of records' : `sum of ${metricUsed}`;
+    label = dimUsed ? `${agg} by ${dimUsed}, ${w.label}` : `${agg}, ${w.label}`;
+  }
   return {
     id: s.id,
     name: s.name,
     provider: 'workspace',
     unit: '',
-    label: s.chartLabel || '',
+    label,
+    dimension: dimUsed,
+    metric: metricUsed,
     window: { from: new Date(w.fromMs).toISOString(), to: new Date(w.toMs).toISOString(), bin: w.bin },
     series,
     total,
@@ -307,10 +486,11 @@ function evaluateAlert(rule) {
 
 module.exports = {
   catalog,
+  discover,
   groundContext,
   query,
   evaluateAlert,
   isWorkspaceSource: (id) => !!_source(id),
   // exposed for tests
-  _internal: { _bucket, _window, _tsOf, SOURCES },
+  _internal: { _bucket, _window, _tsOf, _profile, _looksTime, SOURCES },
 };

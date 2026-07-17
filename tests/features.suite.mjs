@@ -2021,6 +2021,48 @@ await t.test('monitoring.ai: Grafana view — live whole-dashboard iframe + rend
   t.ok(/renderPanel,/.test(grafanaSrc), 'renderPanel is exported');
 });
 
+await t.test('monitoring.ai: data overlay + honest source/query/last-updated provenance + assistant + bounded studio', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const grafanaSrc = readFileSync('grafana.js', 'utf8');
+
+  // Req 1 — a "Data" button opens a roomy WINDOW OVERLAY (not an in-place flip) showing the rows behind the panel.
+  t.ok(/@click="monOpenData\(p\.id\)"/.test(html), 'each native panel has a Data button that opens the overlay');
+  t.ok(/x-html="monPanelBody\(p\)"/.test(html) && !/monIsFlipped/.test(html) && !/monFlipToggle/.test(html), 'the panel body always renders the chart (no in-place flip)');
+  t.ok(/monOpenData\s*\(/.test(html) && /monCloseData\s*\(/.test(html) && /monDataPanel\s*\(/.test(html) && /monPanelDataTable\s*\(/.test(html), 'overlay helpers monOpenData/monCloseData/monDataPanel/monPanelDataTable exist');
+  // The overlay is a TOP-LEVEL teleport with the shared centering classes (survives x-show) + escape/backdrop close.
+  t.ok(/<template x-teleport="body">[\s\S]{0,400}?class="modal-backdrop monx-datamodal"/.test(html), 'the data overlay is a top-level x-teleport with .modal-backdrop centering');
+  t.ok(/x-show="monitoring\.dataModal"/.test(html) && /@click\.self="monCloseData\(\)"/.test(html) && /@keydown\.escape\.window="monCloseData\(\)"/.test(html), 'overlay is gated on dataModal + closes on backdrop/escape');
+  t.ok(/x-html="monPanelDataTable\(monDataPanel\(\)\)"/.test(html), 'the overlay body renders the data table for the open panel');
+  t.ok(/dataModal:\s*null/.test(html), 'monitoring state seeds dataModal:null');
+  t.ok(/\.monx-datamodal .monx-dmcard\{/.test(html) && /\.monx-tablewrap\b/.test(html) && /\.monx-table\b/.test(html) && /\.monx-nodata\b/.test(html), 'roomy overlay card + data-table/no-data CSS present');
+  // monPanelDataTable is TABLE-ONLY now (the overlay header renders provenance), no duplicated meta block.
+  t.ok(/monPanelDataTable\(p\)\s*\{[\s\S]{0,320}?let h = '';/.test(html), 'monPanelDataTable builds the table only (no inlined meta block)');
+
+  // Reqs 2 & 3 — source, query and last-updated surfaced HONESTLY. Sample panels never claim a bogus datasource/query.
+  t.ok(/monPanelIsSample\s*\(p\)\s*\{[\s\S]{0,120}?p\.sample === true \|\| p\.origin === 'sample'/.test(html), 'monPanelIsSample treats sample:true OR origin==="sample" as demo data');
+  t.ok(/monPanelQueryText[\s\S]{0,200}?this\.monPanelIsSample\(p\)\)\s*return 'Synthesized demo data/.test(html), 'monPanelQueryText returns an honest sample note FIRST (no "query not exposed" noise for demo data)');
+  t.ok(/'Query not exposed by this panel'/.test(html) && /'Synthesized sample series \(demo data\)'/.test(html), 'monPanelQueryText treats the grafana.js live/sample fallback strings as non-real queries');
+  t.ok(/monPanelSourceLabel[\s\S]{0,400}?Sample data · modeled on/.test(html) && /Sample data \(demo\)/.test(html), 'monPanelSourceLabel labels sample panels honestly instead of a bare datasource id');
+  t.ok(/_monPanelMetaHtml\s*\(/.test(html) && /monPanelSourceLabel\s*\(/.test(html) && /monPanelQueryText\s*\(/.test(html) && /monPanelUpdatedLabel\s*\(/.test(html), 'meta helpers (source/query/last-updated) exist');
+  t.ok(/_monPanelMetaHtml\(monDeepPanel\(\)\)/.test(html), 'deep-dive still renders the panel meta block (inherits honest text)');
+  t.ok(/monPanelIsSample\(monDataPanel\(\)\)/.test(html) && /Synthesized demo data/.test(html) && /\.monx-dmnote\b/.test(html), 'the overlay shows a calm sample-data note when the dashboard is demo data');
+
+  // Req 3 (honest server-side source/query on every panel builder — unchanged).
+  t.ok(/function _panelSourceText\(/.test(grafanaSrc) && /function _panelQueryText\(/.test(grafanaSrc), 'grafana.js exposes _panelSourceText/_panelQueryText');
+  t.ok(/_panelSourceText[,\s]/.test(grafanaSrc) && /_panelQueryText[,\s]/.test(grafanaSrc) && /_internal:\s*\{[^}]*_panelSourceText[^}]*_panelQueryText/.test(grafanaSrc), 'both helpers are exported on _internal');
+  t.ok(/source:\s*_panelSourceText\(gp\)/.test(grafanaSrc) && /query:\s*_panelQueryText\(gp\)/.test(grafanaSrc), 'live Grafana panels carry honest source/query');
+  t.ok(/origin:\s*'sample'/.test(grafanaSrc) && /Synthesized sample series/.test(grafanaSrc), 'sample panels carry origin + honest query text');
+
+  // Req 4a — rename Monitoring copilot -> Monitoring assistant.
+  t.ok(/Monitoring assistant/.test(html) && !/Monitoring copilot/i.test(html), 'the side panel is renamed to "Monitoring assistant"');
+  t.ok(/✨ Assistant/.test(html), 'empty-state / author label uses "✨ Assistant"');
+
+  // Req 4b — the studio fills the viewport; only the conversation scrolls.
+  t.ok(/\.monx-studio\{[^}]*height:calc\(100vh - 165px\)/.test(html), 'the studio is height-bounded to the viewport');
+  t.ok(/\.monx-rail\{[^}]*min-height:0/.test(html) && /\.monx-cop\{[^}]*min-height:0/.test(html) && /\.monx-conv\{[^}]*overflow:auto/.test(html), 'rail/copilot flex to 0 and only the conversation scrolls');
+  t.ok(/@media \(max-width:900px\)\{[\s\S]*?\.monx-studio\{[^}]*height:auto/.test(html), 'the mobile media query releases the height cap');
+});
+
 await t.test('monitoring.ai v2: internal workspace catalog + board-build + provenance + alerts', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   const srv = readFileSync(SERVER, 'utf8');
@@ -2058,9 +2100,14 @@ await t.test('monitoring.ai v2: internal workspace catalog + board-build + prove
   t.ok(/monPanelProvenance\(panel\)/.test(html) && /monProvLabel\(prov\)/.test(html), 'provenance helpers present');
   t.ok(/class="monx-provbadge"/.test(html) && /x-text="monProvLabel\(monPanelProvenance\(p\)\)"/.test(html), 'studio panel headers carry a provenance badge');
   t.ok(/workspace: monPanelProvenance\(p\)\.kind === 'workspace'/.test(html), 'provenance badge distinguishes workspace-kind panels');
-  const mpl = _win(html, 'monProvLabel(prov)', 260);
+  const mpl = _win(html, 'monProvLabel(prov)', 420);
   t.ok(/workspace · direct/.test(mpl) && /AMG MCP/.test(mpl) && /· direct/.test(mpl), 'monProvLabel labels workspace/direct/AMG-MCP access');
+  t.ok(/workspace · by ' \+ prov\.dimension/.test(mpl), 'monProvLabel surfaces the real discovered dimension for ws.* panels');
   t.ok(/w\.provenance = \(r && r\.provenance\) \|\| \[\];/.test(html), 'monGenerate captures panel provenance');
+  t.ok(/w\.discovery = \(r && r\.discovery\) \|\| \[\];/.test(html), 'monGenerate captures the discovery brief');
+  // discovery-driven panels surface their real grouped-by dimension in the meta (badge, overlay, deep-dive)
+  t.ok(/monPanelDimension\(p\)/.test(html) && /monPanelMetric\(p\)/.test(html), 'panel dimension/metric helpers present');
+  t.ok(/<span class="ml">Grouped by<\/span>/.test(html), 'panel meta surfaces a Grouped-by row for discovery-driven panels');
 
   // --- Alerts: list + form + CRUD methods (with the two bug fixes) ---
   t.ok(/<div class="monx-sech"><h2>Alerts<\/h2>/.test(html), 'launcher has the Alerts section');
@@ -2090,6 +2137,19 @@ await t.test('monitoring.ai v2: internal workspace catalog + board-build + prove
   t.ok(/app\.get\('\/api\/monitoring\/alerts'/.test(srv) && /app\.post\('\/api\/monitoring\/alerts'/.test(srv) && /app\.put\('\/api\/monitoring\/alerts\/:id'/.test(srv) && /app\.delete\('\/api\/monitoring\/alerts\/:id'/.test(srv), 'alert CRUD routes (GET/POST/PUT/DELETE) exist');
   t.ok(/async function _runMonitoringAlerts\(/.test(srv) && /broadcastSSE\('monitoring-alert'/.test(srv), 'server evaluates alerts and broadcasts monitoring-alert over SSE');
 
+  // --- Phase 1 discovery backend: real-field binding, no synthesized ws.* data ---
+  t.ok(/app\.get\('\/api\/monitoring\/discover\/:id'/.test(srv), 'discover route present (GET /api/monitoring/discover/:id)');
+  t.ok(/grafana\.discover\(id\)/.test(srv) && /grafana\.discoverExternal\(id\)/.test(srv), 'discover route profiles internal via grafana.discover and external ds.* via grafana.discoverExternal');
+  t.ok(/function _monValidatePanel\(panel, discovered\)/.test(srv), '_monValidatePanel binds AI panels to discovered fields');
+  const mvp = _win(srv, 'function _monValidatePanel(panel, discovered)', 900);
+  t.ok(/if \(p\.dimension && !dimFields\.has\(p\.dimension\)\) p\.dimension = null;/.test(mvp), '_monValidatePanel drops a hallucinated dimension not in the profile');
+  t.ok(/if \(p\.metric && p\.metric !== 'count' && !metFields\.has\(p\.metric\)\) p\.metric = 'count';/.test(mvp), '_monValidatePanel falls back to count for an unknown metric');
+  t.ok(/function _monDeterministicPanels\(discovered\)/.test(srv), '_monDeterministicPanels builds no-AI panels from real dimensions');
+  const mdp = _win(srv, 'function _monDeterministicPanels(discovered)', 720);
+  t.ok(/const dim = \(d\.dimensions \|\| \[\]\)\[0\];/.test(mdp) && /dimension: dim\.field/.test(mdp), '_monDeterministicPanels groups by the top real discovered dimension');
+  t.ok(/j\.panels = j\.panels\.map\(p => _monValidatePanel\(p, discovered\)\)/.test(srv), 'generate validates every AI panel against the discovery brief');
+  t.ok(/const detPanels = _monDeterministicPanels\(discovered\)/.test(srv), 'generate falls back to deterministic discovery-driven panels');
+
   // --- grafana.js alert exports + workspace-source alert gate ---
   for (const fn of ['listAlerts', 'saveAlert', 'deleteAlert', 'evaluateAlerts', 'isWorkspaceSource', 'catalog']) {
     t.ok(new RegExp('\\b' + fn + '\\b').test(graf) && graf.includes(fn + ','), 'grafana.js exports ' + fn);
@@ -2097,6 +2157,106 @@ await t.test('monitoring.ai v2: internal workspace catalog + board-build + prove
   t.ok(/Alerts are supported on internal Workspace sources only\./.test(graf), 'saveAlert rejects non-workspace sources');
   t.ok(/function catalog\(\)/.test(wss) && /function evaluateAlert\(/.test(wss), 'workspace-source.js provides catalog() + evaluateAlert()');
   t.ok(/catalog,/.test(wss) && /evaluateAlert,/.test(wss), 'workspace-source.js exports catalog + evaluateAlert');
+});
+
+await t.test('monitoring.ai Phase 2: external ds.* schema discovery + live proxy query + no fake data', () => {
+  const graf = require('../grafana.js');
+  const I = graf._internal;
+  const srv = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // --- Shared frame parser: /api/ds/query dataframes → { series, table } ---
+  const tsOut = { results: { A: { frames: [ {
+    schema: { fields: [ { name: 'time', type: 'time' }, { name: 'count', type: 'number', config: { unit: 'ops' } } ] },
+    data: { values: [ [1000, 2000, 3000], [5, 8, 13] ] },
+  } ] } } };
+  const tsParsed = I._framesToSeriesTable(tsOut, false);
+  t.eq(tsParsed.series.length, 1, 'timeseries frame → one series');
+  t.eq(tsParsed.series[0].name, 'count', 'series named from the numeric field');
+  t.eq(tsParsed.series[0].unit, 'ops', 'series carries the field unit');
+  t.eq(tsParsed.series[0].sample, false, 'live series are never marked sample');
+  t.eq(tsParsed.series[0].data.length, 3, 'all points parsed [time,value]');
+  t.eq(tsParsed.series[0].data[2][1], 13, 'last value parsed');
+
+  const tblOut = { results: { A: { frames: [ {
+    schema: { fields: [ { name: 'Queue', type: 'string' }, { name: 'Depth', type: 'number' } ] },
+    data: { values: [ ['osx', 'linux'], [4, 9] ] },
+  } ] } } };
+  const tblParsed = I._framesToSeriesTable(tblOut, true);
+  t.ok(tblParsed.table && tblParsed.table.columns.join(',') === 'Queue,Depth', 'table frame → columns');
+  t.eq(tblParsed.table.rows.length, 2, 'table rows parsed');
+  t.eq(tblParsed.table.rows[0][0], 'osx', 'first row first cell');
+  // A time-less frame becomes a table even when wantTable is false.
+  const noTime = I._framesToSeriesTable(tblOut, false);
+  t.ok(noTime.table && !noTime.series.length, 'time-less frame → table (not empty series)');
+
+  // --- ADX schema parse + discovery shape ---
+  const role = I._adxRole;
+  t.eq(role('datetime'), 'time', 'datetime → time role');
+  t.eq(role('long'), 'metric', 'long → metric role');
+  t.eq(role('string'), 'dimension', 'string → dimension role');
+  const schema = { Databases: { Fabric: { Tables: {
+    Jobs: { OrderedColumns: [ { Name: 'Timestamp', CslType: 'datetime' }, { Name: 'Queue', CslType: 'string' }, { Name: 'Count', CslType: 'long' } ] },
+    Meta: { OrderedColumns: [ { Name: 'Key', CslType: 'string' } ] },
+  } } } };
+  const tables = I._parseAdxSchema(schema);
+  t.eq(tables.length, 2, 'both ADX tables parsed');
+  const jobs = tables.find(x => x.table === 'Jobs');
+  t.ok(jobs && jobs.database === 'Fabric', 'table carries its database');
+  t.eq(jobs.columns.find(c => c.name === 'Timestamp').role, 'time', 'Timestamp classified as time');
+  const disc = I._adxTableToDiscovery('ds.adx', 'ADX', 'uid1', 'grafana-azure-data-explorer-datasource', jobs);
+  t.ok(disc.external === true && disc.timeField === 'Timestamp', 'discovery marks external + finds the time field');
+  t.ok(disc.dimensions.some(d => d.field === 'Queue'), 'string column surfaced as a dimension');
+  t.ok(disc.metrics[0].agg === 'count' && disc.metrics.some(m => m.field === 'Count'), 'count metric + numeric metric surfaced');
+
+  // --- External target builder: per-datasource query shape ---
+  const adxT = I._externalTarget({ dsType: 'kusto', datasourceUid: 'u', database: 'Fabric', query: 'Jobs | count' }, 'A');
+  t.ok(adxT.query === 'Jobs | count' && adxT.database === 'Fabric' && adxT.datasource.uid === 'u', 'ADX target carries query/database/uid');
+  const promT = I._externalTarget({ dsType: 'prometheus', datasourceUid: 'p', query: 'up' }, 'A');
+  t.ok(promT.expr === 'up' && promT.range === true, 'Prometheus target uses expr + range');
+  const genT = I._externalTarget({ dsType: 'mysql', datasourceUid: 'm', query: 'select 1' }, 'A');
+  t.ok(genT.rawSql === 'select 1', 'generic SQL target uses rawSql');
+
+  // --- discoverExternal honest not-profiled paths (dev env has no Grafana) ---
+  return (async () => {
+    const unknown = await graf.discoverExternal('ds.does-not-exist');
+    t.ok(unknown.profiled === false && unknown.external === true, 'unknown external source → profiled:false');
+
+    // --- _specToPanels external branch: NEVER synthesizes fake data ---
+    const ext = I._specToPanels({ panels: [ { title: 'ADX panel', source: 'ds.adx', query: 'Jobs | count', datasourceUid: 'u', dsType: 'kusto' } ] }, 'uidX')[0];
+    t.eq(ext.sample, false, 'external panel is not sample');
+    t.eq(ext.empty, true, 'external panel starts honest-empty (live-queried later)');
+    t.eq(ext.series.length, 0, 'external panel has no synthesized series');
+    t.eq(ext.provider, 'external', 'external panel tagged provider:external');
+    t.eq(ext.query, 'Jobs | count', 'external panel carries its AI-authored query');
+    t.ok(/Live data loads/.test(ext.note), 'panel with a query notes live-load');
+    const extNoQ = I._specToPanels({ panels: [ { title: 'No query', source: 'ds.adx' } ] }, 'uidX')[0];
+    t.ok(extNoQ.sample === false && extNoQ.empty === true && /connect the data source/i.test(extNoQ.note), 'query-less external panel is honest-empty with a connect note');
+    // A non-workspace, non-external source still synthesizes a labeled sample (unchanged).
+    const samp = I._specToPanels({ panels: [ { title: 'Latency', source: 'sample' } ] }, 'uidX')[0];
+    t.eq(samp.sample, true, 'plain sample source still synthesizes (clearly labeled)');
+  })().then(() => {
+    // --- server generate route: prompt teaches external query authoring + binds identity ---
+    t.ok(/EXTERNAL \(ds\.\*\) source: you MUST write a "query"/.test(srv), 'generate prompt instructs external query authoring');
+    t.ok(/const extIdentity = \{\}/.test(srv), 'generate collects external datasource identity');
+    t.ok(/const idn = extIdentity\[p\.source\] \|\| \{\};/.test(srv), 'post-AI binding reads external identity per panel');
+    t.ok(/datasourceUid: idn\.uid \|\| cat\.uid \|\| ''/.test(srv), 'external panels get datasourceUid bound');
+    t.ok(/query: p\.query \|\| null,/.test(srv) && /profiled: !!discovered\[p\.source\]/.test(srv), 'provenance surfaces query + profiled');
+    // --- discover route routes ds.* through discoverExternal ---
+    t.ok(/\/\^ds\\\.\/\.test\(id\) \? await grafana\.discoverExternal\(id\)/.test(srv), 'discover route sends ds.* to discoverExternal');
+
+    // --- grafana.js exports the Phase 2 engine ---
+    const grafSrc = readFileSync('grafana.js', 'utf8');
+    t.ok(/discoverExternal,/.test(grafSrc) && /queryExternal,/.test(grafSrc), 'grafana.js exports discoverExternal + queryExternal');
+    for (const fn of ['_framesToSeriesTable', '_parseAdxSchema', '_adxTableToDiscovery', '_externalTarget', '_adxRole', '_specToPanels']) {
+      t.ok(new RegExp(fn).test(grafSrc), 'grafana.js _internal exposes ' + fn);
+    }
+
+    // --- SPA honesty: external panels render honest source/query/empty, not fake ---
+    t.ok(/\(p\.dsType \|\| 'External datasource'\)/.test(html), 'monPanelSourceLabel surfaces the real datasource type for external panels');
+    t.ok(/No query defined — add a query to load live data from this source\./.test(html), 'monPanelQueryText falls back to the honest external note');
+    t.ok(/const _isExt = p\.provider === 'external'/.test(html) && /Live data source/.test(html), 'monPanelBody renders an honest empty state for external panels');
+  });
 });
 
 await t.test('monitoring.ai: curated recents + panel clarity (units/legend/freshness)', () => {

@@ -20875,11 +20875,11 @@
               .monx-provbadge{ font-size:10.5px; color:var(--cp-text-faint); border:1px solid var(--cp-border); border-radius:6px; padding:1px 6px; margin-left:8px; white-space:nowrap; }
               .monx-provbadge.workspace{ color:var(--mon-accent); border-color:color-mix(in srgb, var(--mon-accent) 40%, var(--cp-border)); }
               .monx-provbadge.alert{ color:var(--cp-warning,#d29922); border-color:color-mix(in srgb, var(--cp-warning,#d29922) 40%, var(--cp-border)); }
-              .monx-studio{ display:grid; grid-template-columns:236px 1fr 360px; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:560px; }
+              .monx-studio{ display:grid; grid-template-columns:236px 1fr 360px; grid-template-rows:minmax(0,1fr); gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:560px; height:calc(100vh - 165px); }
               .monx-studio.nochat{ grid-template-columns:236px 1fr; }
               .monx-studio.railhidden{ grid-template-columns:1fr 360px; }
               .monx-studio.railhidden.nochat{ grid-template-columns:1fr; }
-              .monx-rail{ border-right:1px solid var(--cp-border); padding:12px; background:var(--cp-bg); overflow:auto; }
+              .monx-rail{ border-right:1px solid var(--cp-border); padding:12px; background:var(--cp-bg); overflow:auto; min-height:0; }
               .monx-newbtn{ width:100%; background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); border:0; border-radius:8px; padding:10px; font-weight:600; color:#fff; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px; }
               .monx-rlabel{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; margin:14px 4px 7px; }
               .monx-folder > .frow{ display:flex; align-items:center; gap:7px; padding:6px 7px; border-radius:7px; color:var(--cp-text-muted); cursor:pointer; font-size:13px; }
@@ -20986,6 +20986,29 @@
               /* no-data */
               .monx-nodata{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:96px; color:var(--cp-text-faint); font-size:13px; font-weight:600; }
               .monx-nodata .sub{ font-size:10.5px; font-weight:400; }
+              /* panel meta (source / query / updated) */
+              .monx-pmeta{ margin:2px 0 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); overflow:hidden; }
+              .monx-pmeta .mrow{ display:flex; gap:10px; padding:6px 10px; font-size:11.5px; border-top:1px solid var(--cp-border); }
+              .monx-pmeta .mrow:first-child{ border-top:0; }
+              .monx-pmeta .ml{ color:var(--cp-text-faint); font-weight:650; letter-spacing:.03em; text-transform:uppercase; flex:none; width:60px; }
+              .monx-pmeta .mv{ color:var(--cp-text-muted); min-width:0; word-break:break-word; }
+              .monx-pmeta .mv.mono{ font-family:var(--cp-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace); font-size:11px; color:var(--cp-text); white-space:pre-wrap; }
+              /* data overlay (rows behind a panel) */
+              .monx-datamodal .monx-dmcard{ width:min(1100px,94vw); height:88vh; display:flex; flex-direction:column; background:var(--cp-surface,var(--cp-bg)); border:1px solid var(--cp-border); border-radius:12px; box-shadow:0 24px 64px rgba(0,0,0,.4); overflow:hidden; }
+              .monx-datamodal .monx-dmhead{ display:flex; align-items:flex-start; gap:14px; padding:16px 18px 12px; border-bottom:1px solid var(--cp-border); }
+              .monx-datamodal .monx-dmtitle{ min-width:0; flex:1; }
+              .monx-datamodal .monx-dmtitle .t{ font-size:16px; font-weight:700; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .monx-datamodal .monx-dmtitle .s{ font-size:12px; color:var(--cp-text-muted); margin-top:2px; }
+              .monx-datamodal .monx-dmx{ flex:none; width:30px; height:30px; border:1px solid var(--cp-border); border-radius:8px; background:transparent; color:var(--cp-text-muted); cursor:pointer; font-size:13px; }
+              .monx-datamodal .monx-dmx:hover{ border-color:var(--cp-accent); color:var(--cp-text); }
+              .monx-datamodal .monx-dmmeta{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 24px; padding:12px 18px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg); }
+              .monx-datamodal .monx-dmmeta .mrow{ display:flex; gap:10px; padding:5px 0; font-size:12px; min-width:0; }
+              .monx-datamodal .monx-dmmeta .ml{ color:var(--cp-text-faint); font-weight:650; letter-spacing:.03em; text-transform:uppercase; flex:none; width:64px; }
+              .monx-datamodal .monx-dmmeta .mv{ color:var(--cp-text-muted); min-width:0; word-break:break-word; }
+              .monx-datamodal .monx-dmmeta .mv.mono{ font-family:var(--cp-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace); font-size:11px; color:var(--cp-text); white-space:pre-wrap; }
+              .monx-datamodal .monx-dmnote{ margin:0; padding:10px 18px; font-size:12px; color:var(--cp-text-muted); background:var(--cp-bg); border-bottom:1px solid var(--cp-border); }
+              .monx-datamodal .monx-dmbody{ flex:1; min-height:0; overflow:auto; padding:14px 18px 18px; }
+              .monx-datamodal .monx-dmbody .monx-tablewrap{ max-height:none; }
               /* copilot */
               .monx-cop{ border-left:1px solid var(--cp-border); display:flex; flex-direction:column; min-height:0; background:var(--cp-bg); }
               .monx-coph{ display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--cp-border); }
@@ -21023,7 +21046,7 @@
               .monx-back{ background:none; border:0; color:var(--cp-text-muted); padding:0; margin-bottom:14px; font-size:13px; cursor:pointer; }
               .monx-back:hover{ color:var(--cp-text); }
               .monx-deep{ display:grid; grid-template-columns:1fr 380px; gap:22px; }
-              @media (max-width:900px){ .monx-deep{ grid-template-columns:1fr; } .monx-studio{ grid-template-columns:1fr; } .monx-board{ grid-template-columns:1fr; } }
+              @media (max-width:900px){ .monx-deep{ grid-template-columns:1fr; } .monx-studio{ grid-template-columns:1fr; grid-template-rows:auto; height:auto; } .monx-board{ grid-template-columns:1fr; } }
               .monx-bigpanel{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px 18px; }
               .monx-metricrow{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:16px 0; }
               .monx-metric{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:12px 13px; }
@@ -21378,6 +21401,7 @@
                               <span class="sp"></span>
                               <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
                               <div class="monx-ptools">
+                                <button @click="monOpenData(p.id)" title="See the data behind this panel">Data</button>
                                 <button :class="{ on: monIsGrabbed(p.id) }" @click="monGrabToggle(p.id)" title="Grab data for AI">Grab</button>
                                 <button @click="monOpenDeep(p.id)" title="Deep dive">⤢</button>
                               </div>
@@ -21393,7 +21417,7 @@
                   <div class="monx-cop">
                     <div class="monx-coph">
                       <div class="ci">✨</div>
-                      <div><b>Monitoring copilot</b><div class="sub">reads your grabbed panels &amp; datasets</div></div>
+                      <div><b>Monitoring assistant</b><div class="sub">reads your grabbed panels &amp; datasets</div></div>
                     </div>
                     <div class="monx-ctx">
                       <div class="cl">Context · grabbed panels</div>
@@ -21406,11 +21430,11 @@
                     </div>
                     <div class="monx-conv" x-ref="monConv">
                       <template x-if="!monitoring.convo.length">
-                        <div class="monx-msg ai"><div class="mwho">✨ Copilot</div><div class="mbody"><p>Grab a panel or two and click <b>Analyze</b> — I'll read the datasets behind them and summarize status, trends and anomalies.</p></div></div>
+                        <div class="monx-msg ai"><div class="mwho">✨ Assistant</div><div class="mbody"><p>Grab a panel or two and click <b>Analyze</b> — I'll read the datasets behind them and summarize status, trends and anomalies.</p></div></div>
                       </template>
                       <template x-for="(m, i) in monitoring.convo" :key="i">
                         <div class="monx-msg" :class="m.role">
-                          <div class="mwho" x-text="m.role === 'you' ? 'You' : '✨ Copilot'"></div>
+                          <div class="mwho" x-text="m.role === 'you' ? 'You' : '✨ Assistant'"></div>
                           <div class="mbody">
                             <template x-if="!m.analysis"><p x-text="m.text"></p></template>
                             <template x-if="m.analysis"><div x-html="monAnalysisHtml(m.analysis)"></div></template>
@@ -21461,6 +21485,7 @@
                           <div x-html="monPanelBody(monDeepPanel(), 230)"></div>
                         </template>
                       </div>
+                      <div x-html="_monPanelMetaHtml(monDeepPanel())"></div>
                       <div class="monx-metricrow">
                         <div class="monx-metric"><div class="ml">Latest</div><div class="mv" x-text="monPanelLast(monDeepPanel())"></div></div>
                         <div class="monx-metric"><div class="ml">Trend (~6h)</div><div class="mv" :class="monStatusClass(monTrendStatus(monDeepPanel()))" x-text="monTrendLabel(monDeepPanel())"></div></div>
@@ -21482,6 +21507,36 @@
                 </template>
               </div>
             </div>
+
+            <!-- ============ DATA OVERLAY (the rows behind a panel, room to breathe) ============ -->
+            <template x-teleport="body">
+              <div class="modal-backdrop monx-datamodal" x-show="monitoring.dataModal" x-transition.opacity.duration.150ms @click.self="monCloseData()" @keydown.escape.window="monCloseData()" x-cloak style="z-index:10002">
+                <template x-if="monDataPanel()">
+                  <div class="monx-dmcard">
+                    <div class="monx-dmhead">
+                      <div class="monx-dmtitle">
+                        <div class="t" x-text="monDataPanel().title"></div>
+                        <div class="s" x-text="(monitoring.dash ? monitoring.dash.title : '') + (monDataPanel().unit ? ' · ' + monDataPanel().unit : '')"></div>
+                      </div>
+                      <button class="monx-dmx" @click="monCloseData()" title="Close" aria-label="Close">✕</button>
+                    </div>
+                    <div class="monx-dmmeta">
+                      <div class="mrow"><span class="ml">Source</span><span class="mv" x-text="monPanelSourceLabel(monDataPanel())"></span></div>
+                      <template x-if="monPanelDimension(monDataPanel())">
+                        <div class="mrow"><span class="ml">Grouped by</span><span class="mv" x-text="monPanelDimension(monDataPanel()) + (monPanelMetric(monDataPanel()) ? ' · ' + monPanelMetric(monDataPanel()) : '')"></span></div>
+                      </template>
+                      <div class="mrow"><span class="ml">Query</span><span class="mv mono" x-text="monPanelQueryText(monDataPanel())"></span></div>
+                      <div class="mrow"><span class="ml">Updated</span><span class="mv" x-text="monPanelUpdatedLabel(monDataPanel())"></span></div>
+                      <div class="mrow"><span class="ml">Shape</span><span class="mv" x-text="monPanelShapeLabel(monDataPanel())"></span></div>
+                    </div>
+                    <template x-if="monPanelIsSample(monDataPanel())">
+                      <div class="monx-dmnote">Synthesized demo data — this dashboard isn't backed by a live query yet. Connect a datasource to see real rows.</div>
+                    </template>
+                    <div class="monx-dmbody" x-html="monPanelDataTable(monDataPanel())"></div>
+                  </div>
+                </template>
+              </div>
+            </template>
           </section>
 
           <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
@@ -31639,6 +31694,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           dashboards: [],          // GET /dashboards
           dash: null,              // GET /dashboard/:uid (current dashboard + panels)
           grabbed: [],             // panel ids grabbed for AI context
+          dataModal: null,         // panel id whose data overlay is open (null = closed)
           deepPanel: null,         // panel id shown in deep-dive
           prompt: '',
           hints: ['Helix queue health — wait time, running, errors', 'Autoscaler saturation + demand signals', 'Service availability + p95 latency + error rate'],
@@ -31671,7 +31727,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // v2: build a dashboard from a workspace board (mines its items for context).
           boardBuild: { open: false, prompt: '', boardId: '', boards: [], loading: false },
           boardRefs: null,         // last generate's mined refs { kusto, appInsights, repos, grafana }
-          provenance: [],          // last generate's per-panel provenance [{ title, kind, access, alert }]
+          provenance: [],          // last generate's per-panel provenance [{ title, kind, access, alert, dimension, metric }]
+          discovery: [],           // last generate's discovery brief [{ id, name, count, timeField, dimensions, metrics }]
           // v2: alert rules over alertable internal Workspace sources.
           alerts: { list: [], open: false, loading: false, saving: false, evaluating: false, draft: null },
           alertNotices: [],        // recent fired-alert notices (from the monitoring-alert SSE)
@@ -40057,6 +40114,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/monitoring/generate', { method: 'POST', body: JSON.stringify(body) });
             // Capture v2 provenance + mined board refs so the user sees the context used.
             w.provenance = (r && r.provenance) || [];
+            w.discovery = (r && r.discovery) || [];
             w.boardRefs = (r && r.boardRefs) || null;
             try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
             const uid = r && r.dashboard && r.dashboard.uid;
@@ -40199,7 +40257,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         monProvLabel(prov) {
           if (!prov) return '';
-          if (prov.kind === 'workspace') return 'workspace · direct';
+          if (prov.kind === 'workspace') {
+            // Discovery-driven panels carry the REAL dimension they were bound to.
+            if (prov.dimension) return 'workspace · by ' + prov.dimension;
+            return 'workspace · direct';
+          }
           if (prov.access === 'amg-mcp') return (prov.dsType || 'external') + ' · AMG MCP';
           if (prov.access === 'direct') return (prov.dsType || 'external') + ' · direct';
           return prov.dsType || prov.source || 'external';
@@ -40578,6 +40640,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (p.noData) {
             return '<div class="monx-nodata">No data<div class="sub">for the selected time range &amp; filters</div></div>';
           }
+          // Honest empty state for external ds.* (and empty workspace) panels: never a blank chart.
+          const _isExt = p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source));
+          const _hasData = (p.type === 'table')
+            ? !!(p.table && p.table.rows && p.table.rows.length)
+            : (p.series || []).some(s => s && s.data && s.data.length);
+          if (!_hasData && (p.empty || _isExt || p.note)) {
+            const note = p.note || (_isExt
+              ? 'Connect the data source to load live data.'
+              : 'nothing behind this panel for the selected range');
+            const head = _isExt ? 'Live data source' : 'No data';
+            return '<div class="monx-nodata">' + esc(head) + '<div class="sub">' + esc(note) + '</div></div>';
+          }
           if (p.type === 'gauge') {
             const s0 = (p.series || [])[0];
             const data = (s0 && s0.data) || [];
@@ -40604,6 +40678,149 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               + '</div>';
           }
           return this._monTsChart(p, height || 120);
+        },
+        // --- Panel data overlay (the rows behind a chart) + provenance/query/updated meta ---
+        monOpenData(id) { this.monitoring.dataModal = id; },
+        monCloseData() { this.monitoring.dataModal = null; },
+        monDataPanel() {
+          const id = this.monitoring.dataModal;
+          if (id == null || !this.monitoring.dash) return null;
+          return (this.monitoring.dash.panels || []).find(p => p.id === id) || null;
+        },
+        // Is this panel synthesized demo data (no live query behind it)?
+        monPanelIsSample(p) { return !!(p && (p.sample === true || p.origin === 'sample')); },
+        // Where a panel's data came from (AI-generate provenance, else honest sample/live labelling).
+        monPanelSourceLabel(p) {
+          if (!p) return 'Unknown';
+          const prov = this.monPanelProvenance(p);
+          if (prov) return this.monProvLabel(prov);
+          if (p.source === 'workspace') return 'Workspace collection · direct';
+          if (this.monPanelIsSample(p)) {
+            const s = (p.source && p.source !== 'sample') ? String(p.source) : '';
+            return s ? 'Sample data · modeled on ' + s : 'Sample data (demo)';
+          }
+          if (p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source))) {
+            return (p.dsType || 'External datasource') + (p.database ? ' · ' + p.database : '');
+          }
+          if (p.provider) return String(p.provider) + (p.source ? ' · ' + p.source : '');
+          if (p.source) return String(p.source);
+          return 'Unknown';
+        },
+        // The query / expression behind a panel, with honest fallbacks (sample data has no live query).
+        monPanelQueryText(p) {
+          if (!p) return '—';
+          if (this.monPanelIsSample(p)) return 'Synthesized demo data — not backed by a live query.';
+          const q = p.query || p.expr || p.rawSql;
+          if (q && q !== 'Query not exposed by this panel' && q !== 'Synthesized sample series (demo data)') return String(q);
+          if (p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source))) {
+            return p.note || 'No query defined — add a query to load live data from this source.';
+          }
+          if (p.source === 'workspace') return 'Internal workspace collection (direct aggregate).';
+          if (p.source) return 'This panel’s query isn’t included in the dashboard model.';
+          return '—';
+        },
+        // "N rows · M series" / "N rows" summary for the data overlay header.
+        monPanelShapeLabel(p) {
+          if (!p) return '—';
+          if (p.type === 'table' && p.table && p.table.rows) {
+            return p.table.rows.length + (p.table.rows.length === 1 ? ' row' : ' rows') + ' · ' + ((p.table.columns || []).length) + ' cols';
+          }
+          const series = (p.series || []).filter(s => s && s.data && s.data.length);
+          if (!series.length) return 'no data';
+          const pts = series.reduce((n, s) => Math.max(n, s.data.length), 0);
+          return pts + (pts === 1 ? ' point' : ' points') + ' · ' + series.length + (series.length === 1 ? ' series' : ' series');
+        },
+        // When the panel's data was last fetched (dashboard-level — all panels load together).
+        monPanelUpdatedLabel(p) {
+          const d = this.monitoring.dash || {};
+          const t = (p && p.refreshedAt) || d.refreshedAt || d.loadedAt;
+          if (!t) return 'unknown';
+          try { return this.formatRelative(t) + ' · ' + new Date(t).toLocaleTimeString(); }
+          catch (_) { return this.formatRelative(t); }
+        },
+        // The real discovered dimension/metric a panel was bound to (discovery-driven ws.* panels only).
+        monPanelDimension(p) {
+          if (!p) return '';
+          const prov = this.monPanelProvenance(p);
+          return (prov && prov.dimension) || p.dimension || '';
+        },
+        monPanelMetric(p) {
+          if (!p) return '';
+          const prov = this.monPanelProvenance(p);
+          return (prov && prov.metric) || p.metric || '';
+        },
+        _monPanelMetaHtml(p) {
+          if (!p) return '';
+          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          let h = '<div class="monx-pmeta">';
+          h += '<div class="mrow"><span class="ml">Source</span><span class="mv">' + esc(this.monPanelSourceLabel(p)) + '</span></div>';
+          const dim = this.monPanelDimension(p);
+          if (dim) {
+            const metric = this.monPanelMetric(p);
+            h += '<div class="mrow"><span class="ml">Grouped by</span><span class="mv">' + esc(dim) + (metric ? ' · ' + esc(metric) : '') + '</span></div>';
+          }
+          h += '<div class="mrow"><span class="ml">Query</span><span class="mv mono">' + esc(this.monPanelQueryText(p)) + '</span></div>';
+          h += '<div class="mrow"><span class="ml">Updated</span><span class="mv">' + esc(this.monPanelUpdatedLabel(p)) + '</span></div>';
+          h += '</div>';
+          return h;
+        },
+        // Compact epoch-ms -> date/time for the data table's Time column.
+        _monTs(ms) {
+          if (ms == null) return '—';
+          try {
+            const d = new Date(ms);
+            if (isNaN(d.getTime())) return String(ms);
+            return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          } catch (_) { return String(ms); }
+        },
+        // The data BEHIND a panel's chart: a table of the underlying rows (provenance is shown by the overlay header).
+        monPanelDataTable(p) {
+          if (!p) return '';
+          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          let h = '';
+          // Native table panel — show its rows directly.
+          if (p.type === 'table' && p.table && p.table.rows && p.table.rows.length) {
+            const cols = p.table.columns || [];
+            h += '<div class="monx-tablewrap"><table class="monx-table"><thead><tr>';
+            cols.forEach(c => { h += '<th>' + esc(c) + '</th>'; });
+            h += '</tr></thead><tbody>';
+            p.table.rows.slice(0, 200).forEach(row => {
+              h += '<tr>';
+              row.forEach(cell => { h += '<td>' + esc(cell) + '</td>'; });
+              h += '</tr>';
+            });
+            h += '</tbody></table></div>';
+            return h;
+          }
+          // Series panels — union timestamps (newest first), one column per series.
+          const series = (p.series || []).filter(s => s && s.data && s.data.length);
+          if (!series.length) {
+            h += '<div class="monx-nodata">No data<div class="sub">nothing behind this panel for the selected range</div></div>';
+            return h;
+          }
+          const tsSet = {};
+          series.forEach(s => s.data.forEach(pt => { tsSet[pt[0]] = true; }));
+          let times = Object.keys(tsSet).map(Number);
+          times.sort((a, b) => b - a);
+          times = times.slice(0, 200);
+          const valMaps = series.map(s => {
+            const m = {};
+            s.data.forEach(pt => { m[pt[0]] = pt[1]; });
+            return m;
+          });
+          h += '<div class="monx-tablewrap"><table class="monx-table"><thead><tr><th>Time</th>';
+          series.forEach(s => { h += '<th>' + esc(s.name || 'series') + (s.unit ? ' (' + esc(s.unit) + ')' : '') + '</th>'; });
+          h += '</tr></thead><tbody>';
+          times.forEach(t => {
+            h += '<tr><td>' + esc(this._monTs(t)) + '</td>';
+            valMaps.forEach(m => {
+              const v = m[t];
+              h += '<td>' + (v == null ? '—' : esc(this._monNum(v))) + '</td>';
+            });
+            h += '</tr>';
+          });
+          h += '</tbody></table></div>';
+          return h;
         },
         // Compact number formatter for axes/gauges.
         _monNum(v) {
