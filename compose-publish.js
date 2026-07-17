@@ -768,7 +768,12 @@ async function publish(composition, opts = {}, hooks = {}) {
     const taggedImage = `${r.acrName}.azurecr.io/proto:${tag}`;
     res = await _az(['acr', 'build', '--registry', r.acrName, '--image', `proto:${tag}`, '--image', 'proto:latest', tmp].concat(subArgs), { json: false, timeout: 600000 });
     if (!res.ok) return fail(res.code, res.message, 'image');
-    r.image = taggedImage; rec.resources = r; _saveRecord(rec);
+    r.image = taggedImage;
+    // Correlate this release with the image tag we just built, so the Live view can
+    // map each ACA revision (whose image ends with :<tag>) back to the exact version
+    // the user published — and tell whether the newest version is actually serving.
+    if (rec.releases && rec.releases[0]) { rec.releases[0].tag = tag; rec.releases[0].image = taggedImage; }
+    rec.resources = r; _saveRecord(rec);
     done('image', `Built proto:${tag}.`);
 
     // 6) Container Apps environment (auto-creates Log Analytics)
@@ -1051,8 +1056,136 @@ function _zipDir(dir, zipPath) {
   } catch (e) { throw new Error('failed to build deploy zip: ' + (e && e.message || e)); }
 }
 
+// ---- Live container insight: which revision/version is serving traffic? -----
+// Publishing swaps the container image via `az containerapp update --image`, which
+// creates a NEW ACA revision. In single-revision mode ACA only shifts 100% traffic
+// to the new revision ONCE it provisions healthy; if it crashes/fails to start, the
+// PREVIOUS revision keeps serving — so the site appears "stuck on the old version".
+// This reads the app's revisions + the authoritative ingress traffic split, maps
+// each revision's image tag back to the release (version) that built it, and returns
+// a plain-language verdict on whether the version you just published is actually live.
+async function revisions(compId) {
+  const rec = getRecord(compId);
+  const r = rec && rec.resources;
+  if (!rec || !r || !r.siteName || !r.resourceGroup) {
+    return { ok: false, code: 'NOT_PUBLISHED', message: 'This prototype has not been published yet.' };
+  }
+  const st = await status();
+  if (!st.ready) return { ok: false, code: st.code, message: st.message };
+  const subArgs = r.subscription ? ['--subscription', r.subscription] : [];
+
+  // App-level facts: the latest revision, overall running status, revision mode, and
+  // the authoritative ingress traffic split (the real answer to "what serves traffic").
+  const appRes = await _az(['containerapp', 'show', '--name', r.siteName, '--resource-group', r.resourceGroup,
+    '--query', '{latest:properties.latestRevisionName,latestReady:properties.latestReadyRevisionName,running:properties.runningStatus,mode:properties.configuration.activeRevisionsMode,traffic:properties.configuration.ingress.traffic,fqdn:properties.configuration.ingress.fqdn}'].concat(subArgs));
+  if (!appRes.ok) return { ok: false, code: appRes.code || 'AZ_ERROR', message: _friendlyAzError(appRes.message, 'revisions', r) };
+  const app = appRes.data || {};
+  const trafficArr = Array.isArray(app.traffic) ? app.traffic : [];
+
+  const listRes = await _az(['containerapp', 'revision', 'list', '--name', r.siteName, '--resource-group', r.resourceGroup].concat(subArgs));
+  if (!listRes.ok) return { ok: false, code: listRes.code || 'AZ_ERROR', message: _friendlyAzError(listRes.message, 'revisions', r) };
+  const raw = Array.isArray(listRes.data) ? listRes.data : [];
+
+  // Map image tag -> release (version) metadata so a revision can name its version.
+  const relByTag = {};
+  (rec.releases || []).forEach((rel, idx) => { if (rel.tag) relByTag[rel.tag] = { at: rel.at, index: idx, id: rel.id }; });
+  const latestReleaseTag = (rec.releases && rec.releases[0] && rec.releases[0].tag) || '';
+
+  // Resolve a revision's traffic weight from the ingress split: an explicit
+  // revisionName bucket wins; otherwise the `latestRevision:true` bucket applies
+  // to the app's latest revision.
+  const weightFor = (revName) => {
+    for (const t of trafficArr) {
+      if (t.revisionName && revName && String(t.revisionName).toLowerCase() === String(revName).toLowerCase()) return Number(t.weight) || 0;
+    }
+    const latestBucket = trafficArr.find(t => t.latestRevision);
+    if (latestBucket && app.latest && revName && String(revName).toLowerCase() === String(app.latest).toLowerCase()) return Number(latestBucket.weight) || 0;
+    return 0;
+  };
+
+  const revs = raw.map((rv) => {
+    const p = rv.properties || {};
+    const img = (p.template && Array.isArray(p.template.containers) && p.template.containers[0] && p.template.containers[0].image) || '';
+    const tag = img.includes(':') ? img.split(':').pop() : '';
+    const rel = relByTag[tag] || null;
+    return {
+      name: rv.name || '',
+      createdTime: p.createdTime || rv.createdTime || '',
+      active: !!p.active,
+      provisioningState: p.provisioningState || '',
+      runningState: p.runningState || '',
+      healthState: p.healthState || '',
+      replicas: (typeof p.replicas === 'number') ? p.replicas : null,
+      image: img,
+      tag,
+      traffic: weightFor(rv.name),
+      isLatest: !!(app.latest && rv.name && String(rv.name).toLowerCase() === String(app.latest).toLowerCase()),
+      release: rel ? { at: rel.at, index: rel.index, id: rel.id, isNewest: rel.index === 0 } : null,
+    };
+  }).sort((a, b) => (Date.parse(b.createdTime || 0) || 0) - (Date.parse(a.createdTime || 0) || 0));
+
+  const serving = revs.filter(x => x.traffic > 0);
+  const servingNewestVersion = !!serving.length && serving.every(x => x.release && x.release.isNewest);
+  const targetRev = (latestReleaseTag && revs.find(x => x.tag === latestReleaseTag)) || null;
+  // Whether we can map ANY revision back to a release version. Legacy records
+  // published before releases were tagged have no mapping — in that case we
+  // must speak in ACA-native terms (newest revision) rather than claim "stale".
+  const haveVersionMap = Object.keys(relByTag).length > 0;
+  const latestRev = revs.find(x => x.isLatest) || null;
+
+  // Verdict — the one-line answer the user is really asking for.
+  let verdict = 'unknown', headline = '';
+  const isFail = (s) => /fail|degrad|error|unschedulable/i.test(String(s || ''));
+  const isPending = (s) => /provisioning|processing|activating|scaling|waiting|inprogress/i.test(String(s || ''));
+  if (targetRev) {
+    if (targetRev.traffic >= 100 || (targetRev.traffic > 0 && servingNewestVersion)) {
+      verdict = 'current'; headline = 'Your latest version is live and serving traffic.';
+    } else if (isFail(targetRev.provisioningState) || isFail(targetRev.runningState) || isFail(targetRev.healthState)) {
+      verdict = 'failed'; headline = 'Your latest version failed to start — the previous version is still serving traffic.';
+    } else if (isPending(targetRev.provisioningState) || isPending(targetRev.runningState)) {
+      verdict = 'provisioning'; headline = 'Your latest version is still starting up — traffic switches once it is healthy.';
+    } else if (serving.length && !servingNewestVersion) {
+      verdict = 'stale'; headline = 'An older version is currently serving traffic, not the one you just published.';
+    } else {
+      verdict = 'unknown'; headline = 'The latest revision is not yet serving traffic.';
+    }
+  } else if (haveVersionMap && serving.length) {
+    // We have a version map but the newest published release isn't the target
+    // revision — trust the release→revision mapping on what's actually serving.
+    verdict = servingNewestVersion ? 'current' : 'stale';
+    headline = servingNewestVersion ? 'The newest version is serving traffic.' : 'An older version is currently serving traffic.';
+  } else if (latestRev) {
+    // No usable version map (legacy record): answer from ACA-native facts about
+    // the newest revision — is it the one serving traffic, and is it healthy?
+    if (isFail(latestRev.provisioningState) || isFail(latestRev.runningState) || isFail(latestRev.healthState)) {
+      verdict = 'failed'; headline = 'The newest revision failed to start — an older revision is still serving traffic.';
+    } else if (isPending(latestRev.provisioningState) || isPending(latestRev.runningState)) {
+      verdict = 'provisioning'; headline = 'The newest revision is still starting up — traffic switches once it is healthy.';
+    } else if (latestRev.traffic > 0) {
+      verdict = 'current'; headline = 'The newest revision is live and serving traffic.';
+    } else if (serving.length) {
+      verdict = 'stale'; headline = 'An older revision is currently serving traffic, not the newest one.';
+    } else {
+      verdict = 'unknown'; headline = 'The newest revision is not yet serving traffic.';
+    }
+  } else if (serving.length) {
+    verdict = servingNewestVersion ? 'current' : 'stale';
+    headline = servingNewestVersion ? 'The newest version is serving traffic.' : 'An older version is currently serving traffic.';
+  } else if (!revs.length) {
+    verdict = 'none'; headline = 'No revisions found for this container app.';
+  }
+
+  return {
+    ok: true,
+    app: { latest: app.latest || '', latestReady: app.latestReady || '', running: app.running || '', mode: app.mode || '', fqdn: app.fqdn || '' },
+    verdict, headline, latestReleaseTag,
+    revisions: revs,
+    checkedAt: _now(),
+  };
+}
+
 module.exports = {
-  status, plan, publish, startPublish, isPublishing, reconcileStale, unpublish, setAccess,
+  status, plan, publish, startPublish, isPublishing, reconcileStale, unpublish, setAccess, revisions,
   getRecord, listRecords,
   _internal: {
     sanitizeSiteName, sanitizeStorageName, sanitizeAppName, sanitizeAcrName,

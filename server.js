@@ -13765,6 +13765,15 @@ app.get('/api/compose/:id/publish/status', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/compose/:id/publish/revisions', async (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const result = await composePublish.revisions(req.params.id);
+    res.json(result);
+  } catch (err) { res.status(500).json({ ok: false, code: 'SERVER', message: err.message }); }
+});
+
 app.post('/api/compose/:id/publish/plan', (req, res) => {
   try {
     const c = compose.getComposition(req.params.id);
@@ -30450,9 +30459,28 @@ function _ccGuy(bx, by, o) {
   }
   const body = `<path d="M${(bx - sh).toFixed(1)} ${(bodyTop + bodyH).toFixed(1)} q0 -${bodyH} ${sh} -${bodyH} q${sh} 0 ${sh} ${bodyH} z" fill="${shirt}" stroke="${k}" stroke-width="1.4"/>`;
   const neck = `<rect x="${(bx - 3).toFixed(1)}" y="${(by + r - 3).toFixed(1)}" width="6" height="6" fill="${skin}"/>`;
+  // Bill Dirt's signature dark necktie: a knot at the collar, a blade down the shirt,
+  // and a tip that kicks up to the right (the deadpan-cubicle-lifer look).
+  let tie = '';
+  if (o.tie) {
+    const cY = by + r + 2, tl = bodyH * 0.6;
+    const knot = `<path d="M${(bx - 3).toFixed(1)} ${(cY - 3).toFixed(1)} L${(bx + 3).toFixed(1)} ${(cY - 3).toFixed(1)} L${bx.toFixed(1)} ${(cY + 3).toFixed(1)} Z" fill="#17140f"/>`;
+    const blade = `<path d="M${(bx - 2.8).toFixed(1)} ${(cY + 1).toFixed(1)} L${(bx - 2.2).toFixed(1)} ${(cY + tl).toFixed(1)} Q${(bx - 1).toFixed(1)} ${(cY + tl + 6).toFixed(1)} ${(bx + 7.5).toFixed(1)} ${(cY + tl - 2).toFixed(1)} Q${(bx + 3).toFixed(1)} ${(cY + tl - 4).toFixed(1)} ${(bx + 2.8).toFixed(1)} ${(cY + 1).toFixed(1)} Z" fill="#17140f" stroke="${k}" stroke-width="0.7"/>`;
+    tie = knot + blade;
+  }
   const hairC = `<circle cx="${bx.toFixed(1)}" cy="${(by - 4).toFixed(1)}" r="${r}" fill="${hair}"/>`;
   const head = `<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="${r}" fill="${skin}" stroke="${k}" stroke-width="1.4"/>`;
-  return arms + body + neck + hairC + head + _ccFace(bx, by, r, o.emotion);
+  // Round spectacles over the eyes (drawn on top of the face so the eyes read through).
+  let glasses = '';
+  if (o.glasses) {
+    const gex = r * 0.42, gyy = by - r * 0.06, gel = bx - gex, ger = bx + gex, glr = r * 0.34;
+    glasses = `<line x1="${(gel - glr).toFixed(1)}" y1="${gyy.toFixed(1)}" x2="${(bx - r).toFixed(1)}" y2="${(gyy - 1).toFixed(1)}" stroke="${k}" stroke-width="1"/>` +
+      `<line x1="${(ger + glr).toFixed(1)}" y1="${gyy.toFixed(1)}" x2="${(bx + r).toFixed(1)}" y2="${(gyy - 1).toFixed(1)}" stroke="${k}" stroke-width="1"/>` +
+      `<circle cx="${gel.toFixed(1)}" cy="${gyy.toFixed(1)}" r="${glr.toFixed(1)}" fill="none" stroke="${k}" stroke-width="1.3"/>` +
+      `<circle cx="${ger.toFixed(1)}" cy="${gyy.toFixed(1)}" r="${glr.toFixed(1)}" fill="none" stroke="${k}" stroke-width="1.3"/>` +
+      `<line x1="${(gel + glr).toFixed(1)}" y1="${gyy.toFixed(1)}" x2="${(ger - glr).toFixed(1)}" y2="${gyy.toFixed(1)}" stroke="${k}" stroke-width="1.3"/>`;
+  }
+  return arms + body + neck + tie + hairC + head + _ccFace(bx, by, r, o.emotion) + glasses;
 }
 // Draw a scene background + props + character within a panel rect.
 function _ccScene(scene, px, py, pw, ph, emotion, ch) {
@@ -30527,18 +30555,23 @@ function _pulseComedyRenderComic(spec, seed) {
   const W = padX * 2 + panelsW, panelY = padY + titleH + 6, H = panelY + PH + 24;
   const base = _ccHashNum(String(seed || '') + '|' + rows.map(r => (r && r.line) || '').join('|'));
   const uid = 'cc' + (Math.abs(base) % 100000);
+  // Style: 'billdirt' stars a single recurring lead — Bill Dirt — drawn the SAME in
+  // every panel (white dress shirt, dark curled necktie, round glasses; a Dilbert-style
+  // office everyman). Any other style keeps the original cast of per-panel characters.
+  const billMode = !!(spec && !Array.isArray(spec) && spec.style === 'billdirt');
+  const bill = billMode ? { r: 13, skin: _ccPick(CC_SKIN, base), shirt: '#f4f4ee', hair: _ccPick(CC_HAIR, base), glasses: true, tie: true, _n: base } : null;
   const parts = [];
   parts.push(`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Daily comic strip">`);
   parts.push(`<defs><pattern id="${uid}h" width="7" height="7" patternUnits="userSpaceOnUse"><circle cx="1.6" cy="1.6" r="1" fill="#000" opacity="0.05"/></pattern></defs>`);
   parts.push(`<rect width="${W}" height="${H}" rx="10" fill="#f6f1e6"/><rect width="${W}" height="${H}" rx="10" fill="url(#${uid}h)"/><rect x="0.75" y="0.75" width="${W - 1.5}" height="${H - 1.5}" rx="9.5" fill="none" stroke="${k}" stroke-width="1.5"/>`);
   // masthead + title
-  parts.push(`<text x="${padX}" y="${padY + 9}" font-size="7" letter-spacing="1.5" fill="#6b5f47" font-family="Georgia,'Times New Roman',serif">THE OFFICE \u00b7 DAILY STRIP</text>`);
+  parts.push(`<text x="${padX}" y="${padY + 9}" font-size="7" letter-spacing="1.5" fill="#6b5f47" font-family="Georgia,'Times New Roman',serif">THE OFFICE \u00b7 ${billMode ? 'A BILL DIRT STRIP' : 'DAILY STRIP'}</text>`);
   parts.push(`<text x="${(W / 2).toFixed(1)}" y="${padY + titleH - 4}" font-size="19" fill="${k}" text-anchor="middle" font-family="Impact,'Arial Narrow Bold',system-ui,sans-serif" font-weight="800" letter-spacing="0.5">${title}</text>`);
   parts.push(`<line x1="${padX}" y1="${padY + titleH + 1}" x2="${W - padX}" y2="${padY + titleH + 1}" stroke="${k}" stroke-width="1.2"/>`);
   rows.forEach((p, i) => {
     const px = padX + i * (PW + gutter), scene = CC_SCENES.includes(String(p && p.scene)) ? p.scene : 'desk';
     const emo = CC_EMOS.includes(String(p && p.emotion)) ? p.emotion : 'neutral';
-    const ch = { r: 13, skin: _ccPick(CC_SKIN, base + i), shirt: _ccPick(CC_SHIRT, base + i * 3 + 1), hair: _ccPick(CC_HAIR, base + i * 2), _n: base + i };
+    const ch = bill || { r: 13, skin: _ccPick(CC_SKIN, base + i), shirt: _ccPick(CC_SHIRT, base + i * 3 + 1), hair: _ccPick(CC_HAIR, base + i * 2), _n: base + i };
     const clip = uid + 'c' + i;
     parts.push(`<clipPath id="${clip}"><rect x="${px}" y="${panelY}" width="${PW}" height="${PH}" rx="6"/></clipPath>`);
     parts.push(`<g clip-path="url(#${clip})">`);
@@ -30549,7 +30582,7 @@ function _pulseComedyRenderComic(spec, seed) {
     parts.push(`</g>`);
     parts.push(`<rect x="${px}" y="${panelY}" width="${PW}" height="${PH}" rx="6" fill="none" stroke="${k}" stroke-width="2.6"/>`);
   });
-  parts.push(`<text x="${(W / 2).toFixed(1)}" y="${H - 8}" font-size="7.5" fill="#6b5f47" text-anchor="middle" font-family="Georgia,serif" font-style="italic">drawn from today\u2019s team activity</text>`);
+  parts.push(`<text x="${(W / 2).toFixed(1)}" y="${H - 8}" font-size="7.5" fill="#6b5f47" text-anchor="middle" font-family="Georgia,serif" font-style="italic">${billMode ? 'a Bill Dirt strip \u00b7 ' : ''}drawn from today\u2019s team activity</text>`);
   parts.push('</svg>');
   return parts.join('');
 }
@@ -30734,7 +30767,7 @@ function _pulseComedyReel(limit) {
 async function _pulseGenerateComedy(view) {
   const threads = (view && view.threads) || [];
   const fingerprint = (view && view.fingerprint) || _pulseSummaryFingerprint(threads, (view && view.meetings) || []);
-  const empty = { fingerprint, mood: null, bit: null, gags: [], overheard: [], guide: [], reel: [], comic: null, generatedAt: new Date().toISOString(), empty: true };
+  const empty = { fingerprint, mood: null, bit: null, gags: [], overheard: [], guide: [], reel: [], comic: null, comic2: null, generatedAt: new Date().toISOString(), empty: true };
   if (!threads.length) return empty;
   const now = Date.now();
   const ago = (ts) => { const t = (typeof ts === 'number') ? ts : Date.parse(ts || ''); if (!isFinite(t) || !t) return ''; const mm = Math.max(0, Math.floor((now - t) / 60000)); if (mm < 60) return mm + 'm ago'; const h = Math.floor(mm / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
@@ -30759,10 +30792,11 @@ async function _pulseGenerateComedy(view) {
     tlines || '(none)',
     '',
     'Return ONLY minified JSON (no prose, no code fence) shaped exactly like:',
-    '{"mood":{"headline":"3-6 word read of the room\'s mood","read":"2-3 warm, light sentences on the vibe today"},"bit":{"key":"<one [key]>","quote":"the funniest actual line or moment, lightly cleaned up","setup":"1-2 sentences of context on why it landed",' + memeShape + '},"gags":[{"title":"the running gag in 3-6 words","blurb":"1-2 sentences on how it started and evolved","who":"names involved","span":"e.g. 7 messages over 3 days","keys":["<keys>"],' + memeShape + '}],"overheard":[{"key":"<one [key]>","who":"name","where":"channel","line":"the standalone line that landed"}],"guide":[{"subject":"what the team is doing, 2-4 words","riff":"1-2 deadpan, affectionate Hitchhiker\'s-Guide-style sentences about it"}],"comic":{"title":"the strip title in 2-5 words","premise":"1 sentence on the real thread it draws from","keys":["<one or two keys the strip is about>"],"panels":[{"scene":"desk|duo|fire|celebrate|phone|whiteboard","emotion":"happy|stressed|smug|tired|surprised|neutral","line":"the character\'s dialogue, <=9 words","caption":"tiny bottom caption, <=4 words (optional)"}]}}',
+    '{"mood":{"headline":"3-6 word read of the room\'s mood","read":"2-3 warm, light sentences on the vibe today"},"bit":{"key":"<one [key]>","quote":"the funniest actual line or moment, lightly cleaned up","setup":"1-2 sentences of context on why it landed",' + memeShape + '},"gags":[{"title":"the running gag in 3-6 words","blurb":"1-2 sentences on how it started and evolved","who":"names involved","span":"e.g. 7 messages over 3 days","keys":["<keys>"],' + memeShape + '}],"overheard":[{"key":"<one [key]>","who":"name","where":"channel","line":"the standalone line that landed"}],"guide":[{"subject":"what the team is doing, 2-4 words","riff":"1-2 deadpan, affectionate Hitchhiker\'s-Guide-style sentences about it"}],"comic":{"title":"the strip title in 2-5 words","premise":"1 sentence on the real thread it draws from","keys":["<one or two keys the strip is about>"],"panels":[{"scene":"desk|duo|fire|celebrate|phone|whiteboard","emotion":"happy|stressed|smug|tired|surprised|neutral","line":"the character\'s dialogue, <=9 words","caption":"tiny bottom caption, <=4 words (optional)"}]},"comic2":{"title":"the strip title in 2-5 words","premise":"1 sentence on the real thread it draws from","keys":["<one or two keys the strip is about>"],"panels":[{"scene":"desk|duo|fire|celebrate|phone|whiteboard","emotion":"happy|stressed|smug|tired|surprised|neutral","line":"Bill Dirt\'s (or a coworker\'s) dialogue, <=9 words","caption":"tiny bottom caption, <=4 words (optional)"}]}}',
     '',
     'Rules: Ground EVERYTHING in the conversations above — invent no jokes that are not in the text. Be kind; never punch down, never mock a person for a mistake. Skip pure automated/bot/CI noise and anything that reads as private or sensitive. Use ONLY key values that appear in [brackets]. bit.meme captions must riff on that real moment. Provide meme captions for the bit and for AT MOST 2 gags (leave meme fields empty for the rest). AT MOST 4 gags, 5 overheard, 3 guide riffs. If there is genuinely nothing funny, return empty arrays and a gentle mood.read saying it was a quiet, heads-down day.',
     'comic: draw a DAILY COMIC STRIP of EXACTLY 3 panels telling a tiny 3-beat story (setup → turn → punchline; panel 3 IS the punchline) grounded in ONE real thread from above. Pick the scene per panel that best fits the beat (desk = heads-down work, whiteboard = planning/explaining, phone = an alert/interruption, fire = calm-amid-chaos, celebrate = a win, duo = two people talking). Choose the character\'s emotion to match. Keep each line short and readable. comic.keys must be real [keys]. Never mock a person; keep it affectionate.',
+    'comic2: a SECOND, DIFFERENT daily strip (same 3-panel, 3-beat rules) that STARS BILL DIRT — a deadpan, put-upon office everyman (a Dilbert-style cubicle lifer with glasses + a necktie). Draw comic2 from a DIFFERENT real thread than comic when you can; center all 3 beats on Bill Dirt and name him in a line or caption when it lands naturally. For duo panels, that is Bill Dirt talking with a coworker. comic2.keys must be real [keys]. The joke is always on the situation — Bill takes it with dry patience — never on a real person.',
   ];
   if (useMemegen) {
     promptParts.push(
@@ -30855,8 +30889,33 @@ async function _pulseGenerateComedy(view) {
       if (art) comic = { title, premise, keys, art };
     }
   }
-  const anything = mood || bit || gags.length || overheard.length || guide.length || comic;
-  return { fingerprint, mood, bit, gags, overheard, guide, comic, generatedAt: new Date().toISOString(), empty: !anything };
+  // comic2 — a SEPARATE daily strip starring Bill Dirt (in ADDITION to the generic
+  // strip above). Same validation; drawn with the recurring Bill Dirt lead via the
+  // spec.style flag, and stored under a distinct source key so it never dedupes into
+  // the generic strip's backlog entry.
+  let comic2 = null;
+  if (parsed.comic2 && typeof parsed.comic2 === 'object') {
+    const validScenes = ['desk', 'duo', 'fire', 'celebrate', 'phone', 'whiteboard'];
+    const validEmos = ['happy', 'stressed', 'smug', 'tired', 'surprised', 'neutral'];
+    const keys = (Array.isArray(parsed.comic2.keys) ? parsed.comic2.keys : []).map(k => clip(k, 80).trim()).filter(k => byKey.has(k));
+    let panels = (Array.isArray(parsed.comic2.panels) ? parsed.comic2.panels : [])
+      .filter(p => p && typeof p === 'object')
+      .map(p => ({
+        scene: validScenes.includes(String(p.scene)) ? String(p.scene) : 'desk',
+        emotion: validEmos.includes(String(p.emotion)) ? String(p.emotion) : 'neutral',
+        line: clip(p.line, 90),
+        caption: clip(p.caption, 40),
+      }))
+      .slice(0, 3);
+    if (panels.length >= 2 && panels.filter(p => p.line).length >= 2) {
+      const title = clip(parsed.comic2.title, 60) || 'The Bill Dirt strip';
+      const premise = clip(parsed.comic2.premise, 240);
+      const art = _pulseComedyArt('billdirt:' + (keys[0] || title || 'strip'), 'comic', { title, panels, style: 'billdirt' }, { source: 'svg' });
+      if (art) comic2 = { title, premise, keys, art };
+    }
+  }
+  const anything = mood || bit || gags.length || overheard.length || guide.length || comic || comic2;
+  return { fingerprint, mood, bit, gags, overheard, guide, comic, comic2, generatedAt: new Date().toISOString(), empty: !anything };
 }
 
 // GET /api/me-ai/pulse?days=&date= → assembled ambient digest.

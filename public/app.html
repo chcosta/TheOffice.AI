@@ -11194,11 +11194,17 @@
                         <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
                           <label class="hint" style="font-size:12px;min-width:96px;padding-top:8px">Service ID</label>
                           <div style="flex:1">
-                            <input type="text" x-model="compose.publish.serviceManagementReference" @change="composePublishLoadPlan()"
+                            <input type="text" x-model="compose.publish.serviceManagementReference" list="cmpx-svc-ids"
+                                   @change="composeRememberServiceId(); composePublishLoadPlan()"
                                    :disabled="compose.publish.publishing"
                                    placeholder="Service Management Reference (service tree ID) — optional"
                                    style="width:100%;padding:8px 10px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
-                            <div class="hint" style="font-size:11px;margin-top:4px">Some tenants require a Service Tree / service id on new app registrations. Provide one here if publishing fails asking for it.</div>
+                            <datalist id="cmpx-svc-ids">
+                              <template x-for="sid in compose.publish.serviceIdHistory" :key="sid">
+                                <option :value="sid"></option>
+                              </template>
+                            </datalist>
+                            <div class="hint" style="font-size:11px;margin-top:4px">Some tenants require a Service Tree / service id on new app registrations. Provide one here if publishing fails asking for it. <span x-show="compose.publish.serviceIdHistory.length">Previously used IDs are saved — start typing or pick from the list.</span></div>
                           </div>
                         </div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -11343,6 +11349,47 @@
                                 </div>
                               </div>
                             </template>
+
+                            <!-- Container status — which version is actually serving traffic -->
+                            <div style="margin-bottom:16px">
+                              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                                <div class="hint" style="flex:1;font-size:11px;text-transform:uppercase;letter-spacing:.04em">Container status</div>
+                                <button class="btn ghost" type="button" style="padding:3px 9px;font-size:12px" :disabled="compose.publish.revLoading" @click="composePublishRevisions()" x-text="compose.publish.revLoading ? 'Checking…' : '↻ Refresh'"></button>
+                              </div>
+                              <template x-if="compose.publish.revLoading && !compose.publish.revisions">
+                                <div class="hint" style="font-size:12px">Reading live container revisions…</div>
+                              </template>
+                              <template x-if="compose.publish.revError && !compose.publish.revisions">
+                                <div class="hint" style="font-size:12px;color:var(--cp-warn,#c67a15)" x-text="compose.publish.revError"></div>
+                              </template>
+                              <template x-if="compose.publish.revisions">
+                                <div>
+                                  <div style="display:flex;align-items:flex-start;gap:8px;border:1px solid var(--cp-border);border-radius:8px;padding:11px 14px;margin-bottom:10px">
+                                    <span x-text="composePublishRevVerdictIcon(compose.publish.revisions.verdict)"></span>
+                                    <div style="flex:1;min-width:0">
+                                      <div style="font-weight:600;font-size:13px" :style="'color:'+composePublishRevVerdictColor(compose.publish.revisions.verdict)" x-text="compose.publish.revisions.headline"></div>
+                                      <div class="hint" style="font-size:11px;margin-top:3px" x-text="'App status: ' + (compose.publish.revisions.app.running || 'unknown') + (compose.publish.revisions.app.mode ? ' · ' + compose.publish.revisions.app.mode + ' revisions' : '')"></div>
+                                    </div>
+                                  </div>
+                                  <div style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden">
+                                    <template x-for="rev in compose.publish.revisions.revisions" :key="rev.name">
+                                      <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--cp-border);font-size:12px">
+                                        <span style="width:8px;height:8px;border-radius:50%;flex:none" :style="'background:'+composePublishRevStateColor(rev)"></span>
+                                        <div style="flex:1;min-width:0">
+                                          <div style="font-weight:600" x-text="composePublishRevLabel(rev)"></div>
+                                          <div class="hint" style="font-size:11px" x-text="((rev.provisioningState||'—')) + (rev.runningState ? ' · ' + rev.runningState : '') + (rev.createdTime ? ' · ' + (new Date(rev.createdTime)).toLocaleString() : '')"></div>
+                                        </div>
+                                        <div style="text-align:right;flex:none">
+                                          <div style="font-weight:600" :style="rev.traffic>0 ? 'color:var(--cp-ok,#1a9e6a)' : 'color:var(--cp-muted,#888)'" x-text="rev.traffic + '% traffic'"></div>
+                                          <div class="hint" style="font-size:11px" x-show="rev.replicas!==null" x-text="rev.replicas + ' replica' + (rev.replicas===1?'':'s')"></div>
+                                        </div>
+                                      </div>
+                                    </template>
+                                  </div>
+                                  <div class="hint" style="font-size:11px;margin-top:6px" x-show="compose.publish.revisions.checkedAt" x-text="'Checked ' + (new Date(compose.publish.revisions.checkedAt)).toLocaleString()"></div>
+                                </div>
+                              </template>
+                            </div>
                           </div>
                         </template>
                         <template x-if="!compose.publish.record || compose.publish.record.status!=='live'">
@@ -20412,7 +20459,14 @@
                             </div>
                           </div>
 
-                          <!-- Today's bit -->
+                          <!-- A Bill Dirt strip (a second, separate daily strip) -->
+                          <div class="pc-strip" x-show="pulseComedyStrip2()" x-data="{ c: pulseComedyStrip2() }">
+                            <div class="pc-sec-h"><span class="i">👔</span><span class="t">A Bill Dirt strip</span><span class="c" x-show="c &amp;&amp; c.premise" x-text="'· ' + c.premise"></span><span class="c" x-show="pulse.gatheredAt" x-text="'· ' + pulseGenStamp(pulse.gatheredAt)"></span><button class="pc-share-btn" @click="pulseShareStrip2()">Share</button></div>
+                            <div class="pc-strip-art clickable" @click="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" title="View fullscreen">
+                              <button class="pc-s-full" @click.stop="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
+                              <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? c.art.svg : ''"></div>
+                            </div>
+                          </div>
                           <div class="pc-sec" x-show="pulseActiveComedy().bit">
                             <div class="pc-sec-h"><span class="i">🏆</span><span class="t">Today's bit</span><span class="c" x-show="pulse.gatheredAt" x-text="pulseGenStamp(pulse.gatheredAt)"></span><button class="pc-share-btn" @click="pulseShareBit()">Share</button></div>
                             <div class="pc-bit" x-data="{ b: pulseActiveComedy().bit }">
@@ -21545,6 +21599,8 @@
               .cmpx-wrap{max-width:1180px;margin:0 auto}
               .cmpx-head{display:flex;align-items:flex-end;gap:14px;margin:0 0 6px}
               .cmpx-head h1{margin:0;font-size:26px;letter-spacing:-.01em}
+              .cmpx-head h1[role=link]{transition:color .12s}
+              .cmpx-head h1[role=link]:hover{color:var(--cp-accent)}
               .cmpx-head .cmpx-sub{color:var(--cp-text-secondary);font-size:14px;margin:2px 0 0}
               .cmpx-head .spacer{flex:1}
               /* In-studio document switcher (jump to any composition) */
@@ -21771,6 +21827,18 @@
               .cmpx-doc blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--cp-accent);background:color-mix(in srgb,var(--cp-accent) 6%,transparent);color:var(--cp-text-secondary)}
               .cmpx-edit{flex:1;min-height:420px;width:100%;border:0;outline:0;resize:none;padding:20px 24px;font-family:'Cascadia Code',ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;background:var(--cp-surface);color:var(--cp-text)}
               .cmpx-site{min-height:calc(100vh - 260px);border:0;width:100%;background:#fff;border-radius:0 0 10px 10px;display:block}
+              /* Interactive prototype "sites" render as a real browser viewport: the iframe
+                 fills the stage and scrolls INTERNALLY. We must NOT expand it to full content
+                 height (as we do for documents) — doing so breaks position:fixed overlays inside
+                 the prototype. A fixed/centered modal would anchor to the tall content box rather
+                 than the visible area (so it sits far down the page), and a 100vh backdrop feeds
+                 the iframe's height reporter into a runaway grow loop (the dialog "slides down").
+                 A fixed viewport with internal scroll fixes both. Toggled by cmpx-scroll-site so
+                 markdown/newsletter documents keep their expand-to-content + parent-scroll flow. */
+              .nlx-studio.cmpx-paired > .nlx-stage .nlx-scroll.cmpx-scroll-site{display:flex;flex-direction:column;overflow:hidden}
+              .nlx-stage .nlx-scroll.cmpx-scroll-site{display:flex;flex-direction:column;overflow:hidden}
+              .cmpx-scroll-site > .cmpx-prov{flex:0 0 auto}
+              .cmpx-scroll-site > .cmpx-site{flex:1 1 auto;min-height:0;height:auto}
               /* Provenance — calm, muted "what produced this" block; no pills. */
               .cmpx-prov{margin:0 0 14px;padding:9px 12px;border:1px solid var(--cp-border);border-left:3px solid var(--cp-accent);border-radius:8px;background:var(--cp-surface);font-size:12.5px}
               .cmpx-prov-row{display:flex;gap:8px;align-items:baseline}
@@ -21908,7 +21976,9 @@
               <!-- Header -->
               <div class="cmpx-head">
                 <div style="min-width:0">
-                  <h1 x-text="route === 'documents' ? '📄 Documents' : '✍️ Compose.AI'"></h1>
+                  <h1 @click="composeGoHome()" @keydown.enter="composeGoHome()" role="link" tabindex="0"
+                      style="cursor:pointer" title="Go to the Compose.AI home page"
+                      x-text="route === 'documents' ? '📄 Documents' : '✍️ Compose.AI'"></h1>
                   <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
                   <div class="cmpx-switch" x-show="compose.view === 'studio' && compose.current" @click.outside="compose.switcherOpen = false" @keydown.escape.window="compose.switcherOpen = false">
                     <button type="button" class="cmpx-switch-btn" @click="composeToggleSwitcher()" :aria-expanded="compose.switcherOpen">
@@ -22491,6 +22561,7 @@
                           </div>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="compose.tab !== 'history' && (!compose.preview || composeIsSite() || compose.draftDirty)" :disabled="compose.savingDraft || !compose.draftDirty" @click="composeSaveDraft()" x-text="compose.savingDraft ? 'Saving…' : (compose.draftDirty ? 'Save' : 'Saved')"></button>
                           <!-- Prototype share actions: open full-window preview + download the self-contained site. Copy/JSON aren't meaningful for a running prototype. -->
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeReloadSite()" title="Reload the prototype — re-runs its scripts and resets it to a fresh state">⟳ Reload</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composePreviewSite()" title="Open the prototype full-window in a new tab (still sandboxed)">↗ Open</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeExport('html')" title="Download the self-contained prototype as an .html file">⬇ Download</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeMakeItRealOpen()" title="Publish this prototype to a live, access-controlled Azure site">☁️ Publish to Azure</button>
@@ -22507,7 +22578,7 @@
                       </div>
 
                       <!-- compose / preview stage -->
-                      <div class="nlx-scroll" x-show="compose.tab !== 'history'">
+                      <div class="nlx-scroll" :class="{ 'cmpx-scroll-site': composeIsSite() && compose.draftText.trim() }" x-show="compose.tab !== 'history'">
                         <div class="nlx-empty" x-show="!compose.draftText.trim() && !compose.generating">
                           <div class="big">✍️</div>
                           <p>Tell the <strong>paired assistant</strong> on the right what you want your reader to walk away with — it drafts the first pass and revises with you. Or ✨ <strong>Generate draft</strong> from your sources in the left rail, or switch to <strong>Edit</strong> and write your own.</p>
@@ -22702,16 +22773,14 @@
                  header). The pair head groups them on the right. */
               .cmpx-head-actions{display:flex;gap:10px;align-items:center}
               .cmpx-pair-head-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
-              /* Calm surface: the upper-right action cluster in each compose section stays
-                 invisible until you hover (or keyboard-focus into) that section — controls
-                 appear on approach instead of cluttering the header/panels. Scoped to the
-                 compose studio so other studios (newsletter, code flow, dev) are unaffected. */
-              .cmpx-head .cmpx-head-actions,
+              /* Calm surface: the per-panel action clusters stay invisible until you
+                 hover (or keyboard-focus into) that panel — controls appear on approach
+                 instead of cluttering the panels. The page-header actions (✚ New, All
+                 compositions, Pin) stay always-visible so the primary "New" affordance is
+                 never hidden. Scoped to the compose studio. */
               .cmpx-paired .nlx-stage-actions,
               .cmpx-paired .cmpx-pair-head-actions,
               .cmpx-paired .cmpx-rail-collapse{opacity:0;transition:opacity .14s ease}
-              .cmpx-head:hover .cmpx-head-actions,
-              .cmpx-head:focus-within .cmpx-head-actions,
               .cmpx-paired .nlx-stage:hover .nlx-stage-actions,
               .cmpx-paired .nlx-stage:focus-within .nlx-stage-actions,
               .cmpx-paired .cmpx-pair:hover .cmpx-pair-head-actions,
@@ -31205,9 +31274,11 @@
             people: [], addEmail: '', addRole: 'viewer',
             subscription: '',
             serviceManagementReference: '',
+            serviceIdHistory: [],
             steps: [], publishing: false,
             error: '', note: '',
             enabling: false, working: false,
+            revisions: null, revLoading: false, revError: '',
           },
           // Source pickers: real pursuit / PR / work-item lists so the user
           // selects instead of typing raw refs. Populated lazily on demand.
@@ -41338,6 +41409,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         pulseComedyEmpty() { const c = this.pulseActiveComedy(); return !c || c.empty; },
         pulseComedyStrip() { const c = this.pulseActiveComedy(); return (c && c.comic && c.comic.art && c.comic.art.svg) ? c.comic : null; },
+        pulseComedyStrip2() { const c = this.pulseActiveComedy(); return (c && c.comic2 && c.comic2.art && c.comic2.art.svg) ? c.comic2 : null; },
         pulseComedyLevity() {
           const c = this.pulseActiveComedy();
           const bits = c ? ((c.bit ? 1 : 0) + (Array.isArray(c.overheard) ? c.overheard.length : 0)) : 0;
@@ -41619,12 +41691,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let md = '### Daily strip' + (c.premise ? ('\n\n' + c.premise) : '');
           this.pulseShareOpen({ kind: 'strip', title: 'The daily strip', markdown: md, images: [this._pulseShareImg(c.art, c.premise)].filter(Boolean) });
         },
+        pulseShareStrip2() {
+          const c = this.pulseComedyStrip2(); if (!c) return;
+          let md = '### A Bill Dirt strip' + (c.premise ? ('\n\n' + c.premise) : '');
+          this.pulseShareOpen({ kind: 'strip', title: 'A Bill Dirt strip', markdown: md, images: [this._pulseShareImg(c.art, c.premise)].filter(Boolean) });
+        },
         pulseShareNewsletter() {
           const c = this.pulseActiveComedy() || {};
           const lines = ['# The comedy lens', ''];
           if (c.mood) { if (c.mood.headline) lines.push('**' + c.mood.headline + '**'); if (c.mood.read) lines.push('', c.mood.read); lines.push(''); }
           const images = [];
           if (c.comic && c.comic.art) { lines.push('## Daily strip', c.comic.premise || '', ''); const im = this._pulseShareImg(c.comic.art, c.comic.premise); if (im) images.push(im); }
+          if (c.comic2 && c.comic2.art) { lines.push('## A Bill Dirt strip', c.comic2.premise || '', ''); const im = this._pulseShareImg(c.comic2.art, c.comic2.premise); if (im) images.push(im); }
           if (c.bit) { lines.push('## Today\'s bit', '', '> ' + (c.bit.quote || '')); if (c.bit.setup) lines.push('', c.bit.setup); const foot = [c.bit.source ? ('💬 ' + c.bit.source) : '', c.bit.who || '', c.bit.ago || ''].filter(Boolean).join(' · '); if (foot) lines.push('', '*' + foot + '*'); lines.push(''); const im = this._pulseShareImg(c.bit.art); if (im) images.push(im); }
           if (Array.isArray(c.gags) && c.gags.length) { lines.push('## Running gags', ''); c.gags.forEach(g => { lines.push('**' + (g.title || '') + '** — ' + (g.blurb || '')); const foot = [g.who || '', g.span || ''].filter(Boolean).join(' · '); if (foot) lines.push('*' + foot + '*'); lines.push(''); }); }
           if (Array.isArray(c.overheard) && c.overheard.length) { lines.push('## Overheard', ''); c.overheard.forEach(o => { lines.push('> ' + (o.line || '') + (o.who ? ('  \n— ' + o.who) : '')); lines.push(''); }); }
@@ -49659,7 +49737,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             co.publish.status = null; co.publish.plan = null; co.publish.record = null;
             co.publish.people = []; co.publish.addEmail = ''; co.publish.addRole = 'viewer';
             co.publish.access = 'restricted'; co.publish.steps = []; co.publish.subscription = '';
-            try { co.publish.serviceManagementReference = ((this.settings && this.settings.composePublish && this.settings.composePublish.serviceManagementReference) || ''); } catch { co.publish.serviceManagementReference = ''; }
+            try { this._composeSeedServiceIds(); } catch { co.publish.serviceManagementReference = ''; co.publish.serviceIdHistory = []; }
             co.publish.publishing = false; co.publish.working = false;
             co.publish.error = ''; co.publish.note = '';
           }
@@ -49689,6 +49767,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.view = 'launcher';
           try { localStorage.removeItem('compose-last-id'); } catch {}
           this.loadCompose();
+        },
+        // Brand/title click → the Compose.AI home page (the launcher gallery). Works
+        // from anywhere in the studio and from the Documents route.
+        composeGoHome() {
+          if (this.compose.draftDirty && !confirm('Discard unsaved edits to this draft?')) return;
+          this.compose.switcherOpen = false;
+          this.compose.current = null;
+          this.compose.view = 'launcher';
+          try { localStorage.removeItem('compose-last-id'); } catch {}
+          if (this.route !== 'compose') { this.goTo('#/compose'); } else { this.loadCompose(); }
         },
         // "✚ New" from inside the studio: start a fresh composition of the SAME purpose the
         // user is currently working in (e.g. another "Brainstorm & options"), rather than
@@ -49893,37 +49981,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => m + shim);
           return shim + html;
         },
-        // Prototype srcdoc with a tiny height-reporter injected so the sandboxed iframe can
-        // AUTO-SIZE to its content instead of sitting in an arbitrary fixed-height box with
-        // its own inner scrollbar. The reporter posts the document height to the parent, which
-        // sets the iframe height (composeSiteHeightListen). Result: the prototype flows into
-        // the single page scroll — never vertically constrained, no nested scrollbar.
+        // Prototype srcdoc. Interactive prototype "sites" render in a fixed-height iframe
+        // viewport that scrolls internally (see .cmpx-scroll-site CSS), exactly like a real
+        // browser tab — so position:fixed overlays (modals, sticky headers) anchor to the
+        // visible area rather than a giant auto-expanded content box.
         composeSiteSrcdoc() {
           let html = this.compose.draftText || '';
           if (!html.trim()) return html;
-          html = this._composeInjectStorageShim(html);
-          const reporter = '<scr' + 'ipt>(function(){function r(){try{var b=document.body,h=Math.max(document.documentElement.scrollHeight||0,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__composeHeight:h},"*");}catch(e){}}window.addEventListener("load",r);window.addEventListener("resize",r);try{new ResizeObserver(r).observe(document.documentElement);}catch(e){}setInterval(r,800);r();})();</scr' + 'ipt>';
-          if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, reporter + '</body>');
-          return html + reporter;
+          return this._composeInjectStorageShim(html);
         },
-        // One-time parent listener: size the prototype iframe to the height its content reports.
+        // Prototype sites now render as a fixed browser viewport (CSS: .cmpx-scroll-site →
+        // the iframe flex-fills the stage and scrolls internally). We deliberately do NOT
+        // size the iframe to its reported content height anymore: expanding it broke
+        // position:fixed overlays (a centered modal anchored to the tall content box and a
+        // 100vh backdrop drove a runaway grow loop — the dialog "slid down"). Kept as a
+        // no-op so the x-init binding stays valid; also clears any stale inline height.
         composeSiteHeightListen() {
-          if (this._composeSiteHL) return;
-          this._composeSiteHL = true;
-          window.addEventListener('message', (e) => {
-            try {
-              const d = e.data;
-              if (!d || typeof d.__composeHeight !== 'number') return;
-              const f = this.$refs && this.$refs.composeSite;
-              if (f && e.source === f.contentWindow) {
-                // Floor the prototype to (roughly) a viewport so a self-contained "site"
-                // that reports a short scrollHeight still gets real room — never an
-                // arbitrary squeeze — while genuinely taller content grows past it.
-                const floor = Math.max(480, (window.innerHeight || 800) - 240);
-                f.style.height = Math.max(floor, Math.ceil(d.__composeHeight) + 2) + 'px';
-              }
-            } catch (_) { /* best-effort */ }
-          });
+          try {
+            const f = this.$refs && this.$refs.composeSite;
+            if (f && f.style && f.style.height) f.style.height = '';
+          } catch (_) { /* best-effort */ }
         },
         // Assistant chat — revise the draft conversationally.
         // Auto-grow the paired-assistant input to fit the user's text (capped by CSS
@@ -50169,6 +50246,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           window.open('/api/compose/' + encodeURIComponent(co.current.id) + '/export?format=' + encodeURIComponent(fmt), '_blank');
           this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'export' }) }).catch(() => {});
         },
+        // Reload the in-panel prototype iframe. The prototype is a live interactive
+        // app (votes, filters, simulated activity) whose state lives only in memory —
+        // blanking then restoring srcdoc forces the browser to re-parse and re-run its
+        // scripts, giving a clean fresh run without leaving the panel.
+        composeReloadSite() {
+          const co = this.compose;
+          if (!String(co.draftText || '').trim()) { this.toast('Nothing to reload yet — generate the prototype first.', 'info'); return; }
+          const f = this.$refs && this.$refs.composeSite;
+          if (!f) return;
+          try {
+            const doc = this.composeSiteSrcdoc();
+            f.removeAttribute('srcdoc');
+            f.setAttribute('srcdoc', 'about:blank');
+            // Restore on the next frame so the blank commit lands first, guaranteeing
+            // a full teardown + re-execute rather than a no-op when the markup is identical.
+            requestAnimationFrame(() => { try { f.setAttribute('srcdoc', doc); } catch (_) {} });
+            this.toast('Prototype reloaded.', 'info');
+          } catch (e) { this.toast('Could not reload preview: ' + (e.message || e), 'error'); }
+        },
         // Open the prototype full-window in a new tab. Uses a blob URL so the site
         // renders standalone on its own opaque origin (still cannot reach the app or
         // your data), giving a true full-screen run of the interactive prototype.
@@ -50193,6 +50289,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = co.publish;
           p.open = true; p.step = 0; p.error = ''; p.note = '';
           p.steps = []; p.publishing = false;
+          this._composeSeedServiceIds();
           // Default the access list to the signed-in user as Owner, if we can guess it.
           if (!p.people.length) {
             const me = (this.settings && this.settings.user && this.settings.user.email) || '';
@@ -50201,10 +50298,79 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.composePublishRefresh();
         },
         composeMakeItRealClose() { this._composePublishStopPolling(); this.compose.publish.open = false; },
+        // Seed the Service ID field + its suggestion list from saved settings. The
+        // field defaults to the most-recently-used id; the datalist offers all of
+        // the previously-seen ids so the user can pick instead of re-typing.
+        _composeSeedServiceIds() {
+          try {
+            const cp = (this.settings && this.settings.composePublish) || {};
+            let list = Array.isArray(cp.serviceIds) ? cp.serviceIds.filter(Boolean).map(String) : [];
+            const last = String(cp.serviceManagementReference || '').trim();
+            if (last && !list.includes(last)) list.unshift(last); // fold legacy single value in
+            this.compose.publish.serviceIdHistory = list;
+            this.compose.publish.serviceManagementReference = last || (list[0] || '');
+          } catch { this.compose.publish.serviceIdHistory = []; this.compose.publish.serviceManagementReference = ''; }
+        },
+        // Cache a Service ID as soon as the user enters one, so subsequent publishes
+        // can select it from the list instead of looking it up again. Keeps a small
+        // most-recently-used list (newest first) and records the last one used.
+        async composeRememberServiceId(raw) {
+          const smr = String((raw == null ? this.compose.publish.serviceManagementReference : raw) || '').trim();
+          if (!smr) return;
+          try {
+            const cur = (this.settings && this.settings.composePublish) || {};
+            let list = Array.isArray(cur.serviceIds) ? cur.serviceIds.filter(Boolean).map(String) : [];
+            const legacy = String(cur.serviceManagementReference || '').trim();
+            if (legacy && !list.includes(legacy)) list.push(legacy);
+            list = list.filter(x => x && x !== smr);
+            list.unshift(smr);
+            if (list.length > 12) list = list.slice(0, 12);
+            const next = Object.assign({}, cur, { serviceManagementReference: smr, serviceIds: list });
+            if (this.settings) this.settings.composePublish = next; // optimistic — list updates immediately
+            this.compose.publish.serviceIdHistory = list.slice();
+            await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ composePublish: next }) });
+          } catch (_) {}
+        },
         composePublishGo(step) {
           const p = this.compose.publish;
           p.step = Math.max(0, Math.min(4, step|0));
           if (p.step === 3 && !p.plan) this.composePublishLoadPlan();
+          if (p.step === 4 && p.record && p.record.status === 'live') this.composePublishRevisions();
+        },
+        // Read the live ACA revisions + traffic split so the user can see WHICH version
+        // is actually serving (a new revision only takes traffic once it provisions
+        // healthy; a failed one leaves the previous version live).
+        async composePublishRevisions() {
+          const co = this.compose; const p = co.publish;
+          if (!co.current) return;
+          p.revLoading = true; p.revError = '';
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/publish/revisions');
+            if (r && r.ok) { p.revisions = r; }
+            else { p.revisions = null; p.revError = (r && r.message) || 'Could not read container status.'; }
+          } catch (e) { p.revisions = null; p.revError = (e && e.message) || 'Could not read container status.'; }
+          finally { p.revLoading = false; }
+        },
+        composePublishRevVerdictColor(v) {
+          return v === 'current' ? 'var(--cp-ok,#1a9e6a)'
+            : v === 'failed' ? 'var(--cp-err,#d64545)'
+            : (v === 'stale' || v === 'provisioning') ? 'var(--cp-warn,#c67a15)'
+            : 'var(--cp-muted,#888)';
+        },
+        composePublishRevVerdictIcon(v) {
+          return v === 'current' ? '✅' : v === 'failed' ? '⛔' : v === 'provisioning' ? '⏳' : v === 'stale' ? '⚠️' : 'ℹ️';
+        },
+        composePublishRevStateColor(rev) {
+          const s = ((rev.provisioningState || '') + ' ' + (rev.runningState || '') + ' ' + (rev.healthState || '')).toLowerCase();
+          if (/fail|degrad|error|unschedulable/.test(s)) return 'var(--cp-err,#d64545)';
+          if (/provisioning|processing|activating|scaling|waiting/.test(s)) return 'var(--cp-warn,#c67a15)';
+          if (rev.active && (rev.traffic > 0 || /provisioned/.test(s))) return 'var(--cp-ok,#1a9e6a)';
+          return 'var(--cp-muted,#888)';
+        },
+        composePublishRevLabel(rev) {
+          // Prefer the human version ("latest" / a release timestamp); fall back to the tag.
+          if (rev.release) return rev.release.isNewest ? 'Latest version' : ('Version from ' + (new Date(rev.release.at)).toLocaleString());
+          return rev.tag ? ('Image ' + rev.tag) : (rev.name || 'Revision');
         },
         async composePublishRefresh() {
           const co = this.compose; const p = co.publish;
@@ -50227,6 +50393,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (p.record.access) p.access = p.record.access;
               if (p.record.status === 'live') {
                 p.step = 4;
+                this.composePublishRevisions();
               } else if (p.record.status === 'publishing') {
                 // A provision is in flight (started here, in another tab, or before a
                 // reload). Show live progress and reattach the poller so we catch the
@@ -50314,16 +50481,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.publishing = true; p.error = ''; p.working = true;
           this._composePublishSeedSteps();
           const id = co.current.id;
-          // Remember a supplied Service Management Reference so the user doesn't
-          // have to retype it on the next publish (tenant policy is persistent).
-          try {
-            const smr = String(p.serviceManagementReference || '').trim();
-            const cur = (this.settings && this.settings.composePublish) || {};
-            if (smr && smr !== (cur.serviceManagementReference || '')) {
-              await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ composePublish: Object.assign({}, cur, { serviceManagementReference: smr }) }) });
-              if (this.settings) this.settings.composePublish = Object.assign({}, cur, { serviceManagementReference: smr });
-            }
-          } catch (_) {}
+          // Remember the supplied Service ID (most-recently-used list) so the user
+          // doesn't have to look it up again on the next publish.
+          await this.composeRememberServiceId();
           try {
             // Kick off the provision. This returns fast now — the server runs the
             // job in the background and streams progress over SSE. A slow/aborted
