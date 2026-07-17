@@ -16888,7 +16888,8 @@
                                     <div class="meai-dir-insight">
                                       <div class="meai-dir-insight-t"><span x-text="ins.icon"></span> <span x-text="ins.title"></span></div>
                                       <div class="meai-dir-row-w" x-text="ins.why"></div>
-                                      <button type="button" x-show="ins.action && !(meai.pursuit.director.spawn && meai.pursuit.director.spawn.key === ins.key)" class="meai-dir-linklike" @click="meAiDirectorInsightAct(ins)" x-text="ins.action"></button>
+                                      <button type="button" x-show="ins.action && !meAiDirectorInsightActed(ins) && !(meai.pursuit.director.spawn && meai.pursuit.director.spawn.key === ins.key)" class="meai-dir-linklike" @click="meAiDirectorInsightAct(ins)" x-text="ins.action"></button>
+                                      <div class="meai-dir-row-w" x-show="ins.action && meAiDirectorInsightActed(ins)" style="opacity:.75">Spun off ✓ — a bounded sub-agent is on it; watch for its node on the map.</div>
                                       <!-- inline spin-off composer: edit the goal / redirect / add context before spawning -->
                                       <template x-if="meai.pursuit.director.spawn && meai.pursuit.director.spawn.key === ins.key">
                                         <div class="meai-dir-ask">
@@ -21257,6 +21258,8 @@
                 </div>
                 <button class="monx-qk" style="margin-top:10px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;padding:7px 12px;font-size:12.5px;color:var(--cp-text-muted);" x-show="!monitoring.alerts.open" @click="monAlertNew()">＋ New alert</button>
                 <div class="monx-alertform" x-show="monitoring.alerts.open" x-cloak>
+                  <template x-if="monitoring.alerts.draft">
+                  <div>
                   <div class="arow">
                     <label>Source
                       <select x-model="monitoring.alerts.draft.sourceId">
@@ -21295,6 +21298,8 @@
                     <button class="abtn" @click="monSaveAlert()" :disabled="monitoring.alerts.saving || !monitoring.alerts.draft.sourceId || !monitoring.alerts.draft.name" x-text="monitoring.alerts.saving ? 'Saving…' : 'Save alert'"></button>
                     <button class="abtn ghost" @click="monitoring.alerts.open = false">Cancel</button>
                   </div>
+                  </div>
+                  </template>
                 </div>
 
                 <!-- Recently viewed — curated to dashboards the user actually opened; collapsible, at the bottom -->
@@ -31586,6 +31591,7 @@
               leaderInfo: null, _claiming: false, syncPaused: false,
               grant: null, plan: null, ledger: [], lastSweepAt: null,
               stalled: [], spawn: { key: null, goal: '', busy: false }, _resuming: false,
+              _actedInsights: {},                // insight keys spun off this session → show "Spun off ✓"
               sel: null, selKind: null,          // current detail selection
               showHandled: false, note: '',
             },
@@ -45217,6 +45223,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.zoom = 1; p.panX = 0; p.panY = 0; p.note = ''; p.answering = null;
           p._fitted = false; p._focusId = null; p.legPick = 'spine';
           p.artView = null; p.evOpen = {}; p.nodeDetail = null; p.centerView = 'map';
+          if (p.director) p.director._dismissed = {};
           p._intent = (opts && opts.intent) || null;
           // One-time default-tab decision for this open: when the Director is active
           // for this pursuit, land on the Director tab instead of Chat. Applied after
@@ -47103,6 +47110,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               d.plan = r.plan || d.plan;
               d.reasonedAt = r.reasonedAt || d.reasonedAt;
               d.insights = (r.plan && r.plan.insights) || null;
+              // Fresh judgement: any insight the Director still surfaces is genuinely
+              // open again, so drop the "spun off ✓" marks and let them be actioned.
+              d._actedInsights = {};
               d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : d.ledger;
               if (r.pr !== undefined) d.pr = r.pr || null;
               this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
@@ -47122,13 +47132,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Cross-node insights from the AI pass, flattened into calm index rows (no pills).
         // Each carries an action where a real route exists: opportunities/new goals spin off
-        // a bounded sub-agent; merges point at a redirect. Redundancies are observational.
+        // a bounded sub-agent; merges fold the redundant legs into the survivor with one click.
+        // Redundancies are observational.
         meAiDirectorInsightList() {
           const ins = (this.meai.pursuit.director && this.meai.pursuit.director.insights) || null;
           if (!ins) return [];
           const out = [];
           (ins.redundancies || []).forEach((r, i) => out.push({ key: 'red-' + i, icon: '⇄', title: 'Redundant work', why: r.why || 'Two legs are covering the same ground.', action: '' }));
-          (ins.merges || []).forEach((m, i) => out.push({ key: 'mrg-' + i, icon: '⌥', title: 'Legs worth merging', why: m.why || 'These legs overlap and should fold together.', action: (m.into || (m.legIds && m.legIds[0])) ? 'Redirect…' : '', legId: m.into || (m.legIds && m.legIds[0]) || null }));
+          (ins.merges || []).forEach((m, i) => { const into = m.into || (m.legIds && m.legIds[0]) || null; const legIds = Array.isArray(m.legIds) ? m.legIds.slice() : (into ? [into] : []); out.push({ key: 'mrg-' + i, icon: '⌥', title: 'Legs worth merging', why: m.why || 'These legs overlap and should fold together.', action: (into && legIds.length > 1) ? 'Merge them' : '', legIds, into }); });
           (ins.opportunities || []).forEach((o, i) => out.push({ key: 'opp-' + i, icon: '✦', title: o.title || 'New opportunity', why: o.why || '', action: 'Spin off effort', goal: o.title || '' }));
           (ins.newGoals || []).forEach((g, i) => out.push({ key: 'goal-' + i, icon: '◎', title: g.title || 'Proposed goal', why: g.why || '', action: 'Spin off effort', goal: g.title || '' }));
           return out;
@@ -47136,8 +47147,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorInsightCount() { return this.meAiDirectorInsightList().length; },
         meAiDirectorInsightAct(ins) {
           if (!ins) return;
+          if (ins.action === 'Merge them') return this.meAiDirectorMerge(ins);
           if (ins.action === 'Redirect…' && ins.legId) return this.meAiDirectorRedirect(ins.legId);
           if (ins.action === 'Spin off effort') return this.meAiDirectorSpawnOpen(ins);
+        },
+        // True once the user spun off / dispatched this insight in this session. The
+        // insight itself lingers until the next reasoning pass (it's derived from the
+        // last AI judgement), so we mark it locally to swap the action for "Spun off ✓"
+        // instead of re-offering the same effort. Cleared on re-reason, so if the
+        // Director still sees the opportunity afterwards it becomes actionable again.
+        meAiDirectorInsightActed(ins) {
+          const set = this.meai.pursuit.director && this.meai.pursuit.director._actedInsights;
+          if (!set || !ins) return false;
+          return !!(set[String(ins.goal || ins.title || ins.key)] || (ins.key && set[String(ins.key)]));
         },
         // Fix #3: open the inline spin-off composer for an insight, pre-filled with the
         // insight's own goal so the user can edit / redirect / add context before spawning
@@ -47155,10 +47177,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!g) return;
           d.spawn.busy = true;
           try {
-            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal: g, run: !!run }) });
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal: g, run: !!run }) });
             this.toast && this.toast(run ? 'Sub-agent started inside this pursuit.' : 'Sub-agent drafted — approve it in the ledger to run.');
+            // Remember which insight this closed so the list shows "Spun off ✓"
+            // instead of re-offering the same action until the next reasoning pass.
+            if (d.spawn && d.spawn.key) { d._actedInsights = d._actedInsights || {}; d._actedInsights[String(d.spawn.goal || d.spawn.key)] = true; }
             this.meAiDirectorSpawnCancel();
             await this.meAiPursuitDirectorLoad();
+            // Refold the map now (not just the Director rail) so the new node shows
+            // immediately rather than waiting on the debounced SSE refresh.
+            await this.meAiPursuitLoad();
           } catch (e) { this.toast && this.toast('Spin-off failed: ' + (e.message || e)); }
           finally { if (d.spawn) d.spawn.busy = false; }
         },
@@ -47168,7 +47196,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!(d.stalled || []).length || d._resuming) return;
           d._resuming = true;
           try {
-            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/resume', { method: 'POST', body: JSON.stringify({}) });
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/director/resume', { method: 'POST', body: JSON.stringify({}) });
             if (r && r.ok === false) { this.toast && this.toast(r.message || 'Could not resume: ' + (r.error || 'unknown')); }
             else if (r && r.running) { this.toast && this.toast((r.resumed || 0) > 0 ? ('Re-driving ' + r.resumed + ' stalled ' + (r.resumed === 1 ? 'leg' : 'legs') + ' — the rest is already running.') : 'Already running — picking up where it left off.'); }
             else if (r && r.done) { this.toast && this.toast('This pursuit is already complete — nothing left to resume.'); }
@@ -47250,7 +47278,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorHandledCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.handledCount || 0) : 0; },
         meAiDirectorDeskCount() { const pl = this.meai.pursuit.director.plan; return pl ? (pl.deskCount || 0) : 0; },
         meAiDirectorDeskStops() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; return (r && typeof r.deskStops === 'number') ? r.deskStops : this.meAiDirectorDeskCount(); },
-        meAiDirectorDesk() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : []; },
+        meAiDirectorDesk() {
+          const pl = this.meai.pursuit.director.plan;
+          const items = (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : [];
+          // Honor optimistic dismissals: a desk item the user just acted on (sent to the
+          // Director / picked a side) is hidden immediately so the judgement call leaves
+          // the desk without waiting for the async reframe+replan to fold on the server.
+          // meAiDirectorAfterAction reconciles this set against the reloaded plan.
+          const dz = this.meai.pursuit.director._dismissed;
+          if (dz && Object.keys(dz).length) return items.filter(x => x && !dz[x.id]);
+          return items;
+        },
+        // Optimistically drop a desk item the user just acted on, and advance the selection
+        // off it right away (to the next desk item, or the calm map when nothing is left).
+        meAiDirectorDismissLocal(item) {
+          const p = this.meai.pursuit; const d = p.director;
+          if (!item || !item.id) return;
+          if (!d._dismissed) d._dismissed = {};
+          d._dismissed[item.id] = Date.now();
+          if (d.sel && d.sel.id === item.id) {
+            const desk = this.meAiDirectorDesk();
+            if (desk.length) { d.sel = desk[0]; d.selKind = 'desk'; }
+            else { p.centerView = 'map'; d.sel = null; d.selKind = null; }
+          }
+        },
         meAiDirectorDiagnosis() { const pl = this.meai.pursuit.director.plan; return (pl && pl.diagnosis && typeof pl.diagnosis === 'object') ? pl.diagnosis : null; },
         meAiDirectorWhyZero() { const dx = this.meAiDirectorDiagnosis(); return (dx && dx.whyZero) ? dx.whyZero : ''; },
         meAiDirectorRedundancyNote() { const dx = this.meAiDirectorDiagnosis(); return (dx && dx.redundancyNote) ? dx.redundancyNote : ''; },
@@ -47262,9 +47313,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const goal = String(it.plan || it.question || '').trim(); if (!goal) return;
           p.director.busy = true;
           try {
-            await this.request('/api/me-ai/task/' + encodeURIComponent(p.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal, title: it.title || it.question, fromStopId: sid, run: true, why: it.directorRationale || 'Director investigation' }) });
+            await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal, title: it.title || it.question, fromStopId: sid, run: true, why: it.directorRationale || 'Director investigation' }) });
             this.toast('Investigation dispatched — a bounded sub-agent is looking into it', 'info');
             await this.meAiPursuitDirectorLoad();
+            await this.meAiPursuitLoad();
           } catch (e) { this.toast('Dispatch failed: ' + (e && e.message ? e.message : e), 'error'); }
           finally { p.director.busy = false; }
         },
@@ -47370,6 +47422,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               done++;
             }
             this.toast('Settled ' + done + ' leg' + (done === 1 ? '' : 's') + ' on "' + (item.subject || item.title || 'this') + '" as ' + stance + ' — Director is closing them', 'success');
+            this.meAiDirectorDismissLocal(item);
           } catch (e) { this.toast('Could not settle: ' + (e.message || e), 'error'); }
           finally { d.busy = false; this.meAiDirectorAfterAction(); }
         },
@@ -47433,16 +47486,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/stop/' + encodeURIComponent(sid) + '/comment', { method: 'POST', body: JSON.stringify({ text: note }) });
             }
             d.note = ''; this.toast('Sent to the Director — folding it in and re-evaluating', 'success');
+            this.meAiDirectorDismissLocal(item);
           } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
           finally { d.busy = false; this.meAiDirectorAfterAction(); }
         },
-        // After any desk decision: reload the plan, then auto-advance the selection
-        // to the next desk item (or the calm map when the desk is clear — G4).
+        // After any desk decision: reload the plan (with backoff, because a comment/reframe
+        // kicks off an async re-eval on the server that isn't folded by the first tick),
+        // reconcile optimistic dismissals, then keep the selection valid — advancing to the
+        // next desk item, or the calm map when the desk is clear (G4).
         meAiDirectorAfterAction() {
           const p = this.meai.pursuit;
-          setTimeout(async () => {
+          const delays = [450, 1600, 3500, 6000];
+          const tick = (i) => setTimeout(async () => {
             await this.meAiPursuitDirectorLoad();
             const d = p.director;
+            // Reconcile optimistic dismissals against the freshly-loaded plan: once the
+            // server no longer lists an item it's truly gone (drop the local hide); if it's
+            // STILL there after the final retry, un-hide it so a send that didn't actually
+            // clear the call reappears honestly rather than vanishing on a false success.
+            if (d._dismissed && Object.keys(d._dismissed).length) {
+              const pl = d.plan;
+              const live = (pl && Array.isArray(pl.deskItems)) ? pl.deskItems : [];
+              const liveIds = new Set(live.map(x => x && x.id));
+              const last = (i >= delays.length - 1);
+              for (const id of Object.keys(d._dismissed)) {
+                if (!liveIds.has(id) || last) delete d._dismissed[id];
+              }
+            }
             if (d.selKind === 'desk') {
               const desk = this.meAiDirectorDesk();
               const still = d.sel && desk.find(x => x.id === d.sel.id);
@@ -47451,7 +47521,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 else { p.centerView = 'map'; d.sel = null; d.selKind = null; }
               }
             }
-          }, 700);
+            if (i + 1 < delays.length) tick(i + 1);
+          }, delays[i]);
+          tick(0);
         },
         async meAiDirectorEnable() {
           const d = this.meai.pursuit.director; d.busy = true;
@@ -47544,31 +47616,49 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (newGoal == null) return;
           const g = String(newGoal).trim(); if (!g) return;
           try {
-            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/redirect', { method: 'POST', body: JSON.stringify({ legId, newGoal: g }) });
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/director/redirect', { method: 'POST', body: JSON.stringify({ legId, newGoal: g }) });
             this.toast && this.toast('Redirected — the agent is re-running on the new goal.');
             await this.meAiPursuitDirectorLoad();
+            await this.meAiPursuitLoad();
           } catch (e) { this.toast && this.toast('Redirect failed: ' + (e.message || e)); }
         },
-        // D2: spin off a bounded sub-agent to close a gap. Drafted by default (proposed ·
-        // not running); the confirm chooses whether to start it now.
+        // Auto-consolidate the "Legs worth merging" insight: fold the redundant leg(s)
+        // into the survivor. No prompt — if the legs are worth merging the Director just
+        // does it (that was the confusing part: this used to reuse the single-leg Redirect,
+        // which asked for a new goal). One click; reversible from the ledger.
+        async meAiDirectorMerge(ins) {
+          if (!ins || !ins.into || !Array.isArray(ins.legIds) || ins.legIds.length < 2) return;
+          const d = this.meai.pursuit.director;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/director/merge', { method: 'POST', body: JSON.stringify({ legIds: ins.legIds, into: ins.into }) });
+            const n = (r && r.mergedCount) || 0;
+            this.toast && this.toast('Merged ' + n + ' redundant leg' + (n === 1 ? '' : 's') + ' — the pursuit now converges on one line of effort.');
+            // Mark this insight closed so the list shows "Merged ✓" until the next re-reason.
+            if (ins.key) { d._actedInsights = d._actedInsights || {}; d._actedInsights[String(ins.key)] = true; }
+            await this.meAiPursuitDirectorLoad();
+            await this.meAiPursuitLoad();
+          } catch (e) { this.toast && this.toast('Merge failed: ' + (e.message || e)); }
+        },
         async meAiDirectorSpawn(fromStopId) {
           const goal = window.prompt('Spin off a bounded sub-agent inside this pursuit — what is its goal? (It runs here, max depth 1, and its findings return to this queue.)', '');
           if (goal == null) return;
           const g = String(goal).trim(); if (!g) return;
           const run = window.confirm('Start it now?\n\nOK = start the sub-agent now.\nCancel = just draft it (proposed · not running).');
           try {
-            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal: g, fromStopId: fromStopId || null, run }) });
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/director/spawn', { method: 'POST', body: JSON.stringify({ goal: g, fromStopId: fromStopId || null, run }) });
             this.toast && this.toast(run ? 'Sub-agent started inside this pursuit.' : 'Sub-agent drafted — approve it in the ledger to run.');
             await this.meAiPursuitDirectorLoad();
+            await this.meAiPursuitLoad();
           } catch (e) { this.toast && this.toast('Spin-off failed: ' + (e.message || e)); }
         },
         // Start an already-drafted sub-agent (its "Start now" affordance).
         async meAiDirectorSpawnStart(legId) {
           if (!legId) return;
           try {
-            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.id) + '/director/spawn', { method: 'POST', body: JSON.stringify({ startLegId: legId }) });
+            await this.request('/api/me-ai/task/' + encodeURIComponent(this.meai.pursuit.tid) + '/director/spawn', { method: 'POST', body: JSON.stringify({ startLegId: legId }) });
             this.toast && this.toast('Sub-agent started inside this pursuit.');
             await this.meAiPursuitDirectorLoad();
+            await this.meAiPursuitLoad();
           } catch (e) { this.toast && this.toast('Start failed: ' + (e.message || e)); }
         },
         // Honesty (H1/H2): the single active state banner + the full catalogue.

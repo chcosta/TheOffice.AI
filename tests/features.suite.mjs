@@ -577,6 +577,32 @@ await t.test('pursuit map: right-click context menu + follow + monitor', () => {
   t.ok(/localStorage\.setItem\('meai-pu-monitored'/.test(html), 'monitored node set is persisted');
 });
 
+// Regression — Director actions must address the OPEN pursuit by its real task id
+// (pursuit.tid). A prior bug used pursuit.id (never assigned → undefined), so
+// spawn/resume/redirect/probe all POSTed to /api/me-ai/task/undefined/... : the
+// server created a throwaway "undefined" tree and returned ok, so the toast claimed
+// success while the real pursuit's map and insights never changed.
+await t.test('director actions target pursuit.tid, never pursuit.id', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // No Director endpoint may be addressed with the undefined pursuit.id.
+  t.ok(!/encodeURIComponent\((?:this\.meai\.pursuit|p)\.id\)\s*\+\s*'\/director\//.test(html),
+    'no /director/ request uses pursuit.id (undefined)');
+  // The insight spin-off + resume + redirect all use .tid.
+  t.ok(/encodeURIComponent\(this\.meai\.pursuit\.tid\)\s*\+\s*'\/director\/spawn'/.test(html),
+    'director/spawn uses pursuit.tid');
+  t.ok(/encodeURIComponent\(this\.meai\.pursuit\.tid\)\s*\+\s*'\/director\/resume'/.test(html),
+    'director/resume uses pursuit.tid');
+  t.ok(/encodeURIComponent\(this\.meai\.pursuit\.tid\)\s*\+\s*'\/director\/redirect'/.test(html),
+    'director/redirect uses pursuit.tid');
+  // After a spawn, the map is refolded (not just the Director rail) so the new node shows.
+  t.ok(/meAiDirectorSpawnSubmit\(run\)\s*\{[\s\S]*?await this\.meAiPursuitLoad\(\);/.test(html),
+    'spawn submit refreshes the pursuit map');
+  // The actioned insight is marked so it no longer re-offers "Spin off effort".
+  t.ok(/meAiDirectorInsightActed\(ins\)\s*\{/.test(html), 'an insight-acted helper is defined');
+  t.ok(/x-show="ins\.action && meAiDirectorInsightActed\(ins\)"/.test(html),
+    'the insight row shows a spun-off confirmation once acted');
+});
+
 // Feature D — export overhaul: the header offers a single-file "Export ↓" (the
 // self-contained report page) AND a whole-record "Export as zip ↓" (the bundle
 // route). The old single-file "export.zip"/"compendium.zip" wiring is gone.
@@ -849,11 +875,14 @@ await t.test('compose prototype preview auto-sizes to content (no arbitrary vert
   t.ok(/:srcdoc="composeSiteSrcdoc\(\)"/.test(src), 'iframe renders the height-reporter srcdoc, not raw draftText');
   t.ok(/x-init="composeSiteHeightListen\(\)"/.test(src), 'iframe registers the parent height listener');
   t.ok(/composeSiteSrcdoc\(\)\s*\{/.test(src), 'composeSiteSrcdoc method exists');
-  t.ok(/__composeHeight/.test(src), 'reporter posts a content-height message the parent consumes');
-  t.ok(/const floor = Math\.max\(480, \(window\.innerHeight/.test(src), 'height floor is viewport-based, not an arbitrary 360px');
-  t.ok(/f\.style\.height = Math\.max\(floor/.test(src), 'parent sets the iframe height from the reported content height');
-  // The arbitrary 520px lock + inert flex are gone; a modest floor + block growth remain.
-  t.ok(/\.cmpx-site\{min-height:calc\(100vh - 260px\);[^}]*display:block\}/.test(src), 'cmpx-site drops the 520px lock for a viewport-based floor + block growth');
+  // The auto-sizing height reporter that caused the runaway grow loop is intentionally GONE.
+  t.ok(!/__composeHeight/.test(src), 'no content-height reporter (auto-sizing removed — it slid the dialog down)');
+  const listen = _win(src, 'composeSiteHeightListen() {', 300);
+  t.ok(/f\.style\.height = ''/.test(listen), 'height listener is a no-op that only clears stale inline height');
+  t.ok(!/f\.style\.height = Math\.max\(floor/.test(src), 'the listener no longer sizes the frame to reported content');
+  // A fixed viewport with internal scroll: the site fills the stage and scrolls inside.
+  t.ok(/\.cmpx-site\{min-height:calc\(100vh - 260px\);[^}]*display:block\}/.test(src), 'cmpx-site is a viewport-height block, not a runaway auto-grown box');
+  t.ok(/\.nlx-stage \.nlx-scroll\.cmpx-scroll-site\{display:flex;flex-direction:column;overflow:hidden\}/.test(src), 'cmpx-scroll-site makes the stage a fixed internally-scrolling viewport');
   t.ok(!/\.cmpx-site\{flex:1;min-height:520px/.test(src), 'no stale fixed-height site rule');
 });
 
@@ -874,7 +903,7 @@ await t.test('compose prototype: in-memory Storage shim so sandboxed localStorag
   t.ok(/var s=window\[name\];s\.getItem\("__cp_probe"\);return;/.test(shim), 'install guard leaves real storage intact where it actually works');
   // Both run contexts inject the shim: the embedded srcdoc iframe and the blob full-window open.
   const srcdoc = _win(src, 'composeSiteSrcdoc() {', 700);
-  t.ok(/html = this\._composeInjectStorageShim\(html\)/.test(srcdoc), 'composeSiteSrcdoc injects the shim before the height reporter');
+  t.ok(/return this\._composeInjectStorageShim\(html\)/.test(srcdoc), 'composeSiteSrcdoc injects the shim into the srcdoc');
   const prev = _win(src, 'composePreviewSite() {', 600);
   t.ok(/const html = this\._composeInjectStorageShim\(raw\)/.test(prev), 'composePreviewSite injects the shim into the blob preview');
   // Idempotent — a doc already carrying the marker is not double-injected.
@@ -1496,11 +1525,12 @@ await t.test('compose studio: unified collapse chevrons + hover-reveal action cl
   t.ok(/class="cmpx-rail-collapse"[^>]*>‹<\/button>/.test(html), 'the sources rail collapses with a bare ‹ chevron (no text)');
   t.ok(!/cmpx-rail-collapse[^>]*>‹ Collapse/.test(html), 'the old "‹ Collapse" text button is gone');
   t.ok(/composeToggleChat\(\)"[^>]*title="Collapse the assistant">⟩<\/button>/.test(html), 'the assistant collapses with the matching ⟩ chevron');
-  // Header right-side buttons live in a hover-revealed cluster.
-  t.ok(/class="cmpx-head-actions"/.test(html), 'the header actions are grouped for hover-reveal');
-  // Every compose section keeps its upper-right cluster invisible until hover/focus.
-  t.ok(/\.cmpx-head \.cmpx-head-actions,\s*\.cmpx-paired \.nlx-stage-actions,\s*\.cmpx-paired \.cmpx-pair-head-actions,\s*\.cmpx-paired \.cmpx-rail-collapse\{opacity:0;transition:opacity[^}]*\}/.test(html), 'compose action clusters start at opacity:0');
-  t.ok(/\.cmpx-head:hover \.cmpx-head-actions,\s*\.cmpx-head:focus-within \.cmpx-head-actions/.test(html), 'hovering or focusing the header reveals its actions');
+  // Header right-side buttons live in an always-visible cluster so the primary "New"
+  // affordance is never hidden — it was intentionally removed from the hover-reveal gate.
+  t.ok(/class="cmpx-head-actions"/.test(html), 'the header actions are grouped');
+  t.ok(!/\.cmpx-head \.cmpx-head-actions[,{]/.test(html), 'header actions are NOT in the opacity:0 gate (New stays visible)');
+  // The PANEL-level clusters (view toolbar, assistant head, rail collapse) keep hover-reveal.
+  t.ok(/\.cmpx-paired \.nlx-stage-actions,\s*\.cmpx-paired \.cmpx-pair-head-actions,\s*\.cmpx-paired \.cmpx-rail-collapse\{opacity:0;transition:opacity[^}]*\}/.test(html), 'panel action clusters start at opacity:0');
   t.ok(/\.cmpx-paired \.nlx-stage:hover \.nlx-stage-actions,\s*\.cmpx-paired \.nlx-stage:focus-within \.nlx-stage-actions/.test(html), 'hovering or focusing the view panel reveals its toolbar');
   t.ok(/\.cmpx-paired \.cmpx-pair:hover \.cmpx-pair-head-actions,\s*\.cmpx-paired \.cmpx-pair:focus-within \.cmpx-pair-head-actions/.test(html), 'hovering or focusing the assistant reveals its head actions');
   t.ok(/\.cmpx-paired \.nlx-rail:hover \.cmpx-rail-collapse,\s*\.cmpx-paired \.nlx-rail:focus-within \.cmpx-rail-collapse\{opacity:1\}/.test(html), 'hovering or focusing the rail reveals its collapse control');

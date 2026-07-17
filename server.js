@@ -22632,6 +22632,19 @@ function _meAiMergeInto(rootState, cand) {
     const sameSubject = rs.findings.filter(f => f.subject === subject);
     const opposed = sameSubject.find(f => _meAiStanceOpposed(f.stance, stance) && f.legId !== legId);
     if (opposed) {
+      // If this subject was ALREADY decided — a resolved verdict from the user or a
+      // tiebreak leg — honor that decision instead of resurrecting the standoff as a
+      // fresh clash. A re-eval leg that re-derives the same unverifiable ambiguity folds
+      // in as subordinate context; it can't re-raise a conflict the user already settled.
+      // (Fixes: "I chose Side A, the judgement went away, then came back with the same
+      // question.") The resolved conflict stays in openConflicts with status 'resolved'.
+      const decided = rs.openConflicts.find(c => c && c.subject === subject && c.status === 'resolved' && c.verdict);
+      if (decided) {
+        finding.subordinateTo = decided.id;
+        rs.findings.push(finding);
+        events.push({ kind: 'rootstate', patch: { finding } });
+        continue;
+      }
       // Contradiction — keep both, raise a conflict on the spine.
       rs.findings.push(finding);
       const conflict = {
@@ -22731,8 +22744,15 @@ function _meAiFoldJournal(id) {
       case 'leg_invalidate': {
         const leg = state.legs[r.legId];
         if (leg) {
-          leg.invalidated = true; leg.status = 'invalidated';
-          if (!leg.endedAt) { leg.endedAt = r.at; const s = leg.startedAt || leg.createdAt; if (s) leg.durationMs = Math.max(0, Date.parse(r.at) - Date.parse(s)); }
+          if (r.restore) {
+            // Undo a merge/cull: bring the leg back so it re-enters the pursuit.
+            leg.invalidated = false; leg.mergedInto = null;
+            leg.status = (leg.durationMs != null && leg.endedAt) ? 'done' : 'planned';
+          } else {
+            leg.invalidated = true; leg.status = 'invalidated';
+            if (r.mergedInto) leg.mergedInto = r.mergedInto;
+            if (!leg.endedAt) { leg.endedAt = r.at; const s = leg.startedAt || leg.createdAt; if (s) leg.durationMs = Math.max(0, Date.parse(r.at) - Date.parse(s)); }
+          }
         }
         break;
       }
@@ -27728,6 +27748,9 @@ function _meAiDirectorUndo(t, ledgerId) {
   } else if (u.op === 'restore-goal' && u.target) {
     // Undo a redirect: restore the leg's prior goal (reducer handles the swap-back).
     _meAiTreeEmit(id, 'leg_redirect', { legId: u.target, restore: true });
+  } else if (u.op === 'restore-leg' && u.target) {
+    // Undo a merge: bring the folded leg back so it re-enters the pursuit.
+    _meAiTreeEmit(id, 'leg_invalidate', { legId: u.target, restore: true });
   }
   _meAiTreeEmit(id, 'director', { op: 'undo', ledgerId });
   const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
@@ -27765,7 +27788,44 @@ function _meAiDirectorRedirect(t, legId, newGoal, why, opts) {
   return { ok: true, legId, goal: newGoal };
 }
 
-// ── D2: spin off a bounded sub-agent to close a gap ───────────────────────────
+// ── Auto-consolidate redundant legs (the "Legs worth merging" insight) ─────────
+// When the reasoning pass judges legs redundant, the Director just folds them —
+// there is NOTHING for the user to steer (that was the confusing part: the merge
+// insight wrongly reused the single-leg Redirect, which prompted for a new goal).
+// Each leg's findings already merge into the shared rootState via the single-writer
+// _meAiMergeInto, so "merging" means retiring the redundant leg(s) so the pursuit
+// stops re-deriving the same work; the survivor (`into`) keeps carrying the effort.
+// One click, no prompt. Attributed to the director, reversible via restore-leg.
+function _meAiDirectorMerge(t, legIds, into, why) {
+  const id = t.id;
+  const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+  const legs = tree.legs || {};
+  legIds = (Array.isArray(legIds) ? legIds : []).map(v => String(v || '').trim()).filter(Boolean);
+  into = String(into || '').trim();
+  // Fall back to the first named leg as the survivor when the model didn't pick one.
+  if (!into && legIds.length) into = legIds[0];
+  if (!into || !legs[into]) return { ok: false, error: 'no-survivor-leg' };
+  // Redundant = every OTHER named leg that still exists and isn't already retired.
+  const redundant = legIds.filter(lid => lid !== into && legs[lid] && !legs[lid].invalidated);
+  if (!redundant.length) return { ok: false, error: 'nothing-to-merge' };
+  const policy = _meAiDirectorPolicy(id, tree);
+  const gid = policy.grant && policy.grant.id, pv = policy.grant && policy.grant.policyVersion;
+  const surTitle = String(legs[into].title || legs[into].goal || into).slice(0, 80);
+  const merged = [];
+  for (const lid of redundant) {
+    _meAiTreeEmit(id, 'leg_invalidate', { legId: lid, mergedInto: into });
+    _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+      verb: 'merged', legId: lid, cls: 'merge', target: lid,
+      why: why || ('Redundant with \u201C' + surTitle + '\u201D \u2014 folded this leg into it so the pursuit doesn\u2019t do the same work twice. Its findings are already in the shared record.'),
+      policyVersion: pv, grantId: gid, state: 'applied', reversible: true,
+      undo: { op: 'restore-leg', target: lid },
+    }) });
+    merged.push(lid);
+  }
+  _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: into, title: surTitle, summary: 'Merged ' + merged.length + ' redundant leg' + (merged.length === 1 ? '' : 's') + ' into this one \u2014 the Director consolidated overlapping work so the pursuit converges on a single line of effort.', confidence: 'med' }) });
+  const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
+  return { ok: true, into, merged, mergedCount: merged.length };
+}
 // Drafted by default (proposed · not running) so nothing runs without approval;
 // `run:true` starts it (leader-gated). Depth/budget capped so it can't fan out
 // unboundedly (max depth 1 — it may not spin off further agents). Its stops re-enter
@@ -27887,6 +27947,11 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
           const side = c[pick] || c.a;
           const verdict = { stance: side.stance, claim: side.claim, legId: side.legId, confidence: side.confidence, chosenBy: 'user' };
           _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: c.id, verdict, resolvedBy: 'user' } });
+          // Record the crowned reading as a DURABLE decision so a later re-eval leg that
+          // re-derives the same unverifiable ambiguity can't resurrect it as a brand-new
+          // clash (the "I chose Side A and the same question came back" bug). The resolved
+          // verdict on the subject + this constraint are honored by _meAiMergeInto.
+          _meAiTreeEmit(id, 'rootstate', { patch: { constraint: 'User decided "' + c.subject + '": ' + side.claim + ' — treat this as settled; do not re-open it as a conflict.' } });
         }
       }
       _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
@@ -28551,6 +28616,20 @@ app.post('/api/me-ai/task/:id/director/redirect', (req, res) => {
     const b = req.body || {};
     const t = meAiTasks.get(id) || { id };
     const result = _meAiDirectorRedirect(t, String(b.legId || ''), b.newGoal, b.why, { run: b.run !== false, forceRun: !!b.forceRun });
+    if (result.ok === false) return res.status(400).json(result);
+    const { plan } = _meAiDirectorView(id);
+    res.json(Object.assign({}, result, { plan }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Auto-consolidate the "Legs worth merging" insight — fold the redundant leg(s) into
+// the survivor. One click, no user steer (the Director handles it), reversible via the ledger.
+app.post('/api/me-ai/task/:id/director/merge', (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const t = meAiTasks.get(id) || { id };
+    const result = _meAiDirectorMerge(t, b.legIds, b.into, b.why);
     if (result.ok === false) return res.status(400).json(result);
     const { plan } = _meAiDirectorView(id);
     res.json(Object.assign({}, result, { plan }));

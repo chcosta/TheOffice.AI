@@ -964,7 +964,108 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Export overhaul (Feature D). "Export as zip" bundles the FULL pursuit record —
+// Director auto-merge (Bug B) — the "Legs worth merging" insight must fold the
+// redundant leg(s) into the survivor with ONE CLICK and NO prompt. It used to
+// reuse the single-leg Redirect action, which pops a window.prompt for a new goal
+// — confusing, because if the Director judges legs redundant it should just
+// consolidate them. Dedicated server function + route + reducer/undo support, and
+// a no-prompt SPA action.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const src = readFileSync(SERVER, 'utf8');
+  const app = readFileSync('public/app.html', 'utf8');
+
+  await t.test('server _meAiDirectorMerge retires redundant legs into a survivor', () => {
+    const fn = sliceSource(SERVER, 'function _meAiDirectorMerge(t, legIds, into, why) {', '// Drafted by default');
+    t.ok(fn.length > 0, '_meAiDirectorMerge found');
+    // survivor resolution + guards
+    t.ok(/if \(!into && legIds\.length\) into = legIds\[0\]/.test(fn), 'falls back to the first leg as survivor');
+    t.ok(/return \{ ok: false, error: 'no-survivor-leg' \}/.test(fn), 'guards a missing survivor');
+    t.ok(/return \{ ok: false, error: 'nothing-to-merge' \}/.test(fn), 'guards an empty merge set');
+    // redundant = the OTHER named legs that still exist and are not already retired
+    t.ok(/lid !== into && legs\[lid\] && !legs\[lid\]\.invalidated/.test(fn), 'redundant excludes the survivor + already-invalidated legs');
+    // each redundant leg is invalidated (folded), stamped with mergedInto, + ledgered reversibly
+    t.ok(/_meAiTreeEmit\(id, 'leg_invalidate', \{ legId: lid, mergedInto: into \}\)/.test(fn), 'invalidates each redundant leg, tagged with the survivor');
+    t.ok(/verb: 'merged'/.test(fn) && /cls: 'merge'/.test(fn), 'records a merge ledger entry');
+    t.ok(/reversible: true/.test(fn) && /undo: \{ op: 'restore-leg', target: lid \}/.test(fn), 'the merge is undoable via restore-leg');
+    t.ok(/return \{ ok: true, into, merged, mergedCount: merged\.length \}/.test(fn), 'reports what it folded');
+  });
+
+  await t.test('reducer + undo support un-merging a leg', () => {
+    const reducer = sliceSource(SERVER, "case 'leg_invalidate': {", "case 'leg_redirect': {");
+    t.ok(/if \(r\.restore\)/.test(reducer), 'the leg_invalidate reducer handles restore (un-merge)');
+    t.ok(/leg\.invalidated = false; leg\.mergedInto = null/.test(reducer), 'restore clears the invalidated + mergedInto flags');
+    t.ok(/if \(r\.mergedInto\) leg\.mergedInto = r\.mergedInto/.test(reducer), 'invalidate stamps mergedInto for the merge case');
+    const undo = sliceSource(SERVER, 'function _meAiDirectorUndo', '// ── D1: redirect');
+    t.ok(/u\.op === 'restore-leg' && u\.target/.test(undo), 'restore-leg undo op exists');
+    t.ok(/_meAiTreeEmit\(id, 'leg_invalidate', \{ legId: u\.target, restore: true \}\)/.test(undo), 'restore-leg re-emits leg_invalidate with restore');
+  });
+
+  await t.test('POST /director/merge route wires the function + returns the plan', () => {
+    const route = sliceSource(SERVER, "app.post('/api/me-ai/task/:id/director/merge'", "app.post('/api/me-ai/task/:id/director/spawn'");
+    t.ok(route.length > 0, 'merge route found');
+    t.ok(/_meAiDirectorMerge\(t, b\.legIds, b\.into, b\.why\)/.test(route), 'calls the merge function with the request body');
+    t.ok(/if \(result\.ok === false\) return res\.status\(400\)/.test(route), '400 on a failed merge');
+    t.ok(/res\.json\(Object\.assign\(\{\}, result, \{ plan \}\)\)/.test(route), 'returns the recomputed plan');
+  });
+
+  await t.test('SPA offers a one-click merge — NO prompt', () => {
+    // the insight row carries the survivor + all legIds and uses the Merge action
+    t.ok(/key: 'mrg-' \+ i/.test(app) && /action: \(into && legIds\.length > 1\) \? 'Merge them' : ''/.test(app),
+      'the merge insight row uses the Merge them action with into + legIds');
+    // the act dispatcher routes Merge them to the merge method (not redirect)
+    t.ok(/if \(ins\.action === 'Merge them'\) return this\.meAiDirectorMerge\(ins\)/.test(app), 'act dispatches to meAiDirectorMerge');
+    // the client method POSTs to /director/merge and never prompts
+    const method = sliceSource('public/app.html', 'async meAiDirectorMerge(ins) {', 'async meAiDirectorSpawn(fromStopId) {');
+    t.ok(method.length > 0, 'meAiDirectorMerge method found');
+    t.ok(!/window\.prompt/.test(method), 'the merge method does NOT prompt (that was the whole point)');
+    t.ok(/director\/merge/.test(method) && /legIds: ins\.legIds, into: ins\.into/.test(method), 'POSTs legIds + survivor to /director/merge');
+    t.ok(/meAiPursuitDirectorLoad\(\)/.test(method) && /meAiPursuitLoad\(\)/.test(method), 'reloads the Director + pursuit after merging');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG A — "I chose Side A, the judgement went away, then came back with the same
+// question." Resolving a conflict must (Part A) record a DURABLE constraint +
+// resolved verdict on the crowned subject, and (Part B) a later re-eval leg that
+// re-derives the same unverifiable ambiguity must fold in as subordinate context
+// instead of re-raising the settled clash as a brand-new conflict.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const resolveFn = sliceSource(SERVER, 'function _meAiTreeResolveStop(t, stopId, decision, note) {', 'function _meAiTreeCommentStop');
+  const mergeFn = sliceSource(SERVER, 'function _meAiMergeInto(rootState, cand) {', 'function _meAiNewSideEffectIntent');
+
+  await t.test('BUG A Part A — resolving a conflict crowns a verdict AND records a durable constraint', () => {
+    t.ok(resolveFn.length > 0, '_meAiTreeResolveStop found');
+    // the crowned side becomes a resolved verdict (chosenBy the user)
+    t.ok(/resolveConflict: c\.id, verdict, resolvedBy: 'user'/.test(resolveFn), 'emits the resolved verdict crowned by the user');
+    t.ok(/chosenBy: 'user'/.test(resolveFn), 'the verdict is attributed to the user, not an engine fallback');
+    // AND a durable constraint so a later leg cannot resurrect the same clash
+    t.ok(/patch: \{ constraint: 'User decided/.test(resolveFn), 'records the decision as a durable rootState constraint');
+    t.ok(/do not re-open it as a conflict\./.test(resolveFn), 'the constraint tells later legs the subject is settled');
+  });
+
+  await t.test('BUG A Part B — a re-derived clash on a settled subject folds in subordinate, no new conflict', () => {
+    t.ok(mergeFn.length > 0, '_meAiMergeInto found');
+    // an already-resolved verdict on the subject is detected before raising a clash
+    t.ok(/const decided = rs\.openConflicts\.find\(c => c && c\.subject === subject && c\.status === 'resolved' && c\.verdict\)/.test(mergeFn),
+      'detects a subject the user already decided (resolved verdict)');
+    // when decided, the finding is subordinated + no conflict is pushed for this finding
+    t.ok(/finding\.subordinateTo = decided\.id/.test(mergeFn), 'the re-derived finding is subordinated to the settled decision');
+    // structural: the decided-branch continue MUST come before the conflict-push
+    const decidedIdx = mergeFn.indexOf('finding.subordinateTo = decided.id');
+    const conflictIdx = mergeFn.indexOf('rs.openConflicts.push(conflict)');
+    t.ok(decidedIdx > 0 && conflictIdx > decidedIdx, 'the subordinate short-circuit precedes the conflict-raise path');
+  });
+
+  await t.test('BUG A — the reducer marks a resolved conflict resolved + stores the verdict (survives reload)', () => {
+    const reducer = sliceSource(SERVER, 'if (patch.resolveConflict) {', 'const rest = Object.assign({}, patch);');
+    t.ok(reducer.length > 0, 'resolveConflict reducer branch found');
+    t.ok(/c\.status = 'resolved'/.test(reducer), 'marks the conflict resolved');
+    t.ok(/c\.verdict = patch\.verdict/.test(reducer), 'stores the crowning verdict durably');
+  });
+}
+
 // final report + earlier reports + every non-spine agent transcript + the main
 // thread + other artifacts — into a self-contained, navigable .zip.
 // ─────────────────────────────────────────────────────────────────────────────
