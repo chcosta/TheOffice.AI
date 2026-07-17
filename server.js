@@ -1048,6 +1048,7 @@ const connect = require('./connect');
 const newsletter = require('./newsletter');
 const newsletterCapture = require('./newsletter-capture');
 const compose = require('./compose');
+const composePublish = require('./compose-publish');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
 // disk only on session disconnect, so disk reads lag the live stream — live
@@ -13595,6 +13596,67 @@ app.get('/api/compose/:id/asset/:file', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     fs.createReadStream(file).pipe(res);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── "Make it real": publish a prototype (site) draft to REAL Azure with restricted
+// (Entra sign-in) access + per-user persistent storage. Opt-in, off by default.
+// Provisioning runs through the machine's `az` identity (no stored creds). plan() is a
+// pure dry-run; publish/unpublish do real work and never throw. See compose-publish.js.
+app.get('/api/compose/:id/publish/status', async (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const status = await composePublish.status();
+    const record = composePublish.getRecord(req.params.id) || null;
+    res.json({ ok: true, status, record });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/compose/:id/publish/plan', (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    res.json({ ok: true, plan: composePublish.plan(c, req.body || {}) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/compose/:id/publish', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const c = compose.getComposition(id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const onStep = (ev) => { try { broadcastSSE('compose-publish', Object.assign({ id, at: Date.now() }, ev)); } catch (_) {} };
+    // Fire-and-forget: the provision runs server-side and keeps going even if
+    // this request's connection drops (a 300s client fetch abort, a reload, or a
+    // closed tab). Progress streams over SSE and is persisted to the durable
+    // record; the client recovers the terminal result via GET .../publish/status.
+    const onDone = (result) => {
+      try { broadcastSSE('compose-publish', { id, done: true, ok: !!(result && result.ok), error: !(result && result.ok), message: (result && result.message) || '', url: (result && result.url) || '', at: Date.now() }); } catch (_) {}
+    };
+    const kicked = composePublish.startPublish(c, req.body || {}, { onStep, onDone });
+    res.json(kicked);
+  } catch (err) {
+    try { broadcastSSE('compose-publish', { id, done: true, ok: false, error: true, message: err.message, at: Date.now() }); } catch (_) {}
+    res.status(500).json({ ok: false, code: 'SERVER', message: err.message });
+  }
+});
+
+app.put('/api/compose/:id/publish/access', async (req, res) => {
+  try {
+    const c = compose.getComposition(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Composition not found.' });
+    const result = await composePublish.setAccess(req.params.id, (req.body && req.body.people) || []);
+    res.json(result);
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+});
+
+app.delete('/api/compose/:id/publish', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const onStep = (ev) => { try { broadcastSSE('compose-publish', Object.assign({ id, unpublish: true, at: Date.now() }, ev)); } catch (_) {} };
+    const result = await composePublish.unpublish(id, { onStep });
+    res.json(result);
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
 });
 
 // Open the composition as a draft email (markdown mediums only).

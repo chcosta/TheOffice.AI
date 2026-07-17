@@ -857,6 +857,32 @@ await t.test('compose prototype preview auto-sizes to content (no arbitrary vert
   t.ok(!/\.cmpx-site\{flex:1;min-height:520px/.test(src), 'no stale fixed-height site rule');
 });
 
+await t.test('compose prototype: in-memory Storage shim so sandboxed localStorage never crashes the render', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // A prototype runs in a sandboxed, opaque-origin iframe (allow-scripts, no
+  // allow-same-origin) so real window.localStorage THROWS on access. We inject an
+  // ephemeral in-memory Storage polyfill at the top so generated code that persists
+  // state "just works" without reaching real browser storage.
+  t.ok(/composeStorageShim\(\)\s*\{/.test(src), 'composeStorageShim method exists');
+  t.ok(/_composeInjectStorageShim\(html\)\s*\{/.test(src), 'injection helper exists');
+  const shim = _win(src, 'composeStorageShim() {', 1400);
+  t.ok(/data-compose-shim/.test(shim), 'shim script carries an idempotency marker');
+  t.ok(/install\("localStorage"\);install\("sessionStorage"\)/.test(shim), 'shim installs BOTH localStorage and sessionStorage');
+  t.ok(/getItem:function|setItem:function|removeItem:function|clear:function|key:function/.test(shim), 'shim provides the Storage method API');
+  t.ok(/typeof Proxy!=="undefined"/.test(shim) && /new Proxy\(api/.test(shim), 'shim backs direct property access via Proxy (localStorage.foo = x)');
+  t.ok(/Object\.defineProperty\(window,name,\{value:mk\(\),configurable:true\}\)/.test(shim), 'shim redefines the throwing window getter with the in-memory store');
+  t.ok(/var s=window\[name\];s\.getItem\("__cp_probe"\);return;/.test(shim), 'install guard leaves real storage intact where it actually works');
+  // Both run contexts inject the shim: the embedded srcdoc iframe and the blob full-window open.
+  const srcdoc = _win(src, 'composeSiteSrcdoc() {', 700);
+  t.ok(/html = this\._composeInjectStorageShim\(html\)/.test(srcdoc), 'composeSiteSrcdoc injects the shim before the height reporter');
+  const prev = _win(src, 'composePreviewSite() {', 600);
+  t.ok(/const html = this\._composeInjectStorageShim\(raw\)/.test(prev), 'composePreviewSite injects the shim into the blob preview');
+  // Idempotent — a doc already carrying the marker is not double-injected.
+  const inj = _win(src, '_composeInjectStorageShim(html) {', 400);
+  t.ok(/data-compose-shim/.test(inj) && /return html;/.test(inj), 'injection is idempotent (skips docs already shimmed)');
+  t.ok(/<head\[\^>\]\*>/.test(inj) && /<html\[\^>\]\*>/.test(inj), 'shim is placed at the top of the document (after <head>, then <html>, else prepend)');
+});
+
   await t.test('compose fullscreen is a focus mode + iterations show their provenance', () => {
     const src = readFileSync('public/app.html', 'utf8');
     // Fullscreen collapses the studio to a single panel (a genuine focus, not just covering the
@@ -2071,6 +2097,200 @@ await t.test('monitoring.ai v2: internal workspace catalog + board-build + prove
   t.ok(/Alerts are supported on internal Workspace sources only\./.test(graf), 'saveAlert rejects non-workspace sources');
   t.ok(/function catalog\(\)/.test(wss) && /function evaluateAlert\(/.test(wss), 'workspace-source.js provides catalog() + evaluateAlert()');
   t.ok(/catalog,/.test(wss) && /evaluateAlert,/.test(wss), 'workspace-source.js exports catalog + evaluateAlert');
+});
+
+await t.test('monitoring.ai: curated recents + panel clarity (units/legend/freshness)', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // --- Ask 3a: "Recently viewed" is collapsible, at the BOTTOM, curated to actively-opened dashboards ---
+  t.ok(/recent:/.test(html) && /localStorage\.getItem\('mon-recent'\)/.test(html), 'monitoring state has a persisted recent[] of opened dashboard uids');
+  t.ok(/recentOpen:/.test(html) && /localStorage\.getItem\('mon-recent-open'\)/.test(html), 'recentOpen (collapsed by default) is persisted');
+  for (const m of ['_monRecordRecent(', 'monRecentDashboards(', 'monToggleRecent(']) {
+    t.ok(html.includes(m), 'recents method present: ' + m);
+  }
+  // records ONLY on active navigation, whole-array reassign for Alpine reactivity
+  const mrr = _win(html, '_monRecordRecent(uid) {', 360);
+  t.ok(/\[uid, \.\.\.\(w\.recent \|\| \[\]\)\.filter\(u => u !== uid\)\]\.slice\(0, 8\)/.test(mrr), '_monRecordRecent dedupes-to-front, caps at 8, whole-array reassign');
+  t.ok(/this\._monRecordRecent\(uid\)/.test(html), 'monLoadDashboard records the opened dashboard as recent');
+  // curated: maps recent uids -> dashboard objects, NOT the full synced catalog
+  const mrd = _win(html, 'monRecentDashboards() {', 320);
+  t.ok(/w\.recent/.test(mrd) && /\.map\(/.test(mrd), 'monRecentDashboards is driven by the curated recent[] uids');
+  // collapsible markup at the launcher bottom
+  t.ok(/class="monx-recenth"/.test(html) && /@click="monToggleRecent\(\)"/.test(html), 'a clickable "Recently viewed" header toggles the section');
+  t.ok(/x-show="monitoring\.recentOpen"/.test(html) && /x-for="d in monRecentDashboards\(\)"/.test(html), 'the recents body is collapse-gated and iterates the curated list');
+
+  // --- Ask 3b: panel clarity — axis units, legend, freshness, honest gauge scale ---
+  // _monTsSvg accepts an optional shared min/max so axis labels + plot use ONE scale
+  t.ok(/_monTsSvg\(series, height, mnIn, mxIn\)/.test(html), '_monTsSvg accepts optional shared mn/mx');
+  t.ok(/if \(mnIn != null && mxIn != null\)/.test(html), '_monTsSvg uses the passed scale when provided (default-computes otherwise)');
+  // the timeseries chart wrapper renders y-axis units, x-axis window, and a legend
+  t.ok(/_monTsChart\(p, height\)/.test(html) && /return this\._monTsChart\(p, height \|\| 120\)/.test(html), 'monPanelBody routes timeseries through _monTsChart');
+  const mtc = _win(html, '_monTsChart(p, height)', 2000);
+  t.ok(/class="monx-yax"/.test(mtc) && /class="monx-xax"/.test(mtc) && /class="monx-legend"/.test(mtc), '_monTsChart renders a y-axis, x-axis window, and legend');
+  t.ok(/this\._monNum\(mx\)/.test(mtc) && /this\._monNum\(mn\)/.test(mtc) && /unit/.test(mtc), 'y-axis labels carry compact numbers + the panel unit');
+  t.ok(/this\._monHumanRange\(f\.from/.test(mtc) && /this\._monHumanRange\(f\.to/.test(mtc), 'x-axis shows the humanized query window (from -> to)');
+  // helpers
+  t.ok(/_monNum\(v\)/.test(html) && /_monHumanRange\(tok\)/.test(html), 'compact-number + humanize-range helpers present');
+  // honest gauge scale caption
+  const mgg = _win(html, "if (p.type === 'gauge')", 1200);
+  t.ok(/scaleCap/.test(mgg) && /scale 0–100%/.test(mgg) && /current period max/.test(mgg), 'gauge shows an honest scale caption (0–100% for pct, else current-period max)');
+  // freshness "as of" indicator
+  t.ok(/class="monx-fresh"/.test(html) && /x-text="monFreshLabel\(\)"/.test(html), 'the dbar shows a freshness "as of" indicator');
+  t.ok(/monFreshLabel\(\)/.test(html) && /monFreshTitle\(\)/.test(html), 'freshness label + title helpers present');
+  t.ok(/w\.dash\.loadedAt = Date\.now\(\)/.test(html) && /w\.dash\.refreshedAt = Date\.now\(\)/.test(html), 'loadedAt set on open, refreshedAt set on refresh');
+  // panel header guards an empty unit
+  t.ok(/<span class="psrc" x-show="p\.unit" x-text="'· ' \+ p\.unit">/.test(html), 'panel header hides the unit line when the panel has no unit');
+});
+
+await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)', async () => {
+  const cp = require('../compose-publish.js');
+  const I = cp._internal || {};
+
+  // --- module surface ---
+  for (const fn of ['status', 'plan', 'publish', 'startPublish', 'isPublishing', 'unpublish', 'setAccess', 'getRecord', 'listRecords']) {
+    t.eq(typeof cp[fn], 'function', 'compose-publish exports ' + fn);
+  }
+
+  // --- plan() shape: a site draft is publishable, a doc draft is not ---
+  const site = { id: 'c1', title: 'My Proto!', format: 'site', draft: { contentFormat: 'html', content: '<!doctype html><html><body><script>localStorage.getItem("todos"); localStorage.setItem("prefs","x"); localStorage["notes"]=1;<\/script></body></html>' } };
+  const pl = cp.plan(site, { access: 'restricted', people: [{ email: 'a@b.com', role: 'owner' }], subscription: 'sub-xyz-123' });
+  t.ok(pl.canPublish === true, 'a site draft is publishable');
+  t.eq(pl.hosting, 'containerapps', 'hosting is Azure Container Apps (serverless — dodges the App Service VM quota)');
+  t.ok(Array.isArray(pl.storageKeys) && pl.storageKeys.includes('todos') && pl.storageKeys.includes('prefs') && pl.storageKeys.includes('notes'), 'detectStorageKeys finds getItem/setItem/bracket keys');
+  t.eq(pl.resources.url, '', 'plan leaves url empty — the ACA ingress FQDN is resolved at publish time');
+  t.ok(pl.resources && pl.resources.acrName && pl.resources.envName && pl.resources.image, 'plan yields ACA resources (acrName, envName, image)');
+  t.ok(/scales to zero/i.test(pl.resources.skuLabel || ''), 'skuLabel reflects Consumption (scales to zero when idle)');
+  t.eq(pl.resources.subscription, 'sub-xyz-123', 'plan honors an explicit subscription override');
+  t.ok(pl.access === 'restricted' && pl.people.length === 1 && pl.people[0].role === 'owner', 'plan normalizes access + people');
+  t.ok(Array.isArray(pl.steps) && ['registry', 'image', 'env', 'app'].every(id => pl.steps.some(s => s.id === id)), 'ACA plan includes registry/image/env/app steps');
+  t.ok(pl.steps.some(s => s.id === 'assign'), 'restricted plan includes an assign step');
+
+  const doc = { id: 'c2', title: 'A memo', format: 'doc', draft: { contentFormat: 'markdown', content: '# hi' } };
+  const pd = cp.plan(doc, {});
+  t.ok(pd.canPublish === false && /prototype/i.test(pd.reason || ''), 'a doc draft is NOT publishable (with a reason)');
+
+  // --- pure helpers ---
+  if (I.sanitizeSiteName) {
+    const sn = I.sanitizeSiteName('My Proto!', 'c1');
+    t.ok(/^[a-z0-9-]+-[0-9a-f]{6}$/.test(sn), 'sanitizeSiteName is DNS-safe with a stable hash suffix: ' + sn);
+    const st = I.sanitizeStorageName(sn, 'c1');
+    t.ok(/^[a-z0-9]{3,24}$/.test(st), 'sanitizeStorageName is 3–24 lowercase alnum: ' + st);
+    const an = I.sanitizeAppName('My Proto!', 'c1');
+    t.ok(/^[a-z][a-z0-9-]{0,30}[a-z0-9]$/.test(an) && an.length <= 32 && !/--/.test(an), 'sanitizeAppName is a valid 2–32 char ACA app name: ' + an);
+    const ar = I.sanitizeAcrName(an, 'c1');
+    t.ok(/^[a-z0-9]{5,50}$/.test(ar), 'sanitizeAcrName is 5–50 lowercase alnum (globally unique): ' + ar);
+    const na = I.normalizeAccess([{ email: 'X@Y.com', role: 'boss' }, { email: 'X@Y.com' }, { email: 'bad' }]);
+    t.ok(na.length === 1 && na[0].role === 'viewer', 'normalizeAccess dedupes, drops bad emails, defaults role to viewer');
+  }
+
+  // --- graceful degradation: publish/setAccess/unpublish never throw ---
+  // (publish is async + guarded by DISABLED when the feature is off)
+  t.eq(typeof (await cp.setAccess('nope-no-record', [])).ok, 'boolean', 'setAccess returns {ok} even for an unknown composition');
+
+  // --- server routes wired (single-segment :id so multi-segment publish routes are not shadowed) ---
+  const srv = readFileSync(SERVER, 'utf8');
+  t.ok(srv.includes("require('./compose-publish')"), 'server requires compose-publish');
+  for (const rt of [
+    "app.get('/api/compose/:id/publish/status'",
+    "app.post('/api/compose/:id/publish/plan'",
+    "app.post('/api/compose/:id/publish'",
+    "app.put('/api/compose/:id/publish/access'",
+    "app.delete('/api/compose/:id/publish'",
+  ]) t.ok(srv.includes(rt), 'server route present: ' + rt);
+  t.ok(/broadcastSSE\('compose-publish'/.test(srv), 'publish route streams live progress over the compose-publish SSE channel');
+
+  // --- resilience: fire-and-forget provision that survives a dropped request ---
+  // The provision must NOT be tied to the POST connection lifetime — a 300s fetch
+  // abort, a reload, or a closed tab must never cancel it or strand the client.
+  const srcResilient = readFileSync('compose-publish.js', 'utf8');
+  t.ok(/const _running = new Map\(\)/.test(srcResilient) && /_running\.has\(id\)/.test(srcResilient), 'startPublish guards against a duplicate in-flight provision per composition');
+  t.ok(/Promise\.resolve\(\)[\s\S]{0,120}\.then\(\(\)\s*=>\s*publish\(/.test(srcResilient), 'startPublish runs publish() as a background job (does not await it)');
+  t.ok(/rec\.steps\s*=\s*pl\.steps\.map/.test(srcResilient), 'publish() seeds a per-step ledger into the durable record');
+  t.ok(/rec\.updatedAt\s*=\s*_now\(\)/.test(srcResilient), 'publish() heartbeats updatedAt on every step (progress is observable via status)');
+  // the POST route must kick off (not await) and hand back a started/running receipt
+  t.ok(/composePublish\.startPublish\(/.test(srv) && !/await\s+composePublish\.publish\(/.test(srv), 'POST /publish fires-and-forgets via startPublish (never awaits the full provision)');
+  t.ok(/onDone/.test(srv) && /done:\s*true/.test(srv), 'the background job broadcasts a terminal done event when it settles');
+
+  // --- SPA resilience: SSE + status polling, not the POST promise ---
+  const htmlR = readFileSync(APP_HTML, 'utf8');
+  for (const m of ['_composePublishStartPolling(', '_composePublishStopPolling(', '_composePublishMergeSteps(']) {
+    t.ok(htmlR.includes(m), 'SPA has resilience helper: ' + m);
+  }
+  t.ok(/_composePublishStartPolling\(id\)/.test(htmlR), 'composeDoPublish falls through to status polling after kickoff');
+  t.ok(/e && e\.timeout/.test(htmlR), 'a timed-out kickoff request is NOT treated as a fatal publish failure');
+  t.ok(/status === 'live'[\s\S]{0,160}_composePublishStopPolling/.test(htmlR), 'the poller flips to Live + stops on a terminal record');
+  t.ok(/status === 'publishing'[\s\S]{0,600}_composePublishStartPolling/.test(htmlR), 'reopening the wizard mid-publish rehydrates progress + reattaches the poller');
+  t.ok(/Provisioning runs on the server/.test(htmlR), 'the Publish step reassures the user it is safe to close / reload');
+
+  // --- settings default: opt-in, OFF ---
+  const set = readFileSync('settings.js', 'utf8');
+  t.ok(/composePublish\s*:/.test(set) && /enabled:\s*false/.test(_win(set, 'composePublish', 160)), 'settings ships composePublish.enabled=false (opt-in)');
+
+  // --- SPA: entry button, wizard modal, state, methods, SSE listener ---
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/@click="composeMakeItRealOpen\(\)"/.test(html) && /composeIsSite\(\) && compose\.draftText\.trim\(\)/.test(html), 'the "Publish to Azure" button is gated to site prototypes');
+  t.ok(/>☁️ Publish to Azure</.test(html), 'entry button + wizard title read "Publish to Azure" (not "Make it real")');
+  t.ok(/publish:\s*\{/.test(html) && /access:\s*'restricted'/.test(html), 'compose state has a publish sub-object (access default restricted)');
+  t.ok(/subscription:\s*''/.test(html), 'publish state tracks a selected subscription');
+  for (const m of ['composeMakeItRealOpen(', 'composeMakeItRealClose(', 'composePublishRefresh(', 'composePublishLoadPlan(', 'composePublishEnable(', 'composePublishAddPerson(', 'composePublishRemovePerson(', 'composePublishSetRole(', 'composePublishSetAccess(', 'composePublishSetSubscription(', 'composeDoPublish(', 'composeUnpublish(', 'composePublishSaveAccess(', '_composeOnPublishEvent(']) {
+    t.ok(html.includes(m), 'wizard method present: ' + m);
+  }
+  t.ok(/source\.addEventListener\('compose-publish'/.test(html), 'SPA listens to the compose-publish SSE channel');
+  // the 5-step stepper + honest App Service / Table Storage hosting (no SWA/Cosmos as working choices)
+  t.ok(/'Review','Hosting &amp; storage','Access','Publish','Live'/.test(html), 'wizard is a 5-step Review→Live stepper');
+  t.ok(/Container Apps · Node 20/.test(html) && /Table Storage/.test(html), 'hosting step presents Container Apps + Table Storage honestly');
+  // subscription picker + honest engine list
+  t.ok(/@change="composePublishSetSubscription\(\$event\.target\.value\)"/.test(html) && /x-for="sub in compose\.publish\.status\.subscriptions"/.test(html), 'hosting step renders a subscription picker over status.subscriptions');
+  const srcStatus = readFileSync('compose-publish.js', 'utf8');
+  t.ok(/account', 'list', '--all'/.test(srcStatus) && /subscriptions,/.test(srcStatus), 'status() enumerates the identity subscriptions');
+  // --- Container Apps flow (cloud build → env → app with system MI → ingress) ---
+  t.ok(/'acr', 'build'/.test(srcStatus) && /--no-wait|--registry/.test(srcStatus), 'image step builds in the cloud via az acr build (no local Docker)');
+  t.ok(/'acr', 'create'/.test(srcStatus) && /'--sku', 'Basic'/.test(srcStatus) && /'--admin-enabled', 'false'/.test(srcStatus), 'registry is a Basic ACR with admin creds disabled (keyless)');
+  t.ok(/'containerapp', 'env', 'create'/.test(srcStatus), 'creates a Container Apps environment');
+  t.ok(/'containerapp', 'create'/.test(srcStatus) && /'--ingress', 'external'/.test(srcStatus) && /'--target-port', '8080'/.test(srcStatus) && /'--system-assigned'/.test(srcStatus), 'container app is created with external ingress on 8080 + a system-assigned managed identity');
+  t.ok(/properties\.configuration\.ingress\.fqdn/.test(srcStatus), 'the live URL is resolved from the app ingress FQDN');
+  t.ok(/_ensureProviders/.test(srcStatus) && /_ensureContainerappExt/.test(srcStatus), 'publish registers the ACA providers + ensures the containerapp CLI extension');
+  // a Dockerfile is written into the deploy bundle (cloud build source)
+  t.ok(/_dockerfile/.test(srcStatus) && /EXPOSE 8080/.test(srcStatus), 'buildDeployBundle emits a Dockerfile (node container, EXPOSE 8080)');
+  // keyless Entra auth to storage — no shared keys / connection strings (org policy denies local auth)
+  t.ok(/'--allow-shared-key-access', 'false'/.test(srcStatus), 'storage account is created with shared-key access disabled');
+  t.ok(!/STATE_STORAGE_CONNECTION/.test(srcStatus) && !/show-connection-string/.test(srcStatus) && !/fromConnectionString/.test(srcStatus), 'no connection-string / shared-key storage auth remains');
+  t.ok(/STATE_STORAGE_ACCOUNT/.test(srcStatus) && /DefaultAzureCredential/.test(srcStatus), 'wrapper uses the storage account name + DefaultAzureCredential (managed identity)');
+  t.ok(/ROLE_ACR_PULL/.test(srcStatus) && /ROLE_STORAGE_TABLE_DATA_CONTRIBUTOR/.test(srcStatus) && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(srcStatus) && /0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3/.test(srcStatus), 'the app managed identity is granted AcrPull + Storage Table Data Contributor by role-definition GUID (multi-word names would split under Windows shell:true)');
+  // --- restricted access: real app registration + publisher-by-default + grants ---
+  // Container Apps has no auto-registration; without a client id the auth provider
+  // is broken and "require authentication" bricks the site with a 401.
+  t.ok(/'ad', 'app', 'create'/.test(srcStatus) && /_ensureAppRegistration/.test(srcStatus), 'auth step creates a real Entra app registration (_ensureAppRegistration)');
+  t.ok(/'ad', 'app', 'credential', 'reset'/.test(srcStatus) && /'--client-id', reg\.appId/.test(srcStatus) && /'--client-secret', reg\.secret/.test(srcStatus), 'the registration client id + secret are wired into Container Apps auth');
+  t.ok(/reg\.error \|\| !reg\.appId/.test(srcStatus) && /published WITHOUT sign-in/.test(srcStatus) && /RedirectToLoginPage/.test(srcStatus), 'require-authentication is only enforced once a registration is wired; otherwise the site stays reachable + warns (no 401 brick)');
+  t.ok(/Always grant the publisher access to their own site/.test(srcStatus) && /pl\.people = pl\.people\.concat\(\[\{ email: publisher/.test(srcStatus), 'the publisher is seeded into the restricted allow-list by default (never locked out)');
+  t.ok(/appRoleAssignmentRequired=true/.test(srcStatus) && /_grantUser\(rec\.appRegistration\.spId/.test(srcStatus), 'restricted apps require assignment + assign the publisher & listed people');
+  t.ok(/appRoleAssignedTo/.test(srcStatus) && /'--body', `@\$\{bodyFile\}`/.test(srcStatus), '_grantUser posts the Graph assignment with the body in a temp file (@file) to dodge Windows JSON quoting');
+  {
+    const cpint = require('../compose-publish.js')._internal;
+    t.ok(typeof cpint._ensureAppRegistration === 'function' && typeof cpint._grantUser === 'function' && typeof cpint._revokeAssignment === 'function', 'app-registration + grant + revoke helpers are exported');
+  }
+  // setAccess now grants additions + revokes removals against the SP (async)
+  t.ok(/async function setAccess/.test(srcStatus) && /_revokeAssignment\(reg\.spId/.test(srcStatus) && /_grantUser\(reg\.spId/.test(srcStatus), 'setAccess grants newly-added people + revokes removed ones against the service principal');
+  // SPA surfaces the access/sign-in warnings on the Live step
+  {
+    const htmlAcc = readFileSync('public/app.html', 'utf8');
+    t.ok(/compose\.publish\.record\.assignWarning/.test(htmlAcc) && /compose\.publish\.record\.authWarning/.test(htmlAcc), 'Live step surfaces both the sign-in and access warnings');
+  }
+  // globally-unique name collision resilience (storage + registry)
+  t.ok(/_resolveStorageName/.test(srcStatus) && /_resolveAcrName/.test(srcStatus) && /check-name/.test(srcStatus), 'storage + registry steps resolve globally-unique names (reuse-or-regenerate)');
+  t.ok(/'@azure\/identity'/.test(srcStatus), 'wrapper package.json depends on @azure/identity');
+  // quota / az errors are surfaced as actionable one-liners (not raw dumps)
+  t.ok(/_friendlyAzError/.test(srcStatus), 'publish maps az errors through _friendlyAzError');
+  {
+    const { _friendlyAzError } = require('../compose-publish.js')._internal;
+    const q = _friendlyAzError('ERROR: Operation cannot be completed without additional quota. Current Limit (Total VMs): 0', 'plan', { location: 'eastus2' });
+    t.ok(/no spare compute quota in eastus2/.test(q) && /different region or subscription/.test(q), 'quota errors become actionable guidance (region/subscription/quota-request)');
+  }
+  // enable-prompt gate when the feature is off
+  t.ok(/composePublishEnable\(\)/.test(html) && /Prototype publishing is off/.test(html), 'wizard shows an enable prompt when publishing is disabled');
+  // reset on composition switch
+  t.ok(/co\.publish\.open = false; co\.publish\.step = 0;/.test(html), '_composeSetCurrent resets the publish wizard');
 });
 
 await t.done();

@@ -11082,6 +11082,287 @@
             </div>
             </template>
 
+            <!-- Ask 3c — "Make it real": publish a prototype to a live Azure site -->
+            <template x-teleport="body">
+            <div class="modal-backdrop modal-overlay" x-show="compose.publish.open" x-transition.opacity.duration.150ms
+                 @click.self="composeMakeItRealClose()" x-cloak
+                 @keydown.escape.window="composeMakeItRealClose()"
+                 style="z-index:10002;padding:3vh 2vw">
+              <div class="card cpub" style="width:min(880px,96vw);max-width:96vw;max-height:94vh;padding:0;display:flex;flex-direction:column;overflow:hidden" @click.stop>
+                <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--cp-border)">
+                  <div style="min-width:0">
+                    <h3 style="margin:0;font-size:16px">☁️ Publish to Azure</h3>
+                    <div class="hint" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(compose.current && compose.current.title) || 'Prototype'"></div>
+                  </div>
+                  <button class="btn ghost" type="button" @click="composeMakeItRealClose()">Close</button>
+                </div>
+
+                <!-- Stepper (quiet underline, no pills) -->
+                <div class="cpub-steps" style="display:flex;gap:22px;padding:12px 22px 0;border-bottom:1px solid var(--cp-border)">
+                  <template x-for="(lbl, si) in ['Review','Hosting &amp; storage','Access','Publish','Live']" :key="si">
+                    <button type="button" class="cpub-step" @click="composePublishGo(si)"
+                            :style="'appearance:none;background:none;border:0;cursor:pointer;padding:8px 2px 12px;font-size:13px;border-bottom:2px solid '+(compose.publish.step===si?'var(--cp-accent,#6d5efc)':'transparent')+';color:'+(compose.publish.step===si?'var(--cp-text)':'var(--cp-muted)')+';font-weight:'+(compose.publish.step===si?'600':'400')">
+                      <span x-html="lbl"></span>
+                    </button>
+                  </template>
+                </div>
+
+                <div style="flex:1;min-height:0;overflow:auto;padding:20px 22px">
+
+                  <!-- Not enabled yet -->
+                  <template x-if="compose.publish.status && !compose.publish.status.enabled">
+                    <div class="cpub-enable" style="border:1px solid var(--cp-border);border-radius:8px;padding:18px 20px;background:var(--cp-surface-2,rgba(0,0,0,.02))">
+                      <div style="font-weight:600;margin-bottom:6px">Prototype publishing is off</div>
+                      <div class="hint" style="margin-bottom:14px">Publishing provisions real Azure resources (Container Apps + container registry + Table Storage) with Entra sign-in. Turn it on to continue — it stays off until you enable it.</div>
+                      <button class="btn primary" type="button" :disabled="compose.publish.enabling" @click="composePublishEnable()" x-text="compose.publish.enabling ? 'Enabling…' : 'Enable publishing'"></button>
+                    </div>
+                  </template>
+
+                  <template x-if="compose.publish.status && compose.publish.status.enabled">
+                    <div>
+
+                      <!-- STEP 0 — Review -->
+                      <div x-show="compose.publish.step===0">
+                        <div class="hint" style="margin-bottom:14px">Publish this interactive prototype to a live, access-controlled Azure site. Per-user state is stored server-side so each signed-in user keeps their own data.</div>
+                        <template x-if="compose.publish.plan && !compose.publish.plan.canPublish">
+                          <div style="border:1px solid var(--cp-warn-border,#e0b34a);border-radius:8px;padding:12px 14px;color:var(--cp-text)">
+                            <span x-text="compose.publish.plan.reason || 'This composition cannot be published.'"></span>
+                          </div>
+                        </template>
+                        <template x-if="compose.publish.plan && compose.publish.plan.canPublish">
+                          <div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+                              <div style="border:1px solid var(--cp-border);border-radius:8px;padding:12px 14px">
+                                <div class="hint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">Deliverable</div>
+                                <div style="margin-top:4px" x-text="(compose.publish.plan.composition && compose.publish.plan.composition.title) || 'Prototype'"></div>
+                              </div>
+                              <div style="border:1px solid var(--cp-border);border-radius:8px;padding:12px 14px">
+                                <div class="hint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">Detected state keys</div>
+                                <div style="margin-top:4px" x-text="(compose.publish.plan.storageKeys ? compose.publish.plan.storageKeys.length : 0) + ' key' + ((compose.publish.plan.storageKeys && compose.publish.plan.storageKeys.length===1)?'':'s')"></div>
+                              </div>
+                            </div>
+                            <div class="hint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">These localStorage keys become per-user server state</div>
+                            <template x-if="compose.publish.plan.storageKeys && compose.publish.plan.storageKeys.length">
+                              <div style="font-family:var(--cp-mono,monospace);font-size:12px;color:var(--cp-muted);line-height:1.9">
+                                <template x-for="(k, ki) in compose.publish.plan.storageKeys" :key="ki"><span x-text="k + (ki < compose.publish.plan.storageKeys.length-1 ? '  ·  ' : '')"></span></template>
+                              </div>
+                            </template>
+                            <template x-if="!compose.publish.plan.storageKeys || !compose.publish.plan.storageKeys.length">
+                              <div class="hint">No local storage detected — the prototype will run without server-side per-user state.</div>
+                            </template>
+                          </div>
+                        </template>
+                        <template x-if="compose.publish.planLoading && !compose.publish.plan"><div class="hint">Analyzing the prototype…</div></template>
+                      </div>
+
+                      <!-- STEP 1 — Hosting & storage -->
+                      <div x-show="compose.publish.step===1">
+                        <div class="hint" style="margin-bottom:14px">Your prototype runs on Azure Container Apps with per-user state in Table Storage. Sign-in uses your current Azure identity.</div>
+                        <!-- Azure identity row -->
+                        <div class="cpub-conn" style="border:1px solid var(--cp-border);border-radius:8px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+                          <div style="width:34px;height:34px;border-radius:8px;background:var(--cp-surface-2,rgba(0,0,0,.05));display:grid;place-items:center;font-size:16px">☁️</div>
+                          <div style="flex:1;min-width:0">
+                            <template x-if="compose.publish.status && compose.publish.status.ready">
+                              <div>
+                                <div style="font-weight:600" x-text="(compose.publish.status.account && compose.publish.status.account.user) || 'Azure'"></div>
+                                <div class="hint" style="font-size:12px" x-text="((compose.publish.status.account && compose.publish.status.account.subscriptionName) || '') + ' · ' + (compose.publish.status.location || '')"></div>
+                              </div>
+                            </template>
+                            <template x-if="!compose.publish.status || !compose.publish.status.ready">
+                              <div>
+                                <div style="font-weight:600;color:var(--cp-warn,#c67a15)">Azure not ready</div>
+                                <div class="hint" style="font-size:12px" x-text="(compose.publish.status && compose.publish.status.message) || 'Run az login, then reload.'"></div>
+                              </div>
+                            </template>
+                          </div>
+                          <button class="btn ghost" type="button" @click="composePublishRefresh()" :disabled="compose.publish.statusLoading">Recheck</button>
+                        </div>
+                        <!-- Subscription picker -->
+                        <template x-if="compose.publish.status && compose.publish.status.ready && compose.publish.status.subscriptions && compose.publish.status.subscriptions.length">
+                          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+                            <label class="hint" style="font-size:12px;min-width:96px">Subscription</label>
+                            <select :value="compose.publish.subscription" @change="composePublishSetSubscription($event.target.value)"
+                                    :disabled="compose.publish.record && compose.publish.record.status==='live'"
+                                    style="flex:1;padding:8px 10px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                              <template x-for="sub in compose.publish.status.subscriptions" :key="sub.id">
+                                <option :value="sub.id" x-text="sub.name + (sub.isDefault ? ' (default)' : '')"></option>
+                              </template>
+                            </select>
+                          </div>
+                        </template>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                          <div style="border:1px solid var(--cp-border);border-radius:8px;padding:14px 16px">
+                            <div style="font-weight:600;margin-bottom:2px">Container Apps · Node 20</div>
+                            <div class="hint" style="font-size:12px" x-text="(compose.publish.plan && compose.publish.plan.resources && compose.publish.plan.resources.skuLabel) || 'Linux plan'"></div>
+                          </div>
+                          <div style="border:1px solid var(--cp-border);border-radius:8px;padding:14px 16px">
+                            <div style="font-weight:600;margin-bottom:2px">Table Storage</div>
+                            <div class="hint" style="font-size:12px">Per-user state (partitioned by signed-in user)</div>
+                          </div>
+                        </div>
+                        <div class="hint" x-show="compose.publish.plan && compose.publish.plan.cost" style="margin-top:12px;font-size:12px" x-text="compose.publish.plan && compose.publish.plan.cost"></div>
+                      </div>
+
+                      <!-- STEP 2 — Access -->
+                      <div x-show="compose.publish.step===2">
+                        <div class="hint" style="margin-bottom:14px">Choose who can sign in to the live site.</div>
+                        <label class="cpub-choice" :style="'display:flex;gap:10px;align-items:flex-start;border:1px solid '+(compose.publish.access==='restricted'?'var(--cp-accent,#6d5efc)':'var(--cp-border)')+';border-radius:8px;padding:12px 14px;margin-bottom:10px;cursor:pointer'">
+                          <input type="radio" name="cpub-access" value="restricted" :checked="compose.publish.access==='restricted'" @change="composePublishSetAccess('restricted')" style="margin-top:3px">
+                          <div><div style="font-weight:600">Restricted — only people I list</div><div class="hint" style="font-size:12px">Assignment required: only assigned users can sign in.</div></div>
+                        </label>
+                        <label class="cpub-choice" :style="'display:flex;gap:10px;align-items:flex-start;border:1px solid '+(compose.publish.access==='tenant'?'var(--cp-accent,#6d5efc)':'var(--cp-border)')+';border-radius:8px;padding:12px 14px;margin-bottom:16px;cursor:pointer'">
+                          <input type="radio" name="cpub-access" value="tenant" :checked="compose.publish.access==='tenant'" @change="composePublishSetAccess('tenant')" style="margin-top:3px">
+                          <div><div style="font-weight:600">Anyone in my tenant</div><div class="hint" style="font-size:12px">Any signed-in user from your organization.</div></div>
+                        </label>
+
+                        <div x-show="compose.publish.access==='restricted'">
+                          <div class="hint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">People with access</div>
+                          <div class="cpub-people" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;margin-bottom:12px">
+                            <template x-if="!compose.publish.people.length"><div class="hint" style="padding:14px 16px">No one yet — add people below.</div></template>
+                            <template x-for="(pp, pi) in compose.publish.people" :key="pp.email">
+                              <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--cp-border)">
+                                <div :style="'width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:11px;font-weight:600;background:'+composePublishAvatarColor(pp.email)" x-text="composePublishInitials(pp.email)"></div>
+                                <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="pp.email"></div>
+                                <select :value="pp.role" @change="composePublishSetRole(pi, $event.target.value)" style="font-size:12px;padding:4px 6px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                                  <option value="owner">Owner</option>
+                                  <option value="editor">Editor</option>
+                                  <option value="viewer">Viewer</option>
+                                </select>
+                                <button class="btn ghost" type="button" style="padding:4px 8px" @click="composePublishRemovePerson(pi)" title="Remove">✕</button>
+                              </div>
+                            </template>
+                          </div>
+                          <div style="display:flex;gap:8px">
+                            <input type="email" placeholder="name@company.com" x-model="compose.publish.addEmail" @keydown.enter.prevent="composePublishAddPerson()" style="flex:1;padding:8px 10px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                            <select x-model="compose.publish.addRole" style="padding:8px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                              <option value="owner">Owner</option>
+                              <option value="editor">Editor</option>
+                              <option value="viewer">Viewer</option>
+                            </select>
+                            <button class="btn" type="button" @click="composePublishAddPerson()">Add</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- STEP 3 — Publish -->
+                      <div x-show="compose.publish.step===3">
+                        <div class="hint" style="margin-bottom:10px">Review the destination, then publish. This provisions real Azure resources.</div>
+                        <div class="cpub-urlpv" style="border:1px solid var(--cp-border);border-radius:8px;padding:12px 14px;margin-bottom:8px;font-family:var(--cp-mono,monospace);font-size:13px;display:flex;align-items:center;gap:8px">
+                          <span style="opacity:.6">🔒</span>
+                          <span x-text="(compose.publish.plan && compose.publish.plan.resources && compose.publish.plan.resources.url) || '…'"></span>
+                        </div>
+                        <div class="hint" style="font-size:12px;margin-bottom:16px" x-text="'Subscription: ' + (composePublishSubName() || '—') + '  ·  ' + ((compose.publish.plan && compose.publish.plan.resources && compose.publish.plan.resources.location) || '')"></div>
+                        <!-- Live step progress -->
+                        <template x-if="compose.publish.steps.length">
+                          <div class="cpub-prog" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;margin-bottom:16px">
+                            <template x-for="(s, sidx) in compose.publish.steps" :key="s.id">
+                              <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--cp-border)">
+                                <div :style="'width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;flex:none;'+(s.state==='done'?'background:var(--cp-ok,#1a9e6a);color:#fff':s.state==='error'?'background:var(--cp-err,#d64545);color:#fff':s.state==='running'?'background:var(--cp-accent,#6d5efc);color:#fff':'background:var(--cp-surface-2,rgba(0,0,0,.06));color:var(--cp-muted)')">
+                                  <template x-if="s.state==='running'"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span></template>
+                                  <template x-if="s.state!=='running'"><span x-text="composePublishStepIcon(s.state)"></span></template>
+                                </div>
+                                <div style="flex:1;min-width:0">
+                                  <div style="font-size:13px" x-text="s.title"></div>
+                                  <div class="hint" style="font-size:12px" x-show="s.note" x-text="s.note"></div>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                        <div class="hint" x-show="compose.publish.error" style="color:var(--cp-err,#d64545);margin-bottom:12px" x-text="compose.publish.error"></div>
+                        <div class="hint" x-show="compose.publish.publishing && !compose.publish.error" style="margin-bottom:12px;font-size:12px">
+                          Provisioning runs on the server — you can close this wizard or reload; it keeps going, and reopening shows live progress.
+                        </div>
+                        <button class="btn primary" type="button"
+                                :disabled="compose.publish.publishing || !(compose.publish.plan && compose.publish.plan.canPublish) || !(compose.publish.status && compose.publish.status.ready)"
+                                @click="composeDoPublish()"
+                                x-text="compose.publish.publishing ? 'Publishing…' : 'Publish to Azure'"></button>
+                      </div>
+
+                      <!-- STEP 4 — Live -->
+                      <div x-show="compose.publish.step===4">
+                        <template x-if="compose.publish.record && compose.publish.record.status==='live'">
+                          <div>
+                            <div class="cpub-statline" style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                              <span style="width:9px;height:9px;border-radius:50%;background:var(--cp-ok,#1a9e6a);display:inline-block"></span>
+                              <span style="font-weight:600">Live</span>
+                              <span class="hint" style="font-size:12px" x-show="compose.publish.record.liveAt" x-text="'· published ' + (new Date(compose.publish.record.liveAt)).toLocaleString()"></span>
+                            </div>
+                            <div class="cpub-urlpv" style="border:1px solid var(--cp-border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-family:var(--cp-mono,monospace);font-size:13px;display:flex;align-items:center;gap:10px">
+                              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="compose.publish.record.url"></span>
+                              <button class="btn ghost" type="button" style="padding:4px 8px" @click="window.open(compose.publish.record.url,'_blank','noopener')">Open ↗</button>
+                              <button class="btn ghost" type="button" style="padding:4px 8px" @click="navigator.clipboard.writeText(compose.publish.record.url); toast('Copied URL','success')">Copy</button>
+                            </div>
+                            <div class="hint" x-show="compose.publish.record.authWarning" style="color:var(--cp-warn,#c67a15);margin-bottom:14px" x-text="'Sign-in note: ' + compose.publish.record.authWarning"></div>
+                            <div class="hint" x-show="compose.publish.record.assignWarning" style="color:var(--cp-warn,#c67a15);margin-bottom:14px" x-text="'Access note: ' + compose.publish.record.assignWarning"></div>
+
+                            <!-- Manage access inline -->
+                            <div x-show="compose.publish.access==='restricted'" style="margin-bottom:16px">
+                              <div class="hint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">People with access</div>
+                              <div style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;margin-bottom:10px">
+                                <template x-for="(pp, pi) in compose.publish.people" :key="pp.email">
+                                  <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--cp-border)">
+                                    <div :style="'width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:10px;font-weight:600;background:'+composePublishAvatarColor(pp.email)" x-text="composePublishInitials(pp.email)"></div>
+                                    <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px" x-text="pp.email"></div>
+                                    <select :value="pp.role" @change="composePublishSetRole(pi, $event.target.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                                      <option value="owner">Owner</option><option value="editor">Editor</option><option value="viewer">Viewer</option>
+                                    </select>
+                                    <button class="btn ghost" type="button" style="padding:3px 8px" @click="composePublishRemovePerson(pi)">✕</button>
+                                  </div>
+                                </template>
+                              </div>
+                              <div style="display:flex;gap:8px;margin-bottom:8px">
+                                <input type="email" placeholder="name@company.com" x-model="compose.publish.addEmail" @keydown.enter.prevent="composePublishAddPerson()" style="flex:1;padding:7px 10px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                                <button class="btn" type="button" @click="composePublishAddPerson()">Add</button>
+                              </div>
+                              <button class="btn" type="button" :disabled="compose.publish.working" @click="composePublishSaveAccess()">Save access</button>
+                            </div>
+
+                            <!-- Releases -->
+                            <template x-if="compose.publish.record.releases && compose.publish.record.releases.length">
+                              <div style="margin-bottom:16px">
+                                <div class="hint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Releases</div>
+                                <div style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden">
+                                  <template x-for="(rel, ri) in compose.publish.record.releases" :key="rel.id">
+                                    <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--cp-border);font-size:12px">
+                                      <span style="flex:1" x-text="(new Date(rel.at)).toLocaleString()"></span>
+                                      <span class="hint" x-text="rel.chars.toLocaleString() + ' chars · ' + rel.keys + ' key' + (rel.keys===1?'':'s')"></span>
+                                    </div>
+                                  </template>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                        <template x-if="!compose.publish.record || compose.publish.record.status!=='live'">
+                          <div class="hint">Not published yet — go to the Publish step.</div>
+                        </template>
+                      </div>
+
+                    </div>
+                  </template>
+
+                  <template x-if="compose.publish.statusLoading && !compose.publish.status"><div class="hint">Checking Azure status…</div></template>
+                </div>
+
+                <!-- Footer -->
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-top:1px solid var(--cp-border)">
+                  <div>
+                    <button class="btn ghost" type="button" x-show="compose.publish.record && compose.publish.record.status==='live'"
+                            :disabled="compose.publish.working"
+                            @click="composeUnpublish()" style="color:var(--cp-err,#d64545)">Unpublish</button>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn ghost" type="button" x-show="compose.publish.step>0" @click="composePublishGo(compose.publish.step-1)">Back</button>
+                    <button class="btn primary" type="button" x-show="compose.publish.step<3 && (compose.publish.status && compose.publish.status.enabled)"
+                            :disabled="compose.publish.step===0 && !(compose.publish.plan && compose.publish.plan.canPublish)"
+                            @click="composePublishGo(compose.publish.step+1)">Next</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </template>
+
             <!-- Confirm adding temporary sources before creating the agent -->
             <template x-teleport="body">
             <div class="modal-backdrop modal-overlay" x-show="createAgent.confirmSources.open" x-transition.opacity.duration.150ms @click.self="createAgent.confirmSources.open=false" x-cloak style="z-index:10001">
@@ -20516,6 +20797,14 @@
               .monx-tcard .d{ color:var(--cp-text-muted); font-size:12.5px; line-height:1.45; }
               /* recent */
               .monx-recent{ display:flex; flex-direction:column; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; }
+              .monx-recentwrap{ margin-top:22px; padding-top:16px; border-top:1px solid var(--cp-border); }
+              .monx-recenth{ display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; color:var(--cp-text-muted); padding:2px 0; }
+              .monx-recenth:hover{ color:var(--cp-text); }
+              .monx-recenth .chev{ font-size:9px; transition:transform .12s ease; color:var(--cp-text-faint); }
+              .monx-recenth .chev.open{ transform:rotate(90deg); }
+              .monx-recenth .rh-t{ font-size:12.5px; font-weight:600; letter-spacing:.02em; }
+              .monx-recenth .rh-c{ font-size:11.5px; color:var(--cp-text-faint); }
+              .monx-recentwrap .monx-recent{ margin-top:10px; }
               .monx-rrow{ display:flex; align-items:center; gap:13px; padding:11px 14px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); cursor:pointer; }
               .monx-rrow:last-child{ border-bottom:0; }
               .monx-rrow:hover{ background:var(--cp-surface-2, var(--cp-bg)); }
@@ -20608,6 +20897,8 @@
               .monx-homebtn:hover{ background:var(--cp-surface); color:var(--cp-text); }
               .monx-dbar .gtag{ font-size:10px; font-weight:600; color:var(--mon-graf); border:1px solid var(--mon-graf); border-radius:6px; padding:1px 6px; }
               .monx-dbar .sp{ flex:1; }
+              .monx-fresh{ display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--cp-text-faint); white-space:nowrap; cursor:default; }
+              .monx-fresh .dot{ width:6px; height:6px; border-radius:50%; background:var(--cp-success,#3fb950); display:inline-block; flex:none; }
               .monx-pushc{ display:flex; align-items:center; gap:10px; font-size:12px; }
               .monx-pushc .ps{ white-space:nowrap; }
               .monx-autopush{ display:flex; align-items:center; gap:5px; color:var(--cp-text-muted); white-space:nowrap; cursor:pointer; }
@@ -20658,6 +20949,16 @@
               .monx-gauge{ display:flex; flex-direction:column; align-items:center; padding:6px 0 8px; }
               .monx-gauge .gv{ font-size:20px; font-weight:700; margin-top:-28px; }
               .monx-gauge .gl{ color:var(--cp-text-faint); font-size:11px; margin-top:2px; }
+              .monx-gauge .gscale{ color:var(--cp-text-faint); font-size:10px; margin-top:3px; opacity:.85; }
+              /* timeseries chart: y-axis units, x-axis window, legend */
+              .monx-chart{ display:flex; flex-direction:column; gap:4px; }
+              .monx-chartrow{ display:flex; gap:6px; align-items:stretch; }
+              .monx-yax{ display:flex; flex-direction:column; justify-content:space-between; font-size:10px; color:var(--cp-text-faint); text-align:right; min-width:34px; padding:2px 0; white-space:nowrap; }
+              .monx-plot{ flex:1; min-width:0; }
+              .monx-xax{ display:flex; justify-content:space-between; font-size:10px; color:var(--cp-text-faint); padding-left:40px; }
+              .monx-legend{ display:flex; flex-wrap:wrap; gap:10px; padding-left:40px; margin-top:2px; }
+              .monx-legend .lg{ display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--cp-text-muted); }
+              .monx-legend .lg i{ width:9px; height:9px; border-radius:2px; display:inline-block; flex:none; }
               .monx-badge{ font-size:10px; font-weight:600; border-radius:6px; padding:1px 6px; }
               /* filter controls (time range + template variables) */
               .monx-controls{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; padding:10px 16px 2px; }
@@ -20794,19 +21095,6 @@
                   </template>
                 </div>
 
-                <div class="monx-sech"><h2>Recent dashboards</h2><span class="c" x-text="monitoring.status && monitoring.status.configured ? 'synced from Grafana' : 'sample data — connect Grafana for live dashboards'"></span></div>
-                <div class="monx-recent" x-show="monitoring.dashboards.length">
-                  <template x-for="d in monitoring.dashboards" :key="d.uid">
-                    <div class="monx-rrow" @click="monLoadDashboard(d.uid)">
-                      <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
-                      <div class="rt"><b x-text="d.title"></b><div class="sub" x-text="monDashSub(d)"></div></div>
-                      <div class="spark" x-html="monSpark(d.spark, monStatusColor(monSparkStatus(d)))"></div>
-                      <div class="rmeta"><div class="st" :class="monStatusClass(monSparkStatus(d))" x-text="monSparkStatus(d)"></div><div style="color:var(--cp-text-faint)" x-text="d.updated ? formatRelative(d.updated) : ''"></div></div>
-                    </div>
-                  </template>
-                </div>
-                <div class="monx-empty" x-show="!monitoring.dashboards.length && !monitoring.loading">No dashboards yet — describe one above to spin it up.</div>
-
                 <div class="monx-sech"><h2>Build from a workspace board</h2><span class="c">the AI mines the board's items for context — referenced clusters, repos, telemetry</span></div>
                 <div class="monx-bboard">
                   <div class="brow">
@@ -20920,6 +21208,26 @@
                     <button class="abtn ghost" @click="monitoring.alerts.open = false">Cancel</button>
                   </div>
                 </div>
+
+                <!-- Recently viewed — curated to dashboards the user actually opened; collapsible, at the bottom -->
+                <div class="monx-recentwrap">
+                  <div class="monx-recenth" @click="monToggleRecent()" role="button" tabindex="0" @keydown.enter.prevent="monToggleRecent()" @keydown.space.prevent="monToggleRecent()">
+                    <span class="chev" :class="{ open: monitoring.recentOpen }">▶</span>
+                    <span class="rh-t">Recently viewed</span>
+                    <span class="rh-c" x-show="monRecentDashboards().length" x-text="monRecentDashboards().length"></span>
+                  </div>
+                  <div class="monx-recent" x-show="monitoring.recentOpen" x-cloak>
+                    <template x-for="d in monRecentDashboards()" :key="d.uid">
+                      <div class="monx-rrow" @click="monLoadDashboard(d.uid)">
+                        <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
+                        <div class="rt"><b x-text="d.title"></b><div class="sub" x-text="monDashSub(d)"></div></div>
+                        <div class="spark" x-html="monSpark(d.spark, monStatusColor(monSparkStatus(d)))"></div>
+                        <div class="rmeta"><div class="st" :class="monStatusClass(monSparkStatus(d))" x-text="monSparkStatus(d)"></div><div style="color:var(--cp-text-faint)" x-text="d.updated ? formatRelative(d.updated) : ''"></div></div>
+                      </div>
+                    </template>
+                    <div class="monx-railempty" x-show="!monRecentDashboards().length">Dashboards you open will appear here.</div>
+                  </div>
+                </div>
               </div>
 
               <!-- ============ STUDIO ============ -->
@@ -20968,6 +21276,9 @@
                       </div>
                       <button class="monx-ibtn" @click="monAnalyze('all')" :disabled="monitoring.analyzing" title="Analyze the whole dashboard">Analyze dashboard</button>
                       <button class="monx-ibtn" @click="monApplyFilters()" :disabled="monitoring.refreshing" title="Refresh data" x-text="monitoring.refreshing ? '…' : '↻'"></button>
+                      <span class="monx-fresh" x-show="monitoring.dash && (monitoring.dash.refreshedAt || monitoring.dash.loadedAt)" :title="monFreshTitle()">
+                        <span class="dot"></span><span x-text="monFreshLabel()"></span>
+                      </span>
                       <template x-if="monitoring.dash && monitoring.dash.local">
                         <span class="monx-pushc">
                           <span class="ps" x-text="monitoring.dash.pushed ? '● pushed to Grafana' : '○ local only'" :style="`color:${monitoring.dash.pushed ? 'var(--cp-success,#3fb950)' : 'var(--cp-text-faint)'}`"></span>
@@ -21049,7 +21360,7 @@
                           <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'table' || (p.type === 'timeseries' && p.series && p.series.length > 1) }">
                             <div class="monx-ph">
                               <span class="pt" x-text="p.title"></span>
-                              <span class="psrc" x-text="'· ' + p.unit"></span>
+                              <span class="psrc" x-show="p.unit" x-text="'· ' + p.unit"></span>
                               <template x-if="monPanelProvenance(p)">
                                 <span class="monx-provbadge" :class="{ workspace: monPanelProvenance(p).kind === 'workspace' }" x-text="monProvLabel(monPanelProvenance(p))"></span>
                               </template>
@@ -22116,6 +22427,7 @@
                           <!-- Prototype share actions: open full-window preview + download the self-contained site. Copy/JSON aren't meaningful for a running prototype. -->
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composePreviewSite()" title="Open the prototype full-window in a new tab (still sandboxed)">↗ Open</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeExport('html')" title="Download the self-contained prototype as an .html file">⬇ Download</button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeMakeItRealOpen()" title="Publish this prototype to a live, access-controlled Azure site">☁️ Publish to Azure</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="!composeIsSite()" @click="composeCopy()" title="Copy to clipboard">⧉ Copy</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeCanEmail()" @click="composeOpenDeliver()">✉ Email</button>
                           <div class="nlx-seg" x-show="!composeIsSite()">
@@ -30817,6 +31129,19 @@
           chat: { open: true, busy: false, input: '', messages: [], progress: [], attachments: [], uploading: false, dragging: false, runId: null, _seen: null, _stick: true },
           deliver: { open: false, to: '', subject: '' },
           verPreview: { open: false, loading: false, title: '', html: '', content: '', site: false },
+          // Ask 3c — "Make it real": publish a prototype to a live Azure site.
+          publish: {
+            open: false, step: 0,
+            status: null, statusLoading: false,
+            plan: null, planLoading: false,
+            record: null,
+            access: 'restricted',
+            people: [], addEmail: '', addRole: 'viewer',
+            subscription: '',
+            steps: [], publishing: false,
+            error: '', note: '',
+            enabling: false, working: false,
+          },
           // Source pickers: real pursuit / PR / work-item lists so the user
           // selects instead of typing raw refs. Populated lazily on demand.
           pickers: {
@@ -31324,6 +31649,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           embedNonce: 0, // bumped by Refresh to force a fresh dashboard render
           grafanaRender: (() => { try { return localStorage.getItem('mon-grafana-render') === 'image' ? 'image' : 'live'; } catch (_) { return 'live'; } })(), // live iframe (default) | server-rendered image fallback
           railOpen: true, // left DASHBOARDS rail; auto-collapses in the live Grafana view (Grafana's own nav supersedes it)
+          // Curated "Recently viewed" — uids of dashboards the user actually navigated to
+          // (most-recent first, capped), NOT the full synced-from-Grafana catalog. Collapsed by default.
+          recent: (() => { try { const a = JSON.parse(localStorage.getItem('mon-recent') || '[]'); return Array.isArray(a) ? a.slice(0, 8) : []; } catch (_) { return []; } })(),
+          recentOpen: (() => { try { return localStorage.getItem('mon-recent-open') === '1'; } catch (_) { return false; } })(),
           // v2: unified Context & data catalog — workspace (internal) + external sources.
           catalog: { workspace: [], external: [], loaded: false, loading: false },
           catalogRoles: {},        // sourceId -> { ground:bool, chart:bool } — steers the next build
@@ -33408,6 +33737,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   this.$nextTick(() => { const el = document.getElementById('composeProgressScroll'); if (el) el.scrollTop = el.scrollHeight; });
                 }
               } catch {}
+            });
+            // Ask 3c — "Make it real" publish progress (per-step az provisioning).
+            source.addEventListener('compose-publish', (event) => {
+              try { this._composeOnPublishEvent(JSON.parse(event.data || '{}')); } catch {}
             });
             // Scheduled auto-generation finished → refresh state (lights the
             // "review pending" banner) and let the user know a draft is waiting.
@@ -39526,6 +39859,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const vars = {};
             (r.variables || []).forEach(v => { vars[v.name] = (v.current && v.current[0] != null) ? v.current[0] : ''; });
             w.filters = { from: (r.time && r.time.from) || 'now-6h', to: (r.time && r.time.to) || 'now', vars };
+            w.dash.loadedAt = Date.now();
+            this._monRecordRecent(uid);
           } catch (e) {
             this.toast('Failed to open dashboard: ' + (e.message || e), 'error');
           }
@@ -39547,6 +39882,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r.variables) w.dash.variables = r.variables;
             if (r.time) w.dash.time = r.time;
             w.grabbed = (w.grabbed || []).filter(id => (r.panels || []).some(p => p.id === id));
+            w.dash.refreshedAt = Date.now();
           } catch (e) {
             this.toast('Refresh failed: ' + (e.message || e), 'error');
           } finally {
@@ -40013,8 +40349,42 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           parts.push(d.local ? (d.pushed ? 'local · pushed to Grafana' : 'local · not pushed') : (d.sample ? 'sample' : 'live'));
           return parts.join(' · ');
         },
-        monDashboardsByFolder() {
-          // Group the rail tree as the user thinks about it: "My dashboards"
+        // Data freshness: when the currently-open dashboard's data was last loaded/refreshed.
+        monFreshLabel() {
+          const d = this.monitoring.dash;
+          if (!d) return '';
+          const t = d.refreshedAt || d.loadedAt;
+          if (!t) return '';
+          return 'as of ' + this.formatRelative(t);
+        },
+        monFreshTitle() {
+          const d = this.monitoring.dash || {};
+          const t = d.refreshedAt || d.loadedAt;
+          const when = t ? new Date(t).toLocaleString() : 'unknown';
+          const f = this.monitoring.filters || {};
+          const win = this._monHumanRange(f.from || 'now-6h') + ' → ' + this._monHumanRange(f.to || 'now');
+          return 'Data loaded ' + when + '\nQuery window: ' + win + (d.local ? '' : ' · click ↻ to refresh');
+        },
+        // Curated recents: only dashboards the user actively navigated to, most-recent first.
+        _monRecordRecent(uid) {
+          if (!uid) return;
+          const w = this.monitoring;
+          const next = [uid, ...(w.recent || []).filter(u => u !== uid)].slice(0, 8);
+          w.recent = next;
+          try { localStorage.setItem('mon-recent', JSON.stringify(next)); } catch (_) {}
+        },
+        monRecentDashboards() {
+          const w = this.monitoring;
+          const by = {};
+          (w.dashboards || []).forEach(d => { by[d.uid] = d; });
+          return (w.recent || []).map(uid => by[uid]).filter(Boolean).slice(0, 6);
+        },
+        monToggleRecent() {
+          const w = this.monitoring;
+          w.recentOpen = !w.recentOpen;
+          try { localStorage.setItem('mon-recent-open', w.recentOpen ? '1' : '0'); } catch (_) {}
+        },
+        monDashboardsByFolder() {          // Group the rail tree as the user thinks about it: "My dashboards"
           // (AI-generated / local) first, then dashboards surfaced from Azure
           // Managed Grafana, grouped by their Grafana folder. Honors the rail filter.
           const q = (this.monitoring.railFilter || '').trim().toLowerCase();
@@ -40147,13 +40517,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           s.forEach((v, i) => { d += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; });
           return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:120px;height:30px"><path d="' + d + '" fill="none" stroke="' + (color || 'var(--cp-accent)') + '" stroke-width="1.5"/></svg>';
         },
-        _monTsSvg(series, height) {
+        _monTsSvg(series, height, mnIn, mxIn) {
           const w = 600, h = height || 120, pad = 4;
           const all = [];
           (series || []).forEach(s => (s.data || []).forEach(pt => all.push(pt[1])));
           if (!all.length) return '<div style="height:' + h + 'px"></div>';
-          let mn = Infinity, mx = -Infinity;
-          for (let i = 0; i < all.length; i++) { const v = all[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+          let mn, mx;
+          if (mnIn != null && mxIn != null) { mn = mnIn; mx = mxIn; }
+          else {
+            mn = Infinity; mx = -Infinity;
+            for (let i = 0; i < all.length; i++) { const v = all[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+          }
           if (mn === mx) { mn -= 1; mx += 1; }
           const pal = ['#2fb2a6', '#58a6ff', '#a371f7', '#d29922', '#f85149'];
           const x = (i, n) => pad + (i / Math.max(1, n - 1)) * (w - 2 * pad);
@@ -40196,24 +40570,75 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const s0 = (p.series || [])[0];
             const data = (s0 && s0.data) || [];
             const last = data.length ? data[data.length - 1][1] : 0;
-            let pct;
-            if ((p.unit || '') === '%') pct = Math.max(0, Math.min(100, last));
-            else { let mx = 1; for (let i = 0; i < data.length; i++) { const v = data[i][1]; if (v > mx) mx = v; } pct = Math.max(0, Math.min(100, (last / mx) * 100)); }
+            const isPct = (p.unit || '') === '%';
+            let pct, scaleMax;
+            if (isPct) { pct = Math.max(0, Math.min(100, last)); scaleMax = 100; }
+            else { let mx = 1; for (let i = 0; i < data.length; i++) { const v = data[i][1]; if (v > mx) mx = v; } scaleMax = mx; pct = Math.max(0, Math.min(100, (last / mx) * 100)); }
             const r = 46;
             const circ = Math.PI * r;
             const off = circ * (1 - pct / 100);
             const col = this.monStatusColor(this.monTrendStatus(p));
             const h = height || 120;
+            const unit = p.unit ? (isPct ? '%' : (' ' + p.unit)) : '';
+            const scaleCap = isPct ? 'scale 0–100%' : ('0 – ' + this._monNum(scaleMax) + (p.unit ? ' ' + p.unit : '') + ' (current period max)');
             return '<div class="monx-gauge">'
               + '<svg viewBox="0 0 120 70" style="width:150px;height:' + Math.min(96, h) + 'px">'
               + '<path d="M14 60 A46 46 0 0 1 106 60" fill="none" stroke="var(--cp-border)" stroke-width="9" stroke-linecap="round"/>'
               + '<path d="M14 60 A46 46 0 0 1 106 60" fill="none" stroke="' + col + '" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>'
               + '</svg>'
-              + '<div class="gv">' + (Math.round(last * 100) / 100) + (p.unit || '') + '</div>'
-              + '<div class="gl">' + (s0 ? s0.name : '') + '</div>'
+              + '<div class="gv">' + this._monNum(last) + unit + '</div>'
+              + '<div class="gl">' + esc(s0 ? s0.name : '') + '</div>'
+              + '<div class="gscale">' + scaleCap + '</div>'
               + '</div>';
           }
-          return this._monTsSvg(p.series, height || 120);
+          return this._monTsChart(p, height || 120);
+        },
+        // Compact number formatter for axes/gauges.
+        _monNum(v) {
+          if (v == null || isNaN(v)) return '0';
+          const a = Math.abs(v);
+          if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 0 : 1) + 'B';
+          if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
+          if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k';
+          if (a >= 100) return String(Math.round(v));
+          return String(Math.round(v * 100) / 100);
+        },
+        // Humanize a Grafana relative-time token ('now-6h' -> '6h ago', 'now' -> 'now').
+        _monHumanRange(tok) {
+          const s = String(tok || '');
+          if (!s || s === 'now') return 'now';
+          const m = s.match(/^now-(\d+)([smhdwMy])$/);
+          if (m) { const u = { s: 'sec', m: 'min', h: 'h', d: 'd', w: 'wk', M: 'mo', y: 'yr' }; return m[1] + (u[m[2]] || m[2]) + ' ago'; }
+          return s;
+        },
+        // Timeseries chart WITH y-axis units, an x-axis time window, and a legend.
+        _monTsChart(p, height) {
+          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const series = p.series || [];
+          const h = height || 120;
+          const all = [];
+          series.forEach(s => (s.data || []).forEach(pt => all.push(pt[1])));
+          if (!all.length) return '<div class="monx-nodata">No data<div class="sub">for the selected time range &amp; filters</div></div>';
+          let mn = Infinity, mx = -Infinity;
+          for (let i = 0; i < all.length; i++) { const v = all[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+          if (mn === mx) { mn -= 1; mx += 1; }
+          const unit = p.unit ? (' ' + p.unit) : '';
+          const svg = this._monTsSvg(series, h, mn, mx);
+          const pal = ['#2fb2a6', '#58a6ff', '#a371f7', '#d29922', '#f85149'];
+          const f = this.monitoring.filters || {};
+          const fromL = this._monHumanRange(f.from || 'now-6h'), toL = this._monHumanRange(f.to || 'now');
+          let legend = '';
+          if (series.length) {
+            legend = '<div class="monx-legend">' + series.map((s, i) => '<span class="lg"><i style="background:' + pal[i % pal.length] + '"></i>' + esc(s.name || ('series ' + (i + 1))) + '</span>').join('') + '</div>';
+          }
+          return '<div class="monx-chart">'
+            + '<div class="monx-chartrow">'
+            + '<div class="monx-yax"><span>' + this._monNum(mx) + unit + '</span><span>' + this._monNum(mn) + unit + '</span></div>'
+            + '<div class="monx-plot">' + svg + '</div>'
+            + '</div>'
+            + '<div class="monx-xax"><span>' + esc(fromL) + '</span><span>' + esc(toL) + '</span></div>'
+            + legend
+            + '</div>';
         },
         monAnalysisHtml(a) {
           if (!a) return '';
@@ -48999,6 +49424,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           co.chat._stick = true;
           co.versions = [];
           co.showVersions = false;
+          // Reset the "Make it real" wizard for the newly selected composition.
+          if (co.publish) {
+            co.publish.open = false; co.publish.step = 0;
+            co.publish.status = null; co.publish.plan = null; co.publish.record = null;
+            co.publish.people = []; co.publish.addEmail = ''; co.publish.addRole = 'viewer';
+            co.publish.access = 'restricted'; co.publish.steps = []; co.publish.subscription = '';
+            co.publish.publishing = false; co.publish.working = false;
+            co.publish.error = ''; co.publish.note = '';
+          }
           try { if (co.pickers) co.pickers.refsLoaded = false; } catch {}
           this.composeLoadVersions();
         },
@@ -49200,14 +49634,44 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return this.newsletterRenderHtml(txt).replace(/\/api\/newsletter\/asset\//g, '/api/compose/' + encodeURIComponent((this.compose.current || {}).id || '') + '/asset/');
           } catch { return ''; }
         },
+        // In-memory Storage polyfill injected at the TOP of every prototype run.
+        // A prototype renders in a sandboxed, opaque-origin iframe (allow-scripts, NO
+        // allow-same-origin) so the real window.localStorage / sessionStorage getters
+        // THROW a SecurityError the moment generated code touches them — which crashed
+        // any prototype that persisted votes, drafts, prefs, etc. We replace them with an
+        // ephemeral in-memory store (fresh per render) so prototypes "just work" without
+        // reaching real browser storage. State does NOT survive a reload — persistence is
+        // the "make it real" step. The install guard leaves genuine storage intact wherever
+        // it actually works (e.g. a downloaded prototype opened from file://). The Proxy
+        // backs both the method API (getItem/setItem/…) and direct property access
+        // (localStorage.foo = x / localStorage['foo']), which generated code mixes freely.
+        composeStorageShim() {
+          return '<scr' + 'ipt data-compose-shim>(function(){' +
+            'function mk(){var m=Object.create(null);var api={getItem:function(k){k=String(k);return k in m?m[k]:null;},setItem:function(k,v){m[String(k)]=String(v);},removeItem:function(k){delete m[String(k)];},clear:function(){for(var k in m){delete m[k];}},key:function(i){var ks=Object.keys(m);return i>=0&&i<ks.length?ks[i]:null;}};' +
+            'try{Object.defineProperty(api,"length",{get:function(){return Object.keys(m).length;}});}catch(e){}' +
+            'if(typeof Proxy!=="undefined"){return new Proxy(api,{get:function(t,p){return p in t?t[p]:(typeof p==="string"&&p in m?m[p]:undefined);},set:function(t,p,v){if(p in t){return true;}m[String(p)]=String(v);return true;},has:function(t,p){return (p in t)||(typeof p==="string"&&p in m);},deleteProperty:function(t,p){if(typeof p==="string"){delete m[p];}return true;}});}return api;}' +
+            'function install(name){try{var s=window[name];s.getItem("__cp_probe");return;}catch(e){}try{Object.defineProperty(window,name,{value:mk(),configurable:true});}catch(e){}}' +
+            'install("localStorage");install("sessionStorage");' +
+            '})();</scr' + 'ipt>';
+        },
+        // Inject the storage shim so it runs BEFORE any generated script. Prefer right
+        // after the opening <head>, then after <html>, else prepend. Idempotent.
+        _composeInjectStorageShim(html) {
+          if (!html || /data-compose-shim/.test(html)) return html;
+          const shim = this.composeStorageShim();
+          if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + shim);
+          if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => m + shim);
+          return shim + html;
+        },
         // Prototype srcdoc with a tiny height-reporter injected so the sandboxed iframe can
         // AUTO-SIZE to its content instead of sitting in an arbitrary fixed-height box with
         // its own inner scrollbar. The reporter posts the document height to the parent, which
         // sets the iframe height (composeSiteHeightListen). Result: the prototype flows into
         // the single page scroll — never vertically constrained, no nested scrollbar.
         composeSiteSrcdoc() {
-          const html = this.compose.draftText || '';
+          let html = this.compose.draftText || '';
           if (!html.trim()) return html;
+          html = this._composeInjectStorageShim(html);
           const reporter = '<scr' + 'ipt>(function(){function r(){try{var b=document.body,h=Math.max(document.documentElement.scrollHeight||0,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__composeHeight:h},"*");}catch(e){}}window.addEventListener("load",r);window.addEventListener("resize",r);try{new ResizeObserver(r).observe(document.documentElement);}catch(e){}setInterval(r,800);r();})();</scr' + 'ipt>';
           if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, reporter + '</body>');
           return html + reporter;
@@ -49480,8 +49944,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // your data), giving a true full-screen run of the interactive prototype.
         composePreviewSite() {
           const co = this.compose;
-          const html = String(co.draftText || '').trim();
-          if (!html) { this.toast('Nothing to preview yet — generate the prototype first.', 'info'); return; }
+          const raw = String(co.draftText || '').trim();
+          if (!raw) { this.toast('Nothing to preview yet — generate the prototype first.', 'info'); return; }
+          const html = this._composeInjectStorageShim(raw);
           try {
             const blob = new Blob([html], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
@@ -49490,6 +49955,280 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 60000);
             if (co.current) this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'preview' }) }).catch(() => {});
           } catch (e) { this.toast('Could not open preview: ' + (e.message || e), 'error'); }
+        },
+        // ---- Ask 3c — "Make it real": publish a prototype to a live Azure site ----
+        composeMakeItRealOpen() {
+          const co = this.compose;
+          if (!co.current) { this.toast('Open a prototype first.', 'info'); return; }
+          const p = co.publish;
+          p.open = true; p.step = 0; p.error = ''; p.note = '';
+          p.steps = []; p.publishing = false;
+          // Default the access list to the signed-in user as Owner, if we can guess it.
+          if (!p.people.length) {
+            const me = (this.settings && this.settings.user && this.settings.user.email) || '';
+            if (me) p.people = [{ email: me, role: 'owner' }];
+          }
+          this.composePublishRefresh();
+        },
+        composeMakeItRealClose() { this._composePublishStopPolling(); this.compose.publish.open = false; },
+        composePublishGo(step) {
+          const p = this.compose.publish;
+          p.step = Math.max(0, Math.min(4, step|0));
+          if (p.step === 3 && !p.plan) this.composePublishLoadPlan();
+        },
+        async composePublishRefresh() {
+          const co = this.compose; const p = co.publish;
+          if (!co.current) return;
+          p.statusLoading = true; p.error = '';
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/publish/status');
+            p.status = (r && r.status) || null;
+            p.record = (r && r.record) || null;
+            // Default the subscription to the record's, then the configured/current default.
+            if (!p.subscription) {
+              const fromRec = p.record && p.record.resources && p.record.resources.subscription;
+              const fromCfg = p.status && p.status.subscription;
+              const fromAcct = p.status && p.status.account && p.status.account.subscriptionId;
+              p.subscription = fromRec || fromCfg || fromAcct || '';
+            }
+            if (p.record) {
+              // Restore prior choices + jump to the Live step when already published.
+              if (Array.isArray(p.record.people) && p.record.people.length) p.people = p.record.people.map(x => ({ email: x.email, role: x.role || 'viewer' }));
+              if (p.record.access) p.access = p.record.access;
+              if (p.record.status === 'live') {
+                p.step = 4;
+              } else if (p.record.status === 'publishing') {
+                // A provision is in flight (started here, in another tab, or before a
+                // reload). Show live progress and reattach the poller so we catch the
+                // terminal result even if we missed the SSE stream.
+                if (Array.isArray(p.record.steps) && p.record.steps.length) {
+                  p.steps = p.record.steps.map(s => ({ id: s.id, title: s.title, state: s.state || 'wait', note: s.note || '' }));
+                }
+                p.step = 3; p.publishing = true; p.working = true; p.error = '';
+                this._composePublishStartPolling(co.current.id);
+              } else if (p.record.status === 'error') {
+                if (Array.isArray(p.record.steps) && p.record.steps.length) {
+                  p.steps = p.record.steps.map(s => ({ id: s.id, title: s.title, state: s.state || 'wait', note: s.note || '' }));
+                }
+                if (p.record.error && p.record.error.message) p.error = p.record.error.message;
+              }
+            }
+          } catch (e) { p.error = (e && e.message) || 'Could not read the publish status.'; }
+          finally { p.statusLoading = false; }
+          this.composePublishLoadPlan();
+        },
+        async composePublishLoadPlan() {
+          const co = this.compose; const p = co.publish;
+          if (!co.current) return;
+          p.planLoading = true;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/publish/plan', {
+              method: 'POST', body: JSON.stringify({ access: p.access, people: p.people, subscription: p.subscription }),
+            });
+            p.plan = (r && r.plan) || null;
+          } catch (e) { p.plan = null; }
+          finally { p.planLoading = false; }
+        },
+        composePublishSetSubscription(id) {
+          const p = this.compose.publish;
+          p.subscription = id || '';
+          this.composePublishLoadPlan();
+        },
+        async composePublishEnable() {
+          const p = this.compose.publish;
+          p.enabling = true;
+          try {
+            const cur = (this.settings && this.settings.composePublish) || {};
+            await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ composePublish: Object.assign({}, cur, { enabled: true }) }) });
+            if (this.settings) this.settings.composePublish = Object.assign({}, cur, { enabled: true });
+            await this.composePublishRefresh();
+            this.toast('Prototype publishing enabled.', 'success');
+          } catch (e) { this.toast('Could not enable publishing: ' + ((e && e.message) || e), 'error'); }
+          finally { p.enabling = false; }
+        },
+        composePublishAddPerson() {
+          const p = this.compose.publish;
+          const email = String(p.addEmail || '').trim();
+          if (!email || email.indexOf('@') < 0) { this.toast('Enter a valid email.', 'info'); return; }
+          if (p.people.some(x => x.email.toLowerCase() === email.toLowerCase())) { p.addEmail = ''; return; }
+          p.people = p.people.concat([{ email, role: p.addRole || 'viewer' }]);
+          p.addEmail = '';
+          this.composePublishLoadPlan();
+        },
+        composePublishRemovePerson(i) {
+          const p = this.compose.publish;
+          p.people = p.people.filter((_, idx) => idx !== i);
+          this.composePublishLoadPlan();
+        },
+        composePublishSetRole(i, role) {
+          const p = this.compose.publish;
+          p.people = p.people.map((x, idx) => idx === i ? { email: x.email, role } : x);
+        },
+        composePublishSetAccess(mode) {
+          const p = this.compose.publish;
+          p.access = (mode === 'tenant') ? 'tenant' : 'restricted';
+          this.composePublishLoadPlan();
+        },
+        // Initialize the live step list from the plan (so rows render before SSE).
+        _composePublishSeedSteps() {
+          const p = this.compose.publish;
+          const steps = (p.plan && p.plan.steps) || [];
+          p.steps = steps.map(s => ({ id: s.id, title: s.title, state: 'wait', note: '' }));
+        },
+        async composeDoPublish() {
+          const co = this.compose; const p = co.publish;
+          if (!co.current) return;
+          if (!p.plan || !p.plan.canPublish) { this.toast((p.plan && p.plan.reason) || 'This prototype cannot be published.', 'error'); return; }
+          if (!p.status || !p.status.enabled) { this.toast('Enable prototype publishing first.', 'info'); return; }
+          if (!p.status.ready) { this.toast(p.status.message || 'Azure sign-in is not ready.', 'error'); return; }
+          p.publishing = true; p.error = ''; p.working = true;
+          this._composePublishSeedSteps();
+          const id = co.current.id;
+          try {
+            // Kick off the provision. This returns fast now — the server runs the
+            // job in the background and streams progress over SSE. A slow/aborted
+            // kickoff is NOT fatal (the job may already be running), so we always
+            // fall through to SSE + status polling for the real outcome.
+            const r = await this.request('/api/compose/' + encodeURIComponent(id) + '/publish', {
+              method: 'POST', body: JSON.stringify({ access: p.access, people: p.people, subscription: p.subscription }),
+              timeoutMs: 60000,
+            });
+            if (r && r.record) p.record = r.record;
+            if (r && r.ok === false) {
+              p.error = r.message || 'Publish failed to start.';
+              this.toast('Publish failed: ' + p.error, 'error');
+              p.publishing = false; p.working = false;
+              return;
+            }
+          } catch (e) {
+            // Kickoff request hiccuped (timeout / transient network). The provision
+            // is server-side, so recover via polling rather than erroring out.
+            if (!(e && e.timeout)) { /* keep going — poller is the source of truth */ }
+          }
+          this._composePublishStartPolling(id);
+        },
+        // Poll the durable publish record until it reaches a terminal state. This is
+        // the safety net behind SSE: if the stream drops (reload, tab close, proxy
+        // idle-timeout) the poll still recovers exact progress + the final result.
+        _composePublishStartPolling(id) {
+          const p = this.compose.publish;
+          this._composePublishStopPolling();
+          const tick = async () => {
+            if (!p.open) { this._composePublishStopPolling(); return; }
+            try {
+              const r = await this.request('/api/compose/' + encodeURIComponent(id) + '/publish/status', { timeoutMs: 20000 });
+              if (r && r.status) p.status = r.status;
+              const rec = (r && r.record) || null;
+              if (rec) {
+                p.record = rec;
+                if (Array.isArray(rec.steps) && rec.steps.length) this._composePublishMergeSteps(rec.steps);
+                if (rec.status === 'live') {
+                  p.step = 4; p.publishing = false; p.working = false; p.error = '';
+                  this._composePublishStopPolling();
+                  return;
+                }
+                if (rec.status === 'error') {
+                  p.error = (rec.error && rec.error.message) || 'Publish failed.';
+                  p.publishing = false; p.working = false;
+                  this._composePublishStopPolling();
+                  return;
+                }
+              }
+            } catch (_) { /* transient — keep polling */ }
+          };
+          this._cpubPoll = setInterval(tick, 5000);
+          tick();
+        },
+        _composePublishStopPolling() { if (this._cpubPoll) { clearInterval(this._cpubPoll); this._cpubPoll = null; } },
+        // Merge server-persisted step states into the live rows (create rows if the
+        // wizard opened fresh onto an in-flight job).
+        _composePublishMergeSteps(recSteps) {
+          const p = this.compose.publish;
+          if (!Array.isArray(p.steps) || !p.steps.length) {
+            p.steps = recSteps.map(s => ({ id: s.id, title: s.title, state: s.state || 'wait', note: s.note || '' }));
+            return;
+          }
+          for (const rs of recSteps) {
+            const row = p.steps.find(s => s.id === rs.id);
+            if (row) { if (rs.state) row.state = rs.state; if (rs.note) row.note = rs.note; }
+            else p.steps.push({ id: rs.id, title: rs.title, state: rs.state || 'wait', note: rs.note || '' });
+          }
+        },
+        // Live SSE step updates from the server (compose-publish event).
+        _composeOnPublishEvent(d) {
+          const p = this.compose && this.compose.publish;
+          if (!p || !p.open) return;
+          if (d.id && d.id !== ((this.compose.current || {}).id)) {
+            // Different composition — ignore (id here is the composition id).
+            return;
+          }
+          if (d.done) {
+            p.working = false; p.publishing = false;
+            this._composePublishStopPolling();
+            if (d.error || d.ok === false) {
+              p.error = d.message || 'Publish failed.';
+              this.toast('Publish failed: ' + p.error, 'error');
+            } else {
+              p.error = '';
+              p.step = 4;
+              this.toast('Prototype published.', 'success');
+              this.composePublishRefresh();
+            }
+            return;
+          }
+          if (!d.id || !d.state) return;
+          const row = p.steps.find(s => s.id === d.id);
+          if (row) { row.state = d.state; if (d.message) row.note = d.message; }
+          else if (d.id === 'teardown') { /* unpublish progress */ }
+        },
+        async composePublishSaveAccess() {
+          const co = this.compose; const p = co.publish;
+          if (!co.current) return;
+          p.working = true;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/publish/access', {
+              method: 'PUT', body: JSON.stringify({ people: p.people }),
+            });
+            if (r && r.ok) { if (Array.isArray(r.people)) p.people = r.people; this.toast('Access updated.', 'success'); }
+            else this.toast('Could not update access: ' + ((r && r.message) || 'unknown'), 'error');
+          } catch (e) { this.toast('Could not update access: ' + ((e && e.message) || e), 'error'); }
+          finally { p.working = false; }
+        },
+        async composeUnpublish() {
+          const co = this.compose; const p = co.publish;
+          if (!co.current || !p.record) return;
+          if (!window.confirm('Tear down the Azure resources and revoke access for this prototype? This deletes the resource group.')) return;
+          p.working = true;
+          try {
+            const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/publish', { method: 'DELETE' });
+            if (r && r.ok) { p.record = null; p.step = 0; this.toast(r.note || 'Prototype unpublished.', 'success'); await this.composePublishRefresh(); }
+            else this.toast('Unpublish failed: ' + ((r && r.message) || 'unknown'), 'error');
+          } catch (e) { this.toast('Unpublish failed: ' + ((e && e.message) || e), 'error'); }
+          finally { p.working = false; }
+        },
+        composePublishInitials(email) {
+          const s = String(email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
+          const parts = s.split(/\s+/).filter(Boolean);
+          return ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+        },
+        composePublishAvatarColor(email) {
+          const palette = ['#6d5efc', '#1a9e6a', '#c67a15', '#c0428a', '#2b8fd6', '#8a5cf6'];
+          let h = 0; const s = String(email || '');
+          for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+          return palette[h % palette.length];
+        },
+        composePublishStepIcon(state) {
+          if (state === 'done') return '✓';
+          if (state === 'error') return '!';
+          if (state === 'running') return '';
+          return '·';
+        },
+        composePublishSubName() {
+          const p = this.compose.publish;
+          const subs = (p.status && p.status.subscriptions) || [];
+          const hit = subs.find(s => s.id === p.subscription);
+          if (hit) return hit.name;
+          return (p.status && p.status.account && p.status.account.subscriptionName) || '';
         },
         async composeCopy() {
           const co = this.compose;

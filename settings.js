@@ -175,6 +175,19 @@ const DEFAULTS = {
   // (X-Grafana-Org-Id header) for multi-org instances.
   grafana: { enabled: false, url: '', token: '', orgId: '', authMode: 'aad', pushByDefault: true },
 
+  // ---- Compose.AI — "Make it real" prototype publishing ---------------------
+  // Turns a self-contained Compose.AI prototype (a `site` draft) into a real,
+  // access-restricted Azure App Service with per-user Table Storage state and
+  // Microsoft Entra sign-in. Default OFF / opt-in — provisioning creates real
+  // Azure resources in the signed-in subscription and INCURS COST. Uses the
+  // Azure CLI (`az`) identity already on the machine (same sign-in the Grafana +
+  // Graph integrations use); no separate credentials are stored here.
+  //   location       — Azure region for new resources.
+  //   resourceGroup  — RG to create/reuse (empty = one per published prototype).
+  //   sku            — App Service plan SKU (F1 free / B1 basic).
+  //   subscription   — pin a subscription id (empty = the az default).
+  composePublish: { enabled: false, location: 'eastus2', resourceGroup: '', sku: 'F1', subscription: '' },
+
   // ---- Newsletter -----------------------------------------------------------
   // The Newsletter feature turns the Connect impact diary into a polished,
   // emailable digest over a timeframe. It REQUIRES Connect (reads its diary) and
