@@ -11190,6 +11190,17 @@
                             </select>
                           </div>
                         </template>
+                        <!-- Service Management Reference (tenant policy) -->
+                        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+                          <label class="hint" style="font-size:12px;min-width:96px;padding-top:8px">Service ID</label>
+                          <div style="flex:1">
+                            <input type="text" x-model="compose.publish.serviceManagementReference" @change="composePublishLoadPlan()"
+                                   :disabled="compose.publish.publishing"
+                                   placeholder="Service Management Reference (service tree ID) — optional"
+                                   style="width:100%;padding:8px 10px;border:1px solid var(--cp-border);border-radius:6px;background:var(--cp-surface)">
+                            <div class="hint" style="font-size:11px;margin-top:4px">Some tenants require a Service Tree / service id on new app registrations. Provide one here if publishing fails asking for it.</div>
+                          </div>
+                        </div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                           <div style="border:1px solid var(--cp-border);border-radius:8px;padding:14px 16px">
                             <div style="font-weight:600;margin-bottom:2px">Container Apps · Node 20</div>
@@ -31138,6 +31149,7 @@
             access: 'restricted',
             people: [], addEmail: '', addRole: 'viewer',
             subscription: '',
+            serviceManagementReference: '',
             steps: [], publishing: false,
             error: '', note: '',
             enabling: false, working: false,
@@ -49430,6 +49442,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             co.publish.status = null; co.publish.plan = null; co.publish.record = null;
             co.publish.people = []; co.publish.addEmail = ''; co.publish.addRole = 'viewer';
             co.publish.access = 'restricted'; co.publish.steps = []; co.publish.subscription = '';
+            try { co.publish.serviceManagementReference = ((this.settings && this.settings.composePublish && this.settings.composePublish.serviceManagementReference) || ''); } catch { co.publish.serviceManagementReference = ''; }
             co.publish.publishing = false; co.publish.working = false;
             co.publish.error = ''; co.publish.note = '';
           }
@@ -50023,7 +50036,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.planLoading = true;
           try {
             const r = await this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/publish/plan', {
-              method: 'POST', body: JSON.stringify({ access: p.access, people: p.people, subscription: p.subscription }),
+              method: 'POST', body: JSON.stringify({ access: p.access, people: p.people, subscription: p.subscription, serviceManagementReference: p.serviceManagementReference }),
             });
             p.plan = (r && r.plan) || null;
           } catch (e) { p.plan = null; }
@@ -50084,13 +50097,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.publishing = true; p.error = ''; p.working = true;
           this._composePublishSeedSteps();
           const id = co.current.id;
+          // Remember a supplied Service Management Reference so the user doesn't
+          // have to retype it on the next publish (tenant policy is persistent).
+          try {
+            const smr = String(p.serviceManagementReference || '').trim();
+            const cur = (this.settings && this.settings.composePublish) || {};
+            if (smr && smr !== (cur.serviceManagementReference || '')) {
+              await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ composePublish: Object.assign({}, cur, { serviceManagementReference: smr }) }) });
+              if (this.settings) this.settings.composePublish = Object.assign({}, cur, { serviceManagementReference: smr });
+            }
+          } catch (_) {}
           try {
             // Kick off the provision. This returns fast now — the server runs the
             // job in the background and streams progress over SSE. A slow/aborted
             // kickoff is NOT fatal (the job may already be running), so we always
             // fall through to SSE + status polling for the real outcome.
             const r = await this.request('/api/compose/' + encodeURIComponent(id) + '/publish', {
-              method: 'POST', body: JSON.stringify({ access: p.access, people: p.people, subscription: p.subscription }),
+              method: 'POST', body: JSON.stringify({ access: p.access, people: p.people, subscription: p.subscription, serviceManagementReference: p.serviceManagementReference }),
               timeoutMs: 60000,
             });
             if (r && r.record) p.record = r.record;

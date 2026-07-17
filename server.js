@@ -13607,8 +13607,8 @@ app.get('/api/compose/:id/publish/status', async (req, res) => {
     const c = compose.getComposition(req.params.id);
     if (!c) return res.status(404).json({ error: 'Composition not found.' });
     const status = await composePublish.status();
-    const record = composePublish.getRecord(req.params.id) || null;
-    res.json({ ok: true, status, record });
+    const record = composePublish.reconcileStale(req.params.id) || null;
+    res.json({ ok: true, status, record, running: composePublish.isPublishing(req.params.id) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -57,6 +57,10 @@ function _cfg() {
     resourceGroup: (c.resourceGroup || '').trim(),
     sku: (c.sku === 'B1' ? 'B1' : 'F1'),
     subscription: (c.subscription || '').trim(),
+    // Some tenants require a Service Management Reference (a Service Tree /
+    // service id) on every app registration created via `az ad app create`.
+    // The user can supply one in Settings → Compose.AI or the publish wizard.
+    serviceManagementReference: (c.serviceManagementReference || '').trim(),
   };
 }
 
@@ -264,20 +268,45 @@ async function _ensureAppRegistration(r, st) {
   try {
     const displayName = `composeai-${r.siteName}`;
     const redirectUri = `${r.url}/.auth/login/aad/callback`;
+    // Some tenants enforce a policy requiring a Service Management Reference
+    // (a Service Tree / service id) on every new app registration. Pass it
+    // through when supplied so `az ad app create` doesn't fail the policy.
+    const smr = String((r && r.serviceManagementReference) || '').trim();
+    const smrArgs = smr ? ['--service-management-reference', smr] : [];
     let appId = '';
     const found = await _az(['ad', 'app', 'list', '--display-name', displayName, '--query', '[0].appId', '-o', 'tsv'], { json: false });
     if (found.ok) appId = String(found.out || '').trim();
     if (appId) {
-      await _az(['ad', 'app', 'update', '--id', appId, '--web-redirect-uris', redirectUri, '--enable-id-token-issuance', 'true'], { json: false });
+      await _az(['ad', 'app', 'update', '--id', appId, '--web-redirect-uris', redirectUri, '--enable-id-token-issuance', 'true'].concat(smrArgs), { json: false });
     } else {
-      const created = await _az(['ad', 'app', 'create', '--display-name', displayName, '--sign-in-audience', 'AzureADMyOrg', '--web-redirect-uris', redirectUri, '--enable-id-token-issuance', 'true', '--query', 'appId', '-o', 'tsv'], { json: false });
-      if (!created.ok) return { error: String(created.message || 'app registration failed').split('\n')[0] };
+      const created = await _az(['ad', 'app', 'create', '--display-name', displayName, '--sign-in-audience', 'AzureADMyOrg', '--web-redirect-uris', redirectUri, '--enable-id-token-issuance', 'true'].concat(smrArgs, ['--query', 'appId', '-o', 'tsv']), { json: false });
+      if (!created.ok) {
+        const raw = String(created.message || 'app registration failed');
+        // Surface the tenant's Service Management Reference policy as an
+        // actionable message instead of a raw Graph error.
+        if (/ServiceManagementReference|service-management-reference/i.test(raw)) {
+          return { error: 'Your tenant requires a Service Management Reference (a Service Tree / service id) on new app registrations. Enter one in the Hosting & storage step (or Settings → Compose.AI) and re-run.', needsServiceManagementReference: true };
+        }
+        return { error: raw.split('\n')[0] };
+      }
       appId = String(created.out || '').trim();
     }
     if (!appId) return { error: 'Could not resolve the app registration id.' };
     const secretRes = await _az(['ad', 'app', 'credential', 'reset', '--id', appId, '--years', '1', '--query', 'password', '-o', 'tsv'], { json: false });
     const secret = secretRes.ok ? String(secretRes.out || '').trim() : '';
-    if (!secret) return { error: String(secretRes.message || 'could not create a client secret').split('\n')[0] };
+    if (!secret) {
+      const raw = String(secretRes.message || 'could not create a client secret');
+      // Many managed tenants (e.g. the Microsoft corp tenant) enforce an app
+      // management policy that forbids PASSWORD credentials (client secrets) on
+      // app registrations — "Credential type not allowed as per assigned policy".
+      // Container Apps EasyAuth needs a client secret for the confidential-client
+      // code flow, so sign-in genuinely can't be wired in such a tenant. Surface
+      // that clearly instead of the misleading "get Application Administrator rights".
+      if (/credential type not allowed|as per assigned policy|app management policy/i.test(raw)) {
+        return { error: 'Your tenant blocks client secrets on app registrations (app-management policy), which Entra sign-in requires.', credentialPolicyBlocked: true };
+      }
+      return { error: raw.split('\n')[0] };
+    }
     let spId = '';
     const spShow = await _az(['ad', 'sp', 'show', '--id', appId, '--query', 'id', '-o', 'tsv'], { json: false });
     if (spShow.ok) spId = String(spShow.out || '').trim();
@@ -461,6 +490,7 @@ function plan(composition, opts = {}) {
   const location = (opts.location || cfg.location || DEFAULT_LOCATION).trim();
   const rg = (opts.resourceGroup || cfg.resourceGroup || `rg-proto-${siteName}`).trim();
   const subscription = (opts.subscription || cfg.subscription || '').trim();
+  const serviceManagementReference = (opts.serviceManagementReference || cfg.serviceManagementReference || '').trim();
   const access = (opts.access === 'tenant') ? 'tenant' : 'restricted';
   const people = normalizeAccess(opts.people);
   const keys = detectStorageKeys(html);
@@ -487,7 +517,7 @@ function plan(composition, opts = {}) {
     reason: !html.trim() ? 'This composition has no draft to publish.' : (!isSite ? 'Publishing is only available for prototype (interactive site) drafts.' : ''),
     composition: { id: comp.id, title: comp.title || 'Prototype', purpose: comp.purpose || '', format: comp.format || '' },
     hosting: 'containerapps',
-    resources: { resourceGroup: rg, siteName, storageName, acrName, envName, image, location, sku: 'Consumption', skuLabel: 'Consumption — scales to zero when idle', url, table: 'protostate', subscription },
+    resources: { resourceGroup: rg, siteName, storageName, acrName, envName, image, location, sku: 'Consumption', skuLabel: 'Consumption — scales to zero when idle', url, table: 'protostate', subscription, serviceManagementReference },
     access, people, storageKeys: keys,
     steps,
     cost: 'Azure Container Apps (Consumption — scales to zero, pay only while serving) + a Basic container registry (~$5/mo) + pay-per-use Table Storage (typically pennies/month).',
@@ -633,7 +663,13 @@ async function publish(composition, opts = {}, hooks = {}) {
   // Seed the step ledger so a reconnecting client (or a reopened wizard) can
   // rehydrate live progress straight from the persisted record.
   rec.steps = pl.steps.map(s => ({ id: s.id, title: s.title, state: 'wait', note: '' }));
+  // Clear terminal state + stale warnings from any prior run so old messages
+  // (e.g. a pre-fix role warning or a resolved auth error) never linger on a
+  // fresh publish and mislead the user.
   delete rec.error;
+  delete rec.roleWarning;
+  delete rec.authWarning;
+  delete rec.assignWarning;
   _saveRecord(rec);
 
   // Persist every step transition into the record BEFORE surfacing it over SSE.
@@ -769,7 +805,19 @@ async function publish(composition, opts = {}, hooks = {}) {
     const reg = await _ensureAppRegistration(r, st);
     if (reg.error || !reg.appId) {
       rec.appRegistration = null;
-      rec.authWarning = (reg.error ? reg.error + ' — ' : '') + 'published WITHOUT sign-in (reachable by anyone with the link). Re-run once you have Application Administrator rights, or secure it in the Azure portal.';
+      // Tailor the guidance to the actual cause. A tenant secret-block policy is
+      // NOT fixable by re-running or by gaining more rights — the credential type
+      // itself is disallowed — so don't send the user chasing "Application
+      // Administrator rights". Only the generic (unknown) failure suggests a re-run.
+      let hint;
+      if (reg.credentialPolicyBlocked) {
+        hint = 'The site is published and reachable by anyone with the link. To add Entra sign-in you\'d need to publish from a subscription whose tenant permits client secrets, or add a certificate credential and configure authentication manually in the Azure portal.';
+      } else if (reg.needsServiceManagementReference) {
+        hint = 'Enter a Service Management Reference in the Hosting & storage step and re-run to wire sign-in. The site is reachable meanwhile.';
+      } else {
+        hint = 'Published WITHOUT sign-in (reachable by anyone with the link). Re-run once you have Application Administrator rights, or secure it in the Azure portal.';
+      }
+      rec.authWarning = (reg.error ? reg.error + ' — ' : '') + hint;
       _saveRecord(rec);
       done('auth', 'Published without sign-in — the app registration could not be created (see the note on the Live step).');
     } else {
@@ -825,6 +873,34 @@ async function publish(composition, opts = {}, hooks = {}) {
 const _running = new Map();
 
 function isPublishing(compId) { return _running.has(compId); }
+
+// A publish job lives only in this process's in-memory `_running` map. If the
+// server restarts (or crashes) mid-provision, the persisted record is stranded
+// at status:"publishing" forever — the client then polls a job that no longer
+// exists and shows "Publishing…" with no activity. Detect that orphan on read:
+// a record marked "publishing" that ISN'T actually running here (and whose last
+// heartbeat is stale) was interrupted. Flip it to a recoverable error so the UI
+// unsticks and the user can re-run (publish is idempotent — it reuses whatever
+// was already created). Never touch a job that is genuinely running in-process.
+const STALE_PUBLISH_MS = 2 * 60 * 1000;
+function reconcileStale(compId) {
+  const rec = getRecord(compId);
+  if (!rec || rec.status !== 'publishing' || isPublishing(compId)) return rec || null;
+  const stamp = Date.parse(rec.updatedAt || rec.startedAt || '');
+  const age = Number.isFinite(stamp) ? (Date.now() - stamp) : Infinity;
+  // Small grace so a record just seeded by startPublish (before the async
+  // publish() body first heartbeats) isn't mistaken for an orphan.
+  if (age < 10000) return rec;
+  rec.status = 'error';
+  rec.error = {
+    code: 'INTERRUPTED',
+    step: 'unknown',
+    message: 'The publish was interrupted before it finished — the server may have restarted. Re-run "Publish to Azure": it reuses whatever was already created and picks up where it left off.',
+  };
+  rec.updatedAt = _now();
+  _saveRecord(rec);
+  return rec;
+}
 
 // Kick off publish() as a background job and return immediately. The provision
 // keeps running server-side regardless of what the caller's HTTP request does
@@ -941,7 +1017,7 @@ function _zipDir(dir, zipPath) {
 }
 
 module.exports = {
-  status, plan, publish, startPublish, isPublishing, unpublish, setAccess,
+  status, plan, publish, startPublish, isPublishing, reconcileStale, unpublish, setAccess,
   getRecord, listRecords,
   _internal: {
     sanitizeSiteName, sanitizeStorageName, sanitizeAppName, sanitizeAcrName,

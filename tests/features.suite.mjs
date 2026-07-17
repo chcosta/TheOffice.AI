@@ -2262,7 +2262,7 @@ await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)'
   // is broken and "require authentication" bricks the site with a 401.
   t.ok(/'ad', 'app', 'create'/.test(srcStatus) && /_ensureAppRegistration/.test(srcStatus), 'auth step creates a real Entra app registration (_ensureAppRegistration)');
   t.ok(/'ad', 'app', 'credential', 'reset'/.test(srcStatus) && /'--client-id', reg\.appId/.test(srcStatus) && /'--client-secret', reg\.secret/.test(srcStatus), 'the registration client id + secret are wired into Container Apps auth');
-  t.ok(/reg\.error \|\| !reg\.appId/.test(srcStatus) && /published WITHOUT sign-in/.test(srcStatus) && /RedirectToLoginPage/.test(srcStatus), 'require-authentication is only enforced once a registration is wired; otherwise the site stays reachable + warns (no 401 brick)');
+  t.ok(/reg\.error \|\| !reg\.appId/.test(srcStatus) && /without sign-in/i.test(srcStatus) && /RedirectToLoginPage/.test(srcStatus), 'require-authentication is only enforced once a registration is wired; otherwise the site stays reachable + warns (no 401 brick)');
   t.ok(/Always grant the publisher access to their own site/.test(srcStatus) && /pl\.people = pl\.people\.concat\(\[\{ email: publisher/.test(srcStatus), 'the publisher is seeded into the restricted allow-list by default (never locked out)');
   t.ok(/appRoleAssignmentRequired=true/.test(srcStatus) && /_grantUser\(rec\.appRegistration\.spId/.test(srcStatus), 'restricted apps require assignment + assign the publisher & listed people');
   t.ok(/appRoleAssignedTo/.test(srcStatus) && /'--body', `@\$\{bodyFile\}`/.test(srcStatus), '_grantUser posts the Graph assignment with the body in a temp file (@file) to dodge Windows JSON quoting');
@@ -2270,6 +2270,32 @@ await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)'
     const cpint = require('../compose-publish.js')._internal;
     t.ok(typeof cpint._ensureAppRegistration === 'function' && typeof cpint._grantUser === 'function' && typeof cpint._revokeAssignment === 'function', 'app-registration + grant + revoke helpers are exported');
   }
+  // --- Service Management Reference (tenant policy) ---
+  // Some tenants require a Service Tree / service id on every `az ad app create`.
+  t.ok(/serviceManagementReference/.test(srcStatus) && /'--service-management-reference', smr/.test(srcStatus), '_ensureAppRegistration passes --service-management-reference when one is supplied');
+  t.ok(/ServiceManagementReference\|service-management-reference/.test(srcStatus) && /needsServiceManagementReference: true/.test(srcStatus), 'the tenant SMR-required error is surfaced as actionable guidance (not a raw Graph dump)');
+  {
+    const cp = require('../compose-publish.js');
+    const cplan = cp.plan({ id: 'smr-test', title: 'SMR Test', format: 'site', draft: { contentFormat: 'html', content: '<!doctype html><html><body>hi</body></html>' } }, { serviceManagementReference: 'b3bbd815-183a-4142-8056-3a676d687f71' });
+    t.ok(cplan && cplan.resources && cplan.resources.serviceManagementReference === 'b3bbd815-183a-4142-8056-3a676d687f71', 'plan() threads a supplied serviceManagementReference into resources');
+  }
+  {
+    const htmlSmr = readFileSync('public/app.html', 'utf8');
+    t.ok(/x-model="compose\.publish\.serviceManagementReference"/.test(htmlSmr) && /serviceManagementReference: p\.serviceManagementReference/.test(htmlSmr), 'the wizard offers a Service ID field and sends it with the publish request');
+  }
+  // Partial settings PATCH must not clobber sibling keys of a fixed-shape nested
+  // object — the enable→publish→"off" loop was a partial { composePublish:{...} }
+  // write dropping `enabled`. _read + updateSettings merge fixed-shape objects one
+  // level; open maps ({} default) still full-replace so entries can be removed.
+  t.ok(/_isFixedShapeObject/.test(set) && /Object\.keys\(v\)\.length\s*>\s*0/.test(set), 'settings distinguishes fixed-shape config objects from open maps');
+  t.ok(/\{\s*\.\.\.DEFAULTS\[k\],\s*\.\.\.sv\s*\}/.test(set), '_read one-level-merges a partially-stored fixed-shape object over its defaults');
+  t.ok(/\{\s*\.\.\.base,\s*\.\.\.patch\[k\]\s*\}/.test(set), 'updateSettings merges a partial fixed-shape patch over the current value (preserves siblings)');
+  // A tenant that blocks client secrets on app registrations ("Credential type not
+  // allowed as per assigned policy") can't have EasyAuth wired — surface that as an
+  // accurate, cause-specific note (NOT the misleading "get Application Administrator
+  // rights / re-run", which does nothing for a policy block).
+  t.ok(/credential type not allowed/i.test(srcStatus) && /credentialPolicyBlocked: true/.test(srcStatus), '_ensureAppRegistration flags a tenant client-secret policy block distinctly');
+  t.ok(/reg\.credentialPolicyBlocked/.test(srcStatus) && /permits client secrets/.test(srcStatus), 'the auth warning for a secret-block policy explains the real cause + options (no bogus re-run advice)');
   // setAccess now grants additions + revokes removals against the SP (async)
   t.ok(/async function setAccess/.test(srcStatus) && /_revokeAssignment\(reg\.spId/.test(srcStatus) && /_grantUser\(reg\.spId/.test(srcStatus), 'setAccess grants newly-added people + revokes removed ones against the service principal');
   // SPA surfaces the access/sign-in warnings on the Live step

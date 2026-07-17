@@ -186,7 +186,7 @@ const DEFAULTS = {
   //   resourceGroup  — RG to create/reuse (empty = one per published prototype).
   //   sku            — App Service plan SKU (F1 free / B1 basic).
   //   subscription   — pin a subscription id (empty = the az default).
-  composePublish: { enabled: false, location: 'eastus2', resourceGroup: '', sku: 'F1', subscription: '' },
+  composePublish: { enabled: false, location: 'eastus2', resourceGroup: '', sku: 'F1', subscription: '', serviceManagementReference: '' },
 
   // ---- Newsletter -----------------------------------------------------------
   // The Newsletter feature turns the Connect impact diary into a polished,
@@ -312,11 +312,30 @@ const DEFAULTS = {
 
 let cache = null;
 
+// A "fixed-shape" nested setting is a non-empty object default (e.g. composePublish,
+// director, grafana, githubAccount): its keys are a known schema, so a partial stored
+// value / partial patch must MERGE over the sibling defaults rather than replace them.
+// An "open map" is an empty-object default (e.g. systemAgentOverrides, director.grants):
+// callers rebuild the whole map to add/remove entries, so it is replaced wholesale.
+function _isFixedShapeObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+}
+
 function _read() {
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
     const obj = JSON.parse(raw);
-    return { ...DEFAULTS, ...(obj && typeof obj === 'object' ? obj : {}) };
+    const src = (obj && typeof obj === 'object') ? obj : {};
+    const out = { ...DEFAULTS, ...src };
+    // One-level merge for fixed-shape nested objects so a partially-stored value
+    // (e.g. composePublish saved as just { serviceManagementReference }) still
+    // carries its sibling defaults (enabled/location/sku/...) instead of dropping them.
+    for (const k of Object.keys(DEFAULTS)) {
+      if (!_isFixedShapeObject(DEFAULTS[k])) continue;
+      const sv = src[k];
+      out[k] = (sv && typeof sv === 'object' && !Array.isArray(sv)) ? { ...DEFAULTS[k], ...sv } : { ...DEFAULTS[k] };
+    }
+    return out;
   } catch (e) {
     return { ...DEFAULTS };
   }
@@ -340,7 +359,17 @@ function updateSettings(patch) {
       if (Array.isArray(DEFAULTS[k])) {
         next[k] = Array.isArray(patch[k]) ? patch[k] : DEFAULTS[k];
       } else if (DEFAULTS[k] && typeof DEFAULTS[k] === 'object') {
-        next[k] = (patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])) ? patch[k] : DEFAULTS[k];
+        // Fixed-shape config objects (non-empty default) merge one level over the
+        // current value so a partial patch (e.g. { composePublish: { enabled:true } }
+        // or { composePublish: { serviceManagementReference } }) preserves siblings.
+        // Open maps (empty {} default, e.g. systemAgentOverrides) are replaced wholesale
+        // so callers can remove entries by omitting them.
+        if (_isFixedShapeObject(DEFAULTS[k])) {
+          const base = (cur[k] && typeof cur[k] === 'object' && !Array.isArray(cur[k])) ? cur[k] : DEFAULTS[k];
+          next[k] = (patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])) ? { ...base, ...patch[k] } : { ...base };
+        } else {
+          next[k] = (patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])) ? patch[k] : DEFAULTS[k];
+        }
       } else if (typeof DEFAULTS[k] === 'boolean') {
         next[k] = typeof patch[k] === 'boolean' ? patch[k] : (patch[k] === 'true' || patch[k] === 1 || patch[k] === '1');
       } else if (typeof DEFAULTS[k] === 'number') {
