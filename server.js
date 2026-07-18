@@ -24305,18 +24305,43 @@ function _meAiGateFeedback(label) {
   ].join('\n');
 }
 
+// Steering message for a READ-ONLY (investigate) pursuit. Unlike the ordinary gate
+// feedback, this does NOT invite the model to propose the action for approval — an
+// investigate pursuit is scoped to analyse + report, so a change-making action is a
+// dead end here. It tells the model to CULL that path and REDIRECT the intent into a
+// concrete recommendation folded into findings (so we never ask the user to authorise
+// a change on an analysis-only run — the owner's constraint: "it shouldn't even be
+// asking me for them").
+function _meAiGateFeedbackReadOnly(label) {
+  return [
+    'BLOCKED — READ-ONLY INVESTIGATION: the action you just attempted' + (label ? ' (' + label + ')' : '') +
+    ' would change a shared/external system (edit code, open/merge a PR, change or comment on a work item, post/send, or run a destructive command).',
+    'This pursuit is scoped to INVESTIGATE — read-only, report back. The action was NOT performed and will NOT be approved here.',
+    'Do NOT retry it, do NOT attempt a workaround (another tool or a shell fallback), and do NOT propose it as a gated next step or ask me to approve it.',
+    'Instead, CAPTURE it as a concrete, prioritized RECOMMENDATION in your findings — say exactly what you would change, where, and why — and keep investigating everything you still can READ.',
+    'Set "proposedAction" to null and keep "outcome" as "done" (or "dead-end"); the suggested change belongs in "findings" as a clear claim, never as an action to take.',
+  ].join('\n');
+}
+
 // Build the PermissionHandler for a Me-agent turn. Returns undefined for the
-// approved-outbox (workiq) path so that stays approve-all.
+// approved-outbox (workiq) path so that stays approve-all. For a READ-ONLY
+// (investigate) pursuit the gate is a HARD WALL: a volatile action is refused with
+// read-only feedback (record a recommendation, don't ask) rather than the ordinary
+// "report it for approval" steering — so an analysis-only run can never post, push,
+// open a PR, or mutate a work item, and never asks the user to authorise one.
 function _meAiPermissionGate(t) {
+  const readOnly = _meAiIntentOf(t) === 'investigate';
   return (request) => {
     let d;
     try { d = _meAiClassifyPermission(request); }
     catch (_) { d = { gate: true, label: 'unclassified action' }; }
     if (!d || !d.gate) return { kind: 'approve-once' };
     try {
-      if (t) _meAiEmit(t, { kind: 'note', text: 'Auth gate: blocked an action needing approval' + (d.label ? ' — ' + d.label : '') + '. Reporting it for approval instead of acting.' });
+      if (t) _meAiEmit(t, { kind: 'note', text: readOnly
+        ? ('Read-only investigation: refused a change-making action' + (d.label ? ' — ' + d.label : '') + '. Recording it as a recommendation instead of acting or asking.')
+        : ('Auth gate: blocked an action needing approval' + (d.label ? ' — ' + d.label : '') + '. Reporting it for approval instead of acting.') });
     } catch (_) {}
-    return { kind: 'reject', feedback: _meAiGateFeedback(d.label) };
+    return { kind: 'reject', feedback: readOnly ? _meAiGateFeedbackReadOnly(d.label) : _meAiGateFeedback(d.label) };
   };
 }
 
@@ -25186,6 +25211,34 @@ function _meAiParseLegResult(out) {
   };
 }
 
+// ── Director fallback: read-only path culling ───────────────────────────────
+// An INVESTIGATE pursuit is read-only by contract, but the leg prompt + tool gate
+// are best-effort — a model can still emit a change-making "proposedAction" (open a
+// PR, change a work item, post) in its result JSON. If one slips through, the
+// Director must recognise the VOLATILE path and cull/redirect it rather than surface
+// an Approve gate: we fold the proposed change into the leg's findings as a concrete
+// RECOMMENDATION and null the action, so the pursuit stays an analysis and never asks
+// the user to authorise a change. No-op for prepare/execute (which legitimately stage
+// gated actions). Mutates `r` in place. Returns true if it redirected something.
+function _meAiEnforceReadOnlyResult(t, id, leg, r) {
+  try {
+    if (!r || _meAiIntentOf(t) !== 'investigate') return false;
+    if (!r.proposedAction && r.outcome !== 'needs-auth') return false;
+    const pa = r.proposedAction;
+    if (pa) {
+      const bits = [pa.summary || pa.op || 'a change'];
+      if (pa.target) bits.push('[' + pa.target + ']');
+      const rec = ('Recommended (read-only pursuit — not taken): ' + bits.join(' ')).slice(0, 300);
+      r.findings = Array.isArray(r.findings) ? r.findings : [];
+      r.findings.unshift({ subject: String(pa.op || 'recommendation').slice(0, 80), stance: 'neutral', claim: rec, confidence: r.confidence || 'medium' });
+    }
+    r.proposedAction = null;
+    if (r.outcome === 'needs-auth') r.outcome = 'done';
+    try { _meAiEmit(t, { kind: 'note', text: 'Read-only pursuit: the Director redirected a change-making step on "' + String((leg && leg.title) || 'a leg') + '" into a recommendation instead of an action.' }); } catch (_) {}
+    return true;
+  } catch (_) { return false; }
+}
+
 // Bounded async pool (fan-out at maxParallel without touching the global gate).
 async function _meAiPool(items, n, fn) {
   const q = items.slice(); let active = 0;
@@ -25330,6 +25383,11 @@ async function _meAiRunLeg(t, leg) {
       return;
     }
     const r = _meAiParseLegResult(out);
+    // Director fallback (read-only): if this INVESTIGATE leg still emitted a volatile
+    // proposedAction despite the read-only prompt + tool gate, cull/redirect it into a
+    // recommendation BEFORE it can become a needs-auth stop — an analysis-only pursuit
+    // must never ask the user to authorise a change.
+    _meAiEnforceReadOnlyResult(t, id, leg, r);
     leg._result = r;
     // Stop-all guard (PROPAGATION): if the user hit "Stop all" while this leg's turn was in
     // flight, do NOT fold its result or create follow-up stops — just mark it cancelled. The
@@ -28302,6 +28360,21 @@ function _meAiTreeResolveStop(t, stopId, decision, note) {
     }
     // needs-auth approve: perform the gated action via the outbox, exactly once.
     _meAiSetStage(t, 'working', 'running');
+    // Defense-in-depth (read-only): an INVESTIGATE pursuit must never EXECUTE a volatile
+    // action, even if a stale/legacy needs-auth stop somehow reached the approve path.
+    // Refuse to carry it out — resolve the stop, record the change as a durable
+    // recommendation constraint, and park. (Layers 1+2 normally prevent these stops from
+    // ever being created for investigate; this is the belt-and-suspenders.)
+    if (_meAiIntentOf(t) === 'investigate') {
+      const act = stop.action || {};
+      _meAiTreeEmit(id, 'auth_decision', { stopId, decision: 'approve', note: note || null });
+      if (stop.legId) _meAiTreeEmit(id, 'leg_status', { legId: stop.legId, status: 'done' });
+      _meAiTreeEmit(id, 'rootstate', { patch: { constraint: 'Read-only pursuit: recorded (did not execute) a proposed change — ' + (act.summary || act.op || stop.prompt || 'action') } });
+      _meAiReconcileAsks(t, meAiTrees.get(id) || _meAiFoldJournal(id));
+      _meAiTreeMirror(t, 'This is a read-only investigation — I captured that as a recommendation in the report rather than making the change.');
+      _meAiSetStage(t, 'awaiting', 'awaiting');
+      return;
+    }
     // DELIVERY approve: the user approved actually executing the fix (not an external
     // post). Run the sequential delivery pipeline (implement → self-critique → validate
     // → document → prepare PR) instead of the generic outbox+reroute. Terminal: sets

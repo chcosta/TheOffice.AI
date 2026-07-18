@@ -3184,4 +3184,53 @@ await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-w
   t.ok(/globalAlpha\s*=\s*0\.22/.test(lodDraw), 'non-active work dims to a low alpha');
 });
 
+await t.test('investigate intent is read-only: gate hard-walls volatile actions, Director culls/redirects, no approve gate', () => {
+  const src = readFileSync('server.js', 'utf8');
+
+  // (1) TOOL GATE — under investigate the permission gate is a hard read-only wall: it
+  // refuses volatile actions with read-only feedback (record a recommendation, don't
+  // ask) instead of the ordinary "report it for approval" steering.
+  t.ok(/function _meAiGateFeedbackReadOnly\(label\)/.test(src),
+    'read-only gate feedback helper exists');
+  const roFb = _win(src, 'function _meAiGateFeedbackReadOnly(label)', 900);
+  t.ok(/READ-ONLY INVESTIGATION/.test(roFb) && /do NOT propose it as a gated next step or ask me to approve it/i.test(roFb),
+    'read-only feedback tells the model NOT to propose the action or ask for approval');
+  t.ok(/RECOMMENDATION in your findings/i.test(roFb) && /"proposedAction" to null/.test(roFb),
+    'read-only feedback redirects the action into a recommendation and nulls proposedAction');
+  const gate = _win(src, 'function _meAiPermissionGate(t)', 1400);
+  t.ok(/const readOnly = _meAiIntentOf\(t\) === 'investigate'/.test(gate),
+    'the gate computes read-only from the investigate intent');
+  t.ok(/readOnly \? _meAiGateFeedbackReadOnly\(d\.label\) : _meAiGateFeedback\(d\.label\)/.test(gate),
+    'the gate sends read-only feedback for investigate, ordinary approval steering otherwise');
+
+  // (2) DIRECTOR FALLBACK — if a leg still emits a volatile proposedAction, the Director
+  // culls/redirects it into a recommendation BEFORE it can become a needs-auth stop.
+  t.ok(/function _meAiEnforceReadOnlyResult\(t, id, leg, r\)/.test(src),
+    'the read-only result-culling helper exists');
+  const enf = _win(src, 'function _meAiEnforceReadOnlyResult(t, id, leg, r)', 1200);
+  t.ok(/_meAiIntentOf\(t\) !== 'investigate'/.test(enf),
+    'the culler is a no-op for prepare/execute (they legitimately stage gated actions)');
+  t.ok(/r\.findings\.unshift\(/.test(enf) && /Recommended \(read-only pursuit/.test(enf),
+    'a culled proposedAction becomes a prioritized recommendation finding');
+  t.ok(/r\.proposedAction = null;/.test(enf) && /if \(r\.outcome === 'needs-auth'\) r\.outcome = 'done';/.test(enf),
+    'the volatile action is nulled and needs-auth is coerced to done (no approval gate raised)');
+  const runLeg2 = _win(src, 'async function _meAiRunLeg(t, leg) {', 6000);
+  t.ok(/_meAiEnforceReadOnlyResult\(t, id, leg, r\);/.test(runLeg2) &&
+       runLeg2.indexOf('_meAiEnforceReadOnlyResult(t, id, leg, r);') < runLeg2.indexOf('if (r.proposedAction) {'),
+    'the leg run culls read-only volatile results BEFORE the needs-auth stop is created');
+
+  // (3) DEFENSE-IN-DEPTH — the approve-execution path refuses to run a volatile action
+  // on an investigate pursuit even if a stale needs-auth stop reaches it.
+  const resolve = _win(src, 'needs-auth approve: perform the gated action via the outbox', 2200);
+  t.ok(/if \(_meAiIntentOf\(t\) === 'investigate'\) \{/.test(resolve),
+    'the approve path guards on investigate');
+  t.ok(/Read-only pursuit: recorded \(did not execute\)/.test(resolve) && /_meAiSetStage\(t, 'awaiting', 'awaiting'\)/.test(resolve),
+    'an approved volatile action on an investigate pursuit is recorded, not executed');
+
+  // Investigate pursuits are not delivery-capable (no "want me to implement + open a PR?" offer).
+  const delCap = _win(src, 'function _meAiDeliveryCapable(t)', 900);
+  t.ok(/if \(intent === 'investigate'\) return false;/.test(delCap),
+    'investigate is never delivery-capable (no execute/PR offer)');
+});
+
 await t.done();
