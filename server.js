@@ -23147,6 +23147,10 @@ setInterval(() => {
     for (const [id, t] of meAiTasks) {
       try {
         if (!t || t.mode !== 'tree') continue;
+        // A winding-down pursuit is being finalized — never re-drive stalled orphans or
+        // re-engage a spine wave on a timer (that would reopen a new avenue). Its in-flight
+        // legs finish and the merge finalizes it; the watchdog leaves it alone.
+        if (_meAiPursuitWindingDown(id, t)) continue;
         // Self-heal stuck ARBITRATION PROBES first — even on a LIVE pursuit. A director-spawn
         // probe orphaned at 'planned' (dispatch wave dropped by a restart, or minted on a
         // non-leader) reads on the desk as "sub-agent running" but never actually started, and
@@ -26010,6 +26014,10 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   // never overwrite). The pure reducer returns the journal events to replay.
   const tree0 = meAiTrees.get(id);
   let work = (tree0 && tree0.rootState) ? tree0.rootState : { constraints: [], answers: [], findings: [], openConflicts: [] };
+  // WIND-DOWN: the user asked to finalize — let this in-flight wave FINISH and FOLD (never
+  // dropped, unlike stop-all), but pursue NO new avenues (no tiebreak spawns, no delivery
+  // offer, no auto-continue, no reroute round) and conclude cleanly on what's known.
+  const winding = !!(t && t._windDown) || !!(tree0 && tree0.rootState && tree0.rootState.windDown);
   const curEpoch = (tree0 && typeof tree0.epoch === 'number') ? tree0.epoch : 0;
   const titleToId = {}; for (const l of legs) titleToId[String(l.title || '').toLowerCase().trim()] = l.id;
   const newConflicts = [];
@@ -26033,7 +26041,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   for (const c of openConflicts.slice()) {
     if (c.status !== 'open') continue;
     const factual = _meAiStanceOpposed(c.a.stance, c.b.stance);
-    if (factual && tiebreakUsed < 1 && budgetLeftFrac() > 0.4) {
+    if (factual && !winding && tiebreakUsed < 1 && budgetLeftFrac() > 0.4) {
       tiebreakUsed++;
       const tb = _meAiNewLeg({ kind: 'tiebreak', parentId: spine.id, lane: 'spine', baseEpoch: curEpoch, status: 'planned', title: 'Tiebreak: ' + c.subject, goal: `Two of my pursuit legs disagree about "${c.subject}". One concluded: ${c.a.claim} (${c.a.stance}). The other concluded: ${c.b.claim} (${c.b.stance}). Determine which is correct and WHY. Return a single finding with subject "${c.subject}" and the correct stance.` });
       _meAiTreeEmit(id, 'leg_spawn', { leg: tb });
@@ -26062,7 +26070,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   // hand back another read-only report. Gated behind the user's approval. Suppressed
   // once delivered, or when we broke out of a loop (don't re-offer on a dead cycle).
   let deliveryStop = null;
-  if (_meAiDeliveryCapable(t) && converged && !t._delivered && !t._loopBreak) {
+  if (_meAiDeliveryCapable(t) && converged && !winding && !t._delivered && !t._loopBreak) {
     deliveryStop = _meAiNewStop({
       type: 'needs-auth', legId: spine.id, risk: 'write', delivery: true,
       prompt: 'I have finished investigating and know what to change. Want me to actually do it — implement the fix, critique my own change, validate it, and prepare a PR for your approval?',
@@ -26073,7 +26081,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   // AUTO-CONTINUE decision (Issue 1): should this round keep pursuing on its own
   // recommendation, or park and wait on the user? Computed here so the reroute
   // block below only spawns an inert "re-plan" node when we're actually parking.
-  const autoStop = _meAiTreeAutoStopReason(t, {
+  let autoStop = _meAiTreeAutoStopReason(t, {
     pendingAuth: pendingAuth.length,
     deliveryStop: !!deliveryStop,
     unresolvedConflicts: unresolvedConflicts.length,
@@ -26081,6 +26089,10 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
     done: done.length,
     noMoreAngles: !!(opts && opts.noMoreAngles),
   });
+  // Wind-down forces a clean stop: never auto-continue onto a new avenue. Marking a
+  // non-null reason both makes `concluding` true (so the rich compendium is built) and
+  // skips the `autoStop === null` autonomous-continuation block below.
+  if (winding && autoStop === null) autoStop = 'wind-down';
   // Build the pursuit report markdown.
   const reportTitle = _meAiReportTitle(t);
   const rankC = { high: 3, medium: 2, low: 1 };
@@ -26156,7 +26168,7 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   // visible reroute spine leg. GUARDED so a delivered pursuit, a broken loop, or a
   // pending delivery offer never spawns another re-scouting round (the spin fix).
   const strong = done.some(l => l._result.confidence === 'high') || pendingAuth.length > 0;
-  if (strong && !t._delivered && !t._loopBreak && !deliveryStop && autoStop) {
+  if (strong && !winding && !t._delivered && !t._loopBreak && !deliveryStop && autoStop) {
     const epoch = 1;
     _meAiTreeEmit(id, 'epoch_bump', { epoch });
     const reroute = _meAiNewLeg({ kind: 'reroute', parentId: spine.id, lane: 'spine', baseEpoch: epoch, status: pendingAuth.length ? 'blocked' : 'done', title: 'Re-route: ' + (best ? best.text : 'act on findings').slice(0, 80), goal: best ? best.text : '' });
@@ -26225,6 +26237,23 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
 
   _meAiEmit(t, { kind: 'report', summary: t.report.summary, findings: t.report.findings });
   _meAiDirectorNarrateConcl(t);
+
+  // ── WIND-DOWN FINALIZE ────────────────────────────────────────────────────
+  // The user asked to finalize. Every in-flight leg has now folded (wind-down never
+  // drops a running leg — it just stops NEW avenues), the rich compendium is built
+  // above (autoStop='wind-down' made `concluding` true), so land the pursuit cleanly
+  // on what's known. We finalize even when pending user gates exist — the compendium
+  // documents any proposed-but-not-executed action rather than blocking on it, which
+  // is the whole point of "finalize based on what was completed and is known."
+  if (winding) {
+    t.pauseReason = null;
+    t.question = null;
+    t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+    _meAiTreeMirror(t, 'Wound down at your request — no new avenues pursued. Finalized on what was completed and is known; the full compendium is attached.');
+    _meAiTreeEmit(id, 'stage', { stage: 'done' });
+    _meAiSetStage(t, 'done', 'done');
+    return;
+  }
 
   // Exhausted the avenues on an autonomous pass → the goal is as met as it's going
   // to get. Conclude cleanly rather than loop or park with an empty ask.
@@ -26918,6 +26947,21 @@ function _meAiPursuitIdle(id, tree) {
       return t0 && (now - t0) <= ME_AI_STALE_RUNNING_MS;
     });
     return !anyFresh;
+  } catch (_) { return false; }
+}
+
+// Is this pursuit WINDING DOWN? The user signalled (from the automation page) that the
+// pursuit has done enough: existing active work should finish, but NO new avenues get
+// pursued, then the system finalizes on what's known. The flag is durable — persisted in
+// the tree's rootState via a `rootstate` patch — so it survives a server restart (the raw
+// in-memory `t._windDown` alone would be lost). Read from BOTH so a just-set flag and a
+// rehydrated one both count.
+function _meAiPursuitWindingDown(id, t) {
+  try {
+    const task = t || meAiTasks.get(id);
+    if (task && task._windDown) return true;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    return !!(tree && tree.rootState && tree.rootState.windDown);
   } catch (_) { return false; }
 }
 
@@ -27785,6 +27829,9 @@ function _meAiReDrivePlannedSpawns(t, tree, id) {
 // shrink the approval pile the pursuit just parked with, not to push new work.
 function _meAiDirectorSweep(t, _rearm) {
   const id = t.id;
+  // Wind-down suppresses ALL autonomous director action (absorption, probes, gap spawns):
+  // the user asked to finalize on what's known, not to open new avenues.
+  if (_meAiPursuitWindingDown(id, t)) return { skipped: 'wind-down' };
   // An externally-triggered sweep (engine event, manual "Sweep now", watchdog) gets a
   // fresh convergence budget; a re-armed follow-up (_rearm) keeps the running chain count.
   if (!_rearm) t._directorSweepChain = 0;
@@ -28905,6 +28952,75 @@ app.post('/api/me-ai/task/:id/director/stop-all', (req, res) => {
     if (t) _meAiSetStage(t, 'awaiting', 'awaiting');
     res.json({ ok: true, cancelled, paused: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Wind down & finalize: the user decided the pursuit has done enough. Unlike stop-all
+// (which cancels active legs and parks on the desk), wind-down lets EXISTING active work
+// FINISH and FOLD, pursues NO new avenues, then finalizes on what's known — producing the
+// final summary plus the full compendium. The flag is durable (persisted into rootState)
+// so a restart mid-drain still finalizes. If the pursuit is already idle (nothing running
+// to trigger a merge), we finalize inline right here using the same compendium primitives
+// as the on-demand /report/compendium route.
+app.post('/api/me-ai/task/:id/director/wind-down', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const t = meAiTasks.get(id);
+    // Set on the canonical task object so the in-flight merge (which re-reads meAiTasks.get)
+    // sees `winding` when its legs drain, and persist durably so it survives a restart.
+    if (t) t._windDown = true;
+    try { _meAiTreeEmit(id, 'rootstate', { patch: { windDown: true } }); } catch (_) {}
+    try {
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+        verb: 'wind-down', cls: 'control', target: id,
+        why: 'You asked to finalize: existing active work will complete, no new avenues will be pursued, then the pursuit finalizes on what is known.',
+        state: 'logged', reversible: false,
+      }) });
+    } catch (_) {}
+
+    const idle = _meAiPursuitIdle(id);
+    if (!idle) {
+      // A wave is in flight — let it drain. The next _meAiTreeMergeReport reads the flag and
+      // finalizes (compendium + done). Nothing to build here yet.
+      return res.json({ ok: true, winding: true, idle: false, finalized: false, message: 'Existing work will finish, then the pursuit finalizes automatically.' });
+    }
+
+    // Idle now → finalize inline. Build the full compendium from the durable journal.
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    if (!tree || !tree.legs || !Object.keys(tree.legs).length) {
+      if (t) { _meAiSetStage(t, 'done', 'done'); _meAiTreeEmit(id, 'stage', { stage: 'done' }); }
+      return res.json({ ok: true, winding: true, idle: true, finalized: true, synthesized: false, message: 'No captured work to compile — pursuit closed.' });
+    }
+    meAiTrees.set(id, tree);
+    const task = t || tree;
+    const spineId = tree._spineId || (tree.order || []).find(lid => tree.legs[lid] && tree.legs[lid].lane === 'spine') || (tree.order || [])[0];
+    const corpus = _meAiFoldedReportCorpus(tree);
+    let artifactId = null, artFormatOut = 'markdown', synthesized = false;
+    if (spineId && (corpus.legs.length || corpus.artifacts.length)) {
+      const title = _meAiReportTitle(task) || _meAiReportTitle(tree);
+      const goal = (task && task.goal) || (tree && tree.goal) || _meAiGoalFor(task) || _meAiGoalFor(tree) || '';
+      const synthCorpus = { legs: corpus.legs.slice(), artifacts: corpus.artifacts };
+      while (JSON.stringify(synthCorpus).length > 86000 && synthCorpus.legs.length > 4) synthCorpus.legs.pop();
+      let synth = null;
+      try { synth = await _meAiTreeSynthesizeReport(task, synthCorpus, { title, goal }); } catch (_) { synth = null; }
+      let artBody, artFormat = null, artExt = '.md';
+      if (synth && synth.html) { artBody = synth.html; artFormat = 'html'; artExt = '.html'; synthesized = true; }
+      else { artBody = _meAiFoldedReportFallbackMd(task, corpus, { title, goal }); }
+      const art = _meAiNewArtifact({ legId: spineId, kind: 'report', title, body: artBody, format: artFormat });
+      try { const adir = path.join(_meAiTreeDir(id), 'artifacts'); fs.mkdirSync(adir, { recursive: true }); art.path = path.join(adir, art.id + artExt); fs.writeFileSync(art.path, art.body); } catch (_) {}
+      _meAiTreeEmit(id, 'artifact', { artifact: art });
+      artifactId = art.id; artFormatOut = artFormat || 'markdown';
+      if (task && task.report) task.report.summary = task.report.summary || ('Finalized on what was completed and is known — see the full compendium.');
+      else if (task) task.report = { summary: 'Finalized on what was completed and is known — see the full compendium.', markdown: '' };
+    }
+    if (task && task.id) {
+      task.pauseReason = null; task.question = null;
+      task.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+      _meAiTreeMirror(task, 'Wound down at your request — finalized on what was completed and is known.');
+      _meAiSetStage(task, 'done', 'done');
+      _meAiTreeEmit(id, 'stage', { stage: 'done' });
+    }
+    res.json({ ok: true, winding: true, idle: true, finalized: true, synthesized, artifactId, format: artFormatOut, legs: corpus.legs.length, artifacts: corpus.artifacts.length });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Run a director sweep on demand (same gates as the automatic one).

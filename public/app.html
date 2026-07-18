@@ -24865,6 +24865,7 @@
                         </div>
                         <div class="mr-dactions">
                           <button class="mr-btn primary" type="button" x-show="!meAiSelectedRun().deleted" @click="meAiOpenRun(meAiSelectedRun())"><span x-text="(meAiRunStatusKey(meAiSelectedRun()) === 'running' || meAiRunStatusKey(meAiSelectedRun()) === 'awaiting') ? 'Monitor live →' : 'Open run →'"></span></button>
+                          <button class="mr-btn" type="button" x-show="!meAiSelectedRun().deleted && meAiRunIsDeep(meAiSelectedRun()) && (meAiRunStatusKey(meAiSelectedRun()) === 'running' || meAiRunStatusKey(meAiSelectedRun()) === 'awaiting')" @click="meAiWindDownFinalize(meAiSelectedRun().id)" :disabled="meAiRunsBusy === 'winddown'" title="Let current work finish, pursue no new avenues, then finalize on what's known — with a full compendium." x-text="meAiRunsBusy === 'winddown' ? 'Winding down…' : 'Wind down & finalize'"></button>
                           <button class="mr-btn danger" type="button" x-show="!meAiSelectedRun().deleted && meAiRunIsDeep(meAiSelectedRun()) && (meAiRunStatusKey(meAiSelectedRun()) === 'running' || meAiRunStatusKey(meAiSelectedRun()) === 'awaiting')" @click="meAiStopAllNodes(meAiSelectedRun().id)" :disabled="meAiRunsBusy === 'stopall'" x-text="meAiRunsBusy === 'stopall' ? 'Stopping…' : 'Stop all active nodes'"></button>
                           <button class="mr-btn danger" type="button" x-show="!meAiSelectedRun().deleted && meAiSelectedRun().status !== 'running'" @click="meAiDeleteRun(meAiSelectedRun().id)" :disabled="meAiRunsBusy === 'del'" x-text="meAiRunsBusy === 'del' ? 'Deleting…' : 'Delete run'"></button>
                         </div>
@@ -33104,6 +33105,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast(n ? ('Stopping — cancelled ' + n + ' active node' + (n === 1 ? '' : 's') + '. Nodes mid-turn finish their current step.') : 'Stop requested — no active nodes were pending.', 'success');
             await this.loadMeAiRuns();
           } catch (e) { alert('Stop-all failed: ' + ((e && e.message) || e)); }
+          this.meAiRunsBusy = '';
+        },
+        async meAiWindDownFinalize(id) {
+          const r = this.meAiSelectedRun() || (this.meAiRuns || []).find(x => x.id === id);
+          if (!r) return;
+          if (!confirm('Wind down & finalize this pursuit?\n\nExisting active work will be allowed to finish, but no new avenues will be pursued. Once current work completes, the system finalizes on what was completed and is known, and produces a final summary plus the full compendium.\n\n(This is softer than "Stop all" — nothing in-progress is dropped.)')) return;
+          this.meAiRunsBusy = 'winddown';
+          try {
+            const res = await this.request('/api/me-ai/task/' + encodeURIComponent(id) + '/director/wind-down', { method: 'POST', body: JSON.stringify({}) });
+            if (res && res.finalized) this.toast('Wound down — finalized on what was completed. The full compendium is attached.', 'success');
+            else this.toast('Winding down — existing work will finish, then the pursuit finalizes automatically.', 'success');
+            await this.loadMeAiRuns();
+          } catch (e) { alert('Wind-down failed: ' + ((e && e.message) || e)); }
           this.meAiRunsBusy = '';
         },
         async meAiDeleteRun(id) {

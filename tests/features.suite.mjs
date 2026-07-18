@@ -3107,6 +3107,58 @@ await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-w
   t.ok(/verb:\s*'abandoned-path'/.test(abandonRoute) && /op:\s*'reopen'/.test(abandonRoute),
     'abandon ledgers a reversible abandoned-path record (reopen undo)');
 
+  // (f2b) Automation "Wind down & finalize" — signal the pursuit has done enough: pursue NO
+  // new avenues, let EXISTING active work FINISH (never dropped, unlike stop-all), then finalize
+  // on what's known and produce the final summary PLUS the full compendium.
+  // ── FRONTEND: calm (non-danger) button + honest busy/finalize toasts.
+  t.ok(/meAiWindDownFinalize\(meAiSelectedRun\(\)\.id\)/.test(html),
+    'run-detail actions have a Wind-down & finalize button');
+  t.ok(/<button class="mr-btn"[^>]*meAiWindDownFinalize\(meAiSelectedRun\(\)\.id\)/.test(html),
+    'wind-down button is calm/neutral (mr-btn), NOT the danger styling stop-all uses');
+  const windBtn = _win(html, 'meAiWindDownFinalize(meAiSelectedRun().id)', 400);
+  t.ok(/meAiRunsBusy === 'winddown'/.test(windBtn),
+    'wind-down button gates its spinner on the distinct winddown busy state');
+  const windFn = _win(html, 'async meAiWindDownFinalize(id) {', 1400);
+  t.ok(windFn, 'meAiWindDownFinalize method found');
+  t.ok(/confirm\(/.test(windFn) && /no new avenues/i.test(windFn),
+    'wind-down is confirm-gated with a softer "no new avenues" message');
+  t.ok(/director\/wind-down/.test(windFn) && /method: 'POST'/.test(windFn),
+    'client POSTs the wind-down route');
+  t.ok(/res && res\.finalized/.test(windFn),
+    'client toasts honestly: idle→finalized vs in-flight→will finalize when work drains');
+
+  // ── BACKEND: durable flag + winding gate + finalize branch + the route + suppressed autonomy.
+  t.ok(/function _meAiPursuitWindingDown\(id, t\)/.test(src),
+    'server has the winding-down helper (reads both the in-memory flag and durable rootState)');
+  const windHelper = _win(src, 'function _meAiPursuitWindingDown(id, t)', 400);
+  t.ok(/_windDown/.test(windHelper) && /rootState && tree\.rootState\.windDown/.test(windHelper),
+    'the helper reads BOTH t._windDown and the durable tree.rootState.windDown');
+  t.ok(/const winding = !!\(t && t\._windDown\) \|\| !!\(tree0 && tree0\.rootState && tree0\.rootState\.windDown\)/.test(src),
+    'the merge reducer computes `winding` from the flag or durable state');
+  t.ok(/if \(winding && autoStop === null\) autoStop = 'wind-down'/.test(src),
+    'winding forces autoStop=wind-down so the rich compendium builds AND no new wave spawns');
+  const windFinal = _win(src, '// ── WIND-DOWN FINALIZE', 1300);
+  t.ok(windFinal && /if \(winding\) \{/.test(windFinal) && /_meAiSetStage\(t, 'done', 'done'\)/.test(windFinal),
+    'the finalize branch lands the pursuit on `done` once in-flight legs have folded');
+  t.ok(/&& !winding/.test(_win(src, 'if (factual && !winding', 120)) &&
+       /converged && !winding/.test(src) && /if \(strong && !winding/.test(src),
+    'winding suppresses tiebreak, delivery, and reroute gates (no new avenues)');
+  const windRoute = _win(src, "app.post('/api/me-ai/task/:id/director/wind-down'", 3600);
+  t.ok(windRoute, 'server wind-down route found');
+  t.ok(/if \(t\) t\._windDown = true/.test(windRoute) && /'rootstate', \{ patch: \{ windDown: true \} \}/.test(windRoute),
+    'the route sets the in-memory flag AND persists the durable rootState patch');
+  t.ok(/verb: 'wind-down'/.test(windRoute) && /_meAiPursuitIdle\(/.test(windRoute),
+    'the route ledgers a wind-down entry and branches on idleness');
+  t.ok(/idle: false, finalized: false/.test(windRoute) && /idle: true, finalized: true/.test(windRoute),
+    'not-idle → finalizes later when legs drain; idle → finalizes inline');
+  t.ok(/return \{ skipped: 'wind-down' \}/.test(_win(src, 'Wind-down suppresses ALL autonomous', 400)),
+    'the director sweep is fully suppressed while winding down');
+  // CRITICAL invariant: wind-down must NOT reuse the stop-all leg guards — a running leg must
+  // FINISH and FOLD, not be dropped mid-turn. Assert neither _meAiRunLeg guard gained _windDown.
+  const runLeg = _win(src, 'async function _meAiRunLeg(t, leg) {', 3200);
+  t.ok(runLeg && /rt && rt\._stopAll/.test(runLeg) && !/_windDown/.test(runLeg),
+    'the _meAiRunLeg START/PROPAGATION guards drop only on stop-all — NEVER on wind-down (legs must fold)');
+
   // (g) active-work panel: the union of every live sub-agent — running legs, running
   // investigation probes, and live arbitration agents — de-duped by the leg a probe/arb runs as.
   const active = _win(html, 'meAiPursuitActiveNodes() {', 300);
