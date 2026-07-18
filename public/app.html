@@ -46637,24 +46637,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return out;
         },
-        // Unified "active work" — EVERY sub-agent doing something right now, not just running
+        // Unified "active work" — EVERY sub-agent the Director has in flight, not just running
         // map legs. The old panel only listed running legs and silently omitted the Director's
-        // investigation sub-agents and live arbitration agents, so "3 active" contradicted the
-        // header's "5 investigating". This merges three live buckets — running legs, running
-        // investigation probes, and live arbitration agents — de-duplicated by the leg a probe/
-        // arbitrator actually runs as (spawnLegId / arbLegId), so the same work is never shown
-        // twice. Probe/arb rows win the dedupe because they carry the richer sub-agent context.
+        // investigation bucket + live arbitration agents, so "3 active" contradicted the header's
+        // "N investigating". This merges three buckets — running legs, the FULL investigation
+        // bucket (running, reconciling, or queued — matching the header's investigating count),
+        // and live arbitration agents — de-duplicated by the leg a probe/arbitrator actually runs
+        // as (spawnLegId / arbLegId), so the same work is never shown twice. Each row is labeled
+        // by its real state so a live sub-agent reads differently from one reconciling or queued.
         meAiPursuitActiveItems() {
           const p = this.meai.pursuit;
           const rows = [];
           const claimed = new Set(); // leg ids already represented by an investigation/arbitration row
           if (this.meAiDirectorActive()) {
-            // Investigations: a probe with a live sub-agent dispatched.
+            // Investigations: the whole "Director is investigating" bucket. We include probes that
+            // are reconciling (spawn ran) or queued too — the header counts them as investigating,
+            // so the panel must show them or the counts contradict each other again. The per-row
+            // label + duration tell running / reconciling / queued apart honestly.
             for (const it of this.meAiDirectorProbes()) {
-              if (!it || !(it.dispatched || it.sinceKind === 'running')) continue;
+              if (!it) continue;
               if (it.spawnLegId) claimed.add(String(it.spawnLegId));
+              const label = it.dispatched ? 'investigating'
+                : (it.investigated ? 'reconciling'
+                  : (it.pending ? 'queued (recovering)' : 'queued'));
               rows.push({
-                id: 'probe:' + it.id, kind: 'probe', label: 'investigating',
+                id: 'probe:' + it.id, kind: 'probe', label,
                 title: it.title || it.question || 'Investigation',
                 nodeId: it.spawnLegId || it.nodeId || null,
                 dur: this.meAiSpawnTiming(it), stuck: this.meAiSpawnStuck(it), ref: it,

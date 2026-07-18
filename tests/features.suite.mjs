@@ -3035,8 +3035,8 @@ await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-w
   t.ok(/leg\.status\s*===\s*'running'/.test(active), 'active nodes are the running legs');
   const activeItems = _win(html, 'meAiPursuitActiveItems() {', 2400);
   t.ok(activeItems, 'meAiPursuitActiveItems found');
-  t.ok(/meAiDirectorProbes\(\)/.test(activeItems) && /dispatched\s*\|\|\s*it\.sinceKind\s*===\s*'running'/.test(activeItems),
-    'active items include running investigation probes');
+  t.ok(/meAiDirectorProbes\(\)/.test(activeItems) && /it\.investigated\s*\?\s*'reconciling'/.test(activeItems),
+    'active items include the whole investigation bucket (running / reconciling / queued), labeled by state');
   t.ok(/meAiDirectorDesk\(\)/.test(activeItems) && /it\.arbitrating/.test(activeItems),
     'active items include live arbitration agents');
   t.ok(/claimed\.add\(String\(it\.spawnLegId\)\)/.test(activeItems) && /claimed\.has\(String\(n\.id\)\)/.test(activeItems),
