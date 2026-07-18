@@ -150,14 +150,17 @@ function _clashEvidenceClear(conflict, grant) {
 
 // Whether a clash is CHECKABLE — i.e. an arbitrator can settle it against a real source of
 // truth (git history, `gh` PR/commit state, the working tree, the live work-item/PR content,
-// tests) rather than it being a genuine matter of taste. This is now AI-DRIVEN, not a regex:
-// the reasoning pass reads the full clash and marks checkable true/false. We DEFAULT to
-// checkable (arbitrate) whenever the model has weighed in — the flip the user asked for — and
-// only keep it on the human's desk when the model EXPLICITLY set checkable:false (a real values
-// call). With no AI verdict yet we don't manufacture arbitration (the reason pass is the
-// mechanism); the clash stays an honest desk ask until the model reasons over it.
+// tests) rather than it being a genuine matter of taste. This is AI-DRIVEN, not a regex.
+// The default is FULLY flipped: a clash is checkable — and therefore ARBITRATED by a read-only
+// probe — UNLESS the model EXPLICITLY marked it a genuine values call (checkable === false).
+// Crucially that includes the NO-VERDICT case: an un-reasoned clash must still go to arbitration
+// (which also detects when the two sides actually AGREE and culls the false binary, or verifies
+// a provable fact like "does the item have this tag / link"), NOT land on the human's desk as a
+// coin-flip. The old behaviour — punt un-arbitrated clashes to the human — was the exact bug the
+// user kept hitting ("both sides agree, why is this my call?"; "an arbitration agent could have
+// determined the tag exists"). Only an explicit values-call verdict keeps it on the desk.
 function _clashCheckable(av) {
-  return !!av && av.checkable !== false;
+  return !av || av.checkable !== false;
 }
 
 // Human-readable recency note when two sides of a clash were observed at different times: a
@@ -182,14 +185,15 @@ function _arbitrationProbe(conflict) {
   const a = (conflict && conflict.a && conflict.a.claim) || '';
   const b = (conflict && conflict.b && conflict.b.claim) || '';
   const rec = _recencyNote(conflict);
-  const question = 'Which reading of "' + _clip(subj, 90) + '" matches reality'
+  const question = 'Do these two readings of "' + _clip(subj, 90) + '" actually agree, and if not which matches reality'
     + (a && b ? (' \u2014 A: "' + _clip(a, 110) + '" vs B: "' + _clip(b, 110) + '"?') : '?');
   const plan = [
-    'ARBITRATE this clash against the real source of truth \u2014 do NOT trust either leg\'s assertion.',
-    'The two legs disagree on a CHECKABLE fact.' + (a ? (' Side A claims: ' + _clip(a, 160) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 160) + '.') : ''),
-    (rec ? (rec + ' ') : '') + 'Verify it directly: read the git history and working tree, check PR + commit state with `gh`, read the live work-item/PR content, run the relevant lookups or tests \u2014 whatever the claims actually reference.',
-    'Report which side matches the ground truth (or that BOTH are wrong), with concrete evidence: commit SHAs, PR merge status, branch tips, file/test results, timestamps.',
-    'This settles the clash so the losing leg can be redirected and neither proceeds on a false premise \u2014 the human is not the tie-breaker for a provable fact.',
+    'ARBITRATE this clash against the real source of truth \u2014 do NOT trust either leg\'s assertion, and do NOT hand it to the human unless it is a genuine matter of taste with no factual answer.',
+    'FIRST check whether the two sides actually AGREE: if both reach the SAME underlying conclusion and differ only in wording, framing, or emphasis, this is CONSENSUS \u2014 report that they agree, state the one shared conclusion, and STOP. Do not force a human choice between two phrasings of the same answer.'
+      + (a ? (' Side A claims: ' + _clip(a, 160) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 160) + '.') : ''),
+    (rec ? (rec + ' ') : '') + 'If they genuinely differ, verify it directly against the LIVE source of truth \u2014 not just the repo or git history: read the working tree and git history, check PR + commit state with `gh`, AND query the ACTUAL CURRENT content of the referenced work item / PR / issue (its tags, its links/relations to other items, its field values, its state) using the available tools. The existence or current value of a tag, a link between two items, a field, a file, a branch, or a PR is ALWAYS checkable \u2014 it is never a matter of opinion.',
+    'Report the outcome with concrete evidence: whether the sides agree, or which side matches the ground truth (or that BOTH are wrong) \u2014 commit SHAs, PR merge status, branch tips, the item\'s actual tags / links / field values, timestamps.',
+    'This settles the clash so the losing leg is redirected \u2014 or both retire on consensus \u2014 and neither proceeds on a false premise. The human is not the tie-breaker for a provable fact, nor for two legs that already agree.',
   ].join(' ');
   return { question, plan };
 }
@@ -458,8 +462,8 @@ function _groupDesk(deskNodes, ctx) {
       const ap = aiSided ? aiSC[aKey] : _pct(av.confidence);
       const bp = aiSided ? aiSC[bKey] : _pct(bv.confidence);
       sides = [
-        { key: 'affirm', label: 'Side A · Affirms the finding', claim: av.claim || '—', confidencePct: ap, legId: av.legId || null },
-        { key: 'deny', label: "Side B · Argues it's safe", claim: bv.claim || '—', confidencePct: bp, legId: bv.legId || null },
+        { key: 'affirm', label: 'Side A', claim: av.claim || '—', confidencePct: ap, legId: av.legId || null },
+        { key: 'deny', label: 'Side B', claim: bv.claim || '—', confidencePct: bp, legId: bv.legId || null },
       ];
       if (ap != null && bp != null) confidenceSplit = ap + ' / ' + bp;
       belowBar = aiSided ? (Math.max(ap || 0, bp || 0) < 85) : (Math.max(av.confidence || 0, bv.confidence || 0) < 0.85);
@@ -829,6 +833,11 @@ function planReduction(tree, policy) {
     // it becomes an honest desk item rather than a promise it can't keep.
     if ((paused || offline) && HANDLED.has(disp)) disp = 'ask';
     if ((paused || offline) && disp === 'probe') disp = 'ask';
+    // A DISABLED Director dispatches nothing — a probe is a plan to spin a sub-agent, which an
+    // off Director can't honor. So a clash/collision that would arbitrate falls back to an honest
+    // desk ask. This keeps the default-OFF contract: the live pursuit flow is unchanged until the
+    // user opts in (a clash stays "your call", not a promise to investigate we won't keep).
+    if (!policy.enabled && disp === 'probe') disp = 'ask';
     const _c = conflictById[s.conflictId];
     // Map affirm/deny stance → A/B side so grouped resolution picks the right side per
     // conflict even when the A/B positions are flipped between conflicts on one subject.

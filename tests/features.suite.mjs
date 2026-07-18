@@ -1200,14 +1200,16 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   const I = director._internal;
   const grant = { id: 'g', paths: ['/'], classes: ['duplicate', 'reversible-local', 'factual-clash'], ops: ['cull', 'absorb', 'resolve'], expiresAt: Date.now() + 1e7 };
 
-  // The checkability predicate is now AI-DRIVEN: it reads the model's verdict, not the clash text.
-  // The flip = default to CHECKABLE (arbitrate) whenever the model has weighed in; only stay a desk
-  // ask when the model EXPLICITLY marked it a values call (checkable === false). No verdict → false
-  // (we don't manufacture arbitration before the reasoning pass runs).
+  // The checkability predicate is AI-DRIVEN and fully FLIPPED: a clash is checkable (→ arbitrate)
+  // UNLESS the model EXPLICITLY marked it a values call (checkable === false). Crucially this now
+  // includes the NO-VERDICT case — an un-reasoned clash STILL routes to a read-only arbitration
+  // probe (which detects when the two sides actually AGREE and culls the false binary, or verifies
+  // a provable fact like "does the item have this tag / link"), never punts to the human. Punting
+  // un-arbitrated clashes to the desk was the exact bug ("both sides agree, why is this my call?").
   t.ok(I._clashCheckable({ checkable: true }) === true, 'an explicitly-checkable verdict arbitrates');
   t.ok(I._clashCheckable({}) === true, 'a verdict with no checkable flag DEFAULTS to checkable (the flip)');
   t.ok(I._clashCheckable({ checkable: false }) === false, 'an explicit values-call verdict stays a desk ask');
-  t.ok(I._clashCheckable(null) === false, 'no AI verdict → not arbitrated (reasoning pass is the mechanism)');
+  t.ok(I._clashCheckable(null) === true, 'no AI verdict → STILL arbitrated (flip: un-reasoned clashes probe, never punt)');
   // The old brittle regex predicate is GONE.
   t.ok(typeof I._clashIsCheckable === 'undefined', 'the old regex _clashIsCheckable predicate is removed');
 
@@ -1242,9 +1244,19 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   const kept = director.planReduction(mkTree(taste), Object.assign({ enabled: true, autonomy: 'balanced', grant }, { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9, checkable: false } } }));
   t.ok(kept.per[0].disposition === 'ask', 'an explicit values-call clash stays on the desk (not arbitrated)');
 
-  // No AI verdict yet → the clash stays an honest desk ask (we do not arbitrate before the model reasons).
+  // No AI verdict yet → under the flip the clash STILL routes to a read-only arbitration probe
+  // (agreement-detection + live-fact check), it is NOT punted to the human's desk. This is the fix
+  // for the recurring "both sides agree / the tag plainly exists — why is this my call?" complaint.
   const noai = director.planReduction(mkTree(provable), { enabled: true, autonomy: 'balanced', grant });
-  t.ok(noai.per[0].disposition === 'ask', 'without an AI verdict the clash stays a desk ask (no premature arbitration)');
+  t.ok(noai.per[0].disposition === 'probe', 'without an AI verdict the clash is arbitrated (flip: probe, never a premature desk ask)');
+  t.ok((noai.probeItems || []).length === 1 && /ARBITRATE/.test(noai.probeItems[0].plan || ''), 'the un-reasoned clash carries an arbitration plan');
+
+  // The arbitration brief detects CONSENSUS first and treats a tag/link/field as ALWAYS checkable
+  // against the LIVE item — the two real bugs the user filed (agreeing sides; a provable tag).
+  const probe = I._arbitrationProbe(provable);
+  t.ok(/AGREE/.test(probe.plan) && /CONSENSUS/i.test(probe.plan), 'arbitration plan checks for agreement/consensus before forcing a choice');
+  t.ok(/tag/i.test(probe.plan) && /link/i.test(probe.plan) && /field/i.test(probe.plan) && /ALWAYS checkable/.test(probe.plan), "arbitration plan treats a work item's tag/link/field as ALWAYS checkable against the live item");
+  t.ok(/LIVE source of truth/.test(probe.plan) && /not just the repo or git history/.test(probe.plan), 'arbitration plan queries the LIVE item, not only the repo/git history');
 
   // One-attempt cap: a terminal director-spawn probe already ran for this stop → escalate, never loop.
   const arbitrated = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
@@ -1268,6 +1280,13 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   t.ok(/action "probe" and go check the ground truth/.test(ssrc), 'prompt: a checkable clash → probe the ground truth, not the human');
   t.ok(/return "writeTarget"/.test(ssrc) && /share a writeTarget COLLIDE/.test(ssrc), 'prompt: writes carry a canonical writeTarget; same-target writes collide');
   t.ok(/RECENCY \/ PROVENANCE/.test(ssrc) && /observed it more recently/.test(ssrc), 'prompt: recency/provenance doctrine present (newer observation wins for state)');
+  // The AGREEMENT rule + live-item checkability (the two bugs: agreeing sides; a provable tag).
+  t.ok(/AGREEMENT FIRST/.test(ssrc) && /it is NOT a clash/.test(ssrc) && /CONSENSUS/.test(ssrc), 'prompt: agreement-first rule — two sides that agree are consensus, not a clash');
+  t.ok(/carries a given TAG/.test(ssrc) && /LINKED\/related/.test(ssrc) && /ALWAYS checkable and NEVER a values call/.test(ssrc), "prompt: a work item's tag/link/field existence is ALWAYS checkable, never a values call");
+  t.ok(/against the\s*\n?\s*LIVE item/.test(ssrc) || /against the LIVE item/.test(ssrc) || /Verify these against the/.test(ssrc), 'prompt: verify existence/state against the LIVE item via tools');
+
+  // The desk-item side labels are NEUTRAL (not the old prejudicial "Affirms the finding" / "Argues it's safe").
+  t.ok(!/Affirms the finding/.test(dsrc) && !/Argues it\u2019s safe/.test(dsrc) && !/Argues it's safe/.test(dsrc), 'director.js drops the hardcoded prejudicial side labels');
 
   // Conflict sides carry per-side observedAt so the arbitrator/judge can weigh recency.
   t.ok(/a:\s*\{[^}]*observedAt:[^}]*\}/.test(ssrc) && /b:\s*\{[^}]*observedAt:[^}]*\}/.test(ssrc), 'server builds conflict sides with per-side observedAt');
