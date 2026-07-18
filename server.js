@@ -25598,6 +25598,34 @@ function _meAiPauseReasonText(reason) {
   return '';
 }
 
+// Per-pursuit "maximum depth" the user can set at launch: how many autonomous
+// re-planning rounds (epochs) the system may go through before it WINDS DOWN
+// (finishes active work, opens no new avenues, finalizes on what's known) instead
+// of the default budget behaviour (pause + "keep going?"). Read from launch context;
+// unset → null (keep the standard soft budget). Clamped to a sane range.
+function _meAiMaxEpochs(t) {
+  try {
+    const raw = t && t.context && t.context.maxEpochs;
+    if (raw == null || raw === '') return null;
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 1) return null;
+    return Math.min(n, 50);
+  } catch (_) { return null; }
+}
+// The effective autonomous-round budget: the user's explicit maxEpochs when set,
+// otherwise the global default soft cap. A configured value ABOVE the default is
+// honoured (the round-cap no longer cuts it short at the default).
+function _meAiEffectiveMaxRounds(t) {
+  const m = _meAiMaxEpochs(t);
+  return (m != null) ? m : ME_AI_TREE_BUDGET.maxAutoRounds;
+}
+// True once an explicit maxEpochs budget has been spent — the signal to wind the
+// pursuit down (vs. the default soft round-cap, which only pauses to check in).
+function _meAiEpochCapReached(t) {
+  const m = _meAiMaxEpochs(t);
+  return m != null && (t._autoRounds || 0) >= m;
+}
+
 // Decide whether an orchestration round should AUTO-CONTINUE (return null) or PARK
 // with a named reason. Priority: genuine gates first (they need you), then the goal
 // state, then budget/loop safety caps. A null return means "converged, actionable,
@@ -25610,7 +25638,7 @@ function _meAiTreeAutoStopReason(t, ctx) {
   if (t._loopBreak) return 'loop';
   if (ctx.noMoreAngles) return 'no-more-angles';
   if (!ctx.done) return 'no-progress';
-  if ((t._autoRounds || 0) >= ME_AI_TREE_BUDGET.maxAutoRounds) return 'round-cap';
+  if ((t._autoRounds || 0) >= _meAiEffectiveMaxRounds(t)) return 'round-cap';
   if (t._pursuitStartedMs && (Date.now() - t._pursuitStartedMs) > ME_AI_TREE_BUDGET.totalWallMs) return 'time-cap';
   return null; // converged + actionable + budget remaining → continue autonomously.
 }
@@ -26075,7 +26103,23 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
   // WIND-DOWN: the user asked to finalize — let this in-flight wave FINISH and FOLD (never
   // dropped, unlike stop-all), but pursue NO new avenues (no tiebreak spawns, no delivery
   // offer, no auto-continue, no reroute round) and conclude cleanly on what's known.
-  const winding = !!(t && t._windDown) || !!(tree0 && tree0.rootState && tree0.rootState.windDown);
+  // The SAME clean stop is triggered automatically once a user-set maxEpochs budget is
+  // spent — the pursuit winds itself down rather than pausing to ask "keep going?".
+  const epochCapHit = _meAiEpochCapReached(t);
+  if (epochCapHit && t && !t._windDown) {
+    t._windDown = true;
+    t._windDownReason = 'epoch-cap';
+    try { _meAiTreeEmit(id, 'rootstate', { patch: { windDown: true } }); } catch (_) {}
+    try { _meAiTreeMirror(t, `Reached the ${_meAiMaxEpochs(t)}-epoch depth you set — winding down: finishing active work, opening no new avenues, then finalizing on what's known.`); } catch (_) {}
+    try {
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({
+        verb: 'wind-down', cls: 'control', target: id,
+        why: `Reached the maximum depth you set (${_meAiMaxEpochs(t)} epochs): existing active work completes, no new avenues are pursued, then the pursuit finalizes on what is known.`,
+        state: 'logged', reversible: false,
+      }) });
+    } catch (_) {}
+  }
+  const winding = epochCapHit || !!(t && t._windDown) || !!(tree0 && tree0.rootState && tree0.rootState.windDown);
   const curEpoch = (tree0 && typeof tree0.epoch === 'number') ? tree0.epoch : 0;
   const titleToId = {}; for (const l of legs) titleToId[String(l.title || '').toLowerCase().trim()] = l.id;
   const newConflicts = [];
@@ -26307,7 +26351,9 @@ async function _meAiTreeMergeReport(t, spine, startedMs, legs, opts = {}) {
     t.pauseReason = null;
     t.question = null;
     t.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
-    _meAiTreeMirror(t, 'Wound down at your request — no new avenues pursued. Finalized on what was completed and is known; the full compendium is attached.');
+    _meAiTreeMirror(t, t._windDownReason === 'epoch-cap'
+      ? `Wound down at the ${_meAiMaxEpochs(t)}-epoch depth you set — no new avenues pursued. Finalized on what was completed and is known; the full compendium is attached.`
+      : 'Wound down at your request — no new avenues pursued. Finalized on what was completed and is known; the full compendium is attached.');
     _meAiTreeEmit(id, 'stage', { stage: 'done' });
     _meAiSetStage(t, 'done', 'done');
     return;

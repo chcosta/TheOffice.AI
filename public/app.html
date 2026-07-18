@@ -14794,6 +14794,7 @@
                     border-top:1px solid color-mix(in srgb,var(--cp-border) 60%, transparent); }
               .mr-field { display:flex; flex-direction:column; gap:4px; }
               .mr-field label { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-soft); }
+              .mr-field-hint { font-size:11px; line-height:1.4; color:var(--cp-text-soft); }
               .mr-compose-actions { display:flex; align-items:center; gap:10px; margin-top:14px; }
               .mr-compose-actions .mr-spacer { flex:1; }
               .mr-compose-actions .hint { font-size:11px; color:var(--cp-text-soft); }
@@ -24745,6 +24746,19 @@
                       <option value="execute">Execute — carry work through</option>
                     </select>
                   </div>
+                  <div class="mr-field" x-show="meAiCompose.depth === 'deep'">
+                    <label>Maximum depth</label>
+                    <select class="mr-q" x-model="meAiCompose.maxEpochs">
+                      <option value="">Auto — check in with me at the budget</option>
+                      <option value="1">1 epoch, then wind down</option>
+                      <option value="2">2 epochs, then wind down</option>
+                      <option value="3">3 epochs, then wind down</option>
+                      <option value="5">5 epochs, then wind down</option>
+                      <option value="8">8 epochs, then wind down</option>
+                      <option value="12">12 epochs, then wind down</option>
+                    </select>
+                    <div class="mr-field-hint">How many autonomous re-planning rounds the pursuit may run on its own before it stops opening new avenues, lets active work finish, and finalizes on what's known.</div>
+                  </div>
                   <div class="mr-field">
                     <label>Scope</label>
                     <select class="mr-q" x-model="meAiCompose.scope">
@@ -31942,6 +31956,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             playbook: pick('meAiComposePlaybook', 'auto', ['auto', 'review', 'implement', 'steward', 'comms', 'prep', 'admin']),
             intent: pick('meAiComposeIntent', 'investigate', ['investigate', 'prepare', 'execute']),
             scope: pick('meAiComposeScope', 'work', ['work', 'personal']),
+            maxEpochs: (() => { try { const v = parseInt(localStorage.getItem('meAiComposeMaxEpochs') || '', 10); return (v >= 1 && v <= 50) ? String(v) : ''; } catch (_) { return ''; } })(),
             adv: false, busy: false,
           };
         })(),
@@ -33047,6 +33062,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             localStorage.setItem('meAiComposePlaybook', c.playbook);
             localStorage.setItem('meAiComposeIntent', c.intent);
             localStorage.setItem('meAiComposeScope', c.scope);
+            localStorage.setItem('meAiComposeMaxEpochs', c.maxEpochs || '');
           } catch (_) {}
           const deep = c.depth === 'deep';
           const playbook = (c.playbook && c.playbook !== 'auto') ? c.playbook : 'adhoc';
@@ -33054,6 +33070,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const date = (this.meai && this.meai.date) || new Date().toISOString().slice(0, 10);
           const title = goal.length > 90 ? (goal.slice(0, 87) + '…') : goal;
           const context = { goal, detail: goal, intent: deep ? c.intent : 'investigate', date, source: 'automation' };
+          // Optional per-pursuit "maximum depth": how many autonomous epochs before wind-down.
+          const maxEpochs = deep ? parseInt(c.maxEpochs || '', 10) : NaN;
+          if (Number.isFinite(maxEpochs) && maxEpochs >= 1) context.maxEpochs = Math.min(maxEpochs, 50);
           c.busy = true;
           try {
             const r = await this.request('/api/me-ai/task/dispatch', {

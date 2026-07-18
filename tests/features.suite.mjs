@@ -3133,8 +3133,8 @@ await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-w
   const windHelper = _win(src, 'function _meAiPursuitWindingDown(id, t)', 400);
   t.ok(/_windDown/.test(windHelper) && /rootState && tree\.rootState\.windDown/.test(windHelper),
     'the helper reads BOTH t._windDown and the durable tree.rootState.windDown');
-  t.ok(/const winding = !!\(t && t\._windDown\) \|\| !!\(tree0 && tree0\.rootState && tree0\.rootState\.windDown\)/.test(src),
-    'the merge reducer computes `winding` from the flag or durable state');
+  t.ok(/const winding = epochCapHit \|\| !!\(t && t\._windDown\) \|\| !!\(tree0 && tree0\.rootState && tree0\.rootState\.windDown\)/.test(src),
+    'the merge reducer computes `winding` from the epoch cap, the flag, or durable state');
   t.ok(/if \(winding && autoStop === null\) autoStop = 'wind-down'/.test(src),
     'winding forces autoStop=wind-down so the rich compendium builds AND no new wave spawns');
   const windFinal = _win(src, '// ── WIND-DOWN FINALIZE', 1300);
@@ -3231,6 +3231,48 @@ await t.test('investigate intent is read-only: gate hard-walls volatile actions,
   const delCap = _win(src, 'function _meAiDeliveryCapable(t)', 900);
   t.ok(/if \(intent === 'investigate'\) return false;/.test(delCap),
     'investigate is never delivery-capable (no execute/PR offer)');
+});
+
+await t.test('max depth (maxEpochs) winds a pursuit down after N autonomous epochs', () => {
+  const src = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // Helpers: read + clamp the per-pursuit cap, resolve the effective round budget,
+  // and detect once the budget is spent.
+  t.ok(/function _meAiMaxEpochs\(t\)/.test(src), '_meAiMaxEpochs helper exists');
+  const mx = _win(src, 'function _meAiMaxEpochs(t)', 700);
+  t.ok(/t\.context && t\.context\.maxEpochs/.test(mx) && /Math\.min\(n, 50\)/.test(mx),
+    'maxEpochs is read from launch context and clamped to a sane ceiling');
+  t.ok(/function _meAiEffectiveMaxRounds\(t\)/.test(src), '_meAiEffectiveMaxRounds helper exists');
+  const eff = _win(src, 'function _meAiEffectiveMaxRounds(t)', 400);
+  t.ok(/\(m != null\) \? m : ME_AI_TREE_BUDGET\.maxAutoRounds/.test(eff),
+    'the effective budget is the user cap when set, else the global default');
+  t.ok(/function _meAiEpochCapReached\(t\)/.test(src), '_meAiEpochCapReached helper exists');
+  const cap = _win(src, 'function _meAiEpochCapReached(t)', 300);
+  t.ok(/m != null && \(t\._autoRounds \|\| 0\) >= m/.test(cap),
+    'the cap fires once the autonomous-round count reaches the user budget');
+
+  // The auto-stop reason honours the effective (possibly-raised) budget rather than
+  // the hard-coded global cap.
+  const asr = _win(src, 'function _meAiTreeAutoStopReason(t, ctx)', 900);
+  t.ok(/_autoRounds \|\| 0\) >= _meAiEffectiveMaxRounds\(t\)/.test(asr),
+    'round-cap uses the effective budget so a higher user cap is not cut short');
+
+  // The merge report converts a spent budget into a WIND-DOWN (clean finalize, no new
+  // avenues) rather than a "keep going?" pause.
+  const wind = _win(src, 'const epochCapHit = _meAiEpochCapReached(t);', 1400);
+  t.ok(/t\._windDown = true;/.test(wind) && /t\._windDownReason = 'epoch-cap';/.test(wind),
+    'hitting the cap sets the wind-down flag with an epoch-cap reason');
+  t.ok(/const winding = epochCapHit \|\|/.test(wind),
+    'winding is true whenever the epoch cap is hit');
+
+  // Frontend: the deep composer exposes the control, persists it, and sends it through.
+  t.ok(/maxEpochs:/.test(html) && /meAiComposeMaxEpochs/.test(html),
+    'the composer state carries + persists maxEpochs');
+  t.ok(/<label>Maximum depth<\/label>/.test(html) && /x-model="meAiCompose\.maxEpochs"/.test(html),
+    'a Maximum depth control is wired into the deep launch options');
+  t.ok(/context\.maxEpochs = Math\.min\(maxEpochs, 50\)/.test(html),
+    'the launch sends maxEpochs in the pursuit context');
 });
 
 await t.done();
