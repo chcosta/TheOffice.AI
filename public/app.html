@@ -11963,6 +11963,8 @@
                       @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
                       @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
+              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
+                      @click="codeflow.cfTab = 'epics'; loadCodeflowEpics()">🏔 Epics<span class="cf-tab-n" :class="{ attn: cfEpicsAttn() }" x-show="cfEpicsCount()" x-text="cfEpicsCount()"></span></button>
             </div>
 
             <div x-show="!devItemsLoaded" class="hint" style="padding:24px">Loading dev cards…</div>
@@ -23547,6 +23549,8 @@
                       @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
                       @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
+              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
+                      @click="codeflow.cfTab = 'epics'; loadCodeflowEpics()">🏔 Epics<span class="cf-tab-n" :class="{ attn: cfEpicsAttn() }" x-show="cfEpicsCount()" x-text="cfEpicsCount()"></span></button>
             </div>
 
             <!-- Auto-refresh change banner (background 15-min poller detected
@@ -24397,6 +24401,419 @@
                 </div><!-- /nlx-scroll -->
               </main>
             </div><!-- /nlx-studio -->
+          </section>
+
+          <!-- ================= Code Flow · EPICS tab ================= -->
+          <!-- Your "DNCEng Epic" work items assigned to you and in Dev, rendered as one
+               AI-driven cockpit per epic. Deterministic baseline from real ADO data;
+               "Refresh with AI" upgrades the standup/alerts/forward/next via the SDK.
+               Self-contained lower-right assistant FAB → slide-over drawer, scoped to
+               this tab (mirrors Board AI / Connect AI). NO pills. -->
+          <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'epics'">
+            <style>
+              .epx-studio { display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start; }
+              @media (max-width:1000px){ .epx-studio { grid-template-columns:1fr; } .epx-rail { order:2; } }
+              .epx-rail { position:sticky; top:6px; display:flex; flex-direction:column; gap:10px; }
+              .epx-rail-h { display:flex; align-items:baseline; justify-content:space-between; padding:0 2px; }
+              .epx-rail-h .t { font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); }
+              .epx-rail-h .c { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              .epx-row { position:relative; text-align:left; width:100%; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:11px; padding:11px 12px 11px 15px; cursor:pointer; display:block; box-shadow:var(--cp-shadow); }
+              .epx-row:hover { border-color:var(--cp-border-strong); }
+              .epx-row.sel { border-color:var(--cp-accent); box-shadow:0 0 0 1px var(--cp-accent); }
+              .epx-row .stripe { position:absolute; left:0; top:0; bottom:0; width:4px; border-radius:11px 0 0 11px; background:var(--cp-text-soft); }
+              .epx-row.risk .stripe { background:var(--cp-danger); }
+              .epx-row.warn .stripe { background:var(--cp-warning); }
+              .epx-row.ok .stripe { background:var(--cp-success); }
+              .epx-row .rid { font-size:11px; color:var(--cp-text-soft); letter-spacing:.02em; }
+              .epx-row .nm { font-size:13px; font-weight:600; margin:3px 0 7px; line-height:1.3; }
+              .epx-row .meta { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--cp-text-muted); }
+              .epx-row .bar { height:5px; border-radius:3px; background:var(--cp-surface-soft); overflow:hidden; margin-top:8px; }
+              .epx-row .bar > i { display:block; height:100%; border-radius:3px; background:var(--cp-accent); }
+              .epx-row.risk .bar > i { background:var(--cp-danger); }
+              .epx-row.warn .bar > i { background:var(--cp-warning); }
+              .epx-row .flag { position:absolute; top:10px; right:11px; font-size:11px; }
+              .epx-rail-note { font-size:11px; color:var(--cp-text-soft); padding:2px 4px; line-height:1.5; }
+              .epx-detail { display:flex; flex-direction:column; gap:16px; min-width:0; }
+              .epx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:var(--cp-shadow); }
+              .epx-card .bd { padding:16px 18px; }
+              .epx-card-h { display:flex; align-items:center; gap:9px; padding:13px 18px; border-bottom:1px solid var(--cp-border); }
+              .epx-card-h h3 { margin:0; font-size:13.5px; font-weight:650; letter-spacing:-.01em; }
+              .epx-card-h .rt { margin-left:auto; font-size:11.5px; color:var(--cp-text-soft); }
+              .epx-sec-ic { width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; font-size:14px; }
+              .epx-ai-tag { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:700; letter-spacing:.03em; color:var(--cp-ai,#7c3aed); background:var(--cp-ai-soft,rgba(124,58,237,.10)); border-radius:6px; padding:2px 7px; }
+              .epx-ai-tag .dot { width:6px; height:6px; border-radius:50%; background:var(--cp-ai,#7c3aed); }
+              .epx-ehead { display:grid; grid-template-columns:1fr auto; gap:18px; align-items:start; }
+              .epx-ehead .eid { font-size:12px; color:var(--cp-text-soft); }
+              .epx-ehead h2 { margin:4px 0 8px; font-size:20px; font-weight:650; letter-spacing:-.02em; line-height:1.25; }
+              .epx-facts { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:var(--cp-text-muted); }
+              .epx-facts b { color:var(--cp-text); font-weight:600; }
+              .epx-state { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--cp-accent); background:var(--cp-accent-soft); border-radius:6px; padding:3px 8px; }
+              .epx-state .dot { width:7px; height:7px; border-radius:50%; background:var(--cp-accent); }
+              .epx-ring { --p:0; width:78px; height:78px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(var(--cp-accent) calc(var(--p)*1%), var(--cp-surface-soft) 0); }
+              .epx-ring > span { width:60px; height:60px; border-radius:50%; background:var(--cp-surface); display:grid; place-items:center; font-size:16px; font-weight:700; }
+              .epx-ring-cap { display:block; text-align:center; font-size:9.5px; color:var(--cp-text-soft); font-weight:600; letter-spacing:.03em; margin-top:4px; text-transform:uppercase; }
+              .epx-jump { display:flex; flex-wrap:wrap; gap:2px 16px; font-size:12px; padding:11px 18px; border-top:1px solid var(--cp-border); color:var(--cp-text-soft); }
+              .epx-jump a { color:var(--cp-text-muted); cursor:pointer; } .epx-jump a:hover { color:var(--cp-text); text-decoration:underline; }
+              .epx-standup { border:1px solid var(--cp-ai,#7c3aed); border-left:4px solid var(--cp-ai,#7c3aed); background:linear-gradient(180deg,var(--cp-ai-soft,rgba(124,58,237,.10)),transparent 140%); border-radius:14px; }
+              .epx-standup .bd { padding:15px 18px; }
+              .epx-standup-h { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
+              .epx-standup-h .who { font-size:13px; font-weight:650; }
+              .epx-standup-h .rt { margin-left:auto; font-size:11px; color:var(--cp-text-soft); }
+              .epx-standup p { margin:0 0 9px; font-size:13.5px; line-height:1.55; }
+              .epx-alerts { display:flex; flex-direction:column; gap:7px; margin-top:11px; }
+              .epx-alert { display:flex; align-items:flex-start; gap:10px; padding:9px 11px; border-radius:10px; background:var(--cp-surface); border:1px solid var(--cp-border); font-size:12.5px; }
+              .epx-alert .ic { flex:0 0 auto; width:22px; height:22px; border-radius:7px; display:grid; place-items:center; font-size:13px; }
+              .epx-alert.crit { border-color:var(--cp-danger); } .epx-alert.crit .ic { background:var(--cp-danger-soft); color:var(--cp-danger); }
+              .epx-alert.warn { border-color:var(--cp-warning); } .epx-alert.warn .ic { background:var(--cp-warning-soft); color:var(--cp-warning); }
+              .epx-alert.info .ic { background:var(--cp-accent-soft); color:var(--cp-accent); }
+              .epx-alert .txt { min-width:0; } .epx-alert .txt b { font-weight:650; }
+              .epx-alert .txt .why { color:var(--cp-text-muted); font-size:11.5px; }
+              .epx-alert .act { margin-left:auto; flex:0 0 auto; }
+              .epx-btn { border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:7px; padding:5px 11px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; }
+              .epx-btn:hover { border-color:var(--cp-border-strong); }
+              .epx-btn.pri { background:var(--cp-accent); border-color:var(--cp-accent); color:var(--cp-accent-fg,#fff); }
+              .epx-btn.sm { padding:3px 9px; font-size:11px; }
+              .epx-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+              @media (max-width:760px){ .epx-grid2 { grid-template-columns:1fr; } }
+              .epx-goals { margin:0; padding-left:2px; list-style:none; display:flex; flex-direction:column; gap:9px; }
+              .epx-goals li { display:flex; gap:9px; font-size:13px; line-height:1.45; }
+              .epx-goals li .gm { flex:0 0 auto; color:var(--cp-accent); margin-top:1px; }
+              .epx-obj { display:flex; flex-direction:column; gap:11px; }
+              .epx-obj .o { font-size:13px; }
+              .epx-obj .o .lbl { font-size:11px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-soft); display:block; margin-bottom:2px; }
+              .epx-obj .o .kpi { font-weight:650; color:var(--cp-text); }
+              .epx-work { display:flex; flex-direction:column; }
+              .epx-wrow { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--cp-border); }
+              .epx-wrow:last-child { border-bottom:0; }
+              .epx-wrow .st { flex:0 0 auto; width:9px; height:9px; border-radius:50%; margin-top:2px; }
+              .epx-wrow .st.doing { background:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft); }
+              .epx-wrow .st.blocked { background:var(--cp-danger); } .epx-wrow .st.review { background:var(--cp-warning); } .epx-wrow .st.done { background:var(--cp-success); } .epx-wrow .st.todo { background:var(--cp-text-soft); }
+              .epx-wrow .body { flex:1 1 auto; min-width:0; }
+              .epx-wrow .l1 { display:flex; align-items:center; gap:9px; min-width:0; }
+              .epx-wrow .wt { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .epx-wrow .wtype { font-size:10.5px; font-weight:700; letter-spacing:.03em; color:var(--cp-text-soft); }
+              .epx-wrow .l2 { display:flex; align-items:center; gap:6px 13px; flex-wrap:wrap; font-size:11.5px; color:var(--cp-text-muted); margin-top:3px; }
+              .epx-wrow .age { margin-left:auto; flex:0 0 auto; font-size:11.5px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; white-space:nowrap; }
+              .epx-wrow .age.stale { color:var(--cp-warning); font-weight:600; }
+              .epx-wrow .age.old { color:var(--cp-danger); font-weight:600; }
+              .epx-wrow .wt.lk { cursor:pointer; } .epx-wrow .wt.lk:hover { color:var(--cp-accent); text-decoration:underline; }
+              .epx-steps { display:flex; flex-direction:column; gap:0; }
+              .epx-step { display:flex; gap:13px; padding:12px 0; border-bottom:1px solid var(--cp-border); }
+              .epx-step:last-child { border-bottom:0; }
+              .epx-step .num { flex:0 0 auto; width:24px; height:24px; border-radius:8px; background:var(--cp-accent-soft); color:var(--cp-accent); font-weight:700; font-size:12px; display:grid; place-items:center; }
+              .epx-step.n2 .num { background:var(--cp-surface-soft); color:var(--cp-text-soft); }
+              .epx-step .sbody { flex:1 1 auto; min-width:0; }
+              .epx-step .stitle { font-size:13px; font-weight:600; }
+              .epx-step .swhy { font-size:12px; color:var(--cp-text-muted); margin-top:2px; }
+              .epx-step .stag { margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+              .epx-step .sact { flex:0 0 auto; align-self:center; }
+              .epx-depnote { font-size:11px; color:var(--cp-warning); font-weight:600; }
+              .epx-tl { display:flex; flex-direction:column; gap:0; position:relative; margin-left:6px; }
+              .epx-tl:before { content:""; position:absolute; left:5px; top:6px; bottom:6px; width:2px; background:var(--cp-border); }
+              .epx-tlrow { position:relative; padding:9px 0 9px 22px; }
+              .epx-tlrow .node { position:absolute; left:0; top:12px; width:12px; height:12px; border-radius:50%; background:var(--cp-surface); border:2px solid var(--cp-border-strong); }
+              .epx-tlrow.next .node { border-color:var(--cp-accent); background:var(--cp-accent); }
+              .epx-tlrow.risk .node { border-color:var(--cp-danger); background:var(--cp-danger); }
+              .epx-tlrow .d { font-size:11.5px; color:var(--cp-text-soft); font-weight:600; }
+              .epx-tlrow .e { font-size:13px; font-weight:600; margin-top:1px; }
+              .epx-tlrow .m { font-size:11.5px; color:var(--cp-text-muted); margin-top:1px; }
+              .epx-cdays { font-size:11px; font-weight:700; }
+              .epx-cdays.soon { color:var(--cp-warning); } .epx-cdays.late { color:var(--cp-danger); } .epx-cdays.ok { color:var(--cp-text-soft); }
+              .epx-deliv { display:flex; flex-direction:column; gap:11px; }
+              .epx-drow { display:grid; grid-template-columns:22px minmax(0,1fr) 110px 74px; gap:11px; align-items:center; }
+              .epx-drow .dck { width:20px; height:20px; border-radius:6px; border:2px solid var(--cp-border-strong); display:grid; place-items:center; font-size:12px; }
+              .epx-drow .dck.done { background:var(--cp-success); border-color:var(--cp-success); color:#fff; }
+              .epx-drow .dck.part { border-color:var(--cp-accent); color:var(--cp-accent); }
+              .epx-drow .dnm { font-size:13px; font-weight:600; }
+              .epx-drow .dsub { font-size:11.5px; color:var(--cp-text-muted); }
+              .epx-drow .dbar { height:6px; border-radius:3px; background:var(--cp-surface-soft); overflow:hidden; }
+              .epx-drow .dbar > i { display:block; height:100%; background:var(--cp-accent); }
+              .epx-drow .dbar.risk > i { background:var(--cp-danger); }
+              .epx-drow .drisk { font-size:11px; font-weight:700; text-align:right; }
+              .epx-drow .drisk.on { color:var(--cp-danger); } .epx-drow .drisk.at { color:var(--cp-warning); } .epx-drow .drisk.ok { color:var(--cp-success); }
+              .epx-empty { padding:40px 18px; text-align:center; color:var(--cp-text-muted); font-size:13px; }
+              /* self-contained assistant FAB → slide-over drawer (scoped to epics tab) */
+              .epx-fab { position:fixed; right:24px; bottom:24px; z-index:56; width:54px; height:54px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; line-height:1; cursor:pointer; background:var(--cp-accent); color:var(--cp-accent-fg,#fff); border:1px solid var(--cp-accent-hover,var(--cp-accent)); box-shadow:0 6px 20px rgba(16,24,40,.22); transition:transform .12s, background .12s; }
+              .epx-fab:hover { transform:translateY(-2px); }
+              .epx-fab .badge { position:absolute; top:-3px; right:-3px; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:var(--cp-danger); color:#fff; font-size:10.5px; font-weight:700; display:grid; place-items:center; border:2px solid var(--cp-bg); }
+              .epx-chatback { position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.28); display:flex; justify-content:flex-end; }
+              .epx-drawer { position:relative; width:400px; max-width:92vw; height:100vh; background:var(--cp-bg-elevated,var(--cp-surface)); border-left:1px solid var(--cp-border); box-shadow:-10px 0 28px rgba(0,0,0,.16); display:flex; flex-direction:column; }
+              .epx-chat-head { display:flex; align-items:center; gap:11px; padding:13px 15px; border-bottom:1px solid var(--cp-border); flex:0 0 auto; }
+              .epx-chat-head .av { width:30px; height:30px; border-radius:9px; background:var(--cp-ai-soft,rgba(124,58,237,.10)); color:var(--cp-ai,#7c3aed); display:grid; place-items:center; font-size:16px; flex:0 0 auto; }
+              .epx-chat-head .nm { font-size:13.5px; font-weight:650; } .epx-chat-head .sc { font-size:11px; color:var(--cp-text-soft); }
+              .epx-chat-head .hx { margin-left:auto; display:flex; gap:4px; }
+              .epx-icon-btn { width:28px; height:28px; border:1px solid transparent; background:transparent; color:var(--cp-text-muted); border-radius:7px; cursor:pointer; font-size:13px; }
+              .epx-icon-btn:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+              .epx-chat-body { flex:1 1 auto; overflow:auto; padding:15px; display:flex; flex-direction:column; gap:12px; }
+              .epx-bubble { max-width:88%; padding:10px 12px; border-radius:12px; font-size:13px; line-height:1.5; }
+              .epx-bubble.ai { align-self:flex-start; background:var(--cp-surface); border:1px solid var(--cp-border); border-bottom-left-radius:4px; }
+              .epx-bubble.me { align-self:flex-end; background:var(--cp-accent); color:var(--cp-accent-fg,#fff); border-bottom-right-radius:4px; }
+              .epx-bubble .ctx { font-size:10.5px; color:var(--cp-text-soft); margin-bottom:5px; display:flex; align-items:center; gap:5px; }
+              .epx-sugg { display:flex; flex-direction:column; gap:7px; margin-top:2px; }
+              .epx-sugg .s { border:1px dashed var(--cp-border-strong); background:transparent; color:var(--cp-text-muted); border-radius:9px; padding:8px 11px; font-size:12px; cursor:pointer; text-align:left; }
+              .epx-sugg .s:hover { border-style:solid; border-color:var(--cp-ai,#7c3aed); color:var(--cp-text); }
+              .epx-compose { flex:0 0 auto; border-top:1px solid var(--cp-border); padding:12px 14px; display:flex; gap:9px; align-items:flex-end; background:var(--cp-bg-elevated,var(--cp-surface)); }
+              .epx-compose textarea { flex:1 1 auto; resize:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:10px; padding:9px 11px; font:13px/1.4 inherit; max-height:120px; }
+              .epx-compose textarea:focus { outline:none; border-color:var(--cp-ai,#7c3aed); }
+            </style>
+
+            <div class="nlx-top">
+              <div class="page-title">
+                <h1>🔀 Code Flow</h1>
+                <p>Your <span class="mono">DNCEng Epic</span> work items assigned to you and in <b>Dev</b>, rendered as one AI-driven cockpit per epic — goals, what's in flight, what unblocks progress, what's next, dates &amp; deliverables. The AI does the reading and correlating; you make the calls.</p>
+              </div>
+              <div class="nlx-actions">
+                <button class="btn ghost" type="button" x-show="codeflow.epics.list.length && codeflow.epics.list[codeflow.epics.idx]"
+                        :disabled="codeflow.epics.list[codeflow.epics.idx] && codeflow.epics.aiBusy[codeflow.epics.list[codeflow.epics.idx].key]"
+                        @click="epicUpgradeAi()"
+                        x-text="(codeflow.epics.list[codeflow.epics.idx] && codeflow.epics.aiBusy[codeflow.epics.list[codeflow.epics.idx].key]) ? '✨ Reading…' : '✨ Refresh with AI'"
+                        title="Re-synthesize this epic's standup, alerts and next steps with AI"></button>
+                <button class="btn" type="button" :disabled="codeflow.epics.loading" @click="loadCodeflowEpics(true)"
+                        x-text="codeflow.epics.loading ? '…' : '↻ Refresh'"></button>
+              </div>
+            </div>
+
+            <div class="cf-tabs" role="tablist" aria-label="Code Flow views">
+              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'dev' }" role="tab" :aria-selected="codeflow.cfTab === 'dev'"
+                      @click="codeflow.cfTab = 'dev'; devEnsureLoaded()">🧰 Dev cards<span class="cf-tab-n" x-show="cfTabCount('dev')" x-text="cfTabCount('dev')"></span></button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('mine') }" role="tab" :aria-selected="cfTabOnPr('mine')"
+                      @click="cfGoView('mine')">📤 My PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('mine') }" x-show="cfTabCount('mine')" x-text="cfTabCount('mine')"></span></button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('active') }" role="tab" :aria-selected="cfTabOnPr('active')"
+                      @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
+              <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
+                      @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
+              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
+                      @click="codeflow.cfTab = 'epics'; loadCodeflowEpics()">🏔 Epics<span class="cf-tab-n" :class="{ attn: cfEpicsAttn() }" x-show="cfEpicsCount()" x-text="cfEpicsCount()"></span></button>
+            </div>
+
+            <div x-show="codeflow.epics.loading && !codeflow.epics.list.length" class="hint" style="padding:24px">Loading your epics…</div>
+            <div x-show="codeflow.epics.error" class="epx-empty" x-text="codeflow.epics.error"></div>
+            <div x-show="codeflow.epics.loaded && !codeflow.epics.loading && !codeflow.epics.error && !codeflow.epics.list.length" class="epx-empty">
+              <div x-show="codeflow.epics.note === 'no-ado-config'">No Azure DevOps org/project is configured. Add one in Settings to see your epics.</div>
+              <div x-show="codeflow.epics.note !== 'no-ado-config'">No <span class="mono">DNCEng Epic</span> work items assigned to you are in <b>Dev</b> right now.</div>
+            </div>
+
+            <div class="epx-studio" x-show="codeflow.epics.list.length">
+              <aside class="epx-rail">
+                <div class="epx-rail-h">
+                  <span class="t">My epics · in Dev</span>
+                  <span class="c" x-text="codeflow.epics.list.length"></span>
+                </div>
+                <template x-for="(e, i) in codeflow.epics.list" :key="e.key">
+                  <button class="epx-row" :class="[e.tone, i === codeflow.epics.idx ? 'sel' : '']" @click="epicSelect(i)">
+                    <span class="stripe"></span>
+                    <span class="flag" x-text="e.flag"></span>
+                    <span class="mono rid" x-text="e.id"></span>
+                    <div class="nm" x-text="e.name"></div>
+                    <div class="meta"><span x-text="e.pct + '%'"></span><span>·</span><span x-text="(e.targetDays || 0) + 'd to target'"></span></div>
+                    <div class="bar"><i :style="'width:' + e.pct + '%'"></i></div>
+                  </button>
+                </template>
+                <div class="epx-rail-note">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = Dev</span>. Refresh re-reads each epic's tree and flags the ones that need you.</div>
+              </aside>
+
+              <section class="epx-detail" x-show="codeflow.epics.list[codeflow.epics.idx]">
+                <template x-if="codeflow.epics.list[codeflow.epics.idx]">
+                  <div style="display:flex; flex-direction:column; gap:16px">
+                    <!-- header -->
+                    <div class="epx-card">
+                      <div class="bd">
+                        <div class="epx-ehead">
+                          <div>
+                            <div class="eid"><span class="mono" x-text="epicCur().id"></span> · <span class="mono">DNCEng Epic</span> <span x-show="epicCur().area">· <span x-text="epicCur().area"></span></span></div>
+                            <h2 x-text="epicCur().name"></h2>
+                            <div class="epx-facts">
+                              <span class="epx-state"><span class="dot"></span><span x-text="epicCur().state"></span></span>
+                              <span x-show="epicCur().iter">Iteration: <b x-text="epicCur().iter"></b></span>
+                              <span>Target: <b x-text="epicCur().target"></b> <span class="epx-cdays" :class="epicCur().targetDays < 0 ? 'late' : (epicCur().targetDays <= 28 ? 'soon' : 'ok')" x-show="epicCur().target !== '—'" x-text="'(' + (epicCur().targetDays < 0 ? Math.abs(epicCur().targetDays) + 'd past' : epicCur().targetDays + 'd') + ')'"></span></span>
+                              <span x-show="epicCur().childCount">Items: <b x-text="epicCur().childCount"></b></span>
+                              <span x-show="epicCur().prCount">PRs: <b x-text="epicCur().prCount"></b></span>
+                            </div>
+                          </div>
+                          <div>
+                            <div class="epx-ring" :style="'--p:' + epicCur().pct"><span x-text="epicCur().pct + '%'"></span></div>
+                            <small class="epx-ring-cap">complete</small>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="epx-jump">
+                        <span>Jump to</span>
+                        <a @click="epicJump('epx-goals')">Goals</a><a @click="epicJump('epx-now')">Right now</a><a @click="epicJump('epx-forward')">Unblock</a>
+                        <a @click="epicJump('epx-next')">Next up</a><a @click="epicJump('epx-dates')">Dates</a><a @click="epicJump('epx-deliv')">Deliverables</a>
+                      </div>
+                    </div>
+
+                    <!-- AI standup -->
+                    <div class="epx-card epx-standup">
+                      <div class="bd">
+                        <div class="epx-standup-h">
+                          <span class="epx-ai-tag"><span class="dot"></span>AI STANDUP</span>
+                          <span class="who">Where this epic stands &amp; what needs you</span>
+                          <span class="rt"><span x-show="epicCur().aiUpgraded">AI-synthesized</span><span x-show="!epicCur().aiUpgraded">from live data · <a style="cursor:pointer" @click="epicUpgradeAi()">refresh with AI</a></span></span>
+                        </div>
+                        <template x-for="(p, pi) in epicCur().summary" :key="pi"><p x-html="p"></p></template>
+                        <div class="epx-alerts">
+                          <template x-for="(a, ai) in epicCur().alerts" :key="ai">
+                            <div class="epx-alert" :class="a.sev">
+                              <span class="ic" x-text="a.ic"></span>
+                              <div class="txt"><b x-text="a.title"></b><div class="why" x-text="a.why"></div></div>
+                              <div class="act" x-show="a.act"><a class="epx-btn sm" :href="epicCur().url" target="_blank" rel="noopener" x-text="a.act"></a></div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- goals + objectives -->
+                    <div class="epx-grid2" id="epx-goals">
+                      <div class="epx-card">
+                        <div class="epx-card-h"><span class="epx-sec-ic">🎯</span><h3>Goals</h3></div>
+                        <div class="bd">
+                          <ul class="epx-goals">
+                            <template x-for="(g, gi) in epicCur().goals" :key="gi"><li><span class="gm">◆</span><span x-text="g"></span></li></template>
+                            <li x-show="!epicCur().goals.length" class="muted">No goals parsed from the epic description.</li>
+                          </ul>
+                        </div>
+                      </div>
+                      <div class="epx-card">
+                        <div class="epx-card-h"><span class="epx-sec-ic">📈</span><h3>Business objectives</h3></div>
+                        <div class="bd">
+                          <div class="epx-obj">
+                            <template x-for="(o, oi) in epicCur().objectives" :key="oi">
+                              <div class="o"><span class="lbl" x-text="o.lbl"></span><span x-text="o.v"></span> — <span class="kpi" x-text="o.kpi"></span></div>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- right now -->
+                    <div class="epx-card" id="epx-now">
+                      <div class="epx-card-h"><span class="epx-sec-ic">⚡</span><h3>What's in flight right now</h3><span class="rt">from the epic's child work items</span></div>
+                      <div class="bd">
+                        <div class="epx-work">
+                          <template x-for="(w, wi) in epicCur().work" :key="wi">
+                            <div class="epx-wrow">
+                              <span class="st" :class="w.st"></span>
+                              <div class="body">
+                                <div class="l1"><span class="wtype" x-text="w.type"></span><span class="wt" :class="w.href ? 'lk' : ''" @click="w.href && window.open(w.href, '_blank')" x-text="w.title"></span></div>
+                                <div class="l2">
+                                  <template x-for="(x, xi) in w.l2" :key="xi"><span :class="/^#|^PR|^!/.test(x) ? 'mono' : ''" x-text="x"></span></template>
+                                </div>
+                              </div>
+                              <span class="age" :class="w.ageC" x-text="w.age"></span>
+                            </div>
+                          </template>
+                          <div x-show="!epicCur().work.length" class="muted" style="padding:12px 0">No child work items.</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- forward -->
+                    <div class="epx-card" id="epx-forward">
+                      <div class="epx-card-h"><span class="epx-sec-ic">🧭</span><h3>To move forward</h3><span class="rt"><span class="epx-ai-tag"><span class="dot"></span>ordered by leverage</span></span></div>
+                      <div class="bd">
+                        <div class="epx-steps">
+                          <template x-for="(f, fi) in epicCur().forward" :key="fi">
+                            <div class="epx-step">
+                              <span class="num" x-text="fi + 1"></span>
+                              <div class="sbody">
+                                <div class="stitle" x-text="f.t"></div>
+                                <div class="swhy" x-text="f.why"></div>
+                                <div class="stag"><span class="epx-ai-tag"><span class="dot"></span>AI · <span x-text="f.tag"></span></span><span x-show="f.dep" class="epx-depnote">⛓ <span x-text="f.dep"></span></span></div>
+                              </div>
+                              <div class="sact"><a class="epx-btn pri sm" :href="f.href || epicCur().url" target="_blank" rel="noopener" x-text="f.act"></a></div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- next -->
+                    <div class="epx-card" id="epx-next">
+                      <div class="epx-card-h"><span class="epx-sec-ic">⏭</span><h3>What to work on next</h3><span class="rt">after the current path clears</span></div>
+                      <div class="bd">
+                        <div class="epx-steps">
+                          <template x-for="(n, ni) in epicCur().next" :key="ni">
+                            <div class="epx-step n2">
+                              <span class="num" x-text="ni + 1"></span>
+                              <div class="sbody"><div class="stitle" x-text="n.t"></div><div class="swhy" x-text="n.why"></div></div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- dates + deliverables -->
+                    <div class="epx-grid2">
+                      <div class="epx-card" id="epx-dates">
+                        <div class="epx-card-h"><span class="epx-sec-ic">📅</span><h3>Upcoming dates &amp; milestones</h3></div>
+                        <div class="bd">
+                          <div class="epx-tl">
+                            <template x-for="(t, ti) in epicCur().timeline" :key="ti">
+                              <div class="epx-tlrow" :class="t.cls">
+                                <span class="node"></span>
+                                <div class="d"><span x-text="t.d"></span> <span class="epx-cdays" :class="t.c" x-show="t.cd">· <span x-text="t.cd"></span></span></div>
+                                <div class="e" x-text="t.e"></div>
+                                <div class="m" x-text="t.m"></div>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="epx-card" id="epx-deliv">
+                        <div class="epx-card-h"><span class="epx-sec-ic">📦</span><h3>Deliverables</h3></div>
+                        <div class="bd">
+                          <div class="epx-deliv">
+                            <template x-for="(d, di) in epicCur().deliv" :key="di">
+                              <div class="epx-drow">
+                                <span class="dck" :class="d.ck" x-text="d.ck === 'done' ? '✓' : (d.ck === 'part' ? '◗' : '')"></span>
+                                <div><div class="dnm" x-text="d.nm"></div><div class="dsub" x-text="d.sub"></div></div>
+                                <div class="dbar" :class="d.risk === 'on' ? 'risk' : ''"><i :style="'width:' + d.pct + '%'"></i></div>
+                                <div class="drisk" :class="d.risk" x-text="d.riskT"></div>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </section>
+            </div>
+
+            <!-- self-contained Epic assistant FAB → slide-over drawer (scoped to epics tab) -->
+            <template x-teleport="body">
+              <div x-show="route === 'codeflow' && codeflow.cfTab === 'epics' && codeflow.epics.list.length">
+                <button class="epx-fab" x-show="!codeflow.epics.chat.open" @click="epicChatOpen()" title="Epic assistant — ask about this epic" aria-label="Open Epic assistant chat">💬<span class="badge" x-show="epicChatBadge()" x-text="epicChatBadge()"></span></button>
+                <div class="epx-chatback" x-show="codeflow.epics.chat.open" x-cloak @click="if($event.target===$el) epicChatClose()">
+                  <aside class="epx-drawer" role="dialog" aria-label="Epic assistant">
+                    <div class="epx-chat-head">
+                      <span class="av">🤖</span>
+                      <div><div class="nm">Epic assistant</div><div class="sc" x-text="epicCur() ? (epicCur().id + ' · ' + (epicCur().name || '').split(' — ')[0]) : ''"></div></div>
+                      <div class="hx"><button class="epx-icon-btn" @click="epicChatClose()" title="Close">✕</button></div>
+                    </div>
+                    <div class="epx-chat-body" x-ref="epicChatBody">
+                      <template x-for="(m, mi) in epicChatMsgs()" :key="mi">
+                        <div class="epx-bubble" :class="m.role === 'user' ? 'me' : 'ai'">
+                          <div class="ctx" x-show="m.ctx"><span class="epx-ai-tag" style="padding:1px 6px"><span class="dot"></span><span x-text="m.ctx"></span></span></div>
+                          <span x-html="m.html || m.text"></span>
+                        </div>
+                      </template>
+                      <div class="epx-sugg" x-show="epicChatMsgs().length <= 1">
+                        <template x-for="(s, si) in epicChatSuggestions()" :key="si">
+                          <button class="s" @click="epicChatSend(s)" x-text="s"></button>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="epx-compose">
+                      <textarea rows="1" x-model="codeflow.epics.chat.input" @keydown.enter.prevent="epicChatSend()" placeholder="Ask about this epic — dependencies, dates, who to nudge, what to cut…"></textarea>
+                      <button class="epx-btn pri" style="align-self:stretch" :disabled="codeflow.epics.chat.sending" @click="epicChatSend()" x-text="codeflow.epics.chat.sending ? '…' : 'Ask'"></button>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </template>
           </section>
 
           <section x-show="!loading && !errorMessage && (route === 'autonomous' || route === 'tasks' || route === 'chains')" class="nlx-scroll">
@@ -31772,7 +32189,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           mergedPins: [],        // [{boardId,boardName,item,state,prNum}] PR pins across ALL boards whose PR has merged/closed — stale board cards the user can clear
           mergedPinsScanning: false,
           mergedPinsDismissed: (() => { try { return JSON.parse(localStorage.getItem('cf-merged-dismissed') || '[]') || []; } catch { return []; } })(),
-          cfTab: (function(){ try { return localStorage.getItem('cf-tab') === 'dev' ? 'dev' : 'prs'; } catch(e){ return 'prs'; } })(),           // 'prs' | 'dev' — Code Flow now hosts the Dev cards studio as a second tab (the standalone Dev page was merged in); persisted so refresh keeps your place
+          cfTab: (function(){ try { var v = localStorage.getItem('cf-tab'); return (v === 'dev' || v === 'epics') ? v : 'prs'; } catch(e){ return 'prs'; } })(),           // 'prs' | 'dev' | 'epics' — Code Flow now hosts the Dev cards studio + the Epics cockpit as extra tabs; persisted so refresh keeps your place
+          epics: {
+            loaded: false, loading: false, error: '', note: '', signedIn: false,
+            list: [], idx: 0, aiBusy: {},
+            // self-contained Epic assistant (lower-right FAB → drawer, scoped to the epics tab)
+            chat: { open: false, sending: false, byKey: {}, input: '' },
+          },
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0, otherActive: 0 },
         marketplaceUpdates: { newCount: 0, byType: {}, lastViewedAt: null, lastAutoScanAt: null, items: [], loaded: false },
@@ -32156,7 +32579,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch {}
           this.setupRouting();
           // Persist the active Code Flow sub-tab so a refresh returns to where you were.
-          try { this.$watch('codeflow.cfTab', v => { try { localStorage.setItem('cf-tab', v === 'dev' ? 'dev' : 'prs'); } catch(e){} }); } catch(e){}
+          try { this.$watch('codeflow.cfTab', v => { try { localStorage.setItem('cf-tab', (v === 'dev' || v === 'epics') ? v : 'prs'); } catch(e){} }); } catch(e){}
           await this.refreshAll();
           // Publish the effective (post-dependency) enabled-features map so the server
           // gates its schedules on the same state the client shows. Safe: writes a durable
@@ -33355,6 +33778,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               // No deep-link → restore the last-viewed Code Flow sub-tab (persisted).
               if (this.codeflow.cfTab === 'dev') {
                 await this.devEnsureLoaded();
+              } else if (this.codeflow.cfTab === 'epics') {
+                // Epics cockpit restored → load my DNCEng epics; warm dev/PR counts too.
+                await this.loadCodeflowEpics();
+                this.devEnsureLoaded();
               } else {
                 // The Active PRs tab's server view is derived from the reviews-only
                 // toggle — re-sync it on every normal entry so a prior deep-link widen
@@ -52672,6 +53099,153 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (tab === 'mine') return this.codeflowAttention.mine || 0;
           if (tab === 'active') return this.codeflowAttention.reviews || 0;
           return 0;
+        },
+        // ===== Code Flow · Epics tab (DNCEng Epic work items assigned to me, in Dev) =====
+        cfEpicsCount() { return (this.codeflow.epics.list || []).length; },
+        cfEpicsAttn() { return (this.codeflow.epics.list || []).some(e => e && e.tone !== 'ok'); },
+        // The currently-selected epic cockpit (or null).
+        epicCur() {
+          const ep = this.codeflow.epics;
+          return (ep.list && ep.list[ep.idx]) || null;
+        },
+        // Load my epics + their cockpits. refresh=1 forces a server-side re-read + recompute.
+        async loadCodeflowEpics(refresh) {
+          const ep = this.codeflow.epics;
+          if (ep.loading) return;
+          // Don't refetch on a plain tab click if we already have data (unless forced).
+          if (!refresh && ep.loaded) return;
+          ep.loading = true; ep.error = '';
+          try {
+            const r = await this.request('/api/codeflow/epics' + (refresh ? '?refresh=1' : ''));
+            if (r && r.ok) {
+              ep.list = Array.isArray(r.epics) ? r.epics : [];
+              ep.note = r.note || '';
+              ep.signedIn = !!r.signedIn;
+              if (ep.idx >= ep.list.length) ep.idx = 0;
+            } else {
+              ep.error = (r && r.error) || 'Could not load epics.';
+            }
+          } catch (e) {
+            ep.error = (e && e.message) || 'Could not load epics.';
+          } finally {
+            ep.loading = false; ep.loaded = true;
+          }
+        },
+        epicSelect(i) {
+          const ep = this.codeflow.epics;
+          if (i < 0 || i >= ep.list.length) return;
+          ep.idx = i;
+        },
+        // Upgrade the selected epic's standup/alerts/forward/next with AI (server /ai route).
+        async epicUpgradeAi() {
+          const cur = this.epicCur();
+          if (!cur) return;
+          const ep = this.codeflow.epics;
+          if (ep.aiBusy[cur.key]) return;
+          ep.aiBusy = { ...ep.aiBusy, [cur.key]: true };
+          try {
+            const r = await this.request('/api/codeflow/epics/ai', {
+              method: 'POST',
+              body: JSON.stringify({ key: cur.key }),
+            });
+            if (r && r.ok && r.cockpit) {
+              const i = ep.list.findIndex(e => e.key === cur.key);
+              if (i >= 0) ep.list.splice(i, 1, r.cockpit);
+            } else if (r && !r.ok) {
+              this.toast((r.reason ? ('AI upgrade unavailable: ' + r.reason) : 'AI upgrade unavailable.'), 'warn');
+            }
+          } catch (e) {
+            this.toast('AI upgrade failed.', 'error');
+          } finally {
+            const b = { ...ep.aiBusy }; delete b[cur.key]; ep.aiBusy = b;
+          }
+        },
+        // Smooth-scroll to a cockpit section anchor.
+        epicJump(id) {
+          try {
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } catch {}
+        },
+        // ---- Epic assistant chat (self-contained, per-epic transcript) ----
+        epicChatKey() { const c = this.epicCur(); return c ? c.key : ''; },
+        epicChatMsgs() {
+          const k = this.epicChatKey();
+          if (!k) return [];
+          return this.codeflow.epics.chat.byKey[k] || [];
+        },
+        epicChatSuggestions() {
+          const c = this.epicCur();
+          if (!c) return [];
+          const s = ['What most needs my attention on this epic?',
+                     'What is blocking forward progress right now?',
+                     'Are we on track for the target date?'];
+          if (c.prCount) s.push('Summarize the open PRs for this epic.');
+          return s;
+        },
+        // Attention badge on the FAB = selected epic's non-info alerts.
+        epicChatBadge() {
+          const c = this.epicCur();
+          if (!c || !Array.isArray(c.alerts)) return 0;
+          return c.alerts.filter(a => a && a.sev !== 'info').length;
+        },
+        _epicSeedGreeting(c) {
+          if (!c) return '';
+          const bits = [];
+          bits.push('<b>' + this._esc(c.id) + '</b> — ' + this._esc((c.name || '').split(' — ')[0]));
+          bits.push('I have this epic\u2019s goals, its ' + (c.childCount || 0) + ' child items, ' + (c.prCount || 0) + ' PRs, dates and deliverables loaded.');
+          const attn = (c.alerts || []).filter(a => a && a.sev !== 'info').length;
+          if (attn) bits.push('There ' + (attn === 1 ? 'is' : 'are') + ' <b>' + attn + '</b> thing' + (attn === 1 ? '' : 's') + ' flagged for your attention. Ask me anything.');
+          else bits.push('Nothing urgent is flagged. Ask me anything.');
+          return bits.join('<br>');
+        },
+        epicChatOpen() {
+          const c = this.epicCur();
+          if (!c) return;
+          const ch = this.codeflow.epics.chat;
+          ch.open = true;
+          if (!ch.byKey[c.key] || !ch.byKey[c.key].length) {
+            ch.byKey = { ...ch.byKey, [c.key]: [{ role: 'ai', html: this._epicSeedGreeting(c) }] };
+          }
+          this.$nextTick(() => this._epicChatScroll());
+        },
+        epicChatClose() { this.codeflow.epics.chat.open = false; },
+        _epicChatScroll() {
+          try { const el = this.$refs.epicChatBody; if (el) el.scrollTop = el.scrollHeight; } catch {}
+        },
+        async epicChatSend(preset) {
+          const c = this.epicCur();
+          if (!c) return;
+          const ch = this.codeflow.epics.chat;
+          const text = (preset != null ? preset : ch.input || '').trim();
+          if (!text || ch.sending) return;
+          const key = c.key;
+          const list = (ch.byKey[key] || []).slice();
+          list.push({ role: 'user', text: this._esc(text) });
+          const history = list.filter(m => m.role === 'user' || m.role === 'ai')
+            .map(m => ({ role: m.role, text: (m.text || m.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }))
+            .slice(-8);
+          ch.byKey = { ...ch.byKey, [key]: list };
+          ch.input = '';
+          ch.sending = true;
+          this.$nextTick(() => this._epicChatScroll());
+          try {
+            const r = await this.request('/api/codeflow/epics/assistant', {
+              method: 'POST',
+              body: JSON.stringify({ key, message: text, history }),
+            });
+            const reply = (r && r.ok && r.reply) ? r.reply : (r && r.reply) || 'I couldn\u2019t answer that just now.';
+            const cur = (ch.byKey[key] || []).slice();
+            cur.push({ role: 'ai', html: this.inlineMarkdown ? this.inlineMarkdown(reply) : this._esc(reply) });
+            ch.byKey = { ...ch.byKey, [key]: cur };
+          } catch (e) {
+            const cur = (ch.byKey[key] || []).slice();
+            cur.push({ role: 'ai', html: 'Something went wrong reaching the assistant.' });
+            ch.byKey = { ...ch.byKey, [key]: cur };
+          } finally {
+            ch.sending = false;
+            this.$nextTick(() => this._epicChatScroll());
+          }
         },
         // The "Reviews needed from me" toggle on the Active PRs tab. On → only PRs that
         // list me as a reviewer (server view 'reviews'); off → every open PR ('active').

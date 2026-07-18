@@ -4614,6 +4614,308 @@ app.get('/api/codeflow/pr/report', (req, res) => {
 });
 
 
+// ===========================================================================
+// Code Flow — Epics tab. Surfaces the user's "DNCEng Epic" work items that are
+// assigned to them and in "Dev", rendered as one AI-driven cockpit per epic.
+// GET  /api/codeflow/epics            → real ADO data + a DETERMINISTIC cockpit
+// POST /api/codeflow/epics/ai         → SDK-upgrade summary+alerts+forward+next
+// POST /api/codeflow/epics/assistant  → lean read-only Epic assistant chat
+// ---------------------------------------------------------------------------
+const _epicCache = new Map();           // key `org/project/id` → { raw, cockpit, at }
+const EPIC_CACHE_TTL_MS = 5 * 60 * 1000;
+const EPIC_TYPE = 'DNCEng Epic';
+
+function _epicDaysUntil(iso) {
+  const d = String(iso || '').slice(0, 10);
+  if (!d) return null;
+  const t = Date.parse(d);
+  if (isNaN(t)) return null;
+  return Math.round((t - Date.now()) / 86400000);
+}
+function _epicAgo(iso) {
+  const t = Date.parse(String(iso || ''));
+  if (isNaN(t)) return '';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) {
+    const hrs = Math.floor((Date.now() - t) / 3600000);
+    return hrs <= 1 ? 'just now' : `${hrs}h`;
+  }
+  if (days < 14) return `${days}d`;
+  if (days < 60) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 30)}mo`;
+}
+function _epicChildStatus(c) {
+  const s = String(c.state || '').toLowerCase();
+  const tags = String(c.tags || '').toLowerCase();
+  if (/done|closed|completed|resolved|removed/.test(s)) return 'done';
+  if (/blocked/.test(s) || /\bblocked\b/.test(tags)) return 'blocked';
+  if (/review/.test(s)) return 'review';
+  if (/active|dev|in progress|committed|open/.test(s)) return 'doing';
+  return 'todo';
+}
+function _epicFmtDate(iso) {
+  const t = Date.parse(String(iso || ''));
+  if (isNaN(t)) return '';
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function _epicHtmlToText(html) {
+  return String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ').trim();
+}
+function _epicGoalsFromDescription(html) {
+  const goals = [];
+  const src = String(html || '');
+  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let m;
+  while ((m = liRe.exec(src)) && goals.length < 6) {
+    const t = _epicHtmlToText(m[1]);
+    if (t && t.length > 3) goals.push(t.slice(0, 200));
+  }
+  if (!goals.length) {
+    const text = _epicHtmlToText(src);
+    text.split(/(?<=[.!?])\s+/).forEach(s => {
+      s = s.trim();
+      if (s.length > 20 && goals.length < 4) goals.push(s.slice(0, 200));
+    });
+  }
+  return goals;
+}
+
+// Build the deterministic cockpit (mock epic shape) from real ADO data — no AI.
+function _epicComputeCockpit(raw) {
+  const { epic, children, prs } = raw;
+  const key = `${raw.org}/${raw.project}/${epic.id}`;
+  const kids = (children || []).map(c => ({ ...c, _st: _epicChildStatus(c) }));
+  const total = kids.length;
+  const doneN = kids.filter(k => k._st === 'done').length;
+  const blocked = kids.filter(k => k._st === 'blocked');
+  const pct = total ? Math.round((doneN / total) * 100) : 0;
+  const targetDays = _epicDaysUntil(epic.targetDate);
+  const targetPast = targetDays != null && targetDays < 0;
+
+  let tone = 'ok';
+  if ((blocked.length && targetDays != null && targetDays <= 45) || targetPast) tone = 'risk';
+  else if (blocked.length || (targetDays != null && targetDays <= 30)) tone = 'warn';
+  const flag = tone === 'risk' ? '🔴' : (tone === 'warn' ? '🟡' : '🟢');
+
+  // Summary (deterministic baseline).
+  const summary = [];
+  const targetPhrase = targetDays == null ? 'no target date set'
+    : (targetPast ? `<b>${Math.abs(targetDays)}d past</b> its target` : `<b>${targetDays}d</b> to target`);
+  summary.push(`<b>${epic.title}</b> is <b>${pct}%</b> complete — ${doneN} of ${total} child item${total === 1 ? '' : 's'} done, ${targetPhrase}.`);
+  if (blocked.length) summary.push(`${blocked.length} item${blocked.length === 1 ? ' is' : 's are'} blocked and need attention: ${blocked.slice(0, 3).map(b => '#' + b.id).join(', ')}.`);
+  else if (total && doneN < total) summary.push(`${total - doneN} item${total - doneN === 1 ? '' : 's'} still in flight; nothing is currently blocked.`);
+  if (prs && prs.length) summary.push(`${prs.length} linked pull request${prs.length === 1 ? '' : 's'}.`);
+
+  // Alerts.
+  const alerts = [];
+  blocked.slice(0, 2).forEach(b => alerts.push({
+    sev: 'crit', ic: '⛔', title: `Blocked: ${b.title}`.slice(0, 90),
+    why: `#${b.id} is blocked${b.assignedTo ? ' · ' + b.assignedTo : ''} — resolve to unblock progress.`,
+    act: 'Open item'
+  }));
+  if (targetPast) alerts.push({ sev: 'crit', ic: '📅', title: 'Target date has passed', why: `Target was ${_epicFmtDate(epic.targetDate)} (${Math.abs(targetDays)}d ago). Re-baseline or push to close.`, act: 'Review dates' });
+  else if (targetDays != null && targetDays <= 30) alerts.push({ sev: 'warn', ic: '⏳', title: `Target in ${targetDays} days`, why: `${total - doneN} item${total - doneN === 1 ? '' : 's'} remaining. Confirm the plan closes in time.`, act: 'Review plan' });
+  const staleReview = kids.filter(k => k._st === 'review' && _epicAgo(k.changedDate) && /w|mo/.test(_epicAgo(k.changedDate)));
+  if (staleReview.length) alerts.push({ sev: 'warn', ic: '🕰', title: `${staleReview.length} review${staleReview.length === 1 ? '' : 's'} going stale`, why: `Not touched recently: ${staleReview.slice(0, 3).map(s => '#' + s.id).join(', ')}.`, act: 'Nudge' });
+  if (!alerts.length) alerts.push({ sev: 'info', ic: '✓', title: 'Nothing needs you right now', why: 'No blocked items, target is comfortable, reviews are moving.', act: '' });
+
+  // Goals from description; objectives from real fields.
+  const goals = _epicGoalsFromDescription(epic.description);
+  const objectives = [
+    { lbl: 'State', v: 'Currently in', kpi: epic.state || 'Dev' },
+    { lbl: 'Progress', v: `${doneN}/${total} items`, kpi: `${pct}% complete` },
+    { lbl: 'Target date', v: epic.targetDate ? _epicFmtDate(epic.targetDate) : 'Not set', kpi: targetDays == null ? '—' : (targetPast ? `${Math.abs(targetDays)}d past` : `${targetDays}d left`) },
+    { lbl: 'Owner', v: 'Assigned to', kpi: epic.assignedTo || '@me' },
+  ];
+
+  // Work rows — active/blocked/review first, then the rest.
+  const rank = { blocked: 0, doing: 1, review: 2, todo: 3, done: 4 };
+  const work = kids.slice().sort((a, b) => (rank[a._st] - rank[b._st]) || (Date.parse(b.changedDate || 0) - Date.parse(a.changedDate || 0)))
+    .slice(0, 8).map(k => {
+      const age = _epicAgo(k.changedDate);
+      const ageC = /mo/.test(age) ? 'old' : (/w/.test(age) ? 'stale' : '');
+      const l2 = [`#${k.id}`];
+      const iterLeaf = String(k.iterationPath || '').split('\\').pop();
+      if (iterLeaf) l2.push(iterLeaf);
+      if (k.tags) l2.push(String(k.tags).split(';')[0].trim());
+      return { st: k._st, type: k.type || 'Item', title: k.title || `#${k.id}`, l2, agent: null, age, ageC, wid: k.id, href: k.url };
+    });
+
+  // Forward — unblock / advance the most-blocking work.
+  const forward = [];
+  blocked.slice(0, 3).forEach(b => forward.push({
+    t: `Unblock ${b.title}`.slice(0, 90), why: `#${b.id} is blocking downstream progress on this epic.`,
+    tag: 'blocked', dep: null, act: 'Open item', href: b.url
+  }));
+  if (forward.length < 3) {
+    staleReview.slice(0, 3 - forward.length).forEach(s => forward.push({
+      t: `Move review forward on ${s.title}`.slice(0, 90), why: `#${s.id} has been in review a while — land it or send it back.`,
+      tag: 'in review', dep: null, act: 'Open item', href: s.url
+    }));
+  }
+  if (!forward.length) {
+    const doing = kids.filter(k => k._st === 'doing').slice(0, 2);
+    doing.forEach(d => forward.push({ t: `Keep ${d.title} moving`.slice(0, 90), why: `#${d.id} is the active work — finish it to advance %.`, tag: 'active', dep: null, act: 'Open item', href: d.url }));
+    if (!forward.length) forward.push({ t: 'Plan the next slice of work', why: 'No active work items — break down the next deliverable.', tag: 'planning', dep: null, act: 'Open epic', href: epic.url });
+  }
+
+  // Next — todo items to pick up after the current path clears.
+  const next = kids.filter(k => k._st === 'todo').slice(0, 3).map(k => ({ t: k.title || `#${k.id}`, why: `#${k.id} — queued, not yet started.` }));
+  if (!next.length) next.push({ t: 'Close out remaining items', why: 'Finish what is in flight, then wrap the epic.' });
+
+  // Timeline — epic target + any child target dates.
+  const timeline = [];
+  kids.filter(k => k.targetDate).sort((a, b) => Date.parse(a.targetDate) - Date.parse(b.targetDate)).slice(0, 4).forEach(k => {
+    const d = _epicDaysUntil(k.targetDate);
+    timeline.push({ cls: '', d: _epicFmtDate(k.targetDate), e: k.title || `#${k.id}`, m: `#${k.id} · ${k.state}`, c: d != null && d < 0 ? 'late' : (d != null && d <= 14 ? 'soon' : 'ok'), cd: d == null ? '' : (d < 0 ? `${Math.abs(d)}d ago` : `${d}d`) });
+  });
+  if (epic.targetDate) timeline.push({ cls: 'risk', d: _epicFmtDate(epic.targetDate), e: 'Epic target date', m: `${doneN}/${total} items done`, c: targetPast ? 'late' : (targetDays != null && targetDays <= 30 ? 'soon' : 'ok'), cd: targetDays == null ? '' : (targetPast ? `${Math.abs(targetDays)}d ago` : `${targetDays}d`) });
+  if (!timeline.length) timeline.push({ cls: '', d: '—', e: 'No dated milestones', m: 'Add target dates to track the timeline', c: 'ok', cd: '' });
+
+  // Deliverables — notable child items as delivery lines.
+  const pctFor = { done: 100, review: 70, doing: 50, blocked: 25, todo: 0 };
+  const deliv = kids.slice().sort((a, b) => rank[a._st] - rank[b._st]).slice(0, 6).map(k => {
+    const p = pctFor[k._st] ?? 0;
+    const ck = k._st === 'done' ? 'done' : (p > 0 && p < 100 ? 'part' : '');
+    const risk = k._st === 'blocked' ? 'on' : (k._st === 'review' ? 'at' : 'ok');
+    const riskT = k._st === 'blocked' ? 'Blocked' : (k._st === 'review' ? 'In review' : (k._st === 'done' ? 'Done' : (k._st === 'doing' ? 'On track' : 'Queued')));
+    return { ck, nm: k.title || `#${k.id}`, sub: `#${k.id} · ${k.type}`, pct: p, risk, riskT };
+  });
+
+  return {
+    key, id: `#${epic.id}`, wid: epic.id, url: epic.url, tone, flag,
+    name: epic.title, area: String(epic.areaPath || '').split('\\').pop() || epic.areaPath || '',
+    iter: String(epic.iterationPath || '').split('\\').pop() || epic.iterationPath || '',
+    pct, target: epic.targetDate ? _epicFmtDate(epic.targetDate) : '—', targetDays: targetDays == null ? 0 : targetDays,
+    state: epic.state || 'Dev', childCount: total, prCount: (prs || []).length,
+    summary, alerts, goals, objectives, work, forward, next, timeline, deliv, aiUpgraded: false
+  };
+}
+
+app.get('/api/codeflow/epics', async (req, res) => {
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  try {
+    const s = settings.getSettings();
+    const targets = _connectAdoTargets(s);
+    if (!targets.length) return res.json({ ok: true, epics: [], errors: [], note: 'no-ado-config', signedIn: false });
+    const epics = [];
+    const errors = [];
+    for (const { org, projects } of targets) {
+      for (const project of projects) {
+        let items = [];
+        try {
+          items = await azdo.queryWorkItems(org, project, { type: EPIC_TYPE, state: 'Dev', assignedToMe: true, top: 25 });
+        } catch (e) { errors.push(`${org}/${project}: ${e.message}`); continue; }
+        for (const it of items) {
+          const key = `${org}/${project}/${it.id}`;
+          const cached = _epicCache.get(key);
+          if (!refresh && cached && (Date.now() - cached.at) < EPIC_CACHE_TTL_MS) { epics.push(cached.cockpit); continue; }
+          try {
+            const tree = await azdo.getEpicTree(org, project, it.id);
+            const raw = { org, project, ...tree };
+            const prev = _epicCache.get(key);
+            let cockpit = _epicComputeCockpit(raw);
+            // Preserve a prior AI upgrade across a plain (non-refresh) reload.
+            if (!refresh && prev && prev.cockpit && prev.cockpit.aiUpgraded && prev.cockpit.key === key) {
+              cockpit = { ...cockpit, summary: prev.cockpit.summary, alerts: prev.cockpit.alerts, forward: prev.cockpit.forward, next: prev.cockpit.next, aiUpgraded: true };
+            }
+            _epicCache.set(key, { raw, cockpit, at: Date.now() });
+            epics.push(cockpit);
+          } catch (e) { errors.push(`epic #${it.id}: ${e.message}`); }
+        }
+      }
+    }
+    const rank = { risk: 0, warn: 1, ok: 2 };
+    epics.sort((a, b) => (rank[a.tone] - rank[b.tone]) || (a.targetDays - b.targetDays));
+    res.json({ ok: true, epics, errors, note: epics.length ? '' : 'no-epics', signedIn: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post('/api/codeflow/epics/ai', async (req, res) => {
+  const key = String((req.body && req.body.key) || '');
+  const entry = _epicCache.get(key);
+  if (!entry) return res.status(404).json({ error: 'epic not loaded — refresh the Epics tab first' });
+  try {
+    const raw = entry.raw;
+    const kids = (raw.children || []).map(c => ({ id: c.id, title: c.title, state: c.state, type: c.type, status: _epicChildStatus(c), changed: _epicAgo(c.changedDate), target: c.targetDate ? _epicFmtDate(c.targetDate) : '' }));
+    const brief = {
+      epic: { id: raw.epic.id, title: raw.epic.title, state: raw.epic.state, target: raw.epic.targetDate ? _epicFmtDate(raw.epic.targetDate) : 'none', targetDays: _epicDaysUntil(raw.epic.targetDate), area: raw.epic.areaPath, iteration: raw.epic.iterationPath, description: _epicHtmlToText(raw.epic.description).slice(0, 3000) },
+      children: kids, prCount: (raw.prs || []).length,
+    };
+    const prompt = [
+      'You are an engineering delivery analyst producing a concise morning standup for the OWNER of a DNCEng epic.',
+      'You are given the epic and its child work items (real Azure DevOps data). Do NOT invent facts — use only what is provided.',
+      'Produce STRICT JSON only (no prose, no code fence) with this exact shape:',
+      '{"summary":["<1-3 short HTML paragraphs; <b> allowed>"],"alerts":[{"sev":"crit|warn|info","ic":"<one emoji>","title":"<=80 chars","why":"<=160 chars","act":"<=18 chars button label or empty>"}],"forward":[{"t":"<=90 chars action title>","why":"<=160 chars","tag":"<=18 chars","dep":null,"act":"<=18 chars"}],"next":[{"t":"<=90 chars","why":"<=160 chars"}]}',
+      'summary: where the epic stands + the single thing that needs the owner. alerts: 0-4, most urgent first (blocked items, date risk, stale reviews); if truly nothing, one info alert. forward: 1-4 highest-leverage next actions to move the epic forward, ordered by leverage. next: 1-3 things to pick up after the current path clears.',
+      '',
+      'EPIC + CHILDREN (JSON):',
+      JSON.stringify(brief),
+    ].join('\n');
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+      availableTools: [], onChunk: (c) => { acc += c; },
+      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      meta: { source: 'system', category: 'chat' },
+    });
+    if (result && result.fallback) return res.json({ ok: false, reason: 'runtime-unavailable', cockpit: entry.cockpit });
+    const parsed = _connectExtractJson(acc.trim() || (result && result.output) || '');
+    if (!parsed) return res.json({ ok: false, reason: 'no-json', cockpit: entry.cockpit });
+    const cockpit = { ...entry.cockpit };
+    if (Array.isArray(parsed.summary) && parsed.summary.length) cockpit.summary = parsed.summary.map(String).slice(0, 3);
+    if (Array.isArray(parsed.alerts)) cockpit.alerts = parsed.alerts.slice(0, 4).map(a => ({ sev: /crit|warn|info/.test(a.sev) ? a.sev : 'info', ic: String(a.ic || 'ℹ️').slice(0, 4), title: String(a.title || '').slice(0, 90), why: String(a.why || '').slice(0, 200), act: String(a.act || '').slice(0, 24) }));
+    if (Array.isArray(parsed.forward) && parsed.forward.length) cockpit.forward = parsed.forward.slice(0, 4).map((f, i) => ({ t: String(f.t || '').slice(0, 90), why: String(f.why || '').slice(0, 200), tag: String(f.tag || 'next').slice(0, 24), dep: f.dep ? String(f.dep).slice(0, 60) : null, act: String(f.act || 'Open').slice(0, 24), href: (entry.cockpit.forward[i] && entry.cockpit.forward[i].href) || entry.cockpit.url }));
+    if (Array.isArray(parsed.next) && parsed.next.length) cockpit.next = parsed.next.slice(0, 3).map(n => ({ t: String(n.t || '').slice(0, 90), why: String(n.why || '').slice(0, 200) }));
+    cockpit.aiUpgraded = true;
+    _epicCache.set(key, { ...entry, cockpit, at: Date.now() });
+    res.json({ ok: true, cockpit });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post('/api/codeflow/epics/assistant', async (req, res) => {
+  const key = String((req.body && req.body.key) || '');
+  const message = String((req.body && req.body.message) || '').trim();
+  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  const entry = _epicCache.get(key);
+  if (!entry) return res.status(404).json({ error: 'epic not loaded — refresh the Epics tab first' });
+  if (!message) return res.status(400).json({ error: 'message is required' });
+  try {
+    const c = entry.cockpit;
+    const raw = entry.raw;
+    const kids = (raw.children || []).map(k => `- #${k.id} [${_epicChildStatus(k)}] ${k.title}${k.assignedTo ? ' · ' + k.assignedTo : ''}${k.targetDate ? ' · target ' + _epicFmtDate(k.targetDate) : ''}`).join('\n');
+    const convo = history.slice(-8).map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${String(h.text || '').slice(0, 800)}`).join('\n');
+    const prompt = [
+      `You are the Epic assistant — a READ-ONLY advisor for the owner of DNCEng epic ${c.id} "${c.name}".`,
+      'Answer the owner\'s question grounded ONLY in the epic context below. Be concise and specific. You do NOT take actions, create PRs, or change work items — you advise, summarize, and recommend. If asked to do something you cannot do, explain what the owner should do instead.',
+      '',
+      `EPIC: ${c.name} (${c.id}) · state ${c.state} · ${c.pct}% complete · target ${c.target} (${c.targetDays}d) · area ${c.area}`,
+      `Progress: ${c.childCount} child items, ${c.prCount} linked PRs.`,
+      raw.epic.description ? `Description: ${_epicHtmlToText(raw.epic.description).slice(0, 1500)}` : '',
+      c.summary && c.summary.length ? `Standup: ${c.summary.map(_epicHtmlToText).join(' ')}` : '',
+      kids ? `Child work items:\n${kids}` : '',
+      convo ? `\nConversation so far:\n${convo}` : '',
+      `\nUser: ${message}`,
+      '\nReply in plain prose (short paragraphs / bullets). No JSON, no code fence.',
+    ].filter(Boolean).join('\n');
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+      availableTools: [], onChunk: (ch) => { acc += ch; },
+      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      meta: { source: 'system', category: 'chat' },
+    });
+    if (result && result.fallback) return res.json({ ok: false, reply: 'The assistant runtime is not available right now.' });
+    const reply = (acc.trim() || (result && result.output) || '').trim();
+    res.json({ ok: true, reply: reply || 'I could not produce a response.' });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+
 // Sources (local folders / AzDO repos) are scanned greedily for agents,
 // plugins, skills and MCP servers; the catalog merges scanned entries with an
 // implicit "installed" view. Capabilities can be added to any agent (reusing

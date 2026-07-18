@@ -954,6 +954,85 @@ async function queryWorkItems(org, project, { type, state, areaPath, assignedToM
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
+// Expand an epic's hierarchy: its direct child work items (Hierarchy-Forward
+// relations) plus any linked pull requests (ArtifactLink relations). Batch-fetches
+// child field details (incl. TargetDate) in one call. Returns
+// { epic, children:[...], prs:[{id}] }. Never throws on an epic with no relations;
+// bubbles auth/permission errors from apiSend.
+async function getEpicTree(org, project, id) {
+  const d = await apiSend(org, `${seg(project)}/_apis/wit/workitems/${seg(id)}?$expand=relations&api-version=${API_VERSION}`);
+  const f = d.fields || {};
+  const assigned = f['System.AssignedTo'];
+  const epic = {
+    id: d.id,
+    title: f['System.Title'] || '',
+    state: f['System.State'] || '',
+    type: f['System.WorkItemType'] || '',
+    assignedTo: assigned ? (assigned.displayName || assigned.uniqueName || '') : '',
+    areaPath: f['System.AreaPath'] || '',
+    iterationPath: f['System.IterationPath'] || '',
+    tags: f['System.Tags'] || '',
+    description: f['System.Description'] || '',
+    targetDate: f['Microsoft.VSTS.Scheduling.TargetDate'] || '',
+    startDate: f['Microsoft.VSTS.Scheduling.StartDate'] || '',
+    url: workItemUrl(org, project, id)
+  };
+  const childIds = [];
+  const prs = [];
+  for (const rel of (d.relations || [])) {
+    const relType = String(rel.rel || '');
+    if (relType === 'System.LinkTypes.Hierarchy-Forward') {
+      const m = String(rel.url || '').match(/workItems\/(\d+)/i);
+      if (m) childIds.push(Number(m[1]));
+    } else if (relType === 'ArtifactLink') {
+      const nm = String((rel.attributes && rel.attributes.name) || '');
+      if (/pull ?request/i.test(nm)) {
+        // vstfs artifact URI: .../PullRequestId/<git-project-guid>%2F<repo-guid>%2F<prId>
+        const enc = String(rel.url || '').split('/').pop() || '';
+        let decoded = enc; try { decoded = decodeURIComponent(enc); } catch {}
+        const prId = decoded.split('/').pop();
+        if (prId) prs.push({ id: prId });
+      }
+    }
+  }
+  let children = [];
+  const ids = childIds.slice(0, 200);
+  if (ids.length) {
+    const batch = await apiSend(org, `${seg(project)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`, {
+      method: 'POST',
+      body: {
+        ids,
+        fields: [
+          'System.Id', 'System.Title', 'System.State', 'System.WorkItemType',
+          'System.AreaPath', 'System.IterationPath', 'System.Tags',
+          'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo',
+          'Microsoft.VSTS.Scheduling.TargetDate'
+        ]
+      },
+      contentType: 'application/json'
+    });
+    const person = (v) => (v ? (v.displayName || v.uniqueName || '') : '');
+    children = (batch.value || []).map(c => {
+      const cf = c.fields || {};
+      return {
+        id: c.id,
+        title: cf['System.Title'] || '',
+        state: cf['System.State'] || '',
+        type: cf['System.WorkItemType'] || '',
+        areaPath: cf['System.AreaPath'] || '',
+        iterationPath: cf['System.IterationPath'] || '',
+        tags: cf['System.Tags'] || '',
+        changedDate: cf['System.ChangedDate'] || '',
+        createdDate: cf['System.CreatedDate'] || '',
+        assignedTo: person(cf['System.AssignedTo']),
+        targetDate: cf['Microsoft.VSTS.Scheduling.TargetDate'] || '',
+        url: workItemUrl(org, project, c.id)
+      };
+    });
+  }
+  return { epic, children, prs };
+}
+
 // Comment threads on a PR. Returns active/resolved counts (user threads only)
 // plus a light list of resolvable threads for context.
 async function getPrThreads(org, project, repo, prId) {
@@ -1298,5 +1377,6 @@ module.exports = {
   getSignInStatus,
   listProjectPullRequests,
   listMyWorkItems,
-  queryWorkItems
+  queryWorkItems,
+  getEpicTree
 };

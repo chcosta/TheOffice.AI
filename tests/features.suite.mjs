@@ -2135,6 +2135,45 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   t.ok(/@click="monReconnect\(\)"/.test(html) && /Retry connection/.test(html), 'connection panel has a Retry connection button');
 });
 
+await t.test('code flow: Epics tab — DNCEng epic cockpit wired end to end (tab/section/state/methods/server/azdo)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // --- tab button present in BOTH Code Flow tab bars (dev + pr) ---
+  const tabBtns = html.match(/@click="codeflow\.cfTab = 'epics'; loadCodeflowEpics\(\)">🏔 Epics/g) || [];
+  t.gte(tabBtns.length, 2, 'Epics cf-tab button appears in both tab bars');
+  // --- the epics <section> is gated on the route + sub-tab ---
+  t.ok(/route === 'codeflow' && codeflow\.cfTab === 'epics'/.test(html), 'epics section gated on codeflow + cfTab');
+  // --- restored-tab initial-load branch in the codeflow route dispatch ---
+  t.ok(/else if \(this\.codeflow\.cfTab === 'epics'\) \{[\s\S]*?await this\.loadCodeflowEpics\(\);/.test(html), 'route dispatch loads epics when the tab is restored');
+  // --- cfTab default read + persist include 'epics' ---
+  const cfTabDefault = _win(html, "cfTab", 400);
+  t.ok(cfTabDefault, 'cfTab wiring present');
+  // --- state block ---
+  const st = _win(html, 'epics: {', 700);
+  t.ok(st, 'codeflow.epics state block exists');
+  t.ok(/list:/.test(st) && /idx:/.test(st) && /loading:/.test(st) && /chat:/.test(st) && /aiBusy:/.test(st), 'epics state carries list/idx/loading/chat/aiBusy');
+  // --- key methods defined ---
+  for (const m of ['cfEpicsCount()', 'cfEpicsAttn()', 'epicCur()', 'async loadCodeflowEpics(', 'epicSelect(', 'async epicUpgradeAi(', 'epicChatOpen(', 'async epicChatSend(', 'epicChatSuggestions(', 'epicChatBadge(']) {
+    t.ok(html.includes(m), 'method defined: ' + m);
+  }
+  // loadCodeflowEpics guards double-load + honors refresh
+  const load = _win(html, 'async loadCodeflowEpics(refresh)', 900);
+  t.ok(/\/api\/codeflow\/epics/.test(load), 'loadCodeflowEpics hits the epics route');
+  t.ok(/refresh/.test(load) && /loaded/.test(load), 'loadCodeflowEpics skips when already loaded unless refresh');
+  // --- the assistant FAB/drawer is a TOP-LEVEL teleport (Alpine only teleports top-level templates) ---
+  t.ok(/<template x-teleport="body">\s*<div x-show="route === 'codeflow' && codeflow\.cfTab === 'epics'/.test(html), 'epic assistant FAB/drawer is a top-level x-teleport');
+  t.ok(/class="epx-fab"/.test(html) && /class="epx-drawer"/.test(html), 'scoped .epx-fab + .epx-drawer present');
+  // --- server routes ---
+  const srv = readFileSync('server.js', 'utf8');
+  for (const r of ["app.get('/api/codeflow/epics'", "app.post('/api/codeflow/epics/ai'", "app.post('/api/codeflow/epics/assistant'"]) {
+    t.ok(srv.includes(r), 'server route: ' + r);
+  }
+  t.ok(/_epicComputeCockpit/.test(srv), 'server builds a deterministic cockpit');
+  // --- azdo client ---
+  const az = readFileSync('azdo.js', 'utf8');
+  t.ok(/async function getEpicTree\(org, project, id\)/.test(az), 'azdo.js defines getEpicTree');
+  t.ok(/\bgetEpicTree\b/.test(az.split('module.exports').pop() || az), 'azdo.js exports getEpicTree');
+});
+
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   const graf = require('../grafana.js');
