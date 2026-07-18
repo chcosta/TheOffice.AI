@@ -13941,6 +13941,8 @@
               .meai-dir-clash-claim + .meai-dir-clash-claim { padding-top:6px; border-top:1px solid var(--cp-border,rgba(255,255,255,.06)); }
               .meai-dir-row-s.desk { color:#d97706; }
               .meai-dir-row-s.eff { color:#16a34a; }
+              .meai-dir-row-since { font-size:10.5px; margin-top:3px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              .meai-dir-row-since.stuck { color:#dc2626; font-weight:600; }
               .meai-dir-row-go { color:var(--cp-text-muted); font-weight:700; align-self:center; }
               .meai-dir-foot { font-size:11.5px; color:var(--cp-text-soft,var(--cp-text-muted)); margin-top:2px; line-height:1.5; }
               .meai-dir-more a { display:block; font-size:12.5px; color:var(--cp-link); cursor:pointer; padding:5px 0; border-bottom:1px solid color-mix(in srgb,var(--cp-border) 45%, transparent); font-weight:600; }
@@ -16966,6 +16968,7 @@
                                         <div class="meai-dir-row-t" x-text="it.title"></div>
                                         <div class="meai-dir-row-w" x-text="it.question"></div>
                                         <div class="meai-dir-row-s desk" x-text="it.status"></div>
+                                        <div class="meai-dir-row-since" :class="meAiSpawnStuck(it) ? 'stuck' : ''" x-show="meAiSpawnTiming(it)" x-text="meAiSpawnTiming(it) + (meAiSpawnStuck(it) ? ' — looks stuck' : '')"></div>
                                       </div>
                                       <span class="meai-dir-row-go">→</span>
                                     </button>
@@ -16982,7 +16985,7 @@
                                     <div class="meai-dir-row-t" x-text="it.title"></div>
                                     <div class="meai-dir-row-w" x-text="it.detail"></div>
                                     <div class="meai-dir-row-s desk" x-text="meAiDirectorDeskKind(it)"></div>
-                                    <div class="meai-dir-row-arb" x-show="it.arbitrating || it.arbitrated" :class="it.arbitrating ? 'live' : 'done'"><span class="d"></span> <span x-text="it.arbitrating ? 'Arbitrator on it — an agent is checking this now' : 'An arbitrator already looked — this is genuinely your call'"></span></div>
+                                    <div class="meai-dir-row-arb" x-show="it.arbitrating || it.arbitrated" :class="it.arbitrating ? 'live' : 'done'"><span class="d"></span> <span x-text="(it.arbitrating ? 'Arbitrator on it — an agent is checking this now' : 'An arbitrator already looked — this is genuinely your call') + (meAiSpawnTiming(it) ? ' · ' + meAiSpawnTiming(it) : '')"></span></div>
                                   </div>
                                   <span class="meai-dir-row-go">→</span>
                                 </button>
@@ -17351,7 +17354,7 @@
                                   <div class="meai-dir-side-claim" x-text="meai.pursuit.director.sel.question"></div>
                                   <div style="color:var(--cp-text-muted);font-size:11.5px;margin:10px 0 -2px">The bounded plan</div>
                                   <div class="meai-dir-side-claim" x-text="meai.pursuit.director.sel.plan"></div>
-                                  <div class="meai-dir-xs proposed"><span class="d"></span> <span x-text="meai.pursuit.director.sel.status || 'Investigating — off your desk'"></span></div>
+                                  <div class="meai-dir-xs proposed"><span class="d"></span> <span x-text="(meai.pursuit.director.sel.status || 'Investigating — off your desk') + (meAiSpawnTiming(meai.pursuit.director.sel) ? '  ·  ' + meAiSpawnTiming(meai.pursuit.director.sel) + (meAiSpawnStuck(meai.pursuit.director.sel) ? ' — looks stuck' : '') : '')"></span></div>
                                   <div class="meai-dir-foot-acts">
                                     <button type="button" class="btn primary" x-show="!meai.pursuit.director.sel.dispatched" :disabled="meai.pursuit.director.busy" @click="meAiDirectorProbeDispatch(meai.pursuit.director.sel)">Dispatch the investigation →</button>
                                     <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.dispatched && meai.pursuit.director.sel.spawnLegId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.spawnLegId)">Open the investigation agent →</button>
@@ -31638,6 +31641,7 @@
               _actedInsights: {},                // insight keys spun off this session → show "Spun off ✓"
               sel: null, selKind: null,          // current detail selection
               showHandled: false, note: '',
+              _nowMs: Date.now(),                // live clock for elapsed-time labels (ticked while open)
             },
           },
           directorSummary: {},    // per-task rail summary cache { tid → { enabled, active, handled, desk, ... } }
@@ -45326,6 +45330,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p._navDefaulted = false;
           this.$nextTick(() => { this.meAiPursuitFrame(); this._meAiPursuitObserve(); });
           this.meAiPursuitLoad();
+          // Live clock so elapsed-time labels ("running 4m", "ran 2m ago") tick up without a
+          // reload — this is how the user tells an active investigation from a stalled one.
+          try { if (this._meAiDirClock) clearInterval(this._meAiDirClock); } catch (_) {}
+          if (p.director) p.director._nowMs = Date.now();
+          this._meAiDirClock = setInterval(() => {
+            if (!this.meai.pursuit.open) { try { clearInterval(this._meAiDirClock); } catch (_) {} this._meAiDirClock = null; return; }
+            if (this.meai.pursuit.director) this.meai.pursuit.director._nowMs = Date.now();
+          }, 5000);
         },
         // Leave a deep-linked agent page while it's still hydrating (the placeholder's
         // Back button) — hop back to where we came from, else drop the deep-link param.
@@ -45341,6 +45353,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = this.meai.pursuit;
           p.open = false; p.artView = null;
           this.meai.agentPage = false;
+          try { if (this._meAiDirClock) { clearInterval(this._meAiDirClock); this._meAiDirClock = null; } } catch (_) {}
           try { if (p._ro) { p._ro.disconnect(); p._ro = null; } } catch (_) {}
           try { window.removeEventListener('resize', this._meAiPursuitFrameBound || (() => {})); } catch (_) {}
           // If we opened this monitor from the Automation page, hop back there. Otherwise
@@ -47586,6 +47599,54 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiDirectorRedundancyNote() { const dx = this.meAiDirectorDiagnosis(); return (dx && dx.redundancyNote) ? dx.redundancyNote : ''; },
         meAiDirectorProbes() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.probeItems)) ? pl.probeItems : []; },
         meAiDirectorProbing() { const pl = this.meai.pursuit.director.plan; const r = pl && pl.reconciliation; if (r && typeof r.probing === 'number') return r.probing; return this.meAiDirectorProbes().length; },
+        // Compact "how long ago / for how long" formatter for the elapsed-time labels.
+        _meAiFmtSince(ms) {
+          if (!(ms >= 0)) return '';
+          const s = Math.floor(ms / 1000);
+          if (s < 45) return 'just now';
+          const m = Math.round(s / 60);
+          if (m < 1) return '<1m';
+          if (m < 60) return m + 'm';
+          const h = Math.floor(m / 60);
+          if (h < 24) return h + 'h' + ((m % 60) ? ' ' + (m % 60) + 'm' : '');
+          const d = Math.floor(h / 24);
+          return d + 'd' + ((h % 24) ? ' ' + (h % 24) + 'h' : '');
+        },
+        // Elapsed-time label for a Director spawn (probe card OR desk arbitration marker) so the
+        // user can tell an active investigation from a stalled or long-finished one. Reads the
+        // absolute ISO anchors the Director emits and formats them against the live clock.
+        meAiSpawnTiming(it) {
+          if (!it || !it.sinceKind) return '';
+          const now = (this.meai.pursuit.director && this.meai.pursuit.director._nowMs) || Date.now();
+          const since = (iso) => { const t = Date.parse(iso || ''); return isFinite(t) ? (now - t) : NaN; };
+          if (it.sinceKind === 'running') {
+            const run = since(it.spawnStartedAt);
+            const idle = since(it.spawnUpdatedAt);
+            let s = isFinite(run) ? ('running ' + this._meAiFmtSince(run)) : 'running';
+            // A still-"running" leg whose last heartbeat is >2m old is likely stalling — say so.
+            if (isFinite(idle) && idle > 120000) s += ' · last activity ' + this._meAiFmtSince(idle) + ' ago';
+            return s;
+          }
+          if (it.sinceKind === 'ran') {
+            const ago = since(it.spawnEndedAt || it.spawnUpdatedAt);
+            const took = (it.spawnDurationMs != null && it.spawnDurationMs >= 0) ? this._meAiFmtSince(it.spawnDurationMs) : null;
+            let s = isFinite(ago) ? ('ran ' + this._meAiFmtSince(ago) + ' ago') : 'ran';
+            if (took) s += ' · took ' + took;
+            return s;
+          }
+          if (it.sinceKind === 'queued') {
+            const ago = since(it.spawnCreatedAt);
+            return isFinite(ago) ? ('queued ' + this._meAiFmtSince(ago)) : 'queued';
+          }
+          return '';
+        },
+        // True when a running spawn has gone quiet long enough to look stuck (>5m no heartbeat).
+        meAiSpawnStuck(it) {
+          if (!it || it.sinceKind !== 'running') return false;
+          const now = (this.meai.pursuit.director && this.meai.pursuit.director._nowMs) || Date.now();
+          const idle = now - Date.parse(it.spawnUpdatedAt || '');
+          return isFinite(idle) && idle > 300000;
+        },
         async meAiDirectorProbeDispatch(it) {
           if (!it) return; const p = this.meai.pursuit;
           const sid = it.stopId || (Array.isArray(it.stopIds) && it.stopIds[0]) || null;

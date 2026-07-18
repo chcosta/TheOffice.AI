@@ -1288,6 +1288,16 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   const nogrant = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced' }, aiPunt));
   t.ok(nogrant.per[0].disposition === 'probe', 'without a grant a checkable clash STILL routes to arbitration (read-only probe needs no grant)');
 
+  // Elapsed-time anchors: the surface must be able to tell a fresh, active investigation from an
+  // old, stalled one. A LIVE spawn carries running anchors (startedAt for duration, updatedAt for
+  // last-heartbeat/stall detection); a TERMINAL one carries when it finished + how long it took.
+  const liveTiming = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'running', startedAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:03:00.000Z' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
+  const lp = (liveTiming.probeItems || []).find(p => (p.stopIds || []).indexOf('s1') !== -1) || liveTiming.probeItems[0];
+  t.ok(lp && lp.sinceKind === 'running' && lp.spawnStartedAt === '2020-01-01T00:00:00.000Z' && lp.spawnUpdatedAt === '2020-01-01T00:03:00.000Z', 'a LIVE probe carries running timing anchors (startedAt + last-heartbeat updatedAt)');
+  const ranTiming = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error', startedAt: '2020-01-01T00:00:00.000Z', endedAt: '2020-01-01T00:02:00.000Z', durationMs: 120000 } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
+  const rp = (ranTiming.probeItems || []).find(p => (p.stopIds || []).indexOf('s1') !== -1) || ranTiming.probeItems[0];
+  t.ok(rp && rp.sinceKind === 'ran' && rp.spawnEndedAt === '2020-01-01T00:02:00.000Z' && rp.spawnDurationMs === 120000, 'a TERMINAL probe carries finished-time + duration anchors');
+
   // Helpers are exported for the server/tests (regex predicate replaced by the AI-driven one + recency).
   const dsrc = readFileSync('director.js', 'utf8');
   t.ok(/_internal:\s*\{[^}]*_clashCheckable[^}]*_recencyNote[^}]*_arbitrationProbe/.test(dsrc), 'director.js exports _clashCheckable + _recencyNote + _arbitrationProbe');
@@ -2756,6 +2766,17 @@ await t.test('director: honest dispatch/arbitration surface + automation stop-al
     'probe items carry dispatched/pending/spawnLegId');
   t.ok(/it\.arbitrating = !!info\.live;/.test(djs) && /it\.arbLegId = info\.legId \|\| null;/.test(djs),
     'desk items carry arbitrating/arbLegId');
+
+  // Elapsed-time UI: probe rows + desk arbitration markers show how long a spawn has been running
+  // / how long ago it ran, and flag a stall — so the user can tell active from stuck at a glance.
+  t.ok(/spawnStartedAt, spawnUpdatedAt, spawnEndedAt, spawnCreatedAt, spawnDurationMs, sinceKind,/.test(djs),
+    'probe items carry the elapsed-time anchors + sinceKind');
+  t.ok(/it\.sinceKind = info\.live \? 'running' : \(info\.pending \? 'queued' : 'ran'\);/.test(djs),
+    'desk items carry a sinceKind derived from the arbitrator spawn state');
+  t.ok(/meAiSpawnTiming\(it\)/.test(html) && /meAiSpawnTiming\(it\) \{/.test(html),
+    'the probe row renders + defines a spawn-timing label');
+  t.ok(/meAiSpawnStuck\(it\)/.test(html) && /meAiSpawnStuck\(it\) \{/.test(html),
+    'the surface flags a stalled (quiet) running spawn');
 
   // (d) Automation stop-all button gated on deep run + running/awaiting
   t.ok(/meAiRunIsDeep\(meAiSelectedRun\(\)\) && \(meAiRunStatusKey\(meAiSelectedRun\(\)\) === 'running' \|\| meAiRunStatusKey\(meAiSelectedRun\(\)\) === 'awaiting'\)[\s\S]{0,120}meAiStopAllNodes/.test(html),

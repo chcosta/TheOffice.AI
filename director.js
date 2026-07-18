@@ -576,6 +576,14 @@ function _groupDesk(deskNodes, ctx) {
       it.arbitrated = !info.live;
       it.arbLegId = info.legId || null;
       it.arbStatus = info.status || null;
+      // Elapsed-time anchors (same shape probes carry) so the desk can show how long the
+      // arbitrator has been on it — "on it 4m" vs a run that "finished 2m ago" — and flag a stall.
+      it.spawnStartedAt = info.startedAt || null;
+      it.spawnUpdatedAt = info.updatedAt || null;
+      it.spawnEndedAt = info.endedAt || null;
+      it.spawnCreatedAt = info.createdAt || null;
+      it.spawnDurationMs = (info.durationMs != null ? info.durationMs : null);
+      it.sinceKind = info.live ? 'running' : (info.pending ? 'queued' : 'ran');
     }
   }
 
@@ -628,6 +636,16 @@ function _groupProbes(probeNodes, ctx) {
       ? 'Investigating — sub-agent running'
       : (investigated ? 'Investigation ran — reconciling the finding'
         : (pending ? 'Queued — dispatch pending (recovering)' : 'Queued — not yet dispatched'));
+    // Elapsed-time anchors so the surface can show "running 4m" vs "queued 12m" vs "ran 2m ago",
+    // and flag a stall (a still-running leg whose last heartbeat is old). We emit absolute ISO
+    // timestamps + a kind and let the UI format them against a live clock — so a genuinely stuck
+    // leg's "last activity" keeps growing and reveals itself without a reload.
+    const spawnStartedAt = spawn ? (spawn.startedAt || null) : null;
+    const spawnUpdatedAt = spawn ? (spawn.updatedAt || null) : null;
+    const spawnEndedAt = spawn ? (spawn.endedAt || null) : null;
+    const spawnCreatedAt = spawn ? (spawn.createdAt || null) : null;
+    const spawnDurationMs = spawn ? (spawn.durationMs != null ? spawn.durationMs : null) : null;
+    const sinceKind = dispatched ? 'running' : (investigated ? 'ran' : (pending ? 'queued' : 'idle'));
     const title = collision
       ? ((s.collisionTarget ? (g.members.length + ' writes collide on ' + _clip(String(s.collisionTarget), 60)) : (g.members.length + ' writes target the same resource')))
       : (_clashTitle(s) || _gapTitle(s) || (s.subject || 'A decision worth investigating'));
@@ -642,6 +660,7 @@ function _groupProbes(probeNodes, ctx) {
       // running and link straight into that agent's node (chat, thinking, tool calls).
       dispatched, investigated, pending,
       spawnLegId: spawn ? spawn.legId : null, spawnStatus: spawn ? spawn.status : null,
+      spawnStartedAt, spawnUpdatedAt, spawnEndedAt, spawnCreatedAt, spawnDurationMs, sinceKind,
       directorRationale: s.aiReason || (collision
         ? ("Two or more held writes would overwrite the same target. I won't ask you to pick between duplicates — I'm having a sub-agent settle the collision (keep the best, merge, or confirm they're independent) and redirect the rest.")
         : ("This is a hard call, but I don't think it's yours yet — a bounded investigation should resolve or sharpen it first. I'll look into it and only bring it to you if it's a genuine judgement call after.")),
@@ -743,7 +762,17 @@ function planReduction(tree, policy) {
       // A live spawn beats a pending one beats a terminal one for the same stop (a re-dispatch).
       const prev = spawnByStop.get(lg.fromStopId);
       const rank = (o) => o ? (o.live ? 2 : (o.pending ? 1 : 0)) : -1;
-      const cur = { legId: lg.id, status: st, terminal, live, pending };
+      // Carry the leg's wall-clock anchors so the surface can show elapsed time — the user
+      // needs to tell a fresh, active investigation from an old, stalled one at a glance.
+      // startedAt = when it began running; updatedAt = last heartbeat (a stale one on a still
+      // "running" leg reveals a stall); endedAt/durationMs = when a terminal run finished + how
+      // long it took; createdAt = when a still-queued spawn was minted.
+      const cur = {
+        legId: lg.id, status: st, terminal, live, pending,
+        startedAt: lg.startedAt || null, updatedAt: lg.updatedAt || null,
+        endedAt: lg.endedAt || null, createdAt: lg.createdAt || null,
+        durationMs: (typeof lg.durationMs === 'number' ? lg.durationMs : null),
+      };
       if (rank(cur) > rank(prev)) spawnByStop.set(lg.fromStopId, cur);
     }
   }
