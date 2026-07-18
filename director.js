@@ -24,6 +24,17 @@ const AUTONOMY_LEVELS = ['cautious', 'balanced', 'full'];
 //             destructive / out-of-grant / director-unsure)
 const HANDLED = new Set(['cull', 'absorb', 'resolve']);
 
+// A checkable clash gets up to this many read-only arbitration attempts before it is
+// escalated honestly to the human. The FIRST attempt fact-checks the disputed claim; if
+// that attempt runs but settles nothing (a common failure: a single agent turn reasons
+// poorly and punts), a SECOND, consensus-focused attempt runs — because the overwhelmingly
+// likely reason an arbitration "couldn't settle" a clash is that the two sides actually
+// AGREE and the standoff is a false binary (opposite affirm/deny labels on the same
+// conclusion). Only after this many terminal attempts does the clash reach the desk. This
+// fixes the bug where one inconclusive arbitration stranded the user with a coin-flip on two
+// legs that plainly agreed. Bounded so it never loops forever.
+const MAX_ARBITRATION_ATTEMPTS = 2;
+
 // Map an AI verdict's recommended action → a director disposition. The reasoning pass
 // speaks in verbs it understands ("absorb this reversible edit", "ask the user"); this
 // is the only place that vocabulary crosses into the deterministic disposition set.
@@ -180,22 +191,36 @@ function _recencyNote(conflict) {
 // Build the arbitration brief a forced probe carries: verify the disputed fact against
 // the actual source of truth, report which side is real (or that both are wrong), so the
 // losing leg is redirected and neither proceeds on a false premise — without the human.
-function _arbitrationProbe(conflict) {
+// `opts.attempt` (1-based): on a RE-PROBE (attempt >= 2, a prior arbitration ran but did not
+// settle it) the brief leads even harder with consensus-first + explicit MERGE instructions,
+// because the overwhelmingly likely reason a clash "couldn't be settled" is that the two sides
+// actually AGREE and the standoff is a false binary (opposite affirm/deny labels on one
+// conclusion) — the exact bug the user hit (two legs at "90/90" both concluding the same thing).
+function _arbitrationProbe(conflict, opts) {
+  const attempt = (opts && Number(opts.attempt)) || 1;
+  const reprobe = attempt >= 2;
   const subj = (conflict && conflict.subject) || 'this claim';
   const a = (conflict && conflict.a && conflict.a.claim) || '';
   const b = (conflict && conflict.b && conflict.b.claim) || '';
   const rec = _recencyNote(conflict);
-  const question = 'Do these two readings of "' + _clip(subj, 90) + '" actually agree, and if not which matches reality'
-    + (a && b ? (' \u2014 A: "' + _clip(a, 110) + '" vs B: "' + _clip(b, 110) + '"?') : '?');
+  const question = reprobe
+    ? ('A prior arbitration of "' + _clip(subj, 90) + '" did not settle it \u2014 do these two readings actually AGREE (and should therefore MERGE), or does one genuinely match reality'
+      + (a && b ? (' \u2014 A: "' + _clip(a, 110) + '" vs B: "' + _clip(b, 110) + '"?') : '?'))
+    : ('Do these two readings of "' + _clip(subj, 90) + '" actually agree, and if not which matches reality'
+      + (a && b ? (' \u2014 A: "' + _clip(a, 110) + '" vs B: "' + _clip(b, 110) + '"?') : '?'));
+  const consensusLead = reprobe
+    ? ('A PRIOR arbitration already ran on this clash and failed to settle it. The single most likely reason is that the two sides actually AGREE \u2014 they were paired as a conflict only because their self-reported affirm/deny stance labels are opposite, not because their conclusions contradict. IGNORE the stance labels. Compare the two claims by MEANING: if they reach the SAME underlying conclusion, this is CONSENSUS \u2014 declare it, MERGE the two legs into ONE conclusion, and reconcile any incidental child-item discrepancies yourself (e.g. one side counted 8 items and the other 6 \u2014 reconcile the list so downstream child items are consistent). Do NOT hand the human a choice between two phrasings of the same answer.'
+      + (a ? (' Side A claims: ' + _clip(a, 200) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 200) + '.') : ''))
+    : ('FIRST check whether the two sides actually AGREE: if both reach the SAME underlying conclusion and differ only in wording, framing, or emphasis, this is CONSENSUS \u2014 report that they agree, state the one shared conclusion, MERGE them into a single result (reconciling any incidental child-item count/example discrepancies yourself), and STOP. Do not force a human choice between two phrasings of the same answer.'
+      + (a ? (' Side A claims: ' + _clip(a, 160) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 160) + '.') : ''));
   const plan = [
     'ARBITRATE this clash against the real source of truth \u2014 do NOT trust either leg\'s assertion, and do NOT hand it to the human unless it is a genuine matter of taste with no factual answer.',
-    'FIRST check whether the two sides actually AGREE: if both reach the SAME underlying conclusion and differ only in wording, framing, or emphasis, this is CONSENSUS \u2014 report that they agree, state the one shared conclusion, and STOP. Do not force a human choice between two phrasings of the same answer.'
-      + (a ? (' Side A claims: ' + _clip(a, 160) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 160) + '.') : ''),
+    consensusLead,
     (rec ? (rec + ' ') : '') + 'If they genuinely differ, verify it directly against the LIVE source of truth \u2014 not just the repo or git history: read the working tree and git history, check PR + commit state with `gh`, AND query the ACTUAL CURRENT content of the referenced work item / PR / issue (its tags, its links/relations to other items, its field values, its state) using the available tools. The existence or current value of a tag, a link between two items, a field, a file, a branch, or a PR is ALWAYS checkable \u2014 it is never a matter of opinion.',
-    'Report the outcome with concrete evidence: whether the sides agree, or which side matches the ground truth (or that BOTH are wrong) \u2014 commit SHAs, PR merge status, branch tips, the item\'s actual tags / links / field values, timestamps.',
-    'This settles the clash so the losing leg is redirected \u2014 or both retire on consensus \u2014 and neither proceeds on a false premise. The human is not the tie-breaker for a provable fact, nor for two legs that already agree.',
+    'Report the outcome with concrete evidence: whether the sides agree (and the single merged conclusion), or which side matches the ground truth (or that BOTH are wrong) \u2014 commit SHAs, PR merge status, branch tips, the item\'s actual tags / links / field values, timestamps.',
+    'This settles the clash so the losing leg is redirected \u2014 or both legs MERGE on consensus \u2014 and neither proceeds on a false premise. The human is not the tie-breaker for a provable fact, nor for two legs that already agree.',
   ].join(' ');
-  return { question, plan };
+  return { question, plan, attempt, consensus: reprobe };
 }
 
 // Two write stops COLLIDE when they would each mutate THE SAME resource — the same
@@ -689,6 +714,11 @@ function planReduction(tree, policy) {
   // using this set, so a clash a probe genuinely could not settle still escalates to
   // the human instead of re-arbitrating forever.
   const arbitratedStopIds = new Set();
+  // How MANY terminal arbitration/probe sub-agents have run for each stop. A checkable clash
+  // gets up to MAX_ARBITRATION_ATTEMPTS attempts (the gate below), so a FIRST inconclusive
+  // arbitration earns a second, consensus-focused pass rather than immediately stranding the
+  // human — the failure mode the user hit (two agreeing legs punted as "your call, 90/90").
+  const arbitrationAttempts = new Map();
   // spawnByStop: fromStopId → { legId, status, terminal, live } for the arbitration/probe
   // sub-agent the Director dispatched against that stop. A LIVE (in-flight) spawn means an
   // agent is actively investigating it right now; a TERMINAL one means the investigation
@@ -709,7 +739,7 @@ function planReduction(tree, policy) {
       // an actually-started (non-terminal, non-planned) leg is live/investigating.
       const pending = st === 'planned';
       const live = !terminal && !pending;
-      if (terminal) arbitratedStopIds.add(lg.fromStopId);
+      if (terminal) { arbitratedStopIds.add(lg.fromStopId); arbitrationAttempts.set(lg.fromStopId, (arbitrationAttempts.get(lg.fromStopId) || 0) + 1); }
       // A live spawn beats a pending one beats a terminal one for the same stop (a re-dispatch).
       const prev = spawnByStop.get(lg.fromStopId);
       const rank = (o) => o ? (o.live ? 2 : (o.pending ? 1 : 0)) : -1;
@@ -718,6 +748,7 @@ function planReduction(tree, policy) {
     }
   }
   ctx.arbitratedStopIds = arbitratedStopIds;
+  ctx.arbitrationAttempts = arbitrationAttempts;
   ctx.spawnByStop = spawnByStop;
 
   let unsure = 0;
@@ -808,13 +839,22 @@ function planReduction(tree, policy) {
     // READ-ONLY investigation (verify the disputed facts, preferring the more recently-observed
     // side per the recency note) that reports which side is real and redirects the loser — a
     // fact-check + internal cull, not an external write. A grant only ever gates APPLYING a
-    // write result downstream. Capped to ONE attempt per stop (arbitratedStopIds) — a clash
-    // arbitration genuinely couldn't settle still escalates honestly. Paused/offline overrides.
+    // write result downstream. Bounded to MAX_ARBITRATION_ATTEMPTS attempts per stop
+    // (arbitrationAttempts): the FIRST attempt fact-checks; if it ran but settled nothing, a
+    // SECOND, consensus-focused attempt runs (the likeliest reason an arbitration "couldn't
+    // settle" a clash is that the two sides actually AGREE — a false binary from opposite
+    // affirm/deny labels on the same conclusion). Only after the attempts are exhausted does a
+    // clash escalate honestly to the human. Paused/offline overrides.
     if (disp === 'ask' && (cls === 'judgement-clash' || cls === 'factual-clash')
-      && s.conflictId && !ctx.arbitratedStopIds.has(s.id)
+      && s.conflictId && (ctx.arbitrationAttempts.get(s.id) || 0) < MAX_ARBITRATION_ATTEMPTS
       && _clashCheckable(av)) {
       disp = 'probe';
-      if (!aiProbe) aiProbe = _arbitrationProbe(conflictById[s.conflictId]);
+      const priorAttempts = ctx.arbitrationAttempts.get(s.id) || 0;
+      // A re-probe (a prior arbitration already ran and did not settle it) gets a sharper,
+      // consensus-FIRST brief: scrutinize whether the two sides agree, and if so MERGE them into
+      // one conclusion + reconcile any incidental child-item discrepancies (counts, examples)
+      // rather than hand the human a coin-flip.
+      if (!aiProbe || priorAttempts > 0) aiProbe = _arbitrationProbe(conflictById[s.conflictId], { attempt: priorAttempts + 1 });
     }
     // ── COLLISION ARBITRATION GATE — two writes to the SAME target are never your pick ──
     // The user's complaint: the Director asked to approve two different held writes that

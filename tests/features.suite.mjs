@@ -1258,9 +1258,29 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   t.ok(/tag/i.test(probe.plan) && /link/i.test(probe.plan) && /field/i.test(probe.plan) && /ALWAYS checkable/.test(probe.plan), "arbitration plan treats a work item's tag/link/field as ALWAYS checkable against the live item");
   t.ok(/LIVE source of truth/.test(probe.plan) && /not just the repo or git history/.test(probe.plan), 'arbitration plan queries the LIVE item, not only the repo/git history');
 
-  // One-attempt cap: a terminal director-spawn probe already ran for this stop → escalate, never loop.
-  const arbitrated = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
-  t.ok(arbitrated.per[0].disposition === 'ask', 'after one arbitration attempt the clash escalates honestly (no infinite probe loop)');
+  // Bounded arbitration (MAX_ARBITRATION_ATTEMPTS = 2). A FIRST terminal arbitration that did not
+  // settle the clash does NOT immediately strand the human — it earns a SECOND, consensus-focused
+  // attempt (the likeliest reason an arbitration "couldn't settle" a clash is that the two sides
+  // actually AGREE — the exact bug: two legs at "90/90" both concluding the same thing).
+  const oneAttempt = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
+  t.ok(oneAttempt.per[0].disposition === 'probe', 'after ONE inconclusive arbitration the clash STILL probes (a second, consensus-focused attempt) rather than stranding the human');
+  t.ok(/CONSENSUS/i.test(oneAttempt.per[0].aiProbe && oneAttempt.per[0].aiProbe.plan || '') && /MERGE/.test(oneAttempt.per[0].aiProbe && oneAttempt.per[0].aiProbe.plan || ''), 'the second attempt carries a consensus-focused MERGE brief (detect agreement, merge, reconcile child items)');
+  t.ok(oneAttempt.per[0].aiProbe && oneAttempt.per[0].aiProbe.consensus === true && oneAttempt.per[0].aiProbe.attempt === 2, 'the re-probe is flagged consensus=true / attempt=2');
+
+  // Two-attempt cap: after TWO terminal director-spawn probes have run for this stop → escalate
+  // honestly to the human (bounded, never an infinite probe loop).
+  const twoAttempts = director.planReduction(mkTree(provable, {
+    L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' },
+    L2: { id: 'L2', directorSpawn: true, fromStopId: 's1', status: 'done' },
+  }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
+  t.ok(twoAttempts.per[0].disposition === 'ask', 'after TWO arbitration attempts the clash escalates honestly (bounded, no infinite probe loop)');
+
+  // The consensus-focused re-probe brief (attempt >= 2) leads with agreement + MERGE + child-item
+  // reconciliation — the user's literal ask ("merge the two legs and ensure child consistency").
+  const reprobe = I._arbitrationProbe(provable, { attempt: 2 });
+  t.ok(reprobe.consensus === true && reprobe.attempt === 2, '_arbitrationProbe(attempt:2) is a consensus re-probe');
+  t.ok(/AGREE/.test(reprobe.plan) && /MERGE/.test(reprobe.plan) && /IGNORE the stance labels/.test(reprobe.plan), 're-probe brief ignores stance labels, checks agreement, and merges');
+  t.ok(/reconcile any incidental child-item/i.test(reprobe.plan), 're-probe brief instructs reconciling incidental child-item discrepancies (counts/examples)');
 
   // No active grant → a READ-ONLY arbitration probe STILL dispatches (it only verifies facts +
   // redirects the loser; a grant is needed only to APPLY a resulting write). The human is never
