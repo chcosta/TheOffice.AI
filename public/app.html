@@ -46051,20 +46051,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               ctx.beginPath(); ctx.arc(o.sx, o.sy, r, 0, 7); ctx.fillStyle = col; ctx.fill();
               if (dimIt) ctx.globalAlpha = 1;
             }
-            // Collapsed group root: a distinct double ring + member count so a folded
-            // fan reads as "many legs behind one dot", not a lone node.
+            // Collapsed group root: concentric rings — ONE ring per member (capped) — so a
+            // folded fan reads at a glance as "many legs behind one dot", with more rings =
+            // more legs. The exact count still prints below for precision.
             if (o.n.group && o.n.group.collapsed) {
-              const gr = r + 4;
-              ctx.beginPath(); ctx.arc(o.sx, o.sy, gr, 0, 7);
-              ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
               const cnt = o.n.group.count || 0;
+              const rings = Math.max(1, Math.min(6, cnt));   // cap so a huge group stays legible
+              let gr = r + 3;
+              for (let i = 0; i < rings; i++) {
+                gr = r + 3 + i * 2.6;
+                ctx.globalAlpha = 0.9 - i * 0.11;             // fade outward for a soft "stack" look
+                ctx.beginPath(); ctx.arc(o.sx, o.sy, gr, 0, 7);
+                ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.stroke();
+              }
+              ctx.globalAlpha = 1;
               ctx.fillStyle = tok.muted; ctx.font = '600 8px -apple-system,Segoe UI,sans-serif';
               ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
               ctx.fillText(cnt > 99 ? '99+' : String(cnt), o.sx, o.sy + gr + 6);
               ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
             }
             if (o.n.id === selId) { ctx.strokeStyle = tok.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(o.sx, o.sy, r + 5, 0, 7); ctx.stroke(); }
-            hit.singles.push({ x: o.sx, y: o.sy, r: r + 4, id: o.n.id });
+            const hitR = (o.n.group && o.n.group.collapsed)
+              ? r + 3 + Math.max(1, Math.min(6, o.n.group.count || 0)) * 2.6 + 2   // cover the ring stack
+              : r + 4;
+            hit.singles.push({ x: o.sx, y: o.sy, r: hitR, id: o.n.id });
           }
           for (const cl of clusters) {
             const col = colOf(cl.st), r = DOT / 2 + 3;
@@ -46116,7 +46126,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const c of hit.clusters) { const d = Math.hypot(cx - c.x, cy - c.y); if (d < c.r && d < bestD) { bestD = d; best = { kind: 'cluster', c }; } }
           if (!best) return;
           if (best.kind === 'node') {
-            const n = (p._nodes || []).find(x => x.id === best.id); if (n) this.meAiPursuitOpenNode(n);
+            const n = (p._nodes || []).find(x => x.id === best.id); if (!n) return;
+            // A collapsed group dot expands on click (its members fan back onto the map) —
+            // matching the card view's "Expand N legs" button. Only THEN does a further
+            // click open the node detail; before this, clicking a group dot did nothing
+            // useful (it opened the anchor's panel with no way to reveal the folded legs).
+            if (n.group && n.group.collapsed) { this.meAiPursuitToggleGroup(n.id); return; }
+            this.meAiPursuitOpenNode(n);
           } else {
             // zoom toward the cluster so its members separate
             const wx = (best.c.x - (p.panX || 0)) / (p.zoom || 1), wy = (best.c.y - (p.panY || 0)) / (p.zoom || 1);
@@ -48034,7 +48050,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let s = label + ' · ' + n + ' leg' + (n === 1 ? '' : 's');
           if (gs && gs.groups > 0) s += ' · ' + gs.groups + ' group' + (gs.groups === 1 ? '' : 's') + ' (' + gs.groupedLegs + ' leg' + (gs.groupedLegs === 1 ? '' : 's') + ')';
           if (active > 0) s += ' · ' + active + ' active';
-          if (open) s += ' · ' + open + ' awaiting you';
+          // "Awaiting you" must match what's genuinely ON YOUR DESK. When the Director is
+          // active it triages most open stops off the desk (absorbed / batched / under
+          // investigation), so the raw open-stop count (e.g. 29) badly overstates the
+          // burden and contradicts the desk list. Prefer the Director's desk-stop count,
+          // and surface anything currently under investigation separately.
+          if (this.meAiDirectorActive()) {
+            const desk = this.meAiDirectorDeskStops();
+            const probing = this.meAiDirectorProbing();
+            if (desk > 0) s += ' · ' + desk + ' awaiting you';
+            if (probing > 0) s += ' · ' + probing + ' investigating';
+          } else if (open) {
+            s += ' · ' + open + ' awaiting you';
+          }
           return s;
         },
         // Expand / collapse a completed leg group on the map (view-only). Toggling

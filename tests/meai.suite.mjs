@@ -1157,6 +1157,22 @@ await t.test('_meAiDirectorSweep recovers orphaned planned director-spawn probes
 });
 
 
+await t.test('_meAiDirectorSweep re-arms a bounded follow-up so newly-surfaced probes converge', () => {
+  const src = readFileSync(SERVER, 'utf8');
+  // Externally-triggered sweeps get a fresh budget; re-armed follow-ups keep the chain count.
+  t.ok(/function _meAiDirectorSweep\(t, _rearm\) \{/.test(src), 'sweep takes an internal _rearm flag');
+  t.ok(/if \(!_rearm\) t\._directorSweepChain = 0;/.test(src), 'a non-re-armed sweep resets the convergence budget');
+  const i = src.indexOf('// ── Converge: re-arm a bounded follow-up sweep');
+  t.ok(i > 0, 'convergence re-arm block present');
+  const blk = src.slice(i, i + 2000);
+  t.ok(/const progressed = !!\(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans\);/.test(blk), 'progress = any desk-advancing outcome this pass');
+  t.ok(/SWEEP_MAX_CHAIN = 12/.test(blk), 'bounded chain cap');
+  t.ok(/if \(progressed\) \{[\s\S]{0,400}t\._directorSweepChain = chain \+ 1;/.test(blk), 'progress re-arms and increments the chain');
+  t.ok(/_meAiDirectorSweep\(lt3, true\)/.test(blk), 're-armed follow-up passes _rearm=true');
+  t.ok(/\} else \{[\s\S]{0,60}t\._directorSweepChain = 0;/.test(blk), 'a no-progress pass is the fixed point and resets the chain (guarantees termination)');
+});
+
+
 if (!(await serverUp())) {
   t.skipAll('dev server not running on :3847 (unit tests above still ran)');
 }

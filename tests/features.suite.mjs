@@ -2670,12 +2670,12 @@ await t.test('pursuit map: completed side-fans collapse into expandable group no
   t.ok(/p\._expandedGroups\.has\(id\)\) p\._expandedGroups\.delete\(id\); else p\._expandedGroups\.add\(id\)/.test(tog), 'toggle flips the expanded state');
   t.ok(/this\._meAiPursuitLayout\(\)/.test(tog), 'toggle re-runs layout so the map reconciles');
   // 5) subtitle summarizes groups + active + awaiting
-  const lbl = _win(html, 'meAiPursuitStageLabel() {', 1400);
+  const lbl = _win(html, 'meAiPursuitStageLabel() {', 2400);
   t.ok(lbl, 'meAiPursuitStageLabel defined');
   t.ok(/const gs = this\.meai\.pursuit\._groupStats/.test(lbl), 'subtitle reads _groupStats');
   t.ok(/gs\.groups > 0\) s \+= ' · ' \+ gs\.groups \+ ' group'/.test(lbl), 'subtitle names the group count + grouped-leg count');
   t.ok(/active > 0\) s \+= ' · ' \+ active \+ ' active'/.test(lbl), 'subtitle names the active-leg count');
-  t.ok(/open\) s \+= ' · ' \+ open \+ ' awaiting you'/.test(lbl), 'subtitle names how many stops await you');
+  t.ok(/else if \(open\)[\s\S]{0,40}' · ' \+ open \+ ' awaiting you'/.test(lbl), 'subtitle names how many stops await you');
   // 6) canvas LOD group-dot
   t.ok(/o\.n\.group && o\.n\.group\.collapsed/.test(html), 'the canvas LOD painter draws a group marker for a collapsed group root');
 });
@@ -2837,6 +2837,41 @@ await t.test('Director arbitrates a same-target write COLLISION instead of askin
 
   const dsrc = readFileSync('director.js', 'utf8');
   t.ok(/_internal:\s*\{[^}]*_collisionKey[^}]*_collisionProbe/.test(dsrc), 'director.js exports _collisionKey + _collisionProbe');
+});
+
+await t.test('pursuit map: group dot expands on click + concentric rings + honest awaiting-you count', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // Q1a — a collapsed group dot in the LOD (dot) map must toggle-expand on click, the same
+  // affordance the card view's "expand N legs" button already had. Before the fix, only the
+  // card button was wired, so the dot's "expand N legs" did nothing.
+  const lodClick = _win(html, 'meAiPursuitLodClick(ev)', 1400);
+  t.ok(lodClick, 'meAiPursuitLodClick found');
+  t.ok(/group\s*&&\s*[^\n]*\.collapsed[\s\S]{0,160}meAiPursuitToggleGroup\(\s*n\.id\s*\);\s*return;/.test(lodClick),
+    'clicking a collapsed group dot toggles the group (expands) and returns before open-node');
+
+  // Q1b — a collapsed group root dot draws concentric rings (one per member, capped) so a folded
+  // fan reads at a glance as "many legs behind one dot"; the exact count still prints below.
+  const rings = _win(html, 'Collapsed group root: concentric rings', 1400);
+  t.ok(rings, 'concentric-ring draw block present');
+  t.ok(/const rings = Math\.max\(1, Math\.min\(6, cnt\)\);/.test(rings), 'ring count = members, capped at 6');
+  t.ok(/for \(let i = 0; i < rings; i\+\+\)/.test(rings), 'draws one ring per (capped) member');
+  t.ok(/ctx\.globalAlpha = 0\.9 - i \* 0\.11;/.test(rings), 'rings fade outward for a stacked look');
+  // hit radius widens to cover the whole ring stack so the dot stays easy to click.
+  t.ok(/const hitR = \(o\.n\.group && o\.n\.group\.collapsed\)[\s\S]{0,140}\* 2\.6 \+ 2/.test(html),
+    'group-dot hit radius grows with the ring stack');
+
+  // Q3 — the header "awaiting you" count must match what is genuinely on the desk. With the
+  // Director active it reflects the desk-stop count (not the raw open-stop count, which overstates
+  // the burden) and surfaces anything under investigation separately.
+  const label = _win(html, 'meAiPursuitStageLabel() {', 2400);
+  t.ok(label, 'meAiPursuitStageLabel found');
+  t.ok(/if \(this\.meAiDirectorActive\(\)\) \{[\s\S]{0,260}const desk = this\.meAiDirectorDeskStops\(\);/.test(label),
+    'when directing, awaiting-you reads the Director desk-stop count');
+  t.ok(/const probing = this\.meAiDirectorProbing\(\);[\s\S]{0,160}probing \+ ' investigating'/.test(label),
+    'items under investigation are surfaced separately');
+  t.ok(/\} else if \(open\) \{[\s\S]{0,60}open \+ ' awaiting you'/.test(label),
+    'with no Director the raw open-stop count is the honest fallback');
 });
 
 await t.done();

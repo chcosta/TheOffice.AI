@@ -27637,8 +27637,11 @@ async function _meAiDirectorPrTick(t) {
 // each attributed to `director` and ledgered with a state-aware undo. It never runs
 // an outbox action, spawns a WorkIQ turn, or re-orchestrates — its sole job is to
 // shrink the approval pile the pursuit just parked with, not to push new work.
-function _meAiDirectorSweep(t) {
+function _meAiDirectorSweep(t, _rearm) {
   const id = t.id;
+  // An externally-triggered sweep (engine event, manual "Sweep now", watchdog) gets a
+  // fresh convergence budget; a re-armed follow-up (_rearm) keeps the running chain count.
+  if (!_rearm) t._directorSweepChain = 0;
   let d = {};
   try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
   if (!d.enabled) return { skipped: 'disabled' };
@@ -27818,6 +27821,33 @@ function _meAiDirectorSweep(t) {
   // Shepherd a bound PR alongside the desk sweep (async, backoff-guarded, non-blocking).
   if (tree.director && tree.director.pr && tree.director.pr.prId) {
     try { _meAiSchedule(async () => { try { await _meAiDirectorPrTick(t); } catch (_) {} }); } catch (_) {}
+  }
+  // ── Converge: re-arm a bounded follow-up sweep ────────────────────────────────
+  // A probe often surfaces AFTER the pass that could dispatch it: a NESTED collision is
+  // only raised once its source probe sub-agents finish and produce colliding writes, and
+  // a dispatch that overflows the in-memory concurrency cap (ME_AI_MAX_CONCURRENT) parks
+  // the overflow legs at 'planned'. Between engine events the map can be fully idle, so
+  // nothing would ever fire the next pass — the probe sits "Queued — not yet dispatched"
+  // until the user manually clicks "Sweep now", and each click advances it only one step.
+  // Re-arm ONE follow-up sweep whenever this pass made progress, bounded by a chain cap.
+  // A pass that advances nothing is the fixed point (chain resets) and does NOT re-arm, so
+  // this always terminates. The re-armed sweep self-guards (disabled/not-leader/paused →
+  // early skip), so a state change between passes stops the chain cleanly.
+  const progressed = !!(handled || probed || reconciled || recovered || retiredOrphans);
+  const SWEEP_MAX_CHAIN = 12, SWEEP_REARM_MS = 4000;
+  if (progressed) {
+    const chain = t._directorSweepChain || 0;
+    if (chain < SWEEP_MAX_CHAIN) {
+      t._directorSweepChain = chain + 1;
+      try {
+        setTimeout(() => {
+          const lt3 = meAiTasks.get(id);
+          if (lt3) { try { _meAiDirectorSweep(lt3, true); } catch (_) {} }
+        }, SWEEP_REARM_MS);
+      } catch (_) {}
+    }
+  } else {
+    t._directorSweepChain = 0;
   }
   return { handled, probed, recovered, retiredOrphans, reconciled, deskItems: plan.deskItems.length, reduction: plan.reconciliation,
     aiPending: !!plan.aiPending, aiComplete: !!plan.aiComplete, probeCandidates: probeItems.length,
