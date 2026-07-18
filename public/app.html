@@ -13673,7 +13673,15 @@
               .meai-pcanvas { flex:1; min-height:0; position:relative; overflow:hidden; background:
                 radial-gradient(circle, var(--cp-border) 1px, transparent 1px) 0 0 / 28px 28px; cursor:grab; }
               .meai-pcanvas:active { cursor:grabbing; }
-              .meai-pworld { position:absolute; top:0; left:0; transform-origin:0 0; }
+              /* pworld carries a transform (see meAiPursuitWorldStyle), so it establishes a
+                 stacking context. In HYBRID render mode the LOD <canvas> (.meai-plod-canvas,
+                 z-index:1) also renders and would otherwise paint ABOVE the trapped cards and
+                 intercept every click (Expand/title/member) → routed to the canvas hit-test
+                 instead of the DOM button. Raise the whole card layer above the canvas but make
+                 the CONTAINER click-through, so empty/off-window areas still fall to the canvas
+                 (dot clicks) and .meai-pcanvas (pan); the cards themselves re-enable pointer
+                 events below. */
+              .meai-pworld { position:absolute; top:0; left:0; transform-origin:0 0; z-index:2; pointer-events:none; }
               .meai-plod-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; z-index:1; }
               .meai-plod-canvas:active { cursor:grabbing; }
               .meai-pedges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
@@ -13682,7 +13690,7 @@
               .meai-pedges .pe-branch { stroke:var(--cp-text-muted); stroke-dasharray:5 4; }
               .meai-pedges .pe-merge { stroke:#2ea043; stroke-width:2.5; }
               .meai-pedges .pe-converge { stroke:#2ea043; stroke-width:2; stroke-dasharray:2 5; opacity:.55; }
-              .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; }
+              .meai-pnode { position:absolute; width:300px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale,1)*10px); padding:11px 13px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:border-color .15s, box-shadow .15s; z-index:1; pointer-events:auto; }
               .meai-pnode:hover { border-color:var(--cp-accent); box-shadow:0 4px 14px rgba(0,0,0,.18); }
               .meai-pnode.kind-spine { border-left:3px solid var(--cp-accent); }
               .meai-pnode.puser { background:color-mix(in srgb,var(--cp-accent) 7%, var(--cp-surface)); border-color:color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); }
@@ -13706,6 +13714,8 @@
               .meai-pnode-role { margin-left:auto; font-size:9.5px; letter-spacing:.03em; opacity:.75; }
               .meai-pnode.pmain .meai-pnode-role { color:var(--cp-accent); opacity:1; }
               .meai-pnode-t { font-weight:700; color:var(--cp-text); font-size:13.5px; margin-top:2px; line-height:1.3; }
+              .meai-pnode-t-link { cursor:pointer; }
+              .meai-pnode-t-link:hover { color:var(--cp-accent); text-decoration:underline; text-underline-offset:2px; }
               .meai-pnode-g { font-size:12px; color:var(--cp-text-muted); margin-top:4px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-pnode-think { font-size:11px; font-style:italic; color:color-mix(in srgb,var(--cp-accent) 68%, var(--cp-text)); margin-top:7px; padding-top:6px; border-top:1px dashed color-mix(in srgb,var(--cp-accent) 26%, var(--cp-border)); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-pnode.pgroup { border-color:color-mix(in srgb,var(--cp-accent) 34%, var(--cp-border)); box-shadow:3px 3px 0 -1px var(--cp-surface), 4px 4px 0 -1px color-mix(in srgb,var(--cp-accent) 30%, var(--cp-border)); }
@@ -17792,7 +17802,7 @@
                               <span x-text="meAiPursuitLegKind(n.leg.kind)"></span>
                               <span class="meai-pnode-role" x-text="n.role==='main' ? 'main agent' : (n.role==='you' ? 'you' : 'sub-agent')"></span>
                             </div>
-                            <div class="meai-pnode-t" x-text="n.leg.title"></div>
+                            <div class="meai-pnode-t meai-pnode-t-link" x-text="n.leg.title" @click.stop="meAiPursuitOpenNodeLogs(n)" :title="'Open agent logs — ' + (n.leg.title || '')"></div>
                             <div class="meai-pnode-g" x-show="n.leg.goal" x-text="n.leg.goal"></div>
                             <template x-if="n.group">
                               <div class="meai-pnode-group">
@@ -46511,6 +46521,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const stop = ((p.tree && p.tree.stops) || []).find(s => s.status === 'open' && s.legId === id) || null;
           const arts = ((p.tree && p.tree.artifacts) || []).filter(a => a.legId === id);
           this.meAiPursuitOpenNode({ id, leg, stop, arts, group: null, cls: 'psub', role: 'sub', shortId: '' });
+        },
+        // Title-click affordance: open THIS node's agent logs (the node-view transcript —
+        // reasoning / tool I/O / thinking / response) regardless of leg kind. Unlike a whole-card
+        // click (which sends a main/spine leg back to the shared Chat), this always lands on the
+        // per-node transcript so any node's logs are one click away. meAiPursuitNodeEvents resolves
+        // spine → chat events and every other leg → its own event stream.
+        meAiPursuitOpenNodeLogs(n) {
+          if (!n) return;
+          const p = this.meai.pursuit;
+          p.follow = false;
+          p._focusId = null;
+          p.centerView = 'node';
+          p.nodeView = n;
+          p.legPick = n.id;
+          this.$nextTick(() => {
+            try {
+              const tr = document.querySelector('.meai-pu-nodeview-tr');
+              if (tr && tr.scrollIntoView) tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            } catch (_) {}
+          });
         },
         // ── Right-click context menu (Feature A) ─────────────────────────────────
         // Resolve the node under the cursor from either a DOM card (closest .meai-pnode)

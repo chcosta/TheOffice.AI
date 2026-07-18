@@ -2772,6 +2772,37 @@ await t.test('pursuit map: completed side-fans collapse into expandable group no
   t.ok(/o\.n\.group && o\.n\.group\.collapsed/.test(html), 'the canvas LOD painter draws a group marker for a collapsed group root');
 });
 
+// Feature — pursuit map click-through: the LOD canvas no longer steals clicks in
+// hybrid render mode, and a node title opens that node's agent logs.
+//   In hybrid mode the transformed .meai-pworld establishes a stacking context at
+//   level 0, so its cards were trapped below the z-index:1 LOD <canvas>, which
+//   intercepted every click → the "Expand N legs" toggle (and everything else on a
+//   card) never fired. Fix: raise the card layer above the canvas (z-index:2) but make
+//   the CONTAINER click-through (pointer-events:none) so empty areas still fall to the
+//   canvas/pan surface, and re-enable pointer events on the cards themselves.
+await t.test('pursuit map: card layer beats the LOD canvas + title opens node logs', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // (1) the exact stacking/pointer-events invariant the fix depends on
+  t.ok(/\.meai-pworld \{[^}]*z-index:2;[^}]*pointer-events:none;[^}]*\}/.test(html),
+    '.meai-pworld raises the card layer above the canvas but is click-through');
+  t.ok(/\.meai-plod-canvas \{[^}]*z-index:1;[^}]*\}/.test(html),
+    'the LOD canvas stays at z-index:1 (below the card layer)');
+  t.ok(/\.meai-pnode \{[^}]*pointer-events:auto;[^}]*\}/.test(html),
+    '.meai-pnode re-enables pointer events so card clicks (Expand/title/member) land');
+  // (2) clickable node title → per-node agent logs
+  t.ok(/\.meai-pnode-t-link:hover \{[^}]*text-decoration:underline/.test(html),
+    'the node title has a link-style affordance');
+  t.ok(/class="meai-pnode-t meai-pnode-t-link"[\s\S]{0,120}@click\.stop="meAiPursuitOpenNodeLogs\(n\)"/.test(html),
+    'the node title wires @click.stop to meAiPursuitOpenNodeLogs');
+  const m = _win(html, 'meAiPursuitOpenNodeLogs(n) {', 500);
+  t.ok(m, 'meAiPursuitOpenNodeLogs method defined');
+  t.ok(/p\.centerView = 'node';/.test(m) && /p\.nodeView = n;/.test(m) && /p\.legPick = n\.id;/.test(m),
+    'meAiPursuitOpenNodeLogs opens the node-view transcript for ANY node kind');
+  t.ok(/p\.follow = false;/.test(m), 'opening node logs stops follow mode');
+  // the whole-card click still routes through the kind-aware OpenNode (unchanged)
+  t.ok(/@click\.stop="meAiPursuitOpenNode\(n\)"/.test(html), 'the whole card still calls meAiPursuitOpenNode');
+});
+
 // Feature — Director dispatch/arbitration honesty + Automation stop-all.
 //   (a) the probe pane only shows "Dispatch the investigation" when nothing is dispatched;
 //   (b) desk rows + detail panes indicate a live/finished arbitration agent;
