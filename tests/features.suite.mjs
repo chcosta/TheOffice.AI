@@ -1195,34 +1195,56 @@ await t.test('Director diagnosis explains zero automated handling + zero redunda
   t.ok(/\.meai-dir-why\s*\{/.test(src), 'why block CSS present');
 });
 
-await t.test('Director arbitrates a PROVABLE clash instead of asking the human (arbitration gate)', () => {
+await t.test('Director arbitrates a clash by AI verdict (checkability flipped to AI-driven, not regex)', () => {
   const director = require('../director.js');
   const I = director._internal;
   const grant = { id: 'g', paths: ['/'], classes: ['duplicate', 'reversible-local', 'factual-clash'], ops: ['cull', 'absorb', 'resolve'], expiresAt: Date.now() + 1e7 };
 
-  // Checkable predicate: provable (PR/commit/merge/branch) vs pure taste.
+  // The checkability predicate is now AI-DRIVEN: it reads the model's verdict, not the clash text.
+  // The flip = default to CHECKABLE (arbitrate) whenever the model has weighed in; only stay a desk
+  // ask when the model EXPLICITLY marked it a values call (checkable === false). No verdict → false
+  // (we don't manufacture arbitration before the reasoning pass runs).
+  t.ok(I._clashCheckable({ checkable: true }) === true, 'an explicitly-checkable verdict arbitrates');
+  t.ok(I._clashCheckable({}) === true, 'a verdict with no checkable flag DEFAULTS to checkable (the flip)');
+  t.ok(I._clashCheckable({ checkable: false }) === false, 'an explicit values-call verdict stays a desk ask');
+  t.ok(I._clashCheckable(null) === false, 'no AI verdict → not arbitrated (reasoning pass is the mechanism)');
+  // The old brittle regex predicate is GONE.
+  t.ok(typeof I._clashIsCheckable === 'undefined', 'the old regex _clashIsCheckable predicate is removed');
+
+  // Recency/provenance note: when the two sides observed the target at different times, the note
+  // prefers the more-recently-observed side (a state clash is usually a staleness artifact).
+  const withRecency = { subject: 'main HEAD', a: { claim: 'HEAD is 2f92218', observedAt: '2026-07-12T10:00:00Z' }, b: { claim: 'HEAD is 67513f6', observedAt: '2026-07-12T09:00:00Z' } };
+  const rec = I._recencyNote(withRecency);
+  t.ok(/RECENCY/.test(rec) && /Side A/.test(rec) && /more recently/.test(rec), 'recency note prefers the newer-observed side');
+  t.ok(I._recencyNote({ subject: 'x', a: { claim: 'p', observedAt: '2026-07-12T10:00:00Z' }, b: { claim: 'q', observedAt: '2026-07-12T10:00:00Z' } }) === '', 'equal observedAt → no recency note');
+  t.ok(I._recencyNote({ subject: 'x', a: { claim: 'p' }, b: { claim: 'q' } }) === '', 'missing observedAt → no recency note');
+
   const provable = { id: 'c1', status: 'open', subject: 'roadmap-pr-merged',
-    a: { stance: 'affirm', claim: 'PR 63007 is merged to main, merge commit 2f92218 on origin/main' },
-    b: { stance: 'deny', claim: "branch has NOT merged; main's HEAD is 67513f6" } };
-  const taste = { id: 'c2', status: 'open', subject: 'which tone for the summary',
-    a: { stance: 'affirm', claim: 'a warmer, friendlier voice reads better here' },
-    b: { stance: 'deny', claim: 'a terse, formal register is more appropriate' } };
-  t.ok(I._clashIsCheckable(provable) === true, 'a PR/commit/merge clash is checkable');
-  t.ok(I._clashIsCheckable(taste) === false, 'a pure taste clash is not checkable');
-  t.ok(I._clashIsCheckable(null) === false, 'no conflict → not checkable');
-
+    a: { stance: 'affirm', claim: 'PR 63007 is merged to main, merge commit 2f92218 on origin/main', observedAt: '2026-07-12T10:00:00Z' },
+    b: { stance: 'deny', claim: "branch has NOT merged; main's HEAD is 67513f6", observedAt: '2026-07-12T09:00:00Z' } };
   const mkTree = (conflict, legs) => ({ id: 'p1', stops: [{ id: 's1', status: 'open', type: 'needs-decision', conflictId: conflict.id }], legs: legs || {}, conflicts: [conflict] });
-  const aiPunt = { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9, reasoning: 'neither is provable' } } };
+  // The model punted a provable clash to the desk (action ask) but did NOT mark it a values call —
+  // so under the flip it defaults checkable and the gate force-routes it to a probe.
+  const aiPunt = { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9, checkable: true, reasoning: 'settleable against main' } } };
 
-  // The AI mislabeled a provable clash judgement-clash → ask. The gate force-routes it to a probe.
   const forced = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
-  t.ok(forced.per[0].disposition === 'probe', 'provable clash the AI punted is force-routed to probe');
+  t.ok(forced.per[0].disposition === 'probe', 'a clash the AI left checkable is force-routed to probe (not the human)');
   t.ok(forced.probeItems.length === 1 && /ARBITRATE/.test(forced.probeItems[0].plan || ''), 'the probe carries an arbitration plan against the source of truth');
   t.ok(/human is not the tie-breaker/i.test(forced.probeItems[0].plan || ''), 'arbitration plan states the human is not the tie-breaker');
+  t.ok(/RECENCY/.test(forced.probeItems[0].plan || ''), 'arbitration plan folds in the recency note when the sides observed at different times');
 
-  // A genuine taste clash is NOT arbitrated — it honestly stays on the desk.
-  const kept = director.planReduction(mkTree(taste), Object.assign({ enabled: true, autonomy: 'balanced', grant }, { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9 } } }));
-  t.ok(kept.per[0].disposition === 'ask', 'a genuine taste clash stays on the desk (not arbitrated)');
+  // A verdict that DEFAULTS checkable (no flag) still arbitrates — this is the flip in action.
+  const flip = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced', grant }, { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9 } } }));
+  t.ok(flip.per[0].disposition === 'probe', 'a clash with no explicit checkable flag arbitrates by default (flipped default)');
+
+  // A genuine values call (checkable:false) is NOT arbitrated — it honestly stays on the desk.
+  const taste = { id: 'c2', status: 'open', subject: 'which tone for the summary', a: { stance: 'affirm', claim: 'warmer' }, b: { stance: 'deny', claim: 'terser' } };
+  const kept = director.planReduction(mkTree(taste), Object.assign({ enabled: true, autonomy: 'balanced', grant }, { aiVerdicts: { s1: { cls: 'judgement-clash', action: 'ask', confidence: 0.9, checkable: false } } }));
+  t.ok(kept.per[0].disposition === 'ask', 'an explicit values-call clash stays on the desk (not arbitrated)');
+
+  // No AI verdict yet → the clash stays an honest desk ask (we do not arbitrate before the model reasons).
+  const noai = director.planReduction(mkTree(provable), { enabled: true, autonomy: 'balanced', grant });
+  t.ok(noai.per[0].disposition === 'ask', 'without an AI verdict the clash stays a desk ask (no premature arbitration)');
 
   // One-attempt cap: a terminal director-spawn probe already ran for this stop → escalate, never loop.
   const arbitrated = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
@@ -1232,14 +1254,52 @@ await t.test('Director arbitrates a PROVABLE clash instead of asking the human (
   const nogrant = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced' }, aiPunt));
   t.ok(nogrant.per[0].disposition === 'ask', 'without an active grant the clash stays a desk ask (probe cannot be dispatched)');
 
-  // Helpers are exported for the server/tests.
+  // Helpers are exported for the server/tests (regex predicate replaced by the AI-driven one + recency).
   const dsrc = readFileSync('director.js', 'utf8');
-  t.ok(/_internal:\s*\{[^}]*_clashIsCheckable[^}]*_arbitrationProbe/.test(dsrc), 'director.js exports _clashIsCheckable + _arbitrationProbe');
+  t.ok(/_internal:\s*\{[^}]*_clashCheckable[^}]*_recencyNote[^}]*_arbitrationProbe/.test(dsrc), 'director.js exports _clashCheckable + _recencyNote + _arbitrationProbe');
+  t.ok(!/_CHECKABLE_RE/.test(dsrc), 'the brittle _CHECKABLE_RE regex is removed from director.js');
 
-  // Server reason prompt forbids labeling a checkable fact a judgement-clash and demands a probe.
+  // Server reason prompt: checkability is AI-driven, defaults to arbitrate, carries writeTarget + recency.
   const ssrc = readFileSync('server.js', 'utf8');
-  t.ok(/CHECKABLE FACT[\s\S]{0,240}NEVER[\s\S]{0,240}judgement-clash/i.test(ssrc), 'prompt: a checkable fact is NEVER a judgement-clash');
-  t.ok(/is NEVER the human\\?'s to tie-break/.test(ssrc) && /action "probe" and go check the ground truth/.test(ssrc), 'prompt: provable clash → probe the ground truth, not the human');
+  t.ok(/"checkable":\s*true[\s\S]{0,120}the DEFAULT for EVERY clash/.test(ssrc), 'prompt: checkable defaults true for every clash (the flip)');
+  t.ok(/checkable":\s*false ONLY for a genuine matter of taste/.test(ssrc), 'prompt: checkable false ONLY for a real values call');
+  t.ok(/action "probe" and go check the ground truth/.test(ssrc), 'prompt: a checkable clash → probe the ground truth, not the human');
+  t.ok(/return "writeTarget"/.test(ssrc) && /share a writeTarget COLLIDE/.test(ssrc), 'prompt: writes carry a canonical writeTarget; same-target writes collide');
+  t.ok(/RECENCY \/ PROVENANCE/.test(ssrc) && /observed it more recently/.test(ssrc), 'prompt: recency/provenance doctrine present (newer observation wins for state)');
+
+  // Conflict sides carry per-side observedAt so the arbitrator/judge can weigh recency.
+  t.ok(/a:\s*\{[^}]*observedAt:[^}]*\}/.test(ssrc) && /b:\s*\{[^}]*observedAt:[^}]*\}/.test(ssrc), 'server builds conflict sides with per-side observedAt');
+  // The verdict parser defaults checkable:true for a clash and parses writeTarget.
+  t.ok(/checkable:\s*_isClash\s*\?\s*\(v\.checkable === false \? false : true\)\s*:\s*null/.test(ssrc), 'verdict parser: clash defaults checkable true, non-clash null');
+  t.ok(/writeTarget:\s*\(v\.writeTarget/.test(ssrc), 'verdict parser: writeTarget parsed from the model');
+});
+
+await t.test('Director arbitrates a same-target write COLLISION by AI writeTarget (never N desk asks)', () => {
+  const director = require('../director.js');
+  const grant = { id: 'g', paths: ['/'], classes: ['reversible-local', 'duplicate'], ops: ['cull', 'absorb'], expiresAt: Date.now() + 1e7 };
+
+  // Two DIFFERENT writes the model keyed to the SAME writeTarget (work item 10503's description).
+  // They collide (whichever lands last clobbers the other), so the Director arbitrates ONE probe —
+  // it must not hand the user two independent approve/decline rows.
+  const tree = { id: 'p2', legs: {}, stops: [
+    { id: 's1', status: 'open', type: 'needs-auth', risk: 'write', action: { risk: 'write', op: 'update', target: 'wi:10503', summary: 'rewrite the objectives section' }, prompt: 'update the epic description', legId: 'La', observedAt: '2026-07-12T10:00:00Z' },
+    { id: 's2', status: 'open', type: 'needs-auth', risk: 'write', action: { risk: 'write', op: 'update', target: 'wi:10503', summary: 'add a telemetry paragraph' }, prompt: 'rewrite work item #10503 description field', legId: 'Lb', observedAt: '2026-07-12T09:00:00Z' },
+  ] };
+  const aiv = { aiVerdicts: {
+    s1: { cls: 'reversible-local', action: 'ask', external: false, confidence: 0.7, writeTarget: 'wi:10503:description' },
+    s2: { cls: 'reversible-local', action: 'ask', external: false, confidence: 0.7, writeTarget: 'wi:10503:description' },
+  } };
+  const plan = director.planReduction(tree, Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiv));
+  const d1 = plan.per.find(p => p.stopId === 's1').disposition;
+  const d2 = plan.per.find(p => p.stopId === 's2').disposition;
+  t.ok(d1 === 'probe' || d2 === 'probe', 'same-target writes are force-routed to a collision probe, not paired desk asks');
+  t.ok(plan.probeItems.length >= 1 && plan.probeItems.some(p => /collision/i.test(p.plan || '') || /clobber/i.test(p.plan || '')), 'the collision probe explains the clobber and arbitrates a single end state');
+  // Collision probe carries recency when the members were decided at different times.
+  t.ok(plan.probeItems.some(p => /RECENCY/.test(p.plan || '')), 'collision probe folds in recency for differently-timed writes');
+
+  // The deterministic _collisionKey remains as the no-verdict FALLBACK (AI-first, regex-backstop).
+  const dsrc = readFileSync('director.js', 'utf8');
+  t.ok(/av\.writeTarget[\s\S]{0,80}_collisionKey\(s\)/.test(dsrc), 'collision key is AI-first (av.writeTarget) with _collisionKey as the deterministic fallback');
 });
 
 await t.test('compose fullscreen fills width (real classes) + two labeled panel buttons (app.html)', () => {

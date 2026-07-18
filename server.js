@@ -22649,8 +22649,12 @@ function _meAiMergeInto(rootState, cand) {
       rs.findings.push(finding);
       const conflict = {
         id: 'cf-' + Math.random().toString(36).slice(2, 9), subject, status: 'open',
-        a: { claim: opposed.claim, stance: opposed.stance, confidence: opposed.confidence, legId: opposed.legId },
-        b: { claim: finding.claim, stance: finding.stance, confidence: finding.confidence, legId: finding.legId },
+        // Carry each side's OBSERVATION time (when the leg produced the finding), not just the
+        // clash-raised time. A clash over the STATE of a mutable resource is usually a staleness
+        // artifact — one leg looked before it changed, the other after — so the arbitrator/judge
+        // must know who observed more recently to prefer the newer reading over the older one.
+        a: { claim: opposed.claim, stance: opposed.stance, confidence: opposed.confidence, legId: opposed.legId, observedAt: opposed.at || null },
+        b: { claim: finding.claim, stance: finding.stance, confidence: finding.confidence, legId: finding.legId, observedAt: finding.at || null },
         at: new Date().toISOString(), verdict: null,
       };
       rs.openConflicts.push(conflict);
@@ -26904,7 +26908,7 @@ function _meAiDirAiSet(id, rec) {
 function _meAiDirClip(s, n) { s = String(s == null ? '' : s); return s.length > n ? (s.slice(0, n - 1) + '…') : s; }
 function _meAiDirSideBrief(v) {
   if (!v || typeof v !== 'object') return null;
-  return { stance: v.stance || null, claim: _meAiDirClip(v.claim || '', 180), confidence: (typeof v.confidence === 'number') ? v.confidence : null, leg: v.legId || null };
+  return { stance: v.stance || null, claim: _meAiDirClip(v.claim || '', 180), confidence: (typeof v.confidence === 'number') ? v.confidence : null, leg: v.legId || null, observedAt: v.observedAt || null };
 }
 function _meAiDirStopSig(s) {
   const a = (s && s.action) || {};
@@ -26957,14 +26961,30 @@ function _meAiDirectorReasonPrompt(brief) {
     '  dropping resources). These are observable outside the machine — never absorb them.',
     '- A user-facing DELIVERABLE to read (report/summary/artifact) = cls "deliverable", action "batch" (never absorb).',
     '- A stop whose action duplicates another open stop = cls "duplicate", action "cull".',
-    '- A CONFLICT between two legs: if one side is corroborated by authoritative, checkable evidence, cls',
-    '  "factual-clash", action "resolve", and say which side. A clash over a CHECKABLE FACT — is PR #N',
-    '  merged, what is main\'s HEAD, does this file/test/branch/commit exist, did the build pass — is NEVER',
-    '  a "judgement-clash" and is NEVER the human\'s to tie-break, even if NEITHER leg has corroborated it',
-    '  yet: it has one true answer you can verify. For those, action "probe" and go check the ground truth',
-    '  (git history, `gh` PR/commit state, the repo working tree, tests) — do NOT punt a provable fact to',
-    '  the human as "your call". Reserve cls "judgement-clash" for a genuine matter of taste, priority, or',
-    '  risk appetite with NO factual answer. A fact only the human holds = cls "missing-info".',
+    '- For any WRITE stop, ALSO return "writeTarget": a canonical id of the SINGLE resource the write mutates —',
+    '  e.g. "wi:10503:description" (work item 10503\'s description field), "wi:10503:state", or "path:src/app.js".',
+    '  Two open writes that share a writeTarget COLLIDE (whichever lands last silently clobbers the rest); the',
+    '  Director arbitrates those as ONE — never asks you to approve more than one. Use null when there is no single',
+    '  keyable target. Judge the resource by MEANING, not wording: "the epic description" and "work item #10503',
+    '  description field" are the same writeTarget.',
+    '- A CONFLICT between two legs: DEFAULT to treating it as settleable, NOT a coin-flip for the human. Return',
+    '  "checkable": true — the DEFAULT for EVERY clash — whenever an arbitrator could establish the answer against a',
+    '  real source of truth: the CURRENT STATE of a work item / file / branch / PR, a fact, a test result, a date, a',
+    '  count, whether something exists. Return "checkable": false ONLY for a genuine matter of taste, priority, or',
+    '  risk appetite with NO factual answer. For a checkable clash use action "probe" and go check the ground truth',
+    '  (git history, `gh` PR/commit state, the working tree, the actual ADO/GitHub item content, tests) — do NOT punt',
+    '  a provable fact to the human as "your call", even if NEITHER leg has corroborated it yet. If one side is',
+    '  already corroborated by authoritative evidence, cls "factual-clash", action "resolve", and say which side.',
+    '  Reserve cls "judgement-clash" WITH "checkable": false for a true values call. A fact only the human holds =',
+    '  cls "missing-info".',
+    '',
+    'RECENCY / PROVENANCE (who observed it last wins for STATE):',
+    '- Each conflict side carries "observedAt" — WHEN that leg observed what it now claims. Legs frequently clash only',
+    '  because one read a MUTABLE resource (a work item\'s current text, a file, a branch tip) BEFORE it changed and the',
+    '  other AFTER. When a clash is about the STATE of something mutable, PREFER the side that observed it more recently',
+    '  and treat the older reading as stale — say so in your reasoning, and when the newer side is clearly current,',
+    '  resolve/side to it instead of punting. Recency is a strong signal, not proof: if the two observations are close',
+    '  in time, or the subject is not a moving target, still "probe" to verify rather than guessing.',
     '',
     'PROBE BEFORE YOU PUNT (the point — keep the human off the hook):',
     '- Before you hand a judgement-clash or missing-info stop to the human, ASK YOURSELF whether a bounded,',
@@ -27002,6 +27022,7 @@ function _meAiDirectorReasonPrompt(brief) {
     '{',
     '  "stops": { "<stopId>": {"cls": "reversible-local|deliverable|duplicate|factual-clash|judgement-clash|missing-info|external-spend-destructive|read-only",',
     '    "action": "absorb|cull|resolve|batch|probe|ask", "external": true|false, "confidence": 0.0,',
+    '    "checkable": true|false, "writeTarget": "wi:<id>:<field> | path:<p> | null",',
     '    "reasoning": "...", "compensation": "...", "group": "...", "side": "a|b|null",',
     '    "sideConfidence": {"a": 0, "b": 0}, "clashSummary": {"area": "...", "compare": "..."}, "probe": {"question": "...", "plan": "..."}} },',
     '  "insights": { "redundancies": [{"stopIds": [], "legIds": [], "why": ""}], "opportunities": [{"title": "", "why": ""}],',
@@ -27065,11 +27086,19 @@ async function _meAiDirectorReason(id, opts) {
   };
   for (const sid of Object.keys(parsed.stops || {})) {
     const v = parsed.stops[sid] || {};
+    const _cls = okClasses.has(v.cls) ? v.cls : null;
+    const _isClash = _cls === 'factual-clash' || _cls === 'judgement-clash';
     verdicts[sid] = {
-      cls: okClasses.has(v.cls) ? v.cls : null,
+      cls: _cls,
       action: v.action || null,
       external: v.external === true,
       confidence: (typeof v.confidence === 'number') ? Math.max(0, Math.min(1, v.confidence)) : null,
+      // Checkability is AI-driven, not regex. DEFAULT a clash to checkable (arbitrate first); the model
+      // must set checkable:false explicitly to keep a genuine values call on the human's desk. Non-clash
+      // verdicts carry null (the collision/checkable gates only consult it for clashes).
+      checkable: _isClash ? (v.checkable === false ? false : true) : null,
+      // AI-derived canonical write target (the collision key) — supersedes the deterministic regex keyer.
+      writeTarget: (v.writeTarget && String(v.writeTarget).trim() && String(v.writeTarget).trim().toLowerCase() !== 'null') ? String(v.writeTarget).trim().slice(0, 120) : null,
       reasoning: _meAiDirClip(v.reasoning || '', 400) || null,
       compensation: _meAiDirClip(v.compensation || '', 200) || null,
       group: v.group ? String(v.group).trim().slice(0, 80) : null,

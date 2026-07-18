@@ -148,23 +148,30 @@ function _clashEvidenceClear(conflict, grant) {
   return false;
 }
 
-// A clash is CHECKABLE — an arbitrator can settle it against a real source of truth
-// (git history, `gh` PR/commit state, the repo working tree, tests) — when its subject
-// or either side's claim asserts a concrete, verifiable FACT: a commit SHA, a PR /
-// merge / branch state, a file or test, a URL, a date, a version/count. That is the
-// arbitrator's job, NOT the human's. Only a matter of taste, priority, or risk appetite
-// with no factual answer is a genuine judgement call. This is what stops the Director
-// punting "is PR #x merged / what is main's HEAD" to the user as a tie-break.
-const _CHECKABLE_RE = /\b([0-9a-f]{7,40}|pr[ -]?#?\d+|#\d+|merg(?:e|ed|es|ing)|commit|branch|origin\/|refs\/|\bmain\b|\bmaster\b|rebas|revert|cherry-?pick|\btag\b|\brelease\b|deploy|pipeline|build\s+#?\d+|tests?\b|passe?[ds]\b|fail(?:s|ed|ing)?\b|exists?\b|present\b|absent\b|missing\b|latest\b|\bHEAD\b|\.(?:js|ts|mjs|cs|py|go|java|rb|yml|yaml|json|md|html|css|sql)\b|https?:\/\/|\bv?\d+\.\d+|\d{4}-\d{2}-\d{2})\b/i;
-function _clashIsCheckable(conflict) {
-  if (!conflict) return false;
-  const text = [
-    conflict.subject || '',
-    (conflict.a && conflict.a.claim) || '',
-    (conflict.b && conflict.b.claim) || '',
-  ].join(' \n ');
-  if (!text.trim()) return false;
-  return _CHECKABLE_RE.test(text);
+// Whether a clash is CHECKABLE — i.e. an arbitrator can settle it against a real source of
+// truth (git history, `gh` PR/commit state, the working tree, the live work-item/PR content,
+// tests) rather than it being a genuine matter of taste. This is now AI-DRIVEN, not a regex:
+// the reasoning pass reads the full clash and marks checkable true/false. We DEFAULT to
+// checkable (arbitrate) whenever the model has weighed in — the flip the user asked for — and
+// only keep it on the human's desk when the model EXPLICITLY set checkable:false (a real values
+// call). With no AI verdict yet we don't manufacture arbitration (the reason pass is the
+// mechanism); the clash stays an honest desk ask until the model reasons over it.
+function _clashCheckable(av) {
+  return !!av && av.checkable !== false;
+}
+
+// Human-readable recency note when two sides of a clash were observed at different times: a
+// clash over the STATE of a mutable resource is usually a staleness artifact, so the arbitrator
+// should prefer whichever side looked MORE RECENTLY. Returns '' when we can't tell.
+function _recencyNote(conflict) {
+  const ta = conflict && conflict.a && Date.parse(conflict.a.observedAt || '');
+  const tb = conflict && conflict.b && Date.parse(conflict.b.observedAt || '');
+  if (!ta || !tb || !isFinite(ta) || !isFinite(tb) || ta === tb) return '';
+  const newer = ta > tb ? 'A' : 'B';
+  const older = ta > tb ? 'B' : 'A';
+  return 'RECENCY: Side ' + newer + ' observed the target more recently than Side ' + older
+    + ' \u2014 if this is about the resource\u2019s current STATE, Side ' + newer
+    + '\u2019s reading is likelier current and Side ' + older + '\u2019s may be stale; verify, prefer the newer, and say so.';
 }
 
 // Build the arbitration brief a forced probe carries: verify the disputed fact against
@@ -174,12 +181,13 @@ function _arbitrationProbe(conflict) {
   const subj = (conflict && conflict.subject) || 'this claim';
   const a = (conflict && conflict.a && conflict.a.claim) || '';
   const b = (conflict && conflict.b && conflict.b.claim) || '';
+  const rec = _recencyNote(conflict);
   const question = 'Which reading of "' + _clip(subj, 90) + '" matches reality'
     + (a && b ? (' \u2014 A: "' + _clip(a, 110) + '" vs B: "' + _clip(b, 110) + '"?') : '?');
   const plan = [
     'ARBITRATE this clash against the real source of truth \u2014 do NOT trust either leg\'s assertion.',
     'The two legs disagree on a CHECKABLE fact.' + (a ? (' Side A claims: ' + _clip(a, 160) + '.') : '') + (b ? (' Side B claims: ' + _clip(b, 160) + '.') : ''),
-    'Verify it directly: read the git history and working tree, check PR + commit state with `gh`, run the relevant lookups or tests \u2014 whatever the claims actually reference.',
+    (rec ? (rec + ' ') : '') + 'Verify it directly: read the git history and working tree, check PR + commit state with `gh`, read the live work-item/PR content, run the relevant lookups or tests \u2014 whatever the claims actually reference.',
     'Report which side matches the ground truth (or that BOTH are wrong), with concrete evidence: commit SHAs, PR merge status, branch tips, file/test results, timestamps.',
     'This settles the clash so the losing leg can be redirected and neither proceeds on a false premise \u2014 the human is not the tie-breaker for a provable fact.',
   ].join(' ');
@@ -226,14 +234,24 @@ function _collisionProbe(group, openStops) {
   const target = (group && group.target) || 'the same resource';
   const ids = (group && group.memberStopIds) || [];
   const legs = [];
-  (openStops || []).forEach(s => { if (ids.indexOf(s.id) !== -1) legs.push({ legId: s.legId || null, prompt: _clip(s.prompt || '', 140) }); });
+  (openStops || []).forEach(s => {
+    if (ids.indexOf(s.id) !== -1) {
+      const when = s.observedAt || s.createdAt || s.at || s.updatedAt || null;
+      legs.push({ legId: s.legId || null, prompt: _clip(s.prompt || '', 140), when, whenMs: when ? Date.parse(when) : NaN });
+    }
+  });
   const n = ids.length || legs.length;
   const question = n + ' writes all target ' + _clip(String(target), 90) + ' \u2014 which single result is correct, or should they merge?';
-  const lines = legs.map((l, i) => '  ' + (i + 1) + '. ' + (l.legId ? ('[' + l.legId + '] ') : '') + (l.prompt || '(write)'));
+  const lines = legs.map((l, i) => '  ' + (i + 1) + '. ' + (l.legId ? ('[' + l.legId + '] ') : '') + (l.prompt || '(write)') + (l.when ? (' \u2014 decided ' + l.when) : ''));
+  // Recency: if the candidates were decided at different times, the newest write most likely
+  // reflects the current state of the target — the arbitrator should weigh it accordingly.
+  const times = legs.map(l => l.whenMs).filter(t => isFinite(t));
+  const hasRecency = times.length >= 2 && Math.max.apply(null, times) !== Math.min.apply(null, times);
   const plan = [
     'ARBITRATE a same-target write collision \u2014 do NOT ask the human and do NOT approve more than one blindly.',
     n + ' separate writes each mutate ' + _clip(String(target), 120) + '; applying more than one would silently clobber the others.' + (lines.length ? (' The candidates:\n' + lines.join('\n')) : ''),
-    'Read each leg\u2019s intended change and the current state of the target, then decide the SINGLE correct end state:',
+    (hasRecency ? 'RECENCY: the candidates were decided at different times \u2014 a later write likely saw newer state, so treat the most recently-decided write as the likelier-current baseline (verify against the target\u2019s actual current state before trusting it). ' : '')
+      + 'Read each leg\u2019s intended change and the current state of the target, then decide the SINGLE correct end state:',
     '(a) pick the best single write and DECLINE/redirect the rest; (b) MERGE them into one combined write when the intents are complementary; or (c) if they are genuinely independent and do NOT actually overwrite each other, say so and let each proceed.',
     'Redirect the losing/absorbed legs so exactly one coherent write lands, and report the chosen result with concrete reasoning so nothing is lost \u2014 the human is not the tie-breaker for a mechanical collision.',
   ].join(' ');
@@ -610,6 +628,7 @@ function planReduction(tree, policy) {
 
   const openStops = ((tree && tree.stops) || []).filter(s => s && s.status === 'open');
   const conflictById = _conflictIndex(tree);
+  const aiVerdicts = (policy.aiVerdicts && typeof policy.aiVerdicts === 'object') ? policy.aiVerdicts : null;
 
   // Duplicate detection: first occurrence of a write signature is canonical, later
   // identical signatures are duplicates the director can cull.
@@ -637,7 +656,12 @@ function planReduction(tree, policy) {
       if (_norm(s.type) !== 'needs-auth' || s.delivery === true) continue;
       if (_riskOf(s) !== 'write') continue;
       if (dup.has(s.id)) continue; // an exact-dup is culled, not a collision
-      const k = _collisionKey(s);
+      // AI-FIRST collision key: the reasoning pass judges a write's canonical target by MEANING
+      // (a work-item field / a path), not wording, and emits it as av.writeTarget. Prefer that;
+      // fall back to the deterministic _collisionKey only when the model hasn't keyed this write
+      // (mirrors the AI-first cls / deterministic-fallback pattern used everywhere else here).
+      const av = aiVerdicts ? aiVerdicts[s.id] : null;
+      const k = (av && typeof av.writeTarget === 'string' && av.writeTarget.trim()) ? av.writeTarget.trim() : _collisionKey(s);
       if (!k) continue;
       if (!byKey.has(k)) byKey.set(k, []);
       byKey.get(k).push(s);
@@ -679,7 +703,6 @@ function planReduction(tree, policy) {
   ctx.arbitratedStopIds = arbitratedStopIds;
   ctx.spawnByStop = spawnByStop;
 
-  const aiVerdicts = (policy.aiVerdicts && typeof policy.aiVerdicts === 'object') ? policy.aiVerdicts : null;
   let unsure = 0;
   const per = openStops.map(s => {
     // Classification is AI-first. When the reasoning pass has judged this stop we trust its
@@ -756,20 +779,22 @@ function planReduction(tree, policy) {
     } else if (HANDLED.has(disp) && !grantCovers(grant, s, cls, ctx)) { disp = 'ask'; }
     // Rail: a low-confidence verdict never auto-applies — the director declines to guess.
     if (HANDLED.has(disp) && av && typeof av.confidence === 'number' && av.confidence < 0.5) { disp = 'ask'; unsure++; }
-    // ── ARBITRATION GATE — a PROVABLE clash is never the human's tie-break ─────────
+    // ── ARBITRATION GATE — a CHECKABLE clash is never the human's tie-break ─────────
     // The user's complaint: legs "keep reaching conflicting conclusions, but they are
-    // for provable things" (is PR #x merged, what is main's HEAD) and the Director punts
-    // it as "YOUR CALL" ("neither is provable from the repo") — dragging the human in as
-    // a coin-flip for a fact. If this clash is heading to the desk (disp==='ask'), its
-    // claims are CHECKABLE against a real source of truth, an active grant lets the
-    // Director act, and no probe has run for it yet, force a PROBE: the sweep dispatches a
-    // read-only arbitrator sub-agent that verifies the disputed facts and reports which
-    // side is real, so the losing leg is redirected WITHOUT involving the human. Capped to
-    // ONE attempt per stop (arbitratedStopIds) — a clash arbitration genuinely could not
-    // settle still escalates honestly afterward. Paused/offline still overrides just below.
+    // for provable things" (is PR #x merged, what is main's HEAD, what does the epic say
+    // NOW) and the Director punts it as "YOUR CALL" ("neither is provable from the repo") —
+    // dragging the human in as a coin-flip for a fact. Checkability is now AI-DRIVEN, not a
+    // brittle regex: the reasoning pass reads the full clash and marks it checkable. We FLIP
+    // the default — a clash heading to the desk (disp==='ask') under an active grant, not yet
+    // arbitrated, is force-routed to a PROBE unless the model EXPLICITLY marked it a genuine
+    // values call (av.checkable === false). The sweep then dispatches a read-only arbitrator
+    // that verifies the disputed facts (preferring the more recently-observed side per the
+    // recency note) and reports which side is real, so the loser is redirected WITHOUT the
+    // human. Capped to ONE attempt per stop (arbitratedStopIds) — a clash arbitration
+    // genuinely couldn't settle still escalates honestly. Paused/offline still overrides below.
     if (disp === 'ask' && (cls === 'judgement-clash' || cls === 'factual-clash')
       && s.conflictId && _grantActive(grant, ctx) && !ctx.arbitratedStopIds.has(s.id)
-      && _clashIsCheckable(conflictById[s.conflictId])) {
+      && _clashCheckable(av)) {
       disp = 'probe';
       if (!aiProbe) aiProbe = _arbitrationProbe(conflictById[s.conflictId]);
     }
@@ -1099,5 +1124,5 @@ module.exports = {
   PR_GRANT_OPS, PR_LIMITS,
   stopClass, grantCovers, planReduction, ledgerEntry,
   planPrShepherd, prGrantHas,
-  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs, _clashIsCheckable, _arbitrationProbe, _collisionKey, _collisionProbe },
+  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs, _clashCheckable, _recencyNote, _arbitrationProbe, _collisionKey, _collisionProbe },
 };
