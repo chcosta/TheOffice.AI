@@ -17017,7 +17017,7 @@
 
                               <!-- Handled automatically (collapsed when desk non-empty) -->
                               <div class="meai-dir-h" style="margin-top:16px">
-                                <span>Handled automatically</span> <span class="c" x-text="meAiDirectorHandledCount()"></span>
+                                <span>Handled automatically</span> <span class="c" x-text="meAiDirectorHandledCountLifetime()"></span>
                                 <span class="tgl" @click="meai.pursuit.director.showHandled=!meai.pursuit.director.showHandled" x-text="meai.pursuit.director.showHandled ? 'Hide' : 'Show'"></span>
                               </div>
                               <div class="meai-dir-hsum" x-text="meAiDirectorHandledSummary()"></div>
@@ -47872,15 +47872,54 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           finally { p.director.busy = false; }
         },
         meAiDirectorHandledSummary() {
-          const pl = this.meai.pursuit.director.plan; if (!pl || !pl.reconciliation) return '';
-          const r = pl.reconciliation; const bits = [];
-          if (r.culled) bits.push(r.culled + ' culled');
-          if (r.absorbed) bits.push(r.absorbed + ' absorbed');
-          if (r.resolved) bits.push(r.resolved + ' tie-broke');
-          if (!bits.length) return 'Nothing absorbed yet — everything open needs a human call.';
+          // Durable record: summarise everything the Director has absorbed for you over the
+          // life of this pursuit from the PERSISTENT ledger — not the live reduction snapshot
+          // (which only counts stops still open, so it decays to zero as handled legs advance
+          // and would make the "effort saved" record vanish on every refresh).
+          const d = this.meai.pursuit.director; if (!d || !d.plan) return '';
+          const h = this.meAiDirectorHandled();
+          if (!h.length) return 'Nothing absorbed yet — everything open needs a human call.';
+          const by = {}; h.forEach(x => { by[x.disposition] = (by[x.disposition] || 0) + 1; });
+          const bits = [];
+          if (by.cull) bits.push(by.cull + ' culled');
+          if (by.absorb) bits.push(by.absorb + ' absorbed');
+          if (by.resolve) bits.push(by.resolve + ' tie-broke');
+          if (by.batch) bits.push(by.batch + ' batched');
           return bits.join(' · ') + ' — all in effect & reversible from the ledger.';
         },
-        // Group the handled stops by disposition so the "Handled automatically" section
+        // The durable "Handled automatically" record. Sourced from the server-persisted
+        // Director ledger (survives refresh) rather than the ephemeral open-stops plan, so the
+        // tally of what the Director absorbed for you is a lasting record of effort saved and
+        // doesn't reset to zero as handled legs advance. Each ledger verb maps to one of the
+        // four handled dispositions; undone entries and non-handling actions (spawns, notes)
+        // are excluded, and each stop is counted once.
+        meAiDirectorHandled() {
+          const d = this.meai.pursuit.director;
+          const led = (d && Array.isArray(d.ledger)) ? d.ledger : [];
+          const disp = {
+            'culled': 'cull', 'culled-crash-loop': 'cull', 'culled-stalled': 'cull',
+            'absorbed': 'absorb',
+            'resolved': 'resolve', 'retired-conflict': 'resolve',
+            'batched': 'batch',
+          };
+          const seen = {}; const out = [];
+          led.forEach(e => {
+            if (!e || e.state === 'undone') return;
+            const dp = disp[e.verb]; if (!dp) return;
+            const key = e.stopId || e.conflictId || e.id;
+            if (key && seen[key]) return; if (key) seen[key] = 1;
+            out.push({
+              stopId: e.stopId || e.conflictId || e.id, disposition: dp,
+              prompt: e.target || e.stopId || e.cls, target: e.target, cls: e.cls,
+              reason: e.why || e.reason || '', legId: e.legId || null, verb: e.verb,
+            });
+          });
+          return out;
+        },
+        // Lifetime count for the "Handled automatically" header — the persistent record length,
+        // distinct from meAiDirectorHandledCount() which stays the live "N of M gated stops".
+        meAiDirectorHandledCountLifetime() { return this.meAiDirectorHandled().length; },
+        // Group the handled record by disposition so the "Handled automatically" section
         // reads like the mock (Duplicates culled N / Reversible edits absorbed N / …)
         // rather than a flat stream.
         meAiDirectorHandledGroups() {

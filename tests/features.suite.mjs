@@ -2803,6 +2803,31 @@ await t.test('pursuit map: card layer beats the LOD canvas + title opens node lo
   t.ok(/@click\.stop="meAiPursuitOpenNode\(n\)"/.test(html), 'the whole card still calls meAiPursuitOpenNode');
 });
 
+// Feature — "Handled automatically" is a durable record of effort saved.
+//   The record must be sourced from the server-persisted Director ledger (survives refresh),
+//   not the ephemeral open-stops plan (which decays to zero as handled legs advance). Also
+//   locks the previously-undefined meAiDirectorHandled() so the "Show" list can't throw.
+await t.test('director: Handled-automatically record persists from the ledger', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // (1) the record-builder is defined and reads the durable ledger, not the live plan
+  const h = _win(html, 'meAiDirectorHandled() {', 800);
+  t.ok(h, 'meAiDirectorHandled() is defined (was undefined → Show list threw)');
+  t.ok(/d\.ledger/.test(h), 'meAiDirectorHandled() sources the persistent ledger');
+  t.ok(/state === 'undone'/.test(h), 'undone ledger entries are excluded from the record');
+  t.ok(/'culled'|'absorbed'|'resolved'/.test(h), 'ledger verbs map to handled dispositions');
+  // (2) the header count reflects the lifetime record, not the decaying live snapshot
+  t.ok(/meAiDirectorHandledCountLifetime\(\) \{ return this\.meAiDirectorHandled\(\)\.length; \}/.test(html),
+    'lifetime count returns the persistent record length');
+  t.ok(/<span>Handled automatically<\/span> <span class="c" x-text="meAiDirectorHandledCountLifetime\(\)">/.test(html),
+    'the "Handled automatically" header shows the lifetime (ledger-backed) count');
+  // (3) the summary is ledger-backed too (so it doesn't say "Nothing absorbed yet" over real history)
+  const s = _win(html, 'meAiDirectorHandledSummary() {', 700);
+  t.ok(s && /this\.meAiDirectorHandled\(\)/.test(s), 'the handled summary is computed from the durable record');
+  // (4) the live "N of M gated stops" reduction framing stays on the live plan count
+  t.ok(/The Director handled <b x-text="meAiDirectorHandledCount\(\)"><\/b> of <b x-text="meAiDirectorTotal\(\)">/.test(html),
+    'the "N of M gated stops" line keeps the live meAiDirectorHandledCount()');
+});
+
 // Feature — Director dispatch/arbitration honesty + Automation stop-all.
 //   (a) the probe pane only shows "Dispatch the investigation" when nothing is dispatched;
 //   (b) desk rows + detail panes indicate a live/finished arbitration agent;
