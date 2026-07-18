@@ -2726,11 +2726,14 @@ await t.test('director: honest dispatch/arbitration surface + automation stop-al
   t.ok(/meai\.pursuit\.director\.sel\.arbitrating"[\s\S]{0,120}arbitration agent is checking this now/.test(html),
     'the detail pane marks a live arbitration');
 
-  // director.js backing data model: spawnByStop map + _spawnInfoFor + honest fields
-  const spawnBlk = _win(djs, 'const spawnByStop = new Map()', 700);
-  t.ok(spawnBlk && /live: !terminal/.test(spawnBlk), 'spawnByStop tracks live vs terminal arbitration legs');
-  t.ok(/dispatched, investigated,/.test(djs) && /spawnLegId: spawn \? spawn\.legId : null/.test(djs),
-    'probe items carry dispatched/spawnLegId');
+  // director.js backing data model: spawnByStop map + _spawnInfoFor + honest fields.
+  // A 'planned' spawn is PENDING (queued, never entered its run) — NOT live — so the desk
+  // never claims "sub-agent running" for a stuck-at-planned leg and keeps offering Dispatch.
+  const spawnBlk = _win(djs, 'const spawnByStop = new Map()', 1100);
+  t.ok(spawnBlk && /const pending = st === 'planned';/.test(spawnBlk) && /const live = !terminal && !pending;/.test(spawnBlk),
+    'spawnByStop distinguishes live (running) from pending (planned) from terminal');
+  t.ok(/dispatched, investigated, pending,/.test(djs) && /spawnLegId: spawn \? spawn\.legId : null/.test(djs),
+    'probe items carry dispatched/pending/spawnLegId');
   t.ok(/it\.arbitrating = !!info\.live;/.test(djs) && /it\.arbLegId = info\.legId \|\| null;/.test(djs),
     'desk items carry arbitrating/arbLegId');
 

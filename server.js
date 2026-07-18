@@ -23138,7 +23138,19 @@ setInterval(() => {
     for (const [id, t] of meAiTasks) {
       try {
         if (!t || t.mode !== 'tree') continue;
-        // Only touch effectively-idle pursuits — never yank a leg out from under a live wave.
+        // Self-heal stuck ARBITRATION PROBES first — even on a LIVE pursuit. A director-spawn
+        // probe orphaned at 'planned' (dispatch wave dropped by a restart, or minted on a
+        // non-leader) reads on the desk as "sub-agent running" but never actually started, and
+        // the idle-gated resume below skips it while any other leg is live. Re-driving a probe
+        // that demonstrably never entered its run can't collide with a live wave (it leaves
+        // 'planned' the instant the run starts) and needs no grant, so it runs unconditionally.
+        // This is the ONLY path that recovers a stuck probe when the grant-gated sweep isn't firing.
+        try {
+          const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+          if (tree) _meAiReDrivePlannedSpawns(t, tree, id);
+        } catch (_) { /* probe self-heal is best-effort */ }
+        // Only touch effectively-idle pursuits for the broader stalled-leg resume — never yank a
+        // leg out from under a live wave.
         if (!_meAiPursuitIdle(id)) continue;
         const last = _meAiStuckLastRecover.get(id) || 0;
         if ((now - last) < ME_AI_STUCK_RECOVER_THROTTLE_MS) continue;
@@ -27641,6 +27653,61 @@ async function _meAiDirectorPrTick(t) {
   }
 }
 
+// ── Recover orphaned probe legs (shared: sweep + stuck-watchdog) ──────────────
+// A director-spawn probe is dispatched via _meAiSchedule, whose queue is IN-MEMORY
+// (meAiQueue + a concurrency cap of ME_AI_MAX_CONCURRENT). When a wave spins off more
+// probes than the cap, the overflow parks in that queue — and a server restart (or the
+// wave that created them ending, or the spawn being minted on a non-leader) wipes/skips
+// the run-closure, leaving the legs durably persisted at 'planned' with nothing behind
+// them. Nothing polls 'planned', and the probe idempotency set treats a 'planned' leg as
+// "already investigating" — so these orphans stick as "Queued — sub-agent running" forever
+// (the desk lies "running" while the leg is really stuck at planned). We re-drive them
+// directly, idempotently (re-read fresh status right before running; skip anything already
+// advanced). NO GRANT is required — a probe is a READ-ONLY investigation; a grant only gates
+// APPLYING a resulting write downstream. That is why the watchdog can run this on a LIVE
+// pursuit too: re-driving a leg that demonstrably never entered _meAiRunLeg can't collide
+// with a live wave (the leg leaves 'planned' the instant the run enters), and it is the ONLY
+// path that self-heals a stuck probe when the grant-gated sweep isn't firing. Returns counts.
+function _meAiReDrivePlannedSpawns(t, tree, id) {
+  let recovered = 0, retiredOrphans = 0;
+  const ledger = (tree.director && tree.director.ledger) || [];
+  // Only re-drive spawns that were MEANT TO RUN (run:true → ledger state 'applied'). A
+  // DRAFTED spawn (gap proposal awaiting the user's "Start now") also sits at 'planned' but
+  // must never auto-run — it carries only a 'proposed' ledger entry.
+  const meantToRun = (legId) => ledger.some(e => e && e.legId === legId && e.verb === 'spawned' && e.state === 'applied');
+  const nowMs = Date.now();
+  for (const lid of Object.keys(tree.legs || {})) {
+    const lg = tree.legs[lid];
+    if (!lg || !lg.directorSpawn || lg.status !== 'planned') continue;
+    if (!meantToRun(lg.id)) continue; // drafted proposal — leave for the user
+    // Don't race a spawn created moments ago in a concurrent wave (planned→running is
+    // near-instantaneous for a live dispatch).
+    const born = Date.parse(lg.updatedAt || lg.createdAt || 0);
+    if (born && (nowMs - born) < 8000) continue;
+    // If it was drafted to close a stop that is no longer open, the investigation is moot →
+    // retire it so it stops reading as "Queued".
+    if (lg.fromStopId) {
+      const st = (tree.stops || []).find(s => s.id === lg.fromStopId);
+      if (!st || st.status !== 'open') {
+        _meAiTreeEmit(id, 'leg_status', { legId: lg.id, status: 'cancelled' });
+        retiredOrphans++;
+        continue;
+      }
+    }
+    const legId = lg.id;
+    _meAiSchedule(async () => {
+      try {
+        const rt = meAiTrees.get(id) || _meAiFoldJournal(id);
+        const fresh = rt.legs && rt.legs[legId];
+        if (!fresh || fresh.status !== 'planned') return; // already advanced/cancelled elsewhere
+        await _meAiRunLeg(t, fresh);
+      } catch (_) {}
+    });
+    recovered++;
+  }
+  return { recovered, retiredOrphans };
+}
+
 // Autonomously reduce the desk for one pursuit. STRICTLY GATED: enabled + not
 // paused + leader + an active grant covering the class/path. Performs ONLY
 // zero-side-effect folds (cull / resolve-with-clear-evidence / absorb-granted-write),
@@ -27746,54 +27813,10 @@ function _meAiDirectorSweep(t, _rearm) {
     }
   }
   // ── Recover orphaned probe legs ───────────────────────────────────────────────
-  // A director-spawn probe is dispatched via _meAiSchedule, whose queue is IN-MEMORY
-  // (meAiQueue + a concurrency cap of ME_AI_MAX_CONCURRENT). When a sweep spins off more
-  // probes than the cap, the overflow parks in that queue — and a server restart (or the
-  // wave that created them ending) wipes the queue, leaving the legs durably persisted at
-  // 'planned' with no run-closure behind them. Nothing polls 'planned', the idle-gated
-  // watchdog/resume skips this pursuit while any other leg is still running, and the probe
-  // idempotency set below treats a 'planned' leg as "already investigating" — so these
-  // orphans stick as "Queued — not yet dispatched" forever and re-sweeping never re-drives
-  // them. Here we re-drive them directly (idempotent: re-read fresh status right before
-  // running; skip anything already advanced). This is what makes "Sweep now" resurrect them.
-  let recovered = 0, retiredOrphans = 0;
-  {
-    const ledger = (tree.director && tree.director.ledger) || [];
-    // Only re-drive spawns that were MEANT TO RUN (run:true → ledger state 'applied'). A
-    // DRAFTED spawn (gap proposal awaiting the user's "Start now") also sits at 'planned' but
-    // must never auto-run — it carries only a 'proposed' ledger entry.
-    const meantToRun = (legId) => ledger.some(e => e && e.legId === legId && e.verb === 'spawned' && e.state === 'applied');
-    const nowMs = Date.now();
-    for (const lid of Object.keys(tree.legs || {})) {
-      const lg = tree.legs[lid];
-      if (!lg || !lg.directorSpawn || lg.status !== 'planned') continue;
-      if (!meantToRun(lg.id)) continue; // drafted proposal — leave for the user
-      // Don't race a spawn created moments ago in a concurrent wave (planned→running is
-      // near-instantaneous for a live dispatch).
-      const born = Date.parse(lg.updatedAt || lg.createdAt || 0);
-      if (born && (nowMs - born) < 8000) continue;
-      // If it was drafted to close a stop that is no longer open, the investigation is moot →
-      // retire it so it stops reading as "Queued".
-      if (lg.fromStopId) {
-        const st = (tree.stops || []).find(s => s.id === lg.fromStopId);
-        if (!st || st.status !== 'open') {
-          _meAiTreeEmit(id, 'leg_status', { legId: lg.id, status: 'cancelled' });
-          retiredOrphans++;
-          continue;
-        }
-      }
-      const legId = lg.id;
-      _meAiSchedule(async () => {
-        try {
-          const rt = meAiTrees.get(id) || _meAiFoldJournal(id);
-          const fresh = rt.legs && rt.legs[legId];
-          if (!fresh || fresh.status !== 'planned') return; // already advanced/cancelled elsewhere
-          await _meAiRunLeg(t, fresh);
-        } catch (_) {}
-      });
-      recovered++;
-    }
-  }
+  // Re-drive any director-spawn probe stuck at 'planned' (dispatch wave dropped by a
+  // restart, or minted on a non-leader). Shared with the stuck-watchdog so a stuck probe
+  // self-heals even when this grant-gated sweep isn't firing. See _meAiReDrivePlannedSpawns.
+  const { recovered, retiredOrphans } = _meAiReDrivePlannedSpawns(t, tree, id);
   // Probe dispatch (the "just handle it" path): for every stop the AI judged worth a bounded
   // investigation, spin off a capped sub-agent to do it — instead of parking it on the human's
   // desk. Idempotent: skip a stop that already has a live director-spawned probe leg pointing at

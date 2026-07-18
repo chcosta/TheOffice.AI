@@ -368,15 +368,15 @@ function _pct(x) { return (typeof x === 'number' && isFinite(x)) ? Math.round(x 
 function _spawnInfoFor(ctx, stopIds) {
   const map = ctx && ctx.spawnByStop;
   if (!map || !stopIds) return null;
-  let fallback = null;
+  const rank = (o) => o ? (o.live ? 2 : (o.pending ? 1 : 0)) : -1;
+  let best = null;
   for (const sid of stopIds) {
     if (!sid) continue;
     const info = map.get(sid);
     if (!info) continue;
-    if (info.live) return info;
-    if (!fallback) fallback = info;
+    if (rank(info) > rank(best)) best = info;
   }
-  return fallback;
+  return best;
 }
 
 function _groupDesk(deskNodes, ctx) {
@@ -595,9 +595,14 @@ function _groupProbes(probeNodes, ctx) {
     const spawn = _spawnInfoFor(ctx, stopIds);
     const dispatched = !!(spawn && spawn.live);
     const investigated = !!(spawn && spawn.terminal);
+    // A spawn stuck at 'planned' is queued, not running — say so honestly (and the panel keeps
+    // offering Dispatch) instead of claiming a sub-agent is investigating. The stuck-watchdog
+    // re-drives it, so this "Queued" state is transient once recovery kicks in.
+    const pending = !!(spawn && spawn.pending);
     const status = dispatched
       ? 'Investigating — sub-agent running'
-      : (investigated ? 'Investigation ran — reconciling the finding' : 'Queued — not yet dispatched');
+      : (investigated ? 'Investigation ran — reconciling the finding'
+        : (pending ? 'Queued — dispatch pending (recovering)' : 'Queued — not yet dispatched'));
     const title = collision
       ? ((s.collisionTarget ? (g.members.length + ' writes collide on ' + _clip(String(s.collisionTarget), 60)) : (g.members.length + ' writes target the same resource')))
       : (_clashTitle(s) || _gapTitle(s) || (s.subject || 'A decision worth investigating'));
@@ -610,7 +615,7 @@ function _groupProbes(probeNodes, ctx) {
       question, plan,
       // Dispatch/agent provenance so the panel can drop the "Dispatch" button once an agent is
       // running and link straight into that agent's node (chat, thinking, tool calls).
-      dispatched, investigated,
+      dispatched, investigated, pending,
       spawnLegId: spawn ? spawn.legId : null, spawnStatus: spawn ? spawn.status : null,
       directorRationale: s.aiReason || (collision
         ? ("Two or more held writes would overwrite the same target. I won't ask you to pick between duplicates — I'm having a sub-agent settle the collision (keep the best, merge, or confirm they're independent) and redirect the rest.")
@@ -695,13 +700,21 @@ function planReduction(tree, policy) {
     for (const lid of Object.keys(legsAll)) {
       const lg = legsAll[lid];
       if (!lg || !lg.directorSpawn || !lg.fromStopId) continue;
-      const terminal = ['done', 'error', 'invalidated', 'cancelled'].indexOf(_norm(lg.status)) !== -1;
+      const st = _norm(lg.status);
+      const terminal = ['done', 'error', 'invalidated', 'cancelled'].indexOf(st) !== -1;
+      // 'planned' is NOT live — the spawn was minted but the sub-agent never entered its run
+      // (the dispatch wave was dropped by a restart, or it was created on a non-leader). It is
+      // PENDING (queued), not investigating. Marking it live would make the desk claim "sub-agent
+      // running" for a leg stuck at planned and hide the Dispatch button, stranding the user. Only
+      // an actually-started (non-terminal, non-planned) leg is live/investigating.
+      const pending = st === 'planned';
+      const live = !terminal && !pending;
       if (terminal) arbitratedStopIds.add(lg.fromStopId);
-      // A live spawn always wins over a terminal one for the same stop (a re-dispatch).
+      // A live spawn beats a pending one beats a terminal one for the same stop (a re-dispatch).
       const prev = spawnByStop.get(lg.fromStopId);
-      if (!prev || (!terminal && prev.terminal)) {
-        spawnByStop.set(lg.fromStopId, { legId: lg.id, status: _norm(lg.status), terminal, live: !terminal });
-      }
+      const rank = (o) => o ? (o.live ? 2 : (o.pending ? 1 : 0)) : -1;
+      const cur = { legId: lg.id, status: st, terminal, live, pending };
+      if (rank(cur) > rank(prev)) spawnByStop.set(lg.fromStopId, cur);
     }
   }
   ctx.arbitratedStopIds = arbitratedStopIds;

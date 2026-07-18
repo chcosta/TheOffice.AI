@@ -17343,7 +17343,7 @@
                             <template x-if="meai.pursuit.director.selKind==='probe' && meai.pursuit.director.sel">
                               <div>
                                 <div class="meai-dir-card">
-                                  <div class="meai-dir-kind" x-text="meai.pursuit.director.sel.dispatched ? 'Investigating · sub-agent running' : (meai.pursuit.director.sel.investigated ? 'Investigation ran · reconciling' : 'Queued to investigate · off your desk')"></div>
+                                  <div class="meai-dir-kind" x-text="meai.pursuit.director.sel.dispatched ? 'Investigating · sub-agent running' : (meai.pursuit.director.sel.investigated ? 'Investigation ran · reconciling' : (meai.pursuit.director.sel.pending ? 'Queued · dispatch pending (recovering)' : 'Queued to investigate · off your desk'))"></div>
                                   <div class="meai-dir-title" x-text="meai.pursuit.director.sel.title"></div>
                                   <div class="meai-dir-target" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.target"><span x-show="meai.pursuit.director.sel.nodeId" x-text="'node '+meai.pursuit.director.sel.nodeId"></span><span x-show="meai.pursuit.director.sel.nodeId && meai.pursuit.director.sel.target"> · </span><span x-show="meai.pursuit.director.sel.target" x-text="'target '+meai.pursuit.director.sel.target"></span></div>
                                   <div class="meai-dir-rec" x-show="meai.pursuit.director.sel.directorRationale"><span class="meai-dir-rl">Director</span><span x-text="meai.pursuit.director.sel.directorRationale"></span></div>
