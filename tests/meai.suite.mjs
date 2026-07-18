@@ -1133,6 +1133,29 @@ const blk = (start, end, type, title, link) => ({ start, end, type, title, detai
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sweep recovers restart-orphaned director-spawn probe legs (Q2 "Queued — not
+// yet dispatched"). The _meAiSchedule queue is in-memory, so a restart wipes it
+// and leaves run:true spawns durably at 'planned' with no closure — nothing polls
+// 'planned', so they stick forever. The sweep must re-drive them.
+// ─────────────────────────────────────────────────────────────────────────────
+await t.test('_meAiDirectorSweep recovers orphaned planned director-spawn probes', () => {
+  const src = readFileSync(SERVER, 'utf8');
+  const i = src.indexOf('// ── Recover orphaned probe legs');
+  t.ok(i > 0, 'recovery block present in _meAiDirectorSweep');
+  const blk = src.slice(i, i + 3200);
+  t.ok(/let recovered = 0, retiredOrphans = 0;/.test(blk), 'tracks recovered + retiredOrphans counts');
+  t.ok(/const meantToRun = \(legId\) => ledger\.some\(e => e && e\.legId === legId && e\.verb === 'spawned' && e\.state === 'applied'\);/.test(blk), 'only re-drives run:true spawns (applied-ledger discriminator, not drafted proposals)');
+  t.ok(/if \(!lg \|\| !lg\.directorSpawn \|\| lg\.status !== 'planned'\) continue;/.test(blk), 'targets only planned director-spawn legs');
+  t.ok(/if \(!meantToRun\(lg\.id\)\) continue;/.test(blk), 'a drafted proposal (proposed-only ledger) is left for the user');
+  t.ok(/if \(born && \(nowMs - born\) < 8000\) continue;/.test(blk), 'skips a spawn born moments ago (avoids racing a live dispatch)');
+  t.ok(/status: 'cancelled'[\s\S]{0,40}retiredOrphans\+\+;/.test(blk), 'retires an orphan whose gating stop is no longer open');
+  t.ok(/if \(!fresh \|\| fresh\.status !== 'planned'\) return;[\s\S]{0,60}await _meAiRunLeg\(t, fresh\);/.test(blk), 're-reads fresh status before running (idempotent re-drive)');
+  // the emit guard + return object must surface the new counts
+  t.ok(/if \(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans\) \{/.test(src), 'sweep emits/reconciles when only recovery fired');
+  t.ok(/return \{ handled, probed, recovered, retiredOrphans, reconciled,/.test(src), 'sweep return object surfaces recovered + retiredOrphans');
+});
+
 
 if (!(await serverUp())) {
   t.skipAll('dev server not running on :3847 (unit tests above still ran)');

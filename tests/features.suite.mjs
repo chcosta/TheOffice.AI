@@ -2640,13 +2640,16 @@ await t.test('pursuit map: completed side-fans collapse into expandable group no
   t.ok(/const parOf = \(id\) => \{ if \(epar\[id\] !== undefined\) return epar\[id\]; const l = legs\[id\]; return l \? l\.parentId : null; \};/.test(html), 'parOf resolves the effective parent (epar override or real parentId)');
   t.ok(/return \(depthMemo\[id\] = depthOf\(parOf\(id\)\) \+ 1\);/.test(html), 'depthOf walks the effective parent chain');
   // 1) connected-component collapse block inside the layout
-  const blk = _win(html, '// ── Group collapse (connected settled components', 5200);
+  const blk = _win(html, '// ── Group collapse (connected settled components', 6400);
   t.ok(blk, 'the connected-component group-collapse block is present in _meAiPursuitLayout');
   t.ok(/const settledLeg = \(id\) =>/.test(blk), 'settledLeg predicate defined (finished / not awaiting you)');
   t.ok(/if \(!l \|\| stopByLeg\[id\]\) return false;/.test(blk), 'a leg with an open stop (awaiting you) is NOT settled');
   t.ok(/p\._expandedGroups instanceof Set/.test(blk), 'expanded-group set tracks which groups are open');
   t.ok(/if \(!settledLeg\(seed\) \|\| onMain\[seed\] \|\| compIdx\[seed\] != null\) return;/.test(blk), 'only settled off-spine legs seed a component');
   t.ok(/if \(compIdx\[nb\] == null && settledLeg\(nb\) && !onMain\[nb\]\) stack\.push\(nb\);/.test(blk), 'a component grows across settled parent↔child neighbours');
+  // sibling connectivity — the fix that makes a fan of finished side legs actually collapse
+  t.ok(/for \(const sib of \(kids\[pid\] \|\| \[\]\)\) \{ if \(sib !== id\) neigh\.push\(sib\); \}/.test(blk), 'siblings (legs sharing a parent) are treated as neighbours so a finished fan collapses into one group');
+  t.ok(/l\.status === 'skipped'/.test(blk), 'a skipped (terminal-inactive) leg counts as settled for grouping');
   t.ok(/if \(members\.length < 2\) return;/.test(blk), 'a lone settled leg is not a group');
   t.ok(/let rootId = members\.find\(\(m\) => \{ const pid = legs\[m\] && legs\[m\]\.parentId; return pid == null \|\| compIdx\[pid\] !== idx; \}\);/.test(blk), 'the anchor is the member whose parent lies outside the blob');
   t.ok(/members\.forEach\(\(m\) => \{ if \(m !== rootId\) hidden\.add\(m\); \}\)/.test(blk), 'collapsed members are hidden (not deleted)');

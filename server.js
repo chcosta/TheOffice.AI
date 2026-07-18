@@ -27732,6 +27732,55 @@ function _meAiDirectorSweep(t) {
       if (lt2.nextActions.length !== before) { reconciled = true; try { _meAiSaveTask(lt2); } catch (_) {} }
     }
   }
+  // ── Recover orphaned probe legs ───────────────────────────────────────────────
+  // A director-spawn probe is dispatched via _meAiSchedule, whose queue is IN-MEMORY
+  // (meAiQueue + a concurrency cap of ME_AI_MAX_CONCURRENT). When a sweep spins off more
+  // probes than the cap, the overflow parks in that queue — and a server restart (or the
+  // wave that created them ending) wipes the queue, leaving the legs durably persisted at
+  // 'planned' with no run-closure behind them. Nothing polls 'planned', the idle-gated
+  // watchdog/resume skips this pursuit while any other leg is still running, and the probe
+  // idempotency set below treats a 'planned' leg as "already investigating" — so these
+  // orphans stick as "Queued — not yet dispatched" forever and re-sweeping never re-drives
+  // them. Here we re-drive them directly (idempotent: re-read fresh status right before
+  // running; skip anything already advanced). This is what makes "Sweep now" resurrect them.
+  let recovered = 0, retiredOrphans = 0;
+  {
+    const ledger = (tree.director && tree.director.ledger) || [];
+    // Only re-drive spawns that were MEANT TO RUN (run:true → ledger state 'applied'). A
+    // DRAFTED spawn (gap proposal awaiting the user's "Start now") also sits at 'planned' but
+    // must never auto-run — it carries only a 'proposed' ledger entry.
+    const meantToRun = (legId) => ledger.some(e => e && e.legId === legId && e.verb === 'spawned' && e.state === 'applied');
+    const nowMs = Date.now();
+    for (const lid of Object.keys(tree.legs || {})) {
+      const lg = tree.legs[lid];
+      if (!lg || !lg.directorSpawn || lg.status !== 'planned') continue;
+      if (!meantToRun(lg.id)) continue; // drafted proposal — leave for the user
+      // Don't race a spawn created moments ago in a concurrent wave (planned→running is
+      // near-instantaneous for a live dispatch).
+      const born = Date.parse(lg.updatedAt || lg.createdAt || 0);
+      if (born && (nowMs - born) < 8000) continue;
+      // If it was drafted to close a stop that is no longer open, the investigation is moot →
+      // retire it so it stops reading as "Queued".
+      if (lg.fromStopId) {
+        const st = (tree.stops || []).find(s => s.id === lg.fromStopId);
+        if (!st || st.status !== 'open') {
+          _meAiTreeEmit(id, 'leg_status', { legId: lg.id, status: 'cancelled' });
+          retiredOrphans++;
+          continue;
+        }
+      }
+      const legId = lg.id;
+      _meAiSchedule(async () => {
+        try {
+          const rt = meAiTrees.get(id) || _meAiFoldJournal(id);
+          const fresh = rt.legs && rt.legs[legId];
+          if (!fresh || fresh.status !== 'planned') return; // already advanced/cancelled elsewhere
+          await _meAiRunLeg(t, fresh);
+        } catch (_) {}
+      });
+      recovered++;
+    }
+  }
   // Probe dispatch (the "just handle it" path): for every stop the AI judged worth a bounded
   // investigation, spin off a capped sub-agent to do it — instead of parking it on the human's
   // desk. Idempotent: skip a stop that already has a live director-spawned probe leg pointing at
@@ -27759,7 +27808,7 @@ function _meAiDirectorSweep(t) {
       if (r && r.ok) probed++;
     }
   }
-  if (handled || probed || reconciled) {
+  if (handled || probed || reconciled || recovered || retiredOrphans) {
     _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
     const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
     // The desk just changed — let the Director narrate the update into the main chat
@@ -27770,7 +27819,7 @@ function _meAiDirectorSweep(t) {
   if (tree.director && tree.director.pr && tree.director.pr.prId) {
     try { _meAiSchedule(async () => { try { await _meAiDirectorPrTick(t); } catch (_) {} }); } catch (_) {}
   }
-  return { handled, probed, reconciled, deskItems: plan.deskItems.length, reduction: plan.reconciliation,
+  return { handled, probed, recovered, retiredOrphans, reconciled, deskItems: plan.deskItems.length, reduction: plan.reconciliation,
     aiPending: !!plan.aiPending, aiComplete: !!plan.aiComplete, probeCandidates: probeItems.length,
     hasGrant, deskWrites: (plan.per || []).filter(p => p && p.disposition === 'ask' && (p.cls === 'reversible-local')).length };
 }

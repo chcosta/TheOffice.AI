@@ -45471,8 +45471,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // ── Group collapse (connected settled components, view-only perf) ──
           // A long pursuit accumulates hundreds of finished side legs that no longer
           // need individual cards. RULE: any two FINISHED legs (terminal, and NOT
-          // awaiting you) that are graph neighbours (parent↔child) belong to the same
-          // group. We find every maximal connected blob of settled side legs and, if
+          // awaiting you) that are graph neighbours belong to the same group. Neighbours
+          // are parent↔child AND SIBLINGS (legs sharing a parent) — a wide fan of finished
+          // side legs hanging off one spine node is visually adjacent and must collapse
+          // together (treating only parent↔child left every fan leg as its own ungrouped
+          // singleton, so a fan-shaped pursuit showed no groups at all). We find every
+          // maximal connected blob of settled side legs and, if
           // it has ≥2 members, collapse it into ONE expandable "group" card anchored
           // at the blob's top leg (the member whose parent sits OUTSIDE the blob — on
           // the spine, on a still-active leg, or nothing). Members stay in storage;
@@ -45485,7 +45489,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const settledLeg = (id) => {
             const l = legs[id];
             if (!l || stopByLeg[id]) return false;             // an open stop = awaiting you = still active
-            return l.status === 'done' || l.invalidated === true || l.status === 'invalidated' || l.status === 'dead' || l.status === 'cancelled';
+            return l.status === 'done' || l.invalidated === true || l.status === 'invalidated' || l.status === 'dead' || l.status === 'cancelled' || l.status === 'skipped';
           };
           if (!(p._expandedGroups instanceof Set)) p._expandedGroups = new Set();
           const groupByRoot = {};
@@ -45502,8 +45506,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (compIdx[id] != null) continue;
               compIdx[id] = idx; arr.push(id);
               const leg = legs[id]; const neigh = [];
-              if (leg && leg.parentId != null) neigh.push(leg.parentId);   // parent
+              const pid = leg && leg.parentId;
+              if (pid != null) neigh.push(pid);                            // parent
               for (const c of (kids[id] || [])) neigh.push(c);             // children
+              // Siblings (children of the same parent) are visual neighbours in a fan;
+              // collapse finished fan legs off one spine node into a single group.
+              if (pid != null) for (const sib of (kids[pid] || [])) { if (sib !== id) neigh.push(sib); }
               for (const nb of neigh) { if (compIdx[nb] == null && settledLeg(nb) && !onMain[nb]) stack.push(nb); }
             }
             comps.push(arr);
@@ -47226,12 +47234,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 : res.skipped === 'disabled' ? 'the Director is off' : res.skipped;
               this.toast('Sweep skipped — ' + why, 'info');
             } else {
-              const handled = res.handled || 0, probed = res.probed || 0;
+              const handled = res.handled || 0, probed = res.probed || 0, recovered = res.recovered || 0;
               const parts = [];
               if (handled) parts.push(handled + (handled === 1 ? ' stop handled' : ' stops handled'));
               if (probed) parts.push(probed + (probed === 1 ? ' clash sent to arbitration' : ' clashes sent to arbitration'));
+              if (recovered) parts.push(recovered + (recovered === 1 ? ' stuck investigation re-dispatched' : ' stuck investigations re-dispatched'));
               if (parts.length) {
-                this.toast('Swept — ' + parts.join(' · '), probed ? 'success' : 'info');
+                this.toast('Swept — ' + parts.join(' · '), (probed || recovered) ? 'success' : 'info');
               } else if (res.aiPending) {
                 // Nothing folded because the AI judge pass hasn't finished — verdicts aren't in
                 // yet, so there's nothing checkable to arbitrate. Tell the user to wait / re-judge
