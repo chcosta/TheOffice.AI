@@ -22386,6 +22386,15 @@ const meAiTasks = new Map();            // taskId -> live task object
 const meAiQueue = [];                   // queued run fns waiting for a concurrency slot
 let meAiActive = 0;                     // in-flight background runs
 const ME_AI_MAX_CONCURRENT = 3;         // locked decision #5
+// Turn liveness bounds — a leg turn whose SDK call HANGS (a "failed to fetch" that never
+// rejects, a network stall, an SDK deadlock) would otherwise `await` forever, pinning its
+// concurrency slot and starving every queued leg AND the self-heal probe re-drive. We fail
+// such a turn on prolonged INACTIVITY (no chunk/step since the last one) or an absolute
+// ceiling, so the leg errors, the slot frees, and the pursuit self-recovers. Idle is the
+// primary signal (an actively-streaming turn keeps resetting it, so a long-but-live turn is
+// never killed); the hard ceiling is a backstop for a turn that trickles output forever.
+const ME_AI_TURN_IDLE_LIMIT_MS = 6 * 60 * 1000;   // no chunk/step for this long → hung
+const ME_AI_TURN_HARD_LIMIT_MS = 30 * 60 * 1000;  // absolute per-turn ceiling (backstop)
 // Allowed intent vocabulary — generated actions must map to one of these (§7.2).
 const ME_AI_INTENTS = ['apply-fix', 'comment', 'push', 'approve', 'request-review', 'retry', 'change-approach', 'hand-to-me', 'continue', 'summarize', 'ask-user', 'abandon', 'converse'];
 
@@ -24460,28 +24469,54 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
     if (_hbTimer && _hbTimer.unref) _hbTimer.unref();
   }
   let result;
+  // Idle/stall watchdog: race the SDK turn against an inactivity/ceiling timer so a hung
+  // runChat (a "failed to fetch" that never rejects, a network stall, an SDK deadlock) can't
+  // await forever and pin this concurrency slot. On trip we reject — _meAiRunLeg's catch then
+  // errors the leg, _meAiSchedule's finally frees the slot, and the queued backlog (including
+  // the self-heal probe re-drive) drains. The hung runChat promise is left to settle on its
+  // own; a _settled guard makes its late resolve/reject (and any late onChunk/onStep) a no-op.
+  let _settled = false;
   try {
-    result = await sdkRunner.runChat({
-      config,
-      prompt,
-      sessionId,
-      resume: !!resume,
-      cwd,
-      meta: { source: 'me-ai', category: 'me-ai' },
-      // ENFORCED auth gate: every ordinary Me-agent turn (dispatch + legs) runs
-      // through the write/external classifier so it physically cannot post/send/
-      // merge/push/delete without approval. The workiq branch is the POST-approval
-      // outbox execution (the approve click IS the confirmation) → stays ungated.
-      ...(workiq ? {} : { onPermissionRequest: _meAiPermissionGate(t) }),
-      onChunk: (c) => { _lastActivity = Date.now(); acc += c; },
-      onStep: (s) => {
-        _lastActivity = Date.now();
-        if (!s || !s.kind) return;
-        if (s.kind === 'thinking') _meAiEmit(t, { kind: 'thinking', text: String(s.content || '').slice(0, 1500) });
-        else if (s.kind === 'tool_start') _meAiEmit(t, { kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId, args: (() => { try { return JSON.stringify(s.args).slice(0, 400); } catch { return ''; } })() });
-        else if (s.kind === 'tool_complete') _meAiEmit(t, { kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success, result: String(s.result || '').slice(0, 800) });
-        else if (s.kind === 'agent') _meAiEmit(t, { kind: 'agent', name: s.name });
-      },
+    result = await new Promise((resolve, reject) => {
+      let _wd = setInterval(() => {
+        const idle = Date.now() - _lastActivity;
+        const total = Date.now() - _runStart;
+        if (idle < ME_AI_TURN_IDLE_LIMIT_MS && total < ME_AI_TURN_HARD_LIMIT_MS) return;
+        if (_wd) { clearInterval(_wd); _wd = null; }
+        if (_settled) return;
+        _settled = true;
+        const stalled = idle >= ME_AI_TURN_IDLE_LIMIT_MS;
+        const mins = Math.round((stalled ? idle : total) / 60000);
+        reject(new Error(stalled
+          ? `Turn stalled — no activity for ~${mins}m (the model call hung). Failing the leg so the pursuit can recover.`
+          : `Turn exceeded its ${Math.round(ME_AI_TURN_HARD_LIMIT_MS / 60000)}m ceiling. Failing the leg so the pursuit can recover.`));
+      }, 15000);
+      if (_wd && _wd.unref) _wd.unref();
+      Promise.resolve().then(() => sdkRunner.runChat({
+        config,
+        prompt,
+        sessionId,
+        resume: !!resume,
+        cwd,
+        meta: { source: 'me-ai', category: 'me-ai' },
+        // ENFORCED auth gate: every ordinary Me-agent turn (dispatch + legs) runs
+        // through the write/external classifier so it physically cannot post/send/
+        // merge/push/delete without approval. The workiq branch is the POST-approval
+        // outbox execution (the approve click IS the confirmation) → stays ungated.
+        ...(workiq ? {} : { onPermissionRequest: _meAiPermissionGate(t) }),
+        onChunk: (c) => { _lastActivity = Date.now(); acc += c; },
+        onStep: (s) => {
+          _lastActivity = Date.now();
+          if (!s || !s.kind) return;
+          if (s.kind === 'thinking') _meAiEmit(t, { kind: 'thinking', text: String(s.content || '').slice(0, 1500) });
+          else if (s.kind === 'tool_start') _meAiEmit(t, { kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId, args: (() => { try { return JSON.stringify(s.args).slice(0, 400); } catch { return ''; } })() });
+          else if (s.kind === 'tool_complete') _meAiEmit(t, { kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success, result: String(s.result || '').slice(0, 800) });
+          else if (s.kind === 'agent') _meAiEmit(t, { kind: 'agent', name: s.name });
+        },
+      })).then(
+        (r) => { if (_wd) { clearInterval(_wd); _wd = null; } if (!_settled) { _settled = true; resolve(r); } },
+        (e) => { if (_wd) { clearInterval(_wd); _wd = null; } if (!_settled) { _settled = true; reject(e); } },
+      );
     });
   } finally {
     if (_hbTimer) clearInterval(_hbTimer);
@@ -27695,6 +27730,11 @@ function _meAiReDrivePlannedSpawns(t, tree, id) {
       }
     }
     const legId = lg.id;
+    // priority:true — a stuck probe re-drive must BYPASS the concurrency cap. If the cap is
+    // saturated (heavy write legs, or turns still draining), a normal-priority re-drive would
+    // park in meAiQueue behind them and never run — the exact starvation that stranded this
+    // probe. A probe is a bounded, read-only investigation, so running one extra concurrently
+    // is safe and guarantees the self-heal actually executes.
     _meAiSchedule(async () => {
       try {
         const rt = meAiTrees.get(id) || _meAiFoldJournal(id);
@@ -27702,7 +27742,7 @@ function _meAiReDrivePlannedSpawns(t, tree, id) {
         if (!fresh || fresh.status !== 'planned') return; // already advanced/cancelled elsewhere
         await _meAiRunLeg(t, fresh);
       } catch (_) {}
-    });
+    }, { priority: true });
     recovered++;
   }
   return { recovered, retiredOrphans };

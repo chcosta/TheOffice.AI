@@ -1143,7 +1143,7 @@ await t.test('_meAiDirectorSweep recovers orphaned planned director-spawn probes
   const src = readFileSync(SERVER, 'utf8');
   const i = src.indexOf('// ── Recover orphaned probe legs');
   t.ok(i > 0, 'recovery block present in _meAiDirectorSweep');
-  const blk = src.slice(i, i + 3200);
+  const blk = src.slice(i, i + 3800);
   t.ok(/let recovered = 0, retiredOrphans = 0;/.test(blk), 'tracks recovered + retiredOrphans counts');
   t.ok(/const meantToRun = \(legId\) => ledger\.some\(e => e && e\.legId === legId && e\.verb === 'spawned' && e\.state === 'applied'\);/.test(blk), 'only re-drives run:true spawns (applied-ledger discriminator, not drafted proposals)');
   t.ok(/if \(!lg \|\| !lg\.directorSpawn \|\| lg\.status !== 'planned'\) continue;/.test(blk), 'targets only planned director-spawn legs');
@@ -1151,9 +1151,36 @@ await t.test('_meAiDirectorSweep recovers orphaned planned director-spawn probes
   t.ok(/if \(born && \(nowMs - born\) < 8000\) continue;/.test(blk), 'skips a spawn born moments ago (avoids racing a live dispatch)');
   t.ok(/status: 'cancelled'[\s\S]{0,40}retiredOrphans\+\+;/.test(blk), 'retires an orphan whose gating stop is no longer open');
   t.ok(/if \(!fresh \|\| fresh\.status !== 'planned'\) return;[\s\S]{0,60}await _meAiRunLeg\(t, fresh\);/.test(blk), 're-reads fresh status before running (idempotent re-drive)');
+  // priority:true — a stuck probe re-drive must BYPASS the concurrency cap so a saturated
+  // scheduler (hung/heavy legs) can never starve the self-heal (the bug that stranded it).
+  t.ok(/await _meAiRunLeg\(t, fresh\);[\s\S]{0,40}\}, \{ priority: true \}\);/.test(blk), 'probe re-drive bypasses the concurrency cap (priority) so it is never starved');
   // the emit guard + return object must surface the new counts
   t.ok(/if \(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans\) \{/.test(src), 'sweep emits/reconciles when only recovery fired');
   t.ok(/return \{ handled, probed, recovered, retiredOrphans, reconciled,/.test(src), 'sweep return object surfaces recovered + retiredOrphans');
+});
+
+
+await t.test('_meAiRunTurn idle/stall watchdog fails a hung turn so its slot frees (resilience)', () => {
+  const src = readFileSync(SERVER, 'utf8');
+  // Bounds are defined near the concurrency cap.
+  t.ok(/const ME_AI_TURN_IDLE_LIMIT_MS = 6 \* 60 \* 1000;/.test(src), 'a per-turn INACTIVITY limit is defined (idle = hung)');
+  t.ok(/const ME_AI_TURN_HARD_LIMIT_MS = 30 \* 60 \* 1000;/.test(src), 'an absolute per-turn ceiling backstops the idle limit');
+  const i = src.indexOf('async function _meAiRunTurn(');
+  t.ok(i > 0, '_meAiRunTurn present');
+  const blk = src.slice(i, i + 6000);
+  // The SDK turn is raced against an inactivity/ceiling timer; on trip we reject so the
+  // leg errors and the scheduler slot frees (a hung runChat can no longer pin it forever).
+  t.ok(/result = await new Promise\(\(resolve, reject\)/.test(blk), 'the SDK turn is raced against a timeout so a hang cannot await forever');
+  t.ok(/const idle = Date\.now\(\) - _lastActivity;/.test(blk) && /const total = Date\.now\(\) - _runStart;/.test(blk),
+    'the watchdog measures both inactivity (idle) and total elapsed');
+  t.ok(/if \(idle < ME_AI_TURN_IDLE_LIMIT_MS && total < ME_AI_TURN_HARD_LIMIT_MS\) return;/.test(blk),
+    'a live (actively-streaming) turn keeps resetting idle and is never killed');
+  t.ok(/reject\(new Error\(stalled/.test(blk), 'a stalled/over-ceiling turn rejects with a clear reason');
+  // A _settled guard makes the hung runChat promise settling late (or its late callbacks) a no-op.
+  t.ok(/let _settled = false;/.test(blk) && /if \(_settled\) return;/.test(blk) && /_settled = true;/.test(blk),
+    'a _settled guard neutralizes the hung turn settling late');
+  // onChunk/onStep still stamp _lastActivity so real progress defers the watchdog.
+  t.ok(/onChunk: \(c\) => \{ _lastActivity = Date\.now\(\); acc \+= c; \}/.test(blk), 'onChunk stamps activity (defers the idle trip)');
 });
 
 
