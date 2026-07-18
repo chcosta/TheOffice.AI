@@ -2568,21 +2568,27 @@ await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)'
 });
 
 // Feature — pursuit map group-collapse (view-only perf): a long pursuit collapses
-// each finished top-level side fan into ONE expandable "group" card so layout, DOM
-// cards and canvas dots all shrink at the source; the subtitle summarizes groups.
+// every maximal CONNECTED blob of finished side legs (finished neighbours group
+// together) into ONE expandable "group" card so layout, DOM cards and canvas dots
+// all shrink at the source; still-active legs off a hidden member re-point onto the
+// group card; the subtitle summarizes groups.
 await t.test('pursuit map: completed side-fans collapse into expandable group nodes', () => {
   const html = readFileSync('public/app.html', 'utf8');
-  // 1) detection + collapse block inside the layout
-  const blk = _win(html, '// ── Group collapse (view-only perf)', 3200);
-  t.ok(blk, 'the group-collapse block is present in _meAiPursuitLayout');
-  t.ok(/const isTerminalLeg = \(l\) =>/.test(blk), 'isTerminalLeg predicate defined (done/invalidated)');
-  t.ok(/const subtreeOf = \(rootId\) =>/.test(blk), 'subtreeOf BFS defined');
+  // 0) effective-parent indirection (re-parents active legs onto the group anchor)
+  t.ok(/const parOf = \(id\) => \{ if \(epar\[id\] !== undefined\) return epar\[id\]; const l = legs\[id\]; return l \? l\.parentId : null; \};/.test(html), 'parOf resolves the effective parent (epar override or real parentId)');
+  t.ok(/return \(depthMemo\[id\] = depthOf\(parOf\(id\)\) \+ 1\);/.test(html), 'depthOf walks the effective parent chain');
+  // 1) connected-component collapse block inside the layout
+  const blk = _win(html, '// ── Group collapse (connected settled components', 5200);
+  t.ok(blk, 'the connected-component group-collapse block is present in _meAiPursuitLayout');
+  t.ok(/const settledLeg = \(id\) =>/.test(blk), 'settledLeg predicate defined (finished / not awaiting you)');
+  t.ok(/if \(!l \|\| stopByLeg\[id\]\) return false;/.test(blk), 'a leg with an open stop (awaiting you) is NOT settled');
   t.ok(/p\._expandedGroups instanceof Set/.test(blk), 'expanded-group set tracks which groups are open');
-  t.ok(/if \(!leg \|\| onMain\[id\]\) return;/.test(blk), 'group roots are never the main spine');
-  t.ok(/if \(leg\.parentId == null \|\| !onMain\[leg\.parentId\]\) return;/.test(blk), 'group roots hang directly off the spine');
-  t.ok(/if \(members\.length < 2\) return;/.test(blk), 'a lone leg is not collapsed');
-  t.ok(/members\.every\(\(m\) => legs\[m\] && isTerminalLeg\(legs\[m\]\)\)/.test(blk), 'whole subtree must be finished to collapse');
-  t.ok(/members\.forEach\(\(m\) => \{ if \(m !== id\) hidden\.add\(m\); \}\)/.test(blk), 'collapsed members are hidden (not deleted)');
+  t.ok(/if \(!settledLeg\(seed\) \|\| onMain\[seed\] \|\| compIdx\[seed\] != null\) return;/.test(blk), 'only settled off-spine legs seed a component');
+  t.ok(/if \(compIdx\[nb\] == null && settledLeg\(nb\) && !onMain\[nb\]\) stack\.push\(nb\);/.test(blk), 'a component grows across settled parent↔child neighbours');
+  t.ok(/if \(members\.length < 2\) return;/.test(blk), 'a lone settled leg is not a group');
+  t.ok(/let rootId = members\.find\(\(m\) => \{ const pid = legs\[m\] && legs\[m\]\.parentId; return pid == null \|\| compIdx\[pid\] !== idx; \}\);/.test(blk), 'the anchor is the member whose parent lies outside the blob');
+  t.ok(/members\.forEach\(\(m\) => \{ if \(m !== rootId\) hidden\.add\(m\); \}\)/.test(blk), 'collapsed members are hidden (not deleted)');
+  t.ok(/if \(root != null\) \{ epar\[id\] = root; \(kids\[root\] = kids\[root\] \|\| \[\]\)\.push\(id\); \}/.test(blk), 'an active leg off a hidden member is re-pointed onto the anchor');
   t.ok(/kids\[pid\] = kids\[pid\]\.filter\(\(cid\) => !hidden\.has\(cid\)\)/.test(blk), 'hidden members are pruned from parent child lists');
   t.ok(/p\._groups = groupByRoot;/.test(blk) && /p\._groupStats = \{ groups:/.test(blk), 'layout publishes _groups + _groupStats');
   // 2) hidden guards on the per-node loops (data kept, just not rendered)

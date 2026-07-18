@@ -45402,12 +45402,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // one node's branches share a depth with the NEXT node's scouts, so two
           // unrelated fans collided on every row and the packer had to stack them
           // sideways. Dropping it collapses the width to ~1 + the widest fan.)
+          // Effective parent: re-points a still-active leg whose parent gets hidden
+          // inside a collapsed group back onto that group's anchor card, so the leg
+          // stays visible and connected. Empty for every non-regrouped leg (falls
+          // back to the real parentId). Filled by the group-collapse pass below,
+          // which runs BEFORE the first depthOf() call (in layoutForest).
+          const epar = {};
+          const parOf = (id) => { if (epar[id] !== undefined) return epar[id]; const l = legs[id]; return l ? l.parentId : null; };
           const depthMemo = {};
           const depthOf = (id) => {
             if (depthMemo[id] != null) return depthMemo[id];
             const leg = legs[id];
-            if (!leg || leg.parentId == null) return (depthMemo[id] = 0);
-            return (depthMemo[id] = depthOf(leg.parentId) + 1);
+            if (!leg || parOf(id) == null) return (depthMemo[id] = 0);
+            return (depthMemo[id] = depthOf(parOf(id)) + 1);
           };
           // X is a column "slot". The MAIN PATH (spine + its reroute chain) owns a
           // reserved trunk column (slot 0) and runs perfectly straight down the left
@@ -45422,44 +45429,79 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             let cur = r;
             while (cur != null) { onMain[cur] = true; cur = (kids[cur] || []).find((c) => isMainKind(c)); }
           });
-          // ── Group collapse (view-only perf) ────────────────────────────────
-          // A long-running pursuit accumulates hundreds of completed side legs that
-          // no longer need individual cards. Collapse each top-level side fan whose
-          // ENTIRE subtree has finished (done / dead) into ONE "group" card backed
-          // by the fan's real root leg. The members stay in storage — the map just
-          // renders the root as an expandable group node, so layout, DOM cards AND
-          // canvas dots all shrink at the source. An expanded group (its root id in
-          // p._expandedGroups) renders every member normally.
-          const isTerminalLeg = (l) => !!l && (l.status === 'done' || l.invalidated || l.status === 'invalidated');
-          const subtreeOf = (rootId) => {
-            const out = [], stack = [rootId];
-            while (stack.length) { const id = stack.pop(); out.push(id); for (const c of (kids[id] || [])) stack.push(c); }
-            return out;
+          // ── Group collapse (connected settled components, view-only perf) ──
+          // A long pursuit accumulates hundreds of finished side legs that no longer
+          // need individual cards. RULE: any two FINISHED legs (terminal, and NOT
+          // awaiting you) that are graph neighbours (parent↔child) belong to the same
+          // group. We find every maximal connected blob of settled side legs and, if
+          // it has ≥2 members, collapse it into ONE expandable "group" card anchored
+          // at the blob's top leg (the member whose parent sits OUTSIDE the blob — on
+          // the spine, on a still-active leg, or nothing). Members stay in storage;
+          // the map renders the anchor as a single card, so layout, DOM cards AND
+          // canvas dots all shrink at the source instead of drawing every leg. A blob
+          // automatically absorbs any settled neighbour (that neighbour is, by
+          // definition, in the same connected component). Any STILL-ACTIVE leg that
+          // hung off an interior (now-hidden) member is re-pointed onto the group card
+          // (see epar above) so it stays visible and connected.
+          const settledLeg = (id) => {
+            const l = legs[id];
+            if (!l || stopByLeg[id]) return false;             // an open stop = awaiting you = still active
+            return l.status === 'done' || l.invalidated === true || l.status === 'invalidated' || l.status === 'dead' || l.status === 'cancelled';
           };
           if (!(p._expandedGroups instanceof Set)) p._expandedGroups = new Set();
           const groupByRoot = {};
           const hidden = new Set();
+          const memberRoot = {};                               // memberId -> group anchor id
           let _collapsedGroups = 0, _collapsedMembers = 0;
-          order.forEach((id) => {
-            const leg = legs[id];
-            if (!leg || onMain[id]) return;                    // group roots are side children, never the spine
-            if (leg.parentId == null || !onMain[leg.parentId]) return; // must hang directly off the main thread
-            const members = subtreeOf(id);
-            if (members.length < 2) return;                    // a single leg isn't worth collapsing
-            if (!members.every((m) => legs[m] && isTerminalLeg(legs[m]))) return; // whole subtree must be finished
-            const collapsed = !p._expandedGroups.has(id);
-            const childTitles = members.slice(1)
+          const compIdx = {};                                  // settled side leg -> component index
+          const comps = [];
+          order.forEach((seed) => {
+            if (!settledLeg(seed) || onMain[seed] || compIdx[seed] != null) return;
+            const idx = comps.length, arr = [], stack = [seed];
+            while (stack.length) {
+              const id = stack.pop();
+              if (compIdx[id] != null) continue;
+              compIdx[id] = idx; arr.push(id);
+              const leg = legs[id]; const neigh = [];
+              if (leg && leg.parentId != null) neigh.push(leg.parentId);   // parent
+              for (const c of (kids[id] || [])) neigh.push(c);             // children
+              for (const nb of neigh) { if (compIdx[nb] == null && settledLeg(nb) && !onMain[nb]) stack.push(nb); }
+            }
+            comps.push(arr);
+          });
+          comps.forEach((members, idx) => {
+            if (members.length < 2) return;                    // a lone settled leg isn't worth a group
+            // Anchor = the one member whose parent lies outside this blob.
+            let rootId = members.find((m) => { const pid = legs[m] && legs[m].parentId; return pid == null || compIdx[pid] !== idx; });
+            if (rootId == null) rootId = members[0];
+            const collapsed = !p._expandedGroups.has(rootId);
+            const titles = members.filter((m) => m !== rootId)
               .map((m) => ((legs[m] && (legs[m].title || legs[m].goal)) || '').toString().trim())
               .filter(Boolean);
-            let summary = ((leg.summary || leg.result) || '').toString().trim();
-            if (!summary) summary = childTitles.slice(0, 4).join(' · ');
+            let summary = (((legs[rootId] || {}).summary || (legs[rootId] || {}).result) || '').toString().trim();
+            if (!summary) summary = titles.slice(0, 4).join(' · ');
             summary = summary.replace(/\s+/g, ' ').slice(0, 260);
-            groupByRoot[id] = { count: members.length, memberIds: members.slice(), summary, collapsed };
-            if (collapsed) { _collapsedGroups++; _collapsedMembers += members.length; members.forEach((m) => { if (m !== id) hidden.add(m); }); }
+            groupByRoot[rootId] = { count: members.length, memberIds: members.slice(), summary, collapsed };
+            members.forEach((m) => { memberRoot[m] = rootId; });
+            if (collapsed) {
+              _collapsedGroups++; _collapsedMembers += members.length;
+              members.forEach((m) => { if (m !== rootId) hidden.add(m); });
+            }
           });
-          // Prune hidden legs from every parent's child list so layoutForest / onMain
-          // treat a collapsed group root as a leaf (no columns/rows for hidden legs).
-          if (hidden.size) { for (const pid in kids) kids[pid] = kids[pid].filter((cid) => !hidden.has(cid)); }
+          // Re-point any VISIBLE (still-active) leg whose parent was just hidden onto
+          // that member's group anchor, then drop every hidden leg from the child
+          // lists so layoutForest / walks treat the anchor as a leaf carrying a count.
+          if (hidden.size) {
+            order.forEach((id) => {
+              if (hidden.has(id)) return;
+              const pid = legs[id] && legs[id].parentId;
+              if (pid != null && hidden.has(pid)) {
+                const root = memberRoot[pid];
+                if (root != null) { epar[id] = root; (kids[root] = kids[root] || []).push(id); }
+              }
+            });
+            for (const pid in kids) kids[pid] = kids[pid].filter((cid) => !hidden.has(cid));
+          }
           p._groups = groupByRoot;
           p._groupStats = { groups: _collapsedGroups, groupedLegs: _collapsedMembers, hiddenLegs: hidden.size };
           const slot = {};
@@ -45590,8 +45632,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // nodes that never paint.
           const dByType = { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '', reuse: '', live: '', spineA: '', branchA: '', mergeA: '', convergeA: '', gateA: '', cullA: '', reuseA: '' };
           order.forEach((id) => {
-            const leg = legs[id]; if (!leg || !leg.parentId) return;
-            const a = pos[leg.parentId], b = pos[id]; if (!a || !b) return;
+            const leg = legs[id]; if (!leg) return; const pp = parOf(id); if (pp == null) return;
+            const a = pos[pp], b = pos[id]; if (!a || !b) return;
             const type = (leg.kind === 'reroute') ? 'merge' : ((leg.kind === 'spine' || onMain[id]) ? 'spine' : 'branch');
             const y1 = a.y + 96, x2 = b.x + W / 2, y2 = b.y;
             const d = this._meAiEdgePath(a.x + W / 2, y1, x2, y2);
@@ -45600,7 +45642,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Live-flow overlay: any edge touching a currently-running node gets a copy on
             // the animated `live` layer so the eye can follow where work is flowing, even
             // on a large map. The base edge still paints underneath.
-            const par = legs[leg.parentId];
+            const par = legs[pp];
             if (leg.status === 'running' || (par && par.status === 'running')) dByType.live += ' ' + d;
           });
           // Item 4: a concluded side leg (done result or culled dead-end) shouldn't
@@ -45642,8 +45684,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const n of nodes) nodeById[n.id] = n;
           const kidsByParent = {};
           order.forEach((id) => {
-            const leg = legs[id]; if (!leg || !leg.parentId) return;
-            (kidsByParent[leg.parentId] = kidsByParent[leg.parentId] || []).push(leg);
+            const leg = legs[id]; if (!leg) return; const pp = parOf(id); if (pp == null) return;
+            (kidsByParent[pp] = kidsByParent[pp] || []).push(leg);
           });
           Object.keys(kidsByParent).forEach((pid) => {
             const kids = kidsByParent[pid];
