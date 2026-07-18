@@ -26972,6 +26972,24 @@ function _meAiDirectorBrief(tree) {
   const openStops = ((tree && tree.stops) || []).filter(s => s && s.status === 'open');
   const conflicts = (tree && tree.rootState && tree.rootState.openConflicts) || [];
   const cById = {}; conflicts.forEach(c => { if (c && c.id) cById[c.id] = c; });
+  // Legs the Director spawned as investigations (arbitration/probe/gap-fill). A finding
+  // produced by one of these is the arbitrator's OWN reading on the conflict subject —
+  // the freshest, most authoritative evidence — so we surface it to the model as the
+  // conflict's "investigation" and tell it to settle on that rather than punt to the human.
+  const spawnLegIds = new Set(Object.keys(legs).filter(k => legs[k] && legs[k].directorSpawn));
+  const findings = (tree && tree.rootState && Array.isArray(tree.rootState.findings)) ? tree.rootState.findings : [];
+  function _investigationFor(subject) {
+    if (!subject) return null;
+    // Newest finding on this subject that came from a Director investigation leg.
+    let best = null;
+    for (const f of findings) {
+      if (!f || f.subject !== subject) continue;
+      if (!f.legId || !spawnLegIds.has(f.legId)) continue;
+      if (!best || String(f.at || '') > String(best.at || '')) best = f;
+    }
+    if (!best) return null;
+    return { claim: _meAiDirClip(best.claim || '', 220), stance: best.stance || null, confidence: (typeof best.confidence === 'number') ? best.confidence : null, observedAt: best.at || null, byInvestigation: true };
+  }
   const stops = openStops.map(s => {
     const a = s.action || {};
     const leg = legs[s.legId] || {};
@@ -26981,7 +26999,7 @@ function _meAiDirectorBrief(tree) {
       op: a.op || null, target: a.target || a.path || null, delivery: s.delivery === true,
       summary: _meAiDirClip(a.summary || '', 220), prompt: _meAiDirClip(s.prompt || '', 220),
       leg: s.legId ? { id: s.legId, title: _meAiDirClip(leg.title || '', 120), goal: _meAiDirClip(leg.goal || '', 160) } : null,
-      conflict: c ? { subject: c.subject || null, a: _meAiDirSideBrief(c.a), b: _meAiDirSideBrief(c.b), verdict: c.verdict ? (c.verdict.claim || c.verdict.stance || null) : null } : null,
+      conflict: c ? { subject: c.subject || null, a: _meAiDirSideBrief(c.a), b: _meAiDirSideBrief(c.b), verdict: c.verdict ? (c.verdict.claim || c.verdict.stance || null) : null, investigation: _investigationFor(c.subject) } : null,
     };
   });
   const legRoster = Object.keys(legs).map(k => {
@@ -27042,6 +27060,17 @@ function _meAiDirectorReasonPrompt(brief) {
     '  and treat the older reading as stale — say so in your reasoning, and when the newer side is clearly current,',
     '  resolve/side to it instead of punting. Recency is a strong signal, not proof: if the two observations are close',
     '  in time, or the subject is not a moving target, still "probe" to verify rather than guessing.',
+    '',
+    'A COMPLETED INVESTIGATION SETTLES THE CLASH (do NOT re-probe or punt):',
+    '- When a conflict carries an "investigation" object, a Director-dispatched sub-agent has ALREADY gone and',
+    '  checked the ground truth for that subject — its "claim" (with "stance"/"observedAt") is the NEWEST, most',
+    '  AUTHORITATIVE reading, produced AFTER both clashing legs and specifically to settle this. TREAT IT AS THE',
+    '  ANSWER: resolve the conflict to whichever side the investigation confirms (cls "factual-clash", action',
+    '  "resolve", "side" = the confirmed side), or if it shows the two legs actually agree, cls "duplicate", action',
+    '  "cull". Do NOT return action "probe" again for a stop whose conflict already has an "investigation" (the check',
+    '  ran — re-probing loops forever and strands the human on "reconciling the finding"), and do NOT punt it to the',
+    '  human as "your call" when a factual investigation already established the answer. Only fall back to action',
+    '  "ask" if the investigation itself concluded the matter is a genuine values/taste call with no factual answer.',
     '',
     'PROBE BEFORE YOU PUNT (the point — keep the human off the hook):',
     '- Before you hand a judgement-clash or missing-info stop to the human, ASK YOURSELF whether a bounded,',
@@ -27865,17 +27894,33 @@ function _meAiDirectorSweep(t, _rearm) {
   // APPLYING a resulting write, which re-enters normal gating downstream. Leader-gated by virtue
   // of running inside this sweep. Findings return via the leg's fromStopId (converge-or-escalate
   // in _meAiDirectorSpawn), and the next reason pass reclassifies.
-  let probed = 0;
+  let probed = 0, reconciledProbe = false;
   const probeItems = plan.probeItems || [];
   if (probeItems.length) {
-    const liveProbe = new Set();
+    // Last AI-judgement timestamp — a probe whose finding landed AFTER it means the verdict
+    // the planner just read is STALE (never saw the finding), so it must be reconciled, not
+    // blindly re-dispatched.
+    let aiTs = '';
+    try { const c = _meAiDirAiGet(id); if (c && c.ts) aiTs = String(c.ts); } catch (_) {}
+    const _st = s => String(s || '').toLowerCase();
+    const TERM = new Set(['cancelled', 'error', 'invalidated', 'done']);
+    const liveProbe = new Set();        // a probe still in flight on this stop — never dispatch another
+    const pendingReconcile = new Set(); // a probe COMPLETED but its finding not yet re-judged — reconcile, don't re-dispatch
     for (const lid of Object.keys(tree.legs || {})) {
       const lg = tree.legs[lid];
-      if (lg && lg.directorSpawn && lg.fromStopId && lg.status !== 'cancelled' && lg.status !== 'error' && lg.status !== 'invalidated') liveProbe.add(lg.fromStopId);
+      if (!lg || !lg.directorSpawn || !lg.fromStopId) continue;
+      const st = _st(lg.status);
+      if (!TERM.has(st)) { liveProbe.add(lg.fromStopId); continue; }
+      // A done probe whose endedAt post-dates the last AI judgement is the stuck case: the
+      // finding is folded but never consumed. Reconcile (force a re-judge that reads it) and
+      // hold off dispatching a fresh probe this pass. A done probe already reflected in the
+      // cache (endedAt <= aiTs) is free to trigger the next bounded attempt via the loop below.
+      if (st === 'done' && lg.endedAt && (!aiTs || String(lg.endedAt) > aiTs)) pendingReconcile.add(lg.fromStopId);
     }
+    if (pendingReconcile.size) { reconciledProbe = true; _meAiReconcileAfterProbe(t); }
     for (const it of probeItems) {
       const sid = it.stopId || (it.stopIds && it.stopIds[0]);
-      if (!sid || liveProbe.has(sid)) continue;
+      if (!sid || liveProbe.has(sid) || pendingReconcile.has(sid)) continue;
       const stop = (tree.stops || []).find(s => s.id === sid && s.status === 'open');
       if (!stop) continue;
       const goal = String(it.plan || it.question || '').slice(0, 400);
@@ -27884,7 +27929,7 @@ function _meAiDirectorSweep(t, _rearm) {
       if (r && r.ok) probed++;
     }
   }
-  if (handled || probed || reconciled || recovered || retiredOrphans) {
+  if (handled || probed || reconciled || recovered || retiredOrphans || reconciledProbe) {
     _meAiTreeEmit(id, 'director', { op: 'sweep', grantId: gid });
     const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, meAiTrees.get(id) || _meAiFoldJournal(id)); } catch (_) {} }
     // The desk just changed — let the Director narrate the update into the main chat
@@ -27906,7 +27951,7 @@ function _meAiDirectorSweep(t, _rearm) {
   // A pass that advances nothing is the fixed point (chain resets) and does NOT re-arm, so
   // this always terminates. The re-armed sweep self-guards (disabled/not-leader/paused →
   // early skip), so a state change between passes stops the chain cleanly.
-  const progressed = !!(handled || probed || reconciled || recovered || retiredOrphans);
+  const progressed = !!(handled || probed || reconciled || recovered || retiredOrphans || reconciledProbe);
   const SWEEP_MAX_CHAIN = 12, SWEEP_REARM_MS = 4000;
   if (progressed) {
     const chain = t._directorSweepChain || 0;
@@ -28041,6 +28086,34 @@ function _meAiDirectorMerge(t, legIds, into, why) {
 // `run:true` starts it (leader-gated). Depth/budget capped so it can't fan out
 // unboundedly (max depth 1 — it may not spin off further agents). Its stops re-enter
 // the same reduced queue. On failure it surfaces the original gap back (H1).
+// A Director-dispatched investigation (probe) leg just reached a terminal state. Its
+// finding is now folded into rootState, but the AI verdict cache the planner reads still
+// predates it — so the gating clash stays parked in "reconciling the finding" forever.
+// Force a fresh AI judgement that CONSUMES the finding (the brief now carries it as the
+// conflict's "investigation"), then sweep so the finding-informed verdict (resolve / cull /
+// or, after the bounded attempt cap, an honest desk escalation) is applied. Leader- and
+// director-gated; deduped via t._reconcilingProbe so overlapping completions coalesce.
+function _meAiReconcileAfterProbe(t) {
+  if (!t || !t.id) return;
+  const id = t.id;
+  let d = {};
+  try { d = (settings.getSettings() || {}).director || {}; } catch (_) {}
+  if (!d.enabled) return;
+  if (!_meAiDirectorLeaderOk()) return;
+  if (t._reconcilingProbe) return;
+  t._reconcilingProbe = true;
+  _meAiSchedule(async () => {
+    try {
+      await _meAiDirectorReason(id, { force: true });
+      const lt = meAiTasks.get(id);
+      if (lt) { try { _meAiDirectorSweep(lt); } catch (_) {} }
+    } catch (_) {
+    } finally {
+      t._reconcilingProbe = false;
+    }
+  });
+}
+
 function _meAiDirectorSpawn(t, o) {
   const id = t.id;
   o = o || {};
@@ -28107,6 +28180,13 @@ function _meAiDirectorSpawn(t, o) {
         }) });
         const lt = meAiTasks.get(id); if (lt) { try { _meAiReconcileAsks(lt, rt); } catch (_) {} }
       }
+      // On ANY terminal outcome of a probe drafted to settle a gating clash (fromStopId),
+      // force a finding-informed re-judgement + sweep. Without this the completed
+      // investigation's finding is never consumed and the clash strands the human on
+      // "Investigation ran — reconciling the finding". A success settles/merges the clash;
+      // a failure re-judges with the now-open stop and escalates honestly once the attempt
+      // cap is hit (director.js MAX_ARBITRATION_ATTEMPTS rail).
+      if (leg.fromStopId) _meAiReconcileAfterProbe(t);
     } catch (_) {}
   });
   return { ok: true, legId: leg.id, status: 'running' };

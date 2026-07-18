@@ -1275,6 +1275,24 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
   t.ok(twoAttempts.per[0].disposition === 'ask', 'after TWO arbitration attempts the clash escalates honestly (bounded, no infinite probe loop)');
 
+  // HARD CAP RAIL — the "reconciling the finding" stuck bug. When the AI verdict DIRECTLY returns
+  // action:'probe' (disp becomes 'probe' via _AI_ACTION_DISP BEFORE the ask→probe flip gate runs),
+  // the flip gate never bounds it — so a model that keeps wanting to investigate a clash loops
+  // forever, never escalating even after MAX completed investigations. The cap rail escalates a
+  // direct-probe verdict to the desk once MAX_ARBITRATION_ATTEMPTS terminal spawn legs have run.
+  const aiProbeVerdict = { aiVerdicts: { s1: { cls: 'factual-clash', action: 'probe', confidence: 0.9, reasoning: 'go check main' } } };
+  const probeCapped = director.planReduction(mkTree(provable, {
+    L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'done' },
+    L2: { id: 'L2', directorSpawn: true, fromStopId: 's1', status: 'done' },
+  }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiProbeVerdict));
+  t.ok(probeCapped.per[0].disposition === 'ask', 'a DIRECT action:probe verdict is capped to the desk after TWO terminal investigations (no reconcile loop)');
+  t.ok(!(probeCapped.per[0].aiProbe), 'the capped clash carries no live probe plan (escalated honestly, not re-dispatched)');
+  // One completed investigation is NOT yet capped — the direct-probe verdict still gets its bounded attempt.
+  const probeOnce = director.planReduction(mkTree(provable, {
+    L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'done' },
+  }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiProbeVerdict));
+  t.ok(probeOnce.per[0].disposition === 'probe', 'after ONE terminal investigation a direct-probe verdict is not yet capped (bounded, not premature)');
+
   // The consensus-focused re-probe brief (attempt >= 2) leads with agreement + MERGE + child-item
   // reconciliation — the user's literal ask ("merge the two legs and ensure child consistency").
   const reprobe = I._arbitrationProbe(provable, { attempt: 2 });
@@ -1323,6 +1341,31 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   // The verdict parser defaults checkable:true for a clash and parses writeTarget.
   t.ok(/checkable:\s*_isClash\s*\?\s*\(v\.checkable === false \? false : true\)\s*:\s*null/.test(ssrc), 'verdict parser: clash defaults checkable true, non-clash null');
   t.ok(/writeTarget:\s*\(v\.writeTarget/.test(ssrc), 'verdict parser: writeTarget parsed from the model');
+
+  // RECONCILE-AFTER-PROBE — a completed investigation must be consumed to re-judge the gating
+  // clash, so cards no longer strand on "Investigation ran — reconciling the finding".
+  const reconWin = _win(ssrc, 'function _meAiReconcileAfterProbe', 900);
+  t.ok(/function _meAiReconcileAfterProbe\(t\)/.test(ssrc), 'server exposes _meAiReconcileAfterProbe(t)');
+  t.ok(/if \(!d\.enabled\) return;/.test(reconWin) && /_meAiDirectorLeaderOk\(\)/.test(reconWin), 'reconcile is director-enabled + leader gated');
+  t.ok(/t\._reconcilingProbe/.test(reconWin), 'reconcile dedupes overlapping completions via t._reconcilingProbe');
+  t.ok(/_meAiDirectorReason\(id,\s*\{\s*force:\s*true\s*\}\)/.test(reconWin) && /_meAiDirectorSweep\(lt\)/.test(reconWin), 'reconcile FORCES a finding-informed re-judge then sweeps');
+
+  // The spawn completion handler calls reconcile on ANY terminal outcome of a fromStopId probe.
+  const spawnDoneWin = _win(ssrc, 'if (leg.fromStopId) _meAiReconcileAfterProbe(t);', 60);
+  t.ok(/if \(leg\.fromStopId\) _meAiReconcileAfterProbe\(t\);/.test(spawnDoneWin), 'spawn completion reconciles on any terminal outcome of a gating-clash probe');
+
+  // Sweep: a DONE leg is terminal (not "live"), and a completed-but-unjudged finding is a
+  // pending-reconcile (self-heal), not a blocker to re-dispatch — reconciledProbe re-arms the sweep.
+  const sweepWin = _win(ssrc, "const TERM = new Set(['cancelled', 'error', 'invalidated', 'done']);", 1500);
+  t.ok(/TERM = new Set\(\['cancelled', 'error', 'invalidated', 'done'\]\)/.test(sweepWin), "sweep treats 'done' as terminal (a completed probe no longer counts as live)");
+  t.ok(/pendingReconcile/.test(sweepWin) && /String\(lg\.endedAt\) > aiTs/.test(sweepWin), 'sweep self-heals a completed probe whose finding post-dates the last AI judgement');
+  t.ok(/if \(pendingReconcile\.size\) \{ reconciledProbe = true; _meAiReconcileAfterProbe\(t\); \}/.test(sweepWin), 'a pending-reconcile stop forces a reconcile instead of a blind re-dispatch');
+  t.ok(/const progressed = !!\([^)]*reconciledProbe[^)]*\)/.test(ssrc), 'reconciledProbe re-arms the sweep chain (progressed)');
+
+  // Brief + prompt enrichment: the arbitrator SEES a completed investigation and is told it settles the clash.
+  t.ok(/investigation:\s*_investigationFor\(c\.subject\)/.test(ssrc), 'brief attaches the newest Director-investigation finding to a conflict');
+  t.ok(/byInvestigation:\s*true/.test(ssrc), 'the investigation finding is marked byInvestigation for the model');
+  t.ok(/A COMPLETED INVESTIGATION SETTLES THE CLASH \(do NOT re-probe or punt\)/.test(ssrc), 'prompt: a completed investigation settles the clash (no re-probe / no punt)');
 });
 
 await t.test('Director arbitrates a same-target write COLLISION by AI writeTarget (never N desk asks)', () => {

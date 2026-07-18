@@ -910,6 +910,20 @@ function planReduction(tree, policy) {
         if (!aiProbe) aiProbe = _collisionProbe(grp, openStops);
       }
     }
+    // ── HARD ARBITRATION CAP (rail) — a clash already arbitrated to exhaustion is NEVER re-probed ──
+    // The stuck-in-"reconciling the finding" bug: the arbitration gate above only bounds the
+    // ask→probe FLIP, but a model verdict that DIRECTLY returns action:'probe' sets disp='probe'
+    // before that gate ever runs — so a clash the model keeps wanting to investigate loops forever,
+    // never escalating even after MAX completed investigations. This rail closes that hole: once
+    // MAX_ARBITRATION_ATTEMPTS terminal investigations have run for a conflict stop, the clash is
+    // escalated HONESTLY to the human as a genuine judgement call, regardless of HOW disp became
+    // 'probe'. (A live/in-flight probe hasn't incremented arbitrationAttempts yet, so it is never
+    // cut off mid-investigation.)
+    if (disp === 'probe' && s.conflictId
+      && (ctx.arbitrationAttempts.get(s.id) || 0) >= MAX_ARBITRATION_ATTEMPTS) {
+      disp = 'ask';
+      aiProbe = null;
+    }
     // Paused / offline director never auto-applies: raw stops fall back to the desk. A probe
     // is a plan to DISPATCH a sub-agent, so a paused/offline Director can't run it either —
     // it becomes an honest desk item rather than a promise it can't keep.

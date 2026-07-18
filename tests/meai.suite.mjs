@@ -1155,7 +1155,7 @@ await t.test('_meAiDirectorSweep recovers orphaned planned director-spawn probes
   // scheduler (hung/heavy legs) can never starve the self-heal (the bug that stranded it).
   t.ok(/await _meAiRunLeg\(t, fresh\);[\s\S]{0,40}\}, \{ priority: true \}\);/.test(blk), 'probe re-drive bypasses the concurrency cap (priority) so it is never starved');
   // the emit guard + return object must surface the new counts
-  t.ok(/if \(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans\) \{/.test(src), 'sweep emits/reconciles when only recovery fired');
+  t.ok(/if \(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans \|\| reconciledProbe\) \{/.test(src), 'sweep emits/reconciles when only recovery fired');
   t.ok(/return \{ handled, probed, recovered, retiredOrphans, reconciled,/.test(src), 'sweep return object surfaces recovered + retiredOrphans');
 });
 
@@ -1192,7 +1192,7 @@ await t.test('_meAiDirectorSweep re-arms a bounded follow-up so newly-surfaced p
   const i = src.indexOf('// ── Converge: re-arm a bounded follow-up sweep');
   t.ok(i > 0, 'convergence re-arm block present');
   const blk = src.slice(i, i + 2000);
-  t.ok(/const progressed = !!\(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans\);/.test(blk), 'progress = any desk-advancing outcome this pass');
+  t.ok(/const progressed = !!\(handled \|\| probed \|\| reconciled \|\| recovered \|\| retiredOrphans \|\| reconciledProbe\);/.test(blk), 'progress = any desk-advancing outcome this pass');
   t.ok(/SWEEP_MAX_CHAIN = 12/.test(blk), 'bounded chain cap');
   t.ok(/if \(progressed\) \{[\s\S]{0,400}t\._directorSweepChain = chain \+ 1;/.test(blk), 'progress re-arms and increments the chain');
   t.ok(/_meAiDirectorSweep\(lt3, true\)/.test(blk), 're-armed follow-up passes _rearm=true');
