@@ -285,7 +285,25 @@ function _pct(x) { return (typeof x === 'number' && isFinite(x)) ? Math.round(x 
 // carries the RICH evidence the studio detail pane renders: the Director's own rationale
 // (attributed commentary), the two sides of a clash with confidence, the individual held
 // writes with their compensation, the batched deliverables with their authoring agent.
-function _groupDesk(deskNodes) {
+// Resolve the arbitration/probe sub-agent (if any) the Director dispatched for a set of
+// stops. Prefers a LIVE agent (actively investigating) over a terminal one. Returns
+// { legId, status, live, terminal } or null. Used to mark desk items "an arbitrator is on
+// it / already looked" and to link a probe straight to its running agent.
+function _spawnInfoFor(ctx, stopIds) {
+  const map = ctx && ctx.spawnByStop;
+  if (!map || !stopIds) return null;
+  let fallback = null;
+  for (const sid of stopIds) {
+    if (!sid) continue;
+    const info = map.get(sid);
+    if (!info) continue;
+    if (info.live) return info;
+    if (!fallback) fallback = info;
+  }
+  return fallback;
+}
+
+function _groupDesk(deskNodes, ctx) {
   const batchStops = deskNodes.filter(n => n.cls === 'deliverable');
   const clashStops = deskNodes.filter(n => n.cls === 'judgement-clash' || n.cls === 'factual-clash');
   const gapStops = deskNodes.filter(n => n.cls === 'missing-info');
@@ -445,6 +463,21 @@ function _groupDesk(deskNodes) {
     });
   }
 
+  // Annotate each desk item with whether the Director has an arbitration/probe sub-agent on
+  // it: LIVE means an arbitrator is actively checking it right now; TERMINAL means one already
+  // ran (and, since the item is still on your desk, couldn't settle it — so it's honestly your
+  // call). Carries the agent's legId so the desk can link straight to its chat/reasoning.
+  if (ctx && ctx.spawnByStop) {
+    for (const it of items) {
+      const info = _spawnInfoFor(ctx, it.stopIds || (it.stopId ? [it.stopId] : []));
+      if (!info) continue;
+      it.arbitrating = !!info.live;
+      it.arbitrated = !info.live;
+      it.arbLegId = info.legId || null;
+      it.arbStatus = info.status || null;
+    }
+  }
+
   items.sort((a, b) => (_DESK_ORDER[a.kind] - _DESK_ORDER[b.kind]));
   return items;
 }
@@ -454,19 +487,32 @@ function _groupDesk(deskNodes) {
 // BEFORE it lands on the human's desk. These are OFF the desk (they don't count as "need
 // you") and NOT handled — a third state. Each item carries the AI's question + plan so the
 // UI can show what's being looked into and dispatch a real sub-agent to close it (D2).
-function _groupProbes(probeNodes) {
+function _groupProbes(probeNodes, ctx) {
   return probeNodes.map((s, i) => {
     const p = s.aiProbe || {};
     const question = (p.question && String(p.question).trim()) || (s.subject ? ('What is the right call on ' + s.subject + '?') : 'What is the right call here?');
     const plan = (p.plan && String(p.plan).trim()) || 'Investigate the repo, history and both sides, then report back so this can resolve without your input.';
+    // Has the Director actually DISPATCHED a sub-agent for this yet? A probe is only truly
+    // "investigating" once a live spawn leg points at its stop; before that it is queued and
+    // the surface should say so (and offer Dispatch) rather than claim work is underway.
+    const spawn = _spawnInfoFor(ctx, [s.stopId]);
+    const dispatched = !!(spawn && spawn.live);
+    const investigated = !!(spawn && spawn.terminal);
+    const status = dispatched
+      ? 'Investigating — sub-agent running'
+      : (investigated ? 'Investigation ran — reconciling the finding' : 'Queued — not yet dispatched');
     return {
       id: 'probe-' + (s.stopId || i), kind: 'probe',
       title: _clashTitle(s) || _gapTitle(s) || (s.subject || 'A decision worth investigating'),
       stopIds: [s.stopId], stopId: s.stopId, legId: s.legId || null, nodeId: s.legId || null,
       subject: s.subject || null, target: s.target || null,
       question, plan,
+      // Dispatch/agent provenance so the panel can drop the "Dispatch" button once an agent is
+      // running and link straight into that agent's node (chat, thinking, tool calls).
+      dispatched, investigated,
+      spawnLegId: spawn ? spawn.legId : null, spawnStatus: spawn ? spawn.status : null,
       directorRationale: s.aiReason || ("This is a hard call, but I don't think it's yours yet — a bounded investigation should resolve or sharpen it first. I'll look into it and only bring it to you if it's a genuine judgement call after."),
-      status: 'Investigating — off your desk',
+      status,
       promptFull: s.prompt || '',
     };
   });
@@ -502,17 +548,28 @@ function planReduction(tree, policy) {
   // using this set, so a clash a probe genuinely could not settle still escalates to
   // the human instead of re-arbitrating forever.
   const arbitratedStopIds = new Set();
+  // spawnByStop: fromStopId → { legId, status, terminal, live } for the arbitration/probe
+  // sub-agent the Director dispatched against that stop. A LIVE (in-flight) spawn means an
+  // agent is actively investigating it right now; a TERMINAL one means the investigation
+  // already ran. The UI reads this to (a) stop offering "Dispatch" once an agent is running,
+  // (b) mark a desk item that has an arbitrator on it, and (c) link straight to the agent.
+  const spawnByStop = new Map();
   {
     const legsAll = (tree && tree.legs) || {};
     for (const lid of Object.keys(legsAll)) {
       const lg = legsAll[lid];
-      if (lg && lg.directorSpawn && lg.fromStopId
-        && ['done', 'error', 'invalidated', 'cancelled'].indexOf(_norm(lg.status)) !== -1) {
-        arbitratedStopIds.add(lg.fromStopId);
+      if (!lg || !lg.directorSpawn || !lg.fromStopId) continue;
+      const terminal = ['done', 'error', 'invalidated', 'cancelled'].indexOf(_norm(lg.status)) !== -1;
+      if (terminal) arbitratedStopIds.add(lg.fromStopId);
+      // A live spawn always wins over a terminal one for the same stop (a re-dispatch).
+      const prev = spawnByStop.get(lg.fromStopId);
+      if (!prev || (!terminal && prev.terminal)) {
+        spawnByStop.set(lg.fromStopId, { legId: lg.id, status: _norm(lg.status), terminal, live: !terminal });
       }
     }
   }
   ctx.arbitratedStopIds = arbitratedStopIds;
+  ctx.spawnByStop = spawnByStop;
 
   const aiVerdicts = (policy.aiVerdicts && typeof policy.aiVerdicts === 'object') ? policy.aiVerdicts : null;
   let unsure = 0;
@@ -665,8 +722,8 @@ function planReduction(tree, policy) {
   // whole point — the Director takes it off your desk to investigate first). Desk excludes it.
   const probeNodes = per.filter(p => p.disposition === 'probe');
   const deskNodes = per.filter(p => !HANDLED.has(p.disposition) && p.disposition !== 'probe');
-  const deskItems = _groupDesk(deskNodes);
-  const probeItems = _groupProbes(probeNodes);
+  const deskItems = _groupDesk(deskNodes, ctx);
+  const probeItems = _groupProbes(probeNodes, ctx);
 
   // AI coverage of the CURRENT open set. `aiActive` merely means some verdicts exist (possibly
   // stale from an earlier open set); `aiComplete` means every open stop has been judged by the

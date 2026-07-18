@@ -2567,4 +2567,103 @@ await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)'
   t.ok(/co\.publish\.open = false; co\.publish\.step = 0;/.test(html), '_composeSetCurrent resets the publish wizard');
 });
 
+// Feature — pursuit map group-collapse (view-only perf): a long pursuit collapses
+// each finished top-level side fan into ONE expandable "group" card so layout, DOM
+// cards and canvas dots all shrink at the source; the subtitle summarizes groups.
+await t.test('pursuit map: completed side-fans collapse into expandable group nodes', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // 1) detection + collapse block inside the layout
+  const blk = _win(html, '// ── Group collapse (view-only perf)', 3200);
+  t.ok(blk, 'the group-collapse block is present in _meAiPursuitLayout');
+  t.ok(/const isTerminalLeg = \(l\) =>/.test(blk), 'isTerminalLeg predicate defined (done/invalidated)');
+  t.ok(/const subtreeOf = \(rootId\) =>/.test(blk), 'subtreeOf BFS defined');
+  t.ok(/p\._expandedGroups instanceof Set/.test(blk), 'expanded-group set tracks which groups are open');
+  t.ok(/if \(!leg \|\| onMain\[id\]\) return;/.test(blk), 'group roots are never the main spine');
+  t.ok(/if \(leg\.parentId == null \|\| !onMain\[leg\.parentId\]\) return;/.test(blk), 'group roots hang directly off the spine');
+  t.ok(/if \(members\.length < 2\) return;/.test(blk), 'a lone leg is not collapsed');
+  t.ok(/members\.every\(\(m\) => legs\[m\] && isTerminalLeg\(legs\[m\]\)\)/.test(blk), 'whole subtree must be finished to collapse');
+  t.ok(/members\.forEach\(\(m\) => \{ if \(m !== id\) hidden\.add\(m\); \}\)/.test(blk), 'collapsed members are hidden (not deleted)');
+  t.ok(/kids\[pid\] = kids\[pid\]\.filter\(\(cid\) => !hidden\.has\(cid\)\)/.test(blk), 'hidden members are pruned from parent child lists');
+  t.ok(/p\._groups = groupByRoot;/.test(blk) && /p\._groupStats = \{ groups:/.test(blk), 'layout publishes _groups + _groupStats');
+  // 2) hidden guards on the per-node loops (data kept, just not rendered)
+  t.ok(/if \(!legs\[id\] \|\| hidden\.has\(id\)\) return;/.test(html), 'rowMaxH loop skips hidden legs');
+  t.ok(/if \(!leg \|\| hidden\.has\(id\)\) return;/.test(html), 'node-build loop skips hidden legs');
+  // 3) group-root node marking + first-paint height estimate
+  t.ok(/groupByRoot\[id\] \|\| null;[\s\S]{0,80}cls \+= ' pgroup'/.test(html), 'a collapsed group root is marked with the pgroup class');
+  t.ok(/if \(groupByRoot\[id\] && groupByRoot\[id\]\.collapsed\) h \+= 66;/.test(html), 'nodeH estimate accounts for the taller group card');
+  // 4) node card group branch + toggle
+  t.ok(/<template x-if="n\.group">/.test(html), 'the node card renders a group branch');
+  t.ok(/meAiPursuitToggleGroup\(n\.id\)/.test(html), 'the group toggle button calls meAiPursuitToggleGroup');
+  const tog = _win(html, 'meAiPursuitToggleGroup(id) {', 400);
+  t.ok(tog, 'meAiPursuitToggleGroup method defined');
+  t.ok(/p\._expandedGroups\.has\(id\)\) p\._expandedGroups\.delete\(id\); else p\._expandedGroups\.add\(id\)/.test(tog), 'toggle flips the expanded state');
+  t.ok(/this\._meAiPursuitLayout\(\)/.test(tog), 'toggle re-runs layout so the map reconciles');
+  // 5) subtitle summarizes groups + active + awaiting
+  const lbl = _win(html, 'meAiPursuitStageLabel() {', 1400);
+  t.ok(lbl, 'meAiPursuitStageLabel defined');
+  t.ok(/const gs = this\.meai\.pursuit\._groupStats/.test(lbl), 'subtitle reads _groupStats');
+  t.ok(/gs\.groups > 0\) s \+= ' · ' \+ gs\.groups \+ ' group'/.test(lbl), 'subtitle names the group count + grouped-leg count');
+  t.ok(/active > 0\) s \+= ' · ' \+ active \+ ' active'/.test(lbl), 'subtitle names the active-leg count');
+  t.ok(/open\) s \+= ' · ' \+ open \+ ' awaiting you'/.test(lbl), 'subtitle names how many stops await you');
+  // 6) canvas LOD group-dot
+  t.ok(/o\.n\.group && o\.n\.group\.collapsed/.test(html), 'the canvas LOD painter draws a group marker for a collapsed group root');
+});
+
+// Feature — Director dispatch/arbitration honesty + Automation stop-all.
+//   (a) the probe pane only shows "Dispatch the investigation" when nothing is dispatched;
+//   (b) desk rows + detail panes indicate a live/finished arbitration agent;
+//   (c) links open the investigation / arbitration agent itself;
+//   (d) the Automation run detail can stop all active nodes for a running me.ai run.
+await t.test('director: honest dispatch/arbitration surface + automation stop-all', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const djs = readFileSync('director.js', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+
+  // (a) probe pane: Dispatch button gated on NOT already dispatched
+  t.ok(/x-show="!meai\.pursuit\.director\.sel\.dispatched"[\s\S]{0,140}Dispatch the investigation/.test(html),
+    'the Dispatch button only shows when the probe is not yet dispatched');
+  t.ok(/meai\.pursuit\.director\.sel\.dispatched \? 'Investigating · sub-agent running'/.test(html),
+    'the probe header reflects the honest dispatched/queued state');
+
+  // (c) open-the-agent links (investigation + arbitration)
+  t.ok(/meai\.pursuit\.director\.sel\.dispatched && meai\.pursuit\.director\.sel\.spawnLegId"[\s\S]{0,120}Open the investigation agent/.test(html),
+    'a dispatched probe links to the investigation agent');
+  t.ok(/Open the arbitration agent →/.test(html), 'a clash detail links to the arbitration agent');
+
+  // (b) desk list-row + detail arbitration markers
+  t.ok(/it\.arbitrating \|\| it\.arbitrated"[\s\S]{0,200}Arbitrator on it — an agent is checking this now/.test(html),
+    'desk rows mark a live/finished arbitration');
+  t.ok(/meai\.pursuit\.director\.sel\.arbitrating"[\s\S]{0,120}arbitration agent is checking this now/.test(html),
+    'the detail pane marks a live arbitration');
+
+  // director.js backing data model: spawnByStop map + _spawnInfoFor + honest fields
+  const spawnBlk = _win(djs, 'const spawnByStop = new Map()', 700);
+  t.ok(spawnBlk && /live: !terminal/.test(spawnBlk), 'spawnByStop tracks live vs terminal arbitration legs');
+  t.ok(/dispatched, investigated,/.test(djs) && /spawnLegId: spawn \? spawn\.legId : null/.test(djs),
+    'probe items carry dispatched/spawnLegId');
+  t.ok(/it\.arbitrating = !!info\.live;/.test(djs) && /it\.arbLegId = info\.legId \|\| null;/.test(djs),
+    'desk items carry arbitrating/arbLegId');
+
+  // (d) Automation stop-all button gated on deep run + running/awaiting
+  t.ok(/meAiRunIsDeep\(meAiSelectedRun\(\)\) && \(meAiRunStatusKey\(meAiSelectedRun\(\)\) === 'running' \|\| meAiRunStatusKey\(meAiSelectedRun\(\)\) === 'awaiting'\)[\s\S]{0,120}meAiStopAllNodes/.test(html),
+    'the stop-all button only shows for a deep, running/awaiting run');
+  const stopFn = _win(html, 'async meAiStopAllNodes(id) {', 1400);
+  t.ok(stopFn, 'meAiStopAllNodes method defined');
+  t.ok(/\/director\/stop-all'/.test(stopFn) && /method: 'POST'/.test(stopFn), 'stop-all POSTs to the director/stop-all route');
+  t.ok(/this\.meAiRunsBusy = 'stopall'/.test(stopFn) && /this\.meAiRunsBusy = ''/.test(stopFn), 'stop-all busy flag is set then cleared');
+  t.ok(/mid-turn finishes its current step/.test(stopFn), 'stop-all confirm is honest about mid-turn nodes');
+
+  // (d) server stop-all endpoint + _meAiRunLeg guards + resume clears the flag
+  const ep = _win(srv, "app.post('/api/me-ai/task/:id/director/stop-all',", 1400);
+  t.ok(ep, 'the stop-all endpoint is present');
+  t.ok(/if \(t\) t\._stopAll = true;/.test(ep), 'stop-all sets _stopAll on the canonical task');
+  t.ok(/status: 'cancelled'/.test(ep) && /op: 'pause', paused: true/.test(ep), 'stop-all cancels non-terminal legs + pauses the director');
+  t.ok(/if \(\(rt && rt\._stopAll\) \|\| \(l0 && \(l0\.status === 'cancelled' \|\| l0\.invalidated\)\)\)/.test(srv),
+    '_meAiRunLeg START guard honors _stopAll');
+  t.ok(/if \(rt && rt\._stopAll\) \{ _meAiTreeEmit\(id, 'leg_status', \{ legId: leg\.id, status: 'cancelled' \}\); return; \}/.test(srv),
+    '_meAiRunLeg PROPAGATION guard honors _stopAll');
+  t.ok(/if \(t && t\._stopAll\) \{ try \{ delete t\._stopAll; \}/.test(srv),
+    'an explicit resume clears the _stopAll flag so legs can be re-driven');
+});
+
 await t.done();

@@ -25231,6 +25231,19 @@ function _meAiCullStalled(t, leg, stalls, opts) {
 
 async function _meAiRunLeg(t, leg) {
   const id = t.id;
+  // Stop-all guard (START): if the user has hit "Stop all active nodes" for this run, do NOT
+  // start a queued leg. Re-read the CANONICAL task (spawn/delivery paths pass shallow copies)
+  // and check the durable tree state so a restart-hydrated cancel is also honored. There is no
+  // per-turn SDK abort, so this only prevents START; a leg already mid-turn finishes its step.
+  {
+    const rt = meAiTasks.get(id);
+    const tree0 = meAiTrees.get(id);
+    const l0 = tree0 && tree0.legs && tree0.legs[leg.id];
+    if ((rt && rt._stopAll) || (l0 && (l0.status === 'cancelled' || l0.invalidated))) {
+      _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'cancelled' });
+      return;
+    }
+  }
   _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'running' });
   _meAiTreeHeartbeat(id);
   // Leg turn runs on the leg's OWN session (durable resume) and is _ephemeral so
@@ -25263,6 +25276,13 @@ async function _meAiRunLeg(t, leg) {
     }
     const r = _meAiParseLegResult(out);
     leg._result = r;
+    // Stop-all guard (PROPAGATION): if the user hit "Stop all" while this leg's turn was in
+    // flight, do NOT fold its result or create follow-up stops — just mark it cancelled. The
+    // turn's own work already ran (no per-turn abort), but we stop it from spawning more.
+    {
+      const rt = meAiTasks.get(id);
+      if (rt && rt._stopAll) { _meAiTreeEmit(id, 'leg_status', { legId: leg.id, status: 'cancelled' }); return; }
+    }
     _meAiTreeEmit(id, 'checkpoint', { checkpoint: _meAiNewCheckpoint({ legId: leg.id, title: leg.title, summary: r.summary, confidence: r.confidence, interesting: r.confidence === 'high' }) });
     // Fold this sub-agent's FINAL response back into the main thread (replaces the
     // old shallow "Interesting — …" one-liner) so the pursuit chat reads like a real
@@ -28591,6 +28611,36 @@ app.post('/api/me-ai/task/:id/director/pause', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Stop ALL active nodes for a running me.ai run. There is no per-turn SDK abort, so this
+// CANCELS every non-terminal leg (running/blocked/planned/awaiting), pauses the director, and
+// parks the run. A leg already mid-turn finishes its current step (its result is dropped by the
+// stop-all guard in _meAiRunLeg), but no queued leg starts and no leg propagates into new work.
+app.post('/api/me-ai/task/:id/director/stop-all', (req, res) => {
+  try {
+    const id = req.params.id;
+    // Mark stop-all on the CANONICAL task object so the _meAiRunLeg guards (which re-read
+    // meAiTasks.get(id)) see it even when spawn/delivery paths pass shallow task copies around.
+    const t = meAiTasks.get(id);
+    if (t) t._stopAll = true;
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const TERMINAL = ['done', 'error', 'invalidated', 'cancelled'];
+    let cancelled = 0;
+    if (tree && tree.legs) {
+      for (const legId of Object.keys(tree.legs)) {
+        const leg = tree.legs[legId];
+        if (!leg || leg.invalidated) continue;
+        if (TERMINAL.includes(leg.status)) continue;
+        _meAiTreeEmit(id, 'leg_status', { legId, status: 'cancelled' });
+        cancelled++;
+      }
+    }
+    // Pause the director so it doesn't sweep/re-drive, and park the run on the user's desk.
+    _meAiTreeEmit(id, 'director', { op: 'pause', paused: true });
+    if (t) _meAiSetStage(t, 'awaiting', 'awaiting');
+    res.json({ ok: true, cancelled, paused: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Run a director sweep on demand (same gates as the automatic one).
 app.post('/api/me-ai/task/:id/director/sweep', (req, res) => {
   try {
@@ -28670,6 +28720,10 @@ function _meAiResumeStalled(id, opts) {
   const mem = meAiTrees.get(id);
   const fresh = _meAiFoldJournal(id);
   const t = meAiTasks.get(id);
+  // An explicit resume is the user's signal to un-stop a run they previously halted with
+  // "Stop all active nodes". Clear the durable stop flag on the CANONICAL task so the
+  // _meAiRunLeg START guard no longer cancels the legs we are about to re-drive.
+  if (t && t._stopAll) { try { delete t._stopAll; } catch (_) { t._stopAll = false; } }
   // LIVENESS, not the raw task flag — THE fix for the recurring "Resume all N → 0 resumed / still
   // stuck" loop. A pursuit whose flag still says running/working but whose only 'running' legs are
   // all STALE (orphaned by a crash/restart, no live loop behind them) is effectively idle+stuck.
