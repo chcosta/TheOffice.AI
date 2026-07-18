@@ -47230,7 +47230,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const parts = [];
               if (handled) parts.push(handled + (handled === 1 ? ' stop handled' : ' stops handled'));
               if (probed) parts.push(probed + (probed === 1 ? ' clash sent to arbitration' : ' clashes sent to arbitration'));
-              this.toast(parts.length ? ('Swept — ' + parts.join(' · ')) : 'Swept — nothing left to fold', probed ? 'success' : 'info');
+              if (parts.length) {
+                this.toast('Swept — ' + parts.join(' · '), probed ? 'success' : 'info');
+              } else if (res.aiPending) {
+                // Nothing folded because the AI judge pass hasn't finished — verdicts aren't in
+                // yet, so there's nothing checkable to arbitrate. Tell the user to wait / re-judge
+                // rather than the misleading "nothing left to fold".
+                this.toast('Swept, but the AI judge pass is still running — nothing to arbitrate yet. Wait for “✓ AI-judged” or click “Re-judge with AI”, then sweep again.', 'info');
+              } else if (res.deskItems > 0) {
+                this.toast('Swept — nothing was foldable; ' + res.deskItems + (res.deskItems === 1 ? ' item genuinely needs you.' : ' items genuinely need you.'), 'info');
+              } else {
+                this.toast('Swept — nothing left to fold', 'info');
+              }
             }
             await this.meAiPursuitDirectorLoad();
           } catch (e) {

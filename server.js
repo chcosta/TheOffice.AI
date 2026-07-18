@@ -27735,11 +27735,14 @@ function _meAiDirectorSweep(t) {
   // Probe dispatch (the "just handle it" path): for every stop the AI judged worth a bounded
   // investigation, spin off a capped sub-agent to do it — instead of parking it on the human's
   // desk. Idempotent: skip a stop that already has a live director-spawned probe leg pointing at
-  // it. Leader/grant-gated by virtue of running inside this sweep. Findings return via the leg's
-  // fromStopId (converge-or-escalate in _meAiDirectorSpawn), and the next reason pass reclassifies.
+  // it. NO GRANT required — an arbitration/collision probe is a READ-ONLY investigation (verify
+  // the facts / decide the correct end state, then redirect the loser); a grant only gates
+  // APPLYING a resulting write, which re-enters normal gating downstream. Leader-gated by virtue
+  // of running inside this sweep. Findings return via the leg's fromStopId (converge-or-escalate
+  // in _meAiDirectorSpawn), and the next reason pass reclassifies.
   let probed = 0;
   const probeItems = plan.probeItems || [];
-  if (hasGrant && probeItems.length) {
+  if (probeItems.length) {
     const liveProbe = new Set();
     for (const lid of Object.keys(tree.legs || {})) {
       const lg = tree.legs[lid];
@@ -27767,7 +27770,9 @@ function _meAiDirectorSweep(t) {
   if (tree.director && tree.director.pr && tree.director.pr.prId) {
     try { _meAiSchedule(async () => { try { await _meAiDirectorPrTick(t); } catch (_) {} }); } catch (_) {}
   }
-  return { handled, probed, reconciled, deskItems: plan.deskItems.length, reduction: plan.reconciliation };
+  return { handled, probed, reconciled, deskItems: plan.deskItems.length, reduction: plan.reconciliation,
+    aiPending: !!plan.aiPending, aiComplete: !!plan.aiComplete, probeCandidates: probeItems.length,
+    hasGrant, deskWrites: (plan.per || []).filter(p => p && p.disposition === 'ask' && (p.cls === 'reversible-local')).length };
 }
 
 // Undo a prior director action (state-aware): reopen the folded stop / conflict so

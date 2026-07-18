@@ -785,15 +785,16 @@ function planReduction(tree, policy) {
     // NOW) and the Director punts it as "YOUR CALL" ("neither is provable from the repo") —
     // dragging the human in as a coin-flip for a fact. Checkability is now AI-DRIVEN, not a
     // brittle regex: the reasoning pass reads the full clash and marks it checkable. We FLIP
-    // the default — a clash heading to the desk (disp==='ask') under an active grant, not yet
-    // arbitrated, is force-routed to a PROBE unless the model EXPLICITLY marked it a genuine
-    // values call (av.checkable === false). The sweep then dispatches a read-only arbitrator
-    // that verifies the disputed facts (preferring the more recently-observed side per the
-    // recency note) and reports which side is real, so the loser is redirected WITHOUT the
-    // human. Capped to ONE attempt per stop (arbitratedStopIds) — a clash arbitration
-    // genuinely couldn't settle still escalates honestly. Paused/offline still overrides below.
+    // the default — a clash heading to the desk (disp==='ask'), not yet arbitrated, is
+    // force-routed to a PROBE unless the model EXPLICITLY marked it a genuine values call
+    // (av.checkable === false). NO GRANT is required to dispatch: the arbitrator is a
+    // READ-ONLY investigation (verify the disputed facts, preferring the more recently-observed
+    // side per the recency note) that reports which side is real and redirects the loser — a
+    // fact-check + internal cull, not an external write. A grant only ever gates APPLYING a
+    // write result downstream. Capped to ONE attempt per stop (arbitratedStopIds) — a clash
+    // arbitration genuinely couldn't settle still escalates honestly. Paused/offline overrides.
     if (disp === 'ask' && (cls === 'judgement-clash' || cls === 'factual-clash')
-      && s.conflictId && _grantActive(grant, ctx) && !ctx.arbitratedStopIds.has(s.id)
+      && s.conflictId && !ctx.arbitratedStopIds.has(s.id)
       && _clashCheckable(av)) {
       disp = 'probe';
       if (!aiProbe) aiProbe = _arbitrationProbe(conflictById[s.conflictId]);
@@ -804,14 +805,15 @@ function planReduction(tree, policy) {
     // more than one silently clobbers the rest, so it is contradictory to hand the human N
     // independent approve/decline rows. Like a provable clash, a mechanical collision is the
     // Director's to arbitrate: when this write is heading to the desk (disp==='ask') and it
-    // shares a target with another held write, an active grant lets the Director act, and no
-    // probe has run for it yet — force a PROBE. The sweep dispatches ONE sub-agent (collision
-    // probes collapse by key in _groupProbes) that determines the single correct end state —
-    // pick the best, merge, or release if truly independent — and redirects the losing legs,
-    // without involving the human. Capped to one attempt per stop; paused/offline overrides.
+    // shares a target with another held write, and no probe has run for it yet — force a PROBE.
+    // NO GRANT is required to dispatch: the sweep spins ONE read-only sub-agent (collision
+    // probes collapse by key in _groupProbes) that only DECIDES the single correct end state —
+    // pick the best, merge, or release if truly independent — and redirects the losing legs.
+    // It does NOT itself land the surviving write; that write re-enters normal gating, where a
+    // grant (absorb) or your approval actually APPLIES it. So the human is out of the tie-break,
+    // but authority to write is preserved. Capped to one attempt per group; paused/offline overrides.
     if (disp === 'ask' && (cls === 'reversible-local' || cls === 'external-spend-destructive' || cls === 'duplicate')
-      && ctx.collisionByStop && ctx.collisionByStop.has(s.id)
-      && _grantActive(grant, ctx)) {
+      && ctx.collisionByStop && ctx.collisionByStop.has(s.id)) {
       const grp = ctx.collisionByStop.get(s.id);
       // Cap arbitration to ONE attempt per COLLISION GROUP (not per member): once any member's
       // arbitrator has run to a terminal state, a collision it couldn't settle escalates the

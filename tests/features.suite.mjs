@@ -1250,9 +1250,11 @@ await t.test('Director arbitrates a clash by AI verdict (checkability flipped to
   const arbitrated = director.planReduction(mkTree(provable, { L1: { id: 'L1', directorSpawn: true, fromStopId: 's1', status: 'error' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, aiPunt));
   t.ok(arbitrated.per[0].disposition === 'ask', 'after one arbitration attempt the clash escalates honestly (no infinite probe loop)');
 
-  // No active grant → cannot dispatch a probe, so it must stay an honest ask (never orphan the stop).
+  // No active grant → a READ-ONLY arbitration probe STILL dispatches (it only verifies facts +
+  // redirects the loser; a grant is needed only to APPLY a resulting write). The human is never
+  // the tie-break for a provable clash just because no grant is minted.
   const nogrant = director.planReduction(mkTree(provable), Object.assign({ enabled: true, autonomy: 'balanced' }, aiPunt));
-  t.ok(nogrant.per[0].disposition === 'ask', 'without an active grant the clash stays a desk ask (probe cannot be dispatched)');
+  t.ok(nogrant.per[0].disposition === 'probe', 'without a grant a checkable clash STILL routes to arbitration (read-only probe needs no grant)');
 
   // Helpers are exported for the server/tests (regex predicate replaced by the AI-driven one + recency).
   const dsrc = readFileSync('director.js', 'utf8');
@@ -2812,9 +2814,12 @@ await t.test('Director arbitrates a same-target write COLLISION instead of askin
   const arbitrated = director.planReduction(mkTree(stops, { A1: { id: 'A1', directorSpawn: true, fromStopId: 's1', status: 'done' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, ai));
   t.ok(arbitrated.per.every(p => p.disposition === 'ask'), 'after one arbitration attempt an unsettled collision escalates to the desk (no loop)');
 
-  // No active grant → cannot dispatch, so the writes stay honest desk asks (never orphaned).
+  // No active grant → the read-only collision arbitration STILL dispatches (it only DECIDES the
+  // correct end state + redirects losers; the surviving write re-enters normal gating, where a
+  // grant/approval APPLIES it). No grant means no silent write — but it never means the human
+  // gets handed N clobbering approve/decline rows.
   const nogrant = director.planReduction(mkTree(stops), Object.assign({ enabled: true, autonomy: 'balanced' }, ai));
-  t.ok(nogrant.per.every(p => p.disposition === 'ask'), 'without an active grant a collision stays a desk ask (probe cannot be dispatched)');
+  t.ok(nogrant.per.some(p => p.disposition === 'probe'), 'without a grant a collision STILL routes to arbitration (read-only probe needs no grant)');
 
   // Two writes to DIFFERENT targets are independent — never arbitrated as a collision.
   const distinct = [
