@@ -2672,4 +2672,103 @@ await t.test('director: honest dispatch/arbitration surface + automation stop-al
     'an explicit resume clears the _stopAll flag so legs can be re-driven');
 });
 
+await t.test('director judge: transient-tolerant AI fetch (resilience + self-heal)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // Reusable primitives
+  const isT = _win(html, '_isTransientErr(e) {', 500);
+  t.ok(isT, '_isTransientErr helper defined');
+  t.ok(/if \(e\.timeout\) return true;/.test(isT) && /if \(e\.status === 0\) return true;/.test(isT),
+    '_isTransientErr treats timeout + status 0 as transient');
+  t.ok(/typeof e\.status === 'number' && e\.status > 0\) return false;/.test(isT),
+    '_isTransientErr treats any real HTTP status as a hard (non-transient) error');
+  t.ok(/failed to fetch\|networkerror/.test(isT), '_isTransientErr classifies "failed to fetch"/network messages');
+  const rr = _win(html, 'async requestResilient(url, options = {}, retry = {}) {', 700);
+  t.ok(rr, 'requestResilient wrapper defined');
+  t.ok(/for \(let attempt = 0; attempt < tries; attempt\+\+\)/.test(rr), 'requestResilient retries in a loop');
+  t.ok(/if \(attempt === tries - 1 \|\| !this\._isTransientErr\(e\)\) throw e;/.test(rr),
+    'requestResilient rethrows a hard error immediately (never retries it)');
+  // Director load + sweep use the resilient wrapper
+  const loadWin = _win(html, "requestResilient('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director')", 120);
+  t.ok(loadWin, 'Director load GET goes through requestResilient');
+  const sweepWin = _win(html, 'async meAiDirectorSweepNow() {', 600);
+  t.ok(/requestResilient/.test(sweepWin), 'sweep POST goes through requestResilient');
+  t.ok(/tries: 2, delay: 900/.test(sweepWin), 'sweep retries once with backoff');
+  // Reason: generous timeout, self-heal, transient/hard split, no invalid toast type
+  const reason = _win(html, 'async meAiPursuitDirectorReason(force) {', 2800);
+  t.ok(reason, 'meAiPursuitDirectorReason found');
+  t.ok(/requestResilient\(/.test(reason), 'reason POST goes through requestResilient');
+  t.ok(/timeoutMs: 600000/.test(reason), 'reason POST uses a 10-min timeout ceiling');
+  t.ok(/reasonRetrying = false/.test(reason), 'reasonRetrying is reset at entry');
+  t.ok(/if \(this\._isTransientErr\(e\)\) \{/.test(reason), 'reason splits transient vs hard errors');
+  t.ok(/d\.reasonRetrying = true;/.test(reason) && /p\._reasonKicked = false;/.test(reason),
+    'a transient failure flags retrying + clears the once-per-open kick guard so the next poll self-heals');
+  t.ok(!/'ok'\)/.test(reason), "reason no longer uses the invalid 'ok' toast type");
+  t.ok(!/'ok'\)/.test(_win(html, 'async meAiDirectorSweepNow() {', 600)), "sweep no longer uses the invalid 'ok' toast type");
+  // Render: calm muted note while retrying vs amber "AI:" only on a hard error
+  t.ok(/reasonErr && meai\.pursuit\.director\.reasonRetrying" style="color:var\(--cp-text-muted\)"/.test(html),
+    'a retrying blip renders as a calm muted note (no "AI:" prefix)');
+  t.ok(/reasonErr && !meai\.pursuit\.director\.reasonRetrying" style="color:#d97706" x-text="'AI: '/.test(html),
+    'a hard error keeps the amber "AI:" styling');
+  t.ok(/reasonErr: '', reasonRetrying: false,/.test(html), 'director state declares reasonRetrying for reactivity');
+});
+
+await t.test('Director arbitrates a same-target write COLLISION instead of asking you to pick (collision gate)', () => {
+  const director = require('../director.js');
+  const I = director._internal;
+
+  // Canonical collision key: differently-phrased references to one work-item field map together;
+  // different fields of the same item do NOT; distinct items do NOT.
+  const k = (target, prompt) => I._collisionKey({ action: { target }, prompt });
+  t.ok(k('ADO Epic #10503 description', 'x') === k('ADO work item #10503 description field', 'y'),
+    'two differently-phrased writes to the same work-item field share a collision key');
+  t.ok(k('work item 10503 description', '') !== k('work item 10503 title', ''),
+    'different fields of the same item do not collide');
+  t.ok(k('work item 10503 description', '') !== k('work item 20999 description', ''),
+    'different items do not collide');
+  t.ok(I._collisionKey({}) === null, 'a stop with no keyable target yields no collision key');
+
+  const grant = { id: 'g', paths: ['/'], classes: ['reversible-local', 'duplicate'], ops: ['absorb', 'cull'], expiresAt: Date.now() + 1e7 };
+  const mkTree = (stops, legs) => ({ id: 'p1', stops, legs: legs || {}, conflicts: [] });
+  // Two DIFFERENT held writes racing for the same ADO field — content differs, target is one.
+  const stops = [
+    { id: 's1', status: 'open', type: 'needs-auth', risk: 'write', legId: 'L1', prompt: 'Rewrite epic description with new P1 buckets', action: { op: 'edit', target: 'ADO Epic #10503 description', summary: 'p1 buckets' } },
+    { id: 's2', status: 'open', type: 'needs-auth', risk: 'write', legId: 'L2', prompt: 'Replace epic description with guideline-compliant version', action: { op: 'edit', target: 'ADO work item #10503 description field', summary: 'guideline compliant' } },
+  ];
+  const ai = { aiVerdicts: {
+    s1: { cls: 'reversible-local', action: 'ask', external: false, confidence: 0.9 },
+    s2: { cls: 'reversible-local', action: 'ask', external: false, confidence: 0.9 },
+  } };
+  const forced = director.planReduction(mkTree(stops), Object.assign({ enabled: true, autonomy: 'balanced', grant }, ai));
+  t.ok(forced.per.every(p => p.disposition === 'probe'), 'both colliding writes are force-routed to a probe (not the desk)');
+  t.ok(forced.deskItems.every(d => d.kind !== 'chain'), 'a collision produces NO held-writes chain — you are not asked to approve duplicates');
+  t.ok(forced.probeItems.length === 1, 'the whole collision collapses to ONE arbitrator (not one per write)');
+  t.ok(forced.probeItems[0].collision === true && forced.probeItems[0].collisionCount === 2, 'the probe item is flagged as a 2-write collision');
+  t.ok(/ARBITRATE a same-target write collision/.test(forced.probeItems[0].plan || ''), 'the probe carries a collision-arbitration plan');
+  t.ok(/MERGE them|pick the best/.test(forced.probeItems[0].plan || '') && /human is not the tie-breaker/i.test(forced.probeItems[0].plan || ''),
+    'the plan says pick-best / merge, and that the human is not the tie-breaker');
+
+  // One-attempt cap PER GROUP: a terminal director-spawn arbitration for any member → the whole
+  // collision escalates honestly to the desk (no re-probing each colliding write in turn).
+  const arbitrated = director.planReduction(mkTree(stops, { A1: { id: 'A1', directorSpawn: true, fromStopId: 's1', status: 'done' } }), Object.assign({ enabled: true, autonomy: 'balanced', grant }, ai));
+  t.ok(arbitrated.per.every(p => p.disposition === 'ask'), 'after one arbitration attempt an unsettled collision escalates to the desk (no loop)');
+
+  // No active grant → cannot dispatch, so the writes stay honest desk asks (never orphaned).
+  const nogrant = director.planReduction(mkTree(stops), Object.assign({ enabled: true, autonomy: 'balanced' }, ai));
+  t.ok(nogrant.per.every(p => p.disposition === 'ask'), 'without an active grant a collision stays a desk ask (probe cannot be dispatched)');
+
+  // Two writes to DIFFERENT targets are independent — never arbitrated as a collision.
+  const distinct = [
+    Object.assign({}, stops[0]),
+    { id: 's2', status: 'open', type: 'needs-auth', risk: 'write', legId: 'L2', prompt: 'Edit a different field', action: { op: 'edit', target: 'ADO work item #20999 title', summary: 'x' } },
+  ];
+  const indep = director.planReduction(mkTree(distinct), Object.assign({ enabled: true, autonomy: 'balanced', grant }, { aiVerdicts: {
+    s1: { cls: 'reversible-local', action: 'ask', external: false, confidence: 0.9 },
+    s2: { cls: 'reversible-local', action: 'ask', external: false, confidence: 0.9 },
+  } }));
+  t.ok(indep.per.every(p => p.disposition !== 'probe'), 'writes to different targets are not collision-arbitrated');
+
+  const dsrc = readFileSync('director.js', 'utf8');
+  t.ok(/_internal:\s*\{[^}]*_collisionKey[^}]*_collisionProbe/.test(dsrc), 'director.js exports _collisionKey + _collisionProbe');
+});
+
 await t.done();

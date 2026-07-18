@@ -186,6 +186,60 @@ function _arbitrationProbe(conflict) {
   return { question, plan };
 }
 
+// Two write stops COLLIDE when they would each mutate THE SAME resource — the same
+// work-item field, the same file/path — even if their content differs. Approving more
+// than one is contradictory (whichever lands last silently clobbers the rest), so a
+// collision is NOT the human's tie-break: like a provable clash it is the Director's to
+// arbitrate. This derives a CANONICAL collision key from a stop's target/prompt so
+// differently-phrased references to one resource ("ADO Epic #10503 description" vs
+// "work item #10503 description field") map to the same key. Returns null when the stop
+// names no resource we can key on (so it never manufactures a phantom collision).
+function _collisionKey(stop) {
+  const raw = _norm(_targetOf(stop)) + ' ' + _norm(stop && stop.prompt) + ' ' + _norm(stop && stop.action && stop.action.summary);
+  if (!raw.trim()) return null;
+  // Strongest shared signal: a work-item / issue / PR id (ADO, GitHub). Pair it with the
+  // sub-resource being written (description/title/state/…) so two edits to DIFFERENT fields
+  // of the same item don't falsely collide.
+  const idm = raw.match(/#?\b(\d{3,})\b/);
+  if (idm) {
+    const subm = raw.match(/\b(description|title|state|status|comment|body|field|tags?|assignee|priority|acceptance|repro|summary)\b/);
+    const sub = subm ? subm[1].replace(/s$/, '') : '';
+    return 'wi:' + idm[1] + (sub ? (':' + sub) : '');
+  }
+  // Otherwise key on the concrete file/path target (normalized separators).
+  const t = _targetOf(stop);
+  if (t) {
+    const p = String(t).replace(/\\/g, '/').toLowerCase().replace(/^\/+/, '').replace(/\/+$/, '').trim();
+    if (p) return 'path:' + p;
+  }
+  return null;
+}
+
+// Build the arbitration brief a same-target write COLLISION carries into a probe: 2+ writes
+// that would each overwrite the same resource. The dispatched sub-agent must determine the
+// single correct end state — pick the best write and drop the rest, MERGE them when the
+// intents are complementary, or (if they turn out to be genuinely independent and do NOT
+// actually clobber each other) release them — then redirect the losing/absorbed legs so
+// exactly one coherent write lands. The human is never the tie-breaker for a mechanical
+// collision.
+function _collisionProbe(group, openStops) {
+  const target = (group && group.target) || 'the same resource';
+  const ids = (group && group.memberStopIds) || [];
+  const legs = [];
+  (openStops || []).forEach(s => { if (ids.indexOf(s.id) !== -1) legs.push({ legId: s.legId || null, prompt: _clip(s.prompt || '', 140) }); });
+  const n = ids.length || legs.length;
+  const question = n + ' writes all target ' + _clip(String(target), 90) + ' \u2014 which single result is correct, or should they merge?';
+  const lines = legs.map((l, i) => '  ' + (i + 1) + '. ' + (l.legId ? ('[' + l.legId + '] ') : '') + (l.prompt || '(write)'));
+  const plan = [
+    'ARBITRATE a same-target write collision \u2014 do NOT ask the human and do NOT approve more than one blindly.',
+    n + ' separate writes each mutate ' + _clip(String(target), 120) + '; applying more than one would silently clobber the others.' + (lines.length ? (' The candidates:\n' + lines.join('\n')) : ''),
+    'Read each leg\u2019s intended change and the current state of the target, then decide the SINGLE correct end state:',
+    '(a) pick the best single write and DECLINE/redirect the rest; (b) MERGE them into one combined write when the intents are complementary; or (c) if they are genuinely independent and do NOT actually overwrite each other, say so and let each proceed.',
+    'Redirect the losing/absorbed legs so exactly one coherent write lands, and report the chosen result with concrete reasoning so nothing is lost \u2014 the human is not the tie-breaker for a mechanical collision.',
+  ].join(' ');
+  return { question, plan };
+}
+
 // ---- classification ------------------------------------------------------------
 // Map a real engine stop onto one of the 8 policy classes.
 function stopClass(stop, ctx) {
@@ -488,30 +542,57 @@ function _groupDesk(deskNodes, ctx) {
 // you") and NOT handled — a third state. Each item carries the AI's question + plan so the
 // UI can show what's being looked into and dispatch a real sub-agent to close it (D2).
 function _groupProbes(probeNodes, ctx) {
-  return probeNodes.map((s, i) => {
+  // Collapse same-collision probe stops into ONE item so a SINGLE arbitrator resolves the
+  // whole collision (not one agent per colliding write — that would reproduce the conflicting-
+  // conclusions problem). A collision probe carries a collisionKey; clash/other probes have
+  // none and stay 1:1. Insertion order is preserved.
+  const groups = [];
+  const byKey = new Map();
+  for (const s of probeNodes) {
+    const k = s.collisionKey || null;
+    if (k) {
+      let g = byKey.get(k);
+      if (!g) { g = { collision: true, key: k, members: [] }; byKey.set(k, g); groups.push(g); }
+      g.members.push(s);
+    } else {
+      groups.push({ collision: false, key: null, members: [s] });
+    }
+  }
+  return groups.map((g, gi) => {
+    const s = g.members[0];
+    const stopIds = g.members.map(m => m.stopId);
+    const collision = g.collision && g.members.length > 1;
     const p = s.aiProbe || {};
-    const question = (p.question && String(p.question).trim()) || (s.subject ? ('What is the right call on ' + s.subject + '?') : 'What is the right call here?');
+    const question = (p.question && String(p.question).trim())
+      || (collision ? (g.members.length + ' writes target ' + (s.collisionTarget || 'the same resource') + ' — which single result is correct, or should they merge?')
+        : (s.subject ? ('What is the right call on ' + s.subject + '?') : 'What is the right call here?'));
     const plan = (p.plan && String(p.plan).trim()) || 'Investigate the repo, history and both sides, then report back so this can resolve without your input.';
     // Has the Director actually DISPATCHED a sub-agent for this yet? A probe is only truly
-    // "investigating" once a live spawn leg points at its stop; before that it is queued and
-    // the surface should say so (and offer Dispatch) rather than claim work is underway.
-    const spawn = _spawnInfoFor(ctx, [s.stopId]);
+    // "investigating" once a live spawn leg points at any of its stops; before that it is queued
+    // and the surface should say so (and offer Dispatch) rather than claim work is underway.
+    const spawn = _spawnInfoFor(ctx, stopIds);
     const dispatched = !!(spawn && spawn.live);
     const investigated = !!(spawn && spawn.terminal);
     const status = dispatched
       ? 'Investigating — sub-agent running'
       : (investigated ? 'Investigation ran — reconciling the finding' : 'Queued — not yet dispatched');
+    const title = collision
+      ? ((s.collisionTarget ? (g.members.length + ' writes collide on ' + _clip(String(s.collisionTarget), 60)) : (g.members.length + ' writes target the same resource')))
+      : (_clashTitle(s) || _gapTitle(s) || (s.subject || 'A decision worth investigating'));
     return {
-      id: 'probe-' + (s.stopId || i), kind: 'probe',
-      title: _clashTitle(s) || _gapTitle(s) || (s.subject || 'A decision worth investigating'),
-      stopIds: [s.stopId], stopId: s.stopId, legId: s.legId || null, nodeId: s.legId || null,
-      subject: s.subject || null, target: s.target || null,
+      id: 'probe-' + (collision ? ('col-' + _slug(g.key)) : (s.stopId || gi)), kind: 'probe',
+      collision, collisionCount: collision ? g.members.length : 0,
+      title,
+      stopIds, stopId: s.stopId, legId: s.legId || null, nodeId: s.legId || null,
+      subject: s.subject || null, target: s.target || s.collisionTarget || null,
       question, plan,
       // Dispatch/agent provenance so the panel can drop the "Dispatch" button once an agent is
       // running and link straight into that agent's node (chat, thinking, tool calls).
       dispatched, investigated,
       spawnLegId: spawn ? spawn.legId : null, spawnStatus: spawn ? spawn.status : null,
-      directorRationale: s.aiReason || ("This is a hard call, but I don't think it's yours yet — a bounded investigation should resolve or sharpen it first. I'll look into it and only bring it to you if it's a genuine judgement call after."),
+      directorRationale: s.aiReason || (collision
+        ? ("Two or more held writes would overwrite the same target. I won't ask you to pick between duplicates — I'm having a sub-agent settle the collision (keep the best, merge, or confirm they're independent) and redirect the rest.")
+        : ("This is a hard call, but I don't think it's yours yet — a bounded investigation should resolve or sharpen it first. I'll look into it and only bring it to you if it's a genuine judgement call after.")),
       status,
       promptFull: s.prompt || '',
     };
@@ -542,6 +623,33 @@ function planReduction(tree, policy) {
     if (seen.has(sig)) dup.add(s.id); else seen.set(sig, s.id);
   }
   const ctx = { conflictById, duplicateStopIds: dup, grant, now, pursuitId: (tree && tree.id) || null };
+  // Same-target COLLISION detection: 2+ open write stops that would each mutate the SAME
+  // resource (same work-item field, same file/path) — even with different content — collide.
+  // Approving more than one silently clobbers the rest, so (like a provable clash) the
+  // Director arbitrates it rather than handing the human a "pick one". Exact duplicates are
+  // excluded (the cull pass already retires them, leaving one canonical write); a collision
+  // is specifically DIFFERENT writes racing for one target. Groups with 2+ surviving members
+  // become the arbitration set the gate below force-routes to a single probe.
+  const collisionByStop = new Map();
+  {
+    const byKey = new Map();
+    for (const s of openStops) {
+      if (_norm(s.type) !== 'needs-auth' || s.delivery === true) continue;
+      if (_riskOf(s) !== 'write') continue;
+      if (dup.has(s.id)) continue; // an exact-dup is culled, not a collision
+      const k = _collisionKey(s);
+      if (!k) continue;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(s);
+    }
+    for (const [k, arr] of byKey) {
+      if (arr.length < 2) continue;
+      const memberStopIds = arr.map(s => s.id);
+      const target = _targetOf(arr[0]) || null;
+      for (const s of arr) collisionByStop.set(s.id, { key: k, target, memberStopIds });
+    }
+  }
+  ctx.collisionByStop = collisionByStop;
   // Stops that ALREADY had an arbitration/probe sub-agent run to completion — a
   // director-spawned leg pointing back at the stop (fromStopId) that has reached a
   // terminal state. The arbitration gate below caps itself to ONE attempt per stop
@@ -665,6 +773,30 @@ function planReduction(tree, policy) {
       disp = 'probe';
       if (!aiProbe) aiProbe = _arbitrationProbe(conflictById[s.conflictId]);
     }
+    // ── COLLISION ARBITRATION GATE — two writes to the SAME target are never your pick ──
+    // The user's complaint: the Director asked to approve two different held writes that
+    // "do the same thing" (both overwrite ADO work-item #10503's description). Approving
+    // more than one silently clobbers the rest, so it is contradictory to hand the human N
+    // independent approve/decline rows. Like a provable clash, a mechanical collision is the
+    // Director's to arbitrate: when this write is heading to the desk (disp==='ask') and it
+    // shares a target with another held write, an active grant lets the Director act, and no
+    // probe has run for it yet — force a PROBE. The sweep dispatches ONE sub-agent (collision
+    // probes collapse by key in _groupProbes) that determines the single correct end state —
+    // pick the best, merge, or release if truly independent — and redirects the losing legs,
+    // without involving the human. Capped to one attempt per stop; paused/offline overrides.
+    if (disp === 'ask' && (cls === 'reversible-local' || cls === 'external-spend-destructive' || cls === 'duplicate')
+      && ctx.collisionByStop && ctx.collisionByStop.has(s.id)
+      && _grantActive(grant, ctx)) {
+      const grp = ctx.collisionByStop.get(s.id);
+      // Cap arbitration to ONE attempt per COLLISION GROUP (not per member): once any member's
+      // arbitrator has run to a terminal state, a collision it couldn't settle escalates the
+      // whole group honestly to the desk instead of re-probing each colliding write in turn.
+      const anyArbitrated = grp.memberStopIds.some(id => ctx.arbitratedStopIds.has(id));
+      if (!anyArbitrated) {
+        disp = 'probe';
+        if (!aiProbe) aiProbe = _collisionProbe(grp, openStops);
+      }
+    }
     // Paused / offline director never auto-applies: raw stops fall back to the desk. A probe
     // is a plan to DISPATCH a sub-agent, so a paused/offline Director can't run it either —
     // it becomes an honest desk item rather than a promise it can't keep.
@@ -691,6 +823,12 @@ function planReduction(tree, policy) {
       legId: s.legId || null, target: _targetOf(s), prompt: s.prompt || '',
       conflictId: s.conflictId || null, risk: _riskOf(s) || null,
       subject: (av && av.group) || (_c && _c.subject) || null, affirmSide, denySide, clashSides,
+      // Same-target collision membership — set when this write races another held write for one
+      // resource. Carried so collision probes collapse to ONE arbitrator in _groupProbes (rather
+      // than one agent per colliding write, which would reproduce the very conflict we're fixing).
+      collisionKey: (ctx.collisionByStop && ctx.collisionByStop.has(s.id)) ? ctx.collisionByStop.get(s.id).key : null,
+      collisionTarget: (ctx.collisionByStop && ctx.collisionByStop.has(s.id)) ? (ctx.collisionByStop.get(s.id).target || null) : null,
+      collisionCount: (ctx.collisionByStop && ctx.collisionByStop.has(s.id)) ? ctx.collisionByStop.get(s.id).memberStopIds.length : 0,
       // AI provenance — carried through so the desk panes render the model's real judgement
       // (commentary, confidence, reversibility note, semantic grouping) instead of templates.
       aiUsed: !!av,
@@ -961,5 +1099,5 @@ module.exports = {
   PR_GRANT_OPS, PR_LIMITS,
   stopClass, grantCovers, planReduction, ledgerEntry,
   planPrShepherd, prGrantHas,
-  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs, _clashIsCheckable, _arbitrationProbe },
+  _internal: { _isLocalWrite, _pathCovered, _stopSig, _clashEvidenceClear, _prBackoffMs, _clashIsCheckable, _arbitrationProbe, _collisionKey, _collisionProbe },
 };

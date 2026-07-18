@@ -16851,7 +16851,8 @@
                                   <span x-show="meai.pursuit.director._reasoning || (meai.pursuit.director.plan && meai.pursuit.director.plan.aiPending && !meai.pursuit.director.reasonErr)" style="color:var(--cp-text-muted)">Director is judging each stop… <span x-show="!meai.pursuit.director._reasoning" style="opacity:.7">(this can take a few minutes)</span></span>
                                   <span x-show="!meai.pursuit.director._reasoning && meai.pursuit.director.plan && meai.pursuit.director.plan.aiComplete" style="color:#16a34a">✓ AI-judged</span>
                                   <span x-show="!meai.pursuit.director._reasoning && meai.pursuit.director.plan && !meai.pursuit.director.plan.aiPending && !meai.pursuit.director.plan.aiComplete && !meai.pursuit.director.reasonErr" style="color:var(--cp-text-muted)">Deterministic fallback</span>
-                                  <span x-show="meai.pursuit.director.reasonErr" style="color:#d97706" x-text="'AI: '+meai.pursuit.director.reasonErr"></span>
+                                  <span x-show="meai.pursuit.director.reasonErr && meai.pursuit.director.reasonRetrying" style="color:var(--cp-text-muted)" x-text="meai.pursuit.director.reasonErr"></span>
+                                  <span x-show="meai.pursuit.director.reasonErr && !meai.pursuit.director.reasonRetrying" style="color:#d97706" x-text="'AI: '+meai.pursuit.director.reasonErr"></span>
                                   <a x-show="!meai.pursuit.director._reasoning" @click="meAiPursuitDirectorReason(true)" style="cursor:pointer">Re-judge with AI ↻</a></div>
                               </div>
 
@@ -31632,6 +31633,7 @@
               enabled: false, autonomy: 'balanced', paused: false, offline: false, leader: true,
               leaderInfo: null, _claiming: false, syncPaused: false,
               grant: null, plan: null, ledger: [], lastSweepAt: null,
+              reasonErr: '', reasonRetrying: false,
               stalled: [], spawn: { key: null, goal: '', busy: false }, _resuming: false,
               _actedInsights: {},                // insight keys spun off this session → show "Spun off ✓"
               sel: null, selKind: null,          // current detail selection
@@ -32362,6 +32364,43 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             if (timer) clearTimeout(timer);
           }
+        },
+
+        // Is this error a transient blip (worth retrying) vs a hard application error?
+        // A dropped connection / brief server gap (restart, laptop wake, config-sync
+        // leader handoff) surfaces as "Failed to fetch" / "NetworkError" / "Load failed",
+        // and our own request() maps an aborted (hung) fetch to status 0 + a timed-out
+        // message. None of those mean the request was rejected — the server may well be
+        // fine a second later. A real 4xx/5xx (status > 0 with a body) is NOT transient:
+        // retrying it just fails identically, so we surface it immediately.
+        _isTransientErr(e) {
+          if (!e) return true;
+          if (e.timeout) return true;
+          if (e.status === 0) return true;
+          if (typeof e.status === 'number' && e.status > 0) return false;
+          const raw = String((e && e.message) || e || '');
+          return /failed to fetch|networkerror|network error|load failed|timed out|connection|socket hang up|err_network/i.test(raw);
+        },
+        // Transient-tolerant wrapper around request(). Retries a transient failure a few
+        // times with a short escalating backoff so a single "Failed to fetch" / timeout
+        // never dead-ends the caller; a hard error throws on the first attempt. Safe only
+        // for idempotent operations (GETs, or POSTs that recompute/reconcile current state
+        // rather than append) — do NOT use it for a mutating append-style POST.
+        async requestResilient(url, options = {}, retry = {}) {
+          const tries = retry.tries != null ? retry.tries : 3;
+          const delay = retry.delay != null ? retry.delay : 700;
+          let lastErr;
+          for (let attempt = 0; attempt < tries; attempt++) {
+            try {
+              return await this.request(url, options);
+            } catch (e) {
+              lastErr = e;
+              if (attempt === tries - 1 || !this._isTransientErr(e)) throw e;
+              if (typeof retry.onRetry === 'function') { try { retry.onRetry(attempt + 1, e); } catch (_) {} }
+              await new Promise(r => setTimeout(r, delay * (attempt + 1)));
+            }
+          }
+          throw lastErr;
         },
 
         slugifyId(value, fallback = 'item') {
@@ -47129,7 +47168,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const p = this.meai.pursuit; if (!p.tid) return;
           const d = p.director; d.busy = true; d.err = '';
           try {
-            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director');
+            const r = await this.requestResilient('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director');
             d.loaded = true;
             d.enabled = !!r.enabled;
             d.autonomy = r.autonomy || (r.policy && r.policy.autonomy) || 'balanced';
@@ -47179,7 +47218,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const d = p.director; if (d._sweeping || d.busy) return;
           d._sweeping = true;
           try {
-            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/sweep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const r = await this.requestResilient('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/sweep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }, { tries: 2, delay: 900 });
             const res = (r && r.result) || {};
             if (res.skipped) {
               const why = res.skipped === 'not-leader' ? 'another instance is the sync leader'
@@ -47191,10 +47230,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const parts = [];
               if (handled) parts.push(handled + (handled === 1 ? ' stop handled' : ' stops handled'));
               if (probed) parts.push(probed + (probed === 1 ? ' clash sent to arbitration' : ' clashes sent to arbitration'));
-              this.toast(parts.length ? ('Swept — ' + parts.join(' · ')) : 'Swept — nothing left to fold', probed ? 'ok' : 'info');
+              this.toast(parts.length ? ('Swept — ' + parts.join(' · ')) : 'Swept — nothing left to fold', probed ? 'success' : 'info');
             }
             await this.meAiPursuitDirectorLoad();
-          } catch (e) { this.toast('Sweep failed: ' + (e && e.message ? e.message : e), 'error'); }
+          } catch (e) {
+            if (this._isTransientErr(e)) { this.toast('Couldn\u2019t reach the Director to sweep just now — try again in a moment.', 'info'); }
+            else { this.toast('Sweep failed: ' + (e && e.message ? e.message : e), 'error'); }
+          }
           finally { d._sweeping = false; }
         },
         // Fetch which synced instance currently holds leadership (host + since when) so the
@@ -47281,11 +47323,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiPursuitDirectorReason(force) {
           const p = this.meai.pursuit; if (!p.tid) return;
           const d = p.director; if (d._reasoning) return;
-          d._reasoning = true; d.reasonErr = '';
+          d._reasoning = true; d.reasonErr = ''; d.reasonRetrying = false;
           try {
-            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/reason', {
+            // The judge is a server-side model pass (can take minutes on a cold/large
+            // open set), so give it a generous ceiling and tolerate a transient blip:
+            // a dropped connection / brief server gap shouldn't blank the pane. Retrying
+            // is safe because the pass recomputes verdicts over the CURRENT open stops
+            // (idempotent) — it never appends. Keep the prior judgement visible until a
+            // fresh result lands rather than clearing d.plan up front.
+            const r = await this.requestResilient('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/reason', {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: !!force }),
-            });
+              timeoutMs: 600000,
+            }, { tries: 2, delay: 900 });
             if (r && r.ok) {
               d.plan = r.plan || d.plan;
               d.reasonedAt = r.reasonedAt || d.reasonedAt;
@@ -47296,12 +47345,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               d.ledger = Array.isArray(r.ledger) ? r.ledger.slice().reverse() : d.ledger;
               if (r.pr !== undefined) d.pr = r.pr || null;
               this.meai.directorSummary[p.tid] = this.meAiDirectorSummaryFor(d);
-              if (force) this.toast('Director re-judged ' + (r.verdictCount || 0) + ' stops', 'ok');
+              if (force) this.toast('Director re-judged ' + (r.verdictCount || 0) + ' stops', 'success');
             } else if (r && r.error) {
               d.reasonErr = r.error;
               if (force) this.toast('Director reasoning: ' + r.error, 'error');
             }
-          } catch (e) { d.reasonErr = e.message || String(e); if (force) this.toast('Reasoning failed: ' + (e.message || e), 'error'); }
+          } catch (e) {
+            if (this._isTransientErr(e)) {
+              // A transient network/timeout blip — don't dead-end the pane. Surface a
+              // calm, self-healing message and let the next pursuit refresh re-fire the
+              // judgement automatically: clearing the once-per-open kick guard means the
+              // periodic meAiPursuitDirectorLoad poll will retry without a user click.
+              d.reasonErr = 'Momentarily out of touch with the Director — retrying automatically…';
+              d.reasonRetrying = true;
+              p._reasonKicked = false;
+              if (force) this.toast('Couldn\u2019t reach the Director just now — it will retry automatically.', 'info');
+            } else {
+              d.reasonErr = e.message || String(e);
+              if (force) this.toast('Reasoning failed: ' + (e.message || e), 'error');
+            }
+          }
           finally { d._reasoning = false; }
         },
         meAiDirectorSummaryFor(d) {
