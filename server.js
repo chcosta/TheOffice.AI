@@ -28971,6 +28971,60 @@ app.post('/api/me-ai/task/:id/director/spawn', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Send a clash BACK to arbitration — a user-initiated override of the MAX_ARBITRATION_ATTEMPTS
+// hard cap. The user's complaint (d/f): a clash both sides roughly agree on (or a plainly
+// checkable fact) stranded on the desk because arbitration ran once/twice with a weaker brief,
+// returned inconclusive, and is now at the cap → stuck forever. This force-dispatches a FRESH
+// read-only arbitration probe with the current, sharper consensus-first brief (attempt>=2), which
+// fact-checks the disputed claim AND detects when the two sides actually AGREE (merging them) —
+// bypassing the auto-routing cap without touching it. Read-only: no grant required to dispatch.
+app.post('/api/me-ai/task/:id/director/rearbitrate', (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const t = meAiTasks.get(id) || { id };
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const stopIds = Array.isArray(b.stopIds) ? b.stopIds.filter(Boolean) : (b.stopId ? [b.stopId] : []);
+    if (!stopIds.length) return res.status(400).json({ ok: false, error: 'stopIds-required' });
+    // Index conflicts the same way the reducer does (rootState.openConflicts + tree.conflicts).
+    const conflictById = {};
+    const pushConflict = (c) => { if (c && c.id) conflictById[c.id] = c; };
+    const rs = tree && tree.rootState;
+    if (rs && Array.isArray(rs.openConflicts)) rs.openConflicts.forEach(pushConflict);
+    if (Array.isArray(tree && tree.conflicts)) tree.conflicts.forEach(pushConflict);
+    const stops = (tree && tree.stops) || [];
+    // Pick the first stop that carries a conflict — that's the clash to re-check.
+    let stopId = null, conflict = null;
+    for (const sid of stopIds) {
+      const s = stops.find(x => x && x.id === sid);
+      if (s && s.conflictId && conflictById[s.conflictId]) { stopId = sid; conflict = conflictById[s.conflictId]; break; }
+    }
+    if (!stopId) stopId = stopIds[0];
+    // How many terminal arbitration/probe legs already ran for this stop — so the fresh probe
+    // leads with the sharper, consensus-FIRST reprobe brief (attempt >= 2).
+    let priorAttempts = 0;
+    const legsAll = (tree && tree.legs) || {};
+    for (const lid of Object.keys(legsAll)) {
+      const lg = legsAll[lid];
+      if (!lg || !lg.directorSpawn || stopIds.indexOf(lg.fromStopId) === -1) continue;
+      if (['done', 'error', 'invalidated', 'cancelled'].indexOf(String(lg.status || '').toLowerCase()) !== -1) priorAttempts++;
+    }
+    const probe = conflict
+      ? director._internal._arbitrationProbe(conflict, { attempt: Math.max(2, priorAttempts + 1) })
+      : { question: 'Re-check this contested finding against the real source of truth.', plan: 'ARBITRATE this clash against the live source of truth — read the working tree and git history, check PR/commit state with `gh`, and query the ACTUAL current content (tags, links, field values, state) of any referenced work item / PR. FIRST determine whether the two sides actually AGREE (and should merge); otherwise report which side matches reality with concrete evidence. Do NOT hand the human a coin-flip for a provable fact.' };
+    const result = _meAiDirectorSpawn(t, {
+      goal: probe.plan,
+      title: 'Re-arbitrate · ' + String((conflict && conflict.subject) || 'contested finding').slice(0, 60),
+      fromStopId: stopId,
+      run: true,
+      why: 'User sent this clash back to arbitration — a fresh read-only agent re-checks the facts (and whether the two sides agree) with the improved brief, bypassing the attempt cap.',
+    });
+    if (result.ok === false) return res.status(400).json(result);
+    const { plan } = _meAiDirectorView(id);
+    res.json(Object.assign({}, result, { plan, reArbitrated: true, note: result.note || null }));
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Reusable resume/recover core, shared by the manual Director "Resume" action AND the stuck-pursuit
 // watchdog (below). Returns a plain result object so the HTTP endpoint can map codes → status while
 // the watchdog just logs. Result: { ok, code?, message?, resumed, rerun?, culled?, running?,

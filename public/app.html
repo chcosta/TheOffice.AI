@@ -13713,6 +13713,13 @@
               .meai-pnode-group-sum { font-size:11px; color:var(--cp-text-muted); line-height:1.4; margin-bottom:6px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
               .meai-pnode-group-tog { font-size:11px; font-weight:600; color:var(--cp-accent); background:none; border:0; padding:0; cursor:pointer; }
               .meai-pnode-group-tog:hover { text-decoration:underline; }
+              .meai-pnode-group-list { margin-top:6px; display:flex; flex-direction:column; gap:2px; max-height:340px; overflow:auto; }
+              .meai-pnode-group-item { display:flex; align-items:center; gap:6px; width:100%; text-align:left; background:none; border:0; padding:3px 4px; border-radius:calc(var(--cp-radius-scale,1)*6px); cursor:pointer; color:var(--cp-text); font-size:11.5px; line-height:1.3; }
+              .meai-pnode-group-item:hover { background:color-mix(in srgb,var(--cp-accent) 12%, transparent); }
+              .meai-pnode-group-dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:var(--cp-text-muted); }
+              .meai-pnode-group-dot.gi-done { background:var(--cp-ok,#22a06b); }
+              .meai-pnode-group-dot.gi-dead { background:color-mix(in srgb,var(--cp-text-muted) 60%, transparent); }
+              .meai-pnode-group-t { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-pnode-foot { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
               .meai-pnode-st { font-size:11px; color:var(--cp-text-muted); }
               .meai-pnode-dur { font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
@@ -14159,6 +14166,7 @@
               .meai-pu-det-lbl { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); font-weight:700; margin-bottom:5px; }
               .meai-pu-det-goal, .meai-pu-det-stop { font-size:13px; color:var(--cp-text); line-height:1.5; }
               .meai-pu-det-stop { padding:11px 13px; border:1px solid #d29922; border-radius:calc(var(--cp-radius-scale,1)*10px); background:color-mix(in srgb,#d29922 7%, transparent); }
+              .meai-pu-det-resume-why { font-size:12px; color:var(--cp-text-muted); line-height:1.5; margin:4px 0 9px; }
               /* Pursuit launcher on the lane */
               .meai-pursue-launch { display:flex; gap:8px; margin-bottom:10px; }
               .meai-pursue-input { flex:1; font-size:12.5px; }
@@ -16528,6 +16536,9 @@
                        and export the navigable .zip bundle) is reachable from ANY tab
                        without hunting the Chief-of-Staff's report first. -->
                   <div class="meai-pu-hdract" x-show="meai.pursuit.tid">
+                    <button type="button" class="meai-pu-artcard-link meai-pu-hdract-btn" x-show="meAiPursuitActiveCount() > 0" @click="meai.pursuit.activePanelOpen = !meai.pursuit.activePanelOpen"
+                      :title="'See what the ' + meAiPursuitActiveCount() + ' active leg' + (meAiPursuitActiveCount()===1?'':'s') + ' are working on right now'">
+                      <span class="meai-pu-livedot live" style="display:inline-block;vertical-align:middle;margin-right:5px"></span><span x-text="meAiPursuitActiveCount() + ' active'"></span></button>
                     <a href="#" class="meai-pu-artcard-link" x-show="meAiPursuitReport() && meai.pursuit.centerView!=='report'" @click.prevent="meAiPursuitShowReport()" title="Jump to the compiled report">Report →</a>
                     <button type="button" class="meai-pu-artcard-link meai-pu-hdract-btn" :disabled="meai.pursuit.compendiumBusy" @click="meAiPursuitBuildCompendium()"
                       x-text="meai.pursuit.compendiumBusy ? 'Compiling…' : (meAiPursuitReport() ? 'Rebuild compendium' : 'Build compendium')"
@@ -17336,6 +17347,7 @@
                                     <button type="button" class="btn primary" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'affirm')">Choose Side A<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
                                     <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')">Choose Side B<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
                                     <button type="button" class="btn" :disabled="meai.pursuit.director.busy || !(meai.pursuit.director.note||'').trim()" @click="meAiDirectorCommentStop(meai.pursuit.director.sel)">Send to the Director →</button>
+                                    <button type="button" class="btn" :disabled="meai.pursuit.director.busy" @click="meAiDirectorReArbitrate(meai.pursuit.director.sel)" title="Send this clash back to a fresh AI arbitration agent. It re-checks the facts — and whether the two sides actually agree — with the improved brief, so you don't have to decide.">↻ Re-arbitrate with AI</button>
                                     <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId)">Open the leg →</button>
                                   </div>
                                 </div>
@@ -17639,6 +17651,16 @@
                               </div>
                             </div>
                           </template>
+                          <!-- Interrupted (blocked, no gate, no decision) — offer a resume -->
+                          <template x-if="!meai.pursuit.nodeView.stop && meAiPursuitNodeResumable(meai.pursuit.nodeView)">
+                            <div class="meai-pu-det-stop">
+                              <div class="meai-pu-det-lbl">Paused after an interruption</div>
+                              <div class="meai-pu-det-resume-why">This leg was mid-run when the server restarted, so it shows as blocked but has no decision waiting for you. Resume to pick up where it left off — the agent verifies finished work first, so nothing repeats.</div>
+                              <div class="meai-pu-stop-acts">
+                                <button type="button" class="btn primary" :disabled="meai.pursuit._resumingLeg" @click="meAiPursuitResumeLeg(meai.pursuit.nodeView)" x-text="meai.pursuit._resumingLeg ? 'Resuming…' : 'Resume this leg'"></button>
+                              </div>
+                            </div>
+                          </template>
                           <!-- Artifacts from this leg -->
                           <template x-if="meAiPursuitDetailArts(meai.pursuit.nodeView).length">
                             <div class="meai-pu-det-arts">
@@ -17773,7 +17795,15 @@
                             <template x-if="n.group">
                               <div class="meai-pnode-group">
                                 <div class="meai-pnode-group-sum" x-show="n.group.collapsed && n.group.summary" x-text="n.group.summary"></div>
-                                <button type="button" class="meai-pnode-group-tog" @click.stop="meAiPursuitToggleGroup(n.id)" x-text="(n.group.collapsed ? '▸ Expand ' : '▾ Collapse ') + n.group.count + ' legs'"></button>
+                                <button type="button" class="meai-pnode-group-tog" @click.stop="meAiPursuitToggleGroup(n.id)" x-text="(n.group.collapsed ? '▸ Expand ' : '▾ Hide ') + n.group.count + ' legs'"></button>
+                                <div class="meai-pnode-group-list" x-show="!n.group.collapsed">
+                                  <template x-for="m in (n.group.members||[])" :key="m.id">
+                                    <button type="button" class="meai-pnode-group-item" @click.stop="meAiPursuitOpenNodeById(m.id)" :title="m.title">
+                                      <span class="meai-pnode-group-dot" :class="'gi-'+m.st"></span>
+                                      <span class="meai-pnode-group-t" x-text="m.title + (m.anchor ? ' · anchor' : '')"></span>
+                                    </button>
+                                  </template>
+                                </div>
                               </div>
                             </template>
                             <div class="meai-pnode-think" x-show="meAiPursuitNodeThought(n)" x-text="meAiPursuitNodeThought(n)"></div>
@@ -17852,6 +17882,27 @@
                               <button type="button" class="meai-pu-mon-x" @click.stop="meAiPursuitToggleMonitor(m.id)" title="Stop monitoring">✕</button>
                             </div>
                           </template>
+                        </div>
+                      </div>
+                      <!-- Active-work panel: the answer to "5 active — what are they doing?".
+                           A docked live list of every running leg (title / goal / elapsed),
+                           click to zoom to that node. Toggled from the header "N active". -->
+                      <div class="meai-pu-monitor meai-pu-active" x-show="meai.pursuit.activePanelOpen && meAiPursuitActiveCount()" x-transition.opacity style="left:12px;right:auto">
+                        <div class="meai-pu-mon-head">
+                          <button type="button" class="meai-pu-mon-h" @click="meai.pursuit.activePanelOpen=false">
+                            <span class="meai-pu-livedot live" style="display:inline-block;width:8px;height:8px"></span> Active work <span class="meai-pu-mon-n" x-text="meAiPursuitActiveCount()"></span>
+                          </button>
+                          <button type="button" class="meai-pu-mon-clear" @click.stop="meai.pursuit.activePanelOpen=false" title="Hide">close</button>
+                        </div>
+                        <div class="meai-pu-mon-body">
+                          <template x-for="m in meAiPursuitActiveNodes()" :key="m.id">
+                            <div class="meai-pu-mon-row" @click="meAiPursuitZoomToNode(m.id)" :title="(m.leg&&(m.leg.goal||m.leg.title))||''">
+                              <span class="meai-pu-mon-dot run"></span>
+                              <span class="meai-pu-mon-t" x-text="(m.leg&&(m.leg.title||m.leg.goal))||('#'+(m.shortId||m.id))"></span>
+                              <span class="meai-pu-mon-dur" x-show="meAiPursuitNodeDuration(m)" x-text="'⏱ '+meAiPursuitNodeDuration(m)"></span>
+                            </div>
+                          </template>
+                          <div x-show="!meAiPursuitActiveNodes().length" style="padding:8px;color:var(--cp-text-muted);font-size:12px">Nothing is running right now.</div>
                         </div>
                       </div>
                       <!-- Right-click context menu on the map (works over both the canvas
@@ -31615,6 +31666,7 @@
             followId: null, _followSet: null,   // "follow node": highlight a node's forward subtree
             monitored: (() => { try { const v = JSON.parse(localStorage.getItem('meai-pu-monitored') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })(),
             monitorOpen: true,           // monitoring panel expanded
+            activePanelOpen: false,      // "N active" work panel expanded
             _drag: null, _navDrag: null, _fitted: false, _focusId: null,
             _nodes: [], _legShortId: {}, _artRaw: {}, _edgeD: { spine: '', branch: '', merge: '', converge: '', gate: '', cull: '' }, _w: 1000, _h: 600,
             _box: null, _ro: null,       // content-rect framing (stay in the app shell)
@@ -45535,18 +45587,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             let rootId = members.find((m) => { const pid = legs[m] && legs[m].parentId; return pid == null || compIdx[pid] !== idx; });
             if (rootId == null) rootId = members[0];
             const collapsed = !p._expandedGroups.has(rootId);
-            const titles = members.filter((m) => m !== rootId)
-              .map((m) => ((legs[m] && (legs[m].title || legs[m].goal)) || '').toString().trim())
-              .filter(Boolean);
+            // Ordered member descriptors (anchor first) so the group card can render an
+            // INLINE, clickable title list when expanded. Expanding a group used to
+            // scatter its member legs back across the map as individual cards, which the
+            // user couldn't actually read ("I can't click Expand N legs and view the
+            // titles"). Now expanding just reveals this list on the card and each row
+            // deep-links to that leg's read-only detail via meAiPursuitOpenNodeById.
+            const stOf = (m) => { const l = legs[m] || {}; return (l.invalidated || l.status === 'invalidated') ? 'dead' : (l.status === 'done' ? 'done' : ((l.status === 'dead' || l.status === 'cancelled' || l.status === 'skipped') ? 'dead' : (l.status || 'done'))); };
+            const titleOf = (m) => (((legs[m] && (legs[m].title || legs[m].goal)) || 'Untitled leg').toString().replace(/\s+/g, ' ').trim() || 'Untitled leg');
+            const memberList = [rootId].concat(members.filter((m) => m !== rootId))
+              .map((m) => ({ id: m, title: titleOf(m), st: stOf(m), anchor: m === rootId }));
+            const titles = members.filter((m) => m !== rootId).map(titleOf).filter(Boolean);
             let summary = (((legs[rootId] || {}).summary || (legs[rootId] || {}).result) || '').toString().trim();
             if (!summary) summary = titles.slice(0, 4).join(' · ');
             summary = summary.replace(/\s+/g, ' ').slice(0, 260);
-            groupByRoot[rootId] = { count: members.length, memberIds: members.slice(), summary, collapsed };
+            groupByRoot[rootId] = { count: members.length, memberIds: members.slice(), members: memberList, summary, collapsed };
             members.forEach((m) => { memberRoot[m] = rootId; });
-            if (collapsed) {
-              _collapsedGroups++; _collapsedMembers += members.length;
-              members.forEach((m) => { if (m !== rootId) hidden.add(m); });
-            }
+            // ALWAYS fold members into the anchor card — collapsed AND expanded — so
+            // expanding reveals the inline title list instead of un-hiding member cards.
+            _collapsedGroups++; _collapsedMembers += (members.length - 1);
+            members.forEach((m) => { if (m !== rootId) hidden.add(m); });
           });
           // Re-point any VISIBLE (still-active) leg whose parent was just hidden onto
           // that member's group anchor, then drop every hidden leg from the child
@@ -45632,7 +45692,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             let h = 132;                              // header + title + goal + status
             if (stopByLeg[id]) h += 78;               // waiting/needs-approval + a running card's "thinking" line (both wrap)
             if ((artByLeg[id] || []).length) h += 30; // artifacts badge
-            if (groupByRoot[id] && groupByRoot[id].collapsed) h += 66; // group summary + expand toggle
+            if (groupByRoot[id]) { const g = groupByRoot[id]; h += g.collapsed ? 66 : (52 + Math.min(g.count, 14) * 22); } // group summary + expand toggle (collapsed) / inline title list (expanded)
             return h;
           };
           const rowMaxH = {};
@@ -45677,7 +45737,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (stop) cls += (stop.type === 'needs-auth' ? ' pauth' : ' pstop');
             if (leg.status === 'running') cls += ' prun';
             const grp = groupByRoot[id] || null;
-            if (grp && grp.collapsed) cls += ' pgroup';
+            if (grp) cls += ' pgroup';
             nodes.push({ id, leg, x, y, w: W, cls, stop: stop || null, arts, i, shortId, role, group: grp });
             pos[id] = { x, y };
             minX = Math.min(minX, x); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
@@ -46044,9 +46104,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const selId = (p.nodeView && p.nodeView.id) || p._focusId;
           for (const o of singles) {
             const st = this._meAiLodState(o.n), col = colOf(st), r = DOT / 2;
+            const dimNode = doDim && st !== 'run';
             if (st === 'dead') {
+              if (dimNode) ctx.globalAlpha = 0.22;
               ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([3, 3]);
               ctx.beginPath(); ctx.arc(o.sx, o.sy, r, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+              if (dimNode) ctx.globalAlpha = 1;
             } else {
               if (st === 'run' && doPulse) {
                 const ph = (t * 0.9 + (o.n.id || 0) * 0.13) % 1;
@@ -46058,7 +46121,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 ctx.beginPath(); ctx.arc(o.sx, o.sy, rr, 0, 7);
                 ctx.strokeStyle = 'rgba(123,140,255,' + (0.72 * (1 - ph)).toFixed(3) + ')'; ctx.lineWidth = 1.5; ctx.stroke();
               }
-              const dimIt = doDim && st !== 'run';
+              const dimIt = dimNode;
               if (dimIt) ctx.globalAlpha = 0.22;
               ctx.beginPath(); ctx.arc(o.sx, o.sy, r + 2, 0, 7); ctx.fillStyle = tok.bg; ctx.fill(); // gap ring
               ctx.beginPath(); ctx.arc(o.sx, o.sy, r, 0, 7); ctx.fillStyle = col; ctx.fill();
@@ -46070,18 +46133,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (o.n.group && o.n.group.collapsed) {
               const cnt = o.n.group.count || 0;
               const rings = Math.max(1, Math.min(6, cnt));   // cap so a huge group stays legible
+              const dimF = dimNode ? 0.22 : 1;
               let gr = r + 3;
               for (let i = 0; i < rings; i++) {
                 gr = r + 3 + i * 2.6;
-                ctx.globalAlpha = 0.9 - i * 0.11;             // fade outward for a soft "stack" look
+                ctx.globalAlpha = (0.9 - i * 0.11) * dimF;    // fade outward for a soft "stack" look
                 ctx.beginPath(); ctx.arc(o.sx, o.sy, gr, 0, 7);
                 ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.stroke();
               }
-              ctx.globalAlpha = 1;
+              ctx.globalAlpha = dimF;
               ctx.fillStyle = tok.muted; ctx.font = '600 8px -apple-system,Segoe UI,sans-serif';
               ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
               ctx.fillText(cnt > 99 ? '99+' : String(cnt), o.sx, o.sy + gr + 6);
               ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+              ctx.globalAlpha = 1;
             }
             if (o.n.id === selId) { ctx.strokeStyle = tok.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(o.sx, o.sy, r + 5, 0, 7); ctx.stroke(); }
             const hitR = (o.n.group && o.n.group.collapsed)
@@ -46091,6 +46156,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           for (const cl of clusters) {
             const col = colOf(cl.st), r = DOT / 2 + 3;
+            const dimCl = doDim && cl.st !== 'run';
             if (cl.st === 'run' && doPulse) {
               const ph = (t * 0.9 + (cl.x + cl.y) * 0.011) % 1;
               const rr = r + ph * r * 3.0;
@@ -46099,6 +46165,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               ctx.beginPath(); ctx.arc(cl.x, cl.y, rr, 0, 7);
               ctx.strokeStyle = 'rgba(123,140,255,' + (0.72 * (1 - ph)).toFixed(3) + ')'; ctx.lineWidth = 1.5; ctx.stroke();
             }
+            if (dimCl) ctx.globalAlpha = 0.22;
             ctx.beginPath(); ctx.arc(cl.x, cl.y, r + 2, 0, 7); ctx.fillStyle = tok.bg; ctx.fill();
             ctx.beginPath(); ctx.arc(cl.x, cl.y, r, 0, 7);
             ctx.fillStyle = 'color-mix(in srgb,' + col + ' 30%, ' + tok.bg + ')'; ctx.fill();
@@ -46107,6 +46174,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(cl.n > 99 ? '99+' : String(cl.n), cl.x, cl.y + 0.5);
             ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+            if (dimCl) ctx.globalAlpha = 1;
             hit.clusters.push({ x: cl.x, y: cl.y, r: r + 4, ids: cl.ids });
           }
           p._lodHit = hit;
@@ -46423,8 +46491,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           p.legPick = n.id;
         },
         meAiPursuitOpenNodeById(id) {
-          const n = (this.meai.pursuit._nodes || []).find(x => x.id === id);
-          if (n) this.meAiPursuitOpenNode(n);
+          const p = this.meai.pursuit;
+          const n = (p._nodes || []).find(x => x.id === id);
+          if (n) { this.meAiPursuitOpenNode(n); return; }
+          // The target leg may be folded into a collapsed group (hidden from _nodes) or
+          // otherwise not laid out (e.g. a terminal arbitration leg reachable only from a
+          // clash's "Open the arbitration agent →" link, or a grouped member row).
+          // Synthesize a read-only node straight from the tree so the click opens the
+          // leg's detail instead of silently doing nothing.
+          const legs = (p.tree && p.tree.legs) || {};
+          const leg = legs[id];
+          if (!leg) { try { this.toast && this.toast('That leg is no longer in this pursuit.'); } catch (_) {} return; }
+          const kind = leg.kind || 'branch';
+          const isMain = kind === 'spine' || kind === 'reroute' || (kind === 'user' && leg.lane === 'spine');
+          if (isMain) { this.meAiPursuitOpenNode({ id, leg }); return; }
+          const stop = ((p.tree && p.tree.stops) || []).find(s => s.status === 'open' && s.legId === id) || null;
+          const arts = ((p.tree && p.tree.artifacts) || []).filter(a => a.legId === id);
+          this.meAiPursuitOpenNode({ id, leg, stop, arts, group: null, cls: 'psub', role: 'sub', shortId: '' });
         },
         // ── Right-click context menu (Feature A) ─────────────────────────────────
         // Resolve the node under the cursor from either a DOM card (closest .meai-pnode)
@@ -46542,7 +46625,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return out;
         },
-        // Filename for the single-file "Export" (self-contained report web page).
+        // ── Active work: live list of every running leg (answers "N active — doing what?"). ──
+        meAiPursuitActiveNodes() {
+          const p = this.meai.pursuit;
+          const out = [];
+          for (const n of (p._nodes || [])) {
+            if (n && n.leg && n.leg.status === 'running') out.push(n);
+          }
+          return out;
+        },
+        meAiPursuitActiveCount() {
+          return this.meAiPursuitActiveNodes().length;
+        },
         meAiPursuitExportName(a) {
           const t = (a && a.title) || 'report';
           const slug = String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'report';
@@ -47660,7 +47754,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) { this.toast('Dispatch failed: ' + (e && e.message ? e.message : e), 'error'); }
           finally { p.director.busy = false; }
         },
-        meAiDirectorHandled() { const pl = this.meai.pursuit.director.plan; return (pl && Array.isArray(pl.handled)) ? pl.handled : []; },
+        // (f) Send a clash back to arbitration — force a fresh AI arbitration agent even when the
+        // auto-arbitration attempt cap has been hit. The user's whole point: a checkable clash (or
+        // one both sides agree on) should be settled by an agent, not punted to them. This POSTs
+        // the clash's stop(s); the server builds a fresh consensus-first probe and dispatches it.
+        async meAiDirectorReArbitrate(it) {
+          if (!it) return; const p = this.meai.pursuit;
+          const stopIds = Array.isArray(it.stopIds) ? it.stopIds.filter(Boolean) : (it.stopId ? [it.stopId] : []);
+          if (!stopIds.length) { this.toast('No stop to re-arbitrate', 'error'); return; }
+          p.director.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/rearbitrate', { method: 'POST', body: JSON.stringify({ stopIds }) });
+            if (r && r.ok === false) { this.toast('Re-arbitration failed: ' + (r.error || 'unknown'), 'error'); }
+            else if (r && r.status && r.status !== 'running') { this.toast('Queued for arbitration — ' + r.status + ' (a fresh agent will re-check this clash)', 'info'); }
+            else { this.toast('Sent back to arbitration — a fresh AI agent is re-checking this clash', 'info'); }
+            await this.meAiPursuitDirectorLoad();
+            await this.meAiPursuitLoad();
+          } catch (e) { this.toast('Re-arbitration failed: ' + (e && e.message ? e.message : e), 'error'); }
+          finally { p.director.busy = false; }
+        },
         meAiDirectorHandledSummary() {
           const pl = this.meai.pursuit.director.plan; if (!pl || !pl.reconciliation) return '';
           const r = pl.reconciliation; const bits = [];
@@ -48188,10 +48300,43 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (leg.status === 'running') return { cls: 'run', label: 'Working now' };
           if (n && n.stop) return { cls: 'wait', label: 'Waiting on you' };
           if (leg.status === 'done') return { cls: 'done', label: 'Done' };
-          if (leg.invalidated || leg.status === 'invalidated' || leg.status === 'cancelled') return { cls: 'dead', label: 'Ended — did not pan out' };
-          if (leg.status === 'blocked' || String(leg.status || '').startsWith('needs')) return { cls: 'wait', label: 'Blocked' };
+          if (leg.invalidated || leg.status === 'invalidated' || leg.status === 'cancelled') {
+            // A leg that was culled/superseded (its work picked up under a fresh leg) reads
+            // more honestly as "handed off" than "did not pan out".
+            const why = String(leg.invalidateReason || leg.invalidatedReason || '');
+            if (/supersed|resum|re-?driv|reroute|pick|hand|cull/i.test(why)) return { cls: 'dead', label: 'Superseded — picked up elsewhere' };
+            return { cls: 'dead', label: 'Ended — did not pan out' };
+          }
+          if (leg.status === 'blocked' || String(leg.status || '').startsWith('needs')) {
+            // Two very different "blocked" shapes: a leg waiting on a scout it spawned
+            // (legitimately gated), vs a leg that was mid-run when the server restarted and
+            // has no open decision behind it — an interrupted orphan the user CAN resume.
+            if (n && n.gated) return { cls: 'gate', label: 'Waiting on a scout' };
+            return { cls: 'wait', label: 'Paused — interrupted', resumable: true };
+          }
           if (n && n.gated) return { cls: 'gate', label: 'Waiting on a scout' };
           return { cls: 'idle', label: leg.status || 'Planned' };
+        },
+        // A blocked leg the user can resume (interrupted orphan — not gated, no open stop).
+        meAiPursuitNodeResumable(n) {
+          const st = this.meAiPursuitNodeState(n);
+          return !!(st && st.resumable);
+        },
+        // Re-drive interrupted legs (this node is one of them). Reuses the Director resume path,
+        // which re-runs orphaned blocked legs where they left off (agents verify finished work
+        // first, so nothing repeats). Self-contained: doesn't require the Director rail to be loaded.
+        async meAiPursuitResumeLeg(n) {
+          const tid = this.meai.pursuit.tid; if (!tid) return;
+          if (this.meai.pursuit._resumingLeg) return;
+          this.meai.pursuit._resumingLeg = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(tid) + '/director/resume', { method: 'POST', body: JSON.stringify({}) });
+            if (r && r.ok === false) { this.toast && this.toast(r.message || 'Could not resume: ' + (r.error || 'unknown')); }
+            else if (r && (r.resumed || r.running)) { this.toast && this.toast((r.resumed || 0) > 0 ? ('Resuming ' + r.resumed + ' interrupted ' + (r.resumed === 1 ? 'leg' : 'legs') + '…') : 'Already picking up where it left off…'); }
+            else { this.toast && this.toast('Nudged the pursuit to continue…'); }
+            await this.meAiPursuitLoad();
+          } catch (e) { this.toast && this.toast('Resume failed: ' + (e.message || e)); }
+          finally { this.meai.pursuit._resumingLeg = false; }
         },
         // How long the leg has run (running → live elapsed since start; terminal →
         // the recorded wall-clock). Falls back to createdAt for legs that never got a

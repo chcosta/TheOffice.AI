@@ -852,7 +852,7 @@ await t.test('pursuit follow-up anchors on the main spine trunk (not a sub-agent
 await t.test('pursuit header exposes always-available compendium + bundle export (outside the report pane)', () => {
   const src = readFileSync('public/app.html', 'utf8');
   // The always-available action group lives in the pursuit header (meai-pu-top), gated on a tid.
-  const hdr = _win(src, 'class="meai-pu-hdract"', 1400);
+  const hdr = _win(src, 'class="meai-pu-hdract"', 2200);
   t.ok(/x-show="meai\.pursuit\.tid"/.test(hdr), 'header action group is gated on an open pursuit');
   // Build/Rebuild the compendium from the header — label flips on whether a report exists.
   t.ok(/meAiPursuitBuildCompendium\(\)/.test(hdr), 'header wires the compendium build action');
@@ -2732,7 +2732,7 @@ await t.test('pursuit map: completed side-fans collapse into expandable group no
   t.ok(/const parOf = \(id\) => \{ if \(epar\[id\] !== undefined\) return epar\[id\]; const l = legs\[id\]; return l \? l\.parentId : null; \};/.test(html), 'parOf resolves the effective parent (epar override or real parentId)');
   t.ok(/return \(depthMemo\[id\] = depthOf\(parOf\(id\)\) \+ 1\);/.test(html), 'depthOf walks the effective parent chain');
   // 1) connected-component collapse block inside the layout
-  const blk = _win(html, '// ── Group collapse (connected settled components', 6400);
+  const blk = _win(html, '// ── Group collapse (connected settled components', 6800);
   t.ok(blk, 'the connected-component group-collapse block is present in _meAiPursuitLayout');
   t.ok(/const settledLeg = \(id\) =>/.test(blk), 'settledLeg predicate defined (finished / not awaiting you)');
   t.ok(/if \(!l \|\| stopByLeg\[id\]\) return false;/.test(blk), 'a leg with an open stop (awaiting you) is NOT settled');
@@ -2753,7 +2753,7 @@ await t.test('pursuit map: completed side-fans collapse into expandable group no
   t.ok(/if \(!leg \|\| hidden\.has\(id\)\) return;/.test(html), 'node-build loop skips hidden legs');
   // 3) group-root node marking + first-paint height estimate
   t.ok(/groupByRoot\[id\] \|\| null;[\s\S]{0,80}cls \+= ' pgroup'/.test(html), 'a collapsed group root is marked with the pgroup class');
-  t.ok(/if \(groupByRoot\[id\] && groupByRoot\[id\]\.collapsed\) h \+= 66;/.test(html), 'nodeH estimate accounts for the taller group card');
+  t.ok(/if \(groupByRoot\[id\]\) \{ const g = groupByRoot\[id\]; h \+= g\.collapsed \? 66 :/.test(html), 'nodeH estimate accounts for the taller group card');
   // 4) node card group branch + toggle
   t.ok(/<template x-if="n\.group">/.test(html), 'the node card renders a group branch');
   t.ok(/meAiPursuitToggleGroup\(n\.id\)/.test(html), 'the group toggle button calls meAiPursuitToggleGroup');
@@ -2962,7 +2962,7 @@ await t.test('pursuit map: group dot expands on click + concentric rings + hones
   t.ok(rings, 'concentric-ring draw block present');
   t.ok(/const rings = Math\.max\(1, Math\.min\(6, cnt\)\);/.test(rings), 'ring count = members, capped at 6');
   t.ok(/for \(let i = 0; i < rings; i\+\+\)/.test(rings), 'draws one ring per (capped) member');
-  t.ok(/ctx\.globalAlpha = 0\.9 - i \* 0\.11;/.test(rings), 'rings fade outward for a stacked look');
+  t.ok(/ctx\.globalAlpha = \(0\.9 - i \* 0\.11\) \* dimF;/.test(rings), 'rings fade outward for a stacked look (dim-aware)');
   // hit radius widens to cover the whole ring stack so the dot stays easy to click.
   t.ok(/const hitR = \(o\.n\.group && o\.n\.group\.collapsed\)[\s\S]{0,140}\* 2\.6 \+ 2/.test(html),
     'group-dot hit radius grows with the ring stack');
@@ -2978,6 +2978,68 @@ await t.test('pursuit map: group dot expands on click + concentric rings + hones
     'items under investigation are surfaced separately');
   t.ok(/\} else if \(open\) \{[\s\S]{0,60}open \+ ' awaiting you'/.test(label),
     'with no Director the raw open-stop count is the honest fallback');
+});
+
+await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-work panel', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const src = readFileSync('server.js', 'utf8');
+
+  // (c) meAiPursuitNodeState splits the old catch-all "Blocked" into honest, distinct labels:
+  // a gated leg (waiting on a scout it spawned) vs an interrupted orphan the user CAN resume,
+  // and a culled/superseded leg reads "picked up elsewhere" not "did not pan out".
+  const nodeState = _win(html, 'meAiPursuitNodeState(n) {', 2400);
+  t.ok(nodeState, 'meAiPursuitNodeState found');
+  t.ok(/n\.gated\s*\)\s*return\s*\{[^}]*'Waiting on a scout'/.test(nodeState),
+    'a gated blocked leg reads "Waiting on a scout"');
+  t.ok(/'Paused — interrupted'[\s\S]{0,40}resumable:\s*true/.test(nodeState),
+    'a non-gated blocked orphan reads "Paused — interrupted" and is resumable');
+  t.ok(/'Superseded — picked up elsewhere'/.test(nodeState) && /supersed\|resum\|re-\?driv\|reroute\|pick\|hand\|cull/.test(nodeState),
+    'a culled/superseded leg reads "picked up elsewhere"');
+
+  // (c) the resumable predicate + a self-contained resume method (reuses /director/resume,
+  // does NOT require the Director rail to be loaded).
+  t.ok(/meAiPursuitNodeResumable\(n\)\s*\{[\s\S]{0,120}st\.resumable/.test(html),
+    'meAiPursuitNodeResumable keys off the state.resumable flag');
+  const resumeLeg = _win(html, 'async meAiPursuitResumeLeg(n) {', 1300);
+  t.ok(resumeLeg, 'meAiPursuitResumeLeg found');
+  t.ok(/director\/resume/.test(resumeLeg) && /method:\s*'POST'/.test(resumeLeg),
+    'resume POSTs the director/resume endpoint');
+  t.ok(/_resumingLeg\s*=\s*true/.test(resumeLeg) && /_resumingLeg\s*=\s*false/.test(resumeLeg),
+    'resume is guarded by a busy flag');
+  t.ok(/meAiPursuitLoad\(\)/.test(resumeLeg), 'resume reloads the map afterward');
+
+  // (c) the node detail view surfaces the resume affordance ONLY for an interrupted, gate-less orphan.
+  t.ok(/meAiPursuitNodeResumable\(meai\.pursuit\.nodeView\)/.test(html),
+    'node detail gates the resume block on the resumable predicate');
+  t.ok(/meAiPursuitResumeLeg\(meai\.pursuit\.nodeView\)/.test(html),
+    'node detail resume button calls meAiPursuitResumeLeg');
+  t.ok(/Paused after an interruption/.test(html), 'resume block explains the interruption honestly');
+
+  // (f) re-arbitrate: a button + client method + the server route that bypasses the arbitration cap.
+  t.ok(/meAiDirectorReArbitrate\(meai\.pursuit\.director\.sel\)/.test(html),
+    'clash pane has a Re-arbitrate button');
+  const reArb = _win(html, 'async meAiDirectorReArbitrate(it) {', 700);
+  t.ok(reArb, 'meAiDirectorReArbitrate found');
+  t.ok(/director\/rearbitrate/.test(reArb), 'client posts the rearbitrate route');
+  const reArbRoute = _win(src, "app.post('/api/me-ai/task/:id/director/rearbitrate'", 3400);
+  t.ok(reArbRoute, 'server rearbitrate route found');
+  t.ok(/_meAiDirectorSpawn\(/.test(reArbRoute) && /run:\s*true/.test(reArbRoute),
+    'rearbitrate force-dispatches a fresh probe leg');
+  t.ok(/priorAttempts/.test(reArbRoute) && /Math\.max\(2,/.test(reArbRoute),
+    'the fresh probe leads with the sharper consensus-first reprobe brief');
+
+  // (g) active-work panel: only genuinely-running legs are counted.
+  const active = _win(html, 'meAiPursuitActiveNodes() {', 300);
+  t.ok(active, 'meAiPursuitActiveNodes found');
+  t.ok(/leg\.status\s*===\s*'running'/.test(active), 'active nodes are the running legs');
+  t.ok(/meAiPursuitActiveCount\(\)\s*\{[\s\S]{0,80}meAiPursuitActiveNodes\(\)\.length/.test(html),
+    'active count derives from the running-legs list');
+
+  // (b) LOD "dim everything but active" dims non-running work to a low alpha.
+  const lodDraw = _win(html, '_meAiPursuitLodDraw', 9000);
+  t.ok(lodDraw, '_meAiPursuitLodDraw found');
+  t.ok(/const doDim = !!p\.lodDim;/.test(lodDraw), 'the dim toggle is read into the draw');
+  t.ok(/globalAlpha\s*=\s*0\.22/.test(lodDraw), 'non-active work dims to a low alpha');
 });
 
 await t.done();
