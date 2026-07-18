@@ -3028,12 +3028,23 @@ await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-w
   t.ok(/priorAttempts/.test(reArbRoute) && /Math\.max\(2,/.test(reArbRoute),
     'the fresh probe leads with the sharper consensus-first reprobe brief');
 
-  // (g) active-work panel: only genuinely-running legs are counted.
+  // (g) active-work panel: the union of every live sub-agent — running legs, running
+  // investigation probes, and live arbitration agents — de-duped by the leg a probe/arb runs as.
   const active = _win(html, 'meAiPursuitActiveNodes() {', 300);
   t.ok(active, 'meAiPursuitActiveNodes found');
   t.ok(/leg\.status\s*===\s*'running'/.test(active), 'active nodes are the running legs');
-  t.ok(/meAiPursuitActiveCount\(\)\s*\{[\s\S]{0,80}meAiPursuitActiveNodes\(\)\.length/.test(html),
-    'active count derives from the running-legs list');
+  const activeItems = _win(html, 'meAiPursuitActiveItems() {', 2400);
+  t.ok(activeItems, 'meAiPursuitActiveItems found');
+  t.ok(/meAiDirectorProbes\(\)/.test(activeItems) && /dispatched\s*\|\|\s*it\.sinceKind\s*===\s*'running'/.test(activeItems),
+    'active items include running investigation probes');
+  t.ok(/meAiDirectorDesk\(\)/.test(activeItems) && /it\.arbitrating/.test(activeItems),
+    'active items include live arbitration agents');
+  t.ok(/claimed\.add\(String\(it\.spawnLegId\)\)/.test(activeItems) && /claimed\.has\(String\(n\.id\)\)/.test(activeItems),
+    'a probe/arb and its spawned running leg are de-duped (shown once)');
+  t.ok(/meAiPursuitActiveCount\(\)\s*\{[\s\S]{0,80}meAiPursuitActiveItems\(\)\.length/.test(html),
+    'active count derives from the unified live list');
+  t.ok(/x-for="m in meAiPursuitActiveItems\(\)"/.test(html),
+    'the active-work panel iterates the unified live list');
 
   // (b) LOD "dim everything but active" dims non-running work to a low alpha.
   const lodDraw = _win(html, '_meAiPursuitLodDraw', 9000);

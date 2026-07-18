@@ -13754,6 +13754,8 @@
               .meai-pu-mon-dot.done { background:#3fb950; }
               .meai-pu-mon-dot.wait, .meai-pu-mon-dot.gate { background:#d29922; }
               .meai-pu-mon-dot.dead { background:var(--cp-text-muted); }
+              .meai-pu-mon-dot.stuck { background:#d29922; }
+              .meai-pu-mon-kind { color:var(--cp-text-muted); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; flex:none; }
               .meai-pu-mon-t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--cp-text); }
               .meai-pu-mon-st { color:var(--cp-text-muted); font-size:10.5px; flex:none; }
               .meai-pu-mon-dur { color:var(--cp-text-muted); font-size:10.5px; font-variant-numeric:tabular-nums; flex:none; }
@@ -16537,8 +16539,8 @@
                        without hunting the Chief-of-Staff's report first. -->
                   <div class="meai-pu-hdract" x-show="meai.pursuit.tid">
                     <button type="button" class="meai-pu-artcard-link meai-pu-hdract-btn" x-show="meAiPursuitActiveCount() > 0" @click="meai.pursuit.activePanelOpen = !meai.pursuit.activePanelOpen"
-                      :title="'See what the ' + meAiPursuitActiveCount() + ' active leg' + (meAiPursuitActiveCount()===1?'':'s') + ' are working on right now'">
-                      <span class="meai-pu-livedot live" style="display:inline-block;vertical-align:middle;margin-right:5px"></span><span x-text="meAiPursuitActiveCount() + ' active'"></span></button>
+                      :title="'See everything the agents are working on right now — ' + meAiPursuitActiveCount() + ' running (legs, investigations & arbitrations)'">
+                      <span class="meai-pu-livedot live" style="display:inline-block;vertical-align:middle;margin-right:5px"></span><span x-text="meAiPursuitActiveCount() + ' working'"></span></button>
                     <a href="#" class="meai-pu-artcard-link" x-show="meAiPursuitReport() && meai.pursuit.centerView!=='report'" @click.prevent="meAiPursuitShowReport()" title="Jump to the compiled report">Report →</a>
                     <button type="button" class="meai-pu-artcard-link meai-pu-hdract-btn" :disabled="meai.pursuit.compendiumBusy" @click="meAiPursuitBuildCompendium()"
                       x-text="meai.pursuit.compendiumBusy ? 'Compiling…' : (meAiPursuitReport() ? 'Rebuild compendium' : 'Build compendium')"
@@ -17895,14 +17897,15 @@
                           <button type="button" class="meai-pu-mon-clear" @click.stop="meai.pursuit.activePanelOpen=false" title="Hide">close</button>
                         </div>
                         <div class="meai-pu-mon-body">
-                          <template x-for="m in meAiPursuitActiveNodes()" :key="m.id">
-                            <div class="meai-pu-mon-row" @click="meAiPursuitZoomToNode(m.id)" :title="(m.leg&&(m.leg.goal||m.leg.title))||''">
-                              <span class="meai-pu-mon-dot run"></span>
-                              <span class="meai-pu-mon-t" x-text="(m.leg&&(m.leg.title||m.leg.goal))||('#'+(m.shortId||m.id))"></span>
-                              <span class="meai-pu-mon-dur" x-show="meAiPursuitNodeDuration(m)" x-text="'⏱ '+meAiPursuitNodeDuration(m)"></span>
+                          <template x-for="m in meAiPursuitActiveItems()" :key="m.id">
+                            <div class="meai-pu-mon-row" @click="meAiPursuitActiveOpen(m)" :title="m.title">
+                              <span class="meai-pu-mon-dot" :class="m.stuck ? 'stuck' : 'run'"></span>
+                              <span class="meai-pu-mon-t" x-text="m.title"></span>
+                              <span class="meai-pu-mon-kind" x-show="m.kind!=='leg'" x-text="m.label"></span>
+                              <span class="meai-pu-mon-dur" x-show="m.dur" x-text="'⏱ '+m.dur+(m.stuck?' · stuck':'')"></span>
                             </div>
                           </template>
-                          <div x-show="!meAiPursuitActiveNodes().length" style="padding:8px;color:var(--cp-text-muted);font-size:12px">Nothing is running right now.</div>
+                          <div x-show="!meAiPursuitActiveItems().length" style="padding:8px;color:var(--cp-text-muted);font-size:12px">Nothing is running right now.</div>
                         </div>
                       </div>
                       <!-- Right-click context menu on the map (works over both the canvas
@@ -46634,8 +46637,66 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return out;
         },
+        // Unified "active work" — EVERY sub-agent doing something right now, not just running
+        // map legs. The old panel only listed running legs and silently omitted the Director's
+        // investigation sub-agents and live arbitration agents, so "3 active" contradicted the
+        // header's "5 investigating". This merges three live buckets — running legs, running
+        // investigation probes, and live arbitration agents — de-duplicated by the leg a probe/
+        // arbitrator actually runs as (spawnLegId / arbLegId), so the same work is never shown
+        // twice. Probe/arb rows win the dedupe because they carry the richer sub-agent context.
+        meAiPursuitActiveItems() {
+          const p = this.meai.pursuit;
+          const rows = [];
+          const claimed = new Set(); // leg ids already represented by an investigation/arbitration row
+          if (this.meAiDirectorActive()) {
+            // Investigations: a probe with a live sub-agent dispatched.
+            for (const it of this.meAiDirectorProbes()) {
+              if (!it || !(it.dispatched || it.sinceKind === 'running')) continue;
+              if (it.spawnLegId) claimed.add(String(it.spawnLegId));
+              rows.push({
+                id: 'probe:' + it.id, kind: 'probe', label: 'investigating',
+                title: it.title || it.question || 'Investigation',
+                nodeId: it.spawnLegId || it.nodeId || null,
+                dur: this.meAiSpawnTiming(it), stuck: this.meAiSpawnStuck(it), ref: it,
+              });
+            }
+            // Arbitrations: a desk item with a live arbitrator agent checking it now.
+            for (const it of this.meAiDirectorDesk()) {
+              if (!it || !it.arbitrating) continue;
+              if (it.arbLegId) claimed.add(String(it.arbLegId));
+              rows.push({
+                id: 'arb:' + it.id, kind: 'arb', label: 'arbitrating',
+                title: it.title || 'Arbitration',
+                nodeId: it.arbLegId || it.nodeId || null,
+                dur: this.meAiSpawnTiming(it), stuck: this.meAiSpawnStuck(it), ref: it,
+              });
+            }
+          }
+          // Running legs on the map not already covered by a probe/arbitration above.
+          for (const n of (p._nodes || [])) {
+            if (!n || !n.leg || n.leg.status !== 'running') continue;
+            if (claimed.has(String(n.id))) continue;
+            rows.push({
+              id: 'leg:' + n.id, kind: 'leg', label: 'running',
+              title: (n.leg.title || n.leg.goal) || ('#' + (n.shortId || n.id)),
+              nodeId: n.id, dur: this.meAiPursuitNodeDuration(n), stuck: false, node: n,
+            });
+          }
+          return rows;
+        },
         meAiPursuitActiveCount() {
-          return this.meAiPursuitActiveNodes().length;
+          return this.meAiPursuitActiveItems().length;
+        },
+        // Open an active-work row: a plain running leg zooms to its node on the map; an
+        // investigation/arbitration jumps into the Director rail and selects it so the user
+        // sees exactly what that sub-agent is doing (question, plan, timing, chat link).
+        meAiPursuitActiveOpen(row) {
+          if (!row) return;
+          if (row.kind === 'leg') { this.meAiPursuitZoomToNode(row.nodeId); return; }
+          const p = this.meai.pursuit;
+          p.nav = 'director';
+          if (this.meAiPursuitDirectorLoad) this.meAiPursuitDirectorLoad();
+          this.meAiDirectorSel(row.kind === 'probe' ? 'probe' : 'desk', row.ref);
         },
         meAiPursuitExportName(a) {
           const t = (a && a.title) || 'report';
