@@ -14012,6 +14012,8 @@
               .meai-dir-side-claim { font-size:13px; color:var(--cp-text); margin-top:6px; line-height:1.45; }
               .meai-dir-side-leg { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px; color:var(--cp-text-muted); margin-top:5px; }
               .meai-dir-foot-acts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+              .meai-dir-stoppath { color:var(--cp-danger,#c0392b); border-color:color-mix(in srgb, var(--cp-danger,#c0392b) 40%, transparent); }
+              .meai-dir-stoppath:hover:not(:disabled) { background:color-mix(in srgb, var(--cp-danger,#c0392b) 10%, transparent); }
               .meai-dir-foot-lead { font-size:12px; color:var(--cp-text-muted); margin-right:2px; }
               .meai-dir-note { flex:1; min-width:160px; }
               .meai-dir-ask { margin:12px 0 2px; }
@@ -17360,6 +17362,7 @@
                                     <button type="button" class="btn ghost" :disabled="meai.pursuit.director.busy" @click="meAiDirectorPickClashGroup(meai.pursuit.director.sel,'deny')">Choose Side B<span x-show="(meai.pursuit.director.sel.count||1) > 1" x-text="' — all '+meai.pursuit.director.sel.count"></span></button>
                                     <button type="button" class="btn" :disabled="meai.pursuit.director.busy || !(meai.pursuit.director.note||'').trim()" @click="meAiDirectorCommentStop(meai.pursuit.director.sel)">Send to the Director →</button>
                                     <button type="button" class="btn" :disabled="meai.pursuit.director.busy" @click="meAiDirectorReArbitrate(meai.pursuit.director.sel)" title="Send this clash back to a fresh AI arbitration agent. It re-checks the facts — and whether the two sides actually agree — with the improved brief, so you don't have to decide.">↻ Re-arbitrate with AI</button>
+                                    <button type="button" class="btn ghost meai-dir-stoppath" :disabled="meai.pursuit.director.busy" @click="meAiDirectorAbandonPath(meai.pursuit.director.sel)" title="Stop pursuing this direction entirely. Cancels the active agent work on this path and clears the judgement from your desk — without picking a side. Already-completed findings are kept in the record.">✕ Stop this path</button>
                                     <button type="button" class="meai-dir-linklike" x-show="meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId" @click="meAiPursuitOpenNodeById(meai.pursuit.director.sel.nodeId || meai.pursuit.director.sel.legId)">Open the leg →</button>
                                   </div>
                                 </div>
@@ -48078,6 +48081,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meAiDirectorDismissLocal(item);
           } catch (e) { this.toast('Could not send: ' + (e.message || e), 'error'); }
           finally { d.busy = false; this.meAiDirectorAfterAction(); }
+        },
+        // "Stop this path" — abandon the whole judgement clash. The user doesn't want to pick a
+        // side or re-arbitrate; the direction itself is unwanted. Cancels the active agent work on
+        // this path and clears the judgement from the desk, WITHOUT crowning a winner. Destructive
+        // (active work is cancelled) but recoverable from the ledger, so it's confirm-gated. Legs
+        // that already finished keep their findings in the record.
+        async meAiDirectorAbandonPath(item) {
+          const p = this.meai.pursuit; const d = p.director;
+          if (!item || !p.tid) return;
+          const sids = (Array.isArray(item.stopIds) && item.stopIds.length)
+            ? item.stopIds.slice()
+            : (Array.isArray(item.members) ? item.members.map(m => m && m.stopId).filter(Boolean) : (item.stopId ? [item.stopId] : []));
+          if (!sids.length) { this.toast('No clash to stop', 'error'); return; }
+          // Supplementary leg hints from the item shape (the server also derives legs from the
+          // stops + conflicts, so these are additive, not the sole source).
+          const legs = new Set();
+          if (item.legId) legs.add(item.legId);
+          if (item.nodeId) legs.add(item.nodeId);
+          if (Array.isArray(item.sides)) item.sides.forEach(s => { if (s && s.legId) legs.add(s.legId); });
+          if (!confirm('Stop pursuing this path?\n\nThis cancels the active agent work on this direction and clears the judgement from your desk — without picking a side. Findings already completed are kept in the record. You can reopen it later from the ledger.')) return;
+          d.busy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(p.tid) + '/director/abandon-clash', { method: 'POST', body: JSON.stringify({ stopIds: sids, legIds: Array.from(legs) }) });
+            if (r && r.ok === false) { this.toast('Could not stop this path: ' + (r.error || 'unknown'), 'error'); }
+            else {
+              const n = (r && r.cancelled) || 0;
+              this.toast(n ? ('Stopped this path — cancelled ' + n + ' active ' + (n === 1 ? 'leg' : 'legs') + ' and cleared the judgement') : 'Stopped this path — cleared the judgement from your desk', 'success');
+              this.meAiDirectorDismissLocal(item);
+            }
+          } catch (e) { this.toast('Could not stop this path: ' + (e.message || e), 'error'); }
+          finally { d.busy = false; this.meAiDirectorAfterAction(); this.meAiPursuitLoad(); }
         },
         // After any desk decision: reload the plan (with backoff, because a comment/reframe
         // kicks off an async re-eval on the server that isn't folded by the first tick),

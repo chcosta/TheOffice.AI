@@ -3084,6 +3084,29 @@ await t.test('pursuit map: blocked-node honesty + resume, re-arbitrate, active-w
   t.ok(/priorAttempts/.test(reArbRoute) && /Math\.max\(2,/.test(reArbRoute),
     'the fresh probe leads with the sharper consensus-first reprobe brief');
 
+  // (f2) "Stop this path" — abandon the whole clash: cancel active work + close stops as
+  // cancelled (NOT a verdict) + retire the conflict + ledger a reversible abandoned-path record.
+  t.ok(/meAiDirectorAbandonPath\(meai\.pursuit\.director\.sel\)/.test(html),
+    'clash pane has a Stop-this-path button');
+  t.ok(/meai-dir-stoppath/.test(html), 'stop-path button carries its calm danger class');
+  const abandon = _win(html, 'async meAiDirectorAbandonPath(item) {', 2600);
+  t.ok(abandon, 'meAiDirectorAbandonPath found');
+  t.ok(/director\/abandon-clash/.test(abandon), 'client posts the abandon-clash route');
+  t.ok(/confirm\(/.test(abandon), 'abandon is confirm-gated (destructive)');
+  t.ok(/meAiDirectorDismissLocal\(item\)/.test(abandon), 'abandon optimistically dismisses the desk item');
+  const abandonRoute = _win(src, "app.post('/api/me-ai/task/:id/director/abandon-clash'", 5200);
+  t.ok(abandonRoute, 'server abandon-clash route found');
+  t.ok(/TERMINAL\s*=\s*\[[^\]]*'done'[^\]]*'cancelled'[^\]]*\]/.test(abandonRoute) && /TERMINAL\.includes/.test(abandonRoute),
+    'abandon cancels only NON-terminal legs (done legs keep their findings)');
+  t.ok(/'leg_status',\s*\{\s*legId:\s*lid,\s*status:\s*'cancelled'\s*\}/.test(abandonRoute),
+    'abandon cancels active legs via a leg_status cancel emit');
+  t.ok(/status:\s*'cancelled',\s*resolution:\s*'abandoned'/.test(abandonRoute) && !/auth_decision/.test(abandonRoute),
+    'clash stops close as cancelled/abandoned — never crowned via an auth_decision verdict');
+  t.ok(/resolveConflict:\s*cid/.test(abandonRoute) && /stance:\s*'abandoned'/.test(abandonRoute) && /chosenBy:\s*'user'/.test(abandonRoute),
+    'abandon retires the gating conflict with a user-chosen abandoned stance');
+  t.ok(/verb:\s*'abandoned-path'/.test(abandonRoute) && /op:\s*'reopen'/.test(abandonRoute),
+    'abandon ledgers a reversible abandoned-path record (reopen undo)');
+
   // (g) active-work panel: the union of every live sub-agent — running legs, running
   // investigation probes, and live arbitration agents — de-duped by the leg a probe/arb runs as.
   const active = _win(html, 'meAiPursuitActiveNodes() {', 300);

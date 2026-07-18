@@ -29025,6 +29025,91 @@ app.post('/api/me-ai/task/:id/director/rearbitrate', (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// "Stop this path" — abandon a judgement clash entirely. The user doesn't want to pick a side
+// OR send it back to arbitration: the whole DIRECTION is unwanted, so cancel the agent work on it
+// and clear the judgement from the desk. This is deliberately destructive-but-recoverable:
+//  • CANCEL every non-terminal leg the clash references (its own gating legs + both conflict
+//    sides + any leg the member stops carry) so no further work is pursued down this path.
+//    DONE legs are LEFT INTACT — their findings must survive in the final record; we only stop
+//    active/queued work, we don't erase what's already known.
+//  • CLOSE the clash's needs-decision stops as 'cancelled' (NOT a verdict — we don't crown a
+//    winner or redirect the loser; the user rejected the whole question).
+//  • RETIRE the gating conflict(s) so the Chief of Staff stops re-asking.
+//  • LEDGER an 'abandoned-path' entry (reversible: reopen the stop) so it's a durable record.
+// No grant required — abandoning is the user's own directive, not autonomous absorption. Leader-
+// gating is irrelevant to a user action. Returns the fresh reduced plan.
+app.post('/api/me-ai/task/:id/director/abandon-clash', (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const tree = meAiTrees.get(id) || _meAiFoldJournal(id);
+    const stops = (tree && tree.stops) || [];
+    const legsAll = (tree && tree.legs) || {};
+    const stopIds = Array.isArray(b.stopIds) ? b.stopIds.filter(Boolean) : (b.stopId ? [b.stopId] : []);
+    if (!stopIds.length) return res.status(400).json({ ok: false, error: 'stopIds-required' });
+    // Index conflicts exactly as the reducer does.
+    const conflictById = {};
+    const pushConflict = (c) => { if (c && c.id) conflictById[c.id] = c; };
+    const rs = tree && tree.rootState;
+    if (rs && Array.isArray(rs.openConflicts)) rs.openConflicts.forEach(pushConflict);
+    if (Array.isArray(tree && tree.conflicts)) tree.conflicts.forEach(pushConflict);
+    // Collect the legs + conflicts this clash touches.
+    const legIds = new Set((Array.isArray(b.legIds) ? b.legIds : []).filter(Boolean));
+    const conflictIds = new Set();
+    const closedStops = [];
+    const now = new Date().toISOString();
+    const pv = null, gid = 'g-user';
+    for (const sid of stopIds) {
+      const s = stops.find(x => x && x.id === sid && x.status === 'open');
+      if (!s) continue;
+      if (s.legId) legIds.add(s.legId);
+      if (s.conflictId) conflictIds.add(s.conflictId);
+      const c = s.conflictId && conflictById[s.conflictId];
+      if (c) {
+        if (c.a && c.a.legId) legIds.add(c.a.legId);
+        if (c.b && c.b.legId) legIds.add(c.b.legId);
+        if (Array.isArray(c.sides)) c.sides.forEach(sd => { if (sd && sd.legId) legIds.add(sd.legId); });
+      }
+      closedStops.push(s);
+    }
+    if (!closedStops.length) return res.status(400).json({ ok: false, error: 'no-open-clash-stops' });
+    // Cancel only NON-terminal legs (active/queued work). Done legs keep their findings.
+    const TERMINAL = ['done', 'error', 'invalidated', 'cancelled'];
+    let cancelled = 0;
+    for (const lid of legIds) {
+      const lg = legsAll[lid];
+      if (!lg || lg.invalidated) continue;
+      if (TERMINAL.includes(String(lg.status || '').toLowerCase())) continue;
+      _meAiTreeEmit(id, 'leg_status', { legId: lid, status: 'cancelled' });
+      cancelled++;
+    }
+    // Close the clash stops as cancelled (NOT a verdict), retire the conflicts, ledger the record.
+    for (const s of closedStops) {
+      _meAiTreeEmit(id, 'stop', { stop: Object.assign({}, s, { status: 'cancelled', resolution: 'abandoned', note: 'You stopped this path — the direction was not pursued further.', resolvedAt: now, by: 'user' }) });
+      _meAiTreeEmit(id, 'director', { op: 'ledger', entry: director.ledgerEntry({ verb: 'abandoned-path', stopId: s.id, conflictId: s.conflictId || null, legId: s.legId || null, cls: 'judgement', why: 'You chose to stop this path — the direction was unwanted, so its active work was cancelled and the judgement cleared from your desk.', policyVersion: pv, grantId: gid, state: 'compensatable', reversible: true, undo: { op: 'reopen', target: s.id } }) });
+    }
+    for (const cid of conflictIds) {
+      const c = conflictById[cid];
+      if (!c || c.status !== 'open') continue;
+      const verdict = { stance: 'abandoned', claim: 'You stopped this path — the contested question was withdrawn.', legId: null, confidence: null, chosenBy: 'user' };
+      _meAiTreeEmit(id, 'rootstate', { patch: { resolveConflict: cid, verdict, resolvedBy: 'user' } });
+    }
+    // Drop any recommendation chips tied to the now-closed stops so the thread doesn't show stale asks.
+    try {
+      const fresh = _meAiFoldJournal(id);
+      const openStopIds = new Set((fresh.stops || []).filter(s => s && s.status === 'open').map(s => s.id));
+      const lt = meAiTasks.get(id);
+      if (lt && Array.isArray(lt.nextActions) && lt.nextActions.length) {
+        lt.nextActions = lt.nextActions.filter(a => !a || !a._stopId || openStopIds.has(a._stopId));
+        if (!lt.nextActions.length) lt.nextActions = [{ label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' }];
+        try { _meAiSaveTask(lt); _meAiReconcileAsks(lt, fresh); } catch (_) {}
+      }
+    } catch (_) {}
+    const { plan } = _meAiDirectorView(id);
+    res.json({ ok: true, abandoned: true, cancelled, stopsClosed: closedStops.length, conflictsRetired: conflictIds.size, plan });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Reusable resume/recover core, shared by the manual Director "Resume" action AND the stuck-pursuit
 // watchdog (below). Returns a plain result object so the HTTP endpoint can map codes → status while
 // the watchdog just logs. Result: { ok, code?, message?, resumed, rerun?, culled?, running?,
