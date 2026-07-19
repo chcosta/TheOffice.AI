@@ -2168,6 +2168,7 @@ await t.test('code flow: Epics tab — DNCEng epic cockpit wired end to end (tab
     t.ok(srv.includes(r), 'server route: ' + r);
   }
   t.ok(/_epicComputeCockpit/.test(srv), 'server builds a deterministic cockpit');
+  t.ok(/state: 'In Progress'/.test(srv) && !/state: 'Dev'/.test(srv), 'epics query filters on the In Progress state (DNCEng Epics have no Dev state)');
   // --- azdo client ---
   const az = readFileSync('azdo.js', 'utf8');
   t.ok(/async function getEpicTree\(org, project, id\)/.test(az), 'azdo.js defines getEpicTree');

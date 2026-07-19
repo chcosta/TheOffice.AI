@@ -4616,7 +4616,7 @@ app.get('/api/codeflow/pr/report', (req, res) => {
 
 // ===========================================================================
 // Code Flow — Epics tab. Surfaces the user's "DNCEng Epic" work items that are
-// assigned to them and in "Dev", rendered as one AI-driven cockpit per epic.
+// assigned to them and in "In Progress", rendered as one AI-driven cockpit per epic.
 // GET  /api/codeflow/epics            → real ADO data + a DETERMINISTIC cockpit
 // POST /api/codeflow/epics/ai         → SDK-upgrade summary+alerts+forward+next
 // POST /api/codeflow/epics/assistant  → lean read-only Epic assistant chat
@@ -4726,7 +4726,7 @@ function _epicComputeCockpit(raw) {
   // Goals from description; objectives from real fields.
   const goals = _epicGoalsFromDescription(epic.description);
   const objectives = [
-    { lbl: 'State', v: 'Currently in', kpi: epic.state || 'Dev' },
+    { lbl: 'State', v: 'Currently in', kpi: epic.state || 'In Progress' },
     { lbl: 'Progress', v: `${doneN}/${total} items`, kpi: `${pct}% complete` },
     { lbl: 'Target date', v: epic.targetDate ? _epicFmtDate(epic.targetDate) : 'Not set', kpi: targetDays == null ? '—' : (targetPast ? `${Math.abs(targetDays)}d past` : `${targetDays}d left`) },
     { lbl: 'Owner', v: 'Assigned to', kpi: epic.assignedTo || '@me' },
@@ -4791,7 +4791,7 @@ function _epicComputeCockpit(raw) {
     name: epic.title, area: String(epic.areaPath || '').split('\\').pop() || epic.areaPath || '',
     iter: String(epic.iterationPath || '').split('\\').pop() || epic.iterationPath || '',
     pct, target: epic.targetDate ? _epicFmtDate(epic.targetDate) : '—', targetDays: targetDays == null ? 0 : targetDays,
-    state: epic.state || 'Dev', childCount: total, prCount: (prs || []).length,
+    state: epic.state || 'In Progress', childCount: total, prCount: (prs || []).length,
     summary, alerts, goals, objectives, work, forward, next, timeline, deliv, aiUpgraded: false
   };
 }
@@ -4808,7 +4808,7 @@ app.get('/api/codeflow/epics', async (req, res) => {
       for (const project of projects) {
         let items = [];
         try {
-          items = await azdo.queryWorkItems(org, project, { type: EPIC_TYPE, state: 'Dev', assignedToMe: true, top: 25 });
+          items = await azdo.queryWorkItems(org, project, { type: EPIC_TYPE, state: 'In Progress', assignedToMe: true, top: 25 });
         } catch (e) { errors.push(`${org}/${project}: ${e.message}`); continue; }
         for (const it of items) {
           const key = `${org}/${project}/${it.id}`;

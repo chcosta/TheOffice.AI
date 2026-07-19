@@ -24404,7 +24404,7 @@
           </section>
 
           <!-- ================= Code Flow · EPICS tab ================= -->
-          <!-- Your "DNCEng Epic" work items assigned to you and in Dev, rendered as one
+          <!-- Your "DNCEng Epic" work items assigned to you and In Progress, rendered as one
                AI-driven cockpit per epic. Deterministic baseline from real ADO data;
                "Refresh with AI" upgrades the standup/alerts/forward/next via the SDK.
                Self-contained lower-right assistant FAB → slide-over drawer, scoped to
@@ -24560,7 +24560,7 @@
             <div class="nlx-top">
               <div class="page-title">
                 <h1>🔀 Code Flow</h1>
-                <p>Your <span class="mono">DNCEng Epic</span> work items assigned to you and in <b>Dev</b>, rendered as one AI-driven cockpit per epic — goals, what's in flight, what unblocks progress, what's next, dates &amp; deliverables. The AI does the reading and correlating; you make the calls.</p>
+                <p>Your <span class="mono">DNCEng Epic</span> work items assigned to you and <b>In Progress</b>, rendered as one AI-driven cockpit per epic — goals, what's in flight, what unblocks progress, what's next, dates &amp; deliverables. The AI does the reading and correlating; you make the calls.</p>
               </div>
               <div class="nlx-actions">
                 <button class="btn ghost" type="button" x-show="codeflow.epics.list.length && codeflow.epics.list[codeflow.epics.idx]"
@@ -24590,7 +24590,7 @@
             <div x-show="codeflow.epics.error" class="epx-empty" x-text="codeflow.epics.error"></div>
             <div x-show="codeflow.epics.loaded && !codeflow.epics.loading && !codeflow.epics.error && !codeflow.epics.list.length" class="epx-empty">
               <div x-show="codeflow.epics.note === 'no-ado-config'">No Azure DevOps org/project is configured. Add one in Settings to see your epics.</div>
-              <div x-show="codeflow.epics.note !== 'no-ado-config'">No <span class="mono">DNCEng Epic</span> work items assigned to you are in <b>Dev</b> right now.</div>
+              <div x-show="codeflow.epics.note !== 'no-ado-config'">No <span class="mono">DNCEng Epic</span> work items assigned to you are <b>In Progress</b> right now.</div>
             </div>
 
             <div class="epx-studio" x-show="codeflow.epics.list.length">
@@ -53100,7 +53100,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (tab === 'active') return this.codeflowAttention.reviews || 0;
           return 0;
         },
-        // ===== Code Flow · Epics tab (DNCEng Epic work items assigned to me, in Dev) =====
+        // ===== Code Flow · Epics tab (DNCEng Epic work items assigned to me, In Progress) =====
         cfEpicsCount() { return (this.codeflow.epics.list || []).length; },
         cfEpicsAttn() { return (this.codeflow.epics.list || []).some(e => e && e.tone !== 'ok'); },
         // The currently-selected epic cockpit (or null).
