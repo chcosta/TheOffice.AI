@@ -4897,7 +4897,7 @@ function _epicComputeCockpit(raw) {
   const timeline = [];
   kids.filter(k => k.targetDate).sort((a, b) => Date.parse(a.targetDate) - Date.parse(b.targetDate)).slice(0, 4).forEach(k => {
     const d = _epicDaysUntil(k.targetDate);
-    timeline.push({ cls: '', d: _epicFmtDate(k.targetDate), e: k.title || `#${k.id}`, m: `#${k.id} · ${k.state}`, c: d != null && d < 0 ? 'late' : (d != null && d <= 14 ? 'soon' : 'ok'), cd: d == null ? '' : (d < 0 ? `${Math.abs(d)}d ago` : `${d}d`) });
+    timeline.push({ cls: '', d: _epicFmtDate(k.targetDate), e: k.title || `#${k.id}`, m: `#${k.id} · ${k.state}`, c: d != null && d < 0 ? 'late' : (d != null && d <= 14 ? 'soon' : 'ok'), cd: d == null ? '' : (d < 0 ? `${Math.abs(d)}d ago` : `${d}d`), href: k.url });
   });
   if (epic.targetDate) timeline.push({ cls: 'risk', d: _epicFmtDate(epic.targetDate), e: 'Epic target date', m: `${doneN}/${total} items done`, c: targetPast ? 'late' : (targetDays != null && targetDays <= 30 ? 'soon' : 'ok'), cd: targetDays == null ? '' : (targetPast ? `${Math.abs(targetDays)}d ago` : `${targetDays}d`) });
   if (!timeline.length) timeline.push({ cls: '', d: '—', e: 'No dated milestones', m: 'Add target dates to track the timeline', c: 'ok', cd: '' });
@@ -4909,7 +4909,7 @@ function _epicComputeCockpit(raw) {
     const ck = k._st === 'done' ? 'done' : (p > 0 && p < 100 ? 'part' : '');
     const risk = k._st === 'blocked' ? 'on' : (k._st === 'review' ? 'at' : 'ok');
     const riskT = k._st === 'blocked' ? 'Blocked' : (k._st === 'review' ? 'In review' : (k._st === 'done' ? 'Done' : (k._st === 'doing' ? 'On track' : 'Queued')));
-    return { ck, nm: k.title || `#${k.id}`, sub: `#${k.id} · ${k.type}`, pct: p, risk, riskT };
+    return { ck, nm: k.title || `#${k.id}`, sub: `#${k.id} · ${k.type}`, wid: k.id, href: k.url, type: k.type, pct: p, risk, riskT };
   });
 
   return {

@@ -2250,6 +2250,16 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   t.ok(/ep\.railCollapsed = !ep\.railCollapsed/.test(tgl) && /localStorage\.setItem\('epx-rail-collapsed'/.test(tgl), 'epicToggleRail flips railCollapsed + persists it');
   t.ok(/railCollapsed:/.test(html) && /localStorage\.getItem\('epx-rail-collapsed'\)/.test(html), 'epics data seeds railCollapsed from localStorage');
   t.ok(/class="epx-rail-xpand"/.test(html) && /'is-collapsed': codeflow\.epics\.railCollapsed/.test(html), 'collapsed rail shows an expand affordance + studio grid narrows via is-collapsed');
+
+  // Work-item references are clickable (open the AzDO work item)
+  t.ok(/class="mono epx-wilink" :href="epicCur\(\)\.url/.test(html), 'the epic number in the header links to its work item');
+  t.ok(/\.epx-wilink \{/.test(html), 'work-item links get a calm .epx-wilink hover style');
+  t.ok(/class="mono epx-wilink" :href="w\.href"/.test(html), 'the #id token on each in-flight work row links to that item');
+  t.ok(/class="mono epx-wilink" :href="r\.href"[^>]*x-text="'#' \+ r\.wid"/.test(html), 'the roadmap Gantt #wid links to its work item');
+  t.ok(/class="mono epx-wilink" :href="d\.href"[^>]*x-text="'#' \+ d\.wid"/.test(html), 'each deliverable #id links to its work item');
+  // Server plumbs the ids/urls the links need
+  t.ok(/wid: k\.id, href: k\.url, type: k\.type/.test(srv), 'server: deliverables carry wid/href/type so the client can link them');
+  t.ok(/href: k\.url \}\);/.test(srv), 'server: the child-date timeline rows carry an href to the work item');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {

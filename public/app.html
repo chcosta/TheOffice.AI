@@ -24460,6 +24460,8 @@
               .epx-ai-tag .dot { width:6px; height:6px; border-radius:50%; background:var(--cp-ai,#7c3aed); }
               .epx-ehead { display:grid; grid-template-columns:1fr auto; gap:18px; align-items:start; }
               .epx-ehead .eid { font-size:12px; color:var(--cp-text-soft); }
+              .epx-wilink { color:inherit; text-decoration:none; border-bottom:1px dotted color-mix(in srgb, currentColor 45%, transparent); cursor:pointer; }
+              .epx-wilink:hover { color:var(--cp-accent, #7c3aed); border-bottom-color:currentColor; }
               .epx-ehead h2 { margin:4px 0 8px; font-size:20px; font-weight:650; letter-spacing:-.02em; line-height:1.25; }
               .epx-facts { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:var(--cp-text-muted); }
               .epx-facts b { color:var(--cp-text); font-weight:600; }
@@ -24694,7 +24696,7 @@
                       <div class="bd">
                         <div class="epx-ehead">
                           <div>
-                            <div class="eid"><span class="mono" x-text="epicCur().id"></span> · <span class="mono">DNCEng Epic</span> <span x-show="epicCur().area">· <span x-text="epicCur().area"></span></span></div>
+                            <div class="eid"><a class="mono epx-wilink" :href="epicCur().url || '#'" target="_blank" rel="noopener" :title="'Open ' + epicCur().id + ' in Azure DevOps'" x-text="epicCur().id"></a> · <span class="mono">DNCEng Epic</span> <span x-show="epicCur().area">· <span x-text="epicCur().area"></span></span></div>
                             <h2 x-text="epicCur().name"></h2>
                             <div class="epx-facts">
                               <span class="epx-state"><span class="dot"></span><span x-text="epicCur().state"></span></span>
@@ -24776,7 +24778,7 @@
                               <div class="body">
                                 <div class="l1"><span class="wtype" x-text="w.type"></span><span class="wt" :class="w.href ? 'lk' : ''" @click="w.href && window.open(w.href, '_blank')" x-text="w.title"></span></div>
                                 <div class="l2">
-                                  <template x-for="(x, xi) in w.l2" :key="xi"><span :class="/^#|^PR|^!/.test(x) ? 'mono' : ''" x-text="x"></span></template>
+                                  <template x-for="(x, xi) in w.l2" :key="xi"><template x-if="/^#\d/.test(x) && w.href"><a class="mono epx-wilink" :href="w.href" target="_blank" rel="noopener" :title="'Open ' + x + ' in Azure DevOps'" x-text="x"></a></template><template x-if="!(/^#\d/.test(x) && w.href)"><span :class="/^#|^PR|^!/.test(x) ? 'mono' : ''" x-text="x"></span></template></template>
                                 </div>
                               </div>
                               <span class="age" :class="w.ageC" x-text="w.age"></span>
@@ -24846,7 +24848,7 @@
                                 <div class="epx-gantt-row">
                                   <div class="task">
                                     <span class="tn" x-text="r.title"></span>
-                                    <span class="ts"><span x-show="r.track" x-text="r.track"></span><span x-show="r.track && r.wid"> · </span><span x-show="r.wid" x-text="'#' + r.wid"></span></span>
+                                    <span class="ts"><span x-show="r.track" x-text="r.track"></span><span x-show="r.track && r.wid"> · </span><template x-if="r.wid && r.href"><a class="mono epx-wilink" :href="r.href" target="_blank" rel="noopener" :title="'Open #' + r.wid + ' in Azure DevOps'" x-text="'#' + r.wid"></a></template><template x-if="r.wid && !r.href"><span x-text="'#' + r.wid"></span></template></span>
                                   </div>
                                   <div class="epx-gantt-lane">
                                     <template x-for="(mo, mi) in epicGantt().months" :key="mi"><div class="grid" :style="'left:' + mo.left + '%'"></div></template>
@@ -24883,7 +24885,7 @@
                             <template x-for="(d, di) in epicCur().deliv" :key="di">
                               <div class="epx-drow">
                                 <span class="dck" :class="d.ck" x-text="d.ck === 'done' ? '✓' : (d.ck === 'part' ? '◗' : '')"></span>
-                                <div><div class="dnm" x-text="d.nm"></div><div class="dsub" x-text="d.sub"></div></div>
+                                <div><div class="dnm" x-text="d.nm"></div><div class="dsub"><template x-if="d.href && d.wid"><span><a class="mono epx-wilink" :href="d.href" target="_blank" rel="noopener" :title="'Open #' + d.wid + ' in Azure DevOps'" x-text="'#' + d.wid"></a><span x-show="d.type"> · <span x-text="d.type"></span></span></span></template><template x-if="!(d.href && d.wid)"><span x-text="d.sub"></span></template></div></div>
                                 <div class="dbar" :class="d.risk === 'on' ? 'risk' : ''"><i :style="'width:' + d.pct + '%'"></i></div>
                                 <div class="drisk" :class="d.risk" x-text="d.riskT"></div>
                               </div>
