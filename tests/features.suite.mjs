@@ -2239,11 +2239,14 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   t.ok(/x-for="a in codeflow\.epics\.assignees"/.test(html) && /<option value="">Me<\/option>/.test(html), 'dev <select> lists roster developers + a "Me" option (no pills)');
   // Rail scroll + collapse/expand
   t.ok(/class="epx-rail-list"/.test(html), 'epic rail wraps its rows in a scrollable .epx-rail-list');
-  const railListCss = _win(html, '.epx-rail-list {', 220);
+  const railListCss = _win(html, '.epx-rail-list {', 260);
   t.ok(/overflow-y:auto/.test(railListCss) && /min-height:0/.test(railListCss), '.epx-rail-list gets its own vertical scrollbar (overflow-y:auto + min-height:0)');
-  t.ok(/\.epx-rail \{[^}]*max-height:calc\(100vh/.test(html), '.epx-rail is bounded to the viewport height so the list scrolls instead of running off-screen');
+  t.ok(/x-init="epicInitRail\(\)"/.test(html), 'epics section wires epicInitRail on init');
+  const initR = _win(html, 'epicInitRail() {', 1400);
+  t.ok(/getBoundingClientRect\(\)\.top/.test(initR) && /window\.innerHeight/.test(initR) && /maxHeight/.test(initR), 'epicInitRail sizes the rail list from its live viewport top so the scrollbar fits');
+  t.ok(/addEventListener\('scroll'/.test(initR) && /addEventListener\('resize'/.test(initR), 'epicInitRail recomputes on scroll + resize');
   t.ok(/epicToggleRail\(\)/.test(html), 'SPA defines/wires epicToggleRail for expand/shrink');
-  const tgl = _win(html, 'epicToggleRail() {', 260);
+  const tgl = _win(html, 'epicToggleRail() {', 300);
   t.ok(/ep\.railCollapsed = !ep\.railCollapsed/.test(tgl) && /localStorage\.setItem\('epx-rail-collapsed'/.test(tgl), 'epicToggleRail flips railCollapsed + persists it');
   t.ok(/railCollapsed:/.test(html) && /localStorage\.getItem\('epx-rail-collapsed'\)/.test(html), 'epics data seeds railCollapsed from localStorage');
   t.ok(/class="epx-rail-xpand"/.test(html) && /'is-collapsed': codeflow\.epics\.railCollapsed/.test(html), 'collapsed rail shows an expand affordance + studio grid narrows via is-collapsed');

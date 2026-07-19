@@ -24409,13 +24409,13 @@
                "Refresh with AI" upgrades the standup/alerts/forward/next via the SDK.
                Self-contained lower-right assistant FAB → slide-over drawer, scoped to
                this tab (mirrors Board AI / Connect AI). NO pills. -->
-          <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'epics'">
+          <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'epics'" x-init="epicInitRail()">
             <style>
               .epx-studio { display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start; }
               @media (min-width:1001px){ .epx-studio.is-collapsed { grid-template-columns:44px minmax(0,1fr); } }
-              .epx-rail { position:sticky; top:6px; display:flex; flex-direction:column; gap:10px; max-height:calc(100vh - 18px); min-height:0; }
+              .epx-rail { position:sticky; top:6px; display:flex; flex-direction:column; gap:10px; min-height:0; }
               .epx-rail.is-collapsed { gap:0; }
-              .epx-rail-list { display:flex; flex-direction:column; gap:10px; flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; padding:3px; margin:-3px; }
+              .epx-rail-list { display:flex; flex-direction:column; gap:10px; min-height:0; overflow-y:auto; overflow-x:hidden; padding:3px; margin:-3px; max-height:calc(100vh - 230px); }
               .epx-rail-list::-webkit-scrollbar { width:8px; }
               .epx-rail-list::-webkit-scrollbar-thumb { background:var(--cp-border-strong); border-radius:4px; }
               .epx-rail-list::-webkit-scrollbar-track { background:transparent; }
@@ -24425,7 +24425,7 @@
               .epx-rail-xpand { display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; color:var(--cp-text-muted); width:100%; padding:9px 0; font-size:13px; font-variant-numeric:tabular-nums; box-shadow:var(--cp-shadow); }
               .epx-rail-xpand:hover { border-color:var(--cp-border-strong); color:var(--cp-text); }
               .epx-rail-xpand .chev { font-size:15px; }
-              @media (max-width:1000px){ .epx-studio { grid-template-columns:1fr; } .epx-studio.is-collapsed { grid-template-columns:1fr; } .epx-rail { order:2; position:static; max-height:none; } }
+              @media (max-width:1000px){ .epx-studio { grid-template-columns:1fr; } .epx-studio.is-collapsed { grid-template-columns:1fr; } .epx-rail { order:2; position:static; } .epx-rail-list { max-height:none; } }
               .epx-rail-h { display:flex; align-items:baseline; justify-content:space-between; padding:0 2px; }
               .epx-rail-h .t { font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); }
               .epx-rail-h .c { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
@@ -53272,6 +53272,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ep = this.codeflow.epics;
           ep.railCollapsed = !ep.railCollapsed;
           try { localStorage.setItem('epx-rail-collapsed', ep.railCollapsed ? '1' : '0'); } catch(e){}
+          this.$nextTick(() => this._epicSyncRail && this._epicSyncRail());
+        },
+        // Size the epic rail's scroll region to fit from its live top to the bottom of
+        // the viewport. The rail is position:sticky inside the scrolling .content pane,
+        // so its top moves as you scroll — a static max-height:100vh would run the list
+        // (and its scrollbar) far past the fold. Recompute on scroll/resize/state change.
+        epicInitRail() {
+          if (this._epicRailInit) return;
+          this._epicRailInit = true;
+          const sync = () => {
+            if (this.route !== 'codeflow' || this.codeflow.cfTab !== 'epics') return;
+            const el = document.querySelector('.epx-studio .epx-rail-list');
+            if (!el) return;
+            if (this.codeflow.epics.railCollapsed || window.innerWidth <= 1000) { el.style.maxHeight = ''; return; }
+            const top = el.getBoundingClientRect().top;
+            const h = Math.max(160, Math.floor(window.innerHeight - top - 14));
+            el.style.maxHeight = h + 'px';
+          };
+          this._epicSyncRail = sync;
+          let raf = 0;
+          const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
+          const sc = document.querySelector('.content');
+          if (sc) sc.addEventListener('scroll', schedule, { passive: true });
+          window.addEventListener('resize', schedule, { passive: true });
+          ['codeflow.epics.idx', 'codeflow.epics.list', 'codeflow.epics.railCollapsed', 'codeflow.epics.assignee', 'codeflow.cfTab', 'route'].forEach(p => {
+            try { this.$watch(p, () => this.$nextTick(schedule)); } catch(e){}
+          });
+          this.$nextTick(schedule);
         },
         // Build the roadmap Gantt (Style B) layout from the current epic's milestones.
         // Returns { ok, rows, months, todayPct } — all positions are axis percentages.
