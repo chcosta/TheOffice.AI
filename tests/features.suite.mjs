@@ -2237,6 +2237,16 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   t.ok(/'assignee=' \+ encodeURIComponent\(ep\.assignee\)/.test(loadE), 'loadCodeflowEpics sends the assignee query param');
   t.ok(/class="epx-devsel"/.test(html) && /@change="epicSetAssignee\(codeflow\.epics\.assignee\)"/.test(html), 'rail renders a dev <select> wired to epicSetAssignee');
   t.ok(/x-for="a in codeflow\.epics\.assignees"/.test(html) && /<option value="">Me<\/option>/.test(html), 'dev <select> lists roster developers + a "Me" option (no pills)');
+  // Rail scroll + collapse/expand
+  t.ok(/class="epx-rail-list"/.test(html), 'epic rail wraps its rows in a scrollable .epx-rail-list');
+  const railListCss = _win(html, '.epx-rail-list {', 220);
+  t.ok(/overflow-y:auto/.test(railListCss) && /min-height:0/.test(railListCss), '.epx-rail-list gets its own vertical scrollbar (overflow-y:auto + min-height:0)');
+  t.ok(/\.epx-rail \{[^}]*max-height:calc\(100vh/.test(html), '.epx-rail is bounded to the viewport height so the list scrolls instead of running off-screen');
+  t.ok(/epicToggleRail\(\)/.test(html), 'SPA defines/wires epicToggleRail for expand/shrink');
+  const tgl = _win(html, 'epicToggleRail() {', 260);
+  t.ok(/ep\.railCollapsed = !ep\.railCollapsed/.test(tgl) && /localStorage\.setItem\('epx-rail-collapsed'/.test(tgl), 'epicToggleRail flips railCollapsed + persists it');
+  t.ok(/railCollapsed:/.test(html) && /localStorage\.getItem\('epx-rail-collapsed'\)/.test(html), 'epics data seeds railCollapsed from localStorage');
+  t.ok(/class="epx-rail-xpand"/.test(html) && /'is-collapsed': codeflow\.epics\.railCollapsed/.test(html), 'collapsed rail shows an expand affordance + studio grid narrows via is-collapsed');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {

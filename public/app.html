@@ -24412,8 +24412,20 @@
           <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'epics'">
             <style>
               .epx-studio { display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start; }
-              @media (max-width:1000px){ .epx-studio { grid-template-columns:1fr; } .epx-rail { order:2; } }
-              .epx-rail { position:sticky; top:6px; display:flex; flex-direction:column; gap:10px; }
+              @media (min-width:1001px){ .epx-studio.is-collapsed { grid-template-columns:44px minmax(0,1fr); } }
+              .epx-rail { position:sticky; top:6px; display:flex; flex-direction:column; gap:10px; max-height:calc(100vh - 18px); min-height:0; }
+              .epx-rail.is-collapsed { gap:0; }
+              .epx-rail-list { display:flex; flex-direction:column; gap:10px; flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; padding:3px; margin:-3px; }
+              .epx-rail-list::-webkit-scrollbar { width:8px; }
+              .epx-rail-list::-webkit-scrollbar-thumb { background:var(--cp-border-strong); border-radius:4px; }
+              .epx-rail-list::-webkit-scrollbar-track { background:transparent; }
+              .epx-rail-hr { display:flex; align-items:center; gap:8px; }
+              .epx-rail-tgl { display:inline-flex; align-items:center; justify-content:center; cursor:pointer; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:7px; color:var(--cp-text-muted); width:22px; height:22px; padding:0; font-size:12px; line-height:1; }
+              .epx-rail-tgl:hover { border-color:var(--cp-border-strong); color:var(--cp-text); }
+              .epx-rail-xpand { display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; color:var(--cp-text-muted); width:100%; padding:9px 0; font-size:13px; font-variant-numeric:tabular-nums; box-shadow:var(--cp-shadow); }
+              .epx-rail-xpand:hover { border-color:var(--cp-border-strong); color:var(--cp-text); }
+              .epx-rail-xpand .chev { font-size:15px; }
+              @media (max-width:1000px){ .epx-studio { grid-template-columns:1fr; } .epx-studio.is-collapsed { grid-template-columns:1fr; } .epx-rail { order:2; position:static; max-height:none; } }
               .epx-rail-h { display:flex; align-items:baseline; justify-content:space-between; padding:0 2px; }
               .epx-rail-h .t { font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); }
               .epx-rail-h .c { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
@@ -24638,13 +24650,19 @@
               </div>
             </div>
 
-            <div class="epx-studio" x-show="codeflow.epics.list.length">
-              <aside class="epx-rail">
-                <div class="epx-rail-h">
+            <div class="epx-studio" :class="{ 'is-collapsed': codeflow.epics.railCollapsed }" x-show="codeflow.epics.list.length">
+              <aside class="epx-rail" :class="{ 'is-collapsed': codeflow.epics.railCollapsed }">
+                <button class="epx-rail-xpand" x-show="codeflow.epics.railCollapsed" @click="epicToggleRail()" title="Expand epic list" aria-label="Expand epic list">
+                  <span class="chev">»</span><span x-text="codeflow.epics.list.length"></span>
+                </button>
+                <div class="epx-rail-h" x-show="!codeflow.epics.railCollapsed">
                   <span class="t" x-text="epicViewingMe() ? 'My epics · In Progress' : ((codeflow.epics.me && codeflow.epics.assignee && (codeflow.epics.assignees.find(a => a.unique === codeflow.epics.assignee) || {}).name || 'Their') + ' epics · In Progress')"></span>
-                  <span class="c" x-text="codeflow.epics.list.length"></span>
+                  <span class="epx-rail-hr">
+                    <span class="c" x-text="codeflow.epics.list.length"></span>
+                    <button class="epx-rail-tgl" @click="epicToggleRail()" title="Collapse epic list" aria-label="Collapse epic list"><span class="chev">«</span></button>
+                  </span>
                 </div>
-                <div class="epx-devsel" x-show="codeflow.epics.assignees.length">
+                <div class="epx-devsel" x-show="!codeflow.epics.railCollapsed && codeflow.epics.assignees.length">
                   <label for="epx-dev">View developer</label>
                   <select id="epx-dev" x-model="codeflow.epics.assignee" @change="epicSetAssignee(codeflow.epics.assignee)">
                     <option value="">Me</option>
@@ -24653,17 +24671,19 @@
                     </template>
                   </select>
                 </div>
-                <template x-for="(e, i) in codeflow.epics.list" :key="e.key">
-                  <button class="epx-row" :class="[e.tone, i === codeflow.epics.idx ? 'sel' : '']" @click="epicSelect(i)">
-                    <span class="stripe"></span>
-                    <span class="flag" x-text="e.flag"></span>
-                    <span class="mono rid" x-text="e.id"></span>
-                    <div class="nm" x-text="e.name"></div>
-                    <div class="meta"><span x-text="e.pct + '%'"></span><span>·</span><span x-text="(e.targetDays || 0) + 'd to target'"></span></div>
-                    <div class="bar"><i :style="'width:' + e.pct + '%'"></i></div>
-                  </button>
-                </template>
-                <div class="epx-rail-note"><span x-show="epicViewingMe()">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = In Progress</span>. Refresh re-reads each epic's tree and flags the ones that need you.</span><span x-show="!epicViewingMe()">Viewing another developer's <span class="mono">DNCEng Epic</span> work items that are <b>In Progress</b>. Choose <b>Me</b> above to return to your own.</span></div>
+                <div class="epx-rail-list" x-show="!codeflow.epics.railCollapsed">
+                  <template x-for="(e, i) in codeflow.epics.list" :key="e.key">
+                    <button class="epx-row" :class="[e.tone, i === codeflow.epics.idx ? 'sel' : '']" @click="epicSelect(i)">
+                      <span class="stripe"></span>
+                      <span class="flag" x-text="e.flag"></span>
+                      <span class="mono rid" x-text="e.id"></span>
+                      <div class="nm" x-text="e.name"></div>
+                      <div class="meta"><span x-text="e.pct + '%'"></span><span>·</span><span x-text="(e.targetDays || 0) + 'd to target'"></span></div>
+                      <div class="bar"><i :style="'width:' + e.pct + '%'"></i></div>
+                    </button>
+                  </template>
+                </div>
+                <div class="epx-rail-note" x-show="!codeflow.epics.railCollapsed"><span x-show="epicViewingMe()">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = In Progress</span>. Refresh re-reads each epic's tree and flags the ones that need you.</span><span x-show="!epicViewingMe()">Viewing another developer's <span class="mono">DNCEng Epic</span> work items that are <b>In Progress</b>. Choose <b>Me</b> above to return to your own.</span></div>
               </aside>
 
               <section class="epx-detail" x-show="codeflow.epics.list[codeflow.epics.idx]">
@@ -32289,6 +32309,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             loaded: false, loading: false, error: '', note: '', signedIn: false,
             list: [], idx: 0, aiBusy: {},
             assignee: '', assignees: [], me: null,
+            railCollapsed: (function(){ try { return localStorage.getItem('epx-rail-collapsed') === '1'; } catch(e){ return false; } })(),
             // self-contained Epic assistant (lower-right FAB → drawer, scoped to the epics tab)
             chat: { open: false, sending: false, byKey: {}, input: '' },
           },
@@ -53247,6 +53268,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.loadCodeflowEpics();
         },
         epicViewingMe() { return !this.codeflow.epics.assignee; },
+        epicToggleRail() {
+          const ep = this.codeflow.epics;
+          ep.railCollapsed = !ep.railCollapsed;
+          try { localStorage.setItem('epx-rail-collapsed', ep.railCollapsed ? '1' : '0'); } catch(e){}
+        },
         // Build the roadmap Gantt (Style B) layout from the current epic's milestones.
         // Returns { ok, rows, months, todayPct } — all positions are axis percentages.
         epicGantt() {
