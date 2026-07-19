@@ -24546,6 +24546,23 @@
               .epx-wrow .age.stale { color:var(--cp-warning); font-weight:600; }
               .epx-wrow .age.old { color:var(--cp-danger); font-weight:600; }
               .epx-wrow .wt.lk { cursor:pointer; } .epx-wrow .wt.lk:hover { color:var(--cp-accent); text-decoration:underline; }
+              .epx-kanban { margin-top:12px; }
+              .epx-kanban-bar { display:flex; height:8px; border-radius:6px; overflow:hidden; background:var(--cp-border); }
+              .epx-kanban-bar .seg { min-width:6px; }
+              .epx-kanban-bar .seg.doing { background:var(--cp-accent); }
+              .epx-kanban-bar .seg.review { background:var(--cp-warning); }
+              .epx-kanban-bar .seg.blocked { background:var(--cp-danger); }
+              .epx-kanban-bar .seg.todo { background:var(--cp-text-soft); }
+              .epx-kanban-bar .seg.done { background:var(--cp-success); }
+              .epx-kanban-legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px; font-size:11.5px; color:var(--cp-text-muted); }
+              .epx-kanban-legend .lg { display:inline-flex; align-items:center; gap:6px; }
+              .epx-kanban-legend .lg b { color:var(--cp-text); font-variant-numeric:tabular-nums; }
+              .epx-kanban-legend .d { width:8px; height:8px; border-radius:50%; }
+              .epx-kanban-legend .d.doing { background:var(--cp-accent); }
+              .epx-kanban-legend .d.review { background:var(--cp-warning); }
+              .epx-kanban-legend .d.blocked { background:var(--cp-danger); }
+              .epx-kanban-legend .d.todo { background:var(--cp-text-soft); }
+              .epx-kanban-legend .d.done { background:var(--cp-success); }
               .epx-steps { display:flex; flex-direction:column; gap:0; }
               .epx-step { display:flex; gap:13px; padding:12px 0; border-bottom:1px solid var(--cp-border); }
               .epx-step:last-child { border-bottom:0; }
@@ -24732,6 +24749,14 @@
                           <span class="rt"><span x-show="epicCur().aiUpgraded">AI-synthesized</span><span x-show="!epicCur().aiUpgraded">from live data · <a style="cursor:pointer" @click="epicUpgradeAi()">refresh with AI</a></span></span>
                         </div>
                         <template x-for="(p, pi) in epicCur().summary" :key="pi"><p x-html="p"></p></template>
+                        <div class="epx-kanban" x-show="epicCur().kanban && epicCur().kanban.total">
+                          <div class="epx-kanban-bar">
+                            <template x-for="s in epicKanbanSegs()" :key="s.k"><span class="seg" :class="s.k" x-show="s.n" :style="'flex:' + s.n" :title="s.label + ': ' + s.n"></span></template>
+                          </div>
+                          <div class="epx-kanban-legend">
+                            <template x-for="s in epicKanbanSegs()" :key="s.k"><span class="lg" x-show="s.n"><span class="d" :class="s.k"></span><span x-text="s.label"></span> <b x-text="s.n"></b></span></template>
+                          </div>
+                        </div>
                         <div class="epx-alerts">
                           <template x-for="(a, ai) in epicCur().alerts" :key="ai">
                             <div class="epx-alert" :class="a.sev">
@@ -24769,7 +24794,7 @@
 
                     <!-- right now -->
                     <div class="epx-card" id="epx-now">
-                      <div class="epx-card-h"><span class="epx-sec-ic">⚡</span><h3>What's in flight right now</h3><span class="rt">from the epic's child work items</span></div>
+                      <div class="epx-card-h"><span class="epx-sec-ic">⚡</span><h3>What's in flight right now</h3><span class="rt">being worked, in review, or blocked — backlog is under Next up</span></div>
                       <div class="bd">
                         <div class="epx-work">
                           <template x-for="(w, wi) in epicCur().work" :key="wi">
@@ -24784,7 +24809,7 @@
                               <span class="age" :class="w.ageC" x-text="w.age"></span>
                             </div>
                           </template>
-                          <div x-show="!epicCur().work.length" class="muted" style="padding:12px 0">No child work items.</div>
+                          <div x-show="!epicCur().work.length" class="muted" style="padding:12px 0" x-text="(epicCur().kanban && epicCur().kanban.total) ? 'Nothing is actively in flight — everything is either done or still in the backlog (see Next up).' : 'No child work items.'"></div>
                         </div>
                       </div>
                     </div>
@@ -53226,6 +53251,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         epicCur() {
           const ep = this.codeflow.epics;
           return (ep.list && ep.list[ep.idx]) || null;
+        },
+        // Kanban state segments for the standup strip (order = flow left→right).
+        epicKanbanSegs() {
+          const c = this.epicCur();
+          const k = (c && c.kanban) || {};
+          return [
+            { k: 'doing', label: 'In progress', n: k.doing || 0 },
+            { k: 'review', label: 'In review', n: k.review || 0 },
+            { k: 'blocked', label: 'Blocked', n: k.blocked || 0 },
+            { k: 'todo', label: 'Not started', n: k.todo || 0 },
+            { k: 'done', label: 'Done', n: k.done || 0 },
+          ];
         },
         // Load my epics + their cockpits. refresh=1 forces a server-side re-read + recompute.
         async loadCodeflowEpics(refresh) {

@@ -2260,6 +2260,21 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   // Server plumbs the ids/urls the links need
   t.ok(/wid: k\.id, href: k\.url, type: k\.type/.test(srv), 'server: deliverables carry wid/href/type so the client can link them');
   t.ok(/href: k\.url \}\);/.test(srv), 'server: the child-date timeline rows carry an href to the work item');
+
+  // --- in-flight honesty + kanban standup strip ---
+  t.ok(/const inflight = kids\.filter\(k => k\._st === 'blocked' \|\| k\._st === 'doing' \|\| k\._st === 'review'\)/.test(srv), 'server: inflight = only blocked/doing/review (backlog + done excluded)');
+  t.ok(/const work = inflight\.slice\(\)/.test(srv), 'server: the work rows are built from inflight only (no backlog padding)');
+  t.ok(!/const work = kids\.slice\(\)\.sort/.test(srv), 'server: work no longer sorts+slices ALL kids (the old backlog-padding bug is gone)');
+  t.ok(/Nothing is actively in flight/.test(srv), 'server: honest empty-state summary when nothing is in flight');
+  t.ok(/kanban: \{ doing: doingK\.length, review: reviewK\.length, blocked: blocked\.length, todo: todoK\.length, done: doneN, total \}/.test(srv), 'server: cockpit returns a kanban state breakdown');
+  t.ok(!/still in flight; nothing is currently blocked/.test(srv), 'server: the misleading "N still in flight" line is removed');
+  // client kanban strip
+  t.ok(/epicKanbanSegs\(\) \{/.test(html), 'client defines epicKanbanSegs()');
+  const segs = _win(html, 'epicKanbanSegs() {', 700);
+  t.ok(/'doing'/.test(segs) && /'review'/.test(segs) && /'blocked'/.test(segs) && /'todo'/.test(segs) && /'done'/.test(segs), 'epicKanbanSegs returns all five states');
+  t.ok(/class="epx-kanban"/.test(html) && /epicKanbanSegs\(\)/.test(html), 'the standup card renders a kanban strip fed by epicKanbanSegs');
+  t.ok(/\.epx-kanban-bar \.seg\.blocked \{ background:var\(--cp-danger\)/.test(html), 'kanban bar reuses the epx status colors (no pills)');
+  t.ok(/being worked, in review, or blocked — backlog is under Next up/.test(html), 'the in-flight section subtitle clarifies it excludes backlog');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {

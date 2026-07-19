@@ -4818,6 +4818,12 @@ function _epicComputeCockpit(raw) {
   const total = kids.length;
   const doneN = kids.filter(k => k._st === 'done').length;
   const blocked = kids.filter(k => k._st === 'blocked');
+  const doingK = kids.filter(k => k._st === 'doing');
+  const reviewK = kids.filter(k => k._st === 'review');
+  const todoK = kids.filter(k => k._st === 'todo');
+  // "In flight" = actively being worked, in review, or blocked. Backlog (todo) and
+  // done are explicitly NOT in flight.
+  const inflight = kids.filter(k => k._st === 'blocked' || k._st === 'doing' || k._st === 'review');
   const pct = total ? Math.round((doneN / total) * 100) : 0;
   const targetDays = _epicDaysUntil(epic.targetDate);
   const targetPast = targetDays != null && targetDays < 0;
@@ -4832,8 +4838,18 @@ function _epicComputeCockpit(raw) {
   const targetPhrase = targetDays == null ? 'no target date set'
     : (targetPast ? `<b>${Math.abs(targetDays)}d past</b> its target` : `<b>${targetDays}d</b> to target`);
   summary.push(`<b>${epic.title}</b> is <b>${pct}%</b> complete — ${doneN} of ${total} child item${total === 1 ? '' : 's'} done, ${targetPhrase}.`);
-  if (blocked.length) summary.push(`${blocked.length} item${blocked.length === 1 ? ' is' : 's are'} blocked and need attention: ${blocked.slice(0, 3).map(b => '#' + b.id).join(', ')}.`);
-  else if (total && doneN < total) summary.push(`${total - doneN} item${total - doneN === 1 ? '' : 's'} still in flight; nothing is currently blocked.`);
+  // Honest kanban-style state line — count only genuinely in-flight work, and call
+  // out backlog separately (it is NOT in flight).
+  const stateBits = [];
+  if (doingK.length) stateBits.push(`<b>${doingK.length}</b> in progress`);
+  if (reviewK.length) stateBits.push(`<b>${reviewK.length}</b> in review`);
+  if (blocked.length) stateBits.push(`<b>${blocked.length}</b> blocked`);
+  if (stateBits.length) {
+    summary.push(`In flight now: ${stateBits.join(', ')}${todoK.length ? ` — <b>${todoK.length}</b> more not yet started.` : '.'}`);
+  } else if (todoK.length) {
+    summary.push(`Nothing is actively in flight — <b>${todoK.length}</b> item${todoK.length === 1 ? ' is' : 's are'} in the backlog, not yet started.`);
+  }
+  if (blocked.length) summary.push(`Blocked and needing attention: ${blocked.slice(0, 3).map(b => '#' + b.id).join(', ')}.`);
   if (prs && prs.length) summary.push(`${prs.length} linked pull request${prs.length === 1 ? '' : 's'}.`);
 
   // Alerts.
@@ -4858,10 +4874,11 @@ function _epicComputeCockpit(raw) {
     { lbl: 'Owner', v: 'Assigned to', kpi: epic.assignedTo || '@me' },
   ];
 
-  // Work rows — active/blocked/review first, then the rest.
+  // Work rows — ONLY genuinely in-flight items (blocked → doing → review), most
+  // urgent first. Backlog and done are excluded (backlog shows under "Next up").
   const rank = { blocked: 0, doing: 1, review: 2, todo: 3, done: 4 };
-  const work = kids.slice().sort((a, b) => (rank[a._st] - rank[b._st]) || (Date.parse(b.changedDate || 0) - Date.parse(a.changedDate || 0)))
-    .slice(0, 8).map(k => {
+  const work = inflight.slice().sort((a, b) => (rank[a._st] - rank[b._st]) || (Date.parse(b.changedDate || 0) - Date.parse(a.changedDate || 0)))
+    .slice(0, 12).map(k => {
       const age = _epicAgo(k.changedDate);
       const ageC = /mo/.test(age) ? 'old' : (/w/.test(age) ? 'stale' : '');
       const l2 = [`#${k.id}`];
@@ -4918,6 +4935,7 @@ function _epicComputeCockpit(raw) {
     iter: String(epic.iterationPath || '').split('\\').pop() || epic.iterationPath || '',
     pct, target: epic.targetDate ? _epicFmtDate(epic.targetDate) : '—', targetDays: targetDays == null ? 0 : targetDays,
     state: epic.state || 'In Progress', childCount: total, prCount: (prs || []).length,
+    kanban: { doing: doingK.length, review: reviewK.length, blocked: blocked.length, todo: todoK.length, done: doneN, total },
     summary, alerts, goals, objectives, work, forward, next, timeline, deliv, aiUpgraded: false,
     docs: [], roadmap: null
   };
