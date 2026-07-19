@@ -5095,10 +5095,57 @@ app.get('/api/codeflow/epics', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// Enumerate installed standup agents (created from the Automations "Standup" flow).
+// These are the personas the user can pick to synthesize an epic standup / drive the
+// epic chat instead of the built-in epic assistant. Filter loadAgents() for the
+// durable standup marker (source.type==='standup', or group==='Standup').
+function _epicStandupAgents() {
+  try {
+    const agents = loadAgents();
+    return agents
+      .filter(a => a && ((a.source && a.source.type === 'standup') || a.group === 'Standup'))
+      .map(a => ({
+        id: a.id,
+        name: a.name || a.id,
+        description: a.description || '',
+        epicId: (a.source && a.source.epicId) || '',
+        epicTitle: (a.source && a.source.epicTitle) || '',
+        org: (a.source && a.source.org) || '',
+        project: (a.source && a.source.project) || '',
+      }));
+  } catch { return []; }
+}
+
+// Resolve a persona choice (agent id, or 'builtin'/'') to an sdkRunner.runChat config.
+// 'builtin' (or empty / unknown) → config:null (the built-in epic assistant, current
+// behavior). A valid installed standup agent → a project-agent config that loads that
+// agent's .agent.md persona (voice/lens/priorities) via _resolveProjectAgent. Tools are
+// still gated per-route (availableTools:[]) so the persona shapes the output without the
+// standup agent wandering off through its MCP.
+function _epicPersonaConfig(personaId) {
+  const id = String(personaId || '').trim();
+  if (!id || id === 'builtin') return { config: null, persona: 'builtin', agentName: '' };
+  try {
+    const agents = loadAgents();
+    const a = agents.find(x => x && x.id === id && ((x.source && x.source.type === 'standup') || x.group === 'Standup'));
+    if (a && a.cwd) {
+      return { config: { cwd: a.cwd, agent: a.agent || a.name || a.id, allowAll: true }, persona: a.id, agentName: a.name || a.id };
+    }
+  } catch {}
+  return { config: null, persona: 'builtin', agentName: '' };
+}
+
+// The persona menu for the Epics tab: the built-in assistant + every installed standup agent.
+app.get('/api/codeflow/epics/agents', (req, res) => {
+  try { res.json({ ok: true, agents: _epicStandupAgents() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message, agents: [] }); }
+});
+
 app.post('/api/codeflow/epics/ai', async (req, res) => {
   const key = String((req.body && req.body.key) || '');
   const entry = _epicCache.get(key);
   if (!entry) return res.status(404).json({ error: 'epic not loaded — refresh the Epics tab first' });
+  const { config: personaCfg, persona } = _epicPersonaConfig(req.body && req.body.persona);
   try {
     const raw = entry.raw;
     const kids = (raw.children || []).map(c => ({ id: c.id, title: c.title, state: c.state, type: c.type, status: _epicChildStatus(c), changed: _epicAgo(c.changedDate), target: c.targetDate ? _epicFmtDate(c.targetDate) : '' }));
@@ -5128,22 +5175,23 @@ app.post('/api/codeflow/epics/ai', async (req, res) => {
     ].join('\n');
     let acc = '';
     const result = await sdkRunner.runChat({
-      config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+      config: personaCfg, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
       availableTools: [], onChunk: (c) => { acc += c; },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
       meta: { source: 'system', category: 'chat' },
     });
-    if (result && result.fallback) return res.json({ ok: false, reason: 'runtime-unavailable', cockpit: entry.cockpit });
+    if (result && result.fallback) return res.json({ ok: false, reason: 'runtime-unavailable', persona, cockpit: entry.cockpit });
     const parsed = _connectExtractJson(acc.trim() || (result && result.output) || '');
-    if (!parsed) return res.json({ ok: false, reason: 'no-json', cockpit: entry.cockpit });
+    if (!parsed) return res.json({ ok: false, reason: 'no-json', persona, cockpit: entry.cockpit });
     const cockpit = { ...entry.cockpit };
     if (Array.isArray(parsed.summary) && parsed.summary.length) cockpit.summary = parsed.summary.map(String).slice(0, 3);
     if (Array.isArray(parsed.alerts)) cockpit.alerts = parsed.alerts.slice(0, 4).map(a => ({ sev: /crit|warn|info/.test(a.sev) ? a.sev : 'info', ic: String(a.ic || 'ℹ️').slice(0, 4), title: String(a.title || '').slice(0, 90), why: String(a.why || '').slice(0, 200), act: String(a.act || '').slice(0, 24) }));
     if (Array.isArray(parsed.forward) && parsed.forward.length) cockpit.forward = parsed.forward.slice(0, 4).map((f, i) => ({ t: String(f.t || '').slice(0, 90), why: String(f.why || '').slice(0, 200), tag: String(f.tag || 'next').slice(0, 24), dep: f.dep ? String(f.dep).slice(0, 60) : null, act: String(f.act || 'Open').slice(0, 24), href: (entry.cockpit.forward[i] && entry.cockpit.forward[i].href) || entry.cockpit.url }));
     if (Array.isArray(parsed.next) && parsed.next.length) cockpit.next = parsed.next.slice(0, 3).map(n => ({ t: String(n.t || '').slice(0, 90), why: String(n.why || '').slice(0, 200) }));
     cockpit.aiUpgraded = true;
+    cockpit.aiPersona = persona;
     _epicCache.set(key, { ...entry, cockpit, at: Date.now() });
-    res.json({ ok: true, cockpit });
+    res.json({ ok: true, persona, cockpit });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
@@ -5154,6 +5202,7 @@ app.post('/api/codeflow/epics/assistant', async (req, res) => {
   const entry = _epicCache.get(key);
   if (!entry) return res.status(404).json({ error: 'epic not loaded — refresh the Epics tab first' });
   if (!message) return res.status(400).json({ error: 'message is required' });
+  const { config: personaCfg, persona } = _epicPersonaConfig(req.body && req.body.persona);
   try {
     const c = entry.cockpit;
     const raw = entry.raw;
@@ -5176,14 +5225,14 @@ app.post('/api/codeflow/epics/assistant', async (req, res) => {
     ].filter(Boolean).join('\n');
     let acc = '';
     const result = await sdkRunner.runChat({
-      config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+      config: personaCfg, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
       availableTools: [], onChunk: (ch) => { acc += ch; },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
       meta: { source: 'system', category: 'chat' },
     });
-    if (result && result.fallback) return res.json({ ok: false, reply: 'The assistant runtime is not available right now.' });
+    if (result && result.fallback) return res.json({ ok: false, persona, reply: 'The assistant runtime is not available right now.' });
     const reply = (acc.trim() || (result && result.output) || '').trim();
-    res.json({ ok: true, reply: reply || 'I could not produce a response.' });
+    res.json({ ok: true, persona, reply: reply || 'I could not produce a response.' });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 

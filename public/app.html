@@ -24483,6 +24483,18 @@
               .epx-standup-h { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
               .epx-standup-h .who { font-size:13px; font-weight:650; }
               .epx-standup-h .rt { margin-left:auto; font-size:11px; color:var(--cp-text-soft); }
+              /* AI persona picker — calm text button + dropdown (no pills) */
+              .epx-persona { position:relative; }
+              .epx-persona-btn { display:inline-flex; align-items:center; gap:6px; background:transparent; border:1px solid var(--cp-border); border-radius:8px; padding:6px 10px; font-size:12.5px; color:var(--cp-text); cursor:pointer; }
+              .epx-persona-btn:hover { border-color:var(--cp-accent); }
+              .epx-persona-caret { color:var(--cp-text-soft); font-size:10px; }
+              .epx-persona-menu { position:absolute; top:calc(100% + 6px); right:0; z-index:60; min-width:280px; max-width:340px; background:var(--cp-panel,var(--cp-bg)); border:1px solid var(--cp-border); border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,.18); padding:6px; }
+              .epx-persona-head { font-size:10.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); padding:6px 8px 4px; }
+              .epx-persona-opt { display:block; width:100%; text-align:left; background:transparent; border:0; border-radius:8px; padding:8px 9px; cursor:pointer; color:var(--cp-text); }
+              .epx-persona-opt:hover { background:var(--cp-surface); }
+              .epx-persona-opt.on { background:var(--cp-accent-soft); }
+              .epx-persona-opt-name { display:block; font-size:13px; font-weight:600; }
+              .epx-persona-opt-desc { display:block; font-size:11.5px; color:var(--cp-text-soft); margin-top:1px; }
               .epx-standup p { margin:0 0 9px; font-size:13.5px; line-height:1.55; }
               .epx-alerts { display:flex; flex-direction:column; gap:7px; margin-top:11px; }
               .epx-alert { display:flex; align-items:flex-start; gap:10px; padding:9px 11px; border-radius:10px; background:var(--cp-surface); border:1px solid var(--cp-border); font-size:12.5px; }
@@ -24629,6 +24641,22 @@
                 <p>Your <span class="mono">DNCEng Epic</span> work items assigned to you and <b>In Progress</b>, rendered as one AI-driven cockpit per epic — goals, what's in flight, what unblocks progress, what's next, dates &amp; deliverables. The AI does the reading and correlating; you make the calls.</p>
               </div>
               <div class="nlx-actions">
+                <div class="epx-persona" x-show="codeflow.cfTab === 'epics' && codeflow.epics.list.length" @click.outside="codeflow.epics.personaOpen = false">
+                  <button class="epx-persona-btn" type="button" @click="epicTogglePersona()"
+                          title="Choose who synthesizes the standup and answers in chat">
+                    <span class="epx-persona-lbl">🧠 <span x-text="epicPersonaLabel()"></span></span>
+                    <span class="epx-persona-caret" x-text="codeflow.epics.personaOpen ? '▾' : '▸'"></span>
+                  </button>
+                  <div class="epx-persona-menu" x-show="codeflow.epics.personaOpen" x-transition x-cloak>
+                    <div class="epx-persona-head">AI persona</div>
+                    <template x-for="p in epicPersonaChoices()" :key="p.id">
+                      <button type="button" class="epx-persona-opt" :class="{ on: codeflow.epics.persona === p.id }" @click="epicSetPersona(p.id)">
+                        <span class="epx-persona-opt-name" x-text="p.name"></span>
+                        <span class="epx-persona-opt-desc" x-text="p.description"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
                 <button class="btn ghost" type="button" x-show="codeflow.epics.list.length && codeflow.epics.list[codeflow.epics.idx]"
                         :disabled="codeflow.epics.list[codeflow.epics.idx] && codeflow.epics.aiBusy[codeflow.epics.list[codeflow.epics.idx].key]"
                         @click="epicUpgradeAi()"
@@ -24746,7 +24774,11 @@
                         <div class="epx-standup-h">
                           <span class="epx-ai-tag"><span class="dot"></span>AI STANDUP</span>
                           <span class="who">Where this epic stands &amp; what needs you</span>
-                          <span class="rt"><span x-show="epicCur().aiUpgraded">AI-synthesized</span><span x-show="!epicCur().aiUpgraded">from live data · <a style="cursor:pointer" @click="epicUpgradeAi()">refresh with AI</a></span></span>
+                          <span class="rt">
+                            <span x-show="codeflow.epics.aiBusy[epicCur().key]">🧠 <span x-text="epicPersonaLabel()"></span> is synthesizing…</span>
+                            <span x-show="!codeflow.epics.aiBusy[epicCur().key] && epicCur().aiUpgraded">AI-synthesized · <span x-text="epicPersonaLabel()"></span></span>
+                            <span x-show="!codeflow.epics.aiBusy[epicCur().key] && !epicCur().aiUpgraded">from live data · <a style="cursor:pointer" @click="epicUpgradeAi()">refresh with AI</a></span>
+                          </span>
                         </div>
                         <template x-for="(p, pi) in epicCur().summary" :key="pi"><p x-html="p"></p></template>
                         <div class="epx-kanban" x-show="epicCur().kanban && epicCur().kanban.total">
@@ -32337,6 +32369,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             list: [], idx: 0, aiBusy: {},
             assignee: '', assignees: [], me: null,
             railCollapsed: (function(){ try { return localStorage.getItem('epx-rail-collapsed') === '1'; } catch(e){ return false; } })(),
+            // persona: which voice synthesizes the standup + drives the chat — 'builtin' (default
+            // epic assistant) or an installed standup agent's id. Persisted globally; agents loaded
+            // from GET /api/codeflow/epics/agents. _aiKicked guards the auto-AI-standup one-shot.
+            persona: (function(){ try { return localStorage.getItem('epx-persona') || 'builtin'; } catch(e){ return 'builtin'; } })(),
+            personaOpen: false, agents: [], agentsLoaded: false, _aiKicked: {},
             // self-contained Epic assistant (lower-right FAB → drawer, scoped to the epics tab)
             chat: { open: false, sending: false, byKey: {}, input: '' },
           },
@@ -53291,6 +53328,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             ep.loading = false; ep.loaded = true;
           }
+          this.epicLoadAgents();
+          this.$nextTick(() => this.epicAiAuto());
+        },
+        // Load the persona menu (built-in assistant + installed standup agents). Once per session.
+        async epicLoadAgents(force) {
+          const ep = this.codeflow.epics;
+          if (ep.agentsLoaded && !force) return;
+          try {
+            const r = await this.request('/api/codeflow/epics/agents');
+            ep.agents = (r && r.ok && Array.isArray(r.agents)) ? r.agents : [];
+          } catch (e) { ep.agents = []; }
+          ep.agentsLoaded = true;
+          // A previously-chosen agent may have been uninstalled — fall back to built-in.
+          if (ep.persona !== 'builtin' && !ep.agents.some(a => a.id === ep.persona)) this.epicSetPersona('builtin', true);
+        },
+        // The persona menu: built-in first, then each installed standup agent.
+        epicPersonaChoices() {
+          const ep = this.codeflow.epics;
+          const out = [{ id: 'builtin', name: 'Built-in epic assistant', description: 'The default delivery analyst — no setup required.' }];
+          (ep.agents || []).forEach(a => out.push({ id: a.id, name: a.name, description: a.description || (a.epicTitle ? ('Standup agent · ' + a.epicTitle) : 'Installed standup agent') }));
+          return out;
+        },
+        epicPersonaLabel() {
+          const ep = this.codeflow.epics;
+          if (ep.persona === 'builtin') return 'Built-in epic assistant';
+          const a = (ep.agents || []).find(x => x.id === ep.persona);
+          return a ? a.name : 'Built-in epic assistant';
+        },
+        epicTogglePersona() { const ep = this.codeflow.epics; ep.personaOpen = !ep.personaOpen; },
+        // Change the persona. Persist, invalidate the auto-kick guard for the current epic (so the
+        // standup re-synthesizes under the new voice), and re-run the standup for the open epic.
+        epicSetPersona(id, silent) {
+          const ep = this.codeflow.epics;
+          ep.persona = id || 'builtin';
+          ep.personaOpen = false;
+          try { localStorage.setItem('epx-persona', ep.persona); } catch(e){}
+          if (silent) return;
+          const cur = this.epicCur();
+          if (cur) { const g = { ...ep._aiKicked }; delete g[cur.key]; ep._aiKicked = g; }
+          this.$nextTick(() => this.epicAiAuto(true));
+        },
+        // Auto-run the AI standup once per epic per persona. Fires on epic select / load / persona
+        // change. Degrades silently to the heuristic cockpit if the runtime is unavailable.
+        epicAiAuto(force) {
+          const ep = this.codeflow.epics;
+          const cur = this.epicCur();
+          if (!cur) return;
+          const stamp = cur.key + '|' + ep.persona;
+          if (!force && ep._aiKicked[cur.key] === stamp) return;
+          if (cur.aiUpgraded && cur.aiPersona === ep.persona) { ep._aiKicked = { ...ep._aiKicked, [cur.key]: stamp }; return; }
+          if (ep.aiBusy[cur.key]) return;
+          ep._aiKicked = { ...ep._aiKicked, [cur.key]: stamp };
+          this.epicUpgradeAi();
         },
         // Switch the Epics view to another developer's In-Progress epics (or back to me).
         // Bypasses the `loaded` guard so the new scope refetches, but WITHOUT refresh=1 so
@@ -53384,6 +53474,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ep = this.codeflow.epics;
           if (i < 0 || i >= ep.list.length) return;
           ep.idx = i;
+          this.$nextTick(() => this.epicAiAuto());
         },
         // Upgrade the selected epic's standup/alerts/forward/next with AI (server /ai route).
         async epicUpgradeAi() {
@@ -53395,7 +53486,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/codeflow/epics/ai', {
               method: 'POST',
-              body: JSON.stringify({ key: cur.key }),
+              body: JSON.stringify({ key: cur.key, persona: ep.persona }),
             });
             if (r && r.ok && r.cockpit) {
               const i = ep.list.findIndex(e => e.key === cur.key);
@@ -53481,7 +53572,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/codeflow/epics/assistant', {
               method: 'POST',
-              body: JSON.stringify({ key, message: text, history }),
+              body: JSON.stringify({ key, message: text, history, persona: this.codeflow.epics.persona }),
             });
             const reply = (r && r.ok && r.reply) ? r.reply : (r && r.reply) || 'I couldn\u2019t answer that just now.';
             const cur = (ch.byKey[key] || []).slice();

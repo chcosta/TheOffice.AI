@@ -2148,7 +2148,7 @@ await t.test('code flow: Epics tab — DNCEng epic cockpit wired end to end (tab
   const cfTabDefault = _win(html, "cfTab", 400);
   t.ok(cfTabDefault, 'cfTab wiring present');
   // --- state block ---
-  const st = _win(html, 'epics: {', 700);
+  const st = _win(html, 'epics: {', 1300);
   t.ok(st, 'codeflow.epics state block exists');
   t.ok(/list:/.test(st) && /idx:/.test(st) && /loading:/.test(st) && /chat:/.test(st) && /aiBusy:/.test(st), 'epics state carries list/idx/loading/chat/aiBusy');
   // --- key methods defined ---
@@ -2275,6 +2275,54 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   t.ok(/class="epx-kanban"/.test(html) && /epicKanbanSegs\(\)/.test(html), 'the standup card renders a kanban strip fed by epicKanbanSegs');
   t.ok(/\.epx-kanban-bar \.seg\.blocked \{ background:var\(--cp-danger\)/.test(html), 'kanban bar reuses the epx status colors (no pills)');
   t.ok(/being worked, in review, or blocked — backlog is under Next up/.test(html), 'the in-flight section subtitle clarifies it excludes backlog');
+});
+
+await t.test('code flow: Epics — AI persona picker + auto-AI standup (built-in or installed standup agent)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+
+  // --- state: persona (persisted), agents list, auto-kick guard ---
+  const st = _win(html, 'epics: {', 900);
+  t.ok(/persona:/.test(st) && /epx-persona/.test(st), 'epics state carries a persisted persona (localStorage epx-persona)');
+  t.ok(/agents:\s*\[\]/.test(st) && /agentsLoaded:/.test(st) && /_aiKicked:/.test(st), 'epics state carries agents/agentsLoaded/_aiKicked guard');
+
+  // --- client methods ---
+  for (const m of ['epicLoadAgents(', 'epicPersonaChoices()', 'epicPersonaLabel()', 'epicSetPersona(', 'epicAiAuto(', 'epicTogglePersona()']) {
+    t.ok(html.includes(m), 'method defined: ' + m);
+  }
+  // loader hits the agents route
+  const la = _win(html, 'async epicLoadAgents(', 500);
+  t.ok(/\/api\/codeflow\/epics\/agents/.test(la), 'epicLoadAgents GETs the agents route');
+  // built-in is always the first choice
+  const pc = _win(html, 'epicPersonaChoices() {', 500);
+  t.ok(/'builtin'/.test(pc) && /Built-in epic assistant/.test(pc), 'built-in epic assistant is always offered first');
+  // auto-kick fires once per epic per persona, degrades to heuristic
+  const aa = _win(html, 'epicAiAuto(force) {', 700);
+  t.ok(/persona/.test(aa) && /_aiKicked/.test(aa) && /epicUpgradeAi\(\)/.test(aa), 'epicAiAuto is keyed by epic+persona and calls epicUpgradeAi');
+  // auto-kick is invoked from load + select
+  t.ok(/this\.epicAiAuto\(\)/.test(_win(html, 'async loadCodeflowEpics(refresh)', 1800) || ''), 'loadCodeflowEpics kicks the AI standup');
+  t.ok(/this\.epicAiAuto\(\)/.test(_win(html, 'epicSelect(i) {', 300) || ''), 'epicSelect kicks the AI standup for the newly selected epic');
+
+  // --- persona is sent in BOTH POST bodies ---
+  const up = _win(html, 'async epicUpgradeAi()', 700);
+  t.ok(/persona:\s*ep\.persona/.test(up), 'epicUpgradeAi POSTs the chosen persona');
+  t.ok(/persona:\s*this\.codeflow\.epics\.persona/.test(_win(html, 'async epicChatSend(', 1400) || ''), 'epicChatSend POSTs the chosen persona');
+
+  // --- picker markup (calm dropdown, no pills) + honest provenance ---
+  t.ok(/class="epx-persona"/.test(html) && /epicPersonaChoices\(\)/.test(html), 'persona picker dropdown rendered from epicPersonaChoices');
+  t.ok(/epx-persona-menu/.test(html) && /\.epx-persona-menu \{/.test(html), 'persona menu markup + CSS present');
+  t.ok(/is synthesizing…/.test(html) && /AI-synthesized · <span x-text="epicPersonaLabel\(\)">/.test(html), 'standup provenance names the persona + shows a synthesizing state');
+
+  // --- server: helpers + route + persona threaded ---
+  t.ok(/_epicStandupAgents\s*\(/.test(srv), 'server defines _epicStandupAgents()');
+  t.ok(/_epicPersonaConfig\s*\(/.test(srv), 'server defines _epicPersonaConfig()');
+  t.ok(srv.includes("app.get('/api/codeflow/epics/agents'"), 'server route: GET /api/codeflow/epics/agents');
+  // /ai route reads persona + stamps it on the cockpit
+  const ai = _win(srv, "app.post('/api/codeflow/epics/ai'", 5200);
+  t.ok(/persona/.test(ai) && /_epicPersonaConfig/.test(ai) && /aiPersona/.test(ai), '/ai route resolves the persona config + stamps cockpit.aiPersona');
+  // /assistant route reads persona
+  const as = _win(srv, "app.post('/api/codeflow/epics/assistant'", 2000);
+  t.ok(/persona/.test(as) && /_epicPersonaConfig/.test(as), '/assistant route resolves the persona config');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
