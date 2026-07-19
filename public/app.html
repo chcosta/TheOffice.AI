@@ -24433,6 +24433,10 @@
               .epx-row.warn .bar > i { background:var(--cp-warning); }
               .epx-row .flag { position:absolute; top:10px; right:11px; font-size:11px; }
               .epx-rail-note { font-size:11px; color:var(--cp-text-soft); padding:2px 4px; line-height:1.5; }
+              .epx-devsel { display:flex; flex-direction:column; gap:3px; padding:2px 4px 4px; }
+              .epx-devsel label { font-size:10px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-soft); }
+              .epx-devsel select { width:100%; font-size:12px; padding:5px 7px; border-radius:7px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
+              .epx-devsel select:hover { border-color:var(--cp-border-strong); }
               .epx-detail { display:flex; flex-direction:column; gap:16px; min-width:0; }
               .epx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:14px; box-shadow:var(--cp-shadow); }
               .epx-card .bd { padding:16px 18px; }
@@ -24481,6 +24485,31 @@
               .epx-btn.sm { padding:3px 9px; font-size:11px; }
               .epx-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
               @media (max-width:760px){ .epx-grid2 { grid-template-columns:1fr; } }
+              .epx-grid2--stack { grid-template-columns:1fr; }
+              /* Roadmap Gantt (Style B) — calm bars on a shared month axis */
+              .epx-gantt { font-size:12px; }
+              .epx-gantt-head { display:grid; grid-template-columns:210px 1fr; align-items:end; margin-bottom:6px; }
+              .epx-gantt-head .sp { font-size:10.5px; color:var(--cp-text-soft); font-weight:600; letter-spacing:.03em; text-transform:uppercase; }
+              .epx-gantt-months { position:relative; height:16px; }
+              .epx-gantt-months .m { position:absolute; transform:translateX(-1px); font-size:10.5px; color:var(--cp-text-soft); border-left:1px solid var(--cp-border); padding-left:4px; height:14px; line-height:14px; }
+              .epx-gantt-row { display:grid; grid-template-columns:210px 1fr; align-items:center; padding:4px 0; }
+              .epx-gantt-row .task { min-width:0; padding-right:10px; }
+              .epx-gantt-row .task .tn { display:block; font-weight:600; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .epx-gantt-row .task .ts { display:block; font-size:10.5px; color:var(--cp-text-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .epx-gantt-lane { position:relative; height:26px; background:var(--cp-surface-soft); border-radius:6px; overflow:hidden; }
+              .epx-gantt-lane .grid { position:absolute; top:0; bottom:0; width:1px; background:var(--cp-border); opacity:.5; }
+              .epx-gantt-today { position:absolute; top:0; bottom:0; width:2px; background:var(--cp-accent); opacity:.8; z-index:2; }
+              .epx-gantt-bar { position:absolute; top:5px; height:16px; border-radius:5px; display:flex; align-items:center; overflow:hidden; min-width:3px; }
+              .epx-gantt-bar .fill { position:absolute; left:0; top:0; bottom:0; opacity:.85; }
+              .epx-gantt-bar .cap { position:relative; z-index:1; font-size:10px; padding:0 6px; white-space:nowrap; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; }
+              .epx-gantt-bar.done { background:var(--cp-success-soft); } .epx-gantt-bar.done .fill { background:var(--cp-success); opacity:.4; }
+              .epx-gantt-bar.prog { background:var(--cp-accent-soft); } .epx-gantt-bar.prog .fill { background:var(--cp-accent); opacity:.4; }
+              .epx-gantt-bar.risk { background:var(--cp-danger-soft); } .epx-gantt-bar.risk .fill { background:var(--cp-danger); opacity:.4; }
+              .epx-gantt-bar.back { background:var(--cp-surface); border:1px solid var(--cp-border); } .epx-gantt-bar.back .fill { background:var(--cp-border); }
+              .epx-gantt-diamond { position:absolute; top:9px; width:9px; height:9px; transform:translateX(-50%) rotate(45deg); z-index:3; border:1.5px solid var(--cp-surface); }
+              .epx-gantt-diamond.done { background:var(--cp-success); } .epx-gantt-diamond.prog { background:var(--cp-accent); }
+              .epx-gantt-diamond.risk { background:var(--cp-danger); } .epx-gantt-diamond.back { background:var(--cp-text-soft); }
+              .epx-gantt-cd { font-size:10px; color:var(--cp-text-soft); }
               .epx-goals { margin:0; padding-left:2px; list-style:none; display:flex; flex-direction:column; gap:9px; }
               .epx-goals li { display:flex; gap:9px; font-size:13px; line-height:1.45; }
               .epx-goals li .gm { flex:0 0 auto; color:var(--cp-accent); margin-top:1px; }
@@ -24596,14 +24625,33 @@
             <div x-show="codeflow.epics.error" class="epx-empty" x-text="codeflow.epics.error"></div>
             <div x-show="codeflow.epics.loaded && !codeflow.epics.loading && !codeflow.epics.error && !codeflow.epics.list.length" class="epx-empty">
               <div x-show="codeflow.epics.note === 'no-ado-config'">No Azure DevOps org/project is configured. Add one in Settings to see your epics.</div>
-              <div x-show="codeflow.epics.note !== 'no-ado-config'">No <span class="mono">DNCEng Epic</span> work items assigned to you are <b>In Progress</b> right now.</div>
+              <div x-show="codeflow.epics.note !== 'no-ado-config' && epicViewingMe()">No <span class="mono">DNCEng Epic</span> work items assigned to you are <b>In Progress</b> right now.</div>
+              <div x-show="codeflow.epics.note !== 'no-ado-config' && !epicViewingMe()">This developer has no <span class="mono">DNCEng Epic</span> work items that are <b>In Progress</b> right now.</div>
+              <div class="epx-devsel" x-show="codeflow.epics.assignees.length" style="max-width:260px;margin:14px auto 0">
+                <label for="epx-dev-empty">View developer</label>
+                <select id="epx-dev-empty" x-model="codeflow.epics.assignee" @change="epicSetAssignee(codeflow.epics.assignee)">
+                  <option value="">Me</option>
+                  <template x-for="a in codeflow.epics.assignees" :key="a.unique">
+                    <option :value="a.unique" x-text="a.name + (a.count ? ' · ' + a.count : '')"></option>
+                  </template>
+                </select>
+              </div>
             </div>
 
             <div class="epx-studio" x-show="codeflow.epics.list.length">
               <aside class="epx-rail">
                 <div class="epx-rail-h">
-                  <span class="t">My epics · In Progress</span>
+                  <span class="t" x-text="epicViewingMe() ? 'My epics · In Progress' : ((codeflow.epics.me && codeflow.epics.assignee && (codeflow.epics.assignees.find(a => a.unique === codeflow.epics.assignee) || {}).name || 'Their') + ' epics · In Progress')"></span>
                   <span class="c" x-text="codeflow.epics.list.length"></span>
+                </div>
+                <div class="epx-devsel" x-show="codeflow.epics.assignees.length">
+                  <label for="epx-dev">View developer</label>
+                  <select id="epx-dev" x-model="codeflow.epics.assignee" @change="epicSetAssignee(codeflow.epics.assignee)">
+                    <option value="">Me</option>
+                    <template x-for="a in codeflow.epics.assignees" :key="a.unique">
+                      <option :value="a.unique" x-text="a.name + (a.count ? ' · ' + a.count : '')"></option>
+                    </template>
+                  </select>
                 </div>
                 <template x-for="(e, i) in codeflow.epics.list" :key="e.key">
                   <button class="epx-row" :class="[e.tone, i === codeflow.epics.idx ? 'sel' : '']" @click="epicSelect(i)">
@@ -24615,7 +24663,7 @@
                     <div class="bar"><i :style="'width:' + e.pct + '%'"></i></div>
                   </button>
                 </template>
-                <div class="epx-rail-note">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = In Progress</span>. Refresh re-reads each epic's tree and flags the ones that need you.</div>
+                <div class="epx-rail-note"><span x-show="epicViewingMe()">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = In Progress</span>. Refresh re-reads each epic's tree and flags the ones that need you.</span><span x-show="!epicViewingMe()">Viewing another developer's <span class="mono">DNCEng Epic</span> work items that are <b>In Progress</b>. Choose <b>Me</b> above to return to your own.</span></div>
               </aside>
 
               <section class="epx-detail" x-show="codeflow.epics.list[codeflow.epics.idx]">
@@ -24755,7 +24803,7 @@
                     </div>
 
                     <!-- dates + deliverables -->
-                    <div class="epx-grid2">
+                    <div class="epx-grid2" :class="epicGantt().ok ? 'epx-grid2--stack' : ''">
                       <div class="epx-card" id="epx-dates">
                         <div class="epx-card-h"><span class="epx-sec-ic">📅</span><h3>Upcoming dates &amp; milestones</h3></div>
                         <div class="bd">
@@ -24764,16 +24812,48 @@
                               <span>Dates from the <a :href="epicCur().roadmap.url" target="_blank" rel="noopener" x-text="epicCur().roadmap.label || 'roadmap'"></a> →<span x-show="epicCur().roadmap.lastUpdated"> updated <span x-text="epicCur().roadmap.lastUpdated"></span></span></span>
                             </template>
                           </div>
-                          <div class="epx-tl">
-                            <template x-for="(t, ti) in epicCur().timeline" :key="ti">
-                              <div class="epx-tlrow" :class="t.cls">
-                                <span class="node"></span>
-                                <div class="d"><span x-text="t.d"></span> <span class="epx-cdays" :class="t.c" x-show="t.cd">· <span x-text="t.cd"></span></span></div>
-                                <div class="e"><template x-if="t.href"><a :href="t.href" target="_blank" rel="noopener" x-text="t.e"></a></template><template x-if="!t.href"><span x-text="t.e"></span></template></div>
-                                <div class="m" x-text="t.m"></div>
+                          <!-- Roadmap Gantt (Style B) when the epic has parsed milestones -->
+                          <template x-if="epicGantt().ok">
+                            <div class="epx-gantt">
+                              <div class="epx-gantt-head">
+                                <div class="sp">Deliverable</div>
+                                <div class="epx-gantt-months">
+                                  <template x-for="(mo, mi) in epicGantt().months" :key="mi"><div class="m" :style="'left:' + mo.left + '%'" x-text="mo.label"></div></template>
+                                  <div class="epx-gantt-today" :style="'left:' + epicGantt().todayPct + '%'"></div>
+                                </div>
                               </div>
-                            </template>
-                          </div>
+                              <template x-for="(r, ri) in epicGantt().rows" :key="ri">
+                                <div class="epx-gantt-row">
+                                  <div class="task">
+                                    <span class="tn" x-text="r.title"></span>
+                                    <span class="ts"><span x-show="r.track" x-text="r.track"></span><span x-show="r.track && r.wid"> · </span><span x-show="r.wid" x-text="'#' + r.wid"></span></span>
+                                  </div>
+                                  <div class="epx-gantt-lane">
+                                    <template x-for="(mo, mi) in epicGantt().months" :key="mi"><div class="grid" :style="'left:' + mo.left + '%'"></div></template>
+                                    <div class="epx-gantt-today" :style="'left:' + epicGantt().todayPct + '%'"></div>
+                                    <div class="epx-gantt-bar" :class="r.tone" :style="'left:' + r.left + '%; width:' + r.width + '%'">
+                                      <span class="fill" :style="'width:' + r.fill + '%'"></span>
+                                      <span class="cap"><template x-if="r.href"><a :href="r.href" target="_blank" rel="noopener" style="color:inherit;text-decoration:none" x-text="r.status + ' · ' + r.cd"></a></template><template x-if="!r.href"><span x-text="r.status + ' · ' + r.cd"></span></template></span>
+                                    </div>
+                                    <div class="epx-gantt-diamond" :class="r.tone" :style="'left:' + r.right + '%'"></div>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                          <!-- fall back to the plain timeline list when there are no milestones -->
+                          <template x-if="!epicGantt().ok">
+                            <div class="epx-tl">
+                              <template x-for="(t, ti) in epicCur().timeline" :key="ti">
+                                <div class="epx-tlrow" :class="t.cls">
+                                  <span class="node"></span>
+                                  <div class="d"><span x-text="t.d"></span> <span class="epx-cdays" :class="t.c" x-show="t.cd">· <span x-text="t.cd"></span></span></div>
+                                  <div class="e"><template x-if="t.href"><a :href="t.href" target="_blank" rel="noopener" x-text="t.e"></a></template><template x-if="!t.href"><span x-text="t.e"></span></template></div>
+                                  <div class="m" x-text="t.m"></div>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
                         </div>
                       </div>
                       <div class="epx-card" id="epx-deliv">
@@ -32208,6 +32288,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           epics: {
             loaded: false, loading: false, error: '', note: '', signedIn: false,
             list: [], idx: 0, aiBusy: {},
+            assignee: '', assignees: [], me: null,
             // self-contained Epic assistant (lower-right FAB → drawer, scoped to the epics tab)
             chat: { open: false, sending: false, byKey: {}, input: '' },
           },
@@ -53131,11 +53212,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!refresh && ep.loaded) return;
           ep.loading = true; ep.error = '';
           try {
-            const r = await this.request('/api/codeflow/epics' + (refresh ? '?refresh=1' : ''));
+            const qs = [];
+            if (refresh) qs.push('refresh=1');
+            if (ep.assignee) qs.push('assignee=' + encodeURIComponent(ep.assignee));
+            const r = await this.request('/api/codeflow/epics' + (qs.length ? '?' + qs.join('&') : ''));
             if (r && r.ok) {
               ep.list = Array.isArray(r.epics) ? r.epics : [];
               ep.note = r.note || '';
               ep.signedIn = !!r.signedIn;
+              ep.assignees = Array.isArray(r.assignees) ? r.assignees : [];
+              ep.me = r.me || null;
               if (ep.idx >= ep.list.length) ep.idx = 0;
             } else {
               ep.error = (r && r.error) || 'Could not load epics.';
@@ -53145,6 +53231,57 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             ep.loading = false; ep.loaded = true;
           }
+        },
+        // Switch the Epics view to another developer's In-Progress epics (or back to me).
+        // Bypasses the `loaded` guard so the new scope refetches, but WITHOUT refresh=1 so
+        // the server reuses its per-epic tree cache (fast). '' = view my own epics.
+        epicSetAssignee(unique) {
+          const ep = this.codeflow.epics;
+          const next = unique || '';
+          if (ep.assignee === next) return;
+          ep.assignee = next; ep.idx = 0; ep.loaded = false; ep.list = [];
+          this.loadCodeflowEpics();
+        },
+        epicViewingMe() { return !this.codeflow.epics.assignee; },
+        // Build the roadmap Gantt (Style B) layout from the current epic's milestones.
+        // Returns { ok, rows, months, todayPct } — all positions are axis percentages.
+        epicGantt() {
+          const cur = this.epicCur();
+          const ms = (cur && cur.roadmap && Array.isArray(cur.roadmap.milestones)) ? cur.roadmap.milestones : [];
+          if (!ms.length) return { ok: false, rows: [], months: [], todayPct: 0 };
+          const DAY = 86400000, today = new Date(); today.setHours(0, 0, 0, 0);
+          const parse = (iso) => { const d = new Date(iso + 'T00:00:00'); return isNaN(d) ? null : d; };
+          const items = ms.map(m => ({ ...m, d: parse(m.iso) })).filter(m => m.d);
+          if (!items.length) return { ok: false, rows: [], months: [], todayPct: 0 };
+          items.sort((a, b) => a.d - b.d);
+          // axis bounds: month-floor of earliest (or today), month-ceil of latest (or today+7d)
+          const lo = new Date(Math.min(+items[0].d, +today)); lo.setDate(1); lo.setHours(0, 0, 0, 0);
+          const hiSrc = new Date(Math.max(+items[items.length - 1].d, +today + 7 * DAY));
+          const hi = new Date(hiSrc.getFullYear(), hiSrc.getMonth() + 1, 1);
+          const span = Math.max(+hi - +lo, DAY);
+          const pct = (t) => ((+t - +lo) / span) * 100;
+          const months = []; let c = new Date(lo);
+          while (c < hi) { months.push({ label: c.toLocaleDateString('en-US', { month: 'short' }), left: pct(c) }); c = new Date(c.getFullYear(), c.getMonth() + 1, 1); }
+          const byTrack = {}; items.forEach(m => { const k = m.track || '·'; (byTrack[k] = byTrack[k] || []).push(m); });
+          const toneOf = (m) => {
+            const s = (m.status || '').toLowerCase();
+            if (/done|complete|shipped|closed|resolved/.test(s)) return 'done';
+            if (m.d < today) return 'risk';
+            if (/pr|progress|active|dev/.test(s)) return 'prog';
+            return 'back';
+          };
+          const rows = items.map(m => {
+            const tone = toneOf(m);
+            const arr = byTrack[m.track || '·']; const idx = arr.indexOf(m);
+            let start = idx > 0 ? arr[idx - 1].d : new Date(+m.d - 21 * DAY);
+            if (+start < +lo) start = new Date(+lo);
+            const left = pct(start), right = pct(m.d), width = Math.max(right - left, 1.2);
+            const fill = tone === 'done' ? 100 : tone === 'risk' ? 70 : tone === 'prog' ? 55 : 15;
+            const cdDays = Math.round((+m.d - +today) / DAY);
+            const cd = tone === 'done' ? 'done' : (cdDays < 0 ? (-cdDays) + 'd overdue' : cdDays + 'd');
+            return { title: m.title, track: m.track || '', wid: m.wid || null, href: m.href || '', status: m.status || '', tone, left, width, right, fill, cd };
+          });
+          return { ok: true, rows, months, todayPct: pct(today) };
         },
         epicSelect(i) {
           const ep = this.codeflow.epics;

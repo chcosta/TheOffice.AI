@@ -4626,6 +4626,11 @@ const _epicRoadmapCache = new Map();    // roadmap web URL → { parsed, at }
 const EPIC_CACHE_TTL_MS = 5 * 60 * 1000;
 const EPIC_ROADMAP_TTL_MS = 15 * 60 * 1000;
 const EPIC_TYPE = 'DNCEng Epic';
+// Roster of developers who own In-Progress DNCEng epics — powers the Epics tab's
+// "view another dev's epics" selector. Cached briefly; `me` is captured the first
+// time we resolve the @Me-scoped list so we can label/exclude the current user.
+let _epicRoster = { at: 0, assignees: [], me: null };
+const EPIC_ROSTER_TTL_MS = 5 * 60 * 1000;
 
 // Fetch + parse an epic's roadmap doc (an ADO Git markdown file linked in the
 // description). Cached with its own TTL so a plain reload doesn't refetch.
@@ -4930,9 +4935,19 @@ function _epicApplyRoadmap(cockpit, docs, roadmap) {
   cockpit.roadmap = {
     url: rmLink ? rmLink.url : '', label: rmLink ? rmLink.label : 'Roadmap',
     lastUpdated: (roadmap && roadmap.lastUpdated) || '', count: ms.length,
-    note: rmLink && !ms.length ? 'linked, but no dated milestones were parsed' : ''
+    note: rmLink && !ms.length ? 'linked, but no dated milestones were parsed' : '',
+    milestones: []
   };
   if (!ms.length) return cockpit;
+  // Full milestone list for the roadmap Gantt (client computes layout). wiBase
+  // reuses the epic's own work-item URL so roadmap rows link to their items even
+  // when the roadmap table omitted an explicit link.
+  const wiBase = String(cockpit.url || '').replace(/\/\d+\/?$/, '/');
+  cockpit.roadmap.milestones = ms.map(mi => ({
+    iso: mi.iso, title: mi.title, status: mi.status || '', statusFlag: mi.statusFlag || '',
+    track: mi.track || mi.bucket || '', wid: mi.wid || null,
+    href: mi.href || (mi.wid && wiBase ? wiBase + mi.wid : '')
+  }));
 
   // Roadmap-driven timeline: real target dates, nearest first, with countdowns.
   const done = /done|complete|shipped|closed|resolved/i;
@@ -4984,18 +4999,27 @@ function _epicApplyRoadmap(cockpit, docs, roadmap) {
 
 app.get('/api/codeflow/epics', async (req, res) => {
   const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  const assignee = String(req.query.assignee || '').trim();
   try {
     const s = settings.getSettings();
     const targets = _connectAdoTargets(s);
-    if (!targets.length) return res.json({ ok: true, epics: [], errors: [], note: 'no-ado-config', signedIn: false });
+    if (!targets.length) return res.json({ ok: true, epics: [], assignees: [], me: null, activeAssignee: '', errors: [], note: 'no-ado-config', signedIn: false });
     const epics = [];
     const errors = [];
+    let me = _epicRoster.me;
     for (const { org, projects } of targets) {
       for (const project of projects) {
         let items = [];
         try {
-          items = await azdo.queryWorkItems(org, project, { type: EPIC_TYPE, state: 'In Progress', assignedToMe: true, top: 25 });
+          const scope = assignee ? { assignedToMe: false, assignedTo: assignee } : { assignedToMe: true };
+          items = await azdo.queryWorkItems(org, project, { type: EPIC_TYPE, state: 'In Progress', ...scope, top: 25 });
         } catch (e) { errors.push(`${org}/${project}: ${e.message}`); continue; }
+        // Capture the current user from their own @Me-scoped list (used to label
+        // and exclude "me" from the other-devs roster).
+        if (!assignee && !me && items.length) {
+          const mine = items.find(it => it.assignedToUnique || it.assignedTo);
+          if (mine) me = { name: mine.assignedTo || 'Me', unique: mine.assignedToUnique || '' };
+        }
         for (const it of items) {
           const key = `${org}/${project}/${it.id}`;
           const cached = _epicCache.get(key);
@@ -5020,9 +5044,36 @@ app.get('/api/codeflow/epics', async (req, res) => {
         }
       }
     }
+    if (me) _epicRoster.me = me;
     const rank = { risk: 0, warn: 1, ok: 2 };
     epics.sort((a, b) => (rank[a.tone] - rank[b.tone]) || (a.targetDays - b.targetDays));
-    res.json({ ok: true, epics, errors, note: epics.length ? '' : 'no-epics', signedIn: true });
+    // Roster of OTHER developers with In-Progress epics, so the user can switch
+    // the view to a colleague's epics. Cached (5-min TTL; refresh=1 busts).
+    let assignees = _epicRoster.assignees;
+    if (refresh || !assignees.length || (Date.now() - _epicRoster.at) > EPIC_ROSTER_TTL_MS) {
+      const seen = new Map();
+      for (const { org, projects } of targets) {
+        for (const project of projects) {
+          let all = [];
+          try { all = await azdo.queryWorkItems(org, project, { type: EPIC_TYPE, state: 'In Progress', assignedToMe: false, top: 100 }); }
+          catch { continue; }
+          for (const it of all) {
+            const unique = it.assignedToUnique || '';
+            const name = it.assignedTo || '';
+            if (!unique && !name) continue;
+            const k = unique || name;
+            const cur = seen.get(k) || { name, unique, count: 0 };
+            cur.count++; if (name) cur.name = name; if (unique) cur.unique = unique;
+            seen.set(k, cur);
+          }
+        }
+      }
+      assignees = [...seen.values()].sort((a, b) => b.count - a.count);
+      _epicRoster = { at: Date.now(), assignees, me: _epicRoster.me };
+    }
+    // Exclude the current user from the "other devs" roster.
+    const roster = assignees.filter(a => !(me && ((me.unique && a.unique === me.unique) || (me.name && a.name === me.name))));
+    res.json({ ok: true, epics, assignees: roster, me, activeAssignee: assignee, errors, note: epics.length ? '' : 'no-epics', signedIn: true });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 

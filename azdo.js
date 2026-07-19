@@ -926,7 +926,7 @@ async function listMyWorkItems(org, project, { start, end, top = 200 } = {}) {
 // UNDER the given node (so a parent area path also catches children). Always
 // scopes to items ASSIGNED to @Me unless assignedToMe is explicitly false.
 // Returns compact items hydrated via the batch endpoint. Never throws on empty.
-async function queryWorkItems(org, project, { type, state, areaPath, assignedToMe = true, top = 100, titleContains } = {}) {
+async function queryWorkItems(org, project, { type, state, areaPath, assignedToMe = true, assignedTo, top = 100, titleContains } = {}) {
   // WIQL escapes a single quote by doubling it.
   const lit = (v) => `'${String(v == null ? '' : v).replace(/'/g, "''")}'`;
   const clauses = [];
@@ -938,7 +938,9 @@ async function queryWorkItems(org, project, { type, state, areaPath, assignedToM
   else if (states.length > 1) clauses.push(`( ${states.map(s => `[System.State] = ${lit(s)}`).join(' OR ')} )`);
   const area = String(areaPath || '').trim();
   if (area) clauses.push(`[System.AreaPath] UNDER ${lit(area)}`);
-  if (assignedToMe !== false) clauses.push(`[System.AssignedTo] = @Me`);
+  const assignee = String(assignedTo == null ? '' : assignedTo).trim();
+  if (assignee) clauses.push(`[System.AssignedTo] = ${lit(assignee)}`);
+  else if (assignedToMe !== false) clauses.push(`[System.AssignedTo] = @Me`);
   // Free-text title search (compose source picker): CONTAINS runs a substring match
   // over [System.Title]. Combined with the other clauses via AND.
   const titleQ = String(titleContains || '').trim();
@@ -985,6 +987,7 @@ async function queryWorkItems(org, project, { type, state, areaPath, assignedToM
         createdDate: f['System.CreatedDate'] || '',
         assignedTo: person(f['System.AssignedTo']),
         assignedToId: personId(f['System.AssignedTo']),
+        assignedToUnique: (f['System.AssignedTo'] && f['System.AssignedTo'].uniqueName) || '',
         createdBy: person(f['System.CreatedBy']),
         org, project,
         url: workItemUrl(org, project, d.id)

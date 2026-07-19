@@ -2209,6 +2209,34 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   t.ok(/class="epx-tl-cap"/.test(html), 'timeline shows a "dates from the roadmap" caption');
   t.ok(/My epics · In Progress/.test(html) && /State = In Progress/.test(html), 'stale "Dev" copy replaced with "In Progress"');
   t.ok(!/My epics · in Dev/.test(html), 'no leftover "in Dev" rail copy');
+
+  // --- roadmap milestones[] drive the Gantt viz (Style B) ---
+  t.ok(/cockpit\.roadmap\.milestones|roadmap\.milestones\s*=|milestones:\s*\[/.test(apply) || /milestones/.test(apply), '_epicApplyRoadmap builds roadmap.milestones[]');
+  t.ok(/epicGantt\(\)/.test(html), 'SPA renders the roadmap Gantt via epicGantt()');
+  t.ok(/epicGantt\(\)\.ok/.test(html) && /epx-grid2--stack/.test(html), 'Gantt stacks the dates card when milestones exist');
+  t.ok(/class="epx-gantt"/.test(html) && /epx-gantt-lane/.test(html) && /epx-gantt-today/.test(html), 'Gantt markup: lanes + today bar');
+  t.ok(/epx-gantt-bar/.test(html) && /class="fill"/.test(html) && /epx-gantt-diamond/.test(html), 'Gantt bar carries a progress fill + a target diamond');
+  const gantt = _win(html, 'epicGantt() {', 2600);
+  t.ok(/roadmap && Array\.isArray\(cur\.roadmap\.milestones\)/.test(gantt), 'epicGantt reads cur.roadmap.milestones');
+  t.ok(/done\|complete\|shipped\|closed\|resolved/.test(gantt), 'epicGantt tones by status (done/risk/prog/back)');
+  t.ok(/d overdue/.test(gantt), 'epicGantt computes an overdue countdown');
+  // falls back to the plain timeline list when there are no milestones
+  t.ok(/x-if="!epicGantt\(\)\.ok"/.test(html), 'plain timeline list renders when there are no milestones');
+
+  // --- dev selector: switch the view to another developer's In-Progress epics ---
+  t.ok(/queryWorkItems/.test(az) && /assignedTo\b/.test(az) && /assignedToUnique/.test(az), 'azdo.js queryWorkItems supports assignedTo + returns assignedToUnique');
+  t.ok(/let _epicRoster =/.test(srv), 'server caches an epics roster');
+  t.ok(/assignedTo: assignee/.test(srv) && /assignedToMe: true/.test(srv), 'GET route branches the query on the assignee param');
+  t.ok(/assignees: roster/.test(srv) && /activeAssignee: assignee/.test(srv), 'GET route returns the roster + active assignee');
+  t.ok(/epicSetAssignee\(/.test(html), 'SPA defines epicSetAssignee');
+  t.ok(/epicViewingMe\(\)/.test(html), 'SPA defines epicViewingMe');
+  const setA = _win(html, 'epicSetAssignee(unique)', 400);
+  t.ok(/ep\.loaded = false/.test(setA) && /this\.loadCodeflowEpics\(\)/.test(setA), 'epicSetAssignee refetches the new scope without forcing a refresh');
+  const loadE = _win(html, 'async loadCodeflowEpics(refresh)', 1200);
+  t.ok(/ep\.assignees = Array\.isArray\(r\.assignees\)/.test(loadE) && /ep\.me = r\.me/.test(loadE), 'loadCodeflowEpics merges the roster + me');
+  t.ok(/'assignee=' \+ encodeURIComponent\(ep\.assignee\)/.test(loadE), 'loadCodeflowEpics sends the assignee query param');
+  t.ok(/class="epx-devsel"/.test(html) && /@change="epicSetAssignee\(codeflow\.epics\.assignee\)"/.test(html), 'rail renders a dev <select> wired to epicSetAssignee');
+  t.ok(/x-for="a in codeflow\.epics\.assignees"/.test(html) && /<option value="">Me<\/option>/.test(html), 'dev <select> lists roster developers + a "Me" option (no pills)');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
