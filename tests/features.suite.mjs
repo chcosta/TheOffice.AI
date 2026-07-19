@@ -2230,7 +2230,7 @@ await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/t
   t.ok(/assignees: roster/.test(srv) && /activeAssignee: assignee/.test(srv), 'GET route returns the roster + active assignee');
   t.ok(/epicSetAssignee\(/.test(html), 'SPA defines epicSetAssignee');
   t.ok(/epicViewingMe\(\)/.test(html), 'SPA defines epicViewingMe');
-  const setA = _win(html, 'epicSetAssignee(unique)', 400);
+  const setA = _win(html, 'epicSetAssignee(unique)', 800);
   t.ok(/ep\.loaded = false/.test(setA) && /this\.loadCodeflowEpics\(\)/.test(setA), 'epicSetAssignee refetches the new scope without forcing a refresh');
   const loadE = _win(html, 'async loadCodeflowEpics(refresh)', 1200);
   t.ok(/ep\.assignees = Array\.isArray\(r\.assignees\)/.test(loadE) && /ep\.me = r\.me/.test(loadE), 'loadCodeflowEpics merges the roster + me');

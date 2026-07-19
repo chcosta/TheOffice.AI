@@ -53236,10 +53236,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Bypasses the `loaded` guard so the new scope refetches, but WITHOUT refresh=1 so
         // the server reuses its per-epic tree cache (fast). '' = view my own epics.
         epicSetAssignee(unique) {
+          // NOTE: the <select> uses x-model, so codeflow.epics.assignee is already
+          // updated to the new value by the time this @change handler runs. Do NOT
+          // guard on `ep.assignee === next` — it would always early-return and never
+          // reload. The native change event only fires on a genuine selection change,
+          // so reset + reload unconditionally.
           const ep = this.codeflow.epics;
-          const next = unique || '';
-          if (ep.assignee === next) return;
-          ep.assignee = next; ep.idx = 0; ep.loaded = false; ep.list = [];
+          ep.assignee = unique || '';
+          ep.idx = 0; ep.loaded = false; ep.list = [];
           this.loadCodeflowEpics();
         },
         epicViewingMe() { return !this.codeflow.epics.assignee; },
