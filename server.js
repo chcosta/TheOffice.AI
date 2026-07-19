@@ -10539,6 +10539,210 @@ app.post('/api/monitoring/generate', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// ---- Epic → Monitoring.AI "Objective Health" bridge -----------------------
+// Given a Code Flow epic (already loaded into _epicCache) and its linked
+// "business objectives / tracking" guidance doc, produce an Objective-Health
+// model: one entry per business objective with its target, measurement source
+// TYPE (api|kusto|appinsights|manual), readiness (live|part|miss|manual), and —
+// for the sources we DON'T have — the desired telemetry SHAPE (schema + query +
+// cadence) so the user can wire it up. HONEST: never fabricate a live series;
+// "live" only when the doc states the source is connected/emitting today.
+
+// Resolve the guidance doc backing an epic. Prefers an explicit compose docId,
+// then a compose deep-link in the epic's linked docs, then a title heuristic
+// over stored compositions. Returns { id, title, text, source } or null.
+function _monEpicGuidanceDoc(entry, explicitDocId) {
+  const readComp = (id) => {
+    try {
+      const c = compose.getComposition(id);
+      if (!c) return null;
+      const raw = (c.draft && c.draft.content) || '';
+      const text = (c.draft && c.draft.contentFormat === 'html') ? _composeHtmlText(raw) : String(raw || '');
+      if (!text.trim()) return null;
+      return { id: c.id, title: c.title || id, text: text.slice(0, 60000), source: 'compose' };
+    } catch { return null; }
+  };
+  const did = String(explicitDocId || '').trim();
+  if (did) { const d = readComp(did); if (d) return d; }
+  const cp = (entry && entry.cockpit) || {};
+  // A compose deep-link among the epic's linked docs.
+  for (const dl of (cp.docs || [])) {
+    const m = String(dl.url || '').match(/\/compose\/(cmp-[a-z0-9]+-[a-z0-9]+)/i);
+    if (m) { const d = readComp(m[1]); if (d) return d; }
+  }
+  // Title heuristic over stored compositions (objective / tracking / business).
+  try {
+    const list = compose.listCompositions() || [];
+    const score = (t) => {
+      const s = String(t || '').toLowerCase(); let n = 0;
+      if (/objective/.test(s)) n += 3;
+      if (/tracking/.test(s)) n += 2;
+      if (/business/.test(s)) n += 2;
+      const epicTitle = String((cp.title || (entry && entry.raw && entry.raw.epic && entry.raw.epic.title)) || '').toLowerCase();
+      for (const tok of epicTitle.split(/\W+/).filter(w => w.length > 3)) if (s.includes(tok)) n += 1;
+      return n;
+    };
+    const best = list.map(c => ({ c, s: score(c.title) })).filter(x => x.s >= 3).sort((a, b) => b.s - a.s)[0];
+    if (best) { const d = readComp(best.c.id); if (d) return d; }
+  } catch {}
+  return null;
+}
+
+// Clamp/normalize one AI objective into the honest Objective-Health shape.
+function _monNormObjective(o, i) {
+  const status = /^(live|part|miss|manual)$/.test(o && o.status) ? o.status : 'miss';
+  const srcType = /^(api|kusto|appinsights|manual)$/.test(o && o.srcType) ? o.srcType : (status === 'manual' ? 'manual' : 'kusto');
+  const str = (v, n) => (v == null ? null : String(v).slice(0, n));
+  const out = {
+    n: Number.isFinite(o && o.n) ? o.n : (i + 1),
+    title: str((o && o.title) || `Objective ${i + 1}`, 140),
+    measure: str((o && o.measure) || '', 120),
+    target: str((o && o.target) || '', 200),
+    srcType, srcName: str((o && o.srcName) || '', 160),
+    status,
+    lede: str((o && o.lede) || '', 1400),
+    blockedOn: str(o && o.blockedOn, 80),
+    blockedWhat: str(o && o.blockedWhat, 120),
+    now: str(o && o.now, 40), tgt: str(o && o.tgt, 40), delta: str(o && o.delta, 40),
+    deltaCls: /^(bad|good)$/.test(o && o.deltaCls) ? o.deltaCls : null,
+    shape: null, runbooks: null,
+  };
+  if ((status === 'miss' || status === 'part') && o && o.shape && typeof o.shape === 'object') {
+    const s = o.shape;
+    out.shape = {
+      types: (Array.isArray(s.types) ? s.types : []).slice(0, 4).map(t => ({
+        k: /^(api|kusto|appinsights|manual)$/.test(t && t.k) ? t.k : 'kusto',
+        name: str((t && t.name) || '', 40), d: str((t && t.d) || '', 200), rec: str(t && t.rec, 60),
+      })),
+      table: str(s.table || '', 120),
+      cols: (Array.isArray(s.cols) ? s.cols : []).slice(0, 12).map(c => ({
+        c: str((c && c.c) || '', 80), type: str((c && c.type) || '', 30),
+        role: /^(time|dim|metric|key)$/.test(c && c.role) ? c.role : 'dim', note: str((c && c.note) || '', 160),
+      })),
+      query: str(s.query || '', 4000),
+      cadence: (Array.isArray(s.cadence) ? s.cadence : []).slice(0, 6)
+        .map(row => Array.isArray(row) ? [str(row[0], 40), str(row[1], 120)] : null).filter(Boolean),
+      lights: str(s.lights || '', 400),
+    };
+  }
+  if (status === 'manual' && Array.isArray(o && o.runbooks)) {
+    out.runbooks = o.runbooks.slice(0, 20).map(r => ({
+      st: str((r && r.st) || '•', 4), nm: str((r && r.nm) || '', 140), ok: !!(r && r.ok), note: str(r && r.note, 80),
+    }));
+  }
+  return out;
+}
+
+app.post('/api/monitoring/epic-dashboard', async (req, res) => {
+  const key = String((req.body && req.body.key) || '').trim();
+  const docId = String((req.body && req.body.docId) || '').trim();
+  const entry = key ? _epicCache.get(key) : null;
+  if (!entry) return res.status(404).json({ ok: false, error: 'epic not loaded — open the Epics tab first' });
+  const cp = entry.cockpit || {};
+  const raw = entry.raw || {};
+  const epicOut = {
+    id: raw.epic && raw.epic.id, title: (raw.epic && raw.epic.title) || cp.title || 'Epic',
+    key, url: cp.url || '',
+  };
+  const doc = _monEpicGuidanceDoc(entry, docId);
+  let catalog = null;
+  try { catalog = await grafana.catalog(); } catch { catalog = { workspace: [], external: [] }; }
+  const srcLines = [
+    ...((catalog.workspace || []).map(s => `- ${s.name} (internal workspace)`)),
+    ...((catalog.external || []).map(s => `- ${s.name} (${s.dsType || 'external'})`)),
+  ];
+
+  // Epic brief (grounding for the fallback + AI).
+  const kids = (raw.children || []).map(c => ({ id: c.id, title: c.title, status: _epicChildStatus(c) }));
+  const roadmap = (cp.roadmap && Array.isArray(cp.timeline)) ? cp.timeline.slice(0, 12).map(t => ({ target: t.d, milestone: t.e, status: t.m })) : [];
+  const brief = {
+    epic: { id: epicOut.id, title: epicOut.title, target: raw.epic && raw.epic.targetDate ? _epicFmtDate(raw.epic.targetDate) : 'none' },
+    children: kids.slice(0, 40), roadmap,
+  };
+
+  let model = null, ai = false;
+  if (doc) {
+    try {
+      let acc = '';
+      const prompt = [
+        'You are a monitoring dashboard designer. Read an engineering epic and its "business objectives / tracking process" guidance document, then produce an OBJECTIVE-HEALTH model: one entry per measurable business objective the doc defines.',
+        'For each objective, classify its measurement SOURCE TYPE and its READINESS honestly, using ONLY what the doc and the epic state — never invent data.',
+        '',
+        'Output STRICT JSON only (no prose, no code fence):',
+        '{"title":string,"summary":string,"objectives":[{',
+        '  "n":number,"title":string,"measure":"<short source label>","target":"<the doc\'s target>",',
+        '  "srcType":"api"|"kusto"|"appinsights"|"manual","srcName":"<the concrete source>",',
+        '  "status":"live"|"part"|"miss"|"manual","lede":"<2-4 sentence plain explanation>",',
+        '  "blockedOn":"<work item # the source waits on, or null>","blockedWhat":"<what that work delivers, or null>",',
+        '  "now":"<current value IF the doc states one, else null>","tgt":"<target value, else null>","delta":"<gap vs target, else null>","deltaCls":"bad"|"good"|null,',
+        '  "shape":{"types":[{"k":"kusto|appinsights|api|manual","name":string,"d":"<when to use it>","rec":"<why recommended, optional>"}],"table":"<table/endpoint name>","cols":[{"c":"<field>","type":"<datatype>","role":"time|dim|metric|key","note":"<why the dashboard needs it>"}],"query":"<example query the panel will run>","cadence":[["Grain","..."],["Freshness","..."],["Retention","..."],["Lands in","..."]],"lights":"<what makes this objective light up>"},',
+        '  "runbooks":[{"st":"emoji","nm":"<scenario>","ok":true|false,"note":"<optional>"}]',
+        '}]}',
+        '',
+        'RULES:',
+        '- status "live" ONLY when the doc says the source is connected/emitting TODAY. If the source waits on unmerged work, status is "miss" and set blockedOn/blockedWhat.',
+        '- status "part" when part of the signal is readable but one piece is missing. status "manual" for human-validated objectives with no telemetry.',
+        '- Provide "shape" for EVERY "miss" and "part" objective (the desired telemetry the source must emit). Provide "runbooks" for "manual" objectives if the doc enumerates a scenario catalog; else null.',
+        '- NEVER fabricate a numeric trend. Set now/tgt/delta only when the doc states current values. Do NOT output any time series.',
+        '- Available monitoring sources you can bind to (for judging what is already connected):',
+        (srcLines.length ? srcLines.join('\n') : '(none connected)'),
+        '',
+        'EPIC (JSON): ' + JSON.stringify(brief),
+        '',
+        'GUIDANCE DOC "' + doc.title + '":',
+        doc.text,
+      ].join('\n');
+      const result = await sdkRunner.runChat({
+        config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+        availableTools: [], onChunk: (c) => { acc += c; },
+        model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+        meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
+      });
+      if (!(result && result.fallback)) {
+        const j = _connectExtractJson(acc.trim() || (result && result.output) || '');
+        if (j && Array.isArray(j.objectives) && j.objectives.length) {
+          model = {
+            title: String(j.title || (epicOut.title + ' — Objective Health')).slice(0, 160),
+            summary: String(j.summary || '').slice(0, 600),
+            objectives: j.objectives.slice(0, 20).map(_monNormObjective),
+          };
+          ai = true;
+        }
+      }
+    } catch { /* fall back */ }
+  }
+
+  // Deterministic fallback — honest: derive objectives from the roadmap
+  // milestones (real target dates) as manual-tracked entries. No doc → no
+  // fabricated business objectives.
+  if (!model) {
+    const objectives = roadmap.length
+      ? roadmap.map((m, i) => _monNormObjective({
+          n: i + 1, title: m.milestone, measure: 'Roadmap milestone', target: m.target ? ('by ' + m.target) : '',
+          srcType: 'manual', srcName: 'Roadmap tracking', status: 'manual',
+          lede: 'Tracked from the epic roadmap' + (m.status ? (' (' + m.status + ')') : '') + '. No automated telemetry is bound yet — connect a source to chart progress.',
+        }, i))
+      : [];
+    model = {
+      title: epicOut.title + ' — Objective Health',
+      summary: doc
+        ? 'The guidance doc was found but no objectives could be extracted automatically — showing roadmap milestones.'
+        : 'No linked business-objectives doc was found for this epic. Link one (or pass a docId) so Monitoring.AI can build per-objective health from its targets. Showing roadmap milestones meanwhile.',
+      objectives,
+    };
+  }
+
+  res.json({
+    ok: true, ai,
+    epic: epicOut,
+    doc: doc ? { id: doc.id, title: doc.title, source: doc.source } : null,
+    objectives: model.objectives,
+    title: model.title,
+    summary: model.summary,
+    sourcesConnected: srcLines.length,
+  });
+});
+
 // Analyze a set of grabbed panels (trend/status) + answer an optional question.
 app.post('/api/monitoring/analyze', async (req, res) => {
   const panels = Array.isArray(req.body && req.body.panels) ? req.body.panels : [];

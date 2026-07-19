@@ -3493,4 +3493,56 @@ await t.test('max depth (maxEpochs) winds a pursuit down after N autonomous epoc
     'the launch sends maxEpochs in the pursuit context');
 });
 
+await t.test('epic → Monitoring.AI Objective Health dashboard, flag-gated (Epics + Monitoring)', () => {
+  const src = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // (1) FLAG-GATE — both Epics and Monitoring are niche opt-ins: OFF by default in Basic,
+  // ON by default in Advanced, and each has a discoverable catalog entry.
+  t.ok(/epics: false/.test(html) && /monitoring: false/.test(html),
+    'basicFeatures defaults Epics + Monitoring OFF (opt-in)');
+  t.ok(/epics: true/.test(html) && /monitoring: true/.test(html),
+    'advancedFeatures defaults Epics + Monitoring ON (opt-out)');
+  const basicCat = _win(html, 'basicFeatureCatalog() {', 2600);
+  const advCat = _win(html, 'advancedFeatureCatalog() {', 3000);
+  t.ok(/key: 'epics'/.test(basicCat) && /key: 'monitoring'/.test(basicCat),
+    'basic catalog surfaces Epics + Monitoring toggles');
+  t.ok(/key: 'epics'/.test(advCat) && /key: 'monitoring'/.test(advCat),
+    'advanced catalog surfaces Epics + Monitoring toggles');
+  // The Epics tab + section are gated so a Basic-without-Epics user never sees them.
+  t.ok(/&& featureEnabled\('epics'\)/.test(html),
+    'the Epics section render is gated on the epics flag');
+  t.ok((html.match(/featureEnabled\('epics'\)/g) || []).length >= 4,
+    'multiple Epics cf-tab entry points are flag-gated');
+
+  // (2) SERVER — the epic-dashboard route + its two helpers exist.
+  t.ok(/app\.post\('\/api\/monitoring\/epic-dashboard'/.test(src),
+    'POST /api/monitoring/epic-dashboard route exists');
+  t.ok(/function _monEpicGuidanceDoc\(/.test(src),
+    'guidance-doc resolver helper exists');
+  t.ok(/function _monNormObjective\(/.test(src),
+    'objective normalizer helper exists');
+  // HONESTY: the normalizer must NOT fabricate a live time-series — no series/base/sustain,
+  // and `shape` is only attached for genuine gap objectives (miss|part).
+  const norm = _win(src, 'function _monNormObjective(', 1600);
+  t.ok(!/\bseries\b/.test(norm) && !/\bsustain\b/.test(norm),
+    'normalized objective carries no fabricated series/sustain');
+  t.ok(/shape: null, runbooks: null/.test(norm) &&
+       /\(status === 'miss' \|\| status === 'part'\) && o && o\.shape/.test(norm),
+    'desired-telemetry shape is attached only to miss/part gap objectives');
+
+  // (3) OBJECTIVE HEALTH VIEW — the fourth monitoring view + its dispatcher + entry method.
+  t.ok(/monitoring\.view === 'objective'/.test(html),
+    'the Objective Health view is wired to monitoring.view');
+  t.ok(/monObjDetail\(\)/.test(html) && /async monEpicDashboard\(/.test(html),
+    'objective detail dispatcher + monEpicDashboard entry method exist');
+
+  // (4) EPIC ENTRY — a Monitoring dashboard action on the Epics cockpit, gated on the
+  // Monitoring flag, wired to the current epic's key.
+  const jump = _win(html, 'class="epx-jump-mon"', 300);
+  t.ok(/x-show="featureEnabled\('monitoring'\)"/.test(jump) &&
+       /monEpicDashboard\(epicCur\(\)\.key/.test(jump),
+    'the Epics cockpit exposes a Monitoring-flag-gated dashboard action');
+});
+
 await t.done();

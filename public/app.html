@@ -11963,7 +11963,7 @@
                       @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
                       @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
-              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
+              <button type="button" class="cf-tab" x-show="featureEnabled('epics')" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
                       @click="codeflow.cfTab = 'epics'; loadCodeflowEpics()">🏔 Epics<span class="cf-tab-n" :class="{ attn: cfEpicsAttn() }" x-show="cfEpicsCount()" x-text="cfEpicsCount()"></span></button>
             </div>
 
@@ -21680,6 +21680,149 @@
                   </div>
                 </template>
               </div>
+
+              <!-- ============ OBJECTIVE HEALTH (epic → tracking-doc → per-objective readiness) ============ -->
+              <div class="monx-wrap" x-show="monitoring.view === 'objective'" style="max-width:none;">
+                <style>
+                  .moh-bridge{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 14px; border:1px solid var(--cp-border); border-radius:10px; background:linear-gradient(90deg, color-mix(in srgb, var(--mon-ai) 9%, transparent), transparent 60%); margin:2px 0 14px; font-size:12.5px; }
+                  .moh-bridge .chip{ display:inline-flex; align-items:center; gap:7px; padding:5px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); }
+                  .moh-bridge .chip.epic b{ color:var(--mon-ai); } .moh-bridge .chip.doc b{ color:var(--mon-graf); }
+                  .moh-bridge .arrow{ color:var(--cp-text-faint); }
+                  .moh-bridge .sp{ flex:1; }
+                  .moh-bridge .rebuild{ border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:8px; padding:6px 12px; color:var(--cp-text); cursor:pointer; }
+                  .moh-bridge .rebuild:hover{ border-color:var(--mon-graf); }
+                  .moh-bridge .rebuild:disabled{ opacity:.55; cursor:default; }
+                  .moh{ display:grid; grid-template-columns:330px 1fr; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:520px; height:calc(100vh - 210px); }
+                  .moh-idx{ border-right:1px solid var(--cp-border); overflow:auto; padding:14px 12px 40px; background:var(--cp-bg); }
+                  .moh-redu{ padding:12px; border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); margin-bottom:12px; }
+                  .moh-redu .big{ font-size:20px; font-weight:680; letter-spacing:-.01em; }
+                  .moh-redu .sub{ color:var(--cp-text-muted); font-size:12.5px; margin-top:3px; }
+                  .moh-redu .bar{ height:7px; border-radius:5px; background:var(--cp-bg); margin-top:11px; display:flex; overflow:hidden; }
+                  .moh-redu .bar i{ display:block; height:100%; }
+                  .moh-redu .bar .live{ background:var(--cp-success,#3fb950); } .moh-redu .bar .part{ background:var(--cp-warning,#d29922); }
+                  .moh-redu .bar .miss{ background:var(--cp-danger,#f85149); } .moh-redu .bar .man{ background:var(--cp-text-faint); }
+                  .moh-redu .leg{ display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; font-size:11.5px; color:var(--cp-text-muted); }
+                  .moh-redu .leg span{ display:inline-flex; align-items:center; gap:5px; } .moh-redu .leg i{ width:9px; height:9px; border-radius:3px; display:inline-block; }
+                  .moh-sech{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-faint); margin:16px 6px 7px; font-weight:650; }
+                  .moh-orow{ display:flex; gap:10px; align-items:flex-start; padding:10px 11px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
+                  .moh-orow:hover{ background:var(--cp-surface); } .moh-orow.on{ background:var(--cp-surface-2, var(--cp-surface)); border-color:var(--cp-border); }
+                  .moh-orow .g{ font-size:15px; line-height:1.3; width:20px; text-align:center; flex:none; }
+                  .moh-orow .b{ flex:1; min-width:0; } .moh-orow .t{ font-weight:560; font-size:13px; line-height:1.35; }
+                  .moh-orow .m{ color:var(--cp-text-faint); font-size:11.5px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+                  .moh-orow .num{ color:var(--cp-text-faint); font-size:11px; width:16px; text-align:right; flex:none; padding-top:2px; }
+                  .moh-det{ overflow:auto; padding:22px 26px 60px; }
+                  .moh-det .kick{ color:var(--mon-graf); font-size:11.5px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; }
+                  .moh-det h2{ font-size:21px; margin:6px 0 4px; font-weight:660; letter-spacing:-.01em; }
+                  .moh-det .lede{ color:var(--cp-text-muted); max-width:760px; }
+                  .moh-det .metae{ display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
+                  .moh-det .tag{ display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); font-size:12px; color:var(--cp-text-muted); }
+                  .moh-det .tag b{ color:var(--cp-text); font-weight:560; } .moh-det .tag .sd{ width:8px; height:8px; border-radius:50%; }
+                  .moh-det .sd.live{ background:var(--cp-success,#3fb950); } .moh-det .sd.part{ background:var(--cp-warning,#d29922); } .moh-det .sd.miss{ background:var(--cp-danger,#f85149); } .moh-det .sd.man{ background:var(--cp-text-faint); }
+                  .moh-det .tag.src b{ color:var(--mon-graf); }
+                  .moh-det .card{ border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); padding:16px 18px; margin-top:18px; }
+                  .moh-det .card h3{ margin:0 0 3px; font-size:14.5px; font-weight:620; } .moh-det .card .h3sub{ color:var(--cp-text-faint); font-size:12px; margin-bottom:12px; }
+                  .moh-det .panel{ border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); padding:14px 16px; }
+                  .moh-det .panel .ph{ display:flex; align-items:baseline; gap:10px; }
+                  .moh-det .panel .ph .now{ font-size:30px; font-weight:700; letter-spacing:-.02em; }
+                  .moh-det .panel .ph .now.bad{ color:var(--cp-danger,#f85149); } .moh-det .panel .ph .now.good{ color:var(--cp-success,#3fb950); }
+                  .moh-det .panel .ph .tgt{ color:var(--cp-text-muted); font-size:12.5px; }
+                  .moh-det .panel .ph .delta{ margin-left:auto; font-size:12.5px; padding:3px 9px; border-radius:7px; }
+                  .moh-det .panel .ph .delta.bad{ color:var(--cp-danger,#f85149); background:color-mix(in srgb, var(--cp-danger,#f85149) 12%, transparent); }
+                  .moh-det .panel .ph .delta.good{ color:var(--cp-success,#3fb950); background:color-mix(in srgb, var(--cp-success,#3fb950) 12%, transparent); }
+                  .moh-det .gap{ border:1px solid color-mix(in srgb, var(--cp-danger,#f85149) 35%, var(--cp-border)); background:linear-gradient(180deg, color-mix(in srgb, var(--cp-danger,#f85149) 6%, transparent), transparent 40%); }
+                  .moh-det .gap.part{ border-color:color-mix(in srgb, var(--cp-warning,#d29922) 35%, var(--cp-border)); background:linear-gradient(180deg, color-mix(in srgb, var(--cp-warning,#d29922) 6%, transparent), transparent 40%); }
+                  .moh-det .gap.man{ border-color:var(--cp-border); background:var(--cp-surface); }
+                  .moh-det .gap .why{ color:var(--cp-text-muted); margin-bottom:14px; }
+                  .moh-det .stypes{ display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:10px; margin-bottom:16px; }
+                  .moh-det .stype{ border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); padding:11px 12px; }
+                  .moh-det .stype.on{ border-color:var(--mon-graf); background:color-mix(in srgb, var(--mon-graf) 8%, transparent); }
+                  .moh-det .stype .st{ font-weight:600; font-size:12.5px; display:flex; align-items:center; gap:7px; } .moh-det .stype .st .i{ font-size:14px; }
+                  .moh-det .stype .sd2{ color:var(--cp-text-muted); font-size:11.5px; margin-top:4px; line-height:1.45; }
+                  .moh-det .stype .rec{ color:var(--mon-graf); font-size:11px; margin-top:5px; }
+                  .moh-det .shape{ border:1px solid var(--cp-border); border-radius:8px; overflow:hidden; }
+                  .moh-det .sh-h{ padding:9px 12px; background:var(--cp-bg); font-size:12.5px; border-bottom:1px solid var(--cp-border); }
+                  .moh-det table.sch{ width:100%; border-collapse:collapse; font-size:12.5px; }
+                  .moh-det table.sch th{ text-align:left; padding:8px 12px; color:var(--cp-text-faint); font-weight:600; font-size:11.5px; border-bottom:1px solid var(--cp-border); }
+                  .moh-det table.sch td{ padding:8px 12px; border-bottom:1px solid var(--cp-border); vertical-align:top; }
+                  .moh-det table.sch tr:last-child td{ border-bottom:0; }
+                  .moh-det table.sch code{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:4px; padding:1px 5px; font-size:11.5px; }
+                  .moh-det .role{ font-size:11px; padding:1px 7px; border-radius:5px; border:1px solid var(--cp-border); color:var(--cp-text-muted); }
+                  .moh-det .role.time{ color:var(--mon-accent); } .moh-det .role.metric{ color:var(--cp-success,#3fb950); } .moh-det .role.dim{ color:var(--mon-ai); } .moh-det .role.key{ color:var(--cp-text-muted); }
+                  .moh-det pre.q{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; padding:12px 14px; font-size:12px; overflow:auto; margin:10px 0 0; line-height:1.55; white-space:pre-wrap; }
+                  .moh-det pre.q .kw{ color:var(--mon-ai); } .moh-det pre.q .str{ color:var(--cp-success,#3fb950); } .moh-det pre.q .cm{ color:var(--cp-text-faint); font-style:italic; }
+                  .moh-det .cadence{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:12px; }
+                  .moh-det .cadence>div{ border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); padding:9px 11px; font-size:12px; color:var(--cp-text-muted); }
+                  .moh-det .cadence b{ display:block; color:var(--cp-text); font-weight:600; font-size:11.5px; margin-bottom:2px; }
+                  .moh-det .actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+                  .moh-det .actions .btn{ border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:8px; padding:8px 13px; color:var(--cp-text); font-size:12.5px; cursor:pointer; }
+                  .moh-det .actions .btn:hover{ border-color:var(--mon-accent); }
+                  .moh-det .actions .btn.pri{ background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent)); border:0; color:#fff; font-weight:600; }
+                  .moh-det .actions .btn.ai{ border-color:color-mix(in srgb, var(--mon-ai) 45%, var(--cp-border)); color:var(--mon-ai); }
+                  .moh-det .note{ display:flex; gap:8px; margin-top:14px; color:var(--cp-text-muted); font-size:12px; line-height:1.5; }
+                  .moh-det .note .i{ color:var(--mon-graf); flex:none; }
+                  .moh-det .prov{ margin-top:18px; color:var(--cp-text-faint); font-size:12px; line-height:1.6; border-left:2px solid var(--cp-border); padding-left:12px; }
+                  .moh-det .prov b{ color:var(--cp-text-muted); }
+                  .moh-det .manrows{ margin-top:12px; display:flex; flex-direction:column; }
+                  .moh-det .manrow{ display:flex; align-items:center; gap:11px; padding:9px 0; border-bottom:1px solid var(--cp-border); font-size:13px; }
+                  .moh-det .manrow:last-child{ border-bottom:0; } .moh-det .manrow .st{ flex:none; } .moh-det .manrow .nm{ flex:1; }
+                  .moh-det .manrow .val{ color:var(--cp-text-faint); font-size:11.5px; }
+                  .moh-loading, .moh-emptyd{ display:grid; place-items:center; height:100%; color:var(--cp-text-muted); text-align:center; padding:40px; }
+                </style>
+                <button class="monx-back" @click="monObjClose()">← Back to Monitoring</button>
+                <div class="moh-bridge" x-show="monitoring.obj.epicKey">
+                  <span class="chip epic">🏔 <b x-text="monitoring.obj.epicTitle || 'Epic'"></b></span>
+                  <span class="arrow">→</span>
+                  <span class="chip doc" x-show="monitoring.obj.doc">📄 <b x-text="monitoring.obj.doc ? monitoring.obj.doc.title : ''"></b></span>
+                  <span class="chip" x-show="!monitoring.obj.doc" style="color:var(--cp-text-faint)">No tracking doc linked</span>
+                  <span class="sp"></span>
+                  <span x-show="monitoring.obj.ai" style="color:var(--cp-text-faint);font-size:11.5px;">✓ AI-generated from the doc</span>
+                  <button class="rebuild" @click="monObjRebuild()" :disabled="monitoring.obj.loading" x-text="monitoring.obj.loading ? 'Building…' : '↻ Rebuild'"></button>
+                </div>
+
+                <template x-if="monitoring.obj.loading">
+                  <div class="moh"><div class="moh-loading">Reading the epic and its tracking doc, mapping each objective to real telemetry…</div></div>
+                </template>
+                <template x-if="!monitoring.obj.loading && monitoring.obj.error">
+                  <div class="moh"><div class="moh-loading" x-text="monitoring.obj.error"></div></div>
+                </template>
+                <template x-if="!monitoring.obj.loading && !monitoring.obj.error">
+                  <div class="moh">
+                    <div class="moh-idx">
+                      <div class="moh-redu">
+                        <div class="big" x-text="monitoring.obj.objectives.length + ' objectives'"></div>
+                        <div class="sub" x-html="monObjReduSub()"></div>
+                        <div class="bar">
+                          <template x-for="seg in monObjCounts().segs" :key="seg.cls">
+                            <i :class="seg.cls" :style="`width:${seg.pct}%`" x-show="seg.pct > 0"></i>
+                          </template>
+                        </div>
+                        <div class="leg">
+                          <span><i style="background:var(--cp-success,#3fb950)"></i> Live <b x-text="monObjCounts().live"></b></span>
+                          <span><i style="background:var(--cp-warning,#d29922)"></i> Partial <b x-text="monObjCounts().part"></b></span>
+                          <span><i style="background:var(--cp-danger,#f85149)"></i> Missing <b x-text="monObjCounts().miss"></b></span>
+                          <span><i style="background:var(--cp-text-faint)"></i> Manual <b x-text="monObjCounts().man"></b></span>
+                        </div>
+                      </div>
+                      <div class="moh-sech">Objectives</div>
+                      <template x-for="o in monitoring.obj.objectives" :key="'obj'+o.n">
+                        <div class="moh-orow" :class="{ on: monitoring.obj.sel === ('obj'+o.n) }" @click="monObjSelect('obj'+o.n)">
+                          <div class="g" x-text="monObjIcon(o)"></div>
+                          <div class="b"><div class="t" x-text="o.title"></div><div class="m" x-text="(o.measure || monObjStatusLabel(o.status)) + (o.target ? (' · ' + o.target) : '')"></div></div>
+                          <div class="num" x-text="o.n"></div>
+                        </div>
+                      </template>
+                      <div class="moh-sech">More</div>
+                      <div class="moh-orow" :class="{ on: monitoring.obj.sel === 'sources' }" @click="monObjSelect('sources')">
+                        <div class="g">🔌</div><div class="b"><div class="t">Data sources &amp; gaps</div><div class="m">What it reads — and what it needs</div></div>
+                      </div>
+                      <div class="moh-orow" :class="{ on: monitoring.obj.sel === 'how' }" @click="monObjSelect('how')">
+                        <div class="g">🧭</div><div class="b"><div class="t">How this was built</div><div class="m">Doc → objectives → binding</div></div>
+                      </div>
+                    </div>
+                    <div class="moh-det" x-html="monObjDetail()"></div>
+                  </div>
+                </template>
+              </div>
             </div>
 
             <!-- ============ DATA OVERLAY (the rows behind a panel, room to breathe) ============ -->
@@ -23550,7 +23693,7 @@
                       @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
                       @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
-              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
+              <button type="button" class="cf-tab" x-show="featureEnabled('epics')" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
                       @click="codeflow.cfTab = 'epics'; loadCodeflowEpics()">🏔 Epics<span class="cf-tab-n" :class="{ attn: cfEpicsAttn() }" x-show="cfEpicsCount()" x-text="cfEpicsCount()"></span></button>
             </div>
 
@@ -24410,7 +24553,7 @@
                "Refresh with AI" upgrades the standup/alerts/forward/next via the SDK.
                Self-contained lower-right assistant FAB → slide-over drawer, scoped to
                this tab (mirrors Board AI / Connect AI). NO pills. -->
-          <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'epics'" x-init="epicInitRail()">
+          <section x-show="!loading && !errorMessage && route === 'codeflow' && codeflow.cfTab === 'epics' && featureEnabled('epics')" x-init="epicInitRail()">
             <style>
               .epx-studio { display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start; }
               @media (min-width:1001px){ .epx-studio.is-collapsed { grid-template-columns:44px minmax(0,1fr); } }
@@ -24479,6 +24622,7 @@
               .epx-ring-cap { display:block; text-align:center; font-size:9.5px; color:var(--cp-text-soft); font-weight:600; letter-spacing:.03em; margin-top:4px; text-transform:uppercase; }
               .epx-jump { display:flex; flex-wrap:wrap; gap:2px 16px; font-size:12px; padding:11px 18px; border-top:1px solid var(--cp-border); color:var(--cp-text-soft); }
               .epx-jump a { color:var(--cp-text-muted); cursor:pointer; } .epx-jump a:hover { color:var(--cp-text); text-decoration:underline; }
+              .epx-jump a.epx-jump-mon { margin-left:auto; color:#2fb2a6; font-weight:600; } .epx-jump a.epx-jump-mon:hover { color:#2fb2a6; }
               .epx-standup { border:1px solid var(--cp-ai,#7c3aed); border-left:4px solid var(--cp-ai,#7c3aed); background:linear-gradient(180deg,var(--cp-ai-soft,rgba(124,58,237,.10)),transparent 140%); border-radius:14px; }
               .epx-standup .bd { padding:15px 18px; }
               .epx-standup-h { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
@@ -24677,7 +24821,7 @@
                       @click="cfGoView('active')">👀 Active PRs<span class="cf-tab-n" :class="{ attn: cfTabAttn('active') }" x-show="cfTabCount('active')" x-text="cfTabCount('active')"></span></button>
               <button type="button" class="cf-tab" :class="{ on: cfTabOnPr('other') }" role="tab" :aria-selected="cfTabOnPr('other')"
                       @click="cfGoView('other')">🗄 Other PRs<span class="cf-tab-n" x-show="cfTabCount('other')" x-text="cfTabCount('other')"></span></button>
-              <button type="button" class="cf-tab" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
+              <button type="button" class="cf-tab" x-show="featureEnabled('epics')" :class="{ on: codeflow.cfTab === 'epics' }" role="tab" :aria-selected="codeflow.cfTab === 'epics'"
                       @click="codeflow.cfTab = 'epics'; loadCodeflowEpics()">🏔 Epics<span class="cf-tab-n" :class="{ attn: cfEpicsAttn() }" x-show="cfEpicsCount()" x-text="cfEpicsCount()"></span></button>
             </div>
 
@@ -24766,6 +24910,7 @@
                         <span>Jump to</span>
                         <a @click="epicJump('epx-goals')">Goals</a><a @click="epicJump('epx-now')">Right now</a><a @click="epicJump('epx-forward')">Unblock</a>
                         <a @click="epicJump('epx-next')">Next up</a><a @click="epicJump('epx-dates')">Dates</a><a @click="epicJump('epx-deliv')">Deliverables</a>
+                        <a class="epx-jump-mon" x-show="featureEnabled('monitoring')" @click="monEpicDashboard(epicCur().key, '')" title="Build a Monitoring.AI Objective-Health dashboard from this epic's business-objectives doc">📊 Monitoring dashboard</a>
                       </div>
                     </div>
 
@@ -31437,14 +31582,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, epics: false, monitoring: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true };
+          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, epics: true, monitoring: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -32501,7 +32646,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         newTaskOpen: false,
         // Monitoring.AI — Grafana + AI dashboard studio (default OFF opt-in feature)
         monitoring: {
-          view: 'launcher',        // 'launcher' | 'studio' | 'deep'
+          view: 'launcher',        // 'launcher' | 'studio' | 'deep' | 'objective'
           loading: false,
           loaded: false,
           status: null,            // GET /status
@@ -32546,6 +32691,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // v2: alert rules over alertable internal Workspace sources.
           alerts: { list: [], open: false, loading: false, saving: false, evaluating: false, draft: null },
           alertNotices: [],        // recent fired-alert notices (from the monitoring-alert SSE)
+          // Epic → Objective Health bridge model (POST /api/monitoring/epic-dashboard)
+          obj: {
+            loading: false, error: '', ai: false,
+            epicKey: '', epicTitle: '', epicUrl: '', docId: '',
+            doc: null, title: '', summary: '', sourcesConnected: 0,
+            objectives: [], sel: '',
+          },
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -33962,6 +34114,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.focusCodeflowPr(cfFocus);
             } else {
               // No deep-link → restore the last-viewed Code Flow sub-tab (persisted).
+              // Epics is flag-gated — if a persisted 'epics' tab is now hidden, fall to Dev cards.
+              if (this.codeflow.cfTab === 'epics' && !this.featureEnabled('epics')) this.codeflow.cfTab = 'dev';
               if (this.codeflow.cfTab === 'dev') {
                 await this.devEnsureLoaded();
               } else if (this.codeflow.cfTab === 'epics') {
@@ -35511,9 +35665,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
+            { key: 'epics', label: 'Epics', icon: '🏔', hint: 'Epic cockpits in Code Flow — goals, roadmap, in-flight kanban & AI standups for the work items you own.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
-            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt and hand panels to AI for trend & status analysis.' },
+            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt, generate an epic Objective Health dashboard, and hand panels to AI for trend & status analysis.' },
           ];
         },
         // Catalog of optional features that can be switched OFF while in Advanced mode
@@ -35529,9 +35684,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
+            { key: 'epics', label: 'Epics', icon: '🏔', hint: 'Epic cockpits in Code Flow — goals, roadmap, in-flight kanban & AI standups for the work items you own.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
-            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt and hand panels to AI for trend & status analysis.' },
+            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt, generate an epic Objective Health dashboard, and hand panels to AI for trend & status analysis.' },
           ];
         },
         setExperienceLevel(level) {
@@ -35579,6 +35735,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // If we just hid the page we're standing on (directly or via a dependency
           // cascade), fall back to Home.
           if (cur && this.experienceLevel === 'basic' && !this.basicRouteVisible(this.route)) this.goTo('#/home');
+          // Epics is a Code Flow tab (not a route) — bounce off it to Dev cards when hidden.
+          if (key === 'epics' && cur && this.codeflow && this.codeflow.cfTab === 'epics') this.codeflow.cfTab = 'dev';
         },
         // Advanced opt-out toggle (inverse of toggleBasicFeature). Persists to its own
         // store; dependency guard via featureRequires; routes Home if it hides the open page.
@@ -35598,6 +35756,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._publishEnabledFeatures();
           // If we just hid the page we're standing on (directly or via cascade), land Home.
           if (cur && this.experienceLevel === 'advanced' && !this.advancedRouteVisible(this.route)) this.goTo('#/home');
+          // Epics is a Code Flow tab (not a route) — bounce off it to Dev cards when hidden.
+          if (key === 'epics' && cur && this.codeflow && this.codeflow.cfTab === 'epics') this.codeflow.cfTab = 'dev';
         },
         // Whether a route is reachable from the Basic flat sidebar (so we don't strand
         // the user on a hidden page after switching to Basic).
@@ -41416,6 +41576,203 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Retained for compatibility; behaves like "New from prompt" and keeps
           // the current dashboard so the studio is one click away.
           this.monNewPrompt();
+        },
+        // ---- Objective Health (epic → tracking-doc → per-objective readiness) ----
+        async monEpicDashboard(key, docId) {
+          if (!this.featureEnabled('monitoring')) { this.toast('Enable Monitoring.AI in Settings → Experience to use this.'); return; }
+          if (!key) return;
+          this.goTo('#/monitoring');
+          this.monitoring.view = 'objective';
+          const o = this.monitoring.obj;
+          o.loading = true; o.error = ''; o.epicKey = key; o.docId = docId || '';
+          o.objectives = []; o.sel = ''; o.doc = null; o.title = ''; o.summary = ''; o.ai = false;
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard', { method: 'POST', body: JSON.stringify({ key, docId: docId || '' }) });
+            if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+            o.epicTitle = (r.epic && r.epic.title) || 'Epic';
+            o.epicUrl = (r.epic && r.epic.url) || '';
+            o.doc = r.doc || null;
+            o.title = r.title || '';
+            o.summary = r.summary || '';
+            o.ai = !!r.ai;
+            o.sourcesConnected = r.sourcesConnected || 0;
+            o.objectives = Array.isArray(r.objectives) ? r.objectives : [];
+            // Land on the first gap (miss/part) so the actionable work is front-and-center.
+            const first = o.objectives.find(x => x.status === 'miss' || x.status === 'part') || o.objectives[0];
+            o.sel = first ? ('obj' + first.n) : 'sources';
+          } catch (e) {
+            o.error = 'Couldn\'t build the objective-health dashboard: ' + (e && e.message || 'error') + '. Open the Epics tab first so the epic is loaded.';
+          } finally { o.loading = false; }
+        },
+        monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId); },
+        monObjClose() { this.monitoring.view = this.monitoring.dash ? 'studio' : 'launcher'; },
+        monObjSelect(k) { this.monitoring.obj.sel = k; },
+        monObjCounts() {
+          const objs = this.monitoring.obj.objectives || [];
+          const c = { live: 0, part: 0, miss: 0, man: 0 };
+          for (const o of objs) { if (o.status === 'live') c.live++; else if (o.status === 'part') c.part++; else if (o.status === 'manual') c.man++; else c.miss++; }
+          const total = Math.max(1, objs.length);
+          const segs = [
+            { cls: 'live', pct: Math.round((c.live / total) * 100) },
+            { cls: 'part', pct: Math.round((c.part / total) * 100) },
+            { cls: 'miss', pct: Math.round((c.miss / total) * 100) },
+            { cls: 'man', pct: Math.round((c.man / total) * 100) },
+          ];
+          return { ...c, segs };
+        },
+        monObjReduSub() {
+          const c = this.monObjCounts();
+          const live = c.live, gaps = c.miss + c.part, man = c.man;
+          const parts = [];
+          if (live) parts.push('<b style="color:var(--cp-success,#3fb950)">' + live + ' live</b>');
+          if (gaps) parts.push('<b style="color:var(--cp-danger,#f85149)">' + gaps + ' need a data source</b>');
+          if (man) parts.push('<b style="color:var(--cp-text-muted)">' + man + ' manual</b>');
+          return parts.length ? parts.join(' · ') : 'No objectives extracted yet.';
+        },
+        monObjStatusLabel(s) { return s === 'live' ? 'Live' : s === 'part' ? 'Partial' : s === 'manual' ? 'Manual' : 'Missing source'; },
+        monObjIcon(o) {
+          if (o.status === 'live') return '🟢';
+          if (o.status === 'part') return '🟡';
+          if (o.status === 'manual') return '📋';
+          return '🔴';
+        },
+        _monEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+        _monHlKql(q) {
+          let s = this._monEsc(q);
+          s = s.replace(/(^|\n)(\s*\/\/[^\n]*)/g, (m, a, b) => a + '<span class="cm">' + b + '</span>');
+          s = s.replace(/'([^']*)'/g, (m) => '<span class="str">' + m + '</span>');
+          s = s.replace(/\b(summarize|by|bin|where|project|extend|join|count|avg|sum|percentile|make-series|order|asc|desc|let|render|distinct|top|ago|between|datetime|todouble|tostring|toint)\b/g, '<span class="kw">$1</span>');
+          return s;
+        },
+        _monSrcTypeName(k) { return k === 'api' ? 'Web API' : k === 'kusto' ? 'Kusto / ADX' : k === 'appinsights' ? 'App Insights' : 'Manual'; },
+        _monSrcTypeIcon(k) { return k === 'api' ? '🔗' : k === 'kusto' ? '📊' : k === 'appinsights' ? '📈' : '📝'; },
+        monObjSelected() {
+          const sel = this.monitoring.obj.sel;
+          if (!/^obj/.test(sel)) return null;
+          const n = sel.slice(3);
+          return (this.monitoring.obj.objectives || []).find(o => String(o.n) === String(n)) || null;
+        },
+        monObjDetail() {
+          const sel = this.monitoring.obj.sel;
+          if (sel === 'sources') return this._monDetSources();
+          if (sel === 'how') return this._monDetHow();
+          const o = this.monObjSelected();
+          if (!o) return '<div class="moh-emptyd">Select an objective.</div>';
+          if (o.status === 'manual') return this._monDetManual(o);
+          if (o.status === 'live') return this._monDetLive(o);
+          return this._monDetGap(o);
+        },
+        _monObjHead(o) {
+          const e = this._monEsc;
+          return '<div class="kick">Business objective ' + o.n + '</div>' +
+            '<h2>' + e(o.title) + '</h2>' +
+            (o.lede ? '<div class="lede">' + e(o.lede) + '</div>' : '') +
+            '<div class="metae">' +
+            '<span class="tag"><span class="sd ' + (o.status === 'manual' ? 'man' : o.status) + '"></span><b>' + this.monObjStatusLabel(o.status) + '</b></span>' +
+            (o.srcName ? '<span class="tag src">' + this._monSrcTypeIcon(o.srcType) + ' <b>' + e(o.srcName) + '</b></span>' : '') +
+            (o.target ? '<span class="tag">🎯 <b>' + e(o.target) + '</b></span>' : '') +
+            '</div>';
+        },
+        _monDetLive(o) {
+          const e = this._monEsc;
+          let h = this._monObjHead(o);
+          h += '<div class="card"><h3>Current reading</h3><div class="h3sub">Sourced live from ' + e(o.srcName || 'the connected source') + ' — no fabricated trend.</div>';
+          h += '<div class="panel"><div class="ph">';
+          h += '<div class="now ' + (o.deltaCls || '') + '">' + e(o.now || '—') + '</div>';
+          if (o.tgt) h += '<div class="tgt">target ' + e(o.tgt) + '</div>';
+          if (o.delta) h += '<div class="delta ' + (o.deltaCls || '') + '">' + e(o.delta) + '</div>';
+          h += '</div></div></div>';
+          h += '<div class="note"><span class="i">✓</span><div>This objective is backed by a connected source. Open Monitoring.AI\'s studio to chart it over time, or grab its panel for AI trend analysis.</div></div>';
+          return h;
+        },
+        _monDetManual(o) {
+          const e = this._monEsc;
+          let h = this._monObjHead(o);
+          const rb = o.runbooks || [];
+          const ok = rb.filter(r => r.ok).length;
+          h += '<div class="card gap man"><h3>Human-validated objective</h3><div class="h3sub">No automated telemetry — tracked by review.' + (rb.length ? (' ' + ok + ' of ' + rb.length + ' covered.') : '') + '</div>';
+          if (rb.length) {
+            h += '<div class="manrows">';
+            for (const r of rb) h += '<div class="manrow"><span class="st">' + e(r.st || (r.ok ? '✅' : '⬜')) + '</span><span class="nm">' + e(r.nm) + '</span>' + (r.note ? '<span class="val">' + e(r.note) + '</span>' : '') + '</div>';
+            h += '</div>';
+          }
+          h += '</div>';
+          h += '<div class="note"><span class="i">📋</span><div>If you want this measured automatically, tell Monitoring.AI what evidence to watch and it will propose a telemetry shape like it does for the missing-source objectives.</div></div>';
+          return h;
+        },
+        _monDetGap(o) {
+          const e = this._monEsc;
+          const sh = o.shape || {};
+          let h = this._monObjHead(o);
+          h += '<div class="card gap ' + (o.status === 'part' ? 'part' : '') + '">';
+          h += '<h3>' + (o.status === 'part' ? 'Partial coverage — one signal is missing' : 'No data source connected yet') + '</h3>';
+          const why = o.blockedOn
+            ? ('This objective can\'t light up until <b>' + e(o.blockedWhat || 'upstream work') + '</b> lands (blocked on <b>' + e(o.blockedOn) + '</b>). Pick a source type below and Monitoring.AI will show you the exact telemetry it needs.')
+            : 'Pick where this signal should come from. Monitoring.AI shows the exact shape of telemetry it needs so you can wire it up.';
+          h += '<div class="why">' + why + '</div>';
+          // Source-type picker.
+          const types = (sh.types || []);
+          if (types.length) {
+            h += '<div class="stypes">';
+            for (const t of types) {
+              const on = t.k === o.srcType;
+              h += '<div class="stype ' + (on ? 'on' : '') + '"><div class="st"><span class="i">' + this._monSrcTypeIcon(t.k) + '</span>' + this._monSrcTypeName(t.k) + '</div>' +
+                (t.d ? '<div class="sd2">' + e(t.d) + '</div>' : '') +
+                (t.rec ? '<div class="rec">↳ ' + e(t.rec) + '</div>' : '') + '</div>';
+            }
+            h += '</div>';
+          }
+          // Desired telemetry shape.
+          if ((sh.cols || []).length || sh.query) {
+            h += '<div class="shape">';
+            if (sh.table) h += '<div class="sh-h">Desired shape — <code>' + e(sh.table) + '</code></div>';
+            if ((sh.cols || []).length) {
+              h += '<table class="sch"><thead><tr><th>Field</th><th>Type</th><th>Role</th><th>Why the dashboard needs it</th></tr></thead><tbody>';
+              for (const c of sh.cols) h += '<tr><td><code>' + e(c.c) + '</code></td><td>' + e(c.type || '') + '</td><td><span class="role ' + (c.role || 'dim') + '">' + e(c.role || 'dim') + '</span></td><td>' + e(c.note || '') + '</td></tr>';
+              h += '</tbody></table>';
+            }
+            h += '</div>';
+            if (sh.query) h += '<pre class="q">' + this._monHlKql(sh.query) + '</pre>';
+          }
+          // Cadence.
+          if ((sh.cadence || []).length) {
+            h += '<div class="cadence">';
+            for (const row of sh.cadence) h += '<div><b>' + e(row[0]) + '</b>' + e(row[1]) + '</div>';
+            h += '</div>';
+          }
+          if (sh.lights) h += '<div class="note"><span class="i">💡</span><div>' + e(sh.lights) + '</div></div>';
+          h += '<div class="actions">';
+          h += '<button class="btn pri" onclick="return false" title="Wiring the source is done in your telemetry platform.">I\'ll wire this source</button>';
+          if (o.blockedOn) h += '<button class="btn" onclick="return false">Track ' + e(o.blockedOn) + '</button>';
+          h += '</div>';
+          h += '</div>';
+          return h;
+        },
+        _monDetSources() {
+          const e = this._monEsc;
+          const objs = this.monitoring.obj.objectives || [];
+          let h = '<div class="kick">Data sources</div><h2>Sources &amp; gaps</h2><div class="lede">Every objective maps to a measurement source. Green is connected today; red needs telemetry wired up.</div>';
+          h += '<div class="card"><h3>By objective</h3><div class="h3sub">' + this.monitoring.obj.sourcesConnected + ' monitoring source(s) currently connected.</div>';
+          h += '<div class="manrows">';
+          for (const o of objs) {
+            h += '<div class="manrow"><span class="st">' + this.monObjIcon(o) + '</span><span class="nm"><b>' + e(o.title) + '</b><div class="val">' + this._monSrcTypeIcon(o.srcType) + ' ' + this._monSrcTypeName(o.srcType) + (o.srcName ? (' · ' + e(o.srcName)) : '') + '</div></span><span class="val">' + this.monObjStatusLabel(o.status) + '</span></div>';
+          }
+          h += '</div></div>';
+          h += '<div class="note"><span class="i">🔌</span><div>Select a missing-source objective on the left to see the exact telemetry shape Monitoring.AI needs, or connect Azure Managed Grafana in the connection settings.</div></div>';
+          return h;
+        },
+        _monDetHow() {
+          const e = this._monEsc;
+          const o = this.monitoring.obj;
+          let h = '<div class="kick">Provenance</div><h2>How this was built</h2>';
+          h += '<div class="lede">' + (o.summary ? e(o.summary) : 'Monitoring.AI read the epic and its tracking doc, then classified each business objective by measurement source and readiness.') + '</div>';
+          h += '<div class="prov">';
+          h += '<div><b>1 · Epic.</b> ' + e(o.epicTitle || 'This epic') + (o.epicUrl ? (' (<a href="' + e(o.epicUrl) + '" target="_blank" rel="noopener">open work item ↗</a>)') : '') + ' — its roadmap milestones seed target dates.</div>';
+          h += '<div><b>2 · Tracking doc.</b> ' + (o.doc ? ('“' + e(o.doc.title) + '” defines the measurable business objectives, their targets, and their intended measurement sources.') : 'No linked business-objectives doc was found — link one on the epic so per-objective health can be built from its targets.') + '</div>';
+          h += '<div><b>3 · Classification.</b> ' + (o.ai ? 'An AI pass' : 'A deterministic pass') + ' mapped each objective to a source TYPE (Web API / Kusto / App Insights / Manual) and a readiness (live / partial / missing / manual), honestly — “live” only when the doc states the source emits today.</div>';
+          h += '<div><b>4 · Desired shape.</b> For every gap, Monitoring.AI describes the exact telemetry the source must emit (schema fields + roles, an example query, and cadence) so you can wire it up.</div>';
+          h += '</div>';
+          return h;
         },
         monStatusColor(s) {
           if (s === 'critical' || s === 'bad') return 'var(--cp-danger,#f85149)';
