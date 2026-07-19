@@ -22686,6 +22686,7 @@
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeExport('html')" title="Download the self-contained prototype as an .html file">⬇ Download</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeIsSite() && compose.draftText.trim()" @click="composeMakeItRealOpen()" title="Publish this prototype to a live, access-controlled Azure site">☁️ Publish to Azure</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="!composeIsSite()" @click="composeCopy()" title="Copy to clipboard">⧉ Copy</button>
+                          <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="!!compose.current" @click="composeCopyLink()" title="Copy a deep link to this document — paste it to reference the doc (e.g. hand it to an assistant)">🔗 Link</button>
                           <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="composeCanEmail()" @click="composeOpenDeliver()">✉ Email</button>
                           <div class="nlx-seg" x-show="!composeIsSite()">
                             <button type="button" @click="composeExport('md')">⬇ MD</button>
@@ -31959,6 +31960,7 @@
             folders: [], assignments: {}, folder: '', expanded: {}, moveMenu: '', dragDoc: '', dragOver: '',
             nfParent: null, nfName: '', frenaming: '', frenameVal: '' },
           _pendingStart: null,    // purpose queued by a deep link, applied after load
+          _pendingOpenId: null,   // composition id queued by a deep link (#/compose/<id>)
           // The brief being authored (launcher → brief step).
           brief: { purpose: 'proposal', title: '', audience: '', format: 'doc', brief: '',
                    sources: { diary: false, diaryDays: 14, pr: false, prRef: '', pursuit: false, pursuitRef: '', workitems: false, workitemsRef: '', repos: false, reposRef: '', m365: false, links: [], pasted: '' }, _linkInput: '' },
@@ -33930,6 +33932,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // shows the library. Scrub a leftover library view so a return trip to
             // #/compose restores the last-viewed doc (or the launcher), not the list.
             if (this.compose.view === 'library') { this.compose.view = 'launcher'; this.compose.current = null; }
+            // Deep link: #/compose/<id> opens that specific document (wins over the
+            // last-viewed restore). Lets a document be handed out as a shareable URL.
+            if (this.app.routeParam) this.compose._pendingOpenId = this.app.routeParam;
             await this.loadCompose();
           } else if (this.route === 'documents') {
             await this.composeOpenLibrary();
@@ -50412,6 +50417,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             co.loaded = true;
             // Honor a purpose picked from the global FAB launcher — a deep link always wins.
             if (co._pendingStart) { const pid = co._pendingStart; co._pendingStart = null; this.composeStart(pid); }
+            // A deep link (#/compose/<id>) opens that document directly. Falls back to
+            // the launcher with a notice when the id is unknown (e.g. deleted/renamed).
+            else if (co._pendingOpenId) {
+              const oid = co._pendingOpenId; co._pendingOpenId = null;
+              if ((co.compositions || []).some(c => c.id === oid)) { await this.composeOpen(oid); }
+              else { this.toast('That document link could not be resolved — it may have been deleted.', 'error'); co.view = 'launcher'; try { history.replaceState(null, '', '#/compose'); } catch {} }
+            }
             // Otherwise restore the last-viewed composition so a refresh or a return trip lands
             // back in the studio where the user left off — not on the launcher. Falls back to the
             // launcher when nothing is saved or the saved doc was since deleted. The library view
@@ -51129,6 +51141,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (c && c.sources) { c.sources = { ...this.composeSourcesDefault(), ...c.sources }; if (!Array.isArray(c.sources.links)) c.sources.links = []; }
           co.current = c;
           try { if (c && c.id) localStorage.setItem('compose-last-id', c.id); } catch {}
+          // Keep the address bar pointed at this document so the browser URL is itself a
+          // shareable deep link (and back/forward behaves). replaceState avoids firing
+          // hashchange, so it won't re-trigger the router. Only while on the studio route.
+          try { if (c && c.id && this.route === 'compose') history.replaceState(null, '', '#/compose/' + encodeURIComponent(c.id)); } catch {}
           co.draftText = (c.draft && c.draft.content) || '';
           co.draftFormat = (c.draft && c.draft.contentFormat) || (c.format === 'site' ? 'html' : 'markdown');
           co.draftDirty = false;
@@ -51182,6 +51198,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.current = null;
           this.compose.view = 'launcher';
           try { localStorage.removeItem('compose-last-id'); } catch {}
+          try { if (this.route === 'compose') history.replaceState(null, '', '#/compose'); } catch {}
           this.loadCompose();
         },
         // Brand/title click → the Compose.AI home page (the launcher gallery). Works
@@ -51192,7 +51209,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.compose.current = null;
           this.compose.view = 'launcher';
           try { localStorage.removeItem('compose-last-id'); } catch {}
-          if (this.route !== 'compose') { this.goTo('#/compose'); } else { this.loadCompose(); }
+          if (this.route !== 'compose') { this.goTo('#/compose'); } else { try { history.replaceState(null, '', '#/compose'); } catch {} this.loadCompose(); }
         },
         // "✚ New" from inside the studio: start a fresh composition of the SAME purpose the
         // user is currently working in (e.g. another "Brainstorm & options"), rather than
@@ -52053,6 +52070,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await navigator.clipboard.writeText(co.draftText || '');
             this.toast('Copied — paste into Teams, email, or a doc.', 'success');
             this.request('/api/compose/' + encodeURIComponent(co.current.id) + '/delivered', { method: 'POST', body: JSON.stringify({ via: 'copied' }) }).catch(() => {});
+          } catch (e) { this.toast('Copy failed', 'error'); }
+        },
+        // Build a shareable deep link to a composition. The hash route #/compose/<id>
+        // resolves to that document on load, so the URL can be pasted anywhere (chat,
+        // a doc, handed to an assistant) to point back at this exact document.
+        composeDocLink(id) {
+          const cid = id || (this.compose.current && this.compose.current.id);
+          if (!cid) return '';
+          try {
+            const base = window.location.origin + window.location.pathname;
+            return base + '#/compose/' + encodeURIComponent(cid);
+          } catch { return '#/compose/' + encodeURIComponent(cid); }
+        },
+        async composeCopyLink() {
+          const co = this.compose;
+          if (!co.current) return;
+          const url = this.composeDocLink(co.current.id);
+          if (!url) return;
+          try {
+            await navigator.clipboard.writeText(url);
+            this.toast('Document link copied — paste it to reference this doc.', 'success');
           } catch (e) { this.toast('Copy failed', 'error'); }
         },
         async composeLoadVersions() {

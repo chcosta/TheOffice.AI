@@ -301,6 +301,34 @@ await t.test('compose: rail resize/collapse + inline source config + no regenera
   t.ok(/x-model="compose\.current\.sources\.pasted"/.test(html), 'the Pasted context textarea still binds the real field');
 });
 
+// Compose documents are addressable by a shareable deep link (#/compose/<id>) so a
+// specific document can be referenced by URL — pasted into a chat, a doc, or handed to
+// an assistant. The studio also keeps the address bar pointed at the current doc.
+await t.test('compose: shareable deep link to a document (#/compose/<id>)', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // Link builder + copy action.
+  t.ok(/composeDocLink\(id\) \{/.test(html), 'composeDocLink(id) builds the deep-link URL');
+  t.ok(/'#\/compose\/' \+ encodeURIComponent\(cid\)/.test(html), 'the link uses the #/compose/<id> hash route');
+  t.ok(/async composeCopyLink\(\) \{/.test(html), 'composeCopyLink() is defined');
+  t.ok(/@click="composeCopyLink\(\)"/.test(html), 'a toolbar button copies the document link');
+
+  // Entry resolution: a deep link queues the doc id and loadCompose opens it (over the
+  // last-viewed restore), with a graceful fallback when the id is unknown.
+  t.ok(/if \(this\.app\.routeParam\) this\.compose\._pendingOpenId = this\.app\.routeParam/.test(html),
+    'the compose route captures the id from the hash param');
+  const load = _win(html, 'async loadCompose()', 1600);
+  t.ok(/else if \(co\._pendingOpenId\)/.test(load), 'loadCompose honors a queued deep-link id');
+  t.ok(/await this\.composeOpen\(oid\)/.test(load), 'a known id opens that document');
+  t.ok(/could not be resolved/.test(load), 'an unknown id falls back with a notice');
+  t.ok(/_pendingOpenId: null,/.test(html), '_pendingOpenId is declared in compose state');
+
+  // The address bar tracks the current doc via replaceState (no hashchange loop).
+  const setCur = _win(html, '_composeSetCurrent(c) {', 1000);
+  t.ok(/history\.replaceState\(null, '', '#\/compose\/' \+ encodeURIComponent\(c\.id\)\)/.test(setCur),
+    'selecting a doc rewrites the URL to its deep link');
+});
+
 // The paired-assistant conversation is persisted PER COMPOSITION server-side, so navigating
 // away from a composition and back restores the full transcript exactly where it left off.
 await t.test('compose: paired-assistant transcript persists per composition (survives reopen)', () => {
@@ -1939,7 +1967,7 @@ await t.test('documents-page: Documents is its own top-level route + nav item (a
   // 1. #/documents is a real route in the whitelist.
   t.ok(/'compose', 'documents', 'me-ai'/.test(html), "'documents' is registered in the parseHash route whitelist");
   // 2. the documents route dispatches to the library; #/compose scrubs a leftover library view.
-  const disp = _win(html, "} else if (this.route === 'compose') {", 700);
+  const disp = _win(html, "} else if (this.route === 'compose') {", 1000);
   t.ok(/if \(this\.compose\.view === 'library'\) \{ this\.compose\.view = 'launcher'; this\.compose\.current = null; \}/.test(disp), 'compose route scrubs a leftover library view so refresh restores the studio');
   t.ok(/} else if \(this\.route === 'documents'\) \{\s*await this\.composeOpenLibrary\(\);/.test(disp), 'documents route opens the library');
   // 3. the compose section renders for BOTH routes.
