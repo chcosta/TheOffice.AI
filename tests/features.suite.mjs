@@ -2175,6 +2175,42 @@ await t.test('code flow: Epics tab — DNCEng epic cockpit wired end to end (tab
   t.ok(/\bgetEpicTree\b/.test(az.split('module.exports').pop() || az), 'azdo.js exports getEpicTree');
 });
 
+await t.test('code flow: Epics — entity decode + roadmap weaving (dates/docs/timeline)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  const az = readFileSync('azdo.js', 'utf8');
+  // --- entity decoding + word-boundary clip (fixes literal &quot; + mid-word truncation) ---
+  t.ok(/function _epicDecodeEntities\(/.test(srv), 'server defines _epicDecodeEntities');
+  t.ok(/function _epicClip\(/.test(srv), 'server defines _epicClip (word-boundary clip)');
+  const dec = _win(srv, 'function _epicDecodeEntities(', 700);
+  t.ok(/&quot;/.test(dec) && /&#/.test(dec) && /&amp;/.test(dec), '_epicDecodeEntities handles &quot;, numeric refs, and &amp;');
+  // --- doc-link + roadmap parsers ---
+  t.ok(/function _epicParseDocLinks\(/.test(srv), 'server defines _epicParseDocLinks');
+  t.ok(/function _epicParseRoadmap\(/.test(srv), 'server defines _epicParseRoadmap');
+  t.ok(/function _epicApplyRoadmap\(/.test(srv), 'server defines _epicApplyRoadmap');
+  const apply = _win(srv, 'function _epicApplyRoadmap(', 3200);
+  t.ok(/cockpit\.docs =/.test(apply) && /cockpit\.roadmap =/.test(apply) && /cockpit\.timeline =/.test(apply), '_epicApplyRoadmap sets docs/roadmap/timeline');
+  t.ok(/targetFromRoadmap = true/.test(apply), 'borrows nearest open milestone as the target when the epic has none');
+  // --- cockpit shape carries docs/roadmap ---
+  t.ok(/docs: \[\], roadmap: null/.test(srv), 'cockpit shape includes docs + roadmap');
+  // --- roadmap fetch wired into the GET route ---
+  t.ok(/_epicFetchRoadmap\(/.test(srv), 'server fetches the roadmap doc');
+  t.ok(/_epicParseDocLinks\(raw\.epic && raw\.epic\.description\)/.test(srv), 'GET route parses doc links from the epic description');
+  t.ok(/_epicApplyRoadmap\(cockpit, docs, roadmap\)/.test(srv), 'GET route applies the roadmap to the cockpit');
+  // --- AI + assistant prompts get roadmap milestones ---
+  t.ok(/brief\.roadmap =/.test(srv), '/ai brief injects roadmap milestones');
+  t.ok(/Roadmap milestones \(authoritative dates/.test(srv), 'assistant prompt injects roadmap milestones');
+  // --- azdo web-url fetcher exported ---
+  t.ok(/async function fetchGitDocByWebUrl\(webUrl\)/.test(az), 'azdo.js defines fetchGitDocByWebUrl');
+  t.ok(/\bfetchGitDocByWebUrl\b/.test(az.split('module.exports').pop() || az), 'azdo.js exports fetchGitDocByWebUrl');
+  // --- SPA surfaces docs + roadmap caption + work-item hrefs; stale "Dev" copy gone ---
+  t.ok(/class="epx-docs"/.test(html), 'header surfaces linked docs');
+  t.ok(/epicCur\(\)\.targetFromRoadmap/.test(html), 'header flags a roadmap-borrowed target');
+  t.ok(/class="epx-tl-cap"/.test(html), 'timeline shows a "dates from the roadmap" caption');
+  t.ok(/My epics · In Progress/.test(html) && /State = In Progress/.test(html), 'stale "Dev" copy replaced with "In Progress"');
+  t.ok(!/My epics · in Dev/.test(html), 'no leftover "in Dev" rail copy');
+});
+
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   const graf = require('../grafana.js');

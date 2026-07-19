@@ -183,6 +183,45 @@ async function getFileText(org, project, repo, branch, itemPath) {
   return typeof data.content === 'string' ? data.content : '';
 }
 
+// Fetch an ADO Git file given its browser web URL, e.g.
+//   https://dev.azure.com/{org}/{project}/_git/{repo}?path=/docs/roadmap.md&version=GBmain
+// (also handles {org}.visualstudio.com). Best-effort: tries the URL's branch
+// then main/master; returns '' on any failure (never throws).
+async function fetchGitDocByWebUrl(webUrl) {
+  let u;
+  try { u = new URL(String(webUrl || '')); } catch { return ''; }
+  const host = u.hostname.toLowerCase();
+  const parts = u.pathname.split('/').filter(Boolean);
+  let org, project, repo;
+  if (host.endsWith('.visualstudio.com')) {
+    org = host.split('.')[0];
+    const gi = parts.indexOf('_git');
+    if (gi < 1) return '';
+    project = decodeURIComponent(parts[gi - 1]);
+    repo = decodeURIComponent(parts[gi + 1] || project);
+  } else {
+    const gi = parts.indexOf('_git');
+    if (gi < 2) return '';
+    org = decodeURIComponent(parts[0]);
+    project = decodeURIComponent(parts[gi - 1]);
+    repo = decodeURIComponent(parts[gi + 1] || project);
+  }
+  const itemPath = u.searchParams.get('path') || '/';
+  const ver = u.searchParams.get('version') || '';
+  const branches = [];
+  const gb = ver.match(/^GB(.+)$/i);
+  if (gb) branches.push(decodeURIComponent(gb[1]));
+  branches.push('main', 'master');
+  for (const b of branches) {
+    if (!b) continue;
+    try {
+      const txt = await getFileText(org, project, repo, b, itemPath);
+      if (txt) return txt;
+    } catch { /* try next branch */ }
+  }
+  return '';
+}
+
 // ---- Parsing helpers -----------------------------------------------------
 
 function parseFrontmatter(content) {
@@ -1353,6 +1392,7 @@ module.exports = {
   pluginSignature,
   getTree,
   getFileText,
+  fetchGitDocByWebUrl,
   materializeAgent,
   materializePlugin,
   getObjectId,

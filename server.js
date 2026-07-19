@@ -4622,8 +4622,25 @@ app.get('/api/codeflow/pr/report', (req, res) => {
 // POST /api/codeflow/epics/assistant  → lean read-only Epic assistant chat
 // ---------------------------------------------------------------------------
 const _epicCache = new Map();           // key `org/project/id` → { raw, cockpit, at }
+const _epicRoadmapCache = new Map();    // roadmap web URL → { parsed, at }
 const EPIC_CACHE_TTL_MS = 5 * 60 * 1000;
+const EPIC_ROADMAP_TTL_MS = 15 * 60 * 1000;
 const EPIC_TYPE = 'DNCEng Epic';
+
+// Fetch + parse an epic's roadmap doc (an ADO Git markdown file linked in the
+// description). Cached with its own TTL so a plain reload doesn't refetch.
+async function _epicFetchRoadmap(url, refresh) {
+  if (!url) return null;
+  const cached = _epicRoadmapCache.get(url);
+  if (!refresh && cached && (Date.now() - cached.at) < EPIC_ROADMAP_TTL_MS) return cached.parsed;
+  let parsed = null;
+  try {
+    const md = await azdo.fetchGitDocByWebUrl(url);
+    if (md) parsed = _epicParseRoadmap(md);
+  } catch { parsed = null; }
+  _epicRoadmapCache.set(url, { parsed, at: Date.now() });
+  return parsed;
+}
 
 function _epicDaysUntil(iso) {
   const d = String(iso || '').slice(0, 10);
@@ -4658,12 +4675,31 @@ function _epicFmtDate(iso) {
   if (isNaN(t)) return '';
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+// Decode the HTML entities that show up in ADO rich-text descriptions. Numeric
+// refs first, then the named specials, with &amp; LAST so we never double-decode.
+function _epicDecodeEntities(s) {
+  return String(s == null ? '' : s)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(+n); } catch { return ' '; } })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ' '; } })
+    .replace(/&quot;/gi, '"').replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
 function _epicHtmlToText(html) {
-  return String(html || '')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-    .replace(/\s+/g, ' ').trim();
+  return _epicDecodeEntities(
+    String(html || '')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+  ).replace(/\s+/g, ' ').trim();
+}
+// Clip on a word boundary with an ellipsis so long goals never cut mid-word.
+function _epicClip(str, n) {
+  const s = String(str || '').trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > n * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-–—]+$/, '') + '…';
 }
 function _epicGoalsFromDescription(html) {
   const goals = [];
@@ -4672,16 +4708,101 @@ function _epicGoalsFromDescription(html) {
   let m;
   while ((m = liRe.exec(src)) && goals.length < 6) {
     const t = _epicHtmlToText(m[1]);
-    if (t && t.length > 3) goals.push(t.slice(0, 200));
+    if (t && t.length > 3) goals.push(_epicClip(t, 260));
   }
   if (!goals.length) {
     const text = _epicHtmlToText(src);
     text.split(/(?<=[.!?])\s+/).forEach(s => {
       s = s.trim();
-      if (s.length > 20 && goals.length < 4) goals.push(s.slice(0, 200));
+      if (s.length > 20 && goals.length < 4) goals.push(_epicClip(s, 260));
     });
   }
   return goals;
+}
+
+// ---- Roadmap weaving -------------------------------------------------------
+// Epics link supporting docs (roadmap / technical design / epic source) as
+// anchors in their description. The roadmap in particular carries the real
+// milestone target dates, so we fetch + parse it and let it drive the timeline.
+const _EPIC_DOC_KIND = [
+  { kind: 'roadmap', re: /road ?map/i, ic: '🗺️' },
+  { kind: 'design', re: /technical|design|architecture|spec/i, ic: '📐' },
+  { kind: 'epic-doc', re: /epic|source ?doc|charter|one[- ]?pager/i, ic: '📄' },
+];
+function _epicParseDocLinks(descHtml) {
+  const out = [];
+  const seen = new Set();
+  const aRe = /<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = aRe.exec(String(descHtml || '')))) {
+    const url = _epicDecodeEntities(m[1]).trim();
+    const label = _epicHtmlToText(m[2]) || url;
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    const hay = `${label} ${url}`;
+    const hit = _EPIC_DOC_KIND.find(k => k.re.test(hay));
+    out.push({ label: _epicClip(label, 80), url, kind: hit ? hit.kind : 'doc', ic: hit ? hit.ic : '🔗' });
+  }
+  // Docs first (roadmap → design → epic-doc → other), roadmap always on top.
+  const order = { roadmap: 0, design: 1, 'epic-doc': 2, doc: 3 };
+  return out.sort((a, b) => (order[a.kind] - order[b.kind])).slice(0, 6);
+}
+// Parse a roadmap markdown doc into dated milestones. Handles GitHub-flavored
+// tables by mapping header columns (Deliverable / Status / Target Date / Work
+// Item / Track) rather than assuming a fixed column order.
+function _epicParseRoadmap(md) {
+  const text = String(md || '').replace(/\r\n/g, '\n');
+  const lastUpdated = (text.match(/last updated[:*\s]*\**\s*(\d{4}-\d{2}-\d{2})/i) || [])[1] || '';
+  const lines = text.split('\n');
+  const milestones = [];
+  let bucket = '';
+  const cellText = (c) => _epicDecodeEntities(String(c || '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')   // markdown links → label
+    .replace(/[*_`]+/g, '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  let header = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const h = line.match(/^#{2,3}\s+(.+?)\s*$/);
+    if (h) { bucket = h[1].replace(/[*_`]+/g, '').trim(); header = null; continue; }
+    if (!/^\s*\|/.test(line)) { header = null; continue; }
+    const cells = line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
+    if (/^[-:\s|]+$/.test(line.replace(/\|/g, ''))) continue; // separator row
+    if (!header) {
+      // First row of a table block is its header — map the columns we care about.
+      const idx = { title: -1, status: -1, date: -1, wi: -1, track: -1 };
+      cells.forEach((c, ci) => {
+        const l = c.toLowerCase();
+        if (idx.date < 0 && /date/.test(l)) idx.date = ci;
+        else if (idx.wi < 0 && /work ?item/.test(l)) idx.wi = ci;
+        else if (idx.status < 0 && /status/.test(l)) idx.status = ci;
+        else if (idx.track < 0 && /track/.test(l)) idx.track = ci;
+      });
+      cells.forEach((c, ci) => {
+        const l = c.toLowerCase();
+        if (idx.title < 0 && ci !== idx.wi && /deliverable|milestone|feature|item|name/.test(l)) idx.title = ci;
+      });
+      header = idx;
+      continue;
+    }
+    if (header.date < 0) continue;
+    const rawDate = cells[header.date] || '';
+    const iso = (rawDate.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+    if (!iso) continue;
+    const titleCol = header.title >= 0 ? header.title : (cells.length > 1 ? 1 : 0);
+    const title = cellText(cells[titleCol]);
+    if (!title) continue;
+    const wiCell = header.wi >= 0 ? (cells[header.wi] || '') : '';
+    const wiM = wiCell.match(/\[#?(\d+)\]\(([^)]+)\)/) || wiCell.match(/#(\d+)/);
+    const wid = wiM ? Number(wiM[1]) : null;
+    const href = (wiM && wiM[2]) ? wiM[2] : '';
+    const statusRaw = header.status >= 0 ? cellText(cells[header.status]) : '';
+    const status = statusRaw.replace(/^[^\p{L}\p{N}]+/u, '').trim() || statusRaw;
+    const statusFlag = (statusRaw.match(/^[^\p{L}\p{N}\s]/u) || [])[0] || '';
+    const track = header.track >= 0 ? cellText(cells[header.track]) : '';
+    milestones.push({ iso, title: _epicClip(title, 90), status, statusFlag, track, wid, href, bucket });
+  }
+  milestones.sort((a, b) => a.iso.localeCompare(b.iso));
+  return { lastUpdated, milestones };
 }
 
 // Build the deterministic cockpit (mock epic shape) from real ADO data — no AI.
@@ -4792,8 +4913,73 @@ function _epicComputeCockpit(raw) {
     iter: String(epic.iterationPath || '').split('\\').pop() || epic.iterationPath || '',
     pct, target: epic.targetDate ? _epicFmtDate(epic.targetDate) : '—', targetDays: targetDays == null ? 0 : targetDays,
     state: epic.state || 'In Progress', childCount: total, prCount: (prs || []).length,
-    summary, alerts, goals, objectives, work, forward, next, timeline, deliv, aiUpgraded: false
+    summary, alerts, goals, objectives, work, forward, next, timeline, deliv, aiUpgraded: false,
+    docs: [], roadmap: null
   };
+}
+
+// Weave the epic's linked docs + roadmap milestones into a computed cockpit.
+// The roadmap carries the authoritative target dates, so — when present — its
+// milestones drive the timeline (child/epic dates are the fallback). Mutates
+// and returns the cockpit.
+function _epicApplyRoadmap(cockpit, docs, roadmap) {
+  cockpit.docs = Array.isArray(docs) ? docs : [];
+  const rmLink = cockpit.docs.find(d => d.kind === 'roadmap') || null;
+  const ms = (roadmap && Array.isArray(roadmap.milestones)) ? roadmap.milestones : [];
+  if (!rmLink && !ms.length) return cockpit;
+  cockpit.roadmap = {
+    url: rmLink ? rmLink.url : '', label: rmLink ? rmLink.label : 'Roadmap',
+    lastUpdated: (roadmap && roadmap.lastUpdated) || '', count: ms.length,
+    note: rmLink && !ms.length ? 'linked, but no dated milestones were parsed' : ''
+  };
+  if (!ms.length) return cockpit;
+
+  // Roadmap-driven timeline: real target dates, nearest first, with countdowns.
+  const done = /done|complete|shipped|closed|resolved/i;
+  const tl = ms.map(mi => {
+    const d = _epicDaysUntil(mi.iso);
+    const isDone = done.test(mi.status || '');
+    const c = isDone ? 'ok' : (d != null && d < 0 ? 'late' : (d != null && d <= 14 ? 'soon' : 'ok'));
+    const cls = isDone ? 'done' : (c === 'late' ? 'risk' : '');
+    const meta = [mi.status && `${mi.statusFlag ? mi.statusFlag + ' ' : ''}${mi.status}`, mi.wid && `#${mi.wid}`, mi.bucket].filter(Boolean).join(' · ');
+    return {
+      cls, d: _epicFmtDate(mi.iso), e: mi.title, m: meta || (mi.bucket || ''),
+      c, cd: d == null ? '' : (isDone ? '' : (d < 0 ? `${Math.abs(d)}d ago` : `${d}d`)),
+      href: mi.href || (mi.wid ? '' : (cockpit.roadmap.url || ''))
+    };
+  });
+  // Show soonest-upcoming and overdue-but-open first; keep it focused.
+  const openTl = tl.filter(t => t.cls !== 'done');
+  cockpit.timeline = (openTl.length ? openTl : tl).slice(0, 10);
+  if (cockpit.timeline.length < 10) {
+    const extra = tl.filter(t => t.cls === 'done').slice(0, 10 - cockpit.timeline.length);
+    cockpit.timeline = cockpit.timeline.concat(extra);
+  }
+
+  // If the epic has no target date of its own, borrow the nearest open milestone
+  // so the header + rail show a real countdown instead of "—".
+  if (cockpit.target === '—') {
+    const upcoming = ms.filter(mi => !done.test(mi.status || '') && _epicDaysUntil(mi.iso) != null)
+      .sort((a, b) => a.iso.localeCompare(b.iso));
+    const overdue = upcoming.filter(mi => _epicDaysUntil(mi.iso) < 0);
+    const pick = (upcoming.find(mi => _epicDaysUntil(mi.iso) >= 0)) || overdue[overdue.length - 1] || upcoming[0];
+    if (pick) {
+      const d = _epicDaysUntil(pick.iso);
+      cockpit.target = _epicFmtDate(pick.iso);
+      cockpit.targetDays = d == null ? 0 : d;
+      cockpit.targetFromRoadmap = true;
+      // Surface an honest date signal in the standup alerts.
+      if (d != null && d < 0) {
+        cockpit.alerts = [{ sev: 'warn', ic: '🗺️', title: `Roadmap milestone overdue: ${pick.title}`.slice(0, 90), why: `Target was ${_epicFmtDate(pick.iso)} (${Math.abs(d)}d ago) per the roadmap. Re-baseline or push to close.`, act: 'Open roadmap' }, ...cockpit.alerts].slice(0, 4);
+      } else if (d != null && d <= 21) {
+        cockpit.alerts = [{ sev: 'info', ic: '🗺️', title: `Next roadmap milestone in ${d}d`, why: `${pick.title} targets ${_epicFmtDate(pick.iso)}.`, act: 'Open roadmap' }, ...cockpit.alerts].slice(0, 4);
+      }
+      // Re-tone if the borrowed date is tight and there is blocked work.
+      if (cockpit.targetDays < 0) { cockpit.tone = 'risk'; cockpit.flag = '🔴'; }
+      else if (cockpit.targetDays <= 30 && cockpit.tone === 'ok') { cockpit.tone = 'warn'; cockpit.flag = '🟡'; }
+    }
+  }
+  return cockpit;
 }
 
 app.get('/api/codeflow/epics', async (req, res) => {
@@ -4819,6 +5005,11 @@ app.get('/api/codeflow/epics', async (req, res) => {
             const raw = { org, project, ...tree };
             const prev = _epicCache.get(key);
             let cockpit = _epicComputeCockpit(raw);
+            // Weave in linked docs + the roadmap's real milestone target dates.
+            const docs = _epicParseDocLinks(raw.epic && raw.epic.description);
+            const rmLink = docs.find(d => d.kind === 'roadmap');
+            const roadmap = rmLink ? await _epicFetchRoadmap(rmLink.url, refresh) : null;
+            _epicApplyRoadmap(cockpit, docs, roadmap);
             // Preserve a prior AI upgrade across a plain (non-refresh) reload.
             if (!refresh && prev && prev.cockpit && prev.cockpit.aiUpgraded && prev.cockpit.key === key) {
               cockpit = { ...cockpit, summary: prev.cockpit.summary, alerts: prev.cockpit.alerts, forward: prev.cockpit.forward, next: prev.cockpit.next, aiUpgraded: true };
@@ -4846,12 +5037,22 @@ app.post('/api/codeflow/epics/ai', async (req, res) => {
       epic: { id: raw.epic.id, title: raw.epic.title, state: raw.epic.state, target: raw.epic.targetDate ? _epicFmtDate(raw.epic.targetDate) : 'none', targetDays: _epicDaysUntil(raw.epic.targetDate), area: raw.epic.areaPath, iteration: raw.epic.iterationPath, description: _epicHtmlToText(raw.epic.description).slice(0, 3000) },
       children: kids, prCount: (raw.prs || []).length,
     };
+    const cp = entry.cockpit || {};
+    if (cp.roadmap && Array.isArray(cp.timeline) && cp.timeline.length) {
+      brief.roadmap = {
+        source: cp.roadmap.url || cp.roadmap.label, lastUpdated: cp.roadmap.lastUpdated || 'unknown',
+        note: 'These are the REAL target dates from the epic roadmap — the epic itself carries no dates. Ground every date, deadline, and date-risk alert in these milestones.',
+        milestones: cp.timeline.slice(0, 12).map(t => ({ target: t.d, milestone: t.e, status: t.m, countdown: t.cd })),
+      };
+    }
+    if (Array.isArray(cp.docs) && cp.docs.length) brief.linkedDocs = cp.docs.map(d => ({ label: d.label, kind: d.kind }));
     const prompt = [
       'You are an engineering delivery analyst producing a concise morning standup for the OWNER of a DNCEng epic.',
       'You are given the epic and its child work items (real Azure DevOps data). Do NOT invent facts — use only what is provided.',
       'Produce STRICT JSON only (no prose, no code fence) with this exact shape:',
       '{"summary":["<1-3 short HTML paragraphs; <b> allowed>"],"alerts":[{"sev":"crit|warn|info","ic":"<one emoji>","title":"<=80 chars","why":"<=160 chars","act":"<=18 chars button label or empty>"}],"forward":[{"t":"<=90 chars action title>","why":"<=160 chars","tag":"<=18 chars","dep":null,"act":"<=18 chars"}],"next":[{"t":"<=90 chars","why":"<=160 chars"}]}',
       'summary: where the epic stands + the single thing that needs the owner. alerts: 0-4, most urgent first (blocked items, date risk, stale reviews); if truly nothing, one info alert. forward: 1-4 highest-leverage next actions to move the epic forward, ordered by leverage. next: 1-3 things to pick up after the current path clears.',
+      'If a "roadmap" block is present, treat roadmap.milestones as the AUTHORITATIVE dates/deliverables (the epic carries none of its own): ground every date, deadline, and date-risk alert in them, and call out the nearest and any overdue milestone.',
       '',
       'EPIC + CHILDREN (JSON):',
       JSON.stringify(brief),
@@ -4897,6 +5098,8 @@ app.post('/api/codeflow/epics/assistant', async (req, res) => {
       `Progress: ${c.childCount} child items, ${c.prCount} linked PRs.`,
       raw.epic.description ? `Description: ${_epicHtmlToText(raw.epic.description).slice(0, 1500)}` : '',
       c.summary && c.summary.length ? `Standup: ${c.summary.map(_epicHtmlToText).join(' ')}` : '',
+      (c.roadmap && Array.isArray(c.timeline) && c.timeline.length) ? `Roadmap milestones (authoritative dates${c.roadmap.lastUpdated ? ', updated ' + c.roadmap.lastUpdated : ''} — the epic itself has no dates):\n${c.timeline.slice(0, 12).map(t => `- ${t.d}: ${t.e}${t.m ? ' (' + t.m + ')' : ''}${t.cd ? ' · ' + t.cd : ''}`).join('\n')}` : '',
+      (Array.isArray(c.docs) && c.docs.length) ? `Linked docs: ${c.docs.map(d => d.label).join(', ')}` : '',
       kids ? `Child work items:\n${kids}` : '',
       convo ? `\nConversation so far:\n${convo}` : '',
       `\nUser: ${message}`,

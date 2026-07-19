@@ -24449,6 +24449,12 @@
               .epx-facts b { color:var(--cp-text); font-weight:600; }
               .epx-state { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--cp-accent); background:var(--cp-accent-soft); border-radius:6px; padding:3px 8px; }
               .epx-state .dot { width:7px; height:7px; border-radius:50%; background:var(--cp-accent); }
+              .epx-fromroadmap { font-size:10px; color:var(--cp-text-soft); font-weight:600; letter-spacing:.02em; margin-left:5px; cursor:help; }
+              .epx-docs { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; margin-top:9px; font-size:12px; color:var(--cp-text-soft); }
+              .epx-docs > span:first-child { color:var(--cp-text-soft); font-weight:600; }
+              .epx-docs a { color:var(--cp-text-muted); cursor:pointer; text-decoration:none; } .epx-docs a:hover { color:var(--cp-text); text-decoration:underline; }
+              .epx-tl-cap { font-size:11.5px; color:var(--cp-text-soft); margin-bottom:9px; }
+              .epx-tl-cap a { color:var(--cp-text-muted); } .epx-tl-cap a:hover { color:var(--cp-text); text-decoration:underline; }
               .epx-ring { --p:0; width:78px; height:78px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(var(--cp-accent) calc(var(--p)*1%), var(--cp-surface-soft) 0); }
               .epx-ring > span { width:60px; height:60px; border-radius:50%; background:var(--cp-surface); display:grid; place-items:center; font-size:16px; font-weight:700; }
               .epx-ring-cap { display:block; text-align:center; font-size:9.5px; color:var(--cp-text-soft); font-weight:600; letter-spacing:.03em; margin-top:4px; text-transform:uppercase; }
@@ -24596,7 +24602,7 @@
             <div class="epx-studio" x-show="codeflow.epics.list.length">
               <aside class="epx-rail">
                 <div class="epx-rail-h">
-                  <span class="t">My epics · in Dev</span>
+                  <span class="t">My epics · In Progress</span>
                   <span class="c" x-text="codeflow.epics.list.length"></span>
                 </div>
                 <template x-for="(e, i) in codeflow.epics.list" :key="e.key">
@@ -24609,7 +24615,7 @@
                     <div class="bar"><i :style="'width:' + e.pct + '%'"></i></div>
                   </button>
                 </template>
-                <div class="epx-rail-note">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = Dev</span>. Refresh re-reads each epic's tree and flags the ones that need you.</div>
+                <div class="epx-rail-note">Scoped to <span class="mono">Work Item Type = "DNCEng Epic"</span>, <span class="mono">Assigned To = @me</span>, <span class="mono">State = In Progress</span>. Refresh re-reads each epic's tree and flags the ones that need you.</div>
               </aside>
 
               <section class="epx-detail" x-show="codeflow.epics.list[codeflow.epics.idx]">
@@ -24625,9 +24631,13 @@
                             <div class="epx-facts">
                               <span class="epx-state"><span class="dot"></span><span x-text="epicCur().state"></span></span>
                               <span x-show="epicCur().iter">Iteration: <b x-text="epicCur().iter"></b></span>
-                              <span>Target: <b x-text="epicCur().target"></b> <span class="epx-cdays" :class="epicCur().targetDays < 0 ? 'late' : (epicCur().targetDays <= 28 ? 'soon' : 'ok')" x-show="epicCur().target !== '—'" x-text="'(' + (epicCur().targetDays < 0 ? Math.abs(epicCur().targetDays) + 'd past' : epicCur().targetDays + 'd') + ')'"></span></span>
+                              <span>Target: <b x-text="epicCur().target"></b> <span class="epx-cdays" :class="epicCur().targetDays < 0 ? 'late' : (epicCur().targetDays <= 28 ? 'soon' : 'ok')" x-show="epicCur().target !== '—'" x-text="'(' + (epicCur().targetDays < 0 ? Math.abs(epicCur().targetDays) + 'd past' : epicCur().targetDays + 'd') + ')'"></span><span class="epx-fromroadmap" x-show="epicCur().targetFromRoadmap" title="The epic has no target date of its own — this is the nearest open roadmap milestone.">from roadmap</span></span>
                               <span x-show="epicCur().childCount">Items: <b x-text="epicCur().childCount"></b></span>
                               <span x-show="epicCur().prCount">PRs: <b x-text="epicCur().prCount"></b></span>
+                            </div>
+                            <div class="epx-docs" x-show="epicCur().docs && epicCur().docs.length">
+                              <span>Linked</span>
+                              <template x-for="d in (epicCur().docs || [])" :key="d.url"><a :href="d.url" target="_blank" rel="noopener"><span x-text="d.ic"></span> <span x-text="d.label"></span></a></template>
                             </div>
                           </div>
                           <div>
@@ -24749,12 +24759,17 @@
                       <div class="epx-card" id="epx-dates">
                         <div class="epx-card-h"><span class="epx-sec-ic">📅</span><h3>Upcoming dates &amp; milestones</h3></div>
                         <div class="bd">
+                          <div class="epx-tl-cap" x-show="epicCur().roadmap">
+                            <template x-if="epicCur().roadmap">
+                              <span>Dates from the <a :href="epicCur().roadmap.url" target="_blank" rel="noopener" x-text="epicCur().roadmap.label || 'roadmap'"></a> →<span x-show="epicCur().roadmap.lastUpdated"> updated <span x-text="epicCur().roadmap.lastUpdated"></span></span></span>
+                            </template>
+                          </div>
                           <div class="epx-tl">
                             <template x-for="(t, ti) in epicCur().timeline" :key="ti">
                               <div class="epx-tlrow" :class="t.cls">
                                 <span class="node"></span>
                                 <div class="d"><span x-text="t.d"></span> <span class="epx-cdays" :class="t.c" x-show="t.cd">· <span x-text="t.cd"></span></span></div>
-                                <div class="e" x-text="t.e"></div>
+                                <div class="e"><template x-if="t.href"><a :href="t.href" target="_blank" rel="noopener" x-text="t.e"></a></template><template x-if="!t.href"><span x-text="t.e"></span></template></div>
                                 <div class="m" x-text="t.m"></div>
                               </div>
                             </template>
