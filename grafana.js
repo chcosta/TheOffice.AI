@@ -910,6 +910,39 @@ async function setDashboardOptions(uid, opts = {}) {
   return { ok: true, uid, autoPush: !!dash.autoPush, pushed: !!dash.pushed, pushError, pushedAt: dash.pushedAt || '' };
 }
 
+// Rename a LOCAL (spun-up) dashboard. Only local dashboards are renamable here;
+// externally-owned Grafana dashboards are managed in Grafana.
+async function renameDashboard(uid, title) {
+  const dash = _readLocalDashboards().find(d => d.uid === uid);
+  if (!dash) { const e = new Error('Not a local dashboard'); e.code = 'NOT_LOCAL'; throw e; }
+  const t = String(title || '').trim().slice(0, 200);
+  if (!t) { const e = new Error('Title required'); e.code = 'BAD_TITLE'; throw e; }
+  dash.title = t;
+  dash.updated = new Date().toISOString();
+  _saveLocalDash(dash);
+  // Best-effort re-sync so the Grafana copy reflects the new name.
+  let pushError = '';
+  if (dash.pushed && configured()) {
+    try { await _pushToGrafana(dash, { overwrite: true }); } catch (e) { pushError = e.message; }
+  }
+  return { ok: true, uid, title: dash.title, pushError };
+}
+
+// Delete a LOCAL (spun-up) dashboard from the local store. If it was pushed to
+// Grafana we make a best-effort remote delete, but the local removal always succeeds.
+async function deleteDashboard(uid) {
+  const all = _readLocalDashboards();
+  const dash = all.find(d => d.uid === uid);
+  if (!dash) { const e = new Error('Not a local dashboard'); e.code = 'NOT_LOCAL'; throw e; }
+  _writeLocalDashboards(all.filter(d => d.uid !== uid));
+  let remoteError = '';
+  if (dash.pushed && dash.grafanaUid && configured()) {
+    try { await _api('/api/dashboards/uid/' + encodeURIComponent(dash.grafanaUid), { method: 'DELETE', timeoutMs: 12000 }); }
+    catch (e) { remoteError = e.message; }
+  }
+  return { ok: true, uid, remoteError };
+}
+
 function _toGrafanaModel(dash) {
   const panels = (dash.panels || []).map((p, i) => ({
     id: p.id || i + 1,
@@ -1258,6 +1291,8 @@ module.exports = {
   createDashboard,
   pushDashboard,
   setDashboardOptions,
+  renameDashboard,
+  deleteDashboard,
   panelSummary,
   deterministicAnalysis,
   deterministicSpec,

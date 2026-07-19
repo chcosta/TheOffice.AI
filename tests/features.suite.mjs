@@ -3545,4 +3545,68 @@ await t.test('epic → Monitoring.AI Objective Health dashboard, flag-gated (Epi
     'the Epics cockpit exposes a Monitoring-flag-gated dashboard action');
 });
 
+await t.test('monitoring.ai: home dashboards mgmt + epic↔dashboard link management (rename/delete/relink/gen-from-epic)', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  const graf = readFileSync('grafana.js', 'utf8');
+
+  // --- grafana.js rename + delete primitives ---
+  t.ok(/async function renameDashboard\(uid, title\)/.test(graf), 'grafana.js defines renameDashboard(uid,title)');
+  t.ok(/async function deleteDashboard\(uid\)/.test(graf), 'grafana.js defines deleteDashboard(uid)');
+  const gexp = _win(graf, 'module.exports', 600) || graf;
+  t.ok(/renameDashboard,/.test(gexp) && /deleteDashboard,/.test(gexp), 'grafana.js exports rename/delete');
+
+  // --- server rename + delete routes ---
+  t.ok(srv.includes("app.put('/api/monitoring/dashboard/:uid/rename'") &&
+       /grafana\.renameDashboard\(req\.params\.uid/.test(srv), 'server PUT /rename → grafana.renameDashboard');
+  t.ok(srv.includes("app.delete('/api/monitoring/dashboard/:uid'") &&
+       /grafana\.deleteDashboard\(req\.params\.uid\)/.test(srv), 'server DELETE dashboard → grafana.deleteDashboard');
+
+  // --- server epic-dashboard persistence: GET / DELETE / POST all present ---
+  t.ok(/function _epicOHLoad\(\)/.test(srv) && /function _epicOHSave\(map\)/.test(srv), 'server persists epic-OH snapshots to disk');
+  t.ok(/function _epicOHCounts\(objectives\)/.test(srv), 'server computes epic-OH objective counts');
+  t.ok(srv.includes("app.get('/api/monitoring/epic-dashboard'"), 'server GET /api/monitoring/epic-dashboard');
+  t.ok(srv.includes("app.delete('/api/monitoring/epic-dashboard'"), 'server DELETE /api/monitoring/epic-dashboard');
+  // POST route persists a snapshot carrying doc:{id,title,source}
+  const post = _win(srv, "app.post('/api/monitoring/epic-dashboard'", 2600);
+  t.ok(post, 'server POST /api/monitoring/epic-dashboard found');
+  t.ok(/map\[key\] = snapshot; _epicOHSave\(map\)/.test(post) || /map\[key\] = snapshot;\s*_epicOHSave/.test(srv),
+    'POST persists the epic-OH snapshot under the epic key');
+
+  // --- mon-home "Your dashboards": rename + delete surfaces + state ---
+  t.ok(/monRenameStart\(d\)/.test(html) && /monRenameCancel\(\)/.test(html) && /async monRenameCommit\(\)/.test(html),
+    'mon-home rename methods present');
+  t.ok(/async monDeleteDash\(d\)/.test(html), 'mon-home delete method present');
+  t.ok(/monitoring\.rename/.test(html), 'mon-home rename state present');
+  t.ok(/@click\.stop="monRenameStart\(d\)"/.test(html) && /@click\.stop="monDeleteDash\(d\)"/.test(html),
+    'mon-home renders Rename + Delete row actions');
+
+  // --- gen-from-epic launcher ---
+  t.ok(/async monLoadEpicChoices\(\)/.test(html), 'monLoadEpicChoices loads epic candidates');
+  t.ok(/monGenFromEpic\(\)/.test(html), 'monGenFromEpic present');
+  t.ok(/monitoring\.epicGen\.epicKey/.test(html), 'epicGen state drives the Build button');
+  t.ok(/monBackToEpic\(\)/.test(html), 'monBackToEpic back-link present');
+  t.ok(/class="moh-link"[^>]*monBackToEpic\(\)/.test(html) || /monBackToEpic\(\)"[^>]*←/.test(html) || /← Back to\s*epic/.test(html),
+    'objective-health view renders a Back-to-epic link');
+
+  // --- epic OH card: resync / unlink / RELINK (swap source doc) ---
+  t.ok(/async epicResyncObjHealth\(\)/.test(html) && /async epicUnlinkObjHealth\(\)/.test(html),
+    'epic OH card resync + unlink methods present');
+  t.ok(/async epicRelinkObjHealth\(docId\)/.test(html), 'epicRelinkObjHealth relinks to a chosen source doc');
+  const relink = _win(html, 'async epicRelinkObjHealth(docId)', 700);
+  t.ok(/\/api\/monitoring\/epic-dashboard'/.test(relink) && /method: 'POST'/.test(relink) && /docId/.test(relink),
+    'epicRelinkObjHealth POSTs the epic-dashboard route with the chosen docId');
+  t.ok(/epicOHDocChoices\(\)/.test(html), 'epicOHDocChoices lists candidate compose docs');
+  t.ok(/epicOHCurrentDoc\(\)/.test(html), 'epicOHCurrentDoc resolves the current driving doc');
+  t.ok(/epicOHComposeLink\(id\)[^\n]*cmp-/.test(html) && /'#\/compose\/'/.test(html),
+    'epicOHComposeLink deep-links cmp- docs to #/compose/<id>');
+
+  // --- source-doc swap control markup ---
+  t.ok(/class="epx-oh-src-change"[^>]*ohSwap/.test(html), 'the Change/Cancel swap toggle is wired to ohSwap');
+  t.ok(/ohSwap=false;\s*epicRelinkObjHealth\(\$event\.target\.value\)/.test(html) ||
+       /epicRelinkObjHealth\(\$event\.target\.value\)/.test(html),
+    'the change-on-select <select> relinks to the chosen doc');
+  t.ok(/\.epx-oh-src/.test(html), 'the source-doc line has calm scoped CSS');
+});
+
 await t.done();

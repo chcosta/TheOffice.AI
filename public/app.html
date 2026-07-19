@@ -439,10 +439,32 @@
 
   newspaper:'<path d="M4 6h13v13H5.5A1.5 1.5 0 0 1 4 17.5z"/><path class="acc" d="M17 8.5h2.5A1.5 1.5 0 0 1 21 10v7.5a1.5 1.5 0 0 1-1.5 1.5H17"/><path d="M7 9.5h7M7 12.5h7M7 15.5h4"/>',
 
-  keyboard:'<rect x="3" y="6.5" width="18" height="11" rx="1.5"/><path d="M6.5 10h1M10.5 10h1M14.5 10h1M17.5 10h1M6.5 13h1M10.5 13h1M14.5 13h1"/><line class="acc" x1="9" y1="15.3" x2="15" y2="15.3"/>'
+  keyboard:'<rect x="3" y="6.5" width="18" height="11" rx="1.5"/><path d="M6.5 10h1M10.5 10h1M14.5 10h1M17.5 10h1M6.5 13h1M10.5 13h1M14.5 13h1"/><line class="acc" x1="9" y1="15.3" x2="15" y2="15.3"/>',
+
+  epic:'<path d="M3 19 9.5 7l4 6.5 2-3L21 19z"/><path class="acc" d="M13.5 10.5V4l3.4 1.4-3.4 1.4"/>',
+
+  review:'<path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle class="acc dot" cx="12" cy="12" r="2.4"/>',
+
+  next:'<path class="acc" d="M5 5.5 13 12l-8 6.5z"/><line x1="16.5" y1="5.5" x2="16.5" y2="18.5"/>',
+
+  timer:'<circle cx="12" cy="13.5" r="6.8"/><path d="M12 13.5V9.5"/><path class="acc" d="M12 13.5l2.6 1.6"/><line x1="9.8" y1="3.5" x2="14.2" y2="3.5"/><line x1="12" y1="3.5" x2="12" y2="6.4"/>',
+
+  info:'<circle cx="12" cy="12" r="8.2"/><line class="acc" x1="12" y1="11" x2="12" y2="16.2"/><circle class="acc dot" cx="12" cy="7.8" r="0.7"/>'
 }; return I; })();
     const RAW = {
     "🤖": "agent",
+    "🏔️": "epic",
+    "🏔": "epic",
+    "👀": "review",
+    "⏭️": "next",
+    "⏭": "next",
+    "⏱️": "timer",
+    "⏱": "timer",
+    "⛓️": "link",
+    "⛓": "link",
+    "ℹ️": "info",
+    "ℹ": "info",
+    "↻": "refresh",
     "🧑‍💼": "manager",
     "👔": "manager",
     "🏢": "org",
@@ -21027,6 +21049,26 @@
               .monx-bboard .bbtn:disabled{ opacity:.5; }
               .monx-brefs{ display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:11px; font-size:12px; color:var(--cp-text-muted); }
               .monx-brefs .rk{ color:var(--cp-text-faint); }
+              /* home page: browse + manage local dashboards */
+              .monx-home-dash{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:12px 14px; margin-top:12px; }
+              .monx-home-filt{ width:100%; box-sizing:border-box; margin:0 0 8px; padding:8px 11px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; }
+              .monx-home-filt:focus{ outline:none; border-color:var(--mon-accent); }
+              .monx-home-grp{ margin-top:6px; }
+              .monx-home-grph{ color:var(--cp-text-faint); font-size:11px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; margin:10px 2px 4px; }
+              .monx-home-row{ display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:8px; }
+              .monx-home-row:hover{ background:var(--cp-bg); }
+              .monx-home-row .ric{ flex:none; font-size:14px; opacity:.85; }
+              .monx-home-row .rt{ flex:1; min-width:0; cursor:pointer; display:flex; flex-direction:column; gap:1px; }
+              .monx-home-row .rt b{ font-size:13px; font-weight:600; color:var(--cp-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .monx-home-row .rt:hover b{ color:var(--mon-accent); }
+              .monx-home-row .rt .sub{ font-size:11.5px; color:var(--cp-text-faint); }
+              .monx-home-rin{ flex:1; min-width:0; padding:6px 9px; border:1px solid var(--mon-accent); border-radius:7px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; }
+              .monx-home-rin:focus{ outline:none; }
+              .monx-home-acts{ flex:none; display:flex; align-items:center; gap:2px; }
+              .monx-home-acts .lnk{ background:none; border:0; color:var(--cp-text-faint); font-size:12px; cursor:pointer; padding:4px 7px; border-radius:6px; }
+              .monx-home-acts .lnk:hover{ color:var(--cp-text); background:var(--cp-surface); }
+              .monx-home-acts .lnk.danger:hover{ color:var(--cp-danger,#f85149); }
+              .monx-home-acts .lnk:disabled{ opacity:.5; cursor:default; }
               /* v2: alerts */
               .monx-alerts{ display:flex; flex-direction:column; gap:8px; }
               .monx-alert{ display:flex; align-items:center; gap:11px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; padding:10px 13px; }
@@ -21288,6 +21330,43 @@
                   </div>
                 </div>
 
+                <div class="monx-sech"><h2>Your dashboards</h2><span class="c">open, rename or remove locally-generated dashboards — Grafana-owned ones open read-only</span></div>
+                <div class="monx-home-dash">
+                  <input class="monx-home-filt" type="text" placeholder="Filter dashboards…" x-model="monitoring.railFilter" />
+                  <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
+                    <div class="monx-home-grp">
+                      <div class="monx-home-grph" x-text="folder"></div>
+                      <template x-for="d in dashes" :key="d.uid">
+                        <div class="monx-home-row">
+                          <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
+                          <template x-if="monitoring.rename.uid === d.uid">
+                            <input class="monx-home-rin" x-model="monitoring.rename.title" @click.stop
+                              @keydown.enter.prevent="monRenameCommit()" @keydown.escape.prevent="monRenameCancel()" x-init="$nextTick(() => $el.focus())" />
+                          </template>
+                          <template x-if="monitoring.rename.uid !== d.uid">
+                            <div class="rt" @click="monLoadDashboard(d.uid)"><b x-text="d.title"></b><span class="sub" x-text="((d.panelCount||0) + ' panel' + ((d.panelCount||0) === 1 ? '' : 's')) + (d.local ? '' : ' · Grafana')"></span></div>
+                          </template>
+                          <div class="monx-home-acts">
+                            <template x-if="monitoring.rename.uid === d.uid">
+                              <span>
+                                <button class="lnk" @click.stop="monRenameCommit()" :disabled="monitoring.rename.busy" x-text="monitoring.rename.busy ? 'Saving…' : 'Save'"></button>
+                                <button class="lnk" @click.stop="monRenameCancel()">Cancel</button>
+                              </span>
+                            </template>
+                            <template x-if="monitoring.rename.uid !== d.uid && d.local">
+                              <span>
+                                <button class="lnk" @click.stop="monRenameStart(d)">Rename</button>
+                                <button class="lnk danger" @click.stop="monDeleteDash(d)">Delete</button>
+                              </span>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div class="monx-railempty" x-show="!Object.keys(monDashboardsByFolder()).length" x-text="monitoring.railFilter ? 'No dashboards match.' : 'No dashboards yet — generate one below.'"></div>
+                </div>
+
                 <div class="monx-sech"><h2>Start from a template</h2><span class="c">AI fills in queries for your data sources</span></div>
                 <div class="monx-grid3">
                   <template x-for="t in monTemplates()" :key="t.t">
@@ -21317,6 +21396,21 @@
                       <span><span class="rk" x-text="grp.label + ':'"></span> <span x-text="grp.items.join(', ')"></span></span>
                     </template>
                   </div>
+                </div>
+
+                <div class="monx-sech" x-show="featureEnabled('epics')"><h2>Generate from an epic</h2><span class="c">turns an epic's linked business-objectives doc into an <b style="color:var(--mon-ai)">Objective Health</b> dashboard — one panel per objective, honest about missing telemetry</span></div>
+                <div class="monx-bboard" x-show="featureEnabled('epics')">
+                  <div class="brow">
+                    <select x-model="monitoring.epicGen.epicKey">
+                      <option value="">Choose an epic…</option>
+                      <template x-for="ep in monitoring.epicGen.epics" :key="ep.key">
+                        <option :value="ep.key" x-text="ep.title"></option>
+                      </template>
+                    </select>
+                    <button class="bbtn" @click="monGenFromEpic()" :disabled="monitoring.obj.loading || !monitoring.epicGen.epicKey" x-text="monitoring.obj.loading ? 'Building…' : 'Build Objective Health'"></button>
+                  </div>
+                  <div class="monx-railempty" x-show="monitoring.epicGen.loading">Loading your epics…</div>
+                  <div class="monx-railempty" x-show="!monitoring.epicGen.loading && !monitoring.epicGen.epics.length">No epics found — open the Epics tab in Code Flow first.</div>
                 </div>
 
                 <div class="monx-sech"><h2>Context &amp; data catalog</h2><span class="c">workspace collections + external data sources — pick <b style="color:var(--mon-ground)">Ground</b> (AI context) and <b style="color:var(--mon-accent)">Chart</b> (panels)</span></div>
@@ -21692,6 +21786,10 @@
                   .moh-bridge .rebuild{ border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:8px; padding:6px 12px; color:var(--cp-text); cursor:pointer; }
                   .moh-bridge .rebuild:hover{ border-color:var(--mon-graf); }
                   .moh-bridge .rebuild:disabled{ opacity:.55; cursor:default; }
+                  .moh-bridge a.chip.epic{ text-decoration:none; color:var(--cp-text); }
+                  .moh-bridge a.chip.epic:hover{ border-color:var(--mon-ai); }
+                  .moh-bridge .moh-link{ cursor:pointer; color:var(--cp-text-muted); font-size:12px; }
+                  .moh-bridge .moh-link:hover{ color:var(--cp-text); text-decoration:underline; }
                   .moh{ display:grid; grid-template-columns:330px 1fr; gap:0; border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; min-height:520px; height:calc(100vh - 210px); }
                   .moh-idx{ border-right:1px solid var(--cp-border); overflow:auto; padding:14px 12px 40px; background:var(--cp-bg); }
                   .moh-redu{ padding:12px; border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); margin-bottom:12px; }
@@ -21770,12 +21868,14 @@
                 </style>
                 <button class="monx-back" @click="monObjClose()">← Back to Monitoring</button>
                 <div class="moh-bridge" x-show="monitoring.obj.epicKey">
-                  <span class="chip epic">🏔 <b x-text="monitoring.obj.epicTitle || 'Epic'"></b></span>
+                  <a class="chip epic" x-show="monitoring.obj.epicUrl" :href="monitoring.obj.epicUrl" target="_blank" rel="noopener" title="Open the epic work item">🏔 <b x-text="monitoring.obj.epicTitle || 'Epic'"></b> ↗</a>
+                  <span class="chip epic" x-show="!monitoring.obj.epicUrl">🏔 <b x-text="monitoring.obj.epicTitle || 'Epic'"></b></span>
                   <span class="arrow">→</span>
                   <span class="chip doc" x-show="monitoring.obj.doc">📄 <b x-text="monitoring.obj.doc ? monitoring.obj.doc.title : ''"></b></span>
                   <span class="chip" x-show="!monitoring.obj.doc" style="color:var(--cp-text-faint)">No tracking doc linked</span>
                   <span class="sp"></span>
-                  <span x-show="monitoring.obj.ai" style="color:var(--cp-text-faint);font-size:11.5px;">✓ AI-generated from the doc</span>
+                  <span x-show="monitoring.obj.generatedAt" style="color:var(--cp-text-faint);font-size:11.5px;" x-text="'synced ' + (monitoring.obj.ai ? 'with AI · ' : '') + formatRelative(monitoring.obj.generatedAt)"></span>
+                  <a class="moh-link" @click="monBackToEpic()" title="Return to this epic in Code Flow">← Back to epic</a>
                   <button class="rebuild" @click="monObjRebuild()" :disabled="monitoring.obj.loading" x-text="monitoring.obj.loading ? 'Building…' : '↻ Rebuild'"></button>
                 </div>
 
@@ -24623,6 +24723,27 @@
               .epx-jump { display:flex; flex-wrap:wrap; gap:2px 16px; font-size:12px; padding:11px 18px; border-top:1px solid var(--cp-border); color:var(--cp-text-soft); }
               .epx-jump a { color:var(--cp-text-muted); cursor:pointer; } .epx-jump a:hover { color:var(--cp-text); text-decoration:underline; }
               .epx-jump a.epx-jump-mon { margin-left:auto; color:#2fb2a6; font-weight:600; } .epx-jump a.epx-jump-mon:hover { color:#2fb2a6; }
+              /* Objective Health card (epic ↔ Monitoring.AI dashboard link) */
+              .epx-oh-list { display:flex; flex-direction:column; gap:9px; }
+              .epx-oh-row { display:flex; align-items:flex-start; gap:9px; }
+              .epx-oh-dot { flex:none; width:9px; height:9px; border-radius:50%; margin-top:5px; background:var(--cp-text-muted); }
+              .epx-oh-dot.live { background:#22b07a; } .epx-oh-dot.part { background:#e0a83b; } .epx-oh-dot.miss { background:#d1526b; } .epx-oh-dot.man { background:#5b8def; }
+              .epx-oh-body { flex:1; min-width:0; }
+              .epx-oh-title { font-size:13px; font-weight:600; color:var(--cp-text); }
+              .epx-oh-meta { display:flex; flex-wrap:wrap; gap:3px 14px; font-size:11.5px; color:var(--cp-text-soft); margin-top:2px; }
+              .epx-oh-delta.up, .epx-oh-delta.good { color:#22b07a; } .epx-oh-delta.down, .epx-oh-delta.bad { color:#d1526b; }
+              .epx-oh-gap { color:var(--cp-text-muted); font-style:italic; }
+              .epx-oh-actions { display:flex; flex-wrap:wrap; gap:2px 18px; font-size:12px; margin-top:12px; padding-top:11px; border-top:1px solid var(--cp-border); }
+              .epx-oh-actions a { cursor:pointer; color:var(--cp-text-muted); } .epx-oh-actions a:hover { color:var(--cp-text); text-decoration:underline; }
+              .epx-oh-actions a.epx-jump-mon { margin-left:0; }
+              .epx-oh-actions a.is-busy { opacity:.55; pointer-events:none; }
+              .epx-oh-src { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:12px; margin-top:11px; color:var(--cp-text-soft); }
+              .epx-oh-src-lbl { font-weight:600; color:var(--cp-text-soft); }
+              .epx-oh-src a { color:var(--cp-text-muted); cursor:pointer; text-decoration:none; } .epx-oh-src a:hover { color:var(--cp-text); text-decoration:underline; }
+              .epx-oh-src-change { margin-left:4px; }
+              .epx-oh-swap { margin-top:7px; }
+              .epx-oh-swap select { max-width:100%; font-size:12px; padding:5px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); }
+              .epx-oh-swap-hint { font-size:11px; margin-top:4px; }
               .epx-standup { border:1px solid var(--cp-ai,#7c3aed); border-left:4px solid var(--cp-ai,#7c3aed); background:linear-gradient(180deg,var(--cp-ai-soft,rgba(124,58,237,.10)),transparent 140%); border-radius:14px; }
               .epx-standup .bd { padding:15px 18px; }
               .epx-standup-h { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
@@ -24938,7 +25059,7 @@
                         <div class="epx-alerts">
                           <template x-for="(a, ai) in epicCur().alerts" :key="ai">
                             <div class="epx-alert" :class="a.sev">
-                              <span class="ic" x-text="a.ic"></span>
+                              <span class="ic" x-text="epicAlertIcon(a)"></span>
                               <div class="txt"><b x-text="a.title"></b><div class="why" x-text="a.why"></div></div>
                               <div class="act" x-show="a.act"><a class="epx-btn sm" :href="epicCur().url" target="_blank" rel="noopener" x-text="a.act"></a></div>
                             </div>
@@ -24959,13 +25080,72 @@
                         </div>
                       </div>
                       <div class="epx-card">
-                        <div class="epx-card-h"><span class="epx-sec-ic">📈</span><h3>Business objectives</h3></div>
+                        <div class="epx-card-h"><span class="epx-sec-ic">📈</span><h3>Business objectives</h3>
+                          <span class="rt" x-show="featureEnabled('monitoring') && epicObjHealth()" x-text="epicObjHealthAgo()"></span>
+                        </div>
                         <div class="bd">
-                          <div class="epx-obj">
-                            <template x-for="(o, oi) in epicCur().objectives" :key="oi">
-                              <div class="o"><span class="lbl" x-text="o.lbl"></span><span x-text="o.v"></span> — <span class="kpi" x-text="o.kpi"></span></div>
-                            </template>
-                          </div>
+                          <!-- Linked Objective Health dashboard (live snapshot) -->
+                          <template x-if="featureEnabled('monitoring') && epicObjHealth()">
+                            <div x-data="{ ohSwap:false }">
+                              <div class="epx-oh-list">
+                                <template x-for="(o, oi) in epicObjHealth().objectives" :key="oi">
+                                  <div class="epx-oh-row">
+                                    <span class="epx-oh-dot" :class="epicObjDot(o)" :title="o.status"></span>
+                                    <div class="epx-oh-body">
+                                      <div class="epx-oh-title" x-text="o.title || o.measure || ('Objective ' + o.n)"></div>
+                                      <div class="epx-oh-meta">
+                                        <span x-show="o.now" x-text="'now ' + o.now"></span>
+                                        <span x-show="o.tgt" x-text="'target ' + o.tgt"></span>
+                                        <span class="epx-oh-delta" x-show="o.delta" :class="o.deltaCls" x-text="o.delta"></span>
+                                        <span x-show="!o.now && o.status !== 'live'" class="epx-oh-gap" x-text="o.status === 'manual' ? 'manual source' : (o.status === 'part' ? 'partial telemetry' : 'no live telemetry')"></span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </template>
+                                <div class="muted" x-show="!epicObjHealth().objectives.length">The linked dashboard has no objectives yet.</div>
+                              </div>
+                              <!-- Source doc that drives this dashboard — swap to relink to a different objectives doc -->
+                              <div class="epx-oh-src">
+                                <span class="epx-oh-src-lbl">Source doc</span>
+                                <template x-if="epicOHCurrentDoc()">
+                                  <span>
+                                    <a x-show="epicOHComposeLink(epicOHCurrentDoc().id)" @click.prevent="goTo(epicOHComposeLink(epicOHCurrentDoc().id))" x-text="epicOHCurrentDoc().title" title="Open the business-objectives doc"></a>
+                                    <span x-show="!epicOHComposeLink(epicOHCurrentDoc().id)" x-text="epicOHCurrentDoc().title"></span>
+                                  </span>
+                                </template>
+                                <span x-show="!epicOHCurrentDoc()" class="muted">auto-detected from the epic</span>
+                                <a class="epx-oh-src-change" x-show="epicOHDocChoices().length" @click="ohSwap = !ohSwap" x-text="ohSwap ? 'Cancel' : 'Change'"></a>
+                              </div>
+                              <div class="epx-oh-swap" x-show="ohSwap" x-cloak>
+                                <select @change="if($event.target.value){ ohSwap=false; epicRelinkObjHealth($event.target.value); }">
+                                  <option value="">Pick a business-objectives doc…</option>
+                                  <template x-for="d in epicOHDocChoices()" :key="d.id">
+                                    <option :value="d.id" x-text="d.label + (d.id === (epicOHCurrentDoc() && epicOHCurrentDoc().id) ? ' (current)' : '')"></option>
+                                  </template>
+                                </select>
+                                <div class="muted epx-oh-swap-hint">Swapping the source doc regenerates the dashboard from that doc's objectives.</div>
+                              </div>
+                              <div class="epx-oh-actions">
+                                <a class="epx-jump-mon" @click="monEpicDashboard(epicCur().key, (epicObjHealthState() && epicObjHealthState().snap && epicObjHealthState().snap.docId) || '')">Open full dashboard →</a>
+                                <a @click="epicResyncObjHealth()" :class="{ 'is-busy': epicObjHealthState() && epicObjHealthState().loading }" x-text="(epicObjHealthState() && epicObjHealthState().loading) ? 'Re-syncing…' : 'Re-sync'"></a>
+                                <a @click="epicUnlinkObjHealth()">Unlink</a>
+                              </div>
+                            </div>
+                          </template>
+                          <!-- No linked dashboard: static objectives + build CTA -->
+                          <template x-if="!(featureEnabled('monitoring') && epicObjHealth())">
+                            <div>
+                              <div class="epx-obj">
+                                <template x-for="(o, oi) in epicCur().objectives" :key="oi">
+                                  <div class="o"><span class="lbl" x-text="o.lbl"></span><span x-text="o.v"></span> — <span class="kpi" x-text="o.kpi"></span></div>
+                                </template>
+                                <div class="muted" x-show="!epicCur().objectives.length">No business objectives parsed from the epic.</div>
+                              </div>
+                              <div class="epx-oh-actions" x-show="featureEnabled('monitoring')">
+                                <a class="epx-jump-mon" @click="monEpicDashboard(epicCur().key, '')" :class="{ 'is-busy': epicObjHealthState() && epicObjHealthState().loading }" title="Generate a Monitoring.AI Objective-Health dashboard from this epic's business-objectives doc">📊 Build Objective Health dashboard</a>
+                              </div>
+                            </div>
+                          </template>
                         </div>
                       </div>
                     </div>
@@ -32521,6 +32701,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // from GET /api/codeflow/epics/agents. _aiKicked guards the auto-AI-standup one-shot.
             persona: (function(){ try { return localStorage.getItem('epx-persona') || 'builtin'; } catch(e){ return 'builtin'; } })(),
             personaOpen: false, agents: [], agentsLoaded: false, _aiKicked: {},
+            // oh: per-epic Objective Health snapshot cache, keyed by epic key.
+            // Each entry: { loading, loaded, none, error, snap } where snap is the
+            // persisted server snapshot (title/summary/objectives/counts/generatedAt/doc).
+            oh: {},
             // self-contained Epic assistant (lower-right FAB → drawer, scoped to the epics tab)
             chat: { open: false, sending: false, byKey: {}, input: '' },
           },
@@ -32685,6 +32869,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           catalogRoles: {},        // sourceId -> { ground:bool, chart:bool } — steers the next build
           // v2: build a dashboard from a workspace board (mines its items for context).
           boardBuild: { open: false, prompt: '', boardId: '', boards: [], loading: false },
+          // Objective Health: generate a dashboard from an epic's business objectives.
+          epicGen: { epics: [], epicKey: '', loading: false },
+          rename: { uid: '', title: '', busy: false }, // inline rename of a local dashboard on the home page
           boardRefs: null,         // last generate's mined refs { kusto, appInsights, repos, grafana }
           provenance: [],          // last generate's per-panel provenance [{ title, kind, access, alert, dimension, metric }]
           discovery: [],           // last generate's discovery brief [{ id, name, count, timeField, dimensions, metrics }]
@@ -40949,6 +41136,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.monLoadCatalog();
             this.monLoadBoards();
             this.monLoadAlerts();
+            this.monLoadEpicChoices();
             if (uid) { await this.monLoadDashboard(uid); }
             else if ((w.dashboards || []).length) {
               // Land in the studio (persistent dashboard tree + copilot), matching the design.
@@ -41239,6 +41427,61 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const push = (k, label) => { const items = refs[k]; if (Array.isArray(items) && items.length) out.push({ k, label, items }); };
           push('kusto', 'Kusto'); push('appInsights', 'App Insights'); push('repos', 'Repos'); push('grafana', 'Grafana');
           return out;
+        },
+        // ---- Objective Health: generate from an epic ----
+        async monLoadEpicChoices() {
+          if (!this.featureEnabled('epics')) return;
+          const w = this.monitoring;
+          w.epicGen.loading = true;
+          try {
+            // Also populates the server-side epic cache the POST build depends on.
+            const r = await this.request('/api/codeflow/epics');
+            const list = (r && r.ok && Array.isArray(r.epics)) ? r.epics : [];
+            w.epicGen.epics = list.map(e => ({ key: e.key, title: e.title || e.key }));
+          } catch (e) { /* leave empty */ }
+          finally { w.epicGen.loading = false; }
+        },
+        monGenFromEpic() {
+          const key = this.monitoring.epicGen.epicKey;
+          if (!key || this.monitoring.obj.loading) return;
+          // force=true: an explicit "Build" always regenerates from the epic's objectives doc.
+          this.monEpicDashboard(key, '', true);
+        },
+        // ---- Home page: rename / delete local dashboards ----
+        monRenameStart(d) {
+          if (!d || !d.local) return;
+          this.monitoring.rename = { uid: d.uid, title: d.title || '', busy: false };
+        },
+        monRenameCancel() { this.monitoring.rename = { uid: '', title: '', busy: false }; },
+        async monRenameCommit() {
+          const rn = this.monitoring.rename;
+          const title = (rn.title || '').trim();
+          if (!rn.uid || !title) { this.monRenameCancel(); return; }
+          rn.busy = true;
+          try {
+            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(rn.uid) + '/rename', { method: 'PUT', body: JSON.stringify({ title }) });
+            if (r && r.ok) {
+              const d = (this.monitoring.dashboards || []).find(x => x.uid === rn.uid);
+              if (d) d.title = r.title || title;
+              if (this.monitoring.dash && this.monitoring.dash.uid === rn.uid) this.monitoring.dash.title = r.title || title;
+              this.toast('Dashboard renamed.');
+            } else { this.toast((r && r.error) || 'Could not rename.', 'error'); }
+          } catch (e) { this.toast((e && e.message) || 'Could not rename.', 'error'); }
+          finally { this.monRenameCancel(); }
+        },
+        async monDeleteDash(d) {
+          if (!d || !d.local) return;
+          if (!confirm('Delete the local dashboard "' + (d.title || d.uid) + '"? This removes it from Monitoring.AI.')) return;
+          try {
+            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(d.uid), { method: 'DELETE' });
+            if (r && r.ok) {
+              this.monitoring.dashboards = (this.monitoring.dashboards || []).filter(x => x.uid !== d.uid);
+              this.monitoring.recent = (this.monitoring.recent || []).filter(u => u !== d.uid);
+              try { localStorage.setItem('mon-recent', JSON.stringify(this.monitoring.recent)); } catch (_) {}
+              if (this.monitoring.dash && this.monitoring.dash.uid === d.uid) { this.monitoring.dash = null; this.monitoring.view = 'launcher'; }
+              this.toast(r.remoteError ? 'Removed locally (Grafana copy could not be deleted).' : 'Dashboard deleted.');
+            } else { this.toast((r && r.error) || 'Could not delete.', 'error'); }
+          } catch (e) { this.toast((e && e.message) || 'Could not delete.', 'error'); }
         },
         // ---- v2: alerts ----
         async monLoadAlerts() {
@@ -41578,7 +41821,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.monNewPrompt();
         },
         // ---- Objective Health (epic → tracking-doc → per-objective readiness) ----
-        async monEpicDashboard(key, docId) {
+        // GET-first: if a persisted snapshot exists we hydrate instantly (no AI call).
+        // Pass force=true (or use monObjRebuild) to regenerate via POST.
+        async monEpicDashboard(key, docId, force) {
           if (!this.featureEnabled('monitoring')) { this.toast('Enable Monitoring.AI in Settings → Experience to use this.'); return; }
           if (!key) return;
           this.goTo('#/monitoring');
@@ -41586,17 +41831,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const o = this.monitoring.obj;
           o.loading = true; o.error = ''; o.epicKey = key; o.docId = docId || '';
           o.objectives = []; o.sel = ''; o.doc = null; o.title = ''; o.summary = ''; o.ai = false;
+          o.generatedAt = 0; o.counts = null;
           try {
-            const r = await this.request('/api/monitoring/epic-dashboard', { method: 'POST', body: JSON.stringify({ key, docId: docId || '' }) });
+            let r = null;
+            if (!force) {
+              try {
+                const g = await this.request('/api/monitoring/epic-dashboard?key=' + encodeURIComponent(key));
+                if (g && g.ok && !g.none) r = g;
+              } catch (_) { /* fall through to POST */ }
+            }
+            if (!r) {
+              r = await this.request('/api/monitoring/epic-dashboard', { method: 'POST', body: JSON.stringify({ key, docId: docId || '' }) });
+            }
             if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-            o.epicTitle = (r.epic && r.epic.title) || 'Epic';
-            o.epicUrl = (r.epic && r.epic.url) || '';
+            // GET snapshot carries epicTitle/epicUrl flat; POST nests under r.epic.
+            o.epicTitle = (r.epic && r.epic.title) || r.epicTitle || 'Epic';
+            o.epicUrl = (r.epic && r.epic.url) || r.epicUrl || '';
             o.doc = r.doc || null;
             o.title = r.title || '';
             o.summary = r.summary || '';
             o.ai = !!r.ai;
             o.sourcesConnected = r.sourcesConnected || 0;
             o.objectives = Array.isArray(r.objectives) ? r.objectives : [];
+            o.generatedAt = r.generatedAt || 0;
+            o.counts = r.counts || null;
+            // Refresh the epic-side cache so the cockpit card reflects the latest.
+            this._epicOHStore(key, r);
             // Land on the first gap (miss/part) so the actionable work is front-and-center.
             const first = o.objectives.find(x => x.status === 'miss' || x.status === 'part') || o.objectives[0];
             o.sel = first ? ('obj' + first.n) : 'sources';
@@ -41604,7 +41864,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             o.error = 'Couldn\'t build the objective-health dashboard: ' + (e && e.message || 'error') + '. Open the Epics tab first so the epic is loaded.';
           } finally { o.loading = false; }
         },
-        monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId); },
+        monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId, true); },
+        monBackToEpic() {
+          const key = this.monitoring.obj.epicKey;
+          if (!key) { this.goTo('#/codeflow'); return; }
+          this.goTo('#/codeflow');
+          this.codeflow.cfTab = 'epics';
+          Promise.resolve(this.loadCodeflowEpics && this.loadCodeflowEpics()).then(() => {
+            this.$nextTick(() => {
+              const ep = this.codeflow.epics;
+              const i = (ep.list || []).findIndex(e => e.key === key);
+              if (i >= 0) this.epicSelect(i);
+            });
+          });
+        },
         monObjClose() { this.monitoring.view = this.monitoring.dash ? 'studio' : 'launcher'; },
         monObjSelect(k) { this.monitoring.obj.sel = k; },
         monObjCounts() {
@@ -53684,6 +53957,135 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ep = this.codeflow.epics;
           return (ep.list && ep.list[ep.idx]) || null;
         },
+        // Standup alert icon: derive a themed, always-mapped glyph from severity so
+        // the icon set themes it consistently (the AI/server may emit arbitrary,
+        // unthemed emoji in a.ic; the specifics live in the title/why text).
+        epicAlertIcon(a) {
+          const sev = (a && a.sev) || 'info';
+          if (sev === 'crit' || sev === 'error' || sev === 'blocked') return '⛔';
+          if (sev === 'warn' || sev === 'warning') return '⚠️';
+          return 'ℹ️';
+        },
+        // ---- Objective Health link (epic ↔ Monitoring.AI dashboard) ----
+        // The persisted server snapshot IS the link. The cockpit card reads it lazily
+        // (GET, cached in codeflow.epics.oh) and offers open / re-sync / unlink.
+        _epicOHEntry(key) {
+          const ep = this.codeflow.epics;
+          if (!ep.oh[key]) ep.oh = { ...ep.oh, [key]: { loading: false, loaded: false, none: true, error: '', snap: null } };
+          return ep.oh[key];
+        },
+        _epicOHSet(key, patch) {
+          const ep = this.codeflow.epics;
+          const cur = ep.oh[key] || { loading: false, loaded: false, none: true, error: '', snap: null };
+          ep.oh = { ...ep.oh, [key]: { ...cur, ...patch } };
+        },
+        // Persist a snapshot into the epic-side cache (called from both the epic card
+        // load and after a Monitoring.AI (re)generate so the card stays fresh).
+        _epicOHStore(key, r) {
+          if (!key || !r || !r.ok) return;
+          if (r.none) { this._epicOHSet(key, { loading: false, loaded: true, none: true, snap: null }); return; }
+          const snap = {
+            title: r.title || '', summary: r.summary || '', ai: !!r.ai,
+            objectives: Array.isArray(r.objectives) ? r.objectives : [],
+            counts: r.counts || null, generatedAt: r.generatedAt || 0,
+            doc: r.doc || null, docId: (r.doc && r.doc.id) || '',
+          };
+          this._epicOHSet(key, { loading: false, loaded: true, none: false, error: '', snap });
+        },
+        async epicLoadObjHealth(key, force) {
+          if (!key || !this.featureEnabled('monitoring')) return;
+          const e = this._epicOHEntry(key);
+          if (e.loading) return;
+          if (e.loaded && !force) return;
+          this._epicOHSet(key, { loading: true, error: '' });
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard?key=' + encodeURIComponent(key));
+            this._epicOHStore(key, r || { ok: true, none: true });
+          } catch (err) {
+            this._epicOHSet(key, { loading: false, loaded: true, error: (err && err.message) || 'load failed' });
+          }
+        },
+        // The current epic's snapshot (or null if none/not-loaded).
+        epicObjHealth() {
+          const c = this.epicCur();
+          if (!c) return null;
+          const e = this.codeflow.epics.oh[c.key];
+          return (e && e.loaded && !e.none && e.snap) ? e.snap : null;
+        },
+        epicObjHealthState() { const c = this.epicCur(); return c ? this.codeflow.epics.oh[c.key] || null : null; },
+        epicObjHealthAgo() {
+          const s = this.epicObjHealth();
+          if (!s || !s.generatedAt) return '';
+          return 'synced ' + this.formatRelative(s.generatedAt);
+        },
+        // Re-generate (POST) in the background, staying on the Epics tab, then refresh the card.
+        async epicResyncObjHealth() {
+          const c = this.epicCur();
+          if (!c || !this.featureEnabled('monitoring')) return;
+          const key = c.key;
+          this._epicOHSet(key, { loading: true, error: '' });
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard', { method: 'POST', body: JSON.stringify({ key, docId: (this.epicObjHealthState() && this.epicObjHealthState().snap && this.epicObjHealthState().snap.docId) || '' }) });
+            this._epicOHStore(key, r);
+            this.toast(r && r.ai ? 'Objective Health re-synced with AI.' : 'Objective Health re-synced.');
+          } catch (err) {
+            this._epicOHSet(key, { loading: false, error: (err && err.message) || 'resync failed' });
+            this.toast('Re-sync failed: ' + ((err && err.message) || 'error'), 'error');
+          }
+        },
+        // Unlink the dashboard from the epic (clears the persisted snapshot; keeps any Monitoring dashboard).
+        async epicUnlinkObjHealth() {
+          const c = this.epicCur();
+          if (!c) return;
+          const key = c.key;
+          try {
+            await this.request('/api/monitoring/epic-dashboard?key=' + encodeURIComponent(key), { method: 'DELETE' });
+            this._epicOHSet(key, { loading: false, loaded: true, none: true, snap: null });
+            this.toast('Unlinked the Objective Health dashboard from this epic.');
+          } catch (err) { this.toast('Unlink failed: ' + ((err && err.message) || 'error'), 'error'); }
+        },
+        // Candidate business-objectives docs to drive the dashboard = the epic's linked Compose docs.
+        epicOHDocChoices() {
+          const c = this.epicCur();
+          if (!c || !Array.isArray(c.docs)) return [];
+          const seen = new Set(); const out = [];
+          for (const d of c.docs) {
+            const m = /\/compose\/(cmp-[a-z0-9]+-[a-z0-9]+)/i.exec((d && d.url) || '');
+            if (!m) continue;
+            const id = m[1];
+            if (seen.has(id)) continue;
+            seen.add(id);
+            out.push({ id, label: (d && d.label) || id, url: d.url });
+          }
+          return out;
+        },
+        // The doc currently driving the linked Objective Health snapshot (id + title), or null.
+        epicOHCurrentDoc() {
+          const s = this.epicObjHealth();
+          if (!s || !s.doc) return null;
+          return { id: (s.doc.id || s.docId || ''), title: (s.doc.title || 'Guidance doc') };
+        },
+        epicOHComposeLink(id) { return (id && /^cmp-/i.test(id)) ? ('#/compose/' + id) : ''; },
+        // Swap the source doc → re-POST with the chosen docId → regenerate + relink (keyed by epic key).
+        async epicRelinkObjHealth(docId) {
+          const c = this.epicCur();
+          if (!c || !this.featureEnabled('monitoring') || !docId) return;
+          const key = c.key;
+          this._epicOHSet(key, { loading: true, error: '' });
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard', { method: 'POST', body: JSON.stringify({ key, docId }) });
+            this._epicOHStore(key, r);
+            this.toast('Relinked Objective Health to \u201C' + ((r && r.doc && r.doc.title) || 'the selected doc') + '\u201D.');
+          } catch (err) {
+            this._epicOHSet(key, { loading: false, error: (err && err.message) || 'relink failed' });
+            this.toast('Relink failed: ' + ((err && err.message) || 'error'), 'error');
+          }
+        },
+        // Status-dot class for an objective in the cockpit card.
+        epicObjDot(o) {
+          const s = (o && o.status) || 'miss';
+          if (s === 'live') return 'live'; if (s === 'part') return 'part'; if (s === 'manual') return 'man'; return 'miss';
+        },
         // Kanban state segments for the standup strip (order = flow left→right).
         epicKanbanSegs() {
           const c = this.epicCur();
@@ -53724,7 +54126,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             ep.loading = false; ep.loaded = true;
           }
           this.epicLoadAgents();
-          this.$nextTick(() => this.epicAiAuto());
+          this.$nextTick(() => { this.epicAiAuto(); const c = this.epicCur(); if (c) this.epicLoadObjHealth(c.key); });
         },
         // Load the persona menu (built-in assistant + installed standup agents). Once per session.
         async epicLoadAgents(force) {
@@ -53869,7 +54271,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ep = this.codeflow.epics;
           if (i < 0 || i >= ep.list.length) return;
           ep.idx = i;
-          this.$nextTick(() => this.epicAiAuto());
+          this.$nextTick(() => { this.epicAiAuto(); const c = this.epicCur(); if (c) this.epicLoadObjHealth(c.key); });
         },
         // Upgrade the selected epic's standup/alerts/forward/next with AI (server /ai route).
         async epicUpgradeAi() {

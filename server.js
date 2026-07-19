@@ -10115,6 +10115,18 @@ app.put('/api/monitoring/dashboard/:uid/options', async (req, res) => {
   } catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message }); }
 });
 
+// Rename a local (spun-up) dashboard.
+app.put('/api/monitoring/dashboard/:uid/rename', async (req, res) => {
+  try { res.json(await grafana.renameDashboard(req.params.uid, (req.body || {}).title)); }
+  catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message, code: e.code || '' }); }
+});
+
+// Delete a local (spun-up) dashboard.
+app.delete('/api/monitoring/dashboard/:uid', async (req, res) => {
+  try { res.json(await grafana.deleteDashboard(req.params.uid)); }
+  catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message, code: e.code || '' }); }
+});
+
 // Dashboard list (live when connected; sample + local spun-up otherwise).
 app.get('/api/monitoring/dashboards', async (req, res) => {
   try { res.json(await grafana.listDashboards()); }
@@ -10633,6 +10645,41 @@ function _monNormObjective(o, i) {
   return out;
 }
 
+// Durable per-epic Objective Health snapshot store (epic key → last built dashboard).
+// Lets the epic cockpit render live objective health inline AND lets the Monitoring.AI
+// Objective Health view be revisited instantly without an AI rebuild every time.
+const _epicOHPath = () => dataPath('epic-objective-health.json');
+function _epicOHLoad() { try { return JSON.parse(fs.readFileSync(_epicOHPath(), 'utf8')) || {}; } catch { return {}; } }
+function _epicOHSave(map) { try { fs.writeFileSync(_epicOHPath(), JSON.stringify(map, null, 2)); } catch { /* best-effort */ } }
+function _epicOHCounts(objectives) {
+  const c = { live: 0, part: 0, miss: 0, man: 0 };
+  for (const o of (objectives || [])) {
+    if (o.status === 'live') c.live++;
+    else if (o.status === 'part') c.part++;
+    else if (o.status === 'manual') c.man++;
+    else c.miss++;
+  }
+  return c;
+}
+
+// GET the persisted Objective Health snapshot for an epic (no AI, no epic-load required).
+app.get('/api/monitoring/epic-dashboard', (req, res) => {
+  const key = String((req.query && req.query.key) || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'key required' });
+  const snap = _epicOHLoad()[key];
+  if (!snap) return res.json({ ok: true, none: true });
+  res.json({ ok: true, none: false, ...snap });
+});
+
+// Unlink the persisted Objective Health snapshot from an epic (clears the link;
+// does NOT delete any Monitoring dashboard).
+app.delete('/api/monitoring/epic-dashboard', (req, res) => {
+  const key = String((req.query && req.query.key) || (req.body && req.body.key) || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'key required' });
+  try { const map = _epicOHLoad(); if (map[key]) { delete map[key]; _epicOHSave(map); } } catch { /* best-effort */ }
+  res.json({ ok: true });
+});
+
 app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   const key = String((req.body && req.body.key) || '').trim();
   const docId = String((req.body && req.body.docId) || '').trim();
@@ -10732,6 +10779,17 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     };
   }
 
+  const generatedAt = Date.now();
+  const counts = _epicOHCounts(model.objectives);
+  // Persist the snapshot — this IS the epic↔dashboard link (keyed by epic key).
+  const snapshot = {
+    key, epicId: epicOut.id, epicTitle: epicOut.title, epicUrl: epicOut.url,
+    doc: doc ? { id: doc.id, title: doc.title, source: doc.source } : null,
+    title: model.title, summary: model.summary, ai, sourcesConnected: srcLines.length,
+    objectives: model.objectives, counts, generatedAt,
+  };
+  try { const map = _epicOHLoad(); map[key] = snapshot; _epicOHSave(map); } catch { /* best-effort */ }
+
   res.json({
     ok: true, ai,
     epic: epicOut,
@@ -10740,6 +10798,7 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     title: model.title,
     summary: model.summary,
     sourcesConnected: srcLines.length,
+    generatedAt, counts,
   });
 });
 
