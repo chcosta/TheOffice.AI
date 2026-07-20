@@ -2351,6 +2351,15 @@ await t.test('code flow: Epics — AI persona picker + auto-AI standup (built-in
   // /assistant route reads persona
   const as = _win(srv, "app.post('/api/codeflow/epics/assistant'", 2000);
   t.ok(/persona/.test(as) && /_epicPersonaConfig/.test(as), '/assistant route resolves the persona config');
+
+  // --- chat renders full markdown (tables/lists) + shows an active "thinking" indicator ---
+  const send = _win(html, 'async epicChatSend(', 1400) || '';
+  t.ok(/renderMarkdown\(reply\)/.test(send) && !/inlineMarkdown\(reply\)/.test(send),
+    'epicChatSend renders the reply with the full block renderMarkdown (tables/lists), not inline-only');
+  t.ok(/x-show="codeflow\.epics\.chat\.sending"[\s\S]{0,500}epx-typing/.test(html),
+    'a thinking/typing indicator bubble shows while the assistant request is in flight');
+  t.ok(/\.epx-typing \{/.test(html) && /class="md-body" x-html="m\.html \|\| m\.text"/.test(html),
+    'chat bubble renders into a .md-body host with typing-indicator CSS present');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
