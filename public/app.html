@@ -21319,594 +21319,6 @@
             </style>
 
             <div class="monx">
-              <!-- ============ HOME (browse hub) ============ -->
-              <div class="monx-wrap" x-show="monitoring.view === 'home'">
-                <div class="monh-bar">
-                  <div class="monh-bar-t">
-                    <div class="kick">Monitoring.AI · Grafana + AI</div>
-                    <h1>Your monitoring hub</h1>
-                  </div>
-                  <button class="monh-newdash" @click="monOpenCreate()">✨ New dashboard</button>
-                </div>
-
-                <!-- attention row: recently viewed + alerts -->
-                <div class="monh-att">
-                  <div class="monh-panel">
-                    <div class="ph"><span>Recently viewed</span><span class="c" x-show="monRecentDashboards().length" x-text="monRecentDashboards().length"></span></div>
-                    <div class="pb">
-                      <template x-for="d in monRecentDashboards()" :key="d.uid">
-                        <div class="monx-rrow" @click="monLoadDashboard(d.uid)">
-                          <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
-                          <div class="rt"><b x-text="d.title"></b><div class="sub" x-text="monDashSub(d)"></div></div>
-                          <div class="spark" x-html="monSpark(d.spark, monStatusColor(monSparkStatus(d)))"></div>
-                          <div class="rmeta"><div class="st" :class="monStatusClass(monSparkStatus(d))" x-text="monSparkStatus(d)"></div><div style="color:var(--cp-text-faint)" x-text="d.updated ? formatRelative(d.updated) : ''"></div></div>
-                        </div>
-                      </template>
-                      <div class="monx-railempty" x-show="!monRecentDashboards().length">Dashboards you open will appear here.</div>
-                    </div>
-                  </div>
-                  <div class="monh-panel">
-                    <div class="ph"><span>Alerts</span><button class="lnk" x-show="!monitoring.alerts.open" @click="monAlertNew()">＋ New</button></div>
-                    <div class="pb">
-                      <template x-for="a in monitoring.alerts.list" :key="a.id">
-                        <div class="monx-alert">
-                          <div><div class="an" x-text="a.name"></div><div class="ad" x-text="monAlertSummary(a)"></div></div>
-                          <div class="ast" :class="{ firing: a.lastState === 'firing' }" x-text="monAlertState(a)"></div>
-                          <button class="axn" @click="monToggleAlert(a)" x-text="a.enabled ? 'Disable' : 'Enable'"></button>
-                          <button class="axn" @click="monDeleteAlert(a)">Delete</button>
-                        </div>
-                      </template>
-                      <div class="monx-railempty" x-show="!monitoring.alerts.list.length && !monitoring.alerts.open">No alerts yet — watch an alertable workspace collection and notify when a threshold trips.</div>
-                      <div class="monx-alertform" x-show="monitoring.alerts.open" x-cloak>
-                        <template x-if="monitoring.alerts.draft">
-                        <div>
-                        <div class="arow">
-                          <label>Source
-                            <select x-model="monitoring.alerts.draft.sourceId">
-                              <option value="">Choose…</option>
-                              <template x-for="s in monAlertableSources()" :key="s.id">
-                                <option :value="s.id" x-text="s.name"></option>
-                              </template>
-                            </select>
-                          </label>
-                          <label>Name <input type="text" x-model="monitoring.alerts.draft.name" placeholder="e.g. Task backlog spike" style="min-width:180px;" /></label>
-                        </div>
-                        <div class="arow">
-                          <label>When
-                            <select x-model="monitoring.alerts.draft.agg">
-                              <option value="last">latest</option><option value="sum">sum</option><option value="max">max</option><option value="avg">avg</option>
-                            </select>
-                          </label>
-                          <label>
-                            <select x-model="monitoring.alerts.draft.op">
-                              <option value="&gt;">&gt;</option><option value="&gt;=">&ge;</option><option value="&lt;">&lt;</option><option value="&lt;=">&le;</option><option value="==">=</option>
-                            </select>
-                          </label>
-                          <label><input type="number" x-model.number="monitoring.alerts.draft.value" style="width:90px;" /></label>
-                          <label>over
-                            <select x-model.number="monitoring.alerts.draft.windowDays">
-                              <option :value="1">1 day</option><option :value="7">7 days</option><option :value="14">14 days</option><option :value="30">30 days</option>
-                            </select>
-                          </label>
-                          <label>notify
-                            <select x-model="monitoring.alerts.draft.target">
-                              <option value="app">in-app</option><option value="email">email</option>
-                            </select>
-                          </label>
-                        </div>
-                        <div class="arow">
-                          <button class="abtn" @click="monSaveAlert()" :disabled="monitoring.alerts.saving || !monitoring.alerts.draft.sourceId || !monitoring.alerts.draft.name" x-text="monitoring.alerts.saving ? 'Saving…' : 'Save alert'"></button>
-                          <button class="abtn ghost" @click="monitoring.alerts.open = false">Cancel</button>
-                        </div>
-                        </div>
-                        </template>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Your dashboards (collapsible) -->
-                <div class="monh-card">
-                  <div class="monh-cardh" @click="monitoring.homeDashOpen = !monitoring.homeDashOpen" role="button" tabindex="0" @keydown.enter.prevent="monitoring.homeDashOpen = !monitoring.homeDashOpen">
-                    <span class="chev" :class="{ open: monitoring.homeDashOpen }">▶</span>
-                    <span class="t">Your dashboards</span>
-                    <span class="c">open, rename or remove local dashboards — Grafana-owned ones open read-only</span>
-                  </div>
-                  <div class="monh-cardb" x-show="monitoring.homeDashOpen" x-cloak>
-                    <input class="monx-home-filt" type="text" placeholder="Filter dashboards…" x-model="monitoring.railFilter" />
-
-                    <!-- Objective Health · epics -->
-                    <div class="monh-grp" x-show="monitoring.epicDashboards.length">
-                      <div class="monh-grph" @click="monitoring.epicGroupOpen = !monitoring.epicGroupOpen" role="button" tabindex="0" @keydown.enter.prevent="monitoring.epicGroupOpen = !monitoring.epicGroupOpen">
-                        <span class="chev" :class="{ open: monitoring.epicGroupOpen }">▶</span>
-                        <span class="gn">Objective Health · epics</span>
-                        <span class="gc" x-text="monitoring.epicDashboards.length"></span>
-                      </div>
-                      <div class="monh-grpb" x-show="monitoring.epicGroupOpen" x-cloak>
-                        <template x-for="e in monitoring.epicDashboards" :key="e.key">
-                          <div class="monh-erow">
-                            <div class="ric">🎯</div>
-                            <div class="rt" @click="monEpicDashboard(e.key)">
-                              <b x-text="e.epicTitle || e.title || 'Objective Health'"></b>
-                              <span class="sub" x-text="((e.objectiveCount||0) + ' objective' + ((e.objectiveCount||0)===1?'':'s')) + (e.doc ? ' · linked doc' : '') + (e.ai ? ' · AI' : '')"></span>
-                              <div class="monh-hbar" x-show="monEpicDashSegs(e.counts).length">
-                                <template x-for="(s,i) in monEpicDashSegs(e.counts)" :key="i">
-                                  <span :style="`width:${s.pct}%;background:${s.color}`" :title="s.n + ' ' + s.label"></span>
-                                </template>
-                              </div>
-                            </div>
-                            <div class="monh-eacts">
-                              <button class="lnk" @click.stop="monEpicDashboard(e.key)">Open</button>
-                              <button class="lnk danger" @click.stop="monUnlinkEpicDash(e.key)">Unlink</button>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
-
-                    <!-- Grafana / local folders -->
-                    <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
-                      <div class="monh-grp">
-                        <div class="monh-grph" @click="monFolderToggle(folder)" role="button" tabindex="0" @keydown.enter.prevent="monFolderToggle(folder)">
-                          <span class="chev" :class="{ open: monFolderIsOpen(folder) }">▶</span>
-                          <span class="gn" x-text="folder"></span>
-                          <span class="gc" x-text="dashes.length"></span>
-                        </div>
-                        <div class="monh-grpb" x-show="monFolderIsOpen(folder)" x-cloak>
-                          <template x-for="d in dashes" :key="d.uid">
-                            <div class="monx-home-row">
-                              <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
-                              <template x-if="monitoring.rename.uid === d.uid">
-                                <input class="monx-home-rin" x-model="monitoring.rename.title" @click.stop
-                                  @keydown.enter.prevent="monRenameCommit()" @keydown.escape.prevent="monRenameCancel()" x-init="$nextTick(() => $el.focus())" />
-                              </template>
-                              <template x-if="monitoring.rename.uid !== d.uid">
-                                <div class="rt" @click="monLoadDashboard(d.uid)"><b x-text="d.title"></b><span class="sub" x-text="((d.panelCount||0) + ' panel' + ((d.panelCount||0) === 1 ? '' : 's')) + (d.local ? '' : ' · Grafana')"></span></div>
-                              </template>
-                              <div class="monx-home-acts">
-                                <template x-if="monitoring.rename.uid === d.uid">
-                                  <span>
-                                    <button class="lnk" @click.stop="monRenameCommit()" :disabled="monitoring.rename.busy" x-text="monitoring.rename.busy ? 'Saving…' : 'Save'"></button>
-                                    <button class="lnk" @click.stop="monRenameCancel()">Cancel</button>
-                                  </span>
-                                </template>
-                                <template x-if="monitoring.rename.uid !== d.uid && d.local">
-                                  <span>
-                                    <button class="lnk" @click.stop="monRenameStart(d)">Rename</button>
-                                    <button class="lnk danger" @click.stop="monDeleteDash(d)">Delete</button>
-                                  </span>
-                                </template>
-                              </div>
-                            </div>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-                    <div class="monx-railempty" x-show="!monitoring.epicDashboards.length && !Object.keys(monDashboardsByFolder()).length" x-text="monitoring.railFilter ? 'No dashboards match.' : 'No dashboards yet — create one with New dashboard.'"></div>
-                  </div>
-                </div>
-
-                <!-- Connected data sources (collapsible, default closed) -->
-                <div class="monh-card">
-                  <div class="monh-cardh" @click="monHomeCatToggle()" role="button" tabindex="0" @keydown.enter.prevent="monHomeCatToggle()">
-                    <span class="chev" :class="{ open: monitoring.homeCatOpen }">▶</span>
-                    <span class="t">Connected data sources</span>
-                    <span class="c">workspace collections + external data sources available to dashboards</span>
-                  </div>
-                  <div class="monh-cardb" x-show="monitoring.homeCatOpen" x-cloak>
-                    <div class="monx-cat">
-                      <template x-if="monitoring.catalog.workspace.length">
-                        <div class="monx-catgrp">Workspace (internal)</div>
-                      </template>
-                      <template x-for="s in monitoring.catalog.workspace" :key="s.id">
-                        <div class="monx-catrow">
-                          <div class="ci" x-text="s.icon || '🗂'"></div>
-                          <div class="cmeta"><div class="cn" x-text="s.name"></div><div class="cs" x-text="monCatSub(s)"></div></div>
-                        </div>
-                      </template>
-                      <template x-if="monitoring.catalog.external.length">
-                        <div class="monx-catgrp">External data sources</div>
-                      </template>
-                      <template x-for="s in monitoring.catalog.external" :key="s.id">
-                        <div class="monx-catrow">
-                          <div class="ci" x-text="s.icon || '🔷'"></div>
-                          <div class="cmeta"><div class="cn" x-text="s.name"></div><div class="cs" x-text="monCatSub(s)"></div></div>
-                        </div>
-                      </template>
-                      <div class="monx-railempty" x-show="monitoring.catalog.loading && !monitoring.catalog.loaded">Loading catalog…</div>
-                      <div class="monx-railempty" x-show="monitoring.catalog.loaded && !monitoring.catalog.workspace.length && !monitoring.catalog.external.length">No data sources connected yet — connect Grafana on the New dashboard page.</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ============ CREATE (was launcher) ============ -->
-              <div class="monx-wrap" x-show="monitoring.view === 'launcher'">
-                <div class="monx-createnav">
-                  <button class="monx-back" @click="monGoHome()">← Monitoring.AI home</button>
-                  <button class="monx-back" x-show="monitoring.dash" @click="monBackToStudio()">Back to <span x-text="monitoring.dash ? monitoring.dash.title : ''"></span> →</button>
-                </div>
-                <div class="monx-hero">
-                  <div class="kick">Monitoring.AI · Grafana + AI</div>
-                  <h1>Describe what you want to watch. Get a live Grafana dashboard.</h1>
-                  <p>Spin up dashboards from a prompt against your Azure Managed Grafana data sources, view them here, then hand any panel or dataset to the copilot to read trends, status and anomalies.</p>
-                </div>
-
-                <div class="monx-ask">
-                  <input type="text" placeholder="p95 latency and 5xx error rate for the payments service, last 24h, split by region"
-                    x-model="monitoring.prompt" @keydown.enter="monGenerate()" />
-                  <button class="go" @click="monGenerate()" :disabled="monitoring.generating || !monitoring.prompt.trim()">
-                    <span x-text="monitoring.generating ? 'Generating…' : '✨ Generate dashboard'"></span>
-                  </button>
-                </div>
-                <div class="monx-hints">
-                  <span>Try:</span>
-                  <template x-for="(h, i) in monitoring.hints" :key="i">
-                    <span class="h" @click="monitoring.prompt = h; monGenerate()" x-text="h"></span>
-                  </template>
-                </div>
-
-                <!-- connection -->
-                <div class="monx-conn">
-                  <div class="monx-conn-head">
-                    <span class="dot" :style="`background:${monConnDotColor()}`"></span>
-                    <b x-text="monConnLabel()"></b>
-                    <button class="toggle" @click="monitoring.connOpen = !monitoring.connOpen" x-text="monitoring.connOpen ? 'Hide' : (monitoring.conn.url ? 'Edit connection' : 'Connect Grafana')"></button>
-                  </div>
-                  <div class="monx-conn-body" x-show="monitoring.connOpen" x-cloak>
-                    <input class="full" type="text" placeholder="https://your-grafana.grafana.azure.com" x-model="monitoring.conn.url" />
-                    <input type="text" placeholder="Org ID (optional)" x-model="monitoring.conn.orgId" />
-                    <label class="full monx-authmode">
-                      <span>Authentication</span>
-                      <select x-model="monitoring.conn.authMode">
-                        <option value="aad">Azure identity (recommended — uses az login / managed identity)</option>
-                        <option value="token">Service account token</option>
-                      </select>
-                    </label>
-                    <input x-show="monitoring.conn.authMode === 'token'" type="password" :placeholder="monitoring.conn.hasToken ? '•••••• (unchanged)' : 'Service account token'" x-model="monitoring.conn.token" />
-                    <p class="monx-conn-hint full" x-show="monitoring.conn.authMode === 'aad'" style="margin:0;font-size:12px;color:var(--cp-text-faint);">No token stored — the app authenticates to Azure Managed Grafana with your Azure identity (scope <code>grafana.azure.com</code>). Requires a Grafana Viewer/Editor role on the workspace.</p>
-                    <label class="full" style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--cp-text-muted);">
-                      <input type="checkbox" x-model="monitoring.conn.enabled" /> Use live Grafana (off = sample data)
-                    </label>
-                    <label class="full" style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--cp-text-muted);">
-                      <input type="checkbox" x-model="monitoring.conn.pushByDefault" /> Push new dashboards to Grafana by default
-                    </label>
-                    <div class="monx-conn-actions">
-                      <button class="save" @click="monSaveConnection()" :disabled="monitoring.connSaving" x-text="monitoring.connSaving ? 'Saving…' : 'Save connection'"></button>
-                      <button class="retry" @click="monReconnect()" :disabled="monitoring.connReconnecting" x-show="monitoring.conn.enabled && monitoring.conn.authMode !== 'token'" x-text="monitoring.connReconnecting ? 'Reconnecting…' : 'Retry connection'"></button>
-                      <span class="msg" x-text="monitoring.connMsg"></span>
-                    </div>
-                    <p class="monx-conn-hint" x-show="monitoring.conn.enabled && monitoring.conn.authMode !== 'token'">After assigning yourself a Grafana role in Azure, click <strong>Retry connection</strong> to re-authenticate with a fresh token. If it still fails, the sign-in token may need a minute to refresh (role changes can take a few minutes to propagate) — wait briefly and retry, or run <code>az login</code> again.</p>
-                  </div>
-                </div>
-
-                <div class="monx-sech"><h2>Start from a template</h2><span class="c">AI fills in queries for your data sources</span></div>
-                <div class="monx-grid3">
-                  <template x-for="t in monTemplates()" :key="t.t">
-                    <div class="monx-tcard" @click="monitoring.prompt = t.prompt; monGenerate()">
-                      <div class="ic" x-text="t.ic"></div>
-                      <h3 x-text="t.t"></h3>
-                      <div class="d" x-text="t.d"></div>
-                    </div>
-                  </template>
-                </div>
-
-                <div class="monx-sech"><h2>Build from a workspace board</h2><span class="c">the AI mines the board's items for context — referenced clusters, repos, telemetry</span></div>
-                <div class="monx-bboard">
-                  <div class="brow">
-                    <select x-model="monitoring.boardBuild.boardId">
-                      <option value="">Choose a board…</option>
-                      <template x-for="b in monitoring.boardBuild.boards" :key="b.id">
-                        <option :value="b.id" x-text="b.name"></option>
-                      </template>
-                    </select>
-                    <button class="bbtn" @click="monBuildFromBoard()" :disabled="monitoring.generating || !monitoring.boardBuild.boardId" x-text="monitoring.generating ? 'Building…' : 'Build dashboard'"></button>
-                  </div>
-                  <input style="margin-top:10px;width:100%;box-sizing:border-box;" type="text" placeholder="Optional focus — e.g. autoscaler queue depth and error trends (leave blank to let the AI decide)" x-model="monitoring.boardBuild.prompt" @keydown.enter="monBuildFromBoard()" />
-                  <div class="monx-brefs" x-show="monitoring.boardRefs" x-cloak>
-                    <span class="rk">Context used:</span>
-                    <template x-for="grp in monBoardRefGroups()" :key="grp.k">
-                      <span><span class="rk" x-text="grp.label + ':'"></span> <span x-text="grp.items.join(', ')"></span></span>
-                    </template>
-                  </div>
-                </div>
-
-                <div class="monx-sech" x-show="featureEnabled('epics')"><h2>Generate from an epic</h2><span class="c">turns an epic's linked business-objectives doc into an <b style="color:var(--mon-ai)">Objective Health</b> dashboard — one panel per objective, honest about missing telemetry</span></div>
-                <div class="monx-bboard" x-show="featureEnabled('epics')">
-                  <div class="brow">
-                    <select x-model="monitoring.epicGen.epicKey">
-                      <option value="">Choose an epic…</option>
-                      <template x-for="ep in monitoring.epicGen.epics" :key="ep.key">
-                        <option :value="ep.key" x-text="ep.title"></option>
-                      </template>
-                    </select>
-                    <button class="bbtn" @click="monGenFromEpic()" :disabled="monitoring.obj.loading || !monitoring.epicGen.epicKey" x-text="monitoring.obj.loading ? 'Building…' : 'Build Objective Health'"></button>
-                  </div>
-                  <div class="monx-railempty" x-show="monitoring.epicGen.loading">Loading your epics…</div>
-                  <div class="monx-railempty" x-show="!monitoring.epicGen.loading && !monitoring.epicGen.epics.length">No epics found — open the Epics tab in Code Flow first.</div>
-                </div>
-
-                  <div class="monx-sech"><h2>Context &amp; data catalog</h2><span class="c">workspace collections + external data sources — pick <b style="color:var(--mon-ground)">Ground</b> (AI context) and <b style="color:var(--mon-accent)">Chart</b> (panels)</span></div>
-                  <div class="monx-cat">
-                    <template x-if="monitoring.catalog.workspace.length">
-                      <div class="monx-catgrp">Workspace (internal)</div>
-                    </template>
-                    <template x-for="s in monitoring.catalog.workspace" :key="s.id">
-                      <div class="monx-catrow">
-                        <div class="ci" x-text="s.icon || '🗂'"></div>
-                        <div class="cmeta">
-                          <div class="cn" x-text="s.name"></div>
-                          <div class="cs" x-text="monCatSub(s)"></div>
-                        </div>
-                        <div class="monx-roles">
-                          <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
-                          <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
-                        </div>
-                      </div>
-                    </template>
-                    <template x-if="monitoring.catalog.external.length">
-                      <div class="monx-catgrp">External data sources</div>
-                    </template>
-                    <template x-for="s in monitoring.catalog.external" :key="s.id">
-                      <div class="monx-catrow">
-                        <div class="ci" x-text="s.icon || '🔷'"></div>
-                        <div class="cmeta">
-                          <div class="cn" x-text="s.name"></div>
-                          <div class="cs" x-text="monCatSub(s)"></div>
-                        </div>
-                        <div class="monx-roles">
-                          <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
-                          <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
-                        </div>
-                      </div>
-                    </template>
-                    <div class="monx-railempty" x-show="!monitoring.catalog.loaded && monitoring.catalog.loading">Loading catalog…</div>
-                  </div>
-                </div>
-
-                <!-- ============ STUDIO ============ -->
-              <div class="monx-wrap" x-show="monitoring.view === 'studio'" style="max-width:none;">
-                <div class="monx-studio" :class="{ railhidden: !monRailOpen() }" x-show="monitoring.dash">
-                  <!-- rail -->
-                  <div class="monx-rail" x-show="monRailOpen()">
-                    <button class="monx-newbtn" @click="monNewPrompt()">✨ New from prompt</button>
-                    <div class="monx-rlabel">Dashboards</div>
-                    <input class="monx-railsearch" type="text" x-model="monitoring.railFilter" placeholder="Filter dashboards…" />
-                    <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
-                      <div class="monx-folder" :class="{ open: monFolderIsOpen(folder) }">
-                        <div class="frow" @click="monFolderToggle(folder)"><span class="chev">▶</span><span class="fn" x-text="folder"></span><span class="fc" x-text="dashes.length"></span></div>
-                        <template x-if="monFolderIsOpen(folder)">
-                          <div>
-                            <template x-for="d in dashes" :key="d.uid">
-                              <div class="monx-dash" :class="{ on: monitoring.dash && monitoring.dash.uid === d.uid }" @click="monLoadDashboard(d.uid)">
-                                <span x-text="d.title"></span><span class="dc" x-text="d.panelCount || ''"></span>
-                              </div>
-                            </template>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                    <div class="monx-railempty" x-show="!Object.keys(monDashboardsByFolder()).length" x-text="monitoring.railFilter ? 'No dashboards match.' : 'No dashboards yet.'"></div>
-                    <div class="monx-rlabel">Data sources</div>
-                    <template x-for="(s, i) in monSources()" :key="i">
-                      <div class="monx-srcmini"><span class="dot" :style="`background:${s.status === 'ok' ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)'}`"></span><span x-text="s.name"></span></div>
-                    </template>
-                    <button class="monx-connmini" @click="monEditConnection()" :title="monConnLabel()">
-                      <span class="dot" :style="`background:${monConnDotColor()}`"></span>
-                      <span class="ct" x-text="monConnLabel()"></span>
-                    </button>
-                  </div>
-
-                  <!-- canvas -->
-                  <div class="monx-canvas">
-                    <div class="monx-dbar">
-                      <button class="monx-homebtn" @click="monBackToLauncher()" title="Back to Monitoring home">⌂ Home</button>
-                      <button class="monx-ibtn" x-show="!monRailOpen()" @click="monToggleRail()" title="Show the dashboards list">☰ Dashboards</button>
-                      <h2><span x-text="monitoring.dash ? monitoring.dash.title : ''"></span><span class="gtag">GRAFANA</span></h2>
-                      <span class="sp"></span>
-                      <div class="monx-selc" x-show="monitoring.grabbed.length">
-                        <span><b x-text="monitoring.grabbed.length"></b> panel(s) grabbed</span>
-                        <button class="an" @click="monAnalyze('grabbed')" :disabled="monitoring.analyzing" x-text="monitoring.analyzing ? 'Analyzing…' : '✨ Analyze'"></button>
-                      </div>
-                      <button class="monx-ibtn" @click="monAnalyze('all')" :disabled="monitoring.analyzing" title="Analyze the whole dashboard">Analyze dashboard</button>
-                      <button class="monx-ibtn" @click="monApplyFilters()" :disabled="monitoring.refreshing" title="Refresh data" x-text="monitoring.refreshing ? '…' : '↻'"></button>
-                      <span class="monx-fresh" x-show="monitoring.dash && (monitoring.dash.refreshedAt || monitoring.dash.loadedAt)" :title="monFreshTitle()">
-                        <span class="dot"></span><span x-text="monFreshLabel()"></span>
-                      </span>
-                      <template x-if="monitoring.dash && monitoring.dash.local">
-                        <span class="monx-pushc">
-                          <span class="ps" x-text="monitoring.dash.pushed ? '● pushed to Grafana' : '○ local only'" :style="`color:${monitoring.dash.pushed ? 'var(--cp-success,#3fb950)' : 'var(--cp-text-faint)'}`"></span>
-                          <button class="monx-ibtn" x-show="monitoring.status && monitoring.status.configured" @click="monPushDashboard()" :title="monitoring.dash.pushed ? 'Re-push this dashboard to Grafana' : 'Push this dashboard to Grafana now'" x-text="monitoring.dash.pushed ? 'Re-push' : 'Push to Grafana'"></button>
-                          <label class="monx-autopush" title="Automatically push this dashboard to Grafana when it changes"><input type="checkbox" :checked="monitoring.dash.autoPush" @change="monToggleAutoPush()" /> Auto-push</label>
-                        </span>
-                      </template>
-                    </div>
-                    <div class="monx-controls" x-show="monitoring.dash && !monitoring.dash.local">
-                      <label class="monx-ctl">
-                        <span class="cl">Time range</span>
-                        <select @change="monSetTimeRange($event.target.value)">
-                          <template x-for="tr in monTimeRanges()" :key="tr.v">
-                            <option :value="tr.v" :selected="monitoring.filters && monitoring.filters.from === tr.v" x-text="tr.label"></option>
-                          </template>
-                        </select>
-                      </label>
-                      <label class="monx-ctl" x-show="monitoring.conn && monitoring.conn.url" title="Native = our renderer (full data + AI). Grafana = pixel-perfect embedded panels; Grab &amp; Analyze still use the live data either way.">
-                        <span class="cl">View</span>
-                        <select @change="monSetEmbedMode($event.target.value)">
-                          <option value="native" :selected="monitoring.embedMode !== 'grafana'">Native</option>
-                          <option value="grafana" :selected="monitoring.embedMode === 'grafana'">Grafana</option>
-                        </select>
-                      </label>
-                      <template x-for="v in monDashVariables()" :key="v.name">
-                        <label class="monx-ctl">
-                          <span class="cl" x-text="v.label"></span>
-                          <template x-if="v.options && v.options.length">
-                            <select @change="monVarSet(v.name, $event.target.value)">
-                              <template x-for="o in v.options" :key="o.value">
-                                <option :value="o.value" :selected="monitoring.filters && monitoring.filters.vars[v.name] === o.value" x-text="o.text"></option>
-                              </template>
-                            </select>
-                          </template>
-                          <template x-if="!(v.options && v.options.length)">
-                            <input type="text" :value="(monitoring.filters && monitoring.filters.vars[v.name]) || ''" @change="monVarSet(v.name, $event.target.value)" placeholder="all" />
-                          </template>
-                        </label>
-                      </template>
-                    </div>
-                    <div class="monx-varhint" x-show="!monEmbedActive()">Hover a panel and click <b>Grab</b> to add its data to the copilot, then Analyze.</div>
-                    <div class="monx-varhint" x-show="monEmbedActive()">Live Grafana dashboard — use Grafana's own filters, time picker &amp; navigation inside the frame. Switch <b>View → Native</b> to grab panels for AI. If the frame is blank, your workspace may need embedding enabled — use <b>View rendered image</b> or <b>Open in Grafana</b>.</div>
-
-                    <!-- Grafana view: the whole dashboard as a LIVE interactive iframe (Grafana's own nav/filters/renderers). -->
-                    <template x-if="monEmbedActive()">
-                      <div class="monx-dashimg">
-                        <div class="monx-dashimg-bar">
-                          <span class="monx-dashimg-live" x-text="monGrafanaRenderMode() === 'image' ? '● Rendered image' : '● Live Grafana'"></span>
-                          <span class="sp"></span>
-                          <button class="monx-open alt" @click="monToggleGrafanaRender()" x-text="monGrafanaRenderMode() === 'image' ? '↺ Back to live' : 'View rendered image'" :title="monGrafanaRenderMode() === 'image' ? 'Switch back to the live interactive dashboard' : 'Frame blank? Fall back to a server-rendered image'"></button>
-                          <button class="monx-open" @click="monEmbedRefresh()" title="Reload">↻ Refresh</button>
-                          <a class="monx-open" :href="monDashGrafanaUrl()" target="_blank" rel="noopener" title="Open this dashboard in Grafana">Open in Grafana ↗</a>
-                        </div>
-                        <!-- live interactive dashboard -->
-                        <template x-if="monGrafanaRenderMode() !== 'image'">
-                          <iframe class="monx-dashframe" :src="monDashLiveUrl()" title="Grafana dashboard (live)" referrerpolicy="no-referrer"></iframe>
-                        </template>
-                        <!-- server-rendered image fallback (when framing is blocked) -->
-                        <template x-if="monGrafanaRenderMode() === 'image'">
-                          <div>
-                            <template x-if="!monEmbedErr()">
-                              <img class="monx-dashimg-img" :src="monDashRenderUrl()" alt="Grafana dashboard render" @load="monEmbedOk()" @error="monEmbedFail()">
-                            </template>
-                            <template x-if="monEmbedErr()">
-                              <div class="monx-embedfail" style="height:320px">
-                                <span>Grafana couldn't render this dashboard here.</span>
-                                <a :href="monDashGrafanaUrl()" target="_blank" rel="noopener">Open in Grafana ↗</a>
-                              </div>
-                            </template>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-
-                    <!-- Native view: our renderer, with per-panel Grab / deep-dive. -->
-                    <template x-if="!monEmbedActive()">
-                      <div class="monx-board">
-                        <template x-for="p in (monitoring.dash ? monitoring.dash.panels : [])" :key="p.id">
-                          <div class="monx-panel" :class="{ sel: monIsGrabbed(p.id), wide: p.type === 'table' || (p.type === 'timeseries' && p.series && p.series.length > 1) }">
-                            <div class="monx-ph">
-                              <span class="pt" x-text="p.title"></span>
-                              <span class="psrc" x-show="p.unit" x-text="'· ' + p.unit"></span>
-                              <template x-if="monPanelProvenance(p)">
-                                <span class="monx-provbadge" :class="{ workspace: monPanelProvenance(p).kind === 'workspace' }" x-text="monProvLabel(monPanelProvenance(p))"></span>
-                              </template>
-                              <span class="sp"></span>
-                              <span class="monx-badge" x-show="p.alert" :style="`color:var(--cp-warning,#d29922);border:1px solid var(--cp-warning,#d29922)`">alert</span>
-                              <div class="monx-ptools">
-                                <button @click="monOpenData(p.id)" title="See the data behind this panel">Data</button>
-                                <button :class="{ on: monIsGrabbed(p.id) }" @click="monGrabToggle(p.id)" title="Grab data for AI">Grab</button>
-                                <button @click="monOpenDeep(p.id)" title="Deep dive">⤢</button>
-                              </div>
-                            </div>
-                            <div class="monx-pbody" x-html="monPanelBody(p)"></div>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                  </div>
-
-                  <!-- copilot -->
-                  <div class="monx-cop">
-                    <div class="monx-coph">
-                      <div class="ci">✨</div>
-                      <div><b>Monitoring assistant</b><div class="sub">reads your grabbed panels &amp; datasets</div></div>
-                    </div>
-                    <div class="monx-ctx">
-                      <div class="cl">Context · grabbed panels</div>
-                      <div class="monx-chips">
-                        <template x-if="!monitoring.grabbed.length"><div class="empty">No panels grabbed yet — hover a panel and click Grab.</div></template>
-                        <template x-for="p in monGrabbedPanels()" :key="p.id">
-                          <span class="monx-chip"><span class="sd" :style="`background:${monPanelColor(p)}`"></span><span x-text="p.title"></span><span class="rm" @click="monGrabToggle(p.id)">✕</span></span>
-                        </template>
-                      </div>
-                    </div>
-                    <div class="monx-conv" x-ref="monConv">
-                      <template x-if="!monitoring.convo.length">
-                        <div class="monx-msg ai"><div class="mwho">✨ Assistant</div><div class="mbody"><p>Grab a panel or two and click <b>Analyze</b> — I'll read the datasets behind them and summarize status, trends and anomalies.</p></div></div>
-                      </template>
-                      <template x-for="(m, i) in monitoring.convo" :key="i">
-                        <div class="monx-msg" :class="m.role">
-                          <div class="mwho" x-text="m.role === 'you' ? 'You' : '✨ Assistant'"></div>
-                          <div class="mbody">
-                            <template x-if="!m.analysis"><p x-text="m.text"></p></template>
-                            <template x-if="m.analysis"><div x-html="monAnalysisHtml(m.analysis)"></div></template>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="monx-composer">
-                      <div class="crow">
-                        <textarea rows="1" placeholder="Ask about the grabbed panels…" x-model="monitoring.copilotQ" @keydown.enter.prevent="monAskFree()"></textarea>
-                        <button class="send" @click="monAskFree()">➤</button>
-                      </div>
-                      <div class="monx-qk">
-                        <button @click="monAnalyze('grabbed')">Summarize status</button>
-                        <button @click="monitoring.copilotQ='What changed in the last window?'; monAskFree()">What changed?</button>
-                        <button @click="monitoring.copilotQ='Correlate the spikes across these panels'; monAskFree()">Correlate spikes</button>
-                        <button @click="monitoring.copilotQ='Draft a short status report'; monAskFree()">Draft report</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ============ DEEP DIVE ============ -->
-              <div class="monx-wrap" x-show="monitoring.view === 'deep'">
-                <button class="monx-back" @click="monitoring.view = 'studio'">← Back to dashboard</button>
-                <template x-if="monDeepPanel()">
-                  <div class="monx-deep">
-                    <div>
-                      <h1 style="font-size:20px;margin:2px 0 3px;font-weight:650" x-text="monDeepPanel().title"></h1>
-                      <div style="color:var(--cp-text-faint);font-size:12.5px;margin-bottom:16px" x-text="(monitoring.dash ? monitoring.dash.title : '') + ' · ' + monDeepPanel().unit"></div>
-                      <div class="monx-bigpanel">
-                        <div style="color:var(--cp-text-muted);font-size:12px;margin-bottom:6px" x-text="monDeepPanel().series ? monDeepPanel().series.map(s => s.name).join(', ') : ''"></div>
-                        <template x-if="monEmbedActive(monDeepPanel())">
-                          <div class="monx-embedwrap">
-                            <template x-if="!monEmbedErr(monDeepPanel())">
-                              <img class="monx-embed" style="height:280px" :src="monPanelRenderUrl(monDeepPanel(), 320)" loading="lazy" alt="Grafana panel render" @load="monEmbedOk(monDeepPanel())" @error="monEmbedFail(monDeepPanel())">
-                            </template>
-                            <template x-if="monEmbedErr(monDeepPanel())">
-                              <div class="monx-embedfail" style="height:280px">
-                                <span>Grafana couldn't render this panel here.</span>
-                                <a :href="monPanelGrafanaUrl(monDeepPanel())" target="_blank" rel="noopener">Open in Grafana ↗</a>
-                              </div>
-                            </template>
-                          </div>
-                        </template>
-                        <template x-if="!monEmbedActive(monDeepPanel())">
-                          <div x-html="monPanelBody(monDeepPanel(), 230)"></div>
-                        </template>
-                      </div>
-                      <div x-html="_monPanelMetaHtml(monDeepPanel())"></div>
-                      <div class="monx-metricrow">
-                        <div class="monx-metric"><div class="ml">Latest</div><div class="mv" x-text="monPanelLast(monDeepPanel())"></div></div>
-                        <div class="monx-metric"><div class="ml">Trend (~6h)</div><div class="mv" :class="monStatusClass(monTrendStatus(monDeepPanel()))" x-text="monTrendLabel(monDeepPanel())"></div></div>
-                        <div class="monx-metric"><div class="ml">Unit</div><div class="mv" style="font-size:16px" x-text="monDeepPanel().unit || '—'"></div></div>
-                      </div>
-                    </div>
-                    <div class="monx-analysis">
-                      <div class="ah"><div class="ci">✨</div><b>AI trend &amp; status analysis</b></div>
-                      <div class="ab">
-                        <template x-if="!monitoring.analysis">
-                          <div><button class="monx-selc an" style="border:0" @click="monAnalyze('deep')" :disabled="monitoring.analyzing" x-text="monitoring.analyzing ? 'Analyzing…' : '✨ Analyze this panel'"></button></div>
-                        </template>
-                        <template x-if="monitoring.analysis">
-                          <div x-html="monAnalysisHtml(monitoring.analysis)"></div>
-                        </template>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-
               <!-- ============ OBJECTIVE HEALTH (epic → tracking-doc → per-objective readiness) ============ -->
               <div class="monx-wrap" x-show="monitoring.view === 'objective'" style="max-width:none;">
                 <style>
@@ -22118,69 +21530,9 @@
                   <span x-show="monitoring.obj.generatedAt" style="color:var(--cp-text-faint);font-size:11.5px;" x-text="'synced ' + (monitoring.obj.ai ? 'with AI · ' : '') + formatRelative(monitoring.obj.generatedAt)"></span>
                   <a class="moh-link" @click="monBackToEpic()" title="Return to this epic in Code Flow">← Back to epic</a>
                   <button class="rebuild" @click="monObjRebuild()" :disabled="monitoring.obj.loading" x-text="monitoring.obj.loading ? 'Building…' : '↻ Rebuild'"></button>
-                  <button class="rebuild" @click="monObjPublishOpen()" :disabled="monitoring.obj.loading" title="Publish this epic's Objective Health dashboard to Azure — emit readings into a shared App Insights instance and stand up a Grafana dashboard that reads them back">☁ Publish to Azure</button>
                 </div>
 
-                <!-- ===== Publish to Azure (App Insights ETL sink → Grafana) ===== -->
-                <template x-if="monitoring.obj.publish.open && !monitoring.obj.loading && !monitoring.obj.error">
-                  <div class="mem-pub">
-                    <div class="mem-pub-h">
-                      <b>☁ Publish to Azure</b>
-                      <a class="moh-link" @click="monObjPublishClose()">Close</a>
-                    </div>
-                    <p class="mem-pub-lead">TheOffice.AI acts as an aggregation layer: every recorded objective reading is emitted into a shared <b>Application Insights</b> instance, and an Azure Managed <b>Grafana</b> dashboard reads it back with real KQL queries. Trends come only from readings recorded here over time — nothing is fabricated.</p>
-
-                    <!-- Freshness / honesty banner -->
-                    <div class="mem-pub-note">
-                      <span>⏱</span>
-                      <span>App Insights ingestion is asynchronous — newly emitted readings typically appear in Grafana within a few minutes. Trend depth grows as this dashboard is re-synced over multiple days.</span>
-                    </div>
-
-                    <!-- Guided prerequisites -->
-                    <div class="mem-pub-steps">
-                      <div class="st" :class="{ ok: monitoring.telemetry.configured }">
-                        <span class="dot"></span>
-                        <div><b>1 · Telemetry sink</b><span x-text="monitoring.telemetry.configured ? 'Connection string set — readings are emitted to App Insights.' : 'Set an App Insights connection string so readings are emitted. Configure it below.'"></span></div>
-                      </div>
-                      <div class="st" :class="{ ok: !!monitoring.telemetry.resourceId }">
-                        <span class="dot"></span>
-                        <div><b>2 · App Insights resource</b><span x-text="monitoring.telemetry.resourceId ? 'Resource bound — Grafana panels have a resource to query.' : 'Bind the App Insights resource ID so Grafana can query it.'"></span></div>
-                      </div>
-                      <div class="st" :class="{ ok: !!monitoring.telemetry.datasourceUid }">
-                        <span class="dot"></span>
-                        <div><b>3 · Azure Monitor datasource</b><span>Create an Azure Monitor datasource in Grafana pointed at the App Insights resource, grant it <b>Reader</b> on the resource, then paste its UID below.</span></div>
-                      </div>
-                    </div>
-
-                    <!-- Telemetry config editor -->
-                    <div class="mem-pub-cfg">
-                      <label class="row"><span>Enabled</span><input type="checkbox" x-model="monitoring.telemetry.enabled"></label>
-                      <label class="row"><span>Connection string</span><input type="password" x-model="monitoring.telemetry.connectionString" :placeholder="monitoring.telemetry.hasConnectionString ? '•••••• (set — leave blank to keep)' : 'InstrumentationKey=…;IngestionEndpoint=…'"></label>
-                      <label class="row"><span>App Insights resource ID</span><input type="text" x-model="monitoring.telemetry.resourceId" placeholder="/subscriptions/…/resourceGroups/…/providers/microsoft.insights/components/…"></label>
-                      <label class="row"><span>Grafana datasource UID</span><input type="text" x-model="monitoring.telemetry.datasourceUid" placeholder="e.g. azure-monitor-oob"></label>
-                      <div class="acts">
-                        <button class="rebuild" @click="monTelemetrySave()" :disabled="monitoring.telemetry.saving" x-text="monitoring.telemetry.saving ? 'Saving…' : 'Save telemetry settings'"></button>
-                      </div>
-                    </div>
-
-                    <!-- Publish action + result -->
-                    <div class="mem-pub-go">
-                      <button class="pubbtn" @click="monObjPublish()" :disabled="monitoring.obj.publish.busy" x-text="monitoring.obj.publish.busy ? 'Publishing…' : '☁ Publish now'"></button>
-                      <span class="err" x-show="monitoring.obj.publish.error" x-text="monitoring.obj.publish.error"></span>
-                    </div>
-                    <template x-if="monitoring.obj.publish.result">
-                      <div class="mem-pub-res">
-                        <div class="hd" x-text="monitoring.obj.publish.result.pushed ? '✓ Published to Grafana' : (monitoring.obj.publish.result.local ? '✓ Saved locally' + (monitoring.obj.publish.result.configured ? ' — push failed' : ' — Grafana not connected') : '')"></div>
-                        <div class="ln" x-show="monitoring.obj.publish.result.title"><span x-text="monitoring.obj.publish.result.title"></span> · <span x-text="(monitoring.obj.publish.result.panelCount || 0) + ' panel(s)'"></span></div>
-                        <a class="moh-link" x-show="monitoring.obj.publish.result.url" :href="monitoring.obj.publish.result.url" target="_blank" rel="noopener">Open in Grafana ↗</a>
-                        <div class="ln err" x-show="monitoring.obj.publish.result.pushError" x-text="'Push error: ' + monitoring.obj.publish.result.pushError"></div>
-                        <template x-for="(g, gi) in (monitoring.obj.publish.result.guidance || [])" :key="'pg'+gi">
-                          <div class="ln guide" x-text="'• ' + g"></div>
-                        </template>
-                      </div>
-                    </template>
-                  </div>
-                </template>
+                <!-- ===== Publish to Azure panel removed — Objective Health is epic-scoped only ===== -->
 
                 <template x-if="monitoring.obj.loading">
                   <div class="moh"><div class="moh-loading">Reading the epic and its tracking doc, mapping each objective to real telemetry…</div></div>
@@ -22288,36 +21640,6 @@
                 </template>
               </div>
             </div>
-
-            <!-- ============ DATA OVERLAY (the rows behind a panel, room to breathe) ============ -->
-            <template x-teleport="body">
-              <div class="modal-backdrop monx-datamodal" x-show="monitoring.dataModal" x-transition.opacity.duration.150ms @click.self="monCloseData()" @keydown.escape.window="monCloseData()" x-cloak style="z-index:10002">
-                <template x-if="monDataPanel()">
-                  <div class="monx-dmcard">
-                    <div class="monx-dmhead">
-                      <div class="monx-dmtitle">
-                        <div class="t" x-text="monDataPanel().title"></div>
-                        <div class="s" x-text="(monitoring.dash ? monitoring.dash.title : '') + (monDataPanel().unit ? ' · ' + monDataPanel().unit : '')"></div>
-                      </div>
-                      <button class="monx-dmx" @click="monCloseData()" title="Close" aria-label="Close">✕</button>
-                    </div>
-                    <div class="monx-dmmeta">
-                      <div class="mrow"><span class="ml">Source</span><span class="mv" x-text="monPanelSourceLabel(monDataPanel())"></span></div>
-                      <template x-if="monPanelDimension(monDataPanel())">
-                        <div class="mrow"><span class="ml">Grouped by</span><span class="mv" x-text="monPanelDimension(monDataPanel()) + (monPanelMetric(monDataPanel()) ? ' · ' + monPanelMetric(monDataPanel()) : '')"></span></div>
-                      </template>
-                      <div class="mrow"><span class="ml">Query</span><span class="mv mono" x-text="monPanelQueryText(monDataPanel())"></span></div>
-                      <div class="mrow"><span class="ml">Updated</span><span class="mv" x-text="monPanelUpdatedLabel(monDataPanel())"></span></div>
-                      <div class="mrow"><span class="ml">Shape</span><span class="mv" x-text="monPanelShapeLabel(monDataPanel())"></span></div>
-                    </div>
-                    <template x-if="monPanelIsSample(monDataPanel())">
-                      <div class="monx-dmnote">Synthesized demo data — this dashboard isn't backed by a live query yet. Connect a datasource to see real rows.</div>
-                    </template>
-                    <div class="monx-dmbody" x-html="monPanelDataTable(monDataPanel())"></div>
-                  </div>
-                </template>
-              </div>
-            </template>
           </section>
 
           <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
@@ -25419,7 +24741,7 @@
                         <span>Jump to</span>
                         <a @click="epicJump('epx-goals')">Goals</a><a @click="epicJump('epx-now')">Right now</a><a @click="epicJump('epx-forward')">Unblock</a>
                         <a @click="epicJump('epx-next')">Next up</a><a @click="epicJump('epx-dates')">Dates</a><a @click="epicJump('epx-deliv')">Deliverables</a>
-                        <a class="epx-jump-mon" x-show="featureEnabled('monitoring')" @click="monEpicDashboard(epicCur().key, '')" title="Build a Monitoring.AI Objective-Health dashboard from this epic's business-objectives doc">📊 Monitoring dashboard</a>
+                        <a class="epx-jump-mon" x-show="featureEnabled('epics')" @click="monEpicDashboard(epicCur().key, '')" title="Build a Monitoring.AI Objective-Health dashboard from this epic's business-objectives doc">📊 Monitoring dashboard</a>
                       </div>
                     </div>
 
@@ -25469,11 +24791,11 @@
                       </div>
                       <div class="epx-card">
                         <div class="epx-card-h"><span class="epx-sec-ic">📈</span><h3>Business objectives</h3>
-                          <span class="rt" x-show="featureEnabled('monitoring') && epicObjHealth()" x-text="epicObjHealthAgo()"></span>
+                          <span class="rt" x-show="featureEnabled('epics') && epicObjHealth()" x-text="epicObjHealthAgo()"></span>
                         </div>
                         <div class="bd">
                           <!-- Linked Objective Health dashboard (live snapshot) -->
-                          <template x-if="featureEnabled('monitoring') && epicObjHealth()">
+                          <template x-if="featureEnabled('epics') && epicObjHealth()">
                             <div x-data="{ ohSwap:false }">
                               <div class="epx-oh-list">
                                 <template x-for="(o, oi) in epicObjHealth().objectives" :key="oi">
@@ -25521,7 +24843,7 @@
                             </div>
                           </template>
                           <!-- No linked dashboard: static objectives + build CTA -->
-                          <template x-if="!(featureEnabled('monitoring') && epicObjHealth())">
+                          <template x-if="!(featureEnabled('epics') && epicObjHealth())">
                             <div>
                               <div class="epx-obj">
                                 <template x-for="(o, oi) in epicCur().objectives" :key="oi">
@@ -25529,7 +24851,7 @@
                                 </template>
                                 <div class="muted" x-show="!epicCur().objectives.length">No business objectives parsed from the epic.</div>
                               </div>
-                              <div class="epx-oh-actions" x-show="featureEnabled('monitoring')">
+                              <div class="epx-oh-actions" x-show="featureEnabled('epics')">
                                 <a class="epx-jump-mon" @click="monEpicDashboard(epicCur().key, '')" :class="{ 'is-busy': epicObjHealthState() && epicObjHealthState().loading }" title="Generate a Monitoring.AI Objective-Health dashboard from this epic's business-objectives doc">📊 Build Objective Health dashboard</a>
                               </div>
                             </div>
@@ -32167,14 +31489,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, epics: false, monitoring: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, epics: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, epics: true, monitoring: true };
+          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, epics: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -33237,61 +32559,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         newTaskOpen: false,
         // Monitoring.AI — Grafana + AI dashboard studio (default OFF opt-in feature)
         monitoring: {
-          view: 'home',            // 'home' | 'launcher'(create) | 'studio' | 'deep' | 'objective'
+          view: 'objective',       // only the Objective Health view remains (reached from a Code Flow epic)
           loading: false,
           loaded: false,
-          status: null,            // GET /status
-          dashboards: [],          // GET /dashboards
-          dash: null,              // GET /dashboard/:uid (current dashboard + panels)
-          grabbed: [],             // panel ids grabbed for AI context
-          dataModal: null,         // panel id whose data overlay is open (null = closed)
-          deepPanel: null,         // panel id shown in deep-dive
-          prompt: '',
-          hints: ['Helix queue health — wait time, running, errors', 'Autoscaler saturation + demand signals', 'Service availability + p95 latency + error rate'],
-          generating: false,
-          analysis: null,          // POST /analyze result
-          analyzing: false,
-          convo: [],               // copilot turns { role:'you'|'ai', text, analysis? }
-          copilotQ: '',
-          conn: { url: '', orgId: '', token: '', hasToken: false, enabled: false, authMode: 'aad', pushByDefault: true },
-          connOpen: false,
-          connSaving: false,
-          connReconnecting: false,
-          connMsg: '',
-          railFilter: '',          // rail dashboard search
-          folderOpen: {},          // folder-name -> bool (collapsed by default)
-          filters: { from: 'now-6h', to: 'now', vars: {} }, // active time range + template variables
-          refreshing: false,       // re-querying panels with current filters
-          embedMode: (() => { try { return localStorage.getItem('mon-embed-mode') === 'grafana' ? 'grafana' : 'native'; } catch (_) { return 'native'; } })(), // 'native' (our renderer) | 'grafana' (embed real panels)
-          embedErr: {}, // key ('__dash__' or panelId) -> true when the server-side Grafana render failed
-          embedNonce: 0, // bumped by Refresh to force a fresh dashboard render
-          grafanaRender: (() => { try { return localStorage.getItem('mon-grafana-render') === 'image' ? 'image' : 'live'; } catch (_) { return 'live'; } })(), // live iframe (default) | server-rendered image fallback
-          railOpen: true, // left DASHBOARDS rail; auto-collapses in the live Grafana view (Grafana's own nav supersedes it)
-          // Curated "Recently viewed" — uids of dashboards the user actually navigated to
-          // (most-recent first, capped), NOT the full synced-from-Grafana catalog. Collapsed by default.
-          recent: (() => { try { const a = JSON.parse(localStorage.getItem('mon-recent') || '[]'); return Array.isArray(a) ? a.slice(0, 8) : []; } catch (_) { return []; } })(),
-          recentOpen: (() => { try { return localStorage.getItem('mon-recent-open') === '1'; } catch (_) { return false; } })(),
-          // v2: unified Context & data catalog — workspace (internal) + external sources.
-          catalog: { workspace: [], external: [], loaded: false, loading: false },
-          catalogRoles: {},        // sourceId -> { ground:bool, chart:bool } — steers the next build
-          // v2: build a dashboard from a workspace board (mines its items for context).
-          boardBuild: { open: false, prompt: '', boardId: '', boards: [], loading: false },
-          // Objective Health: generate a dashboard from an epic's business objectives.
-          epicGen: { epics: [], epicKey: '', loading: false },
-          // Home hub: list of persisted epic Objective Health dashboards (GET /epic-dashboards).
-          epicDashboards: [],
-          epicDashLoading: false,
-          // Home hub collapse state.
-          homeDashOpen: true,      // "Your dashboards" section card
-          homeCatOpen: false,      // "Connected data sources" section card
-          epicGroupOpen: true,     // "Objective Health · epics" group
-          rename: { uid: '', title: '', busy: false }, // inline rename of a local dashboard on the home page
-          boardRefs: null,         // last generate's mined refs { kusto, appInsights, repos, grafana }
-          provenance: [],          // last generate's per-panel provenance [{ title, kind, access, alert, dimension, metric }]
-          discovery: [],           // last generate's discovery brief [{ id, name, count, timeField, dimensions, metrics }]
-          // v2: alert rules over alertable internal Workspace sources.
-          alerts: { list: [], open: false, loading: false, saving: false, evaluating: false, draft: null },
-          alertNotices: [],        // recent fired-alert notices (from the monitoring-alert SSE)
           // Epic → Objective Health bridge model (POST /api/monitoring/epic-dashboard)
           obj: {
             loading: false, error: '', ai: false,
@@ -33302,11 +32572,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             otSel: 0,             // objective n selected on the over-time view
             otRange: 'all',       // 'all' | '90' | '30'
             pendingNav: false,    // one-shot: set by monEpicDashboard so the route-load doesn't clobber the intentional epic→objective nav
-            // Architecture C: publish this epic's dashboard to Azure (App Insights ETL sink → Grafana front-end).
-            publish: { open: false, busy: false, result: null, error: '' },
           },
-          // Architecture C telemetry sink config (shared App Insights the epic dashboards emit into / Grafana reads back).
-          telemetry: { loaded: false, saving: false, enabled: false, hasConnectionString: false, connectionString: '', resourceId: '', subscriptionId: '', appInsightsName: '', resourceGroup: '', datasourceUid: '', configured: false },
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -35525,19 +34791,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 this.meai._rebuildTimer = setTimeout(() => { this.meai.rebuilding = false; }, 120000);
               } catch {}
             });
-            // Monitoring.AI v2: an internal workspace-source alert fired. Surface a toast + keep a
-            // short notice list so the alerts panel can show recent firings.
-            source.addEventListener('monitoring-alert', (event) => {
-              try {
-                const d = JSON.parse(event.data || '{}');
-                if (!d || !d.id) return;
-                const w = this.monitoring;
-                w.alertNotices = [{ id: d.id, name: d.name || d.id, observed: d.observed, threshold: d.threshold, op: d.op, agg: d.agg, at: d.at || Date.now() }, ...(w.alertNotices || [])].slice(0, 20);
-                this.toast('🔔 Alert: ' + (d.name || d.id) + ' · ' + (d.agg || '') + ' ' + (d.op || '') + ' ' + (d.threshold != null ? d.threshold : '') + (d.observed != null ? ' (now ' + d.observed + ')' : ''), 'warning');
-                // Refresh the alert list if the studio is open so lastFired/lastState update.
-                if (w && w.alerts) { try { this.monLoadAlerts(); } catch (_) {} }
-              } catch {}
-            });
             const _resilienceRefresh = (event) => {
               try {
                 const d = JSON.parse(event.data || '{}');
@@ -35725,7 +34978,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
             case 'newsletter': return mk('Compose.AI', '✍️', '#/compose', 'compose', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
             case 'documents': return mk('Documents', '📄', '#/documents', 'documents');
-            case 'monitoring': return mk('Monitoring.AI', '📊', '#/monitoring', 'monitoring');
             case 'watercooler': return mk('Agent Chats', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
             case 'playbooks': return mk('Playbooks', '📘', '#/playbooks', 'playbooks');
@@ -35755,7 +35007,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (en('news')) { out.push('activity', 'reports'); }
             if (en('connect')) out.push('connect');
             if (en('newsletter')) out.push('newsletter', 'documents');
-            if (en('monitoring')) out.push('monitoring');
             return out;
           }
           // workspace (Advanced) — every feature is on by default; the user opts OUT
@@ -35772,7 +35023,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (en('diary')) out.push('diary');
           if (en('connect')) out.push('connect');
           if (en('newsletter')) out.push('newsletter', 'documents');
-          if (en('monitoring')) out.push('monitoring');
           if (en('watercooler')) out.push('watercooler');
           if (en('sessions')) out.push('sessions');
           if (en('news')) { out.push('activity', 'reports'); }
@@ -36295,7 +35545,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'epics', label: 'Epics', icon: '🏔', hint: 'Epic cockpits in Code Flow — goals, roadmap, in-flight kanban & AI standups for the work items you own.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
-            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt, generate an epic Objective Health dashboard, and hand panels to AI for trend & status analysis.' },
           ];
         },
         // Catalog of optional features that can be switched OFF while in Advanced mode
@@ -36314,7 +35563,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'epics', label: 'Epics', icon: '🏔', hint: 'Epic cockpits in Code Flow — goals, roadmap, in-flight kanban & AI standups for the work items you own.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
             { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
-            { key: 'monitoring', label: 'Monitoring.AI', icon: '📊', hint: 'Spin up Grafana dashboards from a prompt, generate an epic Objective Health dashboard, and hand panels to AI for trend & status analysis.' },
           ];
         },
         setExperienceLevel(level) {
@@ -36402,7 +35650,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             news: ['activity', 'reports'],
             connect: ['connect'],
             newsletter: ['newsletter', 'compose', 'documents'],
-            monitoring: ['monitoring'],
+            epics: ['monitoring'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -36427,7 +35675,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             news: ['activity', 'reports'],
             connect: ['connect'],
             newsletter: ['newsletter', 'compose', 'documents'],
-            monitoring: ['monitoring'],
+            epics: ['monitoring'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return this.featureEnabled(feat);
@@ -41551,772 +40799,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ── Pulse.AI (ambient team-conversation + meeting digest) ──────────
         // ===== Monitoring.AI (Grafana + AI) =====
-        async monLoad(uid) {
+        // Monitoring.AI has been reduced to ONLY the Objective Health bridge, reached
+        // from a Code Flow epic via monEpicDashboard(). The #/monitoring route hosts
+        // that objective view; there is no home hub / launcher / studio / deep view.
+        async monLoad() {
           const w = this.monitoring;
-          w.loading = true;
-          try {
-            const [st, dl, conn] = await Promise.all([
-              this.request('/api/monitoring/status').catch(() => null),
-              this.request('/api/monitoring/dashboards').catch(() => ({ dashboards: [] })),
-              this.request('/api/monitoring/connection').catch(() => null),
-            ]);
-            if (st) w.status = st;
-            w.dashboards = (dl && dl.dashboards) || [];
-            if (conn) {
-              w.conn.url = conn.url || '';
-              w.conn.orgId = conn.orgId || '';
-              w.conn.enabled = !!conn.enabled;
-              w.conn.hasToken = !!conn.hasToken;
-              w.conn.authMode = conn.authMode === 'token' ? 'token' : 'aad';
-              w.conn.pushByDefault = conn.pushByDefault !== false;
-              w.conn.token = '';
-            }
-            w.loaded = true;
-            // v2: load the context/data catalog, board list, and alert rules in parallel.
-            this.monLoadCatalog();
-            this.monLoadBoards();
-            this.monLoadAlerts();
-            this.monLoadEpicChoices();
-            this.monLoadEpicDashboards();
-            if (uid) { await this.monLoadDashboard(uid); if (w.obj) w.obj.pendingNav = false; }
-            else if (w.view === 'objective' && w.obj && w.obj.pendingNav) {
-              // An epic → Objective Health build was launched: monEpicDashboard() set
-              // view='objective' + pendingNav synchronously, then goTo('#/monitoring')
-              // triggered this route load asynchronously. Honor that intentional
-              // navigation (consume the one-shot sentinel) instead of auto-opening
-              // the home hub. Timing-independent — does not rely on obj.loading.
-              w.obj.pendingNav = false;
-            }
-            else {
-              // Land on the browse-first home hub (not auto-studio): the hub lists
-              // every dashboard (incl. epic Objective Health) + recent + alerts, and
-              // creating a dashboard is its own separate page.
-              w.view = 'home';
-              if (w.obj) w.obj.pendingNav = false;   // consume any leaked sentinel from a same-route rebuild
-            }
-          } catch (e) {
-            this.toast('Failed to load Monitoring.AI: ' + (e.message || e), 'error');
-          } finally {
-            w.loading = false;
-          }
-        },
-        async monLoadDashboard(uid) {
-          const w = this.monitoring;
-          try {
-            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(uid));
-            w.dash = r;
-            w.grabbed = [];
-            w.analysis = null;
-            w.convo = [];
-            w.deepPanel = null;
-            w.view = 'studio';
-            // Adopt the dashboard's own time range + template-variable defaults so the
-            // native view mirrors what Grafana would show on first open.
-            const vars = {};
-            (r.variables || []).forEach(v => { vars[v.name] = (v.current && v.current[0] != null) ? v.current[0] : ''; });
-            w.filters = { from: (r.time && r.time.from) || 'now-6h', to: (r.time && r.time.to) || 'now', vars };
-            w.dash.loadedAt = Date.now();
-            this._monRecordRecent(uid);
-          } catch (e) {
-            this.toast('Failed to open dashboard: ' + (e.message || e), 'error');
-          }
-        },
-        // Re-query the current dashboard with the active time range + variable
-        // selection, keeping grabbed panels / copilot state intact.
-        async monApplyFilters() {
-          const w = this.monitoring;
-          if (!w.dash || !w.dash.uid) return;
-          const f = w.filters || { from: 'now-6h', to: 'now', vars: {} };
-          const qs = new URLSearchParams();
-          if (f.from) qs.set('from', f.from);
-          if (f.to) qs.set('to', f.to);
-          Object.keys(f.vars || {}).forEach(k => { const v = f.vars[k]; if (v !== '' && v != null) qs.set('var-' + k, v); });
-          w.refreshing = true;
-          try {
-            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(w.dash.uid) + (qs.toString() ? ('?' + qs.toString()) : ''));
-            w.dash.panels = r.panels || [];
-            if (r.variables) w.dash.variables = r.variables;
-            if (r.time) w.dash.time = r.time;
-            w.grabbed = (w.grabbed || []).filter(id => (r.panels || []).some(p => p.id === id));
-            w.dash.refreshedAt = Date.now();
-          } catch (e) {
-            this.toast('Refresh failed: ' + (e.message || e), 'error');
-          } finally {
-            w.refreshing = false;
-          }
-        },
-        monTimeRanges() {
-          return [
-            { v: 'now-15m', label: 'Last 15 min' },
-            { v: 'now-1h', label: 'Last 1 hour' },
-            { v: 'now-6h', label: 'Last 6 hours' },
-            { v: 'now-24h', label: 'Last 24 hours' },
-            { v: 'now-7d', label: 'Last 7 days' },
-            { v: 'now-30d', label: 'Last 30 days' },
-          ];
-        },
-        monSetTimeRange(v) {
-          const w = this.monitoring;
-          if (!w.filters) w.filters = { from: 'now-6h', to: 'now', vars: {} };
-          w.filters.from = v;
-          w.filters.to = 'now';
-          this.monApplyFilters();
-        },
-        monVarSet(name, val) {
-          const w = this.monitoring;
-          if (!w.filters) w.filters = { from: 'now-6h', to: 'now', vars: {} };
-          w.filters.vars[name] = val;
-          this.monApplyFilters();
-        },
-        monDashVariables() {
-          const w = this.monitoring;
-          return (w.dash && w.dash.variables) || [];
-        },
-        // --- Grafana view: show the REAL dashboard as one server-rendered PNG
-        // (fast — a single request, no per-panel concurrency limit), with our own
-        // filter/time controls overlaid. Native view keeps per-panel Grab for AI.
-        // The iframe path is unusable for AMG (AAD login sends X-Frame-Options:
-        // DENY), so we render server-side and serve same-origin. ------------------
-        monSetEmbedMode(v) {
-          const mode = v === 'grafana' ? 'grafana' : 'native';
-          this.monitoring.embedMode = mode;
-          this.monitoring.embedErr = {};
-          // Grafana's embedded nav supersedes our DASHBOARDS rail → give the live frame the room.
-          this.monitoring.railOpen = (mode !== 'grafana');
-          try { localStorage.setItem('mon-embed-mode', mode); } catch (e) {}
-        },
-        monRailOpen() { return this.monitoring.railOpen !== false; },
-        monToggleRail() { this.monitoring.railOpen = !this.monRailOpen(); },
-        // Live-iframe vs server-rendered-image fallback for the whole-dashboard Grafana view.
-        monGrafanaRenderMode() { return this.monitoring.grafanaRender === 'image' ? 'image' : 'live'; },
-        monToggleGrafanaRender() {
-          const next = this.monGrafanaRenderMode() === 'image' ? 'live' : 'image';
-          this.monitoring.grafanaRender = next;
-          this.monitoring.embedErr = { ...(this.monitoring.embedErr || {}), __dash__: false };
-          try { localStorage.setItem('mon-grafana-render', next); } catch (e) {}
-        },
-        monEmbedActive() {
-          const w = this.monitoring;
-          return w.embedMode === 'grafana' && !!(w.dash && !w.dash.local && w.dash.uid) && !!(w.conn && w.conn.url);
-        },
-        monEmbedRefresh() {
-          const w = this.monitoring;
-          w.embedNonce = (w.embedNonce || 0) + 1;
-          w.embedErr = { ...(w.embedErr || {}), __dash__: false };
-        },
-        // Append from/to + var-* (multi-value → repeated params) shared by the
-        // server render URL and the "open in Grafana" deep link.
-        _monEmbedParams() {
-          const w = this.monitoring;
-          const f = w.filters || {};
-          const params = new URLSearchParams();
-          params.set('orgId', String((w.conn && w.conn.orgId) || 1));
-          params.set('from', f.from || 'now-6h');
-          params.set('to', f.to || 'now');
-          const vars = (f.vars) || {};
-          Object.keys(vars).forEach(name => {
-            const val = vars[name];
-            if (Array.isArray(val)) val.forEach(v => { if (v != null && v !== '') params.append('var-' + name, v); });
-            else if (val != null && val !== '') params.append('var-' + name, val);
-          });
-          return params;
-        },
-        _monTheme() {
-          try { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; } catch (e) { return 'dark'; }
-        },
-        // Whole-dashboard PNG, rendered server-side and served same-origin.
-        monDashRenderUrl() {
-          const w = this.monitoring;
-          if (!w.dash || !w.dash.uid) return '';
-          const params = this._monEmbedParams();
-          params.set('whole', '1');
-          params.set('theme', this._monTheme());
-          params.set('width', '1400');
-          const n = (w.dash.panels && w.dash.panels.length) || 6;
-          params.set('height', String(Math.min(8000, Math.max(800, Math.ceil(n / 2) * 320 + 160))));
-          if (w.dash.slug) params.set('slug', w.dash.slug);
-          if (w.embedNonce) params.set('_r', String(w.embedNonce));
-          return '/api/monitoring/render/' + encodeURIComponent(w.dash.uid) + '?' + params.toString();
-        },
-        // Deep link to the whole dashboard in Grafana (full navigation — the
-        // browser's AAD session handles auth there).
-        monDashGrafanaUrl() {
-          const w = this.monitoring;
-          const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
-          if (!base || !w.dash || !w.dash.uid) return '';
-          const params = this._monEmbedParams();
-          const slug = w.dash.slug || 'dashboard';
-          return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
-        },
-        // Live interactive dashboard for the iframe: the Grafana deep link (full nav +
-        // native filters, NOT the trimmed panel-only mode) + theme + a nonce so Refresh
-        // busts the frame. Auth rides the browser's existing AAD session with Grafana.
-        monDashLiveUrl() {
-          const w = this.monitoring;
-          const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
-          if (!base || !w.dash || !w.dash.uid) return '';
-          const params = this._monEmbedParams();
-          params.set('theme', this._monTheme());
-          if (w.embedNonce) params.set('_r', String(w.embedNonce));
-          const slug = w.dash.slug || 'dashboard';
-          return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
-        },
-        monPanelRenderUrl(p, h) {
-          const w = this.monitoring;
-          if (!w.dash || !w.dash.uid || !p) return '';
-          const params = this._monEmbedParams();
-          params.set('panelId', String(p.id));
-          params.set('theme', this._monTheme());
-          params.set('width', '1000');
-          params.set('height', String(h || 300));
-          if (w.dash.slug) params.set('slug', w.dash.slug);
-          return '/api/monitoring/render/' + encodeURIComponent(w.dash.uid) + '?' + params.toString();
-        },
-        _monErrKey(p) { return (p && p.id != null) ? String(p.id) : '__dash__'; },
-        monEmbedErr(p) { const k = this._monErrKey(p); return !!(this.monitoring.embedErr && this.monitoring.embedErr[k]); },
-        monEmbedFail(p) { const w = this.monitoring; const k = this._monErrKey(p); w.embedErr = { ...(w.embedErr || {}), [k]: true }; },
-        monEmbedOk(p) { const w = this.monitoring; const k = this._monErrKey(p); if (w.embedErr && w.embedErr[k]) w.embedErr = { ...w.embedErr, [k]: false }; },
-        monPanelGrafanaUrl(p) {
-          const w = this.monitoring;
-          const base = ((w.conn && w.conn.url) || '').replace(/\/+$/, '');
-          if (!base || !w.dash || !w.dash.uid || !p) return '';
-          const params = this._monEmbedParams();
-          params.set('viewPanel', String(p.id));
-          const slug = w.dash.slug || 'dashboard';
-          return base + '/d/' + encodeURIComponent(w.dash.uid) + '/' + encodeURIComponent(slug) + '?' + params.toString();
-        },
-        async monGenerate(opts) {
-          const w = this.monitoring;
-          opts = opts || {};
-          const prompt = (opts.prompt != null ? opts.prompt : (w.prompt || '')).trim();
-          const boardId = opts.boardId || '';
-          if (!prompt && !boardId) return;
-          if (w.generating) return;
-          w.generating = true;
-          try {
-            const body = { prompt };
-            const sources = this.monSelectedChartSources();
-            if (sources.length) body.sources = sources;
-            if (boardId) body.boardId = boardId;
-            const r = await this.request('/api/monitoring/generate', { method: 'POST', body: JSON.stringify(body) });
-            // Capture v2 provenance + mined board refs so the user sees the context used.
-            w.provenance = (r && r.provenance) || [];
-            w.discovery = (r && r.discovery) || [];
-            w.boardRefs = (r && r.boardRefs) || null;
-            try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
-            const uid = r && r.dashboard && r.dashboard.uid;
-            if (uid) { await this.monLoadDashboard(uid); this.toast((r.ai ? 'Dashboard generated' : 'Dashboard generated' + (boardId ? ' from board' : ' (sample)')) + (r.dashboard && r.dashboard.pushed ? ' · pushed to Grafana' : ''), 'success'); }
-            else { this.toast('Could not generate a dashboard', 'error'); }
-          } catch (e) {
-            this.toast('Generate failed: ' + (e.message || e), 'error');
-          } finally {
-            w.generating = false;
-          }
-        },
-        // ---- v2: context & data catalog ----
-        async monLoadCatalog() {
-          const w = this.monitoring;
-          w.catalog.loading = true;
-          try {
-            const r = await this.request('/api/monitoring/catalog');
-            w.catalog.workspace = (r && r.workspace) || [];
-            w.catalog.external = (r && r.external) || [];
-            w.catalog.loaded = true;
-            // Seed role state: chartable sources default to chart-on so the picker isn't empty.
-            const roles = {};
-            [...w.catalog.workspace, ...w.catalog.external].forEach(s => {
-              roles[s.id] = { ground: false, chart: false };
-            });
-            w.catalogRoles = roles;
-          } catch (e) { /* sample/degraded — leave empty */ }
-          finally { w.catalog.loading = false; }
-        },
-        monRoleOn(id, role) { const r = this.monitoring.catalogRoles[id]; return !!(r && r[role]); },
-        monToggleRole(id, role) {
-          const w = this.monitoring;
-          const cur = w.catalogRoles[id] || { ground: false, chart: false };
-          const next = { ground: cur.ground, chart: cur.chart };
-          next[role] = !cur[role];
-          // Reassign the whole map so Alpine picks up the change (per repo reactivity note).
-          w.catalogRoles = { ...w.catalogRoles, [id]: next };
-        },
-        monSelectedChartSources() {
-          const w = this.monitoring;
-          return Object.keys(w.catalogRoles || {}).filter(id => w.catalogRoles[id] && w.catalogRoles[id].chart);
-        },
-        monCatSub(s) {
-          const bits = [];
-          if (s.group) bits.push(s.group);
-          if (s.dsType) bits.push(s.dsType);
-          if (s.count != null) bits.push(s.count + ' item' + (s.count === 1 ? '' : 's'));
-          if (s.access === 'amg-mcp') bits.push('via AMG MCP');
-          else if (s.access === 'direct' && s.kind === 'external') bits.push('direct');
-          if (s.alertable) bits.push('alertable');
-          return bits.join(' · ');
-        },
-        // ---- v2: build from a workspace board ----
-        async monLoadBoards() {
-          const w = this.monitoring;
-          w.boardBuild.loading = true;
-          try {
-            const r = await this.request('/api/boards');
-            const arr = Array.isArray(r) ? r : (r && r.boards) || [];
-            w.boardBuild.boards = arr.map(b => ({ id: b.id, name: b.name || b.title || b.id }));
-          } catch (e) { /* leave empty */ }
-          finally { w.boardBuild.loading = false; }
-        },
-        async monBuildFromBoard() {
-          const w = this.monitoring;
-          if (!w.boardBuild.boardId || w.generating) return;
-          await this.monGenerate({ prompt: w.boardBuild.prompt || '', boardId: w.boardBuild.boardId });
-        },
-        monBoardRefGroups() {
-          const refs = this.monitoring.boardRefs;
-          if (!refs) return [];
-          const out = [];
-          const push = (k, label) => { const items = refs[k]; if (Array.isArray(items) && items.length) out.push({ k, label, items }); };
-          push('kusto', 'Kusto'); push('appInsights', 'App Insights'); push('repos', 'Repos'); push('grafana', 'Grafana');
-          return out;
-        },
-        // ---- Objective Health: generate from an epic ----
-        async monLoadEpicChoices() {
-          if (!this.featureEnabled('epics')) return;
-          const w = this.monitoring;
-          w.epicGen.loading = true;
-          try {
-            // Also populates the server-side epic cache the POST build depends on.
-            const r = await this.request('/api/codeflow/epics');
-            const list = (r && r.ok && Array.isArray(r.epics)) ? r.epics : [];
-            w.epicGen.epics = list.map(e => ({ key: e.key, title: e.title || e.key }));
-          } catch (e) { /* leave empty */ }
-          finally { w.epicGen.loading = false; }
-        },
-        monGenFromEpic() {
-          const key = this.monitoring.epicGen.epicKey;
-          if (!key || this.monitoring.obj.loading) return;
-          // force=true: an explicit "Build" always regenerates from the epic's objectives doc.
-          this.monEpicDashboard(key, '', true);
-        },
-        // ---- Home page: rename / delete local dashboards ----
-        monRenameStart(d) {
-          if (!d || !d.local) return;
-          this.monitoring.rename = { uid: d.uid, title: d.title || '', busy: false };
-        },
-        monRenameCancel() { this.monitoring.rename = { uid: '', title: '', busy: false }; },
-        async monRenameCommit() {
-          const rn = this.monitoring.rename;
-          const title = (rn.title || '').trim();
-          if (!rn.uid || !title) { this.monRenameCancel(); return; }
-          rn.busy = true;
-          try {
-            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(rn.uid) + '/rename', { method: 'PUT', body: JSON.stringify({ title }) });
-            if (r && r.ok) {
-              const d = (this.monitoring.dashboards || []).find(x => x.uid === rn.uid);
-              if (d) d.title = r.title || title;
-              if (this.monitoring.dash && this.monitoring.dash.uid === rn.uid) this.monitoring.dash.title = r.title || title;
-              this.toast('Dashboard renamed.');
-            } else { this.toast((r && r.error) || 'Could not rename.', 'error'); }
-          } catch (e) { this.toast((e && e.message) || 'Could not rename.', 'error'); }
-          finally { this.monRenameCancel(); }
-        },
-        async monDeleteDash(d) {
-          if (!d || !d.local) return;
-          if (!confirm('Delete the local dashboard "' + (d.title || d.uid) + '"? This removes it from Monitoring.AI.')) return;
-          try {
-            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(d.uid), { method: 'DELETE' });
-            if (r && r.ok) {
-              this.monitoring.dashboards = (this.monitoring.dashboards || []).filter(x => x.uid !== d.uid);
-              this.monitoring.recent = (this.monitoring.recent || []).filter(u => u !== d.uid);
-              try { localStorage.setItem('mon-recent', JSON.stringify(this.monitoring.recent)); } catch (_) {}
-              if (this.monitoring.dash && this.monitoring.dash.uid === d.uid) { this.monitoring.dash = null; this.monitoring.view = 'home'; }
-              this.toast(r.remoteError ? 'Removed locally (Grafana copy could not be deleted).' : 'Dashboard deleted.');
-            } else { this.toast((r && r.error) || 'Could not delete.', 'error'); }
-          } catch (e) { this.toast((e && e.message) || 'Could not delete.', 'error'); }
-        },
-        // ---- v2: alerts ----
-        async monLoadAlerts() {
-          const w = this.monitoring;
-          w.alerts.loading = true;
-          try {
-            const r = await this.request('/api/monitoring/alerts');
-            w.alerts.list = (r && r.alerts) || [];
-          } catch (e) { /* leave empty */ }
-          finally { w.alerts.loading = false; }
-        },
-        monAlertableSources() {
-          return (this.monitoring.catalog.workspace || []).filter(s => s.alertable);
-        },
-        monAlertNew() {
-          this.monitoring.alerts.draft = { sourceId: '', name: '', agg: 'last', op: '>', value: 0, windowDays: 7, target: 'app', enabled: true };
-          this.monitoring.alerts.open = true;
-        },
-        async monSaveAlert() {
-          const w = this.monitoring;
-          const d = w.alerts.draft;
-          if (!d || !d.sourceId || !d.name || w.alerts.saving) return;
-          w.alerts.saving = true;
-          try {
-            const body = { sourceId: d.sourceId, name: d.name, agg: d.agg, op: d.op, value: Number(d.value) || 0, window: { days: Number(d.windowDays) || 7 }, target: d.target, enabled: d.enabled !== false };
-            if (d.id) body.id = d.id;
-            await this.request('/api/monitoring/alerts', { method: 'POST', body: JSON.stringify(body) });
-            await this.monLoadAlerts();
-            w.alerts.open = false;
-            this.toast('Alert saved', 'success');
-          } catch (e) {
-            this.toast('Save alert failed: ' + (e.message || e), 'error');
-          } finally { w.alerts.saving = false; }
-        },
-        async monToggleAlert(a) {
-          try {
-            await this.request('/api/monitoring/alerts/' + encodeURIComponent(a.id), { method: 'PUT', body: JSON.stringify({ sourceId: a.sourceId, name: a.name, agg: a.agg, op: a.op, value: a.value, window: a.window, target: a.target, enabled: !a.enabled }) });
-            await this.monLoadAlerts();
-          } catch (e) { this.toast('Update failed: ' + (e.message || e), 'error'); }
-        },
-        async monDeleteAlert(a) {
-          if (!confirm('Delete alert "' + a.name + '"?')) return;
-          try {
-            await this.request('/api/monitoring/alerts/' + encodeURIComponent(a.id), { method: 'DELETE' });
-            await this.monLoadAlerts();
-          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
-        },
-        monAlertSummary(a) {
-          const src = [...(this.monitoring.catalog.workspace || []), ...(this.monitoring.catalog.external || [])].find(s => s.id === a.sourceId);
-          const name = src ? src.name : a.sourceId;
-          const days = (a.window && a.window.days) || 7;
-          return `${name} · ${a.agg} ${a.op} ${a.value} over ${days}d · ${a.target === 'email' ? 'email' : 'in-app'}`;
-        },
-        monAlertState(a) {
-          if (!a.enabled) return 'disabled';
-          if (a.lastState === 'firing') return 'firing' + (a.lastValue != null ? ' (' + a.lastValue + ')' : '');
-          if (a.lastFired) return 'ok · last fired ' + this.formatRelative(a.lastFired);
-          return 'ok';
-        },
-        // Panel provenance label for the studio panel headers.
-        monPanelProvenance(panel) {
-          const list = this.monitoring.provenance || [];
-          if (!list.length || !panel) return null;
-          return list.find(p => p.title && panel.title && p.title === panel.title) || null;
-        },
-        monProvLabel(prov) {
-          if (!prov) return '';
-          if (prov.kind === 'workspace') {
-            // Discovery-driven panels carry the REAL dimension they were bound to.
-            if (prov.dimension) return 'workspace · by ' + prov.dimension;
-            return 'workspace · direct';
-          }
-          if (prov.access === 'amg-mcp') return (prov.dsType || 'external') + ' · AMG MCP';
-          if (prov.access === 'direct') return (prov.dsType || 'external') + ' · direct';
-          return prov.dsType || prov.source || 'external';
-        },
-        _monPanelsForScope(scope) {
-          const dash = this.monitoring.dash;
-          if (!dash || !dash.panels) return [];
-          if (scope === 'all') return dash.panels;
-          if (scope === 'deep') { const p = this.monDeepPanel(); return p ? [p] : []; }
-          return this.monGrabbedPanels();
-        },
-        async monAnalyze(scope) {
-          const w = this.monitoring;
-          if (w.analyzing) return;
-          let panels = this._monPanelsForScope(scope);
-          if (!panels.length && scope === 'grabbed') panels = (w.dash && w.dash.panels) || [];
-          if (!panels.length) { this.toast('No panels to analyze', 'error'); return; }
-          w.analyzing = true;
-          try {
-            const r = await this.request('/api/monitoring/analyze', { method: 'POST', body: JSON.stringify({ panels }) });
-            w.analysis = r;
-            if (scope !== 'deep') w.convo.push({ role: 'ai', text: '', analysis: r });
-            this._monScrollConv();
-          } catch (e) {
-            this.toast('Analyze failed: ' + (e.message || e), 'error');
-          } finally {
-            w.analyzing = false;
-          }
-        },
-        async monAskFree() {
-          const w = this.monitoring;
-          const q = (w.copilotQ || '').trim();
-          if (!q) return;
-          w.copilotQ = '';
-          w.convo.push({ role: 'you', text: q });
-          this._monScrollConv();
-          let panels = this.monGrabbedPanels();
-          if (!panels.length) panels = (w.dash && w.dash.panels) || [];
-          w.analyzing = true;
-          try {
-            const r = await this.request('/api/monitoring/analyze', { method: 'POST', body: JSON.stringify({ panels, question: q }) });
-            w.analysis = r;
-            w.convo.push({ role: 'ai', text: '', analysis: r });
-            this._monScrollConv();
-          } catch (e) {
-            w.convo.push({ role: 'ai', text: 'Sorry — analysis failed: ' + (e.message || e) });
-          } finally {
-            w.analyzing = false;
-          }
-        },
-        _monScrollConv() {
-          this.$nextTick(() => { try { const el = this.$refs.monConv; if (el) el.scrollTop = el.scrollHeight; } catch (_) {} });
-        },
-        async monSaveConnection() {
-          const w = this.monitoring;
-          if (w.connSaving) return;
-          w.connSaving = true;
-          w.connMsg = '';
-          try {
-            const body = { enabled: !!w.conn.enabled, url: w.conn.url || '', orgId: w.conn.orgId || '', authMode: w.conn.authMode === 'token' ? 'token' : 'aad', pushByDefault: !!w.conn.pushByDefault };
-            if (w.conn.token && w.conn.token.trim()) body.token = w.conn.token.trim();
-            const r = await this.request('/api/monitoring/connection', { method: 'PUT', body: JSON.stringify(body) });
-            if (r && r.connection) {
-              w.conn.url = r.connection.url || '';
-              w.conn.orgId = r.connection.orgId || '';
-              w.conn.enabled = !!r.connection.enabled;
-              w.conn.hasToken = !!r.connection.hasToken;
-              w.conn.authMode = r.connection.authMode === 'token' ? 'token' : 'aad';
-              w.conn.pushByDefault = r.connection.pushByDefault !== false;
-              w.conn.token = '';
-            }
-            if (r && r.status) w.status = r.status;
-            try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
-            w.connMsg = 'Saved.';
-            w.connOpen = false;
-          } catch (e) {
-            w.connMsg = 'Save failed: ' + (e.message || e);
-          } finally {
-            w.connSaving = false;
-          }
-        },
-        async monReconnect() {
-          const w = this.monitoring;
-          if (w.connReconnecting) return;
-          w.connReconnecting = true;
-          w.connMsg = 'Reconnecting…';
-          try {
-            const r = await this.request('/api/monitoring/reconnect', { method: 'POST', body: '{}' });
-            if (r && r.status) w.status = r.status;
-            if (w.status && w.status.healthy) {
-              w.connMsg = 'Connected.';
-              try { const dl = await this.request('/api/monitoring/dashboards'); w.dashboards = (dl && dl.dashboards) || w.dashboards; } catch (_) {}
-            } else if (w.status && w.status.authError) {
-              w.connMsg = w.status.authError;
-            } else {
-              w.connMsg = 'Still not connected.';
-            }
-          } catch (e) {
-            w.connMsg = 'Reconnect failed: ' + (e.message || e);
-          } finally {
-            w.connReconnecting = false;
-          }
-        },
-        monTemplates() {
-          return [
-            { ic: '🌐', t: 'Service golden signals', d: 'Request rate, error rate, latency (p50/p95) and availability for a service.', prompt: 'Golden signals for my service: request rate, 5xx error rate, p50 and p95 latency, and availability, last 24h.' },
-            { ic: '🖥️', t: 'Fleet / host health', d: 'CPU, memory, disk I/O, network and load across a host fleet.', prompt: 'Host fleet health: CPU, memory, disk I/O, network throughput and load average, last 6h.' },
-            { ic: '🗄️', t: 'Database health', d: 'Connections, query duration p99, cache hit ratio, deadlocks and replication lag.', prompt: 'Postgres primary health: active connections, query duration p99, cache hit ratio, deadlocks and replication lag.' },
-            { ic: '📊', t: 'Helix queue health', d: 'Queue wait time, running jobs and error rate across Helix queues.', prompt: 'Helix queue health: wait time, running jobs and error rate per queue, last 12h.' },
-            { ic: '⚡', t: 'Autoscaler saturation', d: 'Capacity, demand signals and saturation for the autoscaler.', prompt: 'Autoscaler saturation: current capacity vs demand signals and saturation percentage, last 24h.' },
-            { ic: '💸', t: 'Cost & usage', d: 'Spend trend, resource usage and utilisation efficiency.', prompt: 'Cost and usage: daily spend trend, resource utilisation and efficiency, last 30 days.' },
-          ];
-        },
-        monSources() { const st = this.monitoring.status; return (st && st.sources) || []; },
-        monConnDotColor() {
-          const st = this.monitoring.status;
-          if (st && st.configured) return st.healthy ? 'var(--cp-success,#3fb950)' : 'var(--cp-warning,#d29922)';
-          return 'var(--cp-text-faint,#8b949e)';
-        },
-        monConnLabel() {
-          const st = this.monitoring.status;
-          const via = (this.monitoring.conn.authMode === 'token') ? 'token' : 'Azure identity';
-          if (st && st.configured) {
-            if (st.authError) return 'Grafana configured — ' + st.authError;
-            return st.healthy ? ('Connected to Grafana via ' + via + (st.version ? ' · v' + st.version : '')) : 'Grafana configured — health check failed';
-          }
-          return 'Sample data (Grafana not connected)';
-        },
-        async monPushDashboard(uid) {
-          const w = this.monitoring;
-          const id = uid || (w.dash && w.dash.uid);
-          if (!id) return;
-          try {
-            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(id) + '/push', { method: 'POST', body: '{}' });
-            if (r && r.ok) {
-              if (w.dash && w.dash.uid === id) { w.dash.pushed = true; }
-              const item = (w.dashboards || []).find(d => d.uid === id); if (item) item.pushed = true;
-              this.toast('Pushed to Grafana', 'success');
-            } else { this.toast('Push failed: ' + ((r && r.error) || 'unknown'), 'error'); }
-          } catch (e) { this.toast('Push failed: ' + (e.message || e), 'error'); }
-        },
-        async monToggleAutoPush() {
-          const w = this.monitoring;
-          if (!w.dash || !w.dash.local) return;
-          const next = !w.dash.autoPush;
-          try {
-            const r = await this.request('/api/monitoring/dashboard/' + encodeURIComponent(w.dash.uid) + '/options', { method: 'PUT', body: JSON.stringify({ autoPush: next }) });
-            if (r && r.ok) {
-              w.dash.autoPush = !!r.autoPush;
-              if (r.pushed) w.dash.pushed = true;
-              const item = (w.dashboards || []).find(d => d.uid === w.dash.uid); if (item) { item.autoPush = w.dash.autoPush; item.pushed = w.dash.pushed; }
-            } else { this.toast('Could not update auto-push: ' + ((r && r.error) || 'unknown'), 'error'); }
-          } catch (e) { this.toast('Could not update auto-push: ' + (e.message || e), 'error'); }
-        },
-        monDashSub(d) {
-          const parts = [];
-          if (d.folder) parts.push(d.folder);
-          if (d.panelCount != null) parts.push(d.panelCount + ' panel' + (d.panelCount === 1 ? '' : 's'));
-          parts.push(d.local ? (d.pushed ? 'local · pushed to Grafana' : 'local · not pushed') : (d.sample ? 'sample' : 'live'));
-          return parts.join(' · ');
-        },
-        // Data freshness: when the currently-open dashboard's data was last loaded/refreshed.
-        monFreshLabel() {
-          const d = this.monitoring.dash;
-          if (!d) return '';
-          const t = d.refreshedAt || d.loadedAt;
-          if (!t) return '';
-          return 'as of ' + this.formatRelative(t);
-        },
-        monFreshTitle() {
-          const d = this.monitoring.dash || {};
-          const t = d.refreshedAt || d.loadedAt;
-          const when = t ? new Date(t).toLocaleString() : 'unknown';
-          const f = this.monitoring.filters || {};
-          const win = this._monHumanRange(f.from || 'now-6h') + ' → ' + this._monHumanRange(f.to || 'now');
-          return 'Data loaded ' + when + '\nQuery window: ' + win + (d.local ? '' : ' · click ↻ to refresh');
-        },
-        // Curated recents: only dashboards the user actively navigated to, most-recent first.
-        _monRecordRecent(uid) {
-          if (!uid) return;
-          const w = this.monitoring;
-          const next = [uid, ...(w.recent || []).filter(u => u !== uid)].slice(0, 8);
-          w.recent = next;
-          try { localStorage.setItem('mon-recent', JSON.stringify(next)); } catch (_) {}
-        },
-        monRecentDashboards() {
-          const w = this.monitoring;
-          const by = {};
-          (w.dashboards || []).forEach(d => { by[d.uid] = d; });
-          return (w.recent || []).map(uid => by[uid]).filter(Boolean).slice(0, 6);
-        },
-        monToggleRecent() {
-          const w = this.monitoring;
-          w.recentOpen = !w.recentOpen;
-          try { localStorage.setItem('mon-recent-open', w.recentOpen ? '1' : '0'); } catch (_) {}
-        },
-        monDashboardsByFolder() {          // Group the rail tree as the user thinks about it: "My dashboards"
-          // (AI-generated / local) first, then dashboards surfaced from Azure
-          // Managed Grafana, grouped by their Grafana folder. Honors the rail filter.
-          const q = (this.monitoring.railFilter || '').trim().toLowerCase();
-          const match = d => !q || String(d.title || '').toLowerCase().includes(q) || String(d.folder || '').toLowerCase().includes(q);
-          const mine = [], byFolder = {};
-          (this.monitoring.dashboards || []).forEach(d => {
-            if (!match(d)) return;
-            if (d.local) { mine.push(d); return; }
-            const f = d.folder || 'Grafana';
-            (byFolder[f] = byFolder[f] || []).push(d);
-          });
-          const out = {};
-          if (mine.length) out['My dashboards'] = mine;
-          Object.keys(byFolder).sort().forEach(f => { out[f] = byFolder[f]; });
-          return out;
-        },
-        monFolderIsOpen(folder) {
-          // Collapsed by default to tame long Azure folder lists; "My dashboards"
-          // opens by default, and any folder opens automatically while filtering.
-          if ((this.monitoring.railFilter || '').trim()) return true;
-          const st = this.monitoring.folderOpen;
-          if (Object.prototype.hasOwnProperty.call(st, folder)) return !!st[folder];
-          return folder === 'My dashboards';
-        },
-        monFolderToggle(folder) {
-          // Reassign the whole map (not a bare new-key mutation) so Alpine's
-          // reactivity reliably re-renders the folder — setting a fresh key on the
-          // nested object isn't observed by effects that never read that key.
-          const st = this.monitoring.folderOpen || {};
-          this.monitoring.folderOpen = { ...st, [folder]: !this.monFolderIsOpen(folder) };
-        },
-        monGrabbedPanels() {
-          const dash = this.monitoring.dash;
-          if (!dash || !dash.panels) return [];
-          return dash.panels.filter(p => this.monitoring.grabbed.includes(p.id));
-        },
-        monIsGrabbed(id) { return this.monitoring.grabbed.includes(id); },
-        monGrabToggle(id) {
-          const g = this.monitoring.grabbed;
-          const i = g.indexOf(id);
-          if (i >= 0) g.splice(i, 1); else g.push(id);
-        },
-        monPanelColor(p) { return this.monStatusColor(this.monTrendStatus(p)); },
-        monOpenDeep(id) { this.monitoring.deepPanel = id; this.monitoring.analysis = null; this.monitoring.view = 'deep'; },
-        monDeepPanel() {
-          const dash = this.monitoring.dash;
-          if (!dash || !dash.panels) return null;
-          return dash.panels.find(p => p.id === this.monitoring.deepPanel) || null;
-        },
-        monNewPrompt() {
-          // Open the CREATE page without discarding the open dashboard, so the
-          // user can cancel back to it.
-          const w = this.monitoring;
-          w.view = 'launcher';
-          w.prompt = '';
-        },
-        monOpenCreate() { this.monNewPrompt(); },
-        monGoHome() {
-          const w = this.monitoring;
-          w.view = 'home';
-          if (w.obj) w.obj.pendingNav = false;   // clear any stale epic→objective sentinel so it can't hijack this home nav
-          this.monLoadEpicDashboards();
-        },
-        monHomeCatToggle() {
-          const w = this.monitoring;
-          w.homeCatOpen = !w.homeCatOpen;
-          if (w.homeCatOpen && !w.catalog.loaded && !w.catalog.loading && this.monLoadCatalog) this.monLoadCatalog();
-        },
-        async monLoadEpicDashboards() {
-          const w = this.monitoring;
-          w.epicDashLoading = true;
-          try {
-            const r = await this.request('/api/monitoring/epic-dashboards').catch(() => null);
-            w.epicDashboards = (r && r.ok && Array.isArray(r.dashboards)) ? r.dashboards : [];
-          } finally { w.epicDashLoading = false; }
-        },
-        async monUnlinkEpicDash(key) {
-          if (!key) return;
-          if (!confirm('Unlink this epic dashboard? This clears the epic\u2194dashboard link; it does not delete any Grafana dashboard.')) return;
-          try {
-            await this.request('/api/monitoring/epic-dashboard?key=' + encodeURIComponent(key), { method: 'DELETE' });
-            this.monitoring.epicDashboards = (this.monitoring.epicDashboards || []).filter(d => d.key !== key);
-            this.toast('Epic dashboard unlinked.');
-          } catch (e) { this.toast('Couldn\'t unlink: ' + (e.message || e), 'error'); }
-        },
-        // A calm 4-segment health bar (live/part/miss/manual) for an epic dashboard row.
-        monEpicDashSegs(counts) {
-          const c = counts || {};
-          const live = c.live || 0, part = c.part || 0, miss = c.miss || 0, man = c.man || 0;
-          const total = live + part + miss + man;
-          if (!total) return [];
-          const seg = (n, color, label) => n ? [{ pct: (n / total) * 100, color, label, n }] : [];
-          return [].concat(
-            seg(live, 'var(--cp-success,#3fb950)', 'live'),
-            seg(part, 'var(--cp-warning,#d29922)', 'partial'),
-            seg(man, 'var(--cp-accent,#58a6ff)', 'manual'),
-            seg(miss, 'var(--cp-text-faint,#6b7684)', 'gap'),
-          );
-        },
-        monEditConnection() {
-          const w = this.monitoring;
-          w.view = 'launcher';
-          w.connOpen = true;
-        },
-        monBackToStudio() {
-          if (this.monitoring.dash) this.monitoring.view = 'studio';
-        },
-        monBackToLauncher() {
-          // The studio "Home" button + generic back: go to the browse-first home hub.
-          this.monGoHome();
+          w.view = 'objective';
+          // Honor an intentional epic→objective nav set up by monEpicDashboard(): it
+          // populates monitoring.obj asynchronously, so the route-load must not clobber it.
+          if (w.obj && w.obj.pendingNav) { w.obj.pendingNav = false; return; }
+          w.loaded = true;
         },
         // ---- Objective Health (epic → tracking-doc → per-objective readiness) ----
         // GET-first: if a persisted snapshot exists we hydrate instantly (no AI call).
         // Pass force=true (or use monObjRebuild) to regenerate via POST.
         async monEpicDashboard(key, docId, force) {
-          if (!this.featureEnabled('monitoring')) { this.toast('Enable Monitoring.AI in Settings → Experience to use this.'); return; }
+          if (!this.featureEnabled('epics')) { this.toast('Enable Epics in Settings → Experience to use this.'); return; }
           if (!key) return;
           // Sentinel: mark this an intentional epic→objective nav BEFORE we change the
           // hash. goTo() only sets window.location.hash; the hashchange listener runs
@@ -42369,53 +40867,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { o.loading = false; }
         },
         monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId, true); },
-        // ---- Architecture C: publish to Azure (App Insights sink → Grafana) ----
-        async monTelemetryLoad(force) {
-          const t = this.monitoring.telemetry;
-          if (t.loaded && !force) return;
-          try {
-            const r = await this.request('/api/monitoring/telemetry');
-            t.enabled = !!r.enabled; t.hasConnectionString = !!r.hasConnectionString;
-            t.resourceId = r.resourceId || ''; t.subscriptionId = r.subscriptionId || '';
-            t.appInsightsName = r.appInsightsName || ''; t.resourceGroup = r.resourceGroup || '';
-            t.datasourceUid = r.datasourceUid || ''; t.configured = !!r.configured;
-            t.connectionString = ''; t.loaded = true;
-          } catch (_) { /* leave defaults */ }
-        },
-        async monTelemetrySave() {
-          const t = this.monitoring.telemetry;
-          t.saving = true;
-          try {
-            const body = {
-              enabled: t.enabled, resourceId: t.resourceId, datasourceUid: t.datasourceUid,
-              subscriptionId: t.subscriptionId, appInsightsName: t.appInsightsName, resourceGroup: t.resourceGroup,
-            };
-            if (t.connectionString && t.connectionString.trim()) body.connectionString = t.connectionString.trim();
-            const r = await this.request('/api/monitoring/telemetry', { method: 'PUT', body });
-            const nt = (r && r.telemetry) || {};
-            t.hasConnectionString = !!nt.hasConnectionString; t.configured = !!nt.configured;
-            t.connectionString = '';
-            this.toast('Telemetry settings saved.');
-          } catch (e) { this.toast('Couldn\'t save telemetry settings: ' + (e && e.message || 'error')); }
-          finally { t.saving = false; }
-        },
-        monObjPublishOpen() {
-          this.monitoring.obj.publish.open = true;
-          this.monTelemetryLoad();
-        },
-        monObjPublishClose() { this.monitoring.obj.publish.open = false; },
-        async monObjPublish() {
-          const key = this.monitoring.obj.epicKey;
-          if (!key) { this.toast('No epic loaded to publish.'); return; }
-          const p = this.monitoring.obj.publish;
-          p.busy = true; p.error = ''; p.result = null;
-          try {
-            const r = await this.request('/api/monitoring/epic-dashboard/' + encodeURIComponent(key) + '/publish', { method: 'POST', body: {} });
-            if (r && r.ok === false) { p.error = r.error || 'Publish failed.'; }
-            else { p.result = r; this.toast(r.pushed ? 'Published to Grafana.' : 'Saved locally.'); }
-          } catch (e) { p.error = (e && e.message) || 'Publish failed.'; }
-          finally { p.busy = false; }
-        },
         monBackToEpic() {
           const key = this.monitoring.obj.epicKey;
           if (!key) { this.goTo('#/codeflow'); return; }
@@ -42429,7 +40880,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
           });
         },
-        monObjClose() { this.monitoring.obj.mode = 'overview'; this.monitoring.view = this.monitoring.dash ? 'studio' : 'home'; },
+        monObjClose() { this.monitoring.obj.mode = 'overview'; this.monBackToEpic(); },
         monObjSelect(k) { this.monitoring.obj.sel = k; },
 
         // ---- Epic Metrics: overview / detail / over-time navigation --------
@@ -42447,7 +40898,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (m === 'detail' || m === 'overtime') { this.monObjOverview(); return; }
           this.monObjClose();
         },
-        monObjBackLabel() { const m = this.monitoring.obj.mode; return (m === 'detail' || m === 'overtime') ? '← Overview' : '← Back to Monitoring'; },
+        monObjBackLabel() { const m = this.monitoring.obj.mode; return (m === 'detail' || m === 'overtime') ? '← Overview' : '← Back to epic'; },
 
         // ---- Epic Metrics: honest reading helpers --------------------------
         _monNum(s) { if (s == null) return null; const m = String(s).replace(/,/g, '').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; },
@@ -42755,376 +41206,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           h += '<div><b>3 · Classification.</b> ' + (o.ai ? 'An AI pass' : 'A deterministic pass') + ' mapped each objective to a source TYPE (Web API / Kusto / App Insights / Manual) and a readiness (live / partial / missing / manual), honestly — “live” only when the doc states the source emits today.</div>';
           h += '<div><b>4 · Desired shape.</b> For every gap, Monitoring.AI describes the exact telemetry the source must emit (schema fields + roles, an example query, and cadence) so you can wire it up.</div>';
           h += '</div>';
-          return h;
-        },
-        monStatusColor(s) {
-          if (s === 'critical' || s === 'bad') return 'var(--cp-danger,#f85149)';
-          if (s === 'warn') return 'var(--cp-warning,#d29922)';
-          return 'var(--cp-success,#3fb950)';
-        },
-        monStatusClass(s) {
-          if (s === 'critical' || s === 'bad') return 'mon-bad';
-          if (s === 'warn') return 'mon-warn';
-          return 'mon-ok';
-        },
-        _monTrend(p) {
-          const s0 = (p && p.series || [])[0];
-          const d = (s0 && s0.data) || [];
-          if (d.length < 4) return { dir: 'flat', pct: 0 };
-          const q = Math.max(2, Math.floor(d.length / 4));
-          const head = d.slice(0, q), tail = d.slice(-q);
-          const avg = a => a.reduce((x, pt) => x + pt[1], 0) / a.length;
-          const a = avg(head), b = avg(tail);
-          const pct = a === 0 ? 0 : Math.round(((b - a) / Math.abs(a)) * 100);
-          return { dir: pct > 6 ? 'up' : pct < -6 ? 'down' : 'flat', pct };
-        },
-        monTrendStatus(p) {
-          if (!p) return 'ok';
-          const tr = this._monTrend(p);
-          const isErr = /error|5xx|deadlock|lag|saturation|cpu|latency|duration/i.test(p.title || '');
-          if (isErr && tr.dir === 'up' && Math.abs(tr.pct) >= 15) return /error|5xx/i.test(p.title || '') ? 'critical' : 'warn';
-          if (tr.dir === 'down' && /availability|cache|hit|uptime/i.test(p.title || '')) return 'warn';
-          if (p.alert) return 'warn';
-          return 'ok';
-        },
-        monTrendLabel(p) {
-          const tr = this._monTrend(p);
-          const arrow = tr.dir === 'up' ? '▲' : tr.dir === 'down' ? '▼' : '→';
-          return arrow + ' ' + Math.abs(tr.pct) + '%';
-        },
-        monPanelLast(p) {
-          const s0 = (p && p.series || [])[0];
-          const d = (s0 && s0.data) || [];
-          const last = d.length ? d[d.length - 1][1] : 0;
-          return (Math.round(last * 100) / 100) + (p && p.unit || '');
-        },
-        monSparkStatus(d) {
-          const s = (d && d.spark) || [];
-          if (s.length < 4) return 'ok';
-          const q = Math.max(2, Math.floor(s.length / 4));
-          const a = s.slice(0, q).reduce((x, y) => x + y, 0) / q;
-          const b = s.slice(-q).reduce((x, y) => x + y, 0) / q;
-          const pct = a === 0 ? 0 : ((b - a) / Math.abs(a)) * 100;
-          return pct >= 25 ? 'warn' : 'ok';
-        },
-        monSpark(spark, color) {
-          const s = spark || [];
-          if (!s.length) return '';
-          const w = 120, h = 30, pad = 2;
-          let mn = Infinity, mx = -Infinity;
-          for (let i = 0; i < s.length; i++) { const v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-          if (mn === mx) { mn -= 1; mx += 1; }
-          const x = i => pad + (i / Math.max(1, s.length - 1)) * (w - 2 * pad);
-          const y = v => (h - pad) - ((v - mn) / (mx - mn)) * (h - 2 * pad);
-          let d = '';
-          s.forEach((v, i) => { d += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; });
-          return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:120px;height:30px"><path d="' + d + '" fill="none" stroke="' + (color || 'var(--cp-accent)') + '" stroke-width="1.5"/></svg>';
-        },
-        _monTsSvg(series, height, mnIn, mxIn) {
-          const w = 600, h = height || 120, pad = 4;
-          const all = [];
-          (series || []).forEach(s => (s.data || []).forEach(pt => all.push(pt[1])));
-          if (!all.length) return '<div style="height:' + h + 'px"></div>';
-          let mn, mx;
-          if (mnIn != null && mxIn != null) { mn = mnIn; mx = mxIn; }
-          else {
-            mn = Infinity; mx = -Infinity;
-            for (let i = 0; i < all.length; i++) { const v = all[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-          }
-          if (mn === mx) { mn -= 1; mx += 1; }
-          const pal = ['#2fb2a6', '#58a6ff', '#a371f7', '#d29922', '#f85149'];
-          const x = (i, n) => pad + (i / Math.max(1, n - 1)) * (w - 2 * pad);
-          const y = v => (h - pad) - ((v - mn) / (mx - mn)) * (h - 2 * pad);
-          let paths = '';
-          (series || []).forEach((s, si) => {
-            const d = (s.data || []);
-            if (!d.length) return;
-            const col = pal[si % pal.length];
-            let dpath = '';
-            d.forEach((pt, i) => { dpath += (i ? 'L' : 'M') + x(i, d.length).toFixed(1) + ' ' + y(pt[1]).toFixed(1) + ' '; });
-            if (si === 0) {
-              const area = dpath + 'L' + x(d.length - 1, d.length).toFixed(1) + ' ' + (h - pad) + ' L' + x(0, d.length).toFixed(1) + ' ' + (h - pad) + ' Z';
-              paths += '<path d="' + area + '" fill="' + col + '" opacity="0.10"/>';
-            }
-            paths += '<path d="' + dpath + '" fill="none" stroke="' + col + '" stroke-width="1.6"/>';
-          });
-          return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:' + h + 'px">' + paths + '</svg>';
-        },
-        monPanelBody(p, height) {
-          if (!p) return '';
-          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          if (p.type === 'table' && p.table && p.table.rows && p.table.rows.length) {
-            const cols = p.table.columns || [];
-            let h = '<div class="monx-tablewrap"><table class="monx-table"><thead><tr>';
-            cols.forEach(c => { h += '<th>' + esc(c) + '</th>'; });
-            h += '</tr></thead><tbody>';
-            p.table.rows.slice(0, 60).forEach(row => {
-              h += '<tr>';
-              row.forEach(cell => { h += '<td>' + esc(cell) + '</td>'; });
-              h += '</tr>';
-            });
-            h += '</tbody></table></div>';
-            return h;
-          }
-          if (p.noData) {
-            return '<div class="monx-nodata">No data<div class="sub">for the selected time range &amp; filters</div></div>';
-          }
-          // Honest empty state for external ds.* (and empty workspace) panels: never a blank chart.
-          const _isExt = p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source));
-          const _hasData = (p.type === 'table')
-            ? !!(p.table && p.table.rows && p.table.rows.length)
-            : (p.series || []).some(s => s && s.data && s.data.length);
-          if (!_hasData && (p.empty || _isExt || p.note)) {
-            const note = p.note || (_isExt
-              ? 'Connect the data source to load live data.'
-              : 'nothing behind this panel for the selected range');
-            const head = _isExt ? 'Live data source' : 'No data';
-            return '<div class="monx-nodata">' + esc(head) + '<div class="sub">' + esc(note) + '</div></div>';
-          }
-          if (p.type === 'gauge') {
-            const s0 = (p.series || [])[0];
-            const data = (s0 && s0.data) || [];
-            const last = data.length ? data[data.length - 1][1] : 0;
-            const isPct = (p.unit || '') === '%';
-            let pct, scaleMax;
-            if (isPct) { pct = Math.max(0, Math.min(100, last)); scaleMax = 100; }
-            else { let mx = 1; for (let i = 0; i < data.length; i++) { const v = data[i][1]; if (v > mx) mx = v; } scaleMax = mx; pct = Math.max(0, Math.min(100, (last / mx) * 100)); }
-            const r = 46;
-            const circ = Math.PI * r;
-            const off = circ * (1 - pct / 100);
-            const col = this.monStatusColor(this.monTrendStatus(p));
-            const h = height || 120;
-            const unit = p.unit ? (isPct ? '%' : (' ' + p.unit)) : '';
-            const scaleCap = isPct ? 'scale 0–100%' : ('0 – ' + this._monNum(scaleMax) + (p.unit ? ' ' + p.unit : '') + ' (current period max)');
-            return '<div class="monx-gauge">'
-              + '<svg viewBox="0 0 120 70" style="width:150px;height:' + Math.min(96, h) + 'px">'
-              + '<path d="M14 60 A46 46 0 0 1 106 60" fill="none" stroke="var(--cp-border)" stroke-width="9" stroke-linecap="round"/>'
-              + '<path d="M14 60 A46 46 0 0 1 106 60" fill="none" stroke="' + col + '" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>'
-              + '</svg>'
-              + '<div class="gv">' + this._monNum(last) + unit + '</div>'
-              + '<div class="gl">' + esc(s0 ? s0.name : '') + '</div>'
-              + '<div class="gscale">' + scaleCap + '</div>'
-              + '</div>';
-          }
-          return this._monTsChart(p, height || 120);
-        },
-        // --- Panel data overlay (the rows behind a chart) + provenance/query/updated meta ---
-        monOpenData(id) { this.monitoring.dataModal = id; },
-        monCloseData() { this.monitoring.dataModal = null; },
-        monDataPanel() {
-          const id = this.monitoring.dataModal;
-          if (id == null || !this.monitoring.dash) return null;
-          return (this.monitoring.dash.panels || []).find(p => p.id === id) || null;
-        },
-        // Is this panel synthesized demo data (no live query behind it)?
-        monPanelIsSample(p) { return !!(p && (p.sample === true || p.origin === 'sample')); },
-        // Where a panel's data came from (AI-generate provenance, else honest sample/live labelling).
-        monPanelSourceLabel(p) {
-          if (!p) return 'Unknown';
-          const prov = this.monPanelProvenance(p);
-          if (prov) return this.monProvLabel(prov);
-          if (p.source === 'workspace') return 'Workspace collection · direct';
-          if (this.monPanelIsSample(p)) {
-            const s = (p.source && p.source !== 'sample') ? String(p.source) : '';
-            return s ? 'Sample data · modeled on ' + s : 'Sample data (demo)';
-          }
-          if (p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source))) {
-            return (p.dsType || 'External datasource') + (p.database ? ' · ' + p.database : '');
-          }
-          if (p.provider) return String(p.provider) + (p.source ? ' · ' + p.source : '');
-          if (p.source) return String(p.source);
-          return 'Unknown';
-        },
-        // The query / expression behind a panel, with honest fallbacks (sample data has no live query).
-        monPanelQueryText(p) {
-          if (!p) return '—';
-          if (this.monPanelIsSample(p)) return 'Synthesized demo data — not backed by a live query.';
-          const q = p.query || p.expr || p.rawSql;
-          if (q && q !== 'Query not exposed by this panel' && q !== 'Synthesized sample series (demo data)') return String(q);
-          if (p.provider === 'external' || (typeof p.source === 'string' && /^ds\./.test(p.source))) {
-            return p.note || 'No query defined — add a query to load live data from this source.';
-          }
-          if (p.source === 'workspace') return 'Internal workspace collection (direct aggregate).';
-          if (p.source) return 'This panel’s query isn’t included in the dashboard model.';
-          return '—';
-        },
-        // "N rows · M series" / "N rows" summary for the data overlay header.
-        monPanelShapeLabel(p) {
-          if (!p) return '—';
-          if (p.type === 'table' && p.table && p.table.rows) {
-            return p.table.rows.length + (p.table.rows.length === 1 ? ' row' : ' rows') + ' · ' + ((p.table.columns || []).length) + ' cols';
-          }
-          const series = (p.series || []).filter(s => s && s.data && s.data.length);
-          if (!series.length) return 'no data';
-          const pts = series.reduce((n, s) => Math.max(n, s.data.length), 0);
-          return pts + (pts === 1 ? ' point' : ' points') + ' · ' + series.length + (series.length === 1 ? ' series' : ' series');
-        },
-        // When the panel's data was last fetched (dashboard-level — all panels load together).
-        monPanelUpdatedLabel(p) {
-          const d = this.monitoring.dash || {};
-          const t = (p && p.refreshedAt) || d.refreshedAt || d.loadedAt;
-          if (!t) return 'unknown';
-          try { return this.formatRelative(t) + ' · ' + new Date(t).toLocaleTimeString(); }
-          catch (_) { return this.formatRelative(t); }
-        },
-        // The real discovered dimension/metric a panel was bound to (discovery-driven ws.* panels only).
-        monPanelDimension(p) {
-          if (!p) return '';
-          const prov = this.monPanelProvenance(p);
-          return (prov && prov.dimension) || p.dimension || '';
-        },
-        monPanelMetric(p) {
-          if (!p) return '';
-          const prov = this.monPanelProvenance(p);
-          return (prov && prov.metric) || p.metric || '';
-        },
-        _monPanelMetaHtml(p) {
-          if (!p) return '';
-          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          let h = '<div class="monx-pmeta">';
-          h += '<div class="mrow"><span class="ml">Source</span><span class="mv">' + esc(this.monPanelSourceLabel(p)) + '</span></div>';
-          const dim = this.monPanelDimension(p);
-          if (dim) {
-            const metric = this.monPanelMetric(p);
-            h += '<div class="mrow"><span class="ml">Grouped by</span><span class="mv">' + esc(dim) + (metric ? ' · ' + esc(metric) : '') + '</span></div>';
-          }
-          h += '<div class="mrow"><span class="ml">Query</span><span class="mv mono">' + esc(this.monPanelQueryText(p)) + '</span></div>';
-          h += '<div class="mrow"><span class="ml">Updated</span><span class="mv">' + esc(this.monPanelUpdatedLabel(p)) + '</span></div>';
-          h += '</div>';
-          return h;
-        },
-        // Compact epoch-ms -> date/time for the data table's Time column.
-        _monTs(ms) {
-          if (ms == null) return '—';
-          try {
-            const d = new Date(ms);
-            if (isNaN(d.getTime())) return String(ms);
-            return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-          } catch (_) { return String(ms); }
-        },
-        // The data BEHIND a panel's chart: a table of the underlying rows (provenance is shown by the overlay header).
-        monPanelDataTable(p) {
-          if (!p) return '';
-          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          let h = '';
-          // Native table panel — show its rows directly.
-          if (p.type === 'table' && p.table && p.table.rows && p.table.rows.length) {
-            const cols = p.table.columns || [];
-            h += '<div class="monx-tablewrap"><table class="monx-table"><thead><tr>';
-            cols.forEach(c => { h += '<th>' + esc(c) + '</th>'; });
-            h += '</tr></thead><tbody>';
-            p.table.rows.slice(0, 200).forEach(row => {
-              h += '<tr>';
-              row.forEach(cell => { h += '<td>' + esc(cell) + '</td>'; });
-              h += '</tr>';
-            });
-            h += '</tbody></table></div>';
-            return h;
-          }
-          // Series panels — union timestamps (newest first), one column per series.
-          const series = (p.series || []).filter(s => s && s.data && s.data.length);
-          if (!series.length) {
-            h += '<div class="monx-nodata">No data<div class="sub">nothing behind this panel for the selected range</div></div>';
-            return h;
-          }
-          const tsSet = {};
-          series.forEach(s => s.data.forEach(pt => { tsSet[pt[0]] = true; }));
-          let times = Object.keys(tsSet).map(Number);
-          times.sort((a, b) => b - a);
-          times = times.slice(0, 200);
-          const valMaps = series.map(s => {
-            const m = {};
-            s.data.forEach(pt => { m[pt[0]] = pt[1]; });
-            return m;
-          });
-          h += '<div class="monx-tablewrap"><table class="monx-table"><thead><tr><th>Time</th>';
-          series.forEach(s => { h += '<th>' + esc(s.name || 'series') + (s.unit ? ' (' + esc(s.unit) + ')' : '') + '</th>'; });
-          h += '</tr></thead><tbody>';
-          times.forEach(t => {
-            h += '<tr><td>' + esc(this._monTs(t)) + '</td>';
-            valMaps.forEach(m => {
-              const v = m[t];
-              h += '<td>' + (v == null ? '—' : esc(this._monNum(v))) + '</td>';
-            });
-            h += '</tr>';
-          });
-          h += '</tbody></table></div>';
-          return h;
-        },
-        // Compact number formatter for axes/gauges.
-        _monNum(v) {
-          if (v == null || isNaN(v)) return '0';
-          const a = Math.abs(v);
-          if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 0 : 1) + 'B';
-          if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
-          if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k';
-          if (a >= 100) return String(Math.round(v));
-          return String(Math.round(v * 100) / 100);
-        },
-        // Humanize a Grafana relative-time token ('now-6h' -> '6h ago', 'now' -> 'now').
-        _monHumanRange(tok) {
-          const s = String(tok || '');
-          if (!s || s === 'now') return 'now';
-          const m = s.match(/^now-(\d+)([smhdwMy])$/);
-          if (m) { const u = { s: 'sec', m: 'min', h: 'h', d: 'd', w: 'wk', M: 'mo', y: 'yr' }; return m[1] + (u[m[2]] || m[2]) + ' ago'; }
-          return s;
-        },
-        // Timeseries chart WITH y-axis units, an x-axis time window, and a legend.
-        _monTsChart(p, height) {
-          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          const series = p.series || [];
-          const h = height || 120;
-          const all = [];
-          series.forEach(s => (s.data || []).forEach(pt => all.push(pt[1])));
-          if (!all.length) return '<div class="monx-nodata">No data<div class="sub">for the selected time range &amp; filters</div></div>';
-          let mn = Infinity, mx = -Infinity;
-          for (let i = 0; i < all.length; i++) { const v = all[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-          if (mn === mx) { mn -= 1; mx += 1; }
-          const unit = p.unit ? (' ' + p.unit) : '';
-          const svg = this._monTsSvg(series, h, mn, mx);
-          const pal = ['#2fb2a6', '#58a6ff', '#a371f7', '#d29922', '#f85149'];
-          const f = this.monitoring.filters || {};
-          const fromL = this._monHumanRange(f.from || 'now-6h'), toL = this._monHumanRange(f.to || 'now');
-          let legend = '';
-          if (series.length) {
-            legend = '<div class="monx-legend">' + series.map((s, i) => '<span class="lg"><i style="background:' + pal[i % pal.length] + '"></i>' + esc(s.name || ('series ' + (i + 1))) + '</span>').join('') + '</div>';
-          }
-          return '<div class="monx-chart">'
-            + '<div class="monx-chartrow">'
-            + '<div class="monx-yax"><span>' + this._monNum(mx) + unit + '</span><span>' + this._monNum(mn) + unit + '</span></div>'
-            + '<div class="monx-plot">' + svg + '</div>'
-            + '</div>'
-            + '<div class="monx-xax"><span>' + esc(fromL) + '</span><span>' + esc(toL) + '</span></div>'
-            + legend
-            + '</div>';
-        },
-        monAnalysisHtml(a) {
-          if (!a) return '';
-          const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          const cls = this.monStatusClass(a.status);
-          let h = '';
-          h += '<div class="monx-verdict" style="border-left-color:' + this.monStatusColor(a.status) + '">';
-          h += '<span class="' + cls + '" style="font-weight:700">' + esc(a.statusText || '') + '</span>';
-          h += '<span>' + esc(a.headline || '') + (a.ai ? '' : ' <span style="color:var(--cp-text-faint);font-size:11px">· deterministic</span>') + '</span>';
-          h += '</div>';
-          if (a.findings && a.findings.length) {
-            h += '<ul class="monx-findings">';
-            a.findings.forEach(f => { h += '<li><span>•</span><span>' + esc(f) + '</span></li>'; });
-            h += '</ul>';
-          }
-          if (a.suggestions && a.suggestions.length) {
-            h += '<div class="monx-sugg"><div class="sl">Suggested next steps</div><ul style="list-style:none;padding:0;margin:0">';
-            a.suggestions.forEach(s => { h += '<li>→ ' + esc(s) + '</li>'; });
-            h += '</ul></div>';
-          }
-          if (a.metrics && a.metrics.length) {
-            h += '<div class="monx-sugg" style="margin-top:10px"><div class="sl">Metrics</div><ul style="list-style:none;padding:0;margin:0">';
-            a.metrics.forEach(m => {
-              const arrow = m.trend === 'up' ? '▲' : m.trend === 'down' ? '▼' : '→';
-              h += '<li>' + esc(m.title) + ' — ' + esc(m.last) + esc(m.unit || '') + ' <span style="color:var(--cp-text-faint)">' + arrow + ' ' + Math.abs(m.changePct || 0) + '%</span></li>';
-            });
-            h += '</ul></div>';
-          }
           return h;
         },
 
@@ -54703,7 +52784,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._epicOHSet(key, { loading: false, loaded: true, none: false, error: '', snap });
         },
         async epicLoadObjHealth(key, force) {
-          if (!key || !this.featureEnabled('monitoring')) return;
+          if (!key || !this.featureEnabled('epics')) return;
           const e = this._epicOHEntry(key);
           if (e.loading) return;
           if (e.loaded && !force) return;
@@ -54731,7 +52812,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Re-generate (POST) in the background, staying on the Epics tab, then refresh the card.
         async epicResyncObjHealth() {
           const c = this.epicCur();
-          if (!c || !this.featureEnabled('monitoring')) return;
+          if (!c || !this.featureEnabled('epics')) return;
           const key = c.key;
           this._epicOHSet(key, { loading: true, error: '' });
           try {
@@ -54779,7 +52860,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Swap the source doc → re-POST with the chosen docId → regenerate + relink (keyed by epic key).
         async epicRelinkObjHealth(docId) {
           const c = this.epicCur();
-          if (!c || !this.featureEnabled('monitoring') || !docId) return;
+          if (!c || !this.featureEnabled('epics') || !docId) return;
           const key = c.key;
           this._epicOHSet(key, { loading: true, error: '' });
           try {

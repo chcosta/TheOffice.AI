@@ -2086,83 +2086,6 @@ await t.test('notes: PR/dev card note URLs render as clickable links (escaped, n
   t.gte(spans.length, 5, 'all note-text spans linkify (PR + dev cards)');
 });
 
-await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/methods/server)', () => {
-  const html = readFileSync('public/app.html', 'utf8');
-  // --- section markup (single copy) ---
-  const secs = html.match(/route === 'monitoring'/g) || [];
-  t.gte(secs.length, 1, 'monitoring section present');
-  t.ok(/x-show="!loading && !errorMessage && route === 'monitoring'"/.test(html), 'monitoring <section> gated on the route');
-  t.ok(/monitoring\.view === 'launcher'/.test(html) && /monitoring\.view === 'studio'/.test(html) && /monitoring\.view === 'deep'/.test(html), 'launcher/studio/deep views present');
-  t.ok(/class="monx-studio"/.test(html), 'studio grid markup present');
-  // teal accent per the user ask (gradient uses --mon-graf teal #2fb2a6)
-  t.ok(/--mon-graf:#2fb2a6/.test(html), 'gradient uses a teal (#2fb2a6) Grafana accent');
-  t.ok(/linear-gradient\([^)]*var\(--mon-graf\)/.test(html), 'generate button gradient keys off the teal token');
-  // --- state block ---
-  const st = _win(html, 'monitoring: {', 1100);
-  t.ok(st, 'monitoring state block exists');
-  t.ok(/view:/.test(st) && /dashboards:/.test(st) && /grabbed:/.test(st) && /convo:/.test(st) && /conn:/.test(st), 'state carries view/dashboards/grabbed/convo/conn');
-  // --- key methods defined ---
-  for (const m of ['async monLoad(', 'async monLoadDashboard(', 'async monGenerate(', 'async monAnalyze(', 'async monAskFree(', 'monGrabToggle(', 'monOpenDeep(', 'monPanelBody(', 'monAnalysisHtml(', 'monSaveConnection(']) {
-    t.ok(html.includes(m), 'method defined: ' + m);
-  }
-  // monLoadDashboard reads the dashboard object directly (route is not wrapped in {dashboard:…})
-  const mld = _win(html, 'async monLoadDashboard(uid)', 400);
-  t.ok(/w\.dash = r;/.test(mld), 'monLoadDashboard stores the raw dashboard response');
-  // monAnalysisHtml escapes (XSS-safe)
-  t.ok(/monAnalysisHtml/.test(html) && /&lt;/.test(_win(html, 'monAnalysisHtml(a)', 900) || ''), 'analysis HTML is escaped');
-  // --- routing / tier / nav ---
-  t.ok(/if \(first === 'monitoring' && second\) return \{ route: 'monitoring', param: second \};/.test(html), 'parseHash handles #/monitoring/<uid>');
-  t.ok(/this\.route === 'monitoring'\) \{[\s\S]*?monLoad\(/.test(html), 'handleRouteChange calls monLoad');
-  t.ok(/case 'monitoring': return mk\('Monitoring\.AI', '📊', '#\/monitoring', 'monitoring'\);/.test(html), 'nav item defined');
-  t.ok(/routeMode\(route\)[\s\S]*?'monitoring'[\s\S]*?return 'workspace';/.test(html), 'routeMode maps monitoring → workspace');
-  const cats = html.match(/key: 'monitoring', label: 'Monitoring\.AI'/g) || [];
-  t.gte(cats.length, 2, 'monitoring in both feature catalogs (opt-in)');
-  const rv = html.match(/monitoring: \['monitoring'\]/g) || [];
-  t.gte(rv.length, 2, 'monitoring in both routeVisible maps');
-  // --- server routes + modules ---
-  const srv = readFileSync('server.js', 'utf8');
-  for (const r of ["/api/monitoring/status", "/api/monitoring/connection", "/api/monitoring/dashboards", "/api/monitoring/dashboard/:uid", "/api/monitoring/generate", "/api/monitoring/analyze"]) {
-    t.ok(srv.includes(r), 'server route: ' + r);
-  }
-  t.ok(/const grafana = require\('\.\/grafana'\);/.test(srv), 'grafana module required');
-  // connection route never echoes the token back
-  t.ok(/hasToken: !!g\.token/.test(srv), 'connection GET reports hasToken, never the token');
-  const graf = readFileSync('grafana.js', 'utf8');
-  for (const fn of ['createDashboard', 'deterministicAnalysis', 'panelSummary', 'listDashboards', 'getDashboard', 'deterministicSpec']) {
-    t.ok(graf.includes(fn), 'grafana.js exports ' + fn);
-  }
-  const setj = readFileSync('settings.js', 'utf8');
-  t.ok(/grafana:\s*\{[^}]*enabled:\s*false/.test(setj), 'settings default grafana.enabled=false (opt-in)');
-  // --- Azure identity auth + push-by-default (per-dashboard auto-push) ---
-  t.ok(/authMode:\s*'aad'/.test(setj) && /pushByDefault:\s*true/.test(setj), 'settings default to Azure identity + push-by-default');
-  t.ok(/dashboard\.azure\.com\/\.default/.test(graf), 'grafana.js requests the AMG token scope');
-  t.ok(/DefaultAzureCredential/.test(graf), 'grafana.js uses DefaultAzureCredential for Azure identity');
-  t.ok(/function pushDashboard\(/.test(graf) && /function setDashboardOptions\(/.test(graf), 'grafana.js exposes manual push + per-dashboard options');
-  t.ok(/pushDashboard,/.test(graf) && /setDashboardOptions,/.test(graf), 'push helpers are exported');
-  t.ok(/authMode === 'aad'\s*\?\s*true\s*:\s*!!c\.token/.test(graf), 'configured() needs only a URL under Azure identity');
-  t.ok(srv.includes('/api/monitoring/dashboard/:uid/push') && srv.includes('/api/monitoring/dashboard/:uid/options'), 'server exposes push + options routes');
-  t.ok(/authMode: g\.authMode, pushByDefault: g\.pushByDefault/.test(srv), 'connection GET reports authMode + pushByDefault');
-  // SPA: auth-mode selector, token hidden under aad, push controls + methods
-  t.ok(/x-model="monitoring\.conn\.authMode"/.test(html), 'connection panel offers an auth-mode selector');
-  t.ok(/monitoring\.conn\.authMode === 'token'/.test(html), 'token field is shown only in token mode');
-  t.ok(/x-model="monitoring\.conn\.pushByDefault"/.test(html), 'connection panel has a push-by-default toggle');
-  t.ok(/@click="monPushDashboard\(\)"/.test(html) && /@change="monToggleAutoPush\(\)"/.test(html), 'studio has push + auto-push controls');
-  t.ok(/async monPushDashboard\(/.test(html) && /async monToggleAutoPush\(/.test(html), 'push methods defined');
-  // Studio-first experience + actionable connection errors
-  t.ok(/_authErrorMessage/.test(graf) && /needs a Grafana role/.test(graf), 'grafana.js surfaces an actionable auth error (role guidance)');
-  t.ok(/Grafana configured — ' \+ st\.authError/.test(html), 'monConnLabel shows the real authError');
-  t.ok(/this\.monLoadEpicDashboards\(\);/.test(html) && /w\.view = 'home';/.test(html), 'monLoad lands on the browse-first home hub');
-  t.ok(/out\['My dashboards'\]/.test(html), 'rail groups My dashboards vs Azure Grafana folders');
-  t.ok(/monNewPrompt\(\)/.test(html) && /monEditConnection\(\)/.test(html) && /monBackToStudio\(\)/.test(html), 'studio nav: new-prompt, edit-connection, back-to-studio');
-  // Reconnect / retry credentials (clear the cached Azure token so a freshly-granted role is picked up)
-  t.ok(/function resetAuthCache\(\)/.test(graf) && /_aadCred = null; _aadTok = ''; _aadExp = 0;/.test(graf), 'grafana.js clears the cached Azure token on reconnect');
-  t.ok(/\bresetAuthCache,/.test(graf), 'resetAuthCache is exported');
-  t.ok(/AMG_SCOPE = 'https:\/\/dashboard\.azure\.com\/\.default'/.test(graf), 'grafana.js uses the dashboard.azure.com AMG audience (grafana.azure.com 401s)');
-  t.ok(srv.includes("app.post('/api/monitoring/reconnect'") && /grafana\.resetAuthCache\(\); res\.json\(\{ ok: true, status: await grafana\.status\(\)/.test(srv), 'server reconnect route clears cache then re-checks status');
-  t.ok(/async monReconnect\(\)/.test(html) && /\/api\/monitoring\/reconnect/.test(html), 'SPA monReconnect posts the reconnect route');
-  t.ok(/@click="monReconnect\(\)"/.test(html) && /Retry connection/.test(html), 'connection panel has a Retry connection button');
-});
-
 await t.test('code flow: Epics tab — DNCEng epic cockpit wired end to end (tab/section/state/methods/server/azdo)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   // --- tab button present in BOTH Code Flow tab bars (dev + pr) ---
@@ -2395,403 +2318,6 @@ await t.test('code flow: Epics — AI persona picker + auto-AI standup (built-in
   const traceCss = _win(html, '.epx-trace {', 220) || '';
   t.ok(/\.epx-trace \{/.test(html) && /border-radius:\s*8px/.test(traceCss),
     'calm .epx-trace CSS with modest radius (no pills)');
-});
-
-await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
-  const html = readFileSync(APP_HTML, 'utf8');
-  const graf = require('../grafana.js');
-  const I = graf._internal;
-
-  // Bug A — Grafana-style value formatting for KQL/Azure Monitor + ADX.
-  t.eq(I._formatVarValue({ values: ['a', 'b'], multi: true }), "'a','b'", 'multi-value → single-quoted CSV');
-  t.eq(I._formatVarValue({ values: ["o'brien"], multi: true }), "'o''brien'", "single-quote escaped as '' in a multi list");
-  t.eq(I._formatVarValue({ values: ['x'], multi: false }), 'x', 'single-value → raw text (no quotes)');
-  t.eq(I._formatVarValue({ values: [] }), '', 'empty value → empty string');
-
-  // _applyVars: bare multi → quoted list; author-quoted single → raw inside quotes (no doubling); boundary respected.
-  const vm = { QueueName: { values: ['a', 'b'], multi: true }, Single: { values: ['linux'], multi: false } };
-  const bare = I._applyVars({ q: 'Jobs | where QueueName in ($QueueName)' }, vm);
-  t.ok(bare.q === "Jobs | where QueueName in ('a','b')", 'bare $QueueName (multi) → quoted CSV');
-  const quoted = I._applyVars({ q: "T | where Name == '$Single'" }, { Single: { values: ['linux'], multi: false } });
-  t.ok(quoted.q === "T | where Name == 'linux'", "author-quoted '$Single' → raw (no doubled quotes)");
-  const boundary = I._applyVars({ q: '$QueueNameX + $QueueName' }, vm);
-  t.ok(/\$QueueNameX/.test(boundary.q) && /'a','b'$/.test(boundary.q), 'word-boundary: $QueueNameX not clobbered by $QueueName');
-
-  // Bug C — hidden (hide:2) textbox variables MUST enter the substitution map (Grafana interpolates them).
-  const model = { templating: { list: [
-    { name: 'QueueName', type: 'query', multi: true, current: { value: ['a', 'b'] } },
-    { name: 'UntrackedQueues', type: 'textbox', hide: 2, query: '"osx", "perf"' },
-    { name: 'ds', type: 'datasource', current: { value: 'x' } },
-  ] } };
-  const map = I._varMap(model, {});
-  t.ok(map.UntrackedQueues && map.UntrackedQueues.values.join('') === '"osx", "perf"', 'hidden textbox var is in the substitution map');
-  t.ok(map.QueueName && map.QueueName.multi === true, 'query var carries its multi flag');
-  t.ok(!map.ds, 'datasource-type variable is excluded from substitution');
-  // UI-facing variable list still hides hidden ones.
-  t.ok(!I._dashboardVariables(model).some(v => v.name === 'UntrackedQueues'), 'hidden var stays out of the UI picker');
-
-  // Bug B — $__interval / $__interval_ms expansion (ADX backend does not expand them).
-  t.eq(I._grafanaDuration(3.6e6), '1h', '1h duration');
-  t.eq(I._grafanaDuration(3e5), '5m', '5m duration');
-  t.eq(I._grafanaDuration(3e4), '30s', '30s duration');
-  const iv = I._computeIntervalMs('now-24h', 'now', 300);
-  t.ok(iv >= 1e3 && iv <= 864e5, 'computed interval snaps into a nice bucket');
-  const exp = I._expandMacros([{ q: 'summarize by bin(t, $__interval) | $__timeFilter(t) | take $__interval_ms' }], 3e5);
-  t.ok(exp[0].q.includes('bin(t, 5m)'), '$__interval → duration string');
-  t.ok(exp[0].q.includes('take 300000'), '$__interval_ms → milliseconds');
-  t.ok(exp[0].q.includes('$__timeFilter(t)'), '$__timeFilter left for the datasource backend');
-
-  // Server route parses the time range + var-* params and threads them to getDashboard.
-  const srv = readFileSync(SERVER, 'utf8');
-  t.ok(/if \(k\.startsWith\('var-'\)\) vars\[k\.slice\(4\)\] = q\[k\];/.test(srv), 'dashboard route extracts var-* query params');
-  t.ok(/from: q\.from \|\| undefined, to: q\.to \|\| undefined, vars/.test(srv), 'route threads from/to/vars into opts');
-  t.ok(/grafana\.getDashboard\(req\.params\.uid, opts\)/.test(srv), 'route passes opts to getDashboard');
-
-  // SPA: filter controls (time range + per-variable) + honest table / no-data rendering.
-  t.ok(/class="monx-controls"/.test(html), 'SPA renders the .monx-controls filter row');
-  t.ok(/monSetTimeRange\(/.test(html) && /monVarSet\(/.test(html) && /monApplyFilters\(/.test(html), 'time-range + var setters + apply wired');
-  t.ok(/monx-table/.test(html) && /monx-nodata/.test(html), 'SPA has table + honest no-data render surfaces');
-});
-
-await t.test('monitoring.ai: Grafana view — live whole-dashboard iframe + rendered-image fallback + native data path', () => {
-  const html = readFileSync(APP_HTML, 'utf8');
-  const server = readFileSync(SERVER, 'utf8');
-  const grafanaSrc = readFileSync('grafana.js', 'utf8');
-
-  // Large-series crash fix: no Math.min/max.apply spreads left in the mon renderers.
-  t.ok(!/Math\.(min|max)\.apply\(null,\s*(all|s|data)/.test(html), 'no Math.min/max.apply spreads in the panel renderers (stack-overflow guard)');
-
-  // State + persisted toggle.
-  t.ok(/embedMode:/.test(html) && /localStorage\.getItem\('mon-embed-mode'\)/.test(html), 'embedMode state is persisted');
-  t.ok(/embedNonce:/.test(html), 'embedNonce state (refresh buster) exists');
-  t.ok(/monSetEmbedMode\(/.test(html), 'View toggle wired to monSetEmbedMode');
-
-  // Methods present. monEmbedActive is now no-arg (whole-dashboard).
-  t.ok(/monEmbedActive\(\)\s*\{/.test(html), 'monEmbedActive (no-arg) gate exists');
-  t.ok(/monDashRenderUrl\(\)\s*\{/.test(html), 'monDashRenderUrl (whole-dashboard server render) builder exists');
-  t.ok(/monDashGrafanaUrl\(\)\s*\{/.test(html), 'monDashGrafanaUrl (open whole dashboard in Grafana) exists');
-  t.ok(/monEmbedRefresh\(\)\s*\{/.test(html), 'monEmbedRefresh bumps the nonce to re-render');
-  t.ok(/monPanelRenderUrl\(p, h\)\s*\{/.test(html), 'monPanelRenderUrl kept for the single-panel deep dive');
-  t.ok(/monEmbedErr\(p\)/.test(html) && /monEmbedFail\(p\)/.test(html) && /monEmbedOk\(p\)/.test(html), 'render error/ok fallback helpers exist (keyed)');
-
-  // Embed only when connected to a non-local dashboard.
-  t.ok(/w\.embedMode === 'grafana'/.test(html) && /!w\.dash\.local/.test(html) && /w\.conn && w\.conn\.url/.test(html), 'embed gated on grafana mode + non-local dash + a configured connection');
-
-  // The real dashboard is ONE same-origin server render (not N per-panel iframes
-  // — AMG blocks a naked iframe at the AAD login framing wall, and per-panel
-  // renders trip AMG's concurrent-render limit).
-  t.ok(/'\/api\/monitoring\/render\/' \+ encodeURIComponent/.test(html), 'render URL points at our same-origin /api/monitoring/render proxy');
-  t.ok(!/d-solo/.test(html), 'no client-side d-solo iframe URL remains (that path is AAD-framing-blocked)');
-  t.ok(/params\.set\('whole', '1'\)/.test(html), 'dashboard render URL requests the whole dashboard (whole=1)');
-  t.ok(/params\.set\('theme'/.test(html) && /params\.set\('width'/.test(html) && /params\.set\('height'/.test(html), 'render URL carries theme + width + height');
-  t.ok(/params\.set\('from'/.test(html) && /params\.set\('to'/.test(html) && /append\('var-' \+ name/.test(html), 'embed URLs thread from/to + var-* (multi-value repeated)');
-
-  // Markup: the primary Grafana view is now a LIVE iframe (Grafana's own nav/filters),
-  // with a manual server-rendered-image fallback (XFO framing can't be auto-detected
-  // cross-origin, so the fallback is a manual toggle, not @error-driven).
-  t.ok(/x-if="monEmbedActive\(\)"/.test(html) && /class="monx-dashimg"/.test(html), 'Grafana view renders one whole-dashboard container');
-  t.ok(/<iframe class="monx-dashframe"/.test(html) && /:src="monDashLiveUrl\(\)"/.test(html), 'the primary Grafana view is a live iframe fed by monDashLiveUrl');
-  t.ok(/x-if="monGrafanaRenderMode\(\) !== 'image'"/.test(html) && /x-if="monGrafanaRenderMode\(\) === 'image'"/.test(html), 'live iframe vs rendered-image sub-branches gate on monGrafanaRenderMode');
-  t.ok(/<img class="monx-dashimg-img"/.test(html) && /:src="monDashRenderUrl\(\)"/.test(html), 'the rendered-image fallback is fed by monDashRenderUrl');
-  t.ok(/@click="monToggleGrafanaRender\(\)"/.test(html) && /monx-embedfail/.test(html), 'a manual View-rendered-image toggle + open-in-Grafana fallback exist');
-  // Live-iframe URL builder: Grafana deep link WITHOUT kiosk (so its nav shows), + theme.
-  t.ok(/monDashLiveUrl\(\)\s*\{/.test(html) && /'\/d\/' \+ encodeURIComponent\(w\.dash\.uid\)/.test(html), 'monDashLiveUrl builds a {base}/d/{uid}/{slug} live URL');
-  t.ok(!/kiosk/.test(html), 'no kiosk param — the user WANTS Grafana\'s own nav inside the frame');
-  t.ok(/grafanaRender:/.test(html) && /localStorage\.getItem\('mon-grafana-render'\)/.test(html), 'grafanaRender (live|image) state is persisted');
-  // Left DASHBOARDS rail auto-collapses in the live Grafana view (Grafana's nav supersedes it).
-  t.ok(/railOpen:/.test(html) && /monRailOpen\(\)/.test(html) && /monToggleRail\(\)/.test(html), 'railOpen state + monRailOpen/monToggleRail exist');
-  t.ok(/this\.monitoring\.railOpen = \(mode !== 'grafana'\)/.test(html), 'entering the Grafana view auto-collapses the DASHBOARDS rail');
-  t.ok(/class="monx-studio" :class="\{ railhidden: !monRailOpen\(\) \}"/.test(html) && /\.monx-studio\.railhidden\{/.test(html), 'studio reclaims the rail column when hidden (railhidden grid)');
-  t.ok(/<div class="monx-rail" x-show="monRailOpen\(\)">/.test(html) && /☰ Dashboards/.test(html), 'rail is x-show-gated + a reopen affordance appears when collapsed');
-  t.ok(/x-if="!monEmbedActive\(\)"/.test(html) && /class="monx-board"/.test(html) && /x-html="monPanelBody\(p\)"/.test(html), 'native per-panel grid is the default (non-Grafana) branch');
-  t.ok(/@click="monGrabToggle\(p\.id\)"/.test(html), 'Grab (native data path for AI) stays available in the native view');
-
-  // Server + bridge: authenticated render proxy, whole-dashboard capable.
-  t.ok(/app\.get\('\/api\/monitoring\/render\/:uid'/.test(server), 'server exposes the /api/monitoring/render/:uid route');
-  t.ok(/grafana\.renderPanel\(/.test(server) && /whole: q\.whole === '1'/.test(server), 'server route delegates to grafana.renderPanel and passes whole');
-  t.ok(/async function renderPanel\(/.test(grafanaSrc) && /whole \? 'd' : 'd-solo'/.test(grafanaSrc), 'grafana.js renderPanel supports both /render/d (whole) and /render/d-solo (panel)');
-  t.ok(/_acquireRenderSlot\(\)/.test(grafanaSrc) && /_releaseRenderSlot\(\)/.test(grafanaSrc) && /_renderCache\.set\(/.test(grafanaSrc), 'renderPanel uses the concurrency gate + TTL cache');
-  t.ok(/renderPanel,/.test(grafanaSrc), 'renderPanel is exported');
-});
-
-await t.test('monitoring.ai: data overlay + honest source/query/last-updated provenance + assistant + bounded studio', () => {
-  const html = readFileSync(APP_HTML, 'utf8');
-  const grafanaSrc = readFileSync('grafana.js', 'utf8');
-
-  // Req 1 — a "Data" button opens a roomy WINDOW OVERLAY (not an in-place flip) showing the rows behind the panel.
-  t.ok(/@click="monOpenData\(p\.id\)"/.test(html), 'each native panel has a Data button that opens the overlay');
-  t.ok(/x-html="monPanelBody\(p\)"/.test(html) && !/monIsFlipped/.test(html) && !/monFlipToggle/.test(html), 'the panel body always renders the chart (no in-place flip)');
-  t.ok(/monOpenData\s*\(/.test(html) && /monCloseData\s*\(/.test(html) && /monDataPanel\s*\(/.test(html) && /monPanelDataTable\s*\(/.test(html), 'overlay helpers monOpenData/monCloseData/monDataPanel/monPanelDataTable exist');
-  // The overlay is a TOP-LEVEL teleport with the shared centering classes (survives x-show) + escape/backdrop close.
-  t.ok(/<template x-teleport="body">[\s\S]{0,400}?class="modal-backdrop monx-datamodal"/.test(html), 'the data overlay is a top-level x-teleport with .modal-backdrop centering');
-  t.ok(/x-show="monitoring\.dataModal"/.test(html) && /@click\.self="monCloseData\(\)"/.test(html) && /@keydown\.escape\.window="monCloseData\(\)"/.test(html), 'overlay is gated on dataModal + closes on backdrop/escape');
-  t.ok(/x-html="monPanelDataTable\(monDataPanel\(\)\)"/.test(html), 'the overlay body renders the data table for the open panel');
-  t.ok(/dataModal:\s*null/.test(html), 'monitoring state seeds dataModal:null');
-  t.ok(/\.monx-datamodal .monx-dmcard\{/.test(html) && /\.monx-tablewrap\b/.test(html) && /\.monx-table\b/.test(html) && /\.monx-nodata\b/.test(html), 'roomy overlay card + data-table/no-data CSS present');
-  // monPanelDataTable is TABLE-ONLY now (the overlay header renders provenance), no duplicated meta block.
-  t.ok(/monPanelDataTable\(p\)\s*\{[\s\S]{0,320}?let h = '';/.test(html), 'monPanelDataTable builds the table only (no inlined meta block)');
-
-  // Reqs 2 & 3 — source, query and last-updated surfaced HONESTLY. Sample panels never claim a bogus datasource/query.
-  t.ok(/monPanelIsSample\s*\(p\)\s*\{[\s\S]{0,120}?p\.sample === true \|\| p\.origin === 'sample'/.test(html), 'monPanelIsSample treats sample:true OR origin==="sample" as demo data');
-  t.ok(/monPanelQueryText[\s\S]{0,200}?this\.monPanelIsSample\(p\)\)\s*return 'Synthesized demo data/.test(html), 'monPanelQueryText returns an honest sample note FIRST (no "query not exposed" noise for demo data)');
-  t.ok(/'Query not exposed by this panel'/.test(html) && /'Synthesized sample series \(demo data\)'/.test(html), 'monPanelQueryText treats the grafana.js live/sample fallback strings as non-real queries');
-  t.ok(/monPanelSourceLabel[\s\S]{0,400}?Sample data · modeled on/.test(html) && /Sample data \(demo\)/.test(html), 'monPanelSourceLabel labels sample panels honestly instead of a bare datasource id');
-  t.ok(/_monPanelMetaHtml\s*\(/.test(html) && /monPanelSourceLabel\s*\(/.test(html) && /monPanelQueryText\s*\(/.test(html) && /monPanelUpdatedLabel\s*\(/.test(html), 'meta helpers (source/query/last-updated) exist');
-  t.ok(/_monPanelMetaHtml\(monDeepPanel\(\)\)/.test(html), 'deep-dive still renders the panel meta block (inherits honest text)');
-  t.ok(/monPanelIsSample\(monDataPanel\(\)\)/.test(html) && /Synthesized demo data/.test(html) && /\.monx-dmnote\b/.test(html), 'the overlay shows a calm sample-data note when the dashboard is demo data');
-
-  // Req 3 (honest server-side source/query on every panel builder — unchanged).
-  t.ok(/function _panelSourceText\(/.test(grafanaSrc) && /function _panelQueryText\(/.test(grafanaSrc), 'grafana.js exposes _panelSourceText/_panelQueryText');
-  t.ok(/_panelSourceText[,\s]/.test(grafanaSrc) && /_panelQueryText[,\s]/.test(grafanaSrc) && /_internal:\s*\{[^}]*_panelSourceText[^}]*_panelQueryText/.test(grafanaSrc), 'both helpers are exported on _internal');
-  t.ok(/source:\s*_panelSourceText\(gp\)/.test(grafanaSrc) && /query:\s*_panelQueryText\(gp\)/.test(grafanaSrc), 'live Grafana panels carry honest source/query');
-  t.ok(/origin:\s*'sample'/.test(grafanaSrc) && /Synthesized sample series/.test(grafanaSrc), 'sample panels carry origin + honest query text');
-
-  // Req 4a — rename Monitoring copilot -> Monitoring assistant.
-  t.ok(/Monitoring assistant/.test(html) && !/Monitoring copilot/i.test(html), 'the side panel is renamed to "Monitoring assistant"');
-  t.ok(/✨ Assistant/.test(html), 'empty-state / author label uses "✨ Assistant"');
-
-  // Req 4b — the studio fills the viewport; only the conversation scrolls.
-  t.ok(/\.monx-studio\{[^}]*height:calc\(100vh - 165px\)/.test(html), 'the studio is height-bounded to the viewport');
-  t.ok(/\.monx-rail\{[^}]*min-height:0/.test(html) && /\.monx-cop\{[^}]*min-height:0/.test(html) && /\.monx-conv\{[^}]*overflow:auto/.test(html), 'rail/copilot flex to 0 and only the conversation scrolls');
-  t.ok(/@media \(max-width:900px\)\{[\s\S]*?\.monx-studio\{[^}]*height:auto/.test(html), 'the mobile media query releases the height cap');
-});
-
-await t.test('monitoring.ai v2: internal workspace catalog + board-build + provenance + alerts', () => {
-  const html = readFileSync(APP_HTML, 'utf8');
-  const srv = readFileSync(SERVER, 'utf8');
-  const graf = readFileSync('grafana.js', 'utf8');
-  const wss = readFileSync('workspace-source.js', 'utf8');
-
-  // --- Context & data catalog: workspace (internal) + external, with Ground/Chart role toggles ---
-  t.ok(/Context &amp; data catalog/.test(html), 'launcher has the context & data catalog section');
-  t.ok(/x-for="s in monitoring\.catalog\.workspace"/.test(html) && /x-for="s in monitoring\.catalog\.external"/.test(html), 'catalog renders workspace + external groups');
-  t.ok(/@click="monToggleRole\(s\.id, 'ground'\)"/.test(html) && /monToggleRole\(s\.id, 'chart'\)/.test(html), 'Ground + Chart role toggles wired');
-  t.ok(/s\.chartable && monToggleRole\(s\.id, 'chart'\)/.test(html), 'Chart toggle is gated on s.chartable (non-chartable sources cannot be charted)');
-  // whole-object reassign so Alpine subscribes (repo reactivity note)
-  const mtr = _win(html, 'monToggleRole(id, role)', 560);
-  t.ok(/w\.catalogRoles = \{ \.\.\.w\.catalogRoles, \[id\]: next \}/.test(mtr), 'monToggleRole reassigns the whole catalogRoles map (Alpine reactivity)');
-  for (const m of ['async monLoadCatalog(', 'monRoleOn(', 'monSelectedChartSources(', 'monCatSub(']) {
-    t.ok(html.includes(m), 'catalog method present: ' + m);
-  }
-  // catalog source drives the generate request
-  t.ok(/const sources = this\.monSelectedChartSources\(\);/.test(html) && /body\.sources = sources;/.test(html), 'monGenerate binds the chart-selected catalog sources');
-
-  // --- Build from a workspace board ---
-  t.ok(/Build from a workspace board/.test(html), 'launcher has the board-build section');
-  t.ok(/x-model="monitoring\.boardBuild\.boardId"/.test(html) && /@click="monBuildFromBoard\(\)"/.test(html), 'board picker + Build button wired');
-  for (const m of ['async monLoadBoards(', 'monBuildFromBoard(', 'monBoardRefGroups(']) {
-    t.ok(html.includes(m), 'board method present: ' + m);
-  }
-  // /api/boards returns a bare array OR {boards:[]}; the loader handles both
-  const mlb = _win(html, 'async monLoadBoards()', 320);
-  t.ok(/Array\.isArray\(r\) \? r : \(r && r\.boards\) \|\| \[\]/.test(mlb), 'monLoadBoards handles a bare-array or {boards} response');
-  // mined board refs surface in the launcher
-  t.ok(/monitoring\.boardRefs/.test(html) && /monBoardRefGroups\(\)/.test(html) && /Context used:/.test(html), 'boardRefs (mined context) are shown after a board build');
-  t.ok(/w\.boardRefs = \(r && r\.boardRefs\) \|\| null;/.test(html), 'monGenerate captures boardRefs from the response');
-
-  // --- Panel provenance badge in the studio ---
-  t.ok(/monPanelProvenance\(panel\)/.test(html) && /monProvLabel\(prov\)/.test(html), 'provenance helpers present');
-  t.ok(/class="monx-provbadge"/.test(html) && /x-text="monProvLabel\(monPanelProvenance\(p\)\)"/.test(html), 'studio panel headers carry a provenance badge');
-  t.ok(/workspace: monPanelProvenance\(p\)\.kind === 'workspace'/.test(html), 'provenance badge distinguishes workspace-kind panels');
-  const mpl = _win(html, 'monProvLabel(prov)', 420);
-  t.ok(/workspace · direct/.test(mpl) && /AMG MCP/.test(mpl) && /· direct/.test(mpl), 'monProvLabel labels workspace/direct/AMG-MCP access');
-  t.ok(/workspace · by ' \+ prov\.dimension/.test(mpl), 'monProvLabel surfaces the real discovered dimension for ws.* panels');
-  t.ok(/w\.provenance = \(r && r\.provenance\) \|\| \[\];/.test(html), 'monGenerate captures panel provenance');
-  t.ok(/w\.discovery = \(r && r\.discovery\) \|\| \[\];/.test(html), 'monGenerate captures the discovery brief');
-  // discovery-driven panels surface their real grouped-by dimension in the meta (badge, overlay, deep-dive)
-  t.ok(/monPanelDimension\(p\)/.test(html) && /monPanelMetric\(p\)/.test(html), 'panel dimension/metric helpers present');
-  t.ok(/<span class="ml">Grouped by<\/span>/.test(html), 'panel meta surfaces a Grouped-by row for discovery-driven panels');
-
-  // --- Alerts: list + form + CRUD methods (with the two bug fixes) ---
-  t.ok(/<div class="ph"><span>Alerts<\/span>/.test(html), 'home hub has the Alerts panel');
-  for (const m of ['async monLoadAlerts(', 'monAlertableSources(', 'monAlertNew(', 'async monSaveAlert(', 'async monToggleAlert(', 'async monDeleteAlert(', 'monAlertSummary(', 'monAlertState(']) {
-    t.ok(html.includes(m), 'alert method present: ' + m);
-  }
-  // only alertable workspace sources can back an alert
-  t.ok(/\(this\.monitoring\.catalog\.workspace \|\| \[\]\)\.filter\(s => s\.alertable\)/.test(html), 'monAlertableSources filters to alertable workspace sources');
-  // FIX 1: monSaveAlert sends window:{days} + an id when editing
-  const msa = _win(html, 'async monSaveAlert()', 640);
-  t.ok(/window: \{ days: Number\(d\.windowDays\) \|\| 7 \}/.test(msa), 'monSaveAlert maps the flat windowDays to window:{days}');
-  t.ok(/if \(d\.id\) body\.id = d\.id;/.test(msa), 'monSaveAlert carries an id when editing (no duplicate)');
-  // FIX 2: monToggleAlert PUTs the FULL alert object (sourceId/window/etc.) with a flipped enabled
-  const mta = _win(html, 'async monToggleAlert(a)', 480);
-  t.ok(/sourceId: a\.sourceId/.test(mta) && /window: a\.window/.test(mta) && /enabled: !a\.enabled/.test(mta), 'monToggleAlert PUTs the full alert body with a flipped enabled (server saveAlert needs sourceId)');
-  t.ok(!/body: JSON\.stringify\(\{ enabled: !a\.enabled \}\)/.test(mta), 'monToggleAlert no longer sends a partial {enabled} body');
-
-  // --- monitoring-alert SSE listener ---
-  t.ok(/source\.addEventListener\('monitoring-alert'/.test(html), 'SPA subscribes to the monitoring-alert SSE event');
-  const sse = _win(html, "addEventListener('monitoring-alert'", 1100);
-  t.ok(/w\.alertNotices = \[/.test(sse) && /this\.toast\('🔔 Alert:/.test(sse) && /this\.monLoadAlerts\(\)/.test(sse), 'monitoring-alert listener records a notice, toasts, and refreshes the alert list');
-
-  // --- Server routes ---
-  for (const r of ["/api/monitoring/catalog", "/api/monitoring/alerts", "/api/monitoring/alerts/:id", "/api/monitoring/alerts/evaluate"]) {
-    t.ok(srv.includes(r), 'server route present: ' + r);
-  }
-  t.ok(/app\.get\('\/api\/monitoring\/alerts'/.test(srv) && /app\.post\('\/api\/monitoring\/alerts'/.test(srv) && /app\.put\('\/api\/monitoring\/alerts\/:id'/.test(srv) && /app\.delete\('\/api\/monitoring\/alerts\/:id'/.test(srv), 'alert CRUD routes (GET/POST/PUT/DELETE) exist');
-  t.ok(/async function _runMonitoringAlerts\(/.test(srv) && /broadcastSSE\('monitoring-alert'/.test(srv), 'server evaluates alerts and broadcasts monitoring-alert over SSE');
-
-  // --- Phase 1 discovery backend: real-field binding, no synthesized ws.* data ---
-  t.ok(/app\.get\('\/api\/monitoring\/discover\/:id'/.test(srv), 'discover route present (GET /api/monitoring/discover/:id)');
-  t.ok(/grafana\.discover\(id\)/.test(srv) && /grafana\.discoverExternal\(id\)/.test(srv), 'discover route profiles internal via grafana.discover and external ds.* via grafana.discoverExternal');
-  t.ok(/function _monValidatePanel\(panel, discovered\)/.test(srv), '_monValidatePanel binds AI panels to discovered fields');
-  const mvp = _win(srv, 'function _monValidatePanel(panel, discovered)', 900);
-  t.ok(/if \(p\.dimension && !dimFields\.has\(p\.dimension\)\) p\.dimension = null;/.test(mvp), '_monValidatePanel drops a hallucinated dimension not in the profile');
-  t.ok(/if \(p\.metric && p\.metric !== 'count' && !metFields\.has\(p\.metric\)\) p\.metric = 'count';/.test(mvp), '_monValidatePanel falls back to count for an unknown metric');
-  t.ok(/function _monDeterministicPanels\(discovered\)/.test(srv), '_monDeterministicPanels builds no-AI panels from real dimensions');
-  const mdp = _win(srv, 'function _monDeterministicPanels(discovered)', 720);
-  t.ok(/const dim = \(d\.dimensions \|\| \[\]\)\[0\];/.test(mdp) && /dimension: dim\.field/.test(mdp), '_monDeterministicPanels groups by the top real discovered dimension');
-  t.ok(/j\.panels = j\.panels\.map\(p => _monValidatePanel\(p, discovered\)\)/.test(srv), 'generate validates every AI panel against the discovery brief');
-  t.ok(/const detPanels = _monDeterministicPanels\(discovered\)/.test(srv), 'generate falls back to deterministic discovery-driven panels');
-
-  // --- grafana.js alert exports + workspace-source alert gate ---
-  for (const fn of ['listAlerts', 'saveAlert', 'deleteAlert', 'evaluateAlerts', 'isWorkspaceSource', 'catalog']) {
-    t.ok(new RegExp('\\b' + fn + '\\b').test(graf) && graf.includes(fn + ','), 'grafana.js exports ' + fn);
-  }
-  t.ok(/Alerts are supported on internal Workspace sources only\./.test(graf), 'saveAlert rejects non-workspace sources');
-  t.ok(/function catalog\(\)/.test(wss) && /function evaluateAlert\(/.test(wss), 'workspace-source.js provides catalog() + evaluateAlert()');
-  t.ok(/catalog,/.test(wss) && /evaluateAlert,/.test(wss), 'workspace-source.js exports catalog + evaluateAlert');
-});
-
-await t.test('monitoring.ai Phase 2: external ds.* schema discovery + live proxy query + no fake data', () => {
-  const graf = require('../grafana.js');
-  const I = graf._internal;
-  const srv = readFileSync(SERVER, 'utf8');
-  const html = readFileSync(APP_HTML, 'utf8');
-
-  // --- Shared frame parser: /api/ds/query dataframes → { series, table } ---
-  const tsOut = { results: { A: { frames: [ {
-    schema: { fields: [ { name: 'time', type: 'time' }, { name: 'count', type: 'number', config: { unit: 'ops' } } ] },
-    data: { values: [ [1000, 2000, 3000], [5, 8, 13] ] },
-  } ] } } };
-  const tsParsed = I._framesToSeriesTable(tsOut, false);
-  t.eq(tsParsed.series.length, 1, 'timeseries frame → one series');
-  t.eq(tsParsed.series[0].name, 'count', 'series named from the numeric field');
-  t.eq(tsParsed.series[0].unit, 'ops', 'series carries the field unit');
-  t.eq(tsParsed.series[0].sample, false, 'live series are never marked sample');
-  t.eq(tsParsed.series[0].data.length, 3, 'all points parsed [time,value]');
-  t.eq(tsParsed.series[0].data[2][1], 13, 'last value parsed');
-
-  const tblOut = { results: { A: { frames: [ {
-    schema: { fields: [ { name: 'Queue', type: 'string' }, { name: 'Depth', type: 'number' } ] },
-    data: { values: [ ['osx', 'linux'], [4, 9] ] },
-  } ] } } };
-  const tblParsed = I._framesToSeriesTable(tblOut, true);
-  t.ok(tblParsed.table && tblParsed.table.columns.join(',') === 'Queue,Depth', 'table frame → columns');
-  t.eq(tblParsed.table.rows.length, 2, 'table rows parsed');
-  t.eq(tblParsed.table.rows[0][0], 'osx', 'first row first cell');
-  // A time-less frame becomes a table even when wantTable is false.
-  const noTime = I._framesToSeriesTable(tblOut, false);
-  t.ok(noTime.table && !noTime.series.length, 'time-less frame → table (not empty series)');
-
-  // --- ADX schema parse + discovery shape ---
-  const role = I._adxRole;
-  t.eq(role('datetime'), 'time', 'datetime → time role');
-  t.eq(role('long'), 'metric', 'long → metric role');
-  t.eq(role('string'), 'dimension', 'string → dimension role');
-  const schema = { Databases: { Fabric: { Tables: {
-    Jobs: { OrderedColumns: [ { Name: 'Timestamp', CslType: 'datetime' }, { Name: 'Queue', CslType: 'string' }, { Name: 'Count', CslType: 'long' } ] },
-    Meta: { OrderedColumns: [ { Name: 'Key', CslType: 'string' } ] },
-  } } } };
-  const tables = I._parseAdxSchema(schema);
-  t.eq(tables.length, 2, 'both ADX tables parsed');
-  const jobs = tables.find(x => x.table === 'Jobs');
-  t.ok(jobs && jobs.database === 'Fabric', 'table carries its database');
-  t.eq(jobs.columns.find(c => c.name === 'Timestamp').role, 'time', 'Timestamp classified as time');
-  const disc = I._adxTableToDiscovery('ds.adx', 'ADX', 'uid1', 'grafana-azure-data-explorer-datasource', jobs);
-  t.ok(disc.external === true && disc.timeField === 'Timestamp', 'discovery marks external + finds the time field');
-  t.ok(disc.dimensions.some(d => d.field === 'Queue'), 'string column surfaced as a dimension');
-  t.ok(disc.metrics[0].agg === 'count' && disc.metrics.some(m => m.field === 'Count'), 'count metric + numeric metric surfaced');
-
-  // --- External target builder: per-datasource query shape ---
-  const adxT = I._externalTarget({ dsType: 'kusto', datasourceUid: 'u', database: 'Fabric', query: 'Jobs | count' }, 'A');
-  t.ok(adxT.query === 'Jobs | count' && adxT.database === 'Fabric' && adxT.datasource.uid === 'u', 'ADX target carries query/database/uid');
-  const promT = I._externalTarget({ dsType: 'prometheus', datasourceUid: 'p', query: 'up' }, 'A');
-  t.ok(promT.expr === 'up' && promT.range === true, 'Prometheus target uses expr + range');
-  const genT = I._externalTarget({ dsType: 'mysql', datasourceUid: 'm', query: 'select 1' }, 'A');
-  t.ok(genT.rawSql === 'select 1', 'generic SQL target uses rawSql');
-
-  // --- discoverExternal honest not-profiled paths (dev env has no Grafana) ---
-  return (async () => {
-    const unknown = await graf.discoverExternal('ds.does-not-exist');
-    t.ok(unknown.profiled === false && unknown.external === true, 'unknown external source → profiled:false');
-
-    // --- _specToPanels external branch: NEVER synthesizes fake data ---
-    const ext = I._specToPanels({ panels: [ { title: 'ADX panel', source: 'ds.adx', query: 'Jobs | count', datasourceUid: 'u', dsType: 'kusto' } ] }, 'uidX')[0];
-    t.eq(ext.sample, false, 'external panel is not sample');
-    t.eq(ext.empty, true, 'external panel starts honest-empty (live-queried later)');
-    t.eq(ext.series.length, 0, 'external panel has no synthesized series');
-    t.eq(ext.provider, 'external', 'external panel tagged provider:external');
-    t.eq(ext.query, 'Jobs | count', 'external panel carries its AI-authored query');
-    t.ok(/Live data loads/.test(ext.note), 'panel with a query notes live-load');
-    const extNoQ = I._specToPanels({ panels: [ { title: 'No query', source: 'ds.adx' } ] }, 'uidX')[0];
-    t.ok(extNoQ.sample === false && extNoQ.empty === true && /connect the data source/i.test(extNoQ.note), 'query-less external panel is honest-empty with a connect note');
-    // A non-workspace, non-external source still synthesizes a labeled sample (unchanged).
-    const samp = I._specToPanels({ panels: [ { title: 'Latency', source: 'sample' } ] }, 'uidX')[0];
-    t.eq(samp.sample, true, 'plain sample source still synthesizes (clearly labeled)');
-  })().then(() => {
-    // --- server generate route: prompt teaches external query authoring + binds identity ---
-    t.ok(/EXTERNAL \(ds\.\*\) source: you MUST write a "query"/.test(srv), 'generate prompt instructs external query authoring');
-    t.ok(/const extIdentity = \{\}/.test(srv), 'generate collects external datasource identity');
-    t.ok(/const idn = extIdentity\[p\.source\] \|\| \{\};/.test(srv), 'post-AI binding reads external identity per panel');
-    t.ok(/datasourceUid: idn\.uid \|\| cat\.uid \|\| ''/.test(srv), 'external panels get datasourceUid bound');
-    t.ok(/query: p\.query \|\| null,/.test(srv) && /profiled: !!discovered\[p\.source\]/.test(srv), 'provenance surfaces query + profiled');
-    // --- discover route routes ds.* through discoverExternal ---
-    t.ok(/\/\^ds\\\.\/\.test\(id\) \? await grafana\.discoverExternal\(id\)/.test(srv), 'discover route sends ds.* to discoverExternal');
-
-    // --- grafana.js exports the Phase 2 engine ---
-    const grafSrc = readFileSync('grafana.js', 'utf8');
-    t.ok(/discoverExternal,/.test(grafSrc) && /queryExternal,/.test(grafSrc), 'grafana.js exports discoverExternal + queryExternal');
-    for (const fn of ['_framesToSeriesTable', '_parseAdxSchema', '_adxTableToDiscovery', '_externalTarget', '_adxRole', '_specToPanels']) {
-      t.ok(new RegExp(fn).test(grafSrc), 'grafana.js _internal exposes ' + fn);
-    }
-
-    // --- SPA honesty: external panels render honest source/query/empty, not fake ---
-    t.ok(/\(p\.dsType \|\| 'External datasource'\)/.test(html), 'monPanelSourceLabel surfaces the real datasource type for external panels');
-    t.ok(/No query defined — add a query to load live data from this source\./.test(html), 'monPanelQueryText falls back to the honest external note');
-    t.ok(/const _isExt = p\.provider === 'external'/.test(html) && /Live data source/.test(html), 'monPanelBody renders an honest empty state for external panels');
-  });
-});
-
-await t.test('monitoring.ai: curated recents + panel clarity (units/legend/freshness)', () => {
-  const html = readFileSync(APP_HTML, 'utf8');
-
-  // --- Ask 3a: "Recently viewed" is collapsible, at the BOTTOM, curated to actively-opened dashboards ---
-  t.ok(/recent:/.test(html) && /localStorage\.getItem\('mon-recent'\)/.test(html), 'monitoring state has a persisted recent[] of opened dashboard uids');
-  t.ok(/recentOpen:/.test(html) && /localStorage\.getItem\('mon-recent-open'\)/.test(html), 'recentOpen (collapsed by default) is persisted');
-  for (const m of ['_monRecordRecent(', 'monRecentDashboards(', 'monToggleRecent(']) {
-    t.ok(html.includes(m), 'recents method present: ' + m);
-  }
-  // records ONLY on active navigation, whole-array reassign for Alpine reactivity
-  const mrr = _win(html, '_monRecordRecent(uid) {', 360);
-  t.ok(/\[uid, \.\.\.\(w\.recent \|\| \[\]\)\.filter\(u => u !== uid\)\]\.slice\(0, 8\)/.test(mrr), '_monRecordRecent dedupes-to-front, caps at 8, whole-array reassign');
-  t.ok(/this\._monRecordRecent\(uid\)/.test(html), 'monLoadDashboard records the opened dashboard as recent');
-  // curated: maps recent uids -> dashboard objects, NOT the full synced catalog
-  const mrd = _win(html, 'monRecentDashboards() {', 320);
-  t.ok(/w\.recent/.test(mrd) && /\.map\(/.test(mrd), 'monRecentDashboards is driven by the curated recent[] uids');
-  // collapsible markup at the launcher bottom
-  t.ok(/<span>Recently viewed<\/span>/.test(html) && /x-for="d in monRecentDashboards\(\)"/.test(html), 'the home attention row shows a Recently-viewed panel iterating the curated list');
-
-  // --- Ask 3b: panel clarity — axis units, legend, freshness, honest gauge scale ---
-  // _monTsSvg accepts an optional shared min/max so axis labels + plot use ONE scale
-  t.ok(/_monTsSvg\(series, height, mnIn, mxIn\)/.test(html), '_monTsSvg accepts optional shared mn/mx');
-  t.ok(/if \(mnIn != null && mxIn != null\)/.test(html), '_monTsSvg uses the passed scale when provided (default-computes otherwise)');
-  // the timeseries chart wrapper renders y-axis units, x-axis window, and a legend
-  t.ok(/_monTsChart\(p, height\)/.test(html) && /return this\._monTsChart\(p, height \|\| 120\)/.test(html), 'monPanelBody routes timeseries through _monTsChart');
-  const mtc = _win(html, '_monTsChart(p, height)', 2000);
-  t.ok(/class="monx-yax"/.test(mtc) && /class="monx-xax"/.test(mtc) && /class="monx-legend"/.test(mtc), '_monTsChart renders a y-axis, x-axis window, and legend');
-  t.ok(/this\._monNum\(mx\)/.test(mtc) && /this\._monNum\(mn\)/.test(mtc) && /unit/.test(mtc), 'y-axis labels carry compact numbers + the panel unit');
-  t.ok(/this\._monHumanRange\(f\.from/.test(mtc) && /this\._monHumanRange\(f\.to/.test(mtc), 'x-axis shows the humanized query window (from -> to)');
-  // helpers
-  t.ok(/_monNum\(v\)/.test(html) && /_monHumanRange\(tok\)/.test(html), 'compact-number + humanize-range helpers present');
-  // honest gauge scale caption
-  const mgg = _win(html, "if (p.type === 'gauge')", 1200);
-  t.ok(/scaleCap/.test(mgg) && /scale 0–100%/.test(mgg) && /current period max/.test(mgg), 'gauge shows an honest scale caption (0–100% for pct, else current-period max)');
-  // freshness "as of" indicator
-  t.ok(/class="monx-fresh"/.test(html) && /x-text="monFreshLabel\(\)"/.test(html), 'the dbar shows a freshness "as of" indicator');
-  t.ok(/monFreshLabel\(\)/.test(html) && /monFreshTitle\(\)/.test(html), 'freshness label + title helpers present');
-  t.ok(/w\.dash\.loadedAt = Date\.now\(\)/.test(html) && /w\.dash\.refreshedAt = Date\.now\(\)/.test(html), 'loadedAt set on open, refreshedAt set on refresh');
-  // panel header guards an empty unit
-  t.ok(/<span class="psrc" x-show="p\.unit" x-text="'· ' \+ p\.unit">/.test(html), 'panel header hides the unit line when the panel has no unit');
 });
 
 await t.test('compose "make it real": publish engine + routes + wizard (Ask 3c)', async () => {
@@ -3536,36 +3062,34 @@ await t.test('max depth (maxEpochs) winds a pursuit down after N autonomous epoc
     'the launch sends maxEpochs in the pursuit context');
 });
 
-await t.test('epic → Monitoring.AI Objective Health dashboard, flag-gated (Epics + Monitoring)', () => {
+await t.test('epic \u2192 Objective Health dashboard, gated behind the Epics flag', () => {
   const src = readFileSync('server.js', 'utf8');
   const html = readFileSync('public/app.html', 'utf8');
 
-  // (1) FLAG-GATE — both Epics and Monitoring are niche opt-ins: OFF by default in Basic,
-  // ON by default in Advanced, and each has a discoverable catalog entry.
-  t.ok(/epics: false/.test(html) && /monitoring: false/.test(html),
-    'basicFeatures defaults Epics + Monitoring OFF (opt-in)');
-  t.ok(/epics: true/.test(html) && /monitoring: true/.test(html),
-    'advancedFeatures defaults Epics + Monitoring ON (opt-out)');
+  // (1) FLAG-GATE \u2014 Objective Health now rides the Epics feature flag. The standalone
+  // Monitoring.AI flag / nav leaf / catalog entries were physically removed in the teardown.
+  t.ok(/epics: false/.test(html), 'basicFeatures defaults Epics OFF (opt-in)');
+  t.ok(/epics: true/.test(html), 'advancedFeatures defaults Epics ON (opt-out)');
+  t.ok(!/\bmonitoring: (?:true|false)\b/.test(html), 'the standalone Monitoring.AI feature flag is gone');
+  t.ok(!/key: 'monitoring'/.test(html), 'the standalone Monitoring.AI catalog entry is gone');
   const basicCat = _win(html, 'basicFeatureCatalog() {', 2600);
   const advCat = _win(html, 'advancedFeatureCatalog() {', 3000);
-  t.ok(/key: 'epics'/.test(basicCat) && /key: 'monitoring'/.test(basicCat),
-    'basic catalog surfaces Epics + Monitoring toggles');
-  t.ok(/key: 'epics'/.test(advCat) && /key: 'monitoring'/.test(advCat),
-    'advanced catalog surfaces Epics + Monitoring toggles');
+  t.ok(/key: 'epics'/.test(basicCat), 'basic catalog surfaces the Epics toggle');
+  t.ok(/key: 'epics'/.test(advCat), 'advanced catalog surfaces the Epics toggle');
   // The Epics tab + section are gated so a Basic-without-Epics user never sees them.
   t.ok(/&& featureEnabled\('epics'\)/.test(html),
     'the Epics section render is gated on the epics flag');
   t.ok((html.match(/featureEnabled\('epics'\)/g) || []).length >= 4,
     'multiple Epics cf-tab entry points are flag-gated');
 
-  // (2) SERVER — the epic-dashboard route + its two helpers exist.
+  // (2) SERVER \u2014 the epic-dashboard route + its two helpers survive the teardown.
   t.ok(/app\.post\('\/api\/monitoring\/epic-dashboard'/.test(src),
     'POST /api/monitoring/epic-dashboard route exists');
   t.ok(/function _monEpicGuidanceDoc\(/.test(src),
     'guidance-doc resolver helper exists');
   t.ok(/function _monNormObjective\(/.test(src),
     'objective normalizer helper exists');
-  // HONESTY: the normalizer must NOT fabricate a live time-series — no series/base/sustain,
+  // HONESTY: the normalizer must NOT fabricate a live time-series \u2014 no series/sustain,
   // and `shape` is only attached for genuine gap objectives (miss|part).
   const norm = _win(src, 'function _monNormObjective(', 1600);
   t.ok(!/\bseries\b/.test(norm) && !/\bsustain\b/.test(norm),
@@ -3574,63 +3098,35 @@ await t.test('epic → Monitoring.AI Objective Health dashboard, flag-gated (Epi
        /\(status === 'miss' \|\| status === 'part'\) && o && o\.shape/.test(norm),
     'desired-telemetry shape is attached only to miss/part gap objectives');
 
-  // (3) OBJECTIVE HEALTH VIEW — the fourth monitoring view + its dispatcher + entry method.
+  // (3) OBJECTIVE HEALTH VIEW \u2014 the objective view + its dispatcher + entry method.
   t.ok(/monitoring\.view === 'objective'/.test(html),
     'the Objective Health view is wired to monitoring.view');
   t.ok(/monObjDetail\(\)/.test(html) && /async monEpicDashboard\(/.test(html),
     'objective detail dispatcher + monEpicDashboard entry method exist');
 
-  // (4) EPIC ENTRY — a Monitoring dashboard action on the Epics cockpit, gated on the
-  // Monitoring flag, wired to the current epic's key.
+  // (4) EPIC ENTRY \u2014 an Objective-Health action on the Epics cockpit, gated on the
+  // EPICS flag (the only way Objective Health is now reachable), wired to the epic key.
   const jump = _win(html, 'class="epx-jump-mon"', 300);
-  t.ok(/x-show="featureEnabled\('monitoring'\)"/.test(jump) &&
+  t.ok(/x-show="featureEnabled\('epics'\)"/.test(jump) &&
        /monEpicDashboard\(epicCur\(\)\.key/.test(jump),
-    'the Epics cockpit exposes a Monitoring-flag-gated dashboard action');
+    'the Epics cockpit exposes an epics-flag-gated Objective Health action');
 });
 
-await t.test('monitoring.ai: home dashboards mgmt + epic↔dashboard link management (rename/delete/relink/gen-from-epic)', () => {
+await t.test('epic Objective Health: server persistence + card management (resync/unlink/relink/source-swap)', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   const srv = readFileSync('server.js', 'utf8');
-  const graf = readFileSync('grafana.js', 'utf8');
-
-  // --- grafana.js rename + delete primitives ---
-  t.ok(/async function renameDashboard\(uid, title\)/.test(graf), 'grafana.js defines renameDashboard(uid,title)');
-  t.ok(/async function deleteDashboard\(uid\)/.test(graf), 'grafana.js defines deleteDashboard(uid)');
-  const gexp = _win(graf, 'module.exports', 600) || graf;
-  t.ok(/renameDashboard,/.test(gexp) && /deleteDashboard,/.test(gexp), 'grafana.js exports rename/delete');
-
-  // --- server rename + delete routes ---
-  t.ok(srv.includes("app.put('/api/monitoring/dashboard/:uid/rename'") &&
-       /grafana\.renameDashboard\(req\.params\.uid/.test(srv), 'server PUT /rename → grafana.renameDashboard');
-  t.ok(srv.includes("app.delete('/api/monitoring/dashboard/:uid'") &&
-       /grafana\.deleteDashboard\(req\.params\.uid\)/.test(srv), 'server DELETE dashboard → grafana.deleteDashboard');
 
   // --- server epic-dashboard persistence: GET / DELETE / POST all present ---
-  t.ok(/function _epicOHLoad\(\)/.test(srv) && /function _epicOHSave\(map\)/.test(srv), 'server persists epic-OH snapshots to disk');
+  t.ok(/function _epicOHLoad\(\)/.test(srv) && /function _epicOHSave\(map\)/.test(srv),
+    'server persists epic-OH snapshots to disk');
   t.ok(/function _epicOHCounts\(objectives\)/.test(srv), 'server computes epic-OH objective counts');
   t.ok(srv.includes("app.get('/api/monitoring/epic-dashboard'"), 'server GET /api/monitoring/epic-dashboard');
   t.ok(srv.includes("app.delete('/api/monitoring/epic-dashboard'"), 'server DELETE /api/monitoring/epic-dashboard');
-  // POST route persists a snapshot carrying doc:{id,title,source}
+  // POST route persists a snapshot under the epic key.
   const post = _win(srv, "app.post('/api/monitoring/epic-dashboard'", 2600);
   t.ok(post, 'server POST /api/monitoring/epic-dashboard found');
   t.ok(/map\[key\] = snapshot; _epicOHSave\(map\)/.test(post) || /map\[key\] = snapshot;\s*_epicOHSave/.test(srv),
     'POST persists the epic-OH snapshot under the epic key');
-
-  // --- mon-home "Your dashboards": rename + delete surfaces + state ---
-  t.ok(/monRenameStart\(d\)/.test(html) && /monRenameCancel\(\)/.test(html) && /async monRenameCommit\(\)/.test(html),
-    'mon-home rename methods present');
-  t.ok(/async monDeleteDash\(d\)/.test(html), 'mon-home delete method present');
-  t.ok(/monitoring\.rename/.test(html), 'mon-home rename state present');
-  t.ok(/@click\.stop="monRenameStart\(d\)"/.test(html) && /@click\.stop="monDeleteDash\(d\)"/.test(html),
-    'mon-home renders Rename + Delete row actions');
-
-  // --- gen-from-epic launcher ---
-  t.ok(/async monLoadEpicChoices\(\)/.test(html), 'monLoadEpicChoices loads epic candidates');
-  t.ok(/monGenFromEpic\(\)/.test(html), 'monGenFromEpic present');
-  t.ok(/monitoring\.epicGen\.epicKey/.test(html), 'epicGen state drives the Build button');
-  t.ok(/monBackToEpic\(\)/.test(html), 'monBackToEpic back-link present');
-  t.ok(/class="moh-link"[^>]*monBackToEpic\(\)/.test(html) || /monBackToEpic\(\)"[^>]*←/.test(html) || /← Back to\s*epic/.test(html),
-    'objective-health view renders a Back-to-epic link');
 
   // --- epic OH card: resync / unlink / RELINK (swap source doc) ---
   t.ok(/async epicResyncObjHealth\(\)/.test(html) && /async epicUnlinkObjHealth\(\)/.test(html),
@@ -3650,69 +3146,11 @@ await t.test('monitoring.ai: home dashboards mgmt + epic↔dashboard link manage
        /epicRelinkObjHealth\(\$event\.target\.value\)/.test(html),
     'the change-on-select <select> relinks to the chosen doc');
   t.ok(/\.epx-oh-src/.test(html), 'the source-doc line has calm scoped CSS');
-});
 
-await t.test('monitoring.ai: browse-first home hub + separate Create page (attention/groups/collapsed catalog/plural endpoint)', () => {
-  const html = readFileSync(APP_HTML, 'utf8');
-  const srv = readFileSync('server.js', 'utf8');
-
-  // --- monitoring lands on the browse-first HOME by default ---
-  const monState = _win(html, "epicDashboards:", 400) || html;
-  t.ok(/view:\s*'home'/.test(html), "monitoring view defaults to 'home'");
-  t.ok(/epicDashboards:\s*\[\]/.test(html) && /epicDashLoading:/.test(html), 'home epic-dashboards state present');
-  t.ok(/homeDashOpen:/.test(html) && /homeCatOpen:/.test(html) && /epicGroupOpen:/.test(html),
-    'home collapse booleans present');
-
-  // --- HOME markup block ---
-  t.ok(html.includes("x-show=\"monitoring.view === 'home'\""), 'HOME block gated on view===home');
-  t.ok(/class="monh-bar"/.test(html) && /class="monh-newdash"[^>]*monOpenCreate\(\)/.test(html),
-    'HOME header + New-dashboard button routes to Create');
-  t.ok(/class="monh-att"/.test(html), 'HOME attention row present (recently-viewed + alerts)');
-  // epic Objective-Health group is present and hides when empty
-  t.ok(/x-show="monitoring\.epicDashboards\.length"/.test(html), 'epic OH group hides when no epic dashboards');
-  t.ok(/@click\.stop="monEpicDashboard\(e\.key\)"/.test(html) && /monUnlinkEpicDash\(e\.key\)/.test(html),
-    'epic OH rows open + unlink');
-  t.ok(/class="monh-hbar"/.test(html) && /monEpicDashSegs\(e\.counts\)/.test(html),
-    'epic OH rows render the health bar via monEpicDashSegs');
-  // collapsed read-only data-sources card
-  t.ok(/monHomeCatToggle\(\)/.test(html), 'collapsed data-catalog toggle present');
-
-  // --- CREATE page is its own view, reachable from home ---
-  t.ok(html.includes("x-show=\"monitoring.view === 'launcher'\""), 'CREATE block gated on view===launcher');
-  t.ok(/class="monx-createnav"/.test(html) && /@click="monGoHome\(\)">← Monitoring\.AI home/.test(html),
-    'CREATE page has a back-to-home nav');
-
-  // --- CREATE-block trim: the 3 sections were moved to HOME, not duplicated ---
-  const create = html.slice(html.indexOf("x-show=\"monitoring.view === 'launcher'\""),
-                            html.indexOf("x-show=\"monitoring.view === 'studio'\""));
-  t.ok(create.length > 500, 'CREATE block located');
-  t.ok(!/Recently viewed/i.test(create), 'CREATE block no longer duplicates Recently viewed');
-  t.ok(!/>Your dashboards</.test(create), 'CREATE block no longer duplicates the Your-dashboards section');
-  t.ok(!/monx-alertform/.test(create), 'CREATE block no longer duplicates the Alerts form');
-  // CREATE still owns the context/data catalog + templates + epic-gen
-  t.ok(/Context &amp; data catalog/.test(create) && /Start from a template/.test(create),
-    'CREATE block keeps the catalog + templates');
-
-  // --- nav methods ---
-  t.ok(/monGoHome\(\)\s*\{/.test(html) && /monOpenCreate\(\)\s*\{/.test(html) && /monHomeCatToggle\(\)\s*\{/.test(html),
-    'monGoHome / monOpenCreate / monHomeCatToggle defined');
-  t.ok(/async monLoadEpicDashboards\(\)/.test(html) && /\/api\/monitoring\/epic-dashboards'/.test(html),
-    'monLoadEpicDashboards fetches the plural endpoint');
-  t.ok(/monBackToLauncher\(\)\s*\{[^}]*monGoHome\(\)/.test(html), 'monBackToLauncher routes to home');
-  const del = _win(html, 'async monDeleteDash(d)', 900) || html;
-  t.ok(!/view = 'launcher'/.test(del) || /view = 'home'/.test(del) || true, 'monDeleteDash present');
-
-  // --- home-hub CSS (no pills; modest radius) ---
-  t.ok(/\.monh-att\{/.test(html) && /\.monh-panel\{/.test(html) && /\.monh-card\{/.test(html),
-    'home-hub layout CSS present');
-  t.ok(/\.monh-cardh \.chev\.open\{ transform:rotate\(90deg\)/.test(html), 'card chevron rotates on .open');
-  t.ok(/\.monx-createnav\{/.test(html), 'create-nav CSS present');
-
-  // --- server plural list endpoint ---
-  t.ok(srv.includes("app.get('/api/monitoring/epic-dashboards'"), 'server GET /api/monitoring/epic-dashboards (plural)');
-  const plural = _win(srv, "app.get('/api/monitoring/epic-dashboards'", 900);
-  t.ok(plural && /dashboards:/.test(plural) && /_epicOHLoad\(\)/.test(plural),
-    'plural endpoint returns dashboards from _epicOHLoad');
+  // --- objective view back-link returns to the epic in Code Flow ---
+  t.ok(/monBackToEpic\(\)/.test(html), 'monBackToEpic back-link method present');
+  t.ok(/class="moh-link"[^>]*monBackToEpic\(\)/.test(html) || /monBackToEpic\(\)"[^>]*\u2190/.test(html) || /\u2190 Back to\s*epic/.test(html),
+    'objective-health view renders a Back-to-epic link');
 });
 
 await t.test('monitoring.ai: epic→objective nav is not clobbered by the async route-load (pendingNav sentinel)', () => {
@@ -3729,18 +3167,13 @@ await t.test('monitoring.ai: epic→objective nav is not clobbered by the async 
     'monEpicDashboard sets pendingNav=true before goTo, then view=objective');
 
   // monLoad honors the sentinel (timing-independent) instead of the old obj.loading race.
-  const ml = _win(html, 'async monLoad(uid)', 2400) || html;
-  t.ok(/w\.view === 'objective' && w\.obj && w\.obj\.pendingNav/.test(ml),
-    'monLoad keeps the objective view when pendingNav is set');
-  t.ok(!/w\.view === 'objective' && w\.obj && w\.obj\.loading/.test(ml),
-    'monLoad no longer relies on the racy obj.loading check');
-  // The sentinel is consumed on every entry path (kept, deep-link, and home landing).
-  t.ok((ml.match(/pendingNav = false/g) || []).length >= 2,
-    'monLoad consumes the sentinel on its entry branches');
-
-  // Going home explicitly clears any leaked sentinel so it cannot hijack a later home nav.
-  const gh = _win(html, 'monGoHome() {', 260) || html;
-  t.ok(/w\.obj\.pendingNav = false/.test(gh), 'monGoHome clears the sentinel');
+  // Post-teardown the route hosts ONLY the epic Objective Health view, so monLoad is a
+  // lean stub that lands on 'objective' and consumes the one-shot sentinel.
+  const ml = _win(html, 'async monLoad()', 400) || html;
+  t.ok(/w\.view = 'objective';/.test(ml),
+    'monLoad lands on the objective view');
+  t.ok(/w\.obj && w\.obj\.pendingNav[\s\S]*w\.obj\.pendingNav = false;[\s\S]*return;/.test(ml),
+    'monLoad consumes the pendingNav sentinel and returns without clobbering the epic nav');
 });
 
 await t.test('epic metrics: overview navigation hub + honest per-objective viz + over-time', () => {
@@ -3793,67 +3226,6 @@ await t.test('epic metrics: overview navigation hub + honest per-objective viz +
   t.ok(/function _epicOHAppendReadings\(/.test(srv), 'server records reading history');
   t.ok(srv.includes('_epicOHAppendReadings(key, model.objectives, generatedAt)'),
     'POST epic-dashboard appends readings after the model is built');
-  t.ok(/readingPoints:/.test(srv), 'plural list exposes readingPoints');
-});
-
-await t.test('epic metrics: publish to Azure — App Insights ETL sink + Grafana + honest guidance', () => {
-  const html = readFileSync('public/app.html', 'utf8');
-  const srv = readFileSync('server.js', 'utf8');
-  const graf = readFileSync('grafana.js', 'utf8');
-  const emit = readFileSync('epic-telemetry.js', 'utf8');
-  const setg = readFileSync('settings.js', 'utf8');
-
-  // (1) SETTINGS — telemetry sink default (opt-in, off; connection string blank).
-  t.ok(/monitoringTelemetry:/.test(setg) && /connectionString:\s*''/.test(setg) && /datasourceUid:\s*''/.test(setg),
-    'settings.js has a monitoringTelemetry default with connectionString + datasourceUid');
-
-  // (2) EMITTER — App Insights ETL emitter emits ONLY recorded readings, never fabricated.
-  t.ok(/EVENT_NAME\s*=\s*'EpicObjectiveReading'/.test(emit) && /function configured\(/.test(emit) &&
-       /(exports\.emit|module\.exports[\s\S]*emit)/.test(emit),
-    'epic-telemetry.js exports emit()/configured() and uses the reading event name');
-
-  // (3) GRAFANA — Arch-C model builder + publisher + real Azure Monitor/KQL target.
-  t.ok(/function epicObjectiveKql\(/.test(graf) && /function buildEpicGrafanaModel\(/.test(graf) &&
-       /function publishEpicDashboard\(/.test(graf),
-    'grafana.js has epicObjectiveKql + buildEpicGrafanaModel + publishEpicDashboard');
-  t.ok(/_azureMonitorTarget/.test(graf), 'grafana.js builds a real Azure Monitor target');
-
-  // (4) SERVER — telemetry config route NEVER echoes the connection string (only hasConnectionString).
-  const tg = _win(srv, "app.get('/api/monitoring/telemetry'", 500) || '';
-  t.ok(tg && /hasConnectionString:/.test(tg) && !/\bconnectionString:\s*t\.connectionString/.test(tg),
-    'GET telemetry returns hasConnectionString boolean, never the raw connection string');
-  const tp = _win(srv, "app.put('/api/monitoring/telemetry'", 900) || '';
-  t.ok(tp && /b\.connectionString\.trim\(\)/.test(tp) && /cur\.connectionString/.test(tp),
-    'PUT telemetry keeps the stored connection string when the body value is blank');
-
-  // (5) SERVER — per-epic publish route: 404 without a snapshot, honest guidance, graceful ok:false.
-  const pub = _win(srv, "epic-dashboard/:key/publish", 2000) || '';
-  t.ok(pub && /_epicOHLoad\(\)\[key\]/.test(pub) && /status\(404\)/.test(pub),
-    'publish route loads the snapshot and 404s when none exists');
-  t.ok(pub && /grafana\.publishEpicDashboard\(snap/.test(pub) && /guidance\.push\(/.test(pub),
-    'publish route calls publishEpicDashboard and appends honest guidance');
-  t.ok(pub && /ok:\s*false,\s*error:\s*e\.message/.test(pub),
-    'publish route degrades to a graceful ok:false on error');
-
-  // (6) SPA — Publish button + panel + telemetry editor + freshness banner + methods.
-  t.ok(/@click="monObjPublishOpen\(\)"/.test(html) && /Publish to Azure/.test(html),
-    'the epic overview header has a Publish to Azure button');
-  const pnl = _win(html, 'class="mem-pub"', 4800) || '';
-  t.ok(pnl && /App Insights ingestion is asynchronous/.test(pnl),
-    'the publish panel shows an honest ingestion-lag freshness banner');
-  t.ok(pnl && /x-model="monitoring\.telemetry\.connectionString"/.test(pnl) &&
-       /x-model="monitoring\.telemetry\.datasourceUid"/.test(pnl),
-    'the panel has a telemetry editor (connection string + datasource UID)');
-  t.ok(/monitoring\.obj\.publish\.result\.guidance/.test(html),
-    'the panel renders the returned guidance steps');
-  t.ok(/async monTelemetryLoad\(/.test(html) && /async monTelemetrySave\(/.test(html) &&
-       /async monObjPublish\(\)/.test(html) && /monObjPublishOpen\(\)/.test(html),
-    'the publish/telemetry methods are wired');
-
-  // (7) STATE — publish sub-state + telemetry config block.
-  t.ok(/publish:\s*\{\s*open:\s*false/.test(html), 'monitoring.obj.publish sub-state exists');
-  t.ok(/telemetry:\s*\{[\s\S]*hasConnectionString:\s*false/.test(html),
-    'monitoring.telemetry config state exists');
 });
 
 await t.done();

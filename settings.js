@@ -167,31 +167,6 @@ const DEFAULTS = {
   connectWorkIqCommand: 'npx',
   connectWorkIqArgs: '-y @microsoft/workiq@latest mcp',
 
-  // ---- Monitoring.AI (Azure Managed Grafana) --------------------------------
-  // Connection to a Grafana instance (Azure Managed Grafana or any Grafana). When
-  // enabled + url + token are set, the Monitoring.AI page reads live dashboards;
-  // otherwise it runs entirely on honest sample data so it is explorable out of
-  // the box. token = a Grafana service-account token (Bearer). orgId is optional
-  // (X-Grafana-Org-Id header) for multi-org instances.
-  grafana: { enabled: false, url: '', token: '', orgId: '', authMode: 'aad', pushByDefault: true },
-
-  // ---- Monitoring.AI — epic telemetry sink (App Insights) -------------------
-  // Architecture C: TheOffice.AI acts as an ETL that emits each epic objective's
-  // recorded reading into a SHARED Application Insights instance, and a per-epic
-  // Grafana dashboard reads back from it (Grafana = front-end portal). ONE shared
-  // instance backs every epic dashboard; the source is changeable here (not
-  // hardcoded). Default OFF / opt-in — nothing is emitted until enabled + a
-  // connection string is set. HONESTY: only recorded readings are ever emitted;
-  // no synthetic series.
-  //   connectionString — App Insights connection string (carries ingestion key +
-  //                      endpoint). The single source of truth for emission.
-  //   resourceId       — the App Insights ARM resource id (used to build the
-  //                      Grafana Azure Monitor query target + guide datasource wiring).
-  //   subscriptionId / appInsightsName / resourceGroup — provisioning breadcrumbs.
-  //   datasourceUid    — the Grafana Azure Monitor datasource uid pointed at this
-  //                      App Insights (set once the datasource is wired in Grafana).
-  monitoringTelemetry: { enabled: false, connectionString: '', resourceId: '', subscriptionId: '', appInsightsName: '', resourceGroup: '', datasourceUid: '' },
-
   // ---- Compose.AI — "Make it real" prototype publishing ---------------------
   // Turns a self-contained Compose.AI prototype (a `site` draft) into a real,
   // access-restricted Azure App Service with per-user Table Storage state and
@@ -330,7 +305,7 @@ const DEFAULTS = {
 let cache = null;
 
 // A "fixed-shape" nested setting is a non-empty object default (e.g. composePublish,
-// director, grafana, githubAccount): its keys are a known schema, so a partial stored
+// director, githubAccount): its keys are a known schema, so a partial stored
 // value / partial patch must MERGE over the sibling defaults rather than replace them.
 // An "open map" is an empty-object default (e.g. systemAgentOverrides, director.grants):
 // callers rebuild the whole map to add/remove entries, so it is replaced wholesale.

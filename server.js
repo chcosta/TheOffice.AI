@@ -917,9 +917,6 @@ function recordActivity(ev) {
 
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
-// Monitoring.AI — Azure Managed Grafana bridge (live dashboards + sample fallback).
-const grafana = require('./grafana');
-const epicTelemetry = require('./epic-telemetry');
 // Wire the canonical usage sink once: EVERY AI run that flows through the
 // sdk-runner (runAgent/runChat/runPrompt) — present or future — auto-appends a
 // row to the usage ledger, so all AI usage shows up in Reports with no per-call
@@ -10073,552 +10070,18 @@ app.put('/api/settings', (req, res) => {
 });
 
 // ============================================================================
-// Monitoring.AI — Azure Managed Grafana + AI
+// Objective Health — the Code Flow epic bridge
 // ----------------------------------------------------------------------------
-// Spin up dashboards from a prompt, view Grafana panels locally, grab panels/
-// datasets, and hand them to an AI copilot for trend/status analysis. Degrades
-// to honest sample data when Grafana is unconfigured so the page is usable out
-// of the box. LLM calls (generate/analyze) fall back to deterministic helpers
-// in grafana.js when the model is unavailable.
+// The only surviving piece of the former Monitoring.AI: given a Code Flow epic
+// and its linked "business objectives / tracking" guidance doc, produce an
+// Objective-Health model (one entry per objective) that is created, viewed, and
+// edited entirely from the epic itself. Records its own reading history so
+// objectives can be charted over time. HONEST: never fabricates a live series —
+// trends come only from recorded readings. An AI assistant (below) analyzes and
+// edits the model; a deterministic fallback is used when the model is offline.
 // ============================================================================
 
-// Connection status + data sources.
-app.get('/api/monitoring/status', async (req, res) => {
-  try { res.json(await grafana.status()); }
-  catch (e) { res.status(200).json({ configured: false, error: e.message, sources: [] }); }
-});
 
-// Read/update the Grafana connection (thin wrapper over settings.grafana so the
-// Monitoring.AI page can connect inline without visiting the settings screen).
-app.get('/api/monitoring/connection', (req, res) => {
-  const g = grafana.cfg();
-  // Never echo the token back; report only whether one is set.
-  res.json({ enabled: g.enabled, url: g.url, orgId: g.orgId, hasToken: !!g.token, authMode: g.authMode, pushByDefault: g.pushByDefault });
-});
-app.put('/api/monitoring/connection', async (req, res) => {
-  try {
-    const b = req.body || {};
-    const cur = settings.getSettings().grafana || {};
-    const next = {
-      enabled: typeof b.enabled === 'boolean' ? b.enabled : !!cur.enabled,
-      url: typeof b.url === 'string' ? b.url.trim() : (cur.url || ''),
-      orgId: typeof b.orgId === 'string' ? b.orgId.trim() : (cur.orgId || ''),
-      // Only overwrite the token when a non-empty one is supplied; blank keeps the current token.
-      token: (typeof b.token === 'string' && b.token.trim()) ? b.token.trim() : (cur.token || ''),
-      authMode: (b.authMode === 'aad' || b.authMode === 'token') ? b.authMode : (cur.authMode === 'token' ? 'token' : 'aad'),
-      pushByDefault: typeof b.pushByDefault === 'boolean' ? b.pushByDefault : (cur.pushByDefault !== false),
-    };
-    settings.updateSettings({ grafana: next });
-    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
-    const status = await grafana.status();
-    res.json({ ok: true, connection: { enabled: next.enabled, url: next.url, orgId: next.orgId, hasToken: !!next.token, authMode: next.authMode, pushByDefault: next.pushByDefault }, status });
-  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
-// Force the connection to re-authenticate: drop the cached Azure identity token
-// (needed after assigning a Grafana role, since the role is baked into the token)
-// and re-run the health check with a freshly minted token.
-app.post('/api/monitoring/reconnect', async (req, res) => {
-  try { grafana.resetAuthCache(); res.json({ ok: true, status: await grafana.status() }); }
-  catch (e) { res.status(200).json({ ok: false, error: e.message }); }
-});
-
-// Architecture C telemetry sink config (shared App Insights instance the epic
-// dashboards emit into + read back from Grafana). NEVER echo the connection
-// string — report only whether one is set.
-app.get('/api/monitoring/telemetry', (req, res) => {
-  const t = (settings.getSettings().monitoringTelemetry) || {};
-  res.json({
-    enabled: !!t.enabled,
-    hasConnectionString: !!(t.connectionString && String(t.connectionString).trim()),
-    resourceId: t.resourceId || '',
-    subscriptionId: t.subscriptionId || '',
-    appInsightsName: t.appInsightsName || '',
-    resourceGroup: t.resourceGroup || '',
-    datasourceUid: t.datasourceUid || '',
-    configured: epicTelemetry.configured(),
-  });
-});
-app.put('/api/monitoring/telemetry', (req, res) => {
-  try {
-    const b = req.body || {};
-    const cur = settings.getSettings().monitoringTelemetry || {};
-    const str = (k) => (typeof b[k] === 'string' ? b[k].trim() : (cur[k] || ''));
-    const next = {
-      enabled: typeof b.enabled === 'boolean' ? b.enabled : !!cur.enabled,
-      // Only overwrite the connection string when a non-empty one is supplied.
-      connectionString: (typeof b.connectionString === 'string' && b.connectionString.trim()) ? b.connectionString.trim() : (cur.connectionString || ''),
-      resourceId: str('resourceId'),
-      subscriptionId: str('subscriptionId'),
-      appInsightsName: str('appInsightsName'),
-      resourceGroup: str('resourceGroup'),
-      datasourceUid: str('datasourceUid'),
-    };
-    settings.updateSettings({ monitoringTelemetry: next });
-    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
-    res.json({
-      ok: true,
-      telemetry: {
-        enabled: next.enabled,
-        hasConnectionString: !!next.connectionString,
-        resourceId: next.resourceId, subscriptionId: next.subscriptionId,
-        appInsightsName: next.appInsightsName, resourceGroup: next.resourceGroup,
-        datasourceUid: next.datasourceUid,
-        configured: epicTelemetry.configured(),
-      },
-    });
-  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
-// Manually push a local (spun-up) dashboard to Grafana.
-app.post('/api/monitoring/dashboard/:uid/push', async (req, res) => {
-  try { res.json(await grafana.pushDashboard(req.params.uid)); }
-  catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message }); }
-});
-
-// Update per-dashboard options (autoPush).
-app.put('/api/monitoring/dashboard/:uid/options', async (req, res) => {
-  try {
-    const b = req.body || {};
-    res.json(await grafana.setDashboardOptions(req.params.uid, { autoPush: typeof b.autoPush === 'boolean' ? b.autoPush : undefined }));
-  } catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message }); }
-});
-
-// Rename a local (spun-up) dashboard.
-app.put('/api/monitoring/dashboard/:uid/rename', async (req, res) => {
-  try { res.json(await grafana.renameDashboard(req.params.uid, (req.body || {}).title)); }
-  catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message, code: e.code || '' }); }
-});
-
-// Delete a local (spun-up) dashboard.
-app.delete('/api/monitoring/dashboard/:uid', async (req, res) => {
-  try { res.json(await grafana.deleteDashboard(req.params.uid)); }
-  catch (e) { res.status(200).json({ ok: false, uid: req.params.uid, error: e.message, code: e.code || '' }); }
-});
-
-// Dashboard list (live when connected; sample + local spun-up otherwise).
-app.get('/api/monitoring/dashboards', async (req, res) => {
-  try { res.json(await grafana.listDashboards()); }
-  catch (e) { res.status(200).json({ configured: grafana.configured(), error: e.message, dashboards: [] }); }
-});
-
-// Context & data catalog: internal Workspace sources (tasks, Me.AI runs, agenda,
-// diary, activity, agents, docs) + connected external Grafana datasources. Each
-// source reports which roles it supports — ground (AI reads), chart (AI charts),
-// alert (threshold rules) — plus a live best-effort count.
-app.get('/api/monitoring/catalog', async (req, res) => {
-  try { res.json(await grafana.catalog()); }
-  catch (e) { res.status(200).json({ workspace: [], external: [], configured: grafana.configured(), error: e.message }); }
-});
-
-// Query a single internal Workspace source into native timeseries (for previews
-// and ad-hoc charting). External datasources are queried through the dashboard path.
-app.get('/api/monitoring/workspace/:id/query', (req, res) => {
-  try {
-    const q = req.query || {};
-    res.json(grafana.queryWorkspace(req.params.id, {
-      days: q.days ? Number(q.days) : undefined,
-      bin: q.bin || undefined,
-      split: q.split === '0' ? false : true,
-    }));
-  } catch (e) { res.status(200).json({ id: req.params.id, series: [], error: e.message }); }
-});
-
-// Ground context for a source — the text the AI reads (NOT charted).
-app.get('/api/monitoring/workspace/:id/ground', (req, res) => {
-  try { res.json(grafana.groundContext(req.params.id)); }
-  catch (e) { res.status(200).json({ id: req.params.id, text: '', error: e.message }); }
-});
-
-// Discover (profile) a source — the REAL dimensions/metrics/time-field/sample
-// values the data actually has, so the UI can show what's chartable and the
-// designer can bind panels to real fields. Internal ws.* profile from records;
-// external ds.* have no static profiler yet (returns null → not-profiled).
-app.get('/api/monitoring/discover/:id', async (req, res) => {
-  try {
-    const id = req.params.id;
-    const d = /^ds\./.test(id) ? await grafana.discoverExternal(id) : grafana.discover(id);
-    if (!d) return res.json({ ok: true, id, profiled: false });
-    const profiled = d.external ? !!d.profiled : true;
-    res.json({ ok: true, id, profiled, discovery: d });
-  } catch (e) { res.status(200).json({ ok: false, id: req.params.id, profiled: false, error: e.message }); }
-});
-
-// ---- Alerts on internal Workspace collections -----------------------------
-// Threshold rules over ws.* sources (tasks/Me.AI/agenda/activity/agents). A
-// leader-gated scheduler evaluates them; a firing rule broadcasts an in-app
-// notification (and, for target:'email', opens a prepared .eml).
-app.get('/api/monitoring/alerts', (req, res) => {
-  try { res.json({ ok: true, alerts: grafana.listAlerts() }); }
-  catch (e) { res.status(200).json({ ok: false, alerts: [], error: e.message }); }
-});
-app.post('/api/monitoring/alerts', (req, res) => {
-  try { res.json({ ok: true, alert: grafana.saveAlert(req.body || {}) }); }
-  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
-});
-app.put('/api/monitoring/alerts/:id', (req, res) => {
-  try { res.json({ ok: true, alert: grafana.saveAlert({ ...(req.body || {}), id: req.params.id }) }); }
-  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
-});
-app.delete('/api/monitoring/alerts/:id', (req, res) => {
-  try { res.json(grafana.deleteAlert(req.params.id)); }
-  catch (e) { res.status(200).json({ ok: false, error: e.message }); }
-});
-// Evaluate now (manual test) — notifies on any ok→firing transition.
-app.post('/api/monitoring/alerts/evaluate', async (req, res) => {
-  try { const r = await _runMonitoringAlerts('manual'); res.json({ ok: true, ...r }); }
-  catch (e) { res.status(200).json({ ok: false, error: e.message }); }
-});
-
-// One evaluation pass. Notifications fire only on a state change (ok→firing) so
-// a persistently-breaching rule doesn't spam every cycle.
-async function _runMonitoringAlerts(trigger) {
-  let out = { fired: [], evaluated: 0 };
-  try { out = grafana.evaluateAlerts(); } catch (e) { return { fired: [], evaluated: 0, error: e.message }; }
-  for (const rule of out.fired) {
-    const detail = {
-      id: rule.id, name: rule.name, sourceId: rule.sourceId,
-      observed: rule.observed, threshold: rule.threshold, op: rule.op, agg: rule.agg,
-      windowDays: rule.window && rule.window.days, at: Date.now(), trigger: trigger || 'schedule',
-    };
-    try { broadcastSSE('monitoring-alert', detail); } catch (_) {}
-    if (rule.target === 'email') {
-      try {
-        const subj = `Monitoring alert — ${rule.name}`;
-        const body = `Alert "${rule.name}" fired.\n\nSource: ${rule.sourceId}\nCondition: ${rule.agg} ${rule.op} ${rule.threshold} over ${detail.windowDays}d\nObserved: ${rule.observed}\n`;
-        const eml = `To: \r\nSubject: ${subj}\r\nX-Unsent: 1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
-        const p = path.join(require('os').tmpdir(), `mon-alert-${rule.id}.eml`);
-        fs.writeFileSync(p, eml);
-        require('child_process').exec(`start "" "${p}"`);
-      } catch (e) { console.warn('[monitoring] alert email failed:', e.message); }
-    }
-    console.log(`[monitoring] alert fired: ${rule.name} (${rule.sourceId}) observed=${rule.observed} ${rule.op} ${rule.threshold}`);
-  }
-  return out;
-}
-
-// Leader-gated scheduled evaluation — one designated instance evaluates so a
-// firing rule notifies exactly once across synced machines.
-setInterval(() => {
-  try {
-    if (configSync && configSync.enabled && !configSync.isLeader) return;
-    if (!featureEnabled('monitoring')) return;
-    if (!grafana.listAlerts().some(a => a.enabled)) return;
-    _runMonitoringAlerts('schedule').catch(e => console.warn('[monitoring] alert pass error:', e.message));
-  } catch (_) {}
-}, 300000);
-
-// One dashboard with its panels + series.
-app.get('/api/monitoring/dashboard/:uid', async (req, res) => {
-  try {
-    const q = req.query || {};
-    const vars = {};
-    for (const k of Object.keys(q)) {
-      if (k.startsWith('var-')) vars[k.slice(4)] = q[k];
-    }
-    const opts = { from: q.from || undefined, to: q.to || undefined, vars };
-    res.json(await grafana.getDashboard(req.params.uid, opts));
-  }
-  catch (e) { res.status(200).json({ error: e.message, uid: req.params.uid, panels: [] }); }
-});
-
-// Server-side PNG render of a single panel (real Grafana pixels) using the
-// app's Azure identity. The browser loads this as a same-origin <img>, which
-// sidesteps the AMG iframe/AAD framing wall entirely. On any failure we return
-// a small error payload the client can turn into a graceful fallback.
-app.get('/api/monitoring/render/:uid', async (req, res) => {
-  try {
-    const q = req.query || {};
-    const vars = {};
-    for (const k of Object.keys(q)) { if (k.startsWith('var-')) vars[k.slice(4)] = q[k]; }
-    const { buffer, contentType } = await grafana.renderPanel(req.params.uid, {
-      panelId: q.panelId,
-      whole: q.whole === '1',
-      from: q.from || undefined,
-      to: q.to || undefined,
-      width: q.width,
-      height: q.height,
-      theme: q.theme,
-      slug: q.slug || undefined,
-      vars,
-    });
-    res.set('Content-Type', contentType || 'image/png');
-    res.set('Cache-Control', 'no-store');
-    res.send(buffer);
-  } catch (e) {
-    const status = e.status && e.status >= 400 ? e.status : 502;
-    res.status(status).json({ error: e.message, detail: e.body || '', contentType: e.contentType || '' });
-  }
-});
-// Mine a Workspaces.AI board for dashboard context: harvest the human text off
-// every pin / note / checklist / dev card / summary, and sniff out concrete data
-// references (Kusto/ADX clusters, App Insights, repos). Feeds the generator so it
-// designs over the signals the board is actually about. Defensive — never throws.
-function _monBoardContext(board) {
-  const out = { brief: '', refs: { kusto: [], appInsights: [], repos: [], grafana: [] } };
-  if (!board) return out;
-  const lines = [];
-  const push = (s) => { const t = String(s || '').trim(); if (t) lines.push(t.slice(0, 400)); };
-  try {
-    push('Board: ' + (board.name || '(untitled)'));
-    for (const it of (board.items || [])) push([it && it.label, it && it.sublabel].filter(Boolean).join(' — '));
-    for (const n of (board.notes || [])) push((n && (n.text || n.title)) || '');
-    for (const cl of (board.checklists || [])) {
-      push(cl && cl.title);
-      for (const ci of ((cl && cl.items) || [])) push(ci && (ci.text || ci.label));
-    }
-    for (const d of (board.devItems || [])) {
-      push([d && d.title, d && d.summary].filter(Boolean).join(' — '));
-      if (d && (d.workItem && d.workItem.title)) push('Work item: ' + d.workItem.title);
-      if (d && (d.pr && d.pr.title)) push('PR: ' + d.pr.title);
-      if (d && d.repo) out.refs.repos.push([d.org, d.project, d.repo].filter(Boolean).join('/'));
-    }
-    if (board.summary && (board.summary.text || board.summary.markdown)) push(board.summary.text || board.summary.markdown);
-  } catch {}
-  const blob = lines.join('\n');
-  const uniq = (arr) => Array.from(new Set(arr.filter(Boolean))).slice(0, 12);
-  try {
-    for (const m of blob.matchAll(/https?:\/\/[a-z0-9._-]*kusto\.(?:windows\.net|fabric\.microsoft\.com)[^\s)"']*/gi)) out.refs.kusto.push(m[0]);
-    for (const m of blob.matchAll(/\b([a-z0-9-]+)\.[a-z0-9-]+\.kusto\.windows\.net\b/gi)) out.refs.kusto.push(m[0]);
-    if (/\b(app\s*insights|application\s*insights|app-?insights)\b/i.test(blob)) out.refs.appInsights.push('Application Insights');
-    if (/\b(log\s*analytics|azure\s*monitor)\b/i.test(blob)) out.refs.appInsights.push('Azure Monitor / Log Analytics');
-    for (const m of blob.matchAll(/https?:\/\/[a-z0-9._-]*grafana\.azure\.com[^\s)"']*/gi)) out.refs.grafana.push(m[0]);
-  } catch {}
-  out.refs.kusto = uniq(out.refs.kusto);
-  out.refs.appInsights = uniq(out.refs.appInsights);
-  out.refs.repos = uniq(out.refs.repos);
-  out.refs.grafana = uniq(out.refs.grafana);
-  out.brief = blob.slice(0, 6000);
-  return out;
-}
-
-// Map a spec panel's declared source id to honest provenance using the catalog:
-// workspace (internal, always direct), external direct connector, or AMG-MCP fallback.
-function _monPanelProvenance(sourceId, catalog) {
-  const id = String(sourceId || '');
-  if (!id) return { source: '', kind: 'unknown', access: 'none' };
-  if (grafana.isWorkspaceSource(id)) return { source: id, kind: 'workspace', access: 'direct' };
-  const ext = (catalog && catalog.external || []).find(s => s.id === id || s.name === id);
-  if (ext) return { source: ext.id, kind: 'external', access: ext.access || 'amg-mcp', dsType: ext.dsType || '' };
-  return { source: id, kind: 'unknown', access: 'amg-mcp' };
-}
-
-// Validate an AI-designed panel's dimension/metric against the REAL discovered
-// profile for its source. A field the source doesn't actually have is dropped
-// (→ null) so it can't produce a phantom/empty series mislabeled as real data.
-function _monValidatePanel(panel, discovered) {
-  const p = { ...(panel || {}) };
-  const prof = discovered && discovered[p.source];
-  if (!prof) { // unprofiled source (external ds.* / not discovered) — keep as-is, no field binding
-    if (p.dimension) delete p.dimension;
-    if (p.metric && p.metric !== 'count') delete p.metric;
-    return p;
-  }
-  const dimFields = new Set((prof.dimensions || []).map(d => d.field));
-  const metFields = new Set((prof.metrics || []).map(m => m.field));
-  if (p.dimension && !dimFields.has(p.dimension)) p.dimension = null;
-  if (p.metric && p.metric !== 'count' && !metFields.has(p.metric)) p.metric = 'count';
-  return p;
-}
-
-// Discovery-driven deterministic panels (no AI): one panel per profiled source,
-// grouped by its top real dimension (or its top metric when there are no
-// categorical dimensions), so a no-AI build still charts real workspace data.
-function _monDeterministicPanels(discovered) {
-  const panels = [];
-  for (const id of Object.keys(discovered || {})) {
-    const d = discovered[id];
-    const dim = (d.dimensions || [])[0];
-    const met = (d.metrics || []).find(m => m.field !== 'count') || (d.metrics || [])[0];
-    if (dim) {
-      panels.push({ title: `${d.name} by ${dim.field}`, type: 'timeseries', unit: 'count', source: id, dimension: dim.field, metric: 'count', alert: null });
-    } else if (met && met.field !== 'count') {
-      panels.push({ title: `${d.name} — ${met.field}`, type: 'timeseries', unit: 'count', source: id, dimension: null, metric: met.field, alert: null });
-    } else {
-      panels.push({ title: d.name, type: 'timeseries', unit: 'count', source: id, dimension: null, metric: 'count', alert: null });
-    }
-    if (panels.length >= 8) break;
-  }
-  return panels;
-}
-
-// spec (title + panels), then stores it locally and best-effort pushes to Grafana.
-// When a boardId is supplied, the board's items are mined for context (referenced
-// Kusto clusters, repos, App Insights, plus the human narrative) and the selected
-// catalog sources (internal ws.* / external ds.*) steer which signals it charts.
-app.post('/api/monitoring/generate', async (req, res) => {
-  const prompt = String((req.body && req.body.prompt) || '').trim();
-  const boardId = String((req.body && req.body.boardId) || '').trim();
-  const chosenSources = Array.isArray(req.body && req.body.sources) ? req.body.sources.map(String) : [];
-  let board = null, boardCtx = null, catalog = null;
-  if (boardId) {
-    try { board = (loadBoards().find(b => b.id === boardId) || null); if (board) board = _normalizeBoard(board); } catch {}
-    if (board) boardCtx = _monBoardContext(board);
-  }
-  if (!prompt && !board) return res.status(400).json({ ok: false, error: 'A prompt or a board is required.' });
-  try { catalog = await grafana.catalog(); } catch { catalog = { workspace: [], external: [] }; }
-
-  // ---- DISCOVERY -----------------------------------------------------------
-  // Profile the internal ws.* sources so the designer binds panels to REAL
-  // fields (dimensions/metrics) that actually exist in the data — not fake
-  // template signals. Prefer the user's chosen sources; else every chartable
-  // workspace source. External ds.* have no static profiler yet (Phase 2), so
-  // they're offered by id only.
-  const chosenWs = chosenSources.filter(id => grafana.isWorkspaceSource(id));
-  const wsToProfile = (chosenWs.length ? chosenWs
-    : (catalog.workspace || []).filter(s => s.chartable).map(s => s.id));
-  const discovered = {}; // id -> discover() result (internal ws.* + profiled external ds.*)
-  const extIdentity = {}; // ds.id -> { uid, dsType, database } for binding AI panels to the proxy
-  for (const id of wsToProfile) {
-    try { const d = grafana.discover(id); if (d) discovered[id] = d; } catch {}
-  }
-  // External (Grafana datasource) discovery — profile the user's chosen ds.*
-  // sources (or, if none chosen, a few chartable ones) against the live schema
-  // so the designer binds panels to REAL tables/columns, not fake signals.
-  const chosenExt = chosenSources.filter(id => /^ds\./.test(id));
-  const extToProfile = (chosenExt.length ? chosenExt
-    : (catalog.external || []).filter(s => s.chartable).map(s => s.id).slice(0, 4));
-  for (const id of extToProfile) {
-    try {
-      const d = await grafana.discoverExternal(id);
-      if (d) {
-        extIdentity[id] = { uid: d.uid || '', dsType: d.dsType || '', database: d.database || '' };
-        if (d.profiled) discovered[id] = d;
-      }
-    } catch {}
-  }
-  const discoverLines = [];
-  for (const id of Object.keys(discovered)) {
-    const d = discovered[id];
-    const dims = (d.dimensions || []).map(dm =>
-      dm.cardinality != null
-        ? `${dm.field} (${dm.cardinality} values: ${(dm.values || []).slice(0, 5).map(v => v.value).join(', ')})`
-        : dm.field).join('; ');
-    const mets = (d.metrics || []).map(m => `${m.field} [${m.agg}]`).join(', ');
-    if (d.external) {
-      // Profiled external datasource: the AI must author a query in the source's
-      // own language (KQL for ADX) that aggregates the chosen table over time.
-      const tbls = (d.tables || []).map(t => `${t.database}.${t.table}`).slice(0, 6).join(', ');
-      discoverLines.push(
-        `- ${id} — ${d.name} (external ${d.dsType}): primary table ${d.database}.${d.table}` +
-        (d.timeField ? ` with time column "${d.timeField}"` : ' (no obvious time column)') +
-        (dims ? `\n    group-by columns: ${dims}` : '') +
-        (mets ? `\n    numeric columns: ${mets}` : '') +
-        (tbls ? `\n    other tables: ${tbls}` : '') +
-        `\n    → set "source":"${id}" and write a "query" (KQL) that summarizes this table over time (e.g. summarize count() by bin(${d.timeField || 'TimeGenerated'}, 1h)).`);
-    } else {
-      discoverLines.push(
-        `- ${id} — ${d.name}: ${d.count} records` +
-        (d.timeField ? ` over time field "${d.timeField}"` : ' (no time field — chart as a distribution, not a timeseries)') +
-        (dims ? `\n    dimensions (group-by): ${dims}` : '\n    dimensions: none') +
-        (mets ? `\n    metrics: ${mets}` : ''));
-    }
-  }
-
-  // Describe any source the designer may still bind to (external ds.* + any ws.* not profiled).
-  const srcLines = [];
-  for (const s of (catalog.workspace || [])) if (s.chartable && !discovered[s.id]) srcLines.push(`- ${s.id} (internal · ${s.name}${s.alertable ? ' · alertable' : ''})`);
-  for (const s of (catalog.external || [])) if (!discovered[s.id]) srcLines.push(`- ${s.id} (external · ${s.name} · ${s.dsType} · schema not available — you may target it by writing a "query", but it can't be validated)`);
-  const selectedNote = chosenSources.length ? ('\nThe user selected these sources — prefer them: ' + chosenSources.join(', ')) : '';
-  const boardBlock = boardCtx ? (
-    '\n\n=== BOARD CONTEXT (mine this for what to monitor) ===\n' + boardCtx.brief +
-    (boardCtx.refs.kusto.length ? ('\nReferenced Kusto/ADX clusters: ' + boardCtx.refs.kusto.join(', ')) : '') +
-    (boardCtx.refs.appInsights.length ? ('\nReferenced telemetry: ' + boardCtx.refs.appInsights.join(', ')) : '') +
-    (boardCtx.refs.repos.length ? ('\nReferenced repos: ' + boardCtx.refs.repos.join(', ')) : '')
-  ) : '';
-
-  let spec = null;
-  try {
-    let acc = '';
-    const result = await sdkRunner.runChat({
-      config: null,
-      prompt:
-        'You are a monitoring dashboard designer. You have been given a DISCOVERY brief describing the REAL data available in each source. ' +
-        'Design panels that surface signals that actually exist in that data — do NOT invent metrics the sources do not have.\n' +
-        'Output ONLY a JSON object:\n' +
-        '{"title": string, "tags": string[], "panels": [{"title": string, "type": "timeseries"|"gauge", "unit": string, "source": string, "dimension": string|null, "metric": string|null, "query": string|null, "alert": string|null}]}\n' +
-        'Rules:\n' +
-        '- 3–8 focused panels. Each panel MUST set "source" to one of the listed source ids.\n' +
-        '- For a profiled INTERNAL (ws.*) source: set "dimension" to one of ITS listed group-by fields to split the chart by that field (e.g. by status), OR null to chart the whole collection. ' +
-        'Set "metric" to one of ITS listed metric fields, or "count" (or null) to count records. NEVER use a field not listed for that source. Leave "query" null.\n' +
-        '- For an EXTERNAL (ds.*) source: you MUST write a "query" in that source\'s own language (KQL for Kusto/ADX) that aggregates its data over time — e.g. TableName | summarize count() by bin(TimeColumn, 1h) | order by TimeColumn asc. ' +
-        'Use only the tables/columns listed for that source. The query should return a time column plus one or more numeric columns so it charts as a timeseries. Leave "dimension"/"metric" null for external sources.\n' +
-        '- Correlate the request with the discovered dimensions/values/columns: pick what best answers what the user asked to monitor.\n' +
-        '- units like "%", "ms", "req/s", "count"; set "alert" to a short threshold phrase (e.g. "> 60 for 10m") when worth alerting, else null.\n' +
-        '- No prose, no code fences.\n\n' +
-        (discoverLines.length ? ('DISCOVERED SOURCES (real data — bind to these fields/tables):\n' + discoverLines.join('\n') + '\n\n') : '') +
-        (srcLines.length ? ('OTHER SOURCES (bind by id only):\n' + srcLines.join('\n') + '\n') : '') +
-        (!discoverLines.length && !srcLines.length ? '(no sources connected — design generic panels)\n' : '') +
-        selectedNote +
-        boardBlock +
-        '\n\nRequest: ' + (prompt || ('Build a monitoring dashboard for this board: ' + (board && board.name || ''))),
-      sessionId: require('crypto').randomUUID(),
-      resume: false,
-      cwd: __dirname,
-      availableTools: [],
-      meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
-      onChunk: (c) => { acc += c; },
-    });
-    if (!(result && result.fallback)) {
-      const j = _connectExtractJson(acc || (result && result.output) || '');
-      if (j && Array.isArray(j.panels) && j.panels.length) {
-        // Validate every discovered-source panel's dimension/metric against the
-        // real profile so a hallucinated field can't produce a phantom series.
-        j.panels = j.panels.map(p => _monValidatePanel(p, discovered));
-        spec = { ...j, ai: true, prompt: prompt || ('Board: ' + (board && board.name || '')) };
-      }
-    }
-  } catch (e) { /* fall back below */ }
-  if (!spec) {
-    spec = grafana.deterministicSpec(prompt || (board && board.name) || 'monitoring');
-    // Deterministic fallback also uses discovery: chart each profiled source by
-    // its top real dimension (or its top metric) so a no-AI build still shows
-    // real workspace signals rather than synthesized demo data.
-    const detPanels = _monDeterministicPanels(discovered);
-    if (detPanels.length) spec.panels = detPanels;
-    else if (board && !chosenSources.length) {
-      const ws = (catalog.workspace || []).filter(s => s.chartable).slice(0, 4);
-      if (ws.length) spec.panels = ws.map(s => ({ title: s.name, type: 'timeseries', unit: 'count', source: s.id, alert: s.alertable ? '> 0' : null }));
-    }
-  }
-  if (boardId) { spec.boardId = boardId; if (!Array.isArray(spec.tags)) spec.tags = []; if (board && !spec.tags.includes('board')) spec.tags.push('board'); }
-  // Bind external (ds.*) panels to the live datasource identity so createDashboard
-  // and the render path can execute their queries through Grafana's proxy.
-  const extById = {}; for (const s of (catalog.external || [])) extById[s.id] = s;
-  spec.panels = (spec.panels || []).map(p => {
-    if (p && typeof p.source === 'string' && /^ds\./.test(p.source)) {
-      const idn = extIdentity[p.source] || {};
-      const cat = extById[p.source] || {};
-      return { ...p, datasourceUid: idn.uid || cat.uid || '', dsType: idn.dsType || cat.dsType || '', database: p.database || idn.database || '' };
-    }
-    return p;
-  });
-  try {
-    const created = await grafana.createDashboard(spec);
-    const provenance = (spec.panels || []).map(p => ({
-      title: p.title,
-      ...(_monPanelProvenance(p.source, catalog)),
-      dimension: p.dimension || null,
-      metric: p.metric || null,
-      query: p.query || null,
-      profiled: !!discovered[p.source],
-      alert: p.alert || null,
-    }));
-    res.json({
-      ok: true, ai: !!spec.ai, dashboard: created,
-      spec: { title: spec.title, panels: spec.panels },
-      provenance,
-      discovery: Object.keys(discovered).map(id => ({
-        id, name: discovered[id].name, count: discovered[id].count,
-        timeField: discovered[id].timeField || null,
-        dimensions: (discovered[id].dimensions || []).map(d => ({ field: d.field, cardinality: d.cardinality })),
-        metrics: (discovered[id].metrics || []).map(m => ({ field: m.field, agg: m.agg })),
-      })),
-      board: board ? { id: board.id, name: board.name } : null,
-      boardRefs: boardCtx ? boardCtx.refs : null,
-    });
-  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
 
 // ---- Epic → Monitoring.AI "Objective Health" bridge -----------------------
 // Given a Code Flow epic (already loaded into _epicCache) and its linked
@@ -10775,30 +10238,6 @@ function _epicOHAppendReadings(key, objectives, generatedAt) {
   }
 }
 
-// LIST every persisted Objective Health snapshot (the epic dashboards). Lets the
-// Monitoring.AI home hub surface epic dashboards so they're discoverable — they
-// are NOT Grafana dashboards, so they never appear in /dashboards. Lightweight:
-// returns the header/counts/doc only, not the full per-objective payload.
-app.get('/api/monitoring/epic-dashboards', (req, res) => {
-  const map = _epicOHLoad();
-  const list = Object.keys(map || {}).map((key) => {
-    const s = map[key] || {};
-    return {
-      key,
-      epicId: s.epicId || null,
-      epicTitle: s.epicTitle || key,
-      epicUrl: s.epicUrl || '',
-      title: s.title || '',
-      doc: s.doc || null,
-      ai: !!s.ai,
-      counts: s.counts || _epicOHCounts(s.objectives),
-      objectiveCount: Array.isArray(s.objectives) ? s.objectives.length : 0,
-      readingPoints: Array.isArray(s.objectives) ? s.objectives.reduce((n, o) => n + ((o && Array.isArray(o.history)) ? o.history.length : 0), 0) : 0,
-      generatedAt: s.generatedAt || 0,
-    };
-  }).sort((a, b) => (b.generatedAt || 0) - (a.generatedAt || 0));
-  res.json({ ok: true, dashboards: list });
-});
 
 // GET the persisted Objective Health snapshot for an epic (no AI, no epic-load required).
 app.get('/api/monitoring/epic-dashboard', (req, res) => {
@@ -10818,34 +10257,6 @@ app.delete('/api/monitoring/epic-dashboard', (req, res) => {
   res.json({ ok: true });
 });
 
-// Architecture C: publish an epic's Objective Health dashboard to Azure Managed
-// Grafana. TheOffice.AI is the ETL layer — the readings were emitted into the
-// shared App Insights sink by POST /epic-dashboard; this builds a Grafana model
-// whose panels read that sink back via Azure Monitor Logs (real KQL targets),
-// stores it locally (so it shows under "My dashboards" + stays epic-linked), and
-// pushes it when Grafana is configured. Best-effort remote push; local always OK.
-app.post('/api/monitoring/epic-dashboard/:key/publish', async (req, res) => {
-  const key = String(req.params.key || '').trim();
-  if (!key) return res.status(400).json({ ok: false, error: 'key required' });
-  const snap = _epicOHLoad()[key];
-  if (!snap) return res.status(404).json({ ok: false, error: 'no Objective Health snapshot — build the dashboard first' });
-  const tel = settings.getSettings().monitoringTelemetry || {};
-  const b = req.body || {};
-  const resourceId = (typeof b.resourceId === 'string' && b.resourceId.trim()) ? b.resourceId.trim() : (tel.resourceId || '');
-  const datasourceUid = (typeof b.datasourceUid === 'string' && b.datasourceUid.trim()) ? b.datasourceUid.trim() : (tel.datasourceUid || '');
-  try {
-    const r = await grafana.publishEpicDashboard(snap, { resourceId, datasourceUid });
-    // Honest guidance: what's still needed for the Grafana panels to actually
-    // read data (the ETL sink + a bound Azure Monitor datasource).
-    const guidance = [];
-    if (!epicTelemetry.configured()) guidance.push('Telemetry sink is not configured — set a connection string under Monitoring settings so readings are emitted to App Insights.');
-    if (!resourceId) guidance.push('No App Insights resourceId bound — the Grafana panels have no resource to query. Set it under Monitoring settings.');
-    if (!datasourceUid) guidance.push('No Azure Monitor datasource UID bound — create an Azure Monitor datasource in Grafana pointed at the App Insights resource, then paste its UID under Monitoring settings.');
-    if (!r.configured) guidance.push('Grafana is not connected — the dashboard was saved locally but not pushed. Connect Grafana to publish it.');
-    res.json({ ...r, guidance, resourceId, datasourceUid });
-  } catch (e) { res.status(200).json({ ok: false, error: e.message, code: e.code || '' }); }
-});
-
 app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   const key = String((req.body && req.body.key) || '').trim();
   const docId = String((req.body && req.body.docId) || '').trim();
@@ -10858,12 +10269,6 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     key, url: cp.url || '',
   };
   const doc = _monEpicGuidanceDoc(entry, docId);
-  let catalog = null;
-  try { catalog = await grafana.catalog(); } catch { catalog = { workspace: [], external: [] }; }
-  const srcLines = [
-    ...((catalog.workspace || []).map(s => `- ${s.name} (internal workspace)`)),
-    ...((catalog.external || []).map(s => `- ${s.name} (${s.dsType || 'external'})`)),
-  ];
 
   // Epic brief (grounding for the fallback + AI).
   const kids = (raw.children || []).map(c => ({ id: c.id, title: c.title, status: _epicChildStatus(c) }));
@@ -10897,8 +10302,6 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
         '- status "part" when part of the signal is readable but one piece is missing. status "manual" for human-validated objectives with no telemetry.',
         '- Provide "shape" for EVERY "miss" and "part" objective (the desired telemetry the source must emit). Provide "runbooks" for "manual" objectives if the doc enumerates a scenario catalog; else null.',
         '- NEVER fabricate a numeric trend. Set now/tgt/delta only when the doc states current values. Do NOT output any time series.',
-        '- Available monitoring sources you can bind to (for judging what is already connected):',
-        (srcLines.length ? srcLines.join('\n') : '(none connected)'),
         '',
         'EPIC (JSON): ' + JSON.stringify(brief),
         '',
@@ -10949,33 +10352,12 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   _epicOHAppendReadings(key, model.objectives, generatedAt);
   const counts = _epicOHCounts(model.objectives);
   // Persist the snapshot — this IS the epic↔dashboard link (keyed by epic key).
-  const prevMap = (() => { try { return _epicOHLoad(); } catch { return {}; } })();
-  const prevTel = (prevMap[key] && prevMap[key].telemetry) || {};
   const snapshot = {
     key, epicId: epicOut.id, epicTitle: epicOut.title, epicUrl: epicOut.url,
     doc: doc ? { id: doc.id, title: doc.title, source: doc.source } : null,
-    title: model.title, summary: model.summary, ai, sourcesConnected: srcLines.length,
+    title: model.title, summary: model.summary, ai,
     objectives: model.objectives, counts, generatedAt,
-    telemetry: { enabled: epicTelemetry.configured(), lastEmit: prevTel.lastEmit || 0 },
   };
-  // Architecture C: emit the RECORDED readings into the shared App Insights sink
-  // so the epic's Grafana dashboard can read durable trend history. Best-effort,
-  // no-op + zero latency when telemetry is disabled. First publish (lastEmit=0)
-  // backfills the full history; later publishes emit only new points.
-  if (epicTelemetry.configured()) {
-    try {
-      const er = await epicTelemetry.emit(
-        { key, epicId: epicOut.id, epicTitle: epicOut.title },
-        model.objectives,
-        { sinceTs: prevTel.lastEmit || 0 }
-      );
-      snapshot.telemetry = {
-        enabled: true, ok: !!er.ok, count: er.count || 0,
-        lastEmit: er.maxTs || (prevTel.lastEmit || 0), at: generatedAt,
-        reason: er.reason || null, status: er.status || null,
-      };
-    } catch (e) { snapshot.telemetry = { enabled: true, ok: false, error: String(e && e.message || e), lastEmit: prevTel.lastEmit || 0 }; }
-  }
   try { const map = _epicOHLoad(); map[key] = snapshot; _epicOHSave(map); } catch { /* best-effort */ }
 
   res.json({
@@ -10985,56 +10367,9 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     objectives: model.objectives,
     title: model.title,
     summary: model.summary,
-    sourcesConnected: srcLines.length,
-    telemetry: snapshot.telemetry || null,
     generatedAt, counts,
   });
 });
-
-// Analyze a set of grabbed panels (trend/status) + answer an optional question.
-app.post('/api/monitoring/analyze', async (req, res) => {
-  const panels = Array.isArray(req.body && req.body.panels) ? req.body.panels : [];
-  const question = String((req.body && req.body.question) || '').trim();
-  if (!panels.length) return res.status(400).json({ ok: false, error: 'No panels to analyze.' });
-  const deterministic = grafana.deterministicAnalysis(panels, question);
-  try {
-    const brief = panels.map(p => grafana.panelSummary(p));
-    let acc = '';
-    const result = await sdkRunner.runChat({
-      config: null,
-      prompt:
-        'You are a monitoring analyst. Given panel summaries (each: title, unit, latest value, trend, changePct over ~6h) ' +
-        'and an optional question, assess the status and give findings + actionable suggestions grounded ONLY in the data.\n' +
-        'Output ONLY JSON: {"status":"ok"|"warn"|"critical","statusText":string,"headline":string,"findings":string[],"suggestions":string[]}\n' +
-        'Be specific, cite the metric + number. No fabrication beyond the summaries. No code fences.\n\n' +
-        'Panels:\n' + JSON.stringify(brief, null, 2) +
-        (question ? ('\n\nQuestion: ' + question) : ''),
-      sessionId: require('crypto').randomUUID(),
-      resume: false,
-      cwd: __dirname,
-      availableTools: [],
-      meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
-      onChunk: (c) => { acc += c; },
-    });
-    if (!(result && result.fallback)) {
-      const j = _connectExtractJson(acc || (result && result.output) || '');
-      if (j && (Array.isArray(j.findings) || j.headline)) {
-        return res.json({
-          ok: true, ai: true,
-          status: j.status || deterministic.status,
-          statusText: j.statusText || deterministic.statusText,
-          headline: j.headline || deterministic.headline,
-          findings: Array.isArray(j.findings) && j.findings.length ? j.findings : deterministic.findings,
-          suggestions: Array.isArray(j.suggestions) && j.suggestions.length ? j.suggestions : deterministic.suggestions,
-          metrics: deterministic.metrics,
-          question,
-        });
-      }
-    }
-  } catch (e) { /* fall back to deterministic */ }
-  res.json({ ok: true, ...deterministic });
-});
-
 
 app.get('/api/system-agents', (req, res) => {
   try {
