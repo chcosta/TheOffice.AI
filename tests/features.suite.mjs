@@ -3325,4 +3325,58 @@ await t.test('review-footer removed + todo carry-over honors tombstones + quick-
     'the hint explains a trend line needs at least two real recorded readings (honesty invariant)');
 });
 
+await t.test('epic objective health: Grafana publish (App-Insights-as-aggregation) + honest trend day-stamp', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  const tel = readFileSync('epic-telemetry.js', 'utf8');
+  const graf = readFileSync('epic-grafana.js', 'utf8');
+
+  // (1) Trend bug fix: day-stamp uses LOCAL date (not UTC) so an evening rebuild does not
+  // collapse into the next UTC day and overwrite the prior point.
+  const stamp = _win(srv, '_epicOHDayStamp', 400) || '';
+  t.ok(/getFullYear\(\)/.test(stamp) && /getMonth\(\)/.test(stamp) && /getDate\(\)/.test(stamp),
+    '_epicOHDayStamp uses LOCAL date parts (not toISOString/UTC)');
+  t.ok(!/toISOString/.test(stamp), '_epicOHDayStamp does not use UTC toISOString (the collapse bug)');
+  // position-fallback so an AI rename does not reset a series.
+  const append = _win(srv, '_epicOHAppendReadings', 1200) || '';
+  t.ok(/prevByN/.test(append), '_epicOHAppendReadings carries history forward by position when the title changed');
+
+  // (2) Telemetry config routes (masked — never echo secrets back).
+  const getTel = _win(srv, "app.get('/api/monitoring/telemetry'", 900) || '';
+  t.ok(/hasConnectionString/.test(getTel) && /hasGrafanaToken/.test(getTel) && /configured:/.test(getTel),
+    'GET /telemetry returns masked booleans + configured, never the raw secrets');
+  t.ok(!/connectionString:\s*c\.connectionString/.test(getTel), 'GET /telemetry does not leak the connection string');
+  const putTel = _win(srv, "app.put('/api/monitoring/telemetry'", 1400) || '';
+  t.ok(/connectionString\.trim\(\)/.test(putTel) && /grafanaToken\.trim\(\)/.test(putTel),
+    'PUT /telemetry only writes a secret when a non-empty value is supplied (masked round-trip preserves it)');
+
+  // (3) Publish route: full backfill (sinceTs:0), build model, optional push, honest guidance.
+  const pub = _win(srv, "app.post('/api/monitoring/epic-dashboard/:key/publish'", 3000) || '';
+  t.ok(/status\(404\)/.test(pub), 'publish 404s when the epic has no Objective Health snapshot');
+  t.ok(/sinceTs:\s*0/.test(pub), 'publish backfills EVERY recorded reading (sinceTs:0)');
+  t.ok(/buildEpicGrafanaModel/.test(pub) && /pushDashboard/.test(pub), 'publish builds the model and optionally pushes it');
+  t.ok(/guidance/.test(pub), 'publish accumulates actionable guidance for missing config');
+
+  // (4) Honesty invariant lives in the ETL: only recorded readings are emitted.
+  t.ok(/EpicObjectiveReading/.test(tel) && /EpicObjectiveReading/.test(graf),
+    'telemetry emits + Grafana KQL read the same EpicObjectiveReading customEvent');
+  t.ok(/module\.exports\s*=/.test(tel) && /\bemit\b/.test(tel) && /configured/.test(tel),
+    'epic-telemetry exports cfg/configured/emit');
+  t.ok(/customMeasurements\.value/.test(graf), 'Grafana KQL projects the recorded value from customMeasurements');
+
+  // (5) SPA publish panel: state, load, and the seven methods, gated on the overview.
+  t.ok(/x-init="monObjPubLoad\(\)"/.test(html), 'the publish panel loads telemetry config on init');
+  const pubPanel = _win(html, 'class="mem-pub"', 260) || '';
+  t.ok(/monitoring\.obj\.mode === 'overview'/.test(pubPanel),
+    'the publish panel is gated to the overview mode');
+  for (const m of ['monObjPubLoad', 'monObjPubSave', 'monObjPubEdit', 'monObjPublish', 'monObjPubHeadline', 'monObjPubDownload', 'monObjPubCopy']) {
+    t.ok(new RegExp(m + '\\s*\\(').test(html), 'SPA method ' + m + ' present');
+  }
+  const load = _win(html, 'async monObjPubLoad()', 900) || '';
+  t.ok(/\/api\/monitoring\/telemetry/.test(load), 'monObjPubLoad GETs the telemetry config');
+  const doPub = _win(html, 'async monObjPublish()', 900) || '';
+  t.ok(/epic-dashboard\/'\s*\+\s*encodeURIComponent\(key\)\s*\+\s*'\/publish/.test(doPub),
+    'monObjPublish POSTs the per-epic publish route');
+});
+
 await t.done();

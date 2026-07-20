@@ -1046,6 +1046,8 @@ const connect = require('./connect');
 const newsletter = require('./newsletter');
 const newsletterCapture = require('./newsletter-capture');
 const compose = require('./compose');
+const epicTelemetry = require('./epic-telemetry');
+const epicGrafana = require('./epic-grafana');
 const composePublish = require('./compose-publish');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
@@ -10224,19 +10226,30 @@ function _epicOHNum(s) {
   return m ? parseFloat(m[0]) : null;
 }
 function _epicOHDayStamp(t) {
+  // LOCAL calendar day (not UTC): "one reading per day" must align with the
+  // owner's clock. A UTC boundary let an evening rebuild in a negative-offset
+  // zone collapse into the next morning's UTC day, overwriting the prior point.
   const d = new Date(t);
-  return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
 }
 // Carry prior readings forward (by objective title-slug) and append today's value.
 // Mutates `objectives` in place, attaching an `.history` array to each.
 function _epicOHAppendReadings(key, objectives, generatedAt) {
   let prevObjs = [];
   try { const s = _epicOHLoad()[key]; if (s && Array.isArray(s.objectives)) prevObjs = s.objectives; } catch { /* first build */ }
-  const prevById = {};
-  for (const p of prevObjs) { if (p && p.title) prevById[_epicOHSlug(p.title)] = Array.isArray(p.history) ? p.history : []; }
+  // Carry prior history forward by objective title-slug; fall back to the prior
+  // objective at the same position (n) so a pure AI rename doesn't reset the
+  // series (the dashboard is AI-regenerated on every rebuild).
+  const prevBySlug = {}, prevByN = {};
+  for (const p of prevObjs) {
+    if (!p) continue;
+    const h = Array.isArray(p.history) ? p.history : [];
+    if (p.title) prevBySlug[_epicOHSlug(p.title)] = h;
+    if (p.n != null) prevByN[String(p.n)] = h;
+  }
   for (const o of (objectives || [])) {
     const id = _epicOHSlug(o && o.title);
-    let hist = (prevById[id] || []).slice();
+    let hist = (prevBySlug[id] || (o && o.n != null ? prevByN[String(o.n)] : null) || []).slice();
     const v = _epicOHNum(o && o.now);
     if (v != null) {
       const reading = { t: generatedAt, v, raw: (o.now != null ? String(o.now) : String(v)) };
@@ -10325,6 +10338,112 @@ function _epicOHApplyOps(snapshot, ops) {
   return { applied, changed: true };
 }
 
+
+// ─── Objective Health telemetry (App Insights aggregation) config ───────────
+// GET returns the config with the connection string MASKED (only hasConnectionString).
+app.get('/api/monitoring/telemetry', (req, res) => {
+  try {
+    const c = epicTelemetry.cfg();
+    res.json({
+      ok: true,
+      enabled: !!c.enabled,
+      hasConnectionString: !!(c.connectionString && c.connectionString.trim()),
+      resourceId: c.resourceId || '',
+      subscriptionId: c.subscriptionId || '',
+      appInsightsName: c.appInsightsName || '',
+      resourceGroup: c.resourceGroup || '',
+      datasourceUid: c.datasourceUid || '',
+      grafanaUrl: c.grafanaUrl || '',
+      hasGrafanaToken: !!(c.grafanaToken && c.grafanaToken.trim()),
+      configured: epicTelemetry.configured(),
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// PUT updates the config. The connection string / grafana token are only overwritten
+// when a non-empty value is supplied (so a masked round-trip preserves them).
+app.put('/api/monitoring/telemetry', (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = epicTelemetry.cfg();
+    const patch = {};
+    if (typeof b.enabled === 'boolean') patch.enabled = b.enabled;
+    if (typeof b.connectionString === 'string' && b.connectionString.trim()) patch.connectionString = b.connectionString.trim();
+    if (typeof b.resourceId === 'string') patch.resourceId = b.resourceId.trim();
+    if (typeof b.subscriptionId === 'string') patch.subscriptionId = b.subscriptionId.trim();
+    if (typeof b.appInsightsName === 'string') patch.appInsightsName = b.appInsightsName.trim();
+    if (typeof b.resourceGroup === 'string') patch.resourceGroup = b.resourceGroup.trim();
+    if (typeof b.datasourceUid === 'string') patch.datasourceUid = b.datasourceUid.trim();
+    if (typeof b.grafanaUrl === 'string') patch.grafanaUrl = b.grafanaUrl.trim();
+    if (typeof b.grafanaToken === 'string' && b.grafanaToken.trim()) patch.grafanaToken = b.grafanaToken.trim();
+    settings.updateSettings({ monitoringTelemetry: { ...cur, ...patch } });
+    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    const c = epicTelemetry.cfg();
+    res.json({
+      ok: true,
+      enabled: !!c.enabled,
+      hasConnectionString: !!(c.connectionString && c.connectionString.trim()),
+      resourceId: c.resourceId || '', subscriptionId: c.subscriptionId || '',
+      appInsightsName: c.appInsightsName || '', resourceGroup: c.resourceGroup || '',
+      datasourceUid: c.datasourceUid || '', grafanaUrl: c.grafanaUrl || '',
+      hasGrafanaToken: !!(c.grafanaToken && c.grafanaToken.trim()),
+      configured: epicTelemetry.configured(),
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// Publish an epic's Objective Health dashboard to Azure Managed Grafana via the
+// App-Insights-as-aggregation architecture: (1) backfill ALL recorded readings into
+// App Insights, (2) build a Grafana dashboard model whose panels read those readings
+// back over Azure Monitor Logs (KQL), (3) optionally push it to a configured Grafana.
+// Honest fallbacks: returns actionable guidance when a sink/resource/datasource/Grafana
+// is not configured, and always returns the importable dashboard JSON.
+app.post('/api/monitoring/epic-dashboard/:key/publish', async (req, res) => {
+  const key = String((req.params && req.params.key) || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'key required' });
+  const snap = _epicOHLoad()[key];
+  if (!snap) return res.status(404).json({ ok: false, error: 'no Objective Health dashboard for this epic — generate one first' });
+
+  const c = epicTelemetry.cfg();
+  const guidance = [];
+  let emitted = { ok: false, count: 0, reason: 'not-configured' };
+
+  // 1. Backfill every recorded reading (sinceTs=0) so Grafana has the full series.
+  if (epicTelemetry.configured()) {
+    try {
+      emitted = await epicTelemetry.emit(
+        { key, epicId: snap.epicId, epicTitle: snap.epicTitle },
+        snap.objectives, { sinceTs: 0 });
+      if (!emitted.ok) guidance.push('App Insights emit failed: ' + (emitted.reason || ('HTTP ' + emitted.status)) + '. Verify the connection string.');
+      // Update the stored watermark so the next auto-emit does not re-send.
+      try {
+        const map = _epicOHLoad();
+        if (map[key]) {
+          map[key].telemetry = { enabled: true, ok: !!emitted.ok, count: emitted.count || 0, lastEmit: emitted.maxTs || 0, at: Date.now(), reason: emitted.reason || '', status: emitted.status || 0 };
+          _epicOHSave(map);
+        }
+      } catch { /* best-effort */ }
+    } catch (e) { guidance.push('App Insights emit error: ' + e.message); }
+  } else {
+    guidance.push('Configure an App Insights connection string (Settings → Objective Health telemetry) so recorded readings are emitted for Grafana to read.');
+  }
+
+  // 2. Build the Grafana dashboard model (reads EpicObjectiveReading customEvents via KQL).
+  if (!c.resourceId) guidance.push('Set the App Insights / Log Analytics resourceId so the Grafana panels know which resource to query.');
+  if (!c.datasourceUid) guidance.push('Set the Grafana Azure Monitor datasource UID so the panels bind to your datasource.');
+  const model = epicGrafana.buildEpicGrafanaModel(snap, { resourceId: c.resourceId || '', datasourceUid: c.datasourceUid || '' });
+
+  // 3. Optionally push straight to a configured Grafana.
+  let pushed = null;
+  if (c.grafanaUrl && c.grafanaToken) {
+    pushed = await epicGrafana.pushDashboard(model, { url: c.grafanaUrl, token: c.grafanaToken });
+    if (!pushed.ok) guidance.push('Grafana push failed: ' + (pushed.error || ('HTTP ' + pushed.status)) + '. You can still import the dashboard JSON manually.');
+  } else {
+    guidance.push('No Grafana URL/token configured — download the dashboard JSON below and import it into Azure Managed Grafana manually.');
+  }
+
+  res.json({ ok: true, emitted, model, pushed, guidance });
+});
 
 // GET the persisted Objective Health snapshot for an epic (no AI, no epic-load required).
 app.get('/api/monitoring/epic-dashboard', (req, res) => {
@@ -10438,13 +10557,39 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   const generatedAt = Date.now();
   _epicOHAppendReadings(key, model.objectives, generatedAt);
   const counts = _epicOHCounts(model.objectives);
+  // Prior telemetry watermark (last emitted reading timestamp) — carried forward
+  // so we only emit NEW recorded points to App Insights on each rebuild.
+  let prevTel = null;
+  try { const pm = _epicOHLoad()[key]; if (pm && pm.telemetry) prevTel = pm.telemetry; } catch { /* first build */ }
   // Persist the snapshot — this IS the epic↔dashboard link (keyed by epic key).
   const snapshot = {
     key, epicId: epicOut.id, epicTitle: epicOut.title, epicUrl: epicOut.url,
     doc: doc ? { id: doc.id, title: doc.title, source: doc.source } : null,
     title: model.title, summary: model.summary, ai,
     objectives: model.objectives, counts, generatedAt,
+    telemetry: prevTel || null,
   };
+
+  // Aggregation layer: when Objective-Health telemetry is enabled + configured,
+  // emit the RECORDED readings (honest history only) into the shared App Insights
+  // instance so the Grafana front-end can read durable trends back. Best-effort;
+  // never blocks the dashboard build.
+  if (epicTelemetry.configured()) {
+    try {
+      const sinceTs = (prevTel && Number(prevTel.lastEmit)) || 0;
+      const emitRes = await epicTelemetry.emit(
+        { key, epicId: epicOut.id, epicTitle: epicOut.title },
+        model.objectives, { sinceTs });
+      snapshot.telemetry = {
+        enabled: true, ok: !!emitRes.ok, count: emitRes.count || 0,
+        lastEmit: emitRes.maxTs || sinceTs, at: generatedAt,
+        reason: emitRes.reason || '', status: emitRes.status || 0,
+      };
+    } catch (e) {
+      snapshot.telemetry = { enabled: true, ok: false, count: 0, lastEmit: (prevTel && prevTel.lastEmit) || 0, at: generatedAt, reason: e.message, status: 0 };
+    }
+  }
+
   try { const map = _epicOHLoad(); map[key] = snapshot; _epicOHSave(map); } catch { /* best-effort */ }
 
   res.json({
@@ -10454,7 +10599,7 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     objectives: model.objectives,
     title: model.title,
     summary: model.summary,
-    generatedAt, counts,
+    generatedAt, counts, telemetry: snapshot.telemetry || null,
   });
 });
 

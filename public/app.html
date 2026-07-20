@@ -21529,6 +21529,9 @@
                   .mem-pub-res .ln{ font-size:12px; color:var(--cp-text-muted); line-height:1.5; }
                   .mem-pub-res .ln.err{ color:var(--cp-danger,#f85149); }
                   .mem-pub-res .ln.guide{ color:var(--cp-text-muted); }
+                  .mem-pub .moh-link{ cursor:pointer; color:var(--cp-text-muted); font-size:12px; }
+                  .mem-pub .moh-link:hover{ color:var(--cp-text); text-decoration:underline; }
+                  .mem-pub code{ background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:5px; padding:1px 5px; font-size:11.5px; }
                 </style>
                 <div class="mem-top">
                   <button class="monx-back" @click="monObjBack()" x-text="monObjBackLabel()"></button>
@@ -21555,7 +21558,62 @@
                   <button class="rebuild" @click="monObjRebuild()" :disabled="monitoring.obj.loading" x-text="monitoring.obj.loading ? 'Building…' : '↻ Rebuild'"></button>
                 </div>
 
-                <!-- ===== Publish to Azure panel removed — Objective Health is epic-scoped only ===== -->
+                <!-- ===== Publish to Azure Managed Grafana (App-Insights-as-aggregation) ===== -->
+                <div class="mem-pub" x-show="!monitoring.obj.loading && !monitoring.obj.error && monitoring.obj.mode === 'overview' && monitoring.obj.objectives.length" x-init="monObjPubLoad()">
+                  <div class="mem-pub-h">
+                    <b>📈 Publish to Azure Managed Grafana</b>
+                    <a class="moh-link" @click="monitoring.obj.pub.open = !monitoring.obj.pub.open" x-text="monitoring.obj.pub.open ? 'Hide' : (monitoring.obj.pub.tel.configured ? 'Publish…' : 'Set up…')"></a>
+                  </div>
+                  <template x-if="monitoring.obj.pub.open">
+                    <div>
+                      <p class="mem-pub-lead">TheOffice.AI records each objective's measurable value into its <b>own honest history</b>. Publishing <b>emits those recorded readings</b> into a shared Application Insights instance as <code>EpicObjectiveReading</code> events, then builds a Grafana dashboard whose panels read them back over Azure Monitor (KQL). Grafana becomes a front-end portal over data you own and shape — <b>no fabricated series</b>, only real recorded readings.</p>
+                      <div class="mem-pub-note">
+                        <span>ℹ️</span>
+                        <span x-show="monitoring.obj.pub.tel.configured">App Insights telemetry is <b style="color:var(--cp-success,#3fb950)">configured</b>. Publishing backfills every recorded reading, then builds (and optionally pushes) the Grafana dashboard.</span>
+                        <span x-show="!monitoring.obj.pub.tel.configured">Telemetry is <b>not configured yet</b>. Add an App Insights connection string below so recorded readings can be emitted. You can still build the importable dashboard JSON without it.</span>
+                      </div>
+
+                      <div class="mem-pub-cfg" x-show="monitoring.obj.pub.edit || !monitoring.obj.pub.tel.configured">
+                        <div class="mem-pub-steps">
+                          <div class="st" :class="{ ok: monitoring.obj.pub.tel.enabled }"><span class="dot"></span><div><b>1 · Enable + connection string</b><span>Application Insights connection string (kept server-side, never echoed back).</span></div></div>
+                        </div>
+                        <label class="row"><span>Enabled</span><input type="checkbox" x-model="monitoring.obj.pub.form.enabled" style="flex:none"></label>
+                        <div class="row"><span>Connection string</span><input type="password" x-model="monitoring.obj.pub.form.connectionString" :placeholder="monitoring.obj.pub.tel.hasConnectionString ? '•••••• (stored — leave blank to keep)' : 'InstrumentationKey=…;IngestionEndpoint=…'"></div>
+                        <div class="row"><span>Log Analytics resourceId</span><input type="text" x-model="monitoring.obj.pub.form.resourceId" placeholder="/subscriptions/…/components/<appinsights>"></div>
+                        <div class="row"><span>Grafana datasource UID</span><input type="text" x-model="monitoring.obj.pub.form.datasourceUid" placeholder="Azure Monitor datasource UID"></div>
+                        <div class="row"><span>Grafana URL (optional)</span><input type="text" x-model="monitoring.obj.pub.form.grafanaUrl" placeholder="https://<workspace>.grafana.azure.com"></div>
+                        <div class="row"><span>Grafana token (optional)</span><input type="password" x-model="monitoring.obj.pub.form.grafanaToken" :placeholder="monitoring.obj.pub.tel.hasGrafanaToken ? '•••••• (stored — leave blank to keep)' : 'service-account token to auto-push'"></div>
+                        <div class="acts mem-pub-go">
+                          <button class="pubbtn" @click="monObjPubSave()" :disabled="monitoring.obj.pub.loading" x-text="monitoring.obj.pub.loading ? 'Saving…' : 'Save telemetry config'"></button>
+                          <a class="moh-link" x-show="monitoring.obj.pub.tel.configured" @click="monitoring.obj.pub.edit = false">Done</a>
+                        </div>
+                      </div>
+
+                      <div class="mem-pub-go" x-show="!monitoring.obj.pub.edit || monitoring.obj.pub.tel.configured">
+                        <button class="pubbtn" @click="monObjPublish()" :disabled="monitoring.obj.pub.publishing" x-text="monitoring.obj.pub.publishing ? 'Publishing…' : (monitoring.obj.pub.tel.configured ? '📤 Publish now' : '📥 Build dashboard JSON')"></button>
+                        <a class="moh-link" x-show="monitoring.obj.pub.tel.configured && !monitoring.obj.pub.edit" @click="monObjPubEdit()">Edit config</a>
+                        <span class="err" x-show="monitoring.obj.pub.error" x-text="monitoring.obj.pub.error"></span>
+                      </div>
+
+                      <template x-if="monitoring.obj.pub.result">
+                        <div class="mem-pub-res">
+                          <div class="hd" x-text="monObjPubHeadline()"></div>
+                          <div class="ln" x-show="monitoring.obj.pub.result.pushed && monitoring.obj.pub.result.pushed.ok">
+                            ✓ Pushed to Grafana — <a class="moh-link" :href="monitoring.obj.pub.result.pushed.url" target="_blank" rel="noopener">open dashboard ↗</a>
+                          </div>
+                          <template x-for="g in (monitoring.obj.pub.result.guidance || [])" :key="g">
+                            <div class="ln guide">• <span x-text="g"></span></div>
+                          </template>
+                          <div class="ln" style="margin-top:8px">
+                            <a class="moh-link" @click="monObjPubDownload()">⬇ Download dashboard JSON</a>
+                            &nbsp;·&nbsp;
+                            <a class="moh-link" @click="monObjPubCopy()" x-text="monitoring.obj.pub._copied ? 'Copied ✓' : '⎘ Copy JSON'"></a>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
 
                 <template x-if="monitoring.obj.loading">
                   <div class="moh"><div class="moh-loading">Reading the epic and its tracking doc, mapping each objective to real telemetry…</div></div>
@@ -32650,6 +32708,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Objective Health assistant (analyze + edit sources / look / objectives).
             // live = the in-flight SSE stream (thinking/tool trace + progressive answer).
             chat: { open: false, input: '', sending: false, byKey: {}, live: null, traceOpen: false },
+            // Publish to Azure Managed Grafana (App-Insights-as-aggregation architecture).
+            // tel = the masked telemetry config; result = the last publish outcome.
+            pub: {
+              open: false, loading: false, publishing: false, error: '',
+              cfgLoaded: false, edit: false, _copied: false,
+              tel: { enabled: false, hasConnectionString: false, resourceId: '', datasourceUid: '', grafanaUrl: '', hasGrafanaToken: false, configured: false },
+              form: { enabled: false, connectionString: '', resourceId: '', datasourceUid: '', grafanaUrl: '', grafanaToken: '' },
+              result: null,
+            },
           },
         },
         chainModalOpen: false,
@@ -40962,6 +41029,83 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { o.loading = false; }
         },
         monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId, true); },
+
+        // ---- Publish to Azure Managed Grafana (App-Insights-as-aggregation) --------
+        async monObjPubLoad() {
+          const p = this.monitoring.obj.pub;
+          if (p.cfgLoaded) return;
+          p.cfgLoaded = true;
+          try {
+            const r = await this.request('/api/monitoring/telemetry');
+            if (r && r.ok) {
+              p.tel = { enabled: !!r.enabled, hasConnectionString: !!r.hasConnectionString, resourceId: r.resourceId || '', datasourceUid: r.datasourceUid || '', grafanaUrl: r.grafanaUrl || '', hasGrafanaToken: !!r.hasGrafanaToken, configured: !!r.configured };
+              this._monObjPubSeedForm();
+            }
+          } catch (_) { /* leave defaults */ }
+        },
+        _monObjPubSeedForm() {
+          const p = this.monitoring.obj.pub;
+          // Never seed masked secrets; leave blank to preserve the stored value.
+          p.form = { enabled: p.tel.enabled, connectionString: '', resourceId: p.tel.resourceId, datasourceUid: p.tel.datasourceUid, grafanaUrl: p.tel.grafanaUrl, grafanaToken: '' };
+        },
+        monObjPubEdit() { this._monObjPubSeedForm(); this.monitoring.obj.pub.edit = true; },
+        async monObjPubSave() {
+          const p = this.monitoring.obj.pub;
+          p.loading = true; p.error = '';
+          try {
+            const body = {
+              enabled: !!p.form.enabled,
+              resourceId: p.form.resourceId || '', datasourceUid: p.form.datasourceUid || '',
+              grafanaUrl: p.form.grafanaUrl || '',
+            };
+            if (p.form.connectionString && p.form.connectionString.trim()) body.connectionString = p.form.connectionString.trim();
+            if (p.form.grafanaToken && p.form.grafanaToken.trim()) body.grafanaToken = p.form.grafanaToken.trim();
+            const r = await this.request('/api/monitoring/telemetry', { method: 'PUT', body: JSON.stringify(body) });
+            if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
+            p.tel = { enabled: !!r.enabled, hasConnectionString: !!r.hasConnectionString, resourceId: r.resourceId || '', datasourceUid: r.datasourceUid || '', grafanaUrl: r.grafanaUrl || '', hasGrafanaToken: !!r.hasGrafanaToken, configured: !!r.configured };
+            p.edit = false;
+            this._monObjPubSeedForm();
+            this.toast('Telemetry config saved');
+          } catch (e) { p.error = 'Couldn\'t save: ' + (e && e.message || 'error'); }
+          finally { p.loading = false; }
+        },
+        async monObjPublish() {
+          const p = this.monitoring.obj.pub;
+          const key = this.monitoring.obj.epicKey;
+          if (!key) return;
+          p.publishing = true; p.error = ''; p.result = null; p._copied = false;
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard/' + encodeURIComponent(key) + '/publish', { method: 'POST', body: '{}' });
+            if (!r || !r.ok) throw new Error((r && r.error) || 'publish failed');
+            p.result = r;
+          } catch (e) { p.error = 'Publish failed: ' + (e && e.message || 'error'); }
+          finally { p.publishing = false; }
+        },
+        monObjPubHeadline() {
+          const r = this.monitoring.obj.pub.result;
+          if (!r) return '';
+          const em = r.emitted || {};
+          if (r.pushed && r.pushed.ok) return 'Published — ' + (em.count || 0) + ' reading(s) emitted, dashboard pushed to Grafana.';
+          if (em && em.ok) return em.count + ' reading(s) emitted to App Insights. Import the dashboard JSON below into Grafana.';
+          return 'Dashboard JSON built. Follow the steps below to finish publishing.';
+        },
+        monObjPubDownload() {
+          const r = this.monitoring.obj.pub.result;
+          if (!r || !r.model) return;
+          const blob = new Blob([JSON.stringify(r.model, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'objective-health-' + (this.monitoring.obj.epicKey || 'epic') + '.json';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+        },
+        async monObjPubCopy() {
+          const r = this.monitoring.obj.pub.result;
+          if (!r || !r.model) return;
+          try { await navigator.clipboard.writeText(JSON.stringify(r.model, null, 2)); this.monitoring.obj.pub._copied = true; setTimeout(() => { this.monitoring.obj.pub._copied = false; }, 2000); }
+          catch (_) { this.toast('Copy failed — use Download instead'); }
+        },
         monBackToEpic() {
           const key = this.monitoring.obj.epicKey;
           if (!key) { this.goTo('#/codeflow'); return; }

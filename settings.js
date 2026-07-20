@@ -41,6 +41,19 @@ const DEFAULTS = {
   devProject: '',
   // Marketplace: auto-scan every added source daily + flag newly-discovered items.
   marketplaceAutoScan: true,
+  // Objective Health → Azure aggregation (App Insights ETL + Grafana front-end).
+  // Default OFF / opt-in. When enabled with a connection string, each epic
+  // Objective Health rebuild emits its RECORDED readings into the shared App
+  // Insights instance (honest history only — never a fabricated series); a
+  // per-epic Grafana dashboard (Azure Monitor Logs datasource) reads them back.
+  //   connectionString — App Insights ingestion connection string (secret; never echoed).
+  //   resourceId       — the App Insights ARM resource id the Grafana panels query.
+  //   datasourceUid    — the Azure Monitor datasource UID in the Grafana workspace.
+  //   grafanaUrl/Token — optional: push the generated dashboard over the Grafana HTTP API.
+  monitoringTelemetry: {
+    enabled: false, connectionString: '', resourceId: '', subscriptionId: '',
+    appInsightsName: '', resourceGroup: '', datasourceUid: '', grafanaUrl: '', grafanaToken: '',
+  },
   // GitHub source provider (Code Flow + Dev cards). Auth is secretless by
   // default via the `gh` CLI login store (githubAuthMode='cli'); 'env' uses
   // GH_TOKEN/GITHUB_TOKEN; 'pat' falls back to githubPat below. githubOwner is
