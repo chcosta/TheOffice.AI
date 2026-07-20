@@ -947,13 +947,137 @@ function _toGrafanaModel(dash) {
   const panels = (dash.panels || []).map((p, i) => ({
     id: p.id || i + 1,
     title: p.title,
-    type: p.type === 'gauge' ? 'gauge' : 'timeseries',
+    type: p.type === 'gauge' ? 'gauge' : (p.type === 'table' ? 'table' : 'timeseries'),
     gridPos: { x: (i % 2) * 12, y: Math.floor(i / 2) * 8, w: 12, h: 8 },
     fieldConfig: { defaults: { unit: p.unit || '' } },
-    targets: [],
+    // Architecture C: a panel carrying { kql, azureMonitor:{resourceId,datasourceUid} }
+    // gets a real Azure Monitor Logs target that reads the shared App Insights sink.
+    targets: (p.kql && p.azureMonitor) ? [_azureMonitorTarget(p.kql, p.azureMonitor)] : [],
   }));
-  return { uid: undefined, title: dash.title, tags: dash.tags, schemaVersion: 39, panels, time: { from: 'now-6h', to: 'now' } };
+  return { uid: undefined, title: dash.title, tags: dash.tags, schemaVersion: 39, panels, time: { from: 'now-90d', to: 'now' } };
 }
+
+// ---------------------------------------------------------------------------
+// Architecture C: per-epic Grafana dashboard reading the shared App Insights sink
+// ---------------------------------------------------------------------------
+
+// Escape a value for safe interpolation inside a double-quoted KQL string literal.
+function _kqlEscape(v) {
+  return String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+// KQL that reads one objective's recorded readings back out of App Insights as a
+// time series. Matches the envelope shape emitted by epic-telemetry.js
+// (customEvents name=EpicObjectiveReading, customDimensions.epicKey/objective,
+// customMeasurements.value).
+function epicObjectiveKql(epicKey, objectiveTitle) {
+  const k = _kqlEscape(epicKey), o = _kqlEscape(objectiveTitle);
+  return [
+    'customEvents',
+    '| where name == "EpicObjectiveReading"',
+    `| where tostring(customDimensions.epicKey) == "${k}"`,
+    `| where tostring(customDimensions.objective) == "${o}"`,
+    '| where isnotnull(customMeasurements.value)',
+    '| project timestamp, value = todouble(customMeasurements.value)',
+    '| order by timestamp asc',
+  ].join('\n');
+}
+
+// Build a Grafana Azure Monitor Logs target from a KQL query + resource binding.
+function _azureMonitorTarget(kql, azureMonitor, refId = 'A') {
+  const am = azureMonitor || {};
+  return {
+    refId,
+    datasource: { type: 'grafana-azure-monitor-datasource', uid: am.datasourceUid || '${DS_AZURE_MONITOR}' },
+    queryType: 'Azure Log Analytics',
+    azureLogAnalytics: {
+      resources: am.resourceId ? [am.resourceId] : [],
+      query: kql,
+      resultFormat: 'time_series',
+      dashboardTime: true,
+    },
+  };
+}
+
+// Turn a persisted epic Objective-Health snapshot into a Grafana dashboard model.
+// One timeseries panel per objective that has (or will have) numeric readings; the
+// panel's target reads the shared App Insights sink via Azure Monitor Logs. Pure.
+function buildEpicGrafanaModel(snapshot, opts = {}) {
+  const s = snapshot || {};
+  const objectives = Array.isArray(s.objectives) ? s.objectives : [];
+  const am = { resourceId: opts.resourceId || '', datasourceUid: opts.datasourceUid || '' };
+  const panels = objectives.map((o, i) => {
+    const numeric = Array.isArray(o.history) && o.history.some(p => p && p.v != null && Number.isFinite(Number(p.v)));
+    return {
+      id: i + 1,
+      title: o.title || ('Objective ' + (i + 1)),
+      type: numeric ? 'timeseries' : 'table',
+      gridPos: { x: (i % 2) * 12, y: Math.floor(i / 2) * 8, w: 12, h: 8 },
+      fieldConfig: { defaults: { unit: '' } },
+      targets: [_azureMonitorTarget(epicObjectiveKql(s.key, o.title), am)],
+    };
+  });
+  return {
+    uid: undefined,
+    title: (s.title || s.epicTitle || 'Epic') + ' — Objective Health',
+    tags: ['monitoring.ai', 'epic', 'objective-health'],
+    schemaVersion: 39,
+    panels,
+    time: { from: 'now-90d', to: 'now' },
+  };
+}
+
+// Publish an epic's Objective-Health dashboard to Azure Managed Grafana (Arch C).
+// Stores a LOCAL dashboard record (so it shows under "My dashboards" and stays
+// linkable to the epic) and, when Grafana is configured, pushes the real model.
+// Best-effort remote push: local creation always succeeds.
+async function publishEpicDashboard(snapshot, opts = {}) {
+  const s = snapshot || {};
+  if (!s.key) { const e = new Error('epic snapshot required'); e.code = 'BAD_SNAPSHOT'; throw e; }
+  const model = buildEpicGrafanaModel(s, opts);
+  const uid = 'epic-' + String(s.key).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) + '-' + Math.random().toString(36).slice(2, 6);
+  const dash = {
+    uid,
+    title: model.title,
+    tags: model.tags,
+    folder: 'Local',
+    epicKey: s.key,
+    epicId: s.epicId,
+    epicTitle: s.epicTitle,
+    epicUrl: s.epicUrl,
+    kind: 'epic-objective-health',
+    panels: (s.objectives || []).map((o, i) => ({
+      id: i + 1,
+      title: o.title || ('Objective ' + (i + 1)),
+      type: (Array.isArray(o.history) && o.history.some(p => p && p.v != null && Number.isFinite(Number(p.v)))) ? 'timeseries' : 'table',
+      unit: '',
+      kql: epicObjectiveKql(s.key, o.title),
+      azureMonitor: { resourceId: opts.resourceId || '', datasourceUid: opts.datasourceUid || '' },
+    })),
+    updated: new Date().toISOString(),
+    pushed: false,
+    autoPush: true,
+    prompt: '',
+  };
+  const all = _readLocalDashboards();
+  // Replace any prior published dashboard for the same epic (one per epic).
+  const filtered = all.filter(d => !(d.kind === 'epic-objective-health' && d.epicKey === s.key));
+  filtered.unshift(dash);
+  _writeLocalDashboards(filtered.slice(0, 100));
+  let pushed = false, pushError = '', grafanaUid = '';
+  if (configured()) {
+    try {
+      const r = await _api('/api/dashboards/db', { method: 'POST', body: { dashboard: model, overwrite: true, message: 'Epic Objective Health published by Monitoring.AI' }, timeoutMs: 15000 });
+      pushed = !!(r && (r.status === 'success' || r.uid));
+      grafanaUid = (r && r.uid) || '';
+      if (pushed) { dash.pushed = true; if (grafanaUid) dash.grafanaUid = grafanaUid; dash.pushedAt = new Date().toISOString(); _saveLocalDash(dash); }
+    } catch (e) { pushError = e.message; }
+  }
+  const base = cfg().url ? String(cfg().url).replace(/\/$/, '') : '';
+  const url = (pushed && base && grafanaUid) ? `${base}/d/${grafanaUid}` : '';
+  return { ok: true, uid, title: dash.title, panelCount: dash.panels.length, pushed, pushError, grafanaUid, url, local: true, configured: configured() };
+}
+
 
 // ---------------------------------------------------------------------------
 // Deterministic analysis + spec generation (fallbacks for the AI routes)
@@ -1308,6 +1432,9 @@ module.exports = {
   saveAlert,
   deleteAlert,
   evaluateAlerts,
+  epicObjectiveKql,
+  buildEpicGrafanaModel,
+  publishEpicDashboard,
   // exposed for tests
-  _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS, _api, _dashboardVariables, _varMap, _formatVarValue, _applyVars, _queryPanel, _timeToMs, _grafanaDuration, _computeIntervalMs, _expandMacros, _panelSourceText, _panelQueryText, _framesToSeriesTable, _parseAdxSchema, _adxTableToDiscovery, _externalTarget, _adxRole, _specToPanels },
+  _internal: { sampleSeries, _trend, _samplePanels, _sampleDashboardList, SAMPLE_DASHBOARDS, _api, _dashboardVariables, _varMap, _formatVarValue, _applyVars, _queryPanel, _timeToMs, _grafanaDuration, _computeIntervalMs, _expandMacros, _panelSourceText, _panelQueryText, _framesToSeriesTable, _parseAdxSchema, _adxTableToDiscovery, _externalTarget, _adxRole, _specToPanels, _kqlEscape, _azureMonitorTarget, _toGrafanaModel },
 };

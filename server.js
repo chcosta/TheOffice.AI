@@ -919,6 +919,7 @@ function recordActivity(ev) {
 const sdkRunner = require('./sdk-runner');
 // Monitoring.AI — Azure Managed Grafana bridge (live dashboards + sample fallback).
 const grafana = require('./grafana');
+const epicTelemetry = require('./epic-telemetry');
 // Wire the canonical usage sink once: EVERY AI run that flows through the
 // sdk-runner (runAgent/runChat/runPrompt) — present or future — auto-appends a
 // row to the usage ledger, so all AI usage shows up in Reports with no per-call
@@ -10101,6 +10102,53 @@ app.post('/api/monitoring/reconnect', async (req, res) => {
   catch (e) { res.status(200).json({ ok: false, error: e.message }); }
 });
 
+// Architecture C telemetry sink config (shared App Insights instance the epic
+// dashboards emit into + read back from Grafana). NEVER echo the connection
+// string — report only whether one is set.
+app.get('/api/monitoring/telemetry', (req, res) => {
+  const t = (settings.getSettings().monitoringTelemetry) || {};
+  res.json({
+    enabled: !!t.enabled,
+    hasConnectionString: !!(t.connectionString && String(t.connectionString).trim()),
+    resourceId: t.resourceId || '',
+    subscriptionId: t.subscriptionId || '',
+    appInsightsName: t.appInsightsName || '',
+    resourceGroup: t.resourceGroup || '',
+    datasourceUid: t.datasourceUid || '',
+    configured: epicTelemetry.configured(),
+  });
+});
+app.put('/api/monitoring/telemetry', (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = settings.getSettings().monitoringTelemetry || {};
+    const str = (k) => (typeof b[k] === 'string' ? b[k].trim() : (cur[k] || ''));
+    const next = {
+      enabled: typeof b.enabled === 'boolean' ? b.enabled : !!cur.enabled,
+      // Only overwrite the connection string when a non-empty one is supplied.
+      connectionString: (typeof b.connectionString === 'string' && b.connectionString.trim()) ? b.connectionString.trim() : (cur.connectionString || ''),
+      resourceId: str('resourceId'),
+      subscriptionId: str('subscriptionId'),
+      appInsightsName: str('appInsightsName'),
+      resourceGroup: str('resourceGroup'),
+      datasourceUid: str('datasourceUid'),
+    };
+    settings.updateSettings({ monitoringTelemetry: next });
+    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    res.json({
+      ok: true,
+      telemetry: {
+        enabled: next.enabled,
+        hasConnectionString: !!next.connectionString,
+        resourceId: next.resourceId, subscriptionId: next.subscriptionId,
+        appInsightsName: next.appInsightsName, resourceGroup: next.resourceGroup,
+        datasourceUid: next.datasourceUid,
+        configured: epicTelemetry.configured(),
+      },
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // Manually push a local (spun-up) dashboard to Grafana.
 app.post('/api/monitoring/dashboard/:uid/push', async (req, res) => {
   try { res.json(await grafana.pushDashboard(req.params.uid)); }
@@ -10749,6 +10797,34 @@ app.delete('/api/monitoring/epic-dashboard', (req, res) => {
   res.json({ ok: true });
 });
 
+// Architecture C: publish an epic's Objective Health dashboard to Azure Managed
+// Grafana. TheOffice.AI is the ETL layer — the readings were emitted into the
+// shared App Insights sink by POST /epic-dashboard; this builds a Grafana model
+// whose panels read that sink back via Azure Monitor Logs (real KQL targets),
+// stores it locally (so it shows under "My dashboards" + stays epic-linked), and
+// pushes it when Grafana is configured. Best-effort remote push; local always OK.
+app.post('/api/monitoring/epic-dashboard/:key/publish', async (req, res) => {
+  const key = String(req.params.key || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'key required' });
+  const snap = _epicOHLoad()[key];
+  if (!snap) return res.status(404).json({ ok: false, error: 'no Objective Health snapshot — build the dashboard first' });
+  const tel = settings.getSettings().monitoringTelemetry || {};
+  const b = req.body || {};
+  const resourceId = (typeof b.resourceId === 'string' && b.resourceId.trim()) ? b.resourceId.trim() : (tel.resourceId || '');
+  const datasourceUid = (typeof b.datasourceUid === 'string' && b.datasourceUid.trim()) ? b.datasourceUid.trim() : (tel.datasourceUid || '');
+  try {
+    const r = await grafana.publishEpicDashboard(snap, { resourceId, datasourceUid });
+    // Honest guidance: what's still needed for the Grafana panels to actually
+    // read data (the ETL sink + a bound Azure Monitor datasource).
+    const guidance = [];
+    if (!epicTelemetry.configured()) guidance.push('Telemetry sink is not configured — set a connection string under Monitoring settings so readings are emitted to App Insights.');
+    if (!resourceId) guidance.push('No App Insights resourceId bound — the Grafana panels have no resource to query. Set it under Monitoring settings.');
+    if (!datasourceUid) guidance.push('No Azure Monitor datasource UID bound — create an Azure Monitor datasource in Grafana pointed at the App Insights resource, then paste its UID under Monitoring settings.');
+    if (!r.configured) guidance.push('Grafana is not connected — the dashboard was saved locally but not pushed. Connect Grafana to publish it.');
+    res.json({ ...r, guidance, resourceId, datasourceUid });
+  } catch (e) { res.status(200).json({ ok: false, error: e.message, code: e.code || '' }); }
+});
+
 app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   const key = String((req.body && req.body.key) || '').trim();
   const docId = String((req.body && req.body.docId) || '').trim();
@@ -10852,12 +10928,33 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   _epicOHAppendReadings(key, model.objectives, generatedAt);
   const counts = _epicOHCounts(model.objectives);
   // Persist the snapshot — this IS the epic↔dashboard link (keyed by epic key).
+  const prevMap = (() => { try { return _epicOHLoad(); } catch { return {}; } })();
+  const prevTel = (prevMap[key] && prevMap[key].telemetry) || {};
   const snapshot = {
     key, epicId: epicOut.id, epicTitle: epicOut.title, epicUrl: epicOut.url,
     doc: doc ? { id: doc.id, title: doc.title, source: doc.source } : null,
     title: model.title, summary: model.summary, ai, sourcesConnected: srcLines.length,
     objectives: model.objectives, counts, generatedAt,
+    telemetry: { enabled: epicTelemetry.configured(), lastEmit: prevTel.lastEmit || 0 },
   };
+  // Architecture C: emit the RECORDED readings into the shared App Insights sink
+  // so the epic's Grafana dashboard can read durable trend history. Best-effort,
+  // no-op + zero latency when telemetry is disabled. First publish (lastEmit=0)
+  // backfills the full history; later publishes emit only new points.
+  if (epicTelemetry.configured()) {
+    try {
+      const er = await epicTelemetry.emit(
+        { key, epicId: epicOut.id, epicTitle: epicOut.title },
+        model.objectives,
+        { sinceTs: prevTel.lastEmit || 0 }
+      );
+      snapshot.telemetry = {
+        enabled: true, ok: !!er.ok, count: er.count || 0,
+        lastEmit: er.maxTs || (prevTel.lastEmit || 0), at: generatedAt,
+        reason: er.reason || null, status: er.status || null,
+      };
+    } catch (e) { snapshot.telemetry = { enabled: true, ok: false, error: String(e && e.message || e), lastEmit: prevTel.lastEmit || 0 }; }
+  }
   try { const map = _epicOHLoad(); map[key] = snapshot; _epicOHSave(map); } catch { /* best-effort */ }
 
   res.json({
@@ -10868,6 +10965,7 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     title: model.title,
     summary: model.summary,
     sourcesConnected: srcLines.length,
+    telemetry: snapshot.telemetry || null,
     generatedAt, counts,
   });
 });

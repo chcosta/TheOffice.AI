@@ -3752,4 +3752,64 @@ await t.test('epic metrics: overview navigation hub + honest per-objective viz +
   t.ok(/readingPoints:/.test(srv), 'plural list exposes readingPoints');
 });
 
+await t.test('epic metrics: publish to Azure — App Insights ETL sink + Grafana + honest guidance', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  const graf = readFileSync('grafana.js', 'utf8');
+  const emit = readFileSync('epic-telemetry.js', 'utf8');
+  const setg = readFileSync('settings.js', 'utf8');
+
+  // (1) SETTINGS — telemetry sink default (opt-in, off; connection string blank).
+  t.ok(/monitoringTelemetry:/.test(setg) && /connectionString:\s*''/.test(setg) && /datasourceUid:\s*''/.test(setg),
+    'settings.js has a monitoringTelemetry default with connectionString + datasourceUid');
+
+  // (2) EMITTER — App Insights ETL emitter emits ONLY recorded readings, never fabricated.
+  t.ok(/EVENT_NAME\s*=\s*'EpicObjectiveReading'/.test(emit) && /function configured\(/.test(emit) &&
+       /(exports\.emit|module\.exports[\s\S]*emit)/.test(emit),
+    'epic-telemetry.js exports emit()/configured() and uses the reading event name');
+
+  // (3) GRAFANA — Arch-C model builder + publisher + real Azure Monitor/KQL target.
+  t.ok(/function epicObjectiveKql\(/.test(graf) && /function buildEpicGrafanaModel\(/.test(graf) &&
+       /function publishEpicDashboard\(/.test(graf),
+    'grafana.js has epicObjectiveKql + buildEpicGrafanaModel + publishEpicDashboard');
+  t.ok(/_azureMonitorTarget/.test(graf), 'grafana.js builds a real Azure Monitor target');
+
+  // (4) SERVER — telemetry config route NEVER echoes the connection string (only hasConnectionString).
+  const tg = _win(srv, "app.get('/api/monitoring/telemetry'", 500) || '';
+  t.ok(tg && /hasConnectionString:/.test(tg) && !/\bconnectionString:\s*t\.connectionString/.test(tg),
+    'GET telemetry returns hasConnectionString boolean, never the raw connection string');
+  const tp = _win(srv, "app.put('/api/monitoring/telemetry'", 900) || '';
+  t.ok(tp && /b\.connectionString\.trim\(\)/.test(tp) && /cur\.connectionString/.test(tp),
+    'PUT telemetry keeps the stored connection string when the body value is blank');
+
+  // (5) SERVER — per-epic publish route: 404 without a snapshot, honest guidance, graceful ok:false.
+  const pub = _win(srv, "epic-dashboard/:key/publish", 2000) || '';
+  t.ok(pub && /_epicOHLoad\(\)\[key\]/.test(pub) && /status\(404\)/.test(pub),
+    'publish route loads the snapshot and 404s when none exists');
+  t.ok(pub && /grafana\.publishEpicDashboard\(snap/.test(pub) && /guidance\.push\(/.test(pub),
+    'publish route calls publishEpicDashboard and appends honest guidance');
+  t.ok(pub && /ok:\s*false,\s*error:\s*e\.message/.test(pub),
+    'publish route degrades to a graceful ok:false on error');
+
+  // (6) SPA — Publish button + panel + telemetry editor + freshness banner + methods.
+  t.ok(/@click="monObjPublishOpen\(\)"/.test(html) && /Publish to Azure/.test(html),
+    'the epic overview header has a Publish to Azure button');
+  const pnl = _win(html, 'class="mem-pub"', 4800) || '';
+  t.ok(pnl && /App Insights ingestion is asynchronous/.test(pnl),
+    'the publish panel shows an honest ingestion-lag freshness banner');
+  t.ok(pnl && /x-model="monitoring\.telemetry\.connectionString"/.test(pnl) &&
+       /x-model="monitoring\.telemetry\.datasourceUid"/.test(pnl),
+    'the panel has a telemetry editor (connection string + datasource UID)');
+  t.ok(/monitoring\.obj\.publish\.result\.guidance/.test(html),
+    'the panel renders the returned guidance steps');
+  t.ok(/async monTelemetryLoad\(/.test(html) && /async monTelemetrySave\(/.test(html) &&
+       /async monObjPublish\(\)/.test(html) && /monObjPublishOpen\(\)/.test(html),
+    'the publish/telemetry methods are wired');
+
+  // (7) STATE — publish sub-state + telemetry config block.
+  t.ok(/publish:\s*\{\s*open:\s*false/.test(html), 'monitoring.obj.publish sub-state exists');
+  t.ok(/telemetry:\s*\{[\s\S]*hasConnectionString:\s*false/.test(html),
+    'monitoring.telemetry config state exists');
+});
+
 await t.done();

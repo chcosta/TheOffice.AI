@@ -22066,6 +22066,34 @@
                   .mem-otwrap .ottbl .tr:last-child{ border-bottom:0; }
                   .mem-otwrap .ottbl .tr.th{ background:var(--cp-bg-subtle,var(--cp-bg)); color:var(--cp-text-faint); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
                   .mem-otwrap .ottbl .tr span:last-child{ color:var(--cp-text); font-variant-numeric:tabular-nums; }
+                  /* Architecture C: publish-to-Azure panel */
+                  .mem-pub{ border:1px solid var(--cp-border); border-radius:11px; background:var(--cp-bg-subtle,var(--cp-bg)); padding:16px 18px; margin-bottom:16px; }
+                  .mem-pub-h{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+                  .mem-pub-h b{ font-size:14px; }
+                  .mem-pub-lead{ color:var(--cp-text-muted); font-size:12.5px; line-height:1.55; margin:0 0 12px; }
+                  .mem-pub-lead b{ color:var(--cp-text); }
+                  .mem-pub-note{ display:flex; gap:9px; align-items:flex-start; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:9px; padding:9px 12px; color:var(--cp-text-muted); font-size:12px; line-height:1.5; margin-bottom:14px; }
+                  .mem-pub-steps{ display:flex; flex-direction:column; gap:9px; margin-bottom:14px; }
+                  .mem-pub-steps .st{ display:flex; gap:10px; align-items:flex-start; font-size:12.5px; }
+                  .mem-pub-steps .st .dot{ width:9px; height:9px; border-radius:50%; background:var(--cp-text-faint); margin-top:4px; flex:none; }
+                  .mem-pub-steps .st.ok .dot{ background:var(--cp-success,#3fb950); }
+                  .mem-pub-steps .st b{ display:block; color:var(--cp-text); margin-bottom:1px; }
+                  .mem-pub-steps .st span{ color:var(--cp-text-muted); line-height:1.5; }
+                  .mem-pub-steps .st b + span, .mem-pub-steps .st div > span{ display:block; }
+                  .mem-pub-cfg{ display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--cp-border); padding-top:14px; margin-bottom:14px; }
+                  .mem-pub-cfg .row{ display:flex; align-items:center; gap:12px; font-size:12.5px; }
+                  .mem-pub-cfg .row > span{ flex:none; width:180px; color:var(--cp-text-muted); }
+                  .mem-pub-cfg .row input[type=text], .mem-pub-cfg .row input[type=password]{ flex:1; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; color:var(--cp-text); font-size:12.5px; padding:6px 10px; }
+                  .mem-pub-cfg .acts{ margin-top:2px; }
+                  .mem-pub-go{ display:flex; align-items:center; gap:14px; }
+                  .mem-pub-go .pubbtn{ background:var(--cp-accent,#2fb2a6); border:1px solid var(--cp-accent,#2fb2a6); color:#fff; border-radius:9px; font-size:13px; padding:8px 16px; cursor:pointer; }
+                  .mem-pub-go .pubbtn:disabled{ opacity:.6; cursor:default; }
+                  .mem-pub-go .err{ color:var(--cp-danger,#f85149); font-size:12px; }
+                  .mem-pub-res{ margin-top:12px; border-top:1px solid var(--cp-border); padding-top:12px; }
+                  .mem-pub-res .hd{ font-size:13px; color:var(--cp-text); margin-bottom:4px; }
+                  .mem-pub-res .ln{ font-size:12px; color:var(--cp-text-muted); line-height:1.5; }
+                  .mem-pub-res .ln.err{ color:var(--cp-danger,#f85149); }
+                  .mem-pub-res .ln.guide{ color:var(--cp-text-muted); }
                 </style>
                 <div class="mem-top">
                   <button class="monx-back" @click="monObjBack()" x-text="monObjBackLabel()"></button>
@@ -22090,7 +22118,69 @@
                   <span x-show="monitoring.obj.generatedAt" style="color:var(--cp-text-faint);font-size:11.5px;" x-text="'synced ' + (monitoring.obj.ai ? 'with AI · ' : '') + formatRelative(monitoring.obj.generatedAt)"></span>
                   <a class="moh-link" @click="monBackToEpic()" title="Return to this epic in Code Flow">← Back to epic</a>
                   <button class="rebuild" @click="monObjRebuild()" :disabled="monitoring.obj.loading" x-text="monitoring.obj.loading ? 'Building…' : '↻ Rebuild'"></button>
+                  <button class="rebuild" @click="monObjPublishOpen()" :disabled="monitoring.obj.loading" title="Publish this epic's Objective Health dashboard to Azure — emit readings into a shared App Insights instance and stand up a Grafana dashboard that reads them back">☁ Publish to Azure</button>
                 </div>
+
+                <!-- ===== Publish to Azure (App Insights ETL sink → Grafana) ===== -->
+                <template x-if="monitoring.obj.publish.open && !monitoring.obj.loading && !monitoring.obj.error">
+                  <div class="mem-pub">
+                    <div class="mem-pub-h">
+                      <b>☁ Publish to Azure</b>
+                      <a class="moh-link" @click="monObjPublishClose()">Close</a>
+                    </div>
+                    <p class="mem-pub-lead">TheOffice.AI acts as an aggregation layer: every recorded objective reading is emitted into a shared <b>Application Insights</b> instance, and an Azure Managed <b>Grafana</b> dashboard reads it back with real KQL queries. Trends come only from readings recorded here over time — nothing is fabricated.</p>
+
+                    <!-- Freshness / honesty banner -->
+                    <div class="mem-pub-note">
+                      <span>⏱</span>
+                      <span>App Insights ingestion is asynchronous — newly emitted readings typically appear in Grafana within a few minutes. Trend depth grows as this dashboard is re-synced over multiple days.</span>
+                    </div>
+
+                    <!-- Guided prerequisites -->
+                    <div class="mem-pub-steps">
+                      <div class="st" :class="{ ok: monitoring.telemetry.configured }">
+                        <span class="dot"></span>
+                        <div><b>1 · Telemetry sink</b><span x-text="monitoring.telemetry.configured ? 'Connection string set — readings are emitted to App Insights.' : 'Set an App Insights connection string so readings are emitted. Configure it below.'"></span></div>
+                      </div>
+                      <div class="st" :class="{ ok: !!monitoring.telemetry.resourceId }">
+                        <span class="dot"></span>
+                        <div><b>2 · App Insights resource</b><span x-text="monitoring.telemetry.resourceId ? 'Resource bound — Grafana panels have a resource to query.' : 'Bind the App Insights resource ID so Grafana can query it.'"></span></div>
+                      </div>
+                      <div class="st" :class="{ ok: !!monitoring.telemetry.datasourceUid }">
+                        <span class="dot"></span>
+                        <div><b>3 · Azure Monitor datasource</b><span>Create an Azure Monitor datasource in Grafana pointed at the App Insights resource, grant it <b>Reader</b> on the resource, then paste its UID below.</span></div>
+                      </div>
+                    </div>
+
+                    <!-- Telemetry config editor -->
+                    <div class="mem-pub-cfg">
+                      <label class="row"><span>Enabled</span><input type="checkbox" x-model="monitoring.telemetry.enabled"></label>
+                      <label class="row"><span>Connection string</span><input type="password" x-model="monitoring.telemetry.connectionString" :placeholder="monitoring.telemetry.hasConnectionString ? '•••••• (set — leave blank to keep)' : 'InstrumentationKey=…;IngestionEndpoint=…'"></label>
+                      <label class="row"><span>App Insights resource ID</span><input type="text" x-model="monitoring.telemetry.resourceId" placeholder="/subscriptions/…/resourceGroups/…/providers/microsoft.insights/components/…"></label>
+                      <label class="row"><span>Grafana datasource UID</span><input type="text" x-model="monitoring.telemetry.datasourceUid" placeholder="e.g. azure-monitor-oob"></label>
+                      <div class="acts">
+                        <button class="rebuild" @click="monTelemetrySave()" :disabled="monitoring.telemetry.saving" x-text="monitoring.telemetry.saving ? 'Saving…' : 'Save telemetry settings'"></button>
+                      </div>
+                    </div>
+
+                    <!-- Publish action + result -->
+                    <div class="mem-pub-go">
+                      <button class="pubbtn" @click="monObjPublish()" :disabled="monitoring.obj.publish.busy" x-text="monitoring.obj.publish.busy ? 'Publishing…' : '☁ Publish now'"></button>
+                      <span class="err" x-show="monitoring.obj.publish.error" x-text="monitoring.obj.publish.error"></span>
+                    </div>
+                    <template x-if="monitoring.obj.publish.result">
+                      <div class="mem-pub-res">
+                        <div class="hd" x-text="monitoring.obj.publish.result.pushed ? '✓ Published to Grafana' : (monitoring.obj.publish.result.local ? '✓ Saved locally' + (monitoring.obj.publish.result.configured ? ' — push failed' : ' — Grafana not connected') : '')"></div>
+                        <div class="ln" x-show="monitoring.obj.publish.result.title"><span x-text="monitoring.obj.publish.result.title"></span> · <span x-text="(monitoring.obj.publish.result.panelCount || 0) + ' panel(s)'"></span></div>
+                        <a class="moh-link" x-show="monitoring.obj.publish.result.url" :href="monitoring.obj.publish.result.url" target="_blank" rel="noopener">Open in Grafana ↗</a>
+                        <div class="ln err" x-show="monitoring.obj.publish.result.pushError" x-text="'Push error: ' + monitoring.obj.publish.result.pushError"></div>
+                        <template x-for="(g, gi) in (monitoring.obj.publish.result.guidance || [])" :key="'pg'+gi">
+                          <div class="ln guide" x-text="'• ' + g"></div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
 
                 <template x-if="monitoring.obj.loading">
                   <div class="moh"><div class="moh-loading">Reading the epic and its tracking doc, mapping each objective to real telemetry…</div></div>
@@ -33169,7 +33259,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             otSel: 0,             // objective n selected on the over-time view
             otRange: 'all',       // 'all' | '90' | '30'
             pendingNav: false,    // one-shot: set by monEpicDashboard so the route-load doesn't clobber the intentional epic→objective nav
+            // Architecture C: publish this epic's dashboard to Azure (App Insights ETL sink → Grafana front-end).
+            publish: { open: false, busy: false, result: null, error: '' },
           },
+          // Architecture C telemetry sink config (shared App Insights the epic dashboards emit into / Grafana reads back).
+          telemetry: { loaded: false, saving: false, enabled: false, hasConnectionString: false, connectionString: '', resourceId: '', subscriptionId: '', appInsightsName: '', resourceGroup: '', datasourceUid: '', configured: false },
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -42214,6 +42308,53 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally { o.loading = false; }
         },
         monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId, true); },
+        // ---- Architecture C: publish to Azure (App Insights sink → Grafana) ----
+        async monTelemetryLoad(force) {
+          const t = this.monitoring.telemetry;
+          if (t.loaded && !force) return;
+          try {
+            const r = await this.request('/api/monitoring/telemetry');
+            t.enabled = !!r.enabled; t.hasConnectionString = !!r.hasConnectionString;
+            t.resourceId = r.resourceId || ''; t.subscriptionId = r.subscriptionId || '';
+            t.appInsightsName = r.appInsightsName || ''; t.resourceGroup = r.resourceGroup || '';
+            t.datasourceUid = r.datasourceUid || ''; t.configured = !!r.configured;
+            t.connectionString = ''; t.loaded = true;
+          } catch (_) { /* leave defaults */ }
+        },
+        async monTelemetrySave() {
+          const t = this.monitoring.telemetry;
+          t.saving = true;
+          try {
+            const body = {
+              enabled: t.enabled, resourceId: t.resourceId, datasourceUid: t.datasourceUid,
+              subscriptionId: t.subscriptionId, appInsightsName: t.appInsightsName, resourceGroup: t.resourceGroup,
+            };
+            if (t.connectionString && t.connectionString.trim()) body.connectionString = t.connectionString.trim();
+            const r = await this.request('/api/monitoring/telemetry', { method: 'PUT', body });
+            const nt = (r && r.telemetry) || {};
+            t.hasConnectionString = !!nt.hasConnectionString; t.configured = !!nt.configured;
+            t.connectionString = '';
+            this.toast('Telemetry settings saved.');
+          } catch (e) { this.toast('Couldn\'t save telemetry settings: ' + (e && e.message || 'error')); }
+          finally { t.saving = false; }
+        },
+        monObjPublishOpen() {
+          this.monitoring.obj.publish.open = true;
+          this.monTelemetryLoad();
+        },
+        monObjPublishClose() { this.monitoring.obj.publish.open = false; },
+        async monObjPublish() {
+          const key = this.monitoring.obj.epicKey;
+          if (!key) { this.toast('No epic loaded to publish.'); return; }
+          const p = this.monitoring.obj.publish;
+          p.busy = true; p.error = ''; p.result = null;
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard/' + encodeURIComponent(key) + '/publish', { method: 'POST', body: {} });
+            if (r && r.ok === false) { p.error = r.error || 'Publish failed.'; }
+            else { p.result = r; this.toast(r.pushed ? 'Published to Grafana.' : 'Saved locally.'); }
+          } catch (e) { p.error = (e && e.message) || 'Publish failed.'; }
+          finally { p.busy = false; }
+        },
         monBackToEpic() {
           const key = this.monitoring.obj.epicKey;
           if (!key) { this.goTo('#/codeflow'); return; }

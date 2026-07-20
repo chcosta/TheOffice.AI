@@ -175,6 +175,23 @@ const DEFAULTS = {
   // (X-Grafana-Org-Id header) for multi-org instances.
   grafana: { enabled: false, url: '', token: '', orgId: '', authMode: 'aad', pushByDefault: true },
 
+  // ---- Monitoring.AI — epic telemetry sink (App Insights) -------------------
+  // Architecture C: TheOffice.AI acts as an ETL that emits each epic objective's
+  // recorded reading into a SHARED Application Insights instance, and a per-epic
+  // Grafana dashboard reads back from it (Grafana = front-end portal). ONE shared
+  // instance backs every epic dashboard; the source is changeable here (not
+  // hardcoded). Default OFF / opt-in — nothing is emitted until enabled + a
+  // connection string is set. HONESTY: only recorded readings are ever emitted;
+  // no synthetic series.
+  //   connectionString — App Insights connection string (carries ingestion key +
+  //                      endpoint). The single source of truth for emission.
+  //   resourceId       — the App Insights ARM resource id (used to build the
+  //                      Grafana Azure Monitor query target + guide datasource wiring).
+  //   subscriptionId / appInsightsName / resourceGroup — provisioning breadcrumbs.
+  //   datasourceUid    — the Grafana Azure Monitor datasource uid pointed at this
+  //                      App Insights (set once the datasource is wired in Grafana).
+  monitoringTelemetry: { enabled: false, connectionString: '', resourceId: '', subscriptionId: '', appInsightsName: '', resourceGroup: '', datasourceUid: '' },
+
   // ---- Compose.AI — "Make it real" prototype publishing ---------------------
   // Turns a self-contained Compose.AI prototype (a `site` draft) into a real,
   // access-restricted Azure App Service with per-user Table Storage state and
