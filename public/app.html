@@ -21351,6 +21351,14 @@
                   .moh-bridge .rebuild{ border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:8px; padding:6px 12px; color:var(--cp-text); cursor:pointer; }
                   .moh-bridge .rebuild:hover{ border-color:var(--mon-graf); }
                   .moh-bridge .rebuild:disabled{ opacity:.55; cursor:default; }
+                  .moh-bridge .rebuild.snap{ border-color:var(--mon-graf); }
+                  .moh-opts{ position:relative; display:inline-flex; }
+                  .moh-opts .rebuild.moh-opts-t{ padding:6px 9px; font-weight:600; }
+                  .moh-opts-m{ position:absolute; top:calc(100% + 6px); right:0; z-index:40; min-width:280px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.28); padding:5px; }
+                  .moh-opts-m a{ display:block; padding:9px 11px; border-radius:8px; cursor:pointer; text-decoration:none; color:var(--cp-text); }
+                  .moh-opts-m a:hover{ background:var(--cp-surface-2,rgba(127,127,127,.12)); }
+                  .moh-opts-m a b{ display:block; font-size:12.5px; }
+                  .moh-opts-m a span{ display:block; color:var(--cp-text-faint); font-size:11px; line-height:1.45; margin-top:2px; }
                   .moh-bridge a.chip.epic{ text-decoration:none; color:var(--cp-text); }
                   .moh-bridge a.chip.epic:hover{ border-color:var(--mon-ai); }
                   .moh-bridge .moh-link{ cursor:pointer; color:var(--cp-text-muted); font-size:12px; }
@@ -21553,9 +21561,15 @@
                   <span class="chip doc" x-show="monitoring.obj.doc">📄 <b x-text="monitoring.obj.doc ? monitoring.obj.doc.title : ''"></b></span>
                   <span class="chip" x-show="!monitoring.obj.doc" style="color:var(--cp-text-faint)">No tracking doc linked</span>
                   <span class="sp"></span>
-                  <span x-show="monitoring.obj.generatedAt" style="color:var(--cp-text-faint);font-size:11.5px;" x-text="'synced ' + (monitoring.obj.ai ? 'with AI · ' : '') + formatRelative(monitoring.obj.generatedAt)"></span>
+                  <span x-show="monitoring.obj.snapshotAt || monitoring.obj.generatedAt" style="color:var(--cp-text-faint);font-size:11.5px;" x-text="'last reading ' + formatRelative(monitoring.obj.snapshotAt || monitoring.obj.generatedAt) + (monitoring.obj.ai && monitoring.obj.generatedAt ? ' · structure built with AI ' + formatRelative(monitoring.obj.generatedAt) : '')"></span>
                   <a class="moh-link" @click="monBackToEpic()" title="Return to this epic in Code Flow">← Back to epic</a>
-                  <button class="rebuild" @click="monObjRebuild()" :disabled="monitoring.obj.loading" x-text="monitoring.obj.loading ? 'Building…' : '↻ Rebuild'"></button>
+                  <button class="rebuild snap" @click="monObjSnapshot()" :disabled="monitoring.obj.loading || monitoring.obj.snapshotting" x-text="monitoring.obj.snapshotting ? 'Recording…' : '📸 Snapshot now'" title="Record today's reading for each objective (no AI). One point per day builds the trend over time."></button>
+                  <div class="moh-opts" @click.outside="monitoring.obj.optsOpen = false">
+                    <button class="rebuild moh-opts-t" @click="monitoring.obj.optsOpen = !monitoring.obj.optsOpen" :disabled="monitoring.obj.loading" title="More actions">⋯</button>
+                    <div class="moh-opts-m" x-show="monitoring.obj.optsOpen" x-transition @click="monitoring.obj.optsOpen = false">
+                      <a @click="monObjRebuild()"><b x-text="monitoring.obj.loading ? '↻ Rebuilding…' : '↻ Rebuild with AI'"></b><span>Re-reads the epic's tracking doc and regenerates the objectives, sources, and targets. Use this only when the doc or a data source changes — not for routine daily tracking.</span></a>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- ===== Publish to Azure Managed Grafana (App-Insights-as-aggregation) ===== -->
@@ -32704,6 +32718,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             mode: 'overview',     // 'overview'(landing nav hub) | 'detail'(master-detail drill-down) | 'overtime'(per-objective trend)
             otSel: 0,             // objective n selected on the over-time view
             otRange: 'all',       // 'all' | '90' | '30'
+            snapshotting: false,  // a no-AI "Snapshot now" is recording today's reading
+            snapshotAt: 0,        // ts of the last recorded reading (snapshot OR AI rebuild)
+            optsOpen: false,      // the ⋯ options menu (holds the explicit AI rebuild)
             pendingNav: false,    // one-shot: set by monEpicDashboard so the route-load doesn't clobber the intentional epic→objective nav
             // Objective Health assistant (analyze + edit sources / look / objectives).
             // live = the in-flight SSE stream (thinking/tool trace + progressive answer).
@@ -40991,6 +41008,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           o.loading = true; o.error = ''; o.epicKey = key; o.docId = docId || '';
           o.objectives = []; o.sel = ''; o.doc = null; o.title = ''; o.summary = ''; o.ai = false;
           o.generatedAt = 0; o.counts = null; o.mode = 'overview'; o.otSel = 0; o.otRange = 'all';
+          o.snapshotAt = 0; o.optsOpen = false;
           try {
             let r = null;
             if (!force) {
@@ -41013,6 +41031,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             o.sourcesConnected = r.sourcesConnected || 0;
             o.objectives = Array.isArray(r.objectives) ? r.objectives : [];
             o.generatedAt = r.generatedAt || 0;
+            o.snapshotAt = r.snapshotAt || r.generatedAt || 0;
             o.counts = r.counts || null;
             // Refresh the epic-side cache so the cockpit card reflects the latest.
             this._epicOHStore(key, r);
@@ -41028,7 +41047,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             o.error = 'Couldn\'t build the objective-health dashboard: ' + (e && e.message || 'error') + '. Open the Epics tab first so the epic is loaded.';
           } finally { o.loading = false; }
         },
-        monObjRebuild() { if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId, true); },
+        monObjRebuild() { this.monitoring.obj.optsOpen = false; if (this.monitoring.obj.epicKey) this.monEpicDashboard(this.monitoring.obj.epicKey, this.monitoring.obj.docId, true); },
+        // Record today's reading for every objective — NO AI. The everyday cadence: cheap,
+        // deterministic, honest. Refreshes the objectives (with their appended history) in
+        // place so the over-time view reflects the new point immediately.
+        async monObjSnapshot() {
+          const o = this.monitoring.obj;
+          const key = o.epicKey;
+          if (!key || o.snapshotting) return;
+          o.snapshotting = true; o.optsOpen = false;
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard/' + encodeURIComponent(key) + '/snapshot', { method: 'POST', body: '{}' });
+            if (!r || !r.ok) throw new Error((r && r.error) || 'snapshot failed');
+            if (Array.isArray(r.objectives)) o.objectives = r.objectives;
+            if (r.counts) o.counts = r.counts;
+            o.snapshotAt = r.snapshotAt || Date.now();
+            const withHist = o.objectives.find(x => Array.isArray(x.history) && x.history.length >= 2) || o.objectives.find(x => x.n === o.otSel) || o.objectives[0];
+            if (withHist) o.otSel = withHist.n;
+            this._epicOHStore(key, { ok: true, objectives: o.objectives, counts: o.counts, generatedAt: o.generatedAt, ai: o.ai, title: o.title, summary: o.summary, doc: o.doc });
+            const em = r.telemetry;
+            const emNote = (em && em.enabled && em.ok && em.count) ? (' · ' + em.count + ' emitted to App Insights') : '';
+            this.toast((r.appended ? 'Reading recorded for today' : 'Today already recorded — updated') + emNote);
+          } catch (e) { this.toast('Snapshot failed: ' + (e && e.message || 'error')); }
+          finally { o.snapshotting = false; }
+        },
 
         // ---- Publish to Azure Managed Grafana (App-Insights-as-aggregation) --------
         async monObjPubLoad() {

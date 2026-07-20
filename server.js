@@ -10262,6 +10262,44 @@ function _epicOHAppendReadings(key, objectives, generatedAt) {
   }
 }
 
+// No-AI snapshot: record TODAY's reading for each objective of a persisted Objective
+// Health dashboard WITHOUT re-running the AI model build. This is the honest everyday
+// cadence — it captures "as of today, each objective's recorded value is X" (the last
+// value the AI / assistant established from the tracking doc or bound source), appending
+// one point per LOCAL calendar day so trends accrue. The dashboard STRUCTURE (which
+// objectives, their sources, targets, and look) is left untouched — only a fresh dated
+// reading is added. An AI rebuild (POST /api/monitoring/epic-dashboard) stays a separate,
+// explicit action that re-reads the tracking doc. Best-effort; never throws.
+async function _epicOHSnapshot(key) {
+  const map = _epicOHLoad();
+  const snap = map[key];
+  if (!snap || !Array.isArray(snap.objectives) || !snap.objectives.length) return { ok: false, reason: 'no-dashboard' };
+  const generatedAt = Date.now();
+  const before = snap.objectives.map(o => (Array.isArray(o.history) ? o.history.length : 0));
+  _epicOHAppendReadings(key, snap.objectives, generatedAt);
+  let appended = 0, withReadings = 0;
+  snap.objectives.forEach((o, i) => {
+    const len = Array.isArray(o.history) ? o.history.length : 0;
+    if (len) withReadings++;
+    if (len > (before[i] || 0)) appended++;
+  });
+  snap.counts = _epicOHCounts(snap.objectives);
+  snap.snapshotAt = generatedAt;
+  // Aggregation layer: emit only NEW recorded points to App Insights (honest history).
+  if (epicTelemetry.configured()) {
+    try {
+      const prevTel = snap.telemetry || null;
+      const sinceTs = (prevTel && Number(prevTel.lastEmit)) || 0;
+      const emitRes = await epicTelemetry.emit({ key, epicId: snap.epicId, epicTitle: snap.epicTitle }, snap.objectives, { sinceTs });
+      snap.telemetry = { enabled: true, ok: !!emitRes.ok, count: emitRes.count || 0, lastEmit: emitRes.maxTs || sinceTs, at: generatedAt, reason: emitRes.reason || '', status: emitRes.status || 0 };
+    } catch (e) {
+      snap.telemetry = { enabled: true, ok: false, count: 0, lastEmit: (snap.telemetry && snap.telemetry.lastEmit) || 0, at: generatedAt, reason: e.message, status: 0 };
+    }
+  }
+  try { map[key] = snap; _epicOHSave(map); } catch { /* best-effort */ }
+  return { ok: true, key, generatedAt, snapshotAt: generatedAt, appended, objectivesWithReadings: withReadings, counts: snap.counts, telemetry: snap.telemetry || null, objectives: snap.objectives };
+}
+
 // Apply structured edit ops from the Objective Health assistant to a persisted
 // snapshot. Mutates snapshot.objectives (each op is validated/clamped like
 // _monNormObjective), re-counts, and appends a REAL reading when the assistant
@@ -10445,6 +10483,50 @@ app.post('/api/monitoring/epic-dashboard/:key/publish', async (req, res) => {
   res.json({ ok: true, emitted, model, pushed, guidance });
 });
 
+// Record TODAY's reading for a persisted Objective Health dashboard WITHOUT an AI
+// rebuild — the everyday cadence: cheap, deterministic, honest. Captures the current
+// recorded value of each objective as one dated point so the trend accrues. (The AI
+// rebuild, which re-reads the tracking doc, is the separate POST /api/monitoring/epic-dashboard.)
+app.post('/api/monitoring/epic-dashboard/:key/snapshot', async (req, res) => {
+  const key = String(req.params.key || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'missing epic key' });
+  let r;
+  try { r = await _epicOHSnapshot(key); } catch (e) { return res.status(500).json({ ok: false, error: (e && e.message) || 'snapshot failed' }); }
+  if (!r.ok) {
+    if (r.reason === 'no-dashboard') return res.status(404).json({ ok: false, error: 'no Objective Health dashboard for this epic — build one first' });
+    return res.status(500).json({ ok: false, error: r.reason || 'snapshot failed' });
+  }
+  res.json(r);
+});
+
+// Daily automated Objective Health snapshot (leader-gated, once per LOCAL calendar day).
+// Records a fresh dated reading for every epic that already has a built dashboard so trends
+// accrue on their own — no one has to click, and the AI rebuild stays a separate, explicit
+// action. Default ON; disable via settings.monitoringAutoSnapshot === false. Purely local +
+// cheap; only reaches App Insights when Objective Health telemetry is configured.
+let _epicOHAutoBusy = false;
+setInterval(async () => {
+  if (_epicOHAutoBusy) return;
+  if (!leaderCheck()) return;
+  try {
+    const s = settings.getSettings();
+    if (s && s.monitoringAutoSnapshot === false) return; // opt-out; default ON
+    const map = _epicOHLoad();
+    const keys = Object.keys(map || {});
+    if (!keys.length) return;
+    const today = _epicOHDayStamp(Date.now());
+    _epicOHAutoBusy = true;
+    for (const key of keys) {
+      const snap = map[key];
+      if (!snap || !Array.isArray(snap.objectives) || !snap.objectives.length) continue;
+      const lastAt = Number(snap.snapshotAt || snap.generatedAt || 0);
+      if (lastAt && _epicOHDayStamp(lastAt) === today) continue; // already snapshotted today
+      try { await _epicOHSnapshot(key); } catch { /* per-epic best-effort */ }
+    }
+  } catch { /* leader-gated sweep, never throw */ }
+  finally { _epicOHAutoBusy = false; }
+}, 30 * 60 * 1000);
+
 // GET the persisted Objective Health snapshot for an epic (no AI, no epic-load required).
 app.get('/api/monitoring/epic-dashboard', (req, res) => {
   const key = String((req.query && req.query.key) || '').trim();
@@ -10566,7 +10648,7 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     key, epicId: epicOut.id, epicTitle: epicOut.title, epicUrl: epicOut.url,
     doc: doc ? { id: doc.id, title: doc.title, source: doc.source } : null,
     title: model.title, summary: model.summary, ai,
-    objectives: model.objectives, counts, generatedAt,
+    objectives: model.objectives, counts, generatedAt, snapshotAt: generatedAt,
     telemetry: prevTel || null,
   };
 

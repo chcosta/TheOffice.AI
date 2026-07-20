@@ -3157,7 +3157,7 @@ await t.test('monitoring.ai: epic→objective nav is not clobbered by the async 
   const html = readFileSync(APP_HTML, 'utf8');
 
   // State carries the one-shot sentinel.
-  const obj = _win(html, "mode: 'overview',", 400) || html;
+  const obj = _win(html, "mode: 'overview',", 720) || html;
   t.ok(/pendingNav:\s*false/.test(obj), "obj.pendingNav sentinel defaults to false");
 
   // monEpicDashboard sets the sentinel BEFORE changing the hash (goTo only sets the
@@ -3377,6 +3377,44 @@ await t.test('epic objective health: Grafana publish (App-Insights-as-aggregatio
   const doPub = _win(html, 'async monObjPublish()', 900) || '';
   t.ok(/epic-dashboard\/'\s*\+\s*encodeURIComponent\(key\)\s*\+\s*'\/publish/.test(doPub),
     'monObjPublish POSTs the per-epic publish route');
+});
+
+await t.test('epic objective health: daily no-AI snapshot + explicit AI rebuild separation', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  const set = readFileSync('settings.js', 'utf8');
+
+  // (1) No-AI snapshot helper: re-records readings WITHOUT re-running the AI model build.
+  const snap = _win(srv, 'async function _epicOHSnapshot(', 1700) || '';
+  t.ok(snap, '_epicOHSnapshot helper exists');
+  t.ok(/_epicOHAppendReadings\(key, snap\.objectives/.test(snap), 'snapshot appends readings from the persisted objectives');
+  t.ok(/snap\.snapshotAt = generatedAt/.test(snap), 'snapshot stamps snapshotAt');
+  t.ok(!/sdkRunner|runChat|_monEpicGuidanceDoc/.test(snap), 'snapshot does NOT invoke the AI / re-read the tracking doc');
+  t.ok(/epicTelemetry\.configured\(\)/.test(snap) && /epicTelemetry\.emit/.test(snap), 'snapshot emits only when telemetry is configured');
+
+  // (2) Manual snapshot route + honest 404 when no dashboard exists yet.
+  const route = _win(srv, "app.post('/api/monitoring/epic-dashboard/:key/snapshot'", 900) || '';
+  t.ok(route, 'manual snapshot route exists');
+  t.ok(/_epicOHSnapshot\(key\)/.test(route), 'snapshot route calls the helper');
+  t.ok(/no Objective Health dashboard/.test(route), 'snapshot route 404s when no dashboard is built');
+
+  // (3) Daily automated snapshot: leader-gated, opt-out default-ON, once per LOCAL day.
+  const job = _win(srv, '_epicOHAutoBusy = false', 1200) || '';
+  t.ok(/leaderCheck\(\)/.test(job), 'daily auto-snapshot is leader-gated');
+  t.ok(/monitoringAutoSnapshot === false/.test(job), 'daily auto-snapshot is opt-out (default ON)');
+  t.ok(/_epicOHDayStamp\(lastAt\) === today/.test(job), 'daily auto-snapshot fires at most once per local day');
+  t.ok(/_epicOHSnapshot\(key\)/.test(job), 'daily auto-snapshot uses the no-AI helper');
+  t.ok(/monitoringAutoSnapshot: true/.test(set), 'settings default has monitoringAutoSnapshot ON');
+
+  // (4) AI rebuild is separated behind the ⋯ options menu; Snapshot now is the primary action.
+  t.ok(/monObjSnapshot\(\)/.test(html), 'SPA wires the Snapshot now button');
+  t.ok(/class="moh-opts-m"/.test(html), 'AI rebuild lives in an options menu, not a bare button');
+  const optsMenu = _win(html, 'class="moh-opts-m"', 600) || '';
+  t.ok(/monObjRebuild\(\)/.test(optsMenu), 'the options menu holds the explicit AI rebuild');
+  const doSnap = _win(html, 'async monObjSnapshot()', 1200) || '';
+  t.ok(/epic-dashboard\/'\s*\+\s*encodeURIComponent\(key\)\s*\+\s*'\/snapshot/.test(doSnap),
+    'monObjSnapshot POSTs the per-epic snapshot route');
+  t.ok(/o\.snapshotAt = r\.snapshotAt/.test(doSnap), 'monObjSnapshot refreshes snapshotAt from the response');
 });
 
 await t.done();

@@ -54,6 +54,11 @@ const DEFAULTS = {
     enabled: false, connectionString: '', resourceId: '', subscriptionId: '',
     appInsightsName: '', resourceGroup: '', datasourceUid: '', grafanaUrl: '', grafanaToken: '',
   },
+  // Objective Health daily auto-snapshot. Default ON: once per local calendar day the
+  // leader records a fresh dated reading for every epic that has a built dashboard, so
+  // trends accrue without anyone clicking. Structure is untouched — an AI rebuild (which
+  // re-reads the tracking doc) stays a separate, explicit action. Set false to opt out.
+  monitoringAutoSnapshot: true,
   // GitHub source provider (Code Flow + Dev cards). Auth is secretless by
   // default via the `gh` CLI login store (githubAuthMode='cli'); 'env' uses
   // GH_TOKEN/GITHUB_TOKEN; 'pat' falls back to githubPat below. githubOwner is
