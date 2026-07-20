@@ -10662,6 +10662,50 @@ function _epicOHCounts(objectives) {
   return c;
 }
 
+// --- Recorded reading history (honest local time-series) --------------------
+// Trends on the Epic Metrics overview + the per-objective "over time" view are
+// NOT fabricated telemetry. Each time an epic's Objective Health dashboard is
+// (re)built/synced we capture the then-current numeric value of every objective
+// with a readable measurement, appending it to a rolling per-objective history.
+// One point per calendar day (last-write-wins) so repeated rebuilds don't spam
+// the series; capped so the store stays small. Objectives without a numeric
+// reading (missing-source / manual) accrue no points — their trend only begins
+// once a real source is bound and the first value is captured.
+const _EPIC_OH_HISTORY_MAX = 90;
+function _epicOHSlug(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'obj';
+}
+function _epicOHNum(s) {
+  if (s == null) return null;
+  const m = String(s).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+function _epicOHDayStamp(t) {
+  const d = new Date(t);
+  return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate();
+}
+// Carry prior readings forward (by objective title-slug) and append today's value.
+// Mutates `objectives` in place, attaching an `.history` array to each.
+function _epicOHAppendReadings(key, objectives, generatedAt) {
+  let prevObjs = [];
+  try { const s = _epicOHLoad()[key]; if (s && Array.isArray(s.objectives)) prevObjs = s.objectives; } catch { /* first build */ }
+  const prevById = {};
+  for (const p of prevObjs) { if (p && p.title) prevById[_epicOHSlug(p.title)] = Array.isArray(p.history) ? p.history : []; }
+  for (const o of (objectives || [])) {
+    const id = _epicOHSlug(o && o.title);
+    let hist = (prevById[id] || []).slice();
+    const v = _epicOHNum(o && o.now);
+    if (v != null) {
+      const reading = { t: generatedAt, v, raw: (o.now != null ? String(o.now) : String(v)) };
+      const last = hist[hist.length - 1];
+      if (last && _epicOHDayStamp(last.t) === _epicOHDayStamp(generatedAt)) hist[hist.length - 1] = reading;
+      else hist.push(reading);
+      if (hist.length > _EPIC_OH_HISTORY_MAX) hist = hist.slice(hist.length - _EPIC_OH_HISTORY_MAX);
+    }
+    if (o) o.history = hist;
+  }
+}
+
 // LIST every persisted Objective Health snapshot (the epic dashboards). Lets the
 // Monitoring.AI home hub surface epic dashboards so they're discoverable — they
 // are NOT Grafana dashboards, so they never appear in /dashboards. Lightweight:
@@ -10680,6 +10724,7 @@ app.get('/api/monitoring/epic-dashboards', (req, res) => {
       ai: !!s.ai,
       counts: s.counts || _epicOHCounts(s.objectives),
       objectiveCount: Array.isArray(s.objectives) ? s.objectives.length : 0,
+      readingPoints: Array.isArray(s.objectives) ? s.objectives.reduce((n, o) => n + ((o && Array.isArray(o.history)) ? o.history.length : 0), 0) : 0,
       generatedAt: s.generatedAt || 0,
     };
   }).sort((a, b) => (b.generatedAt || 0) - (a.generatedAt || 0));
@@ -10804,6 +10849,7 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
   }
 
   const generatedAt = Date.now();
+  _epicOHAppendReadings(key, model.objectives, generatedAt);
   const counts = _epicOHCounts(model.objectives);
   // Persist the snapshot — this IS the epic↔dashboard link (keyed by epic key).
   const snapshot = {

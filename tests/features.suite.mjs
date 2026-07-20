@@ -3671,4 +3671,57 @@ await t.test('monitoring.ai: browse-first home hub + separate Create page (atten
     'plural endpoint returns dashboards from _epicOHLoad');
 });
 
+await t.test('epic metrics: overview navigation hub + honest per-objective viz + over-time', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+
+  // (1) LANDING — the Overview replaces the master-detail landing as the default mode.
+  t.ok(/mode:\s*'overview'/.test(html), 'monitoring.obj state defaults mode to overview');
+  t.ok(/otSel:/.test(html) && /otRange:/.test(html), 'over-time state (otSel + otRange) present');
+  const entry = _win(html, 'Landing = the browse-first Overview', 120);
+  t.ok(entry && /o\.mode = 'overview';/.test(entry),
+    'monEpicDashboard lands on the Overview after building');
+  t.ok(/monObjOverview\(\)\s*\{[^}]*mode = 'overview'/.test(html),
+    'monObjOverview sets mode=overview');
+
+  // (2) OVERVIEW markup — donut hero + measurable % + per-objective card grid that
+  // drills into detail; over-time link only when the objective has recorded trend.
+  const ov = _win(html, 'class="mem-wrap"', 2600);
+  t.ok(ov && /class="mem-grid"/.test(ov) && /class="mem-ob"/.test(ov),
+    'overview renders the mem-grid card grid');
+  t.ok(ov && /x-html="monEmDonut\(\)"/.test(ov) && /monEmMeasurablePct\(\) \+ '%'/.test(ov),
+    'overview hero shows the donut + measurable %');
+  t.ok(ov && /@click="monObjOpenDetail\(o\.n\)"/.test(ov) && /x-html="monEmCardViz\(o\)"/.test(ov),
+    'each card drills into detail and renders its best-fit viz');
+  t.ok(ov && /x-show="monEmHasTrend\(o\)"[^>]*@click\.stop="monObjOpenOvertime\(o\.n\)"/.test(ov),
+    'the per-card over-time link is gated on monEmHasTrend');
+
+  // (3) HONESTY — viz type never fabricates a chart: miss -> gap, manual -> manual,
+  // trend ONLY when >= 2 recorded readings, else a gauge of the single value.
+  t.ok(/monEmHasTrend\(o\)\s*\{\s*return[^}]*history[^}]*length >= 2/.test(html),
+    'monEmHasTrend requires at least two recorded readings');
+  const vt = _win(html, 'monEmVizType(o) {', 300);
+  t.ok(vt && /status === 'miss'\) return 'gap'/.test(vt) && /monEmHasTrend\(o\)\) return 'trend'/.test(vt),
+    'monEmVizType: miss -> gap; trend only with recorded history');
+  t.ok(/_monEmGapCard\(o\)/.test(html) && /_monEmManualCard\(o\)/.test(html) && /_monEmGauge\(o\)/.test(html),
+    'gap / manual / gauge card builders exist (no fabricated series)');
+
+  // (4) OVER-TIME view — objective picker + big chart fed only by recorded readings,
+  // segment/link hidden until an objective actually has trend data.
+  const ot = _win(html, 'class="mem-otwrap"', 1200);
+  t.ok(ot && /x-html="monEmBigChart\(\)"/.test(ot) && /class="ottbl"/.test(ot),
+    'over-time renders the big chart + readings table');
+  t.ok(ot && /x-model="monitoring\.obj\.otSel"/.test(ot) && /monEmOtObjectives\(\)/.test(ot),
+    'over-time picker iterates only trend-bearing objectives');
+  t.ok(/x-show="monEmOtObjectives\(\)\.length"/.test(html),
+    'the Over time segment/link is hidden until an objective has recorded trend');
+  t.ok(/mem-otempty/.test(html), 'big-chart has an honest empty-state for no readings');
+
+  // (5) SERVER — the app records its OWN reading history (never external telemetry).
+  t.ok(/function _epicOHAppendReadings\(/.test(srv), 'server records reading history');
+  t.ok(srv.includes('_epicOHAppendReadings(key, model.objectives, generatedAt)'),
+    'POST epic-dashboard appends readings after the model is built');
+  t.ok(/readingPoints:/.test(srv), 'plural list exposes readingPoints');
+});
+
 await t.done();

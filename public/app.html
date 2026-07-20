@@ -21997,8 +21997,89 @@
                   .moh-det .manrow:last-child{ border-bottom:0; } .moh-det .manrow .st{ flex:none; } .moh-det .manrow .nm{ flex:1; }
                   .moh-det .manrow .val{ color:var(--cp-text-faint); font-size:11.5px; }
                   .moh-loading, .moh-emptyd{ display:grid; place-items:center; height:100%; color:var(--cp-text-muted); text-align:center; padding:40px; }
+
+                  /* ===== Epic Metrics overview / over-time ===== */
+                  .mem-top{ display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+                  .mem-top .sp{ flex:1; }
+                  .mem-seg{ display:inline-flex; gap:2px; background:var(--cp-bg-subtle,var(--cp-bg)); border:1px solid var(--cp-border); border-radius:9px; padding:2px; }
+                  .mem-seg .seg{ appearance:none; background:transparent; border:0; color:var(--cp-text-muted); font-size:12.5px; padding:5px 13px; border-radius:7px; cursor:pointer; }
+                  .mem-seg .seg.on{ background:var(--cp-bg); color:var(--cp-text); box-shadow:0 1px 2px rgba(0,0,0,.12); }
+                  .mem-rng{ display:inline-flex; gap:2px; }
+                  .mem-rng button{ appearance:none; background:transparent; border:1px solid var(--cp-border); color:var(--cp-text-muted); font-size:11.5px; padding:4px 10px; border-radius:7px; cursor:pointer; }
+                  .mem-rng button.on{ border-color:var(--mon-accent,#58a6ff); color:var(--cp-text); }
+                  .mem-wrap{ overflow:auto; padding-right:4px; }
+                  .mem-hero{ display:flex; align-items:center; gap:26px; padding:18px 20px; border:1px solid var(--cp-border); border-radius:11px; background:var(--cp-bg-subtle,var(--cp-bg)); margin-bottom:16px; }
+                  .mem-comp{ position:relative; flex:none; width:150px; height:150px; }
+                  .mem-comp .ctr{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
+                  .mem-comp .ctr b{ font-size:30px; line-height:1; color:var(--cp-text); }
+                  .mem-comp .ctr span{ font-size:11px; color:var(--cp-text-faint); margin-top:3px; }
+                  .mem-summ{ flex:1; min-width:0; }
+                  .mem-summ .big{ font-size:20px; font-weight:640; color:var(--cp-text); }
+                  .mem-summ .sub{ color:var(--cp-text-muted); font-size:13px; margin-top:3px; }
+                  .mem-summ .leg{ display:flex; flex-wrap:wrap; gap:16px; margin-top:12px; font-size:12.5px; color:var(--cp-text-muted); }
+                  .mem-summ .leg span{ display:inline-flex; align-items:center; gap:6px; }
+                  .mem-summ .leg i{ width:9px; height:9px; border-radius:50%; display:inline-block; }
+                  .mem-summ .leg b{ color:var(--cp-text); }
+                  .mem-otlink{ display:inline-block; margin-top:12px; color:var(--mon-accent,#58a6ff); font-size:13px; cursor:pointer; }
+                  .mem-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
+                  .mem-ob{ border:1px solid var(--cp-border); border-radius:11px; background:var(--cp-bg); padding:14px 15px 12px; cursor:pointer; transition:border-color .12s, box-shadow .12s; border-left-width:3px; }
+                  .mem-ob:hover{ box-shadow:0 3px 12px rgba(0,0,0,.14); }
+                  .mem-ob.st-live{ border-left-color:var(--cp-success,#3fb950); }
+                  .mem-ob.st-part{ border-left-color:var(--cp-warning,#d29922); }
+                  .mem-ob.st-miss{ border-left-color:var(--cp-danger,#f85149); }
+                  .mem-ob.st-man{ border-left-color:var(--cp-text-faint,#6b7684); }
+                  .mem-ob .oh{ display:flex; align-items:flex-start; gap:10px; margin-bottom:10px; }
+                  .mem-ob .ot{ flex:1; min-width:0; display:flex; align-items:flex-start; gap:7px; }
+                  .mem-ob .ot .g{ flex:none; }
+                  .mem-ob .ot .tt{ font-size:13.5px; font-weight:560; color:var(--cp-text); line-height:1.3; }
+                  .mem-ob .vt{ flex:none; font-size:10.5px; color:var(--cp-text-faint); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
+                  .mem-ob .ov{ min-height:118px; display:flex; align-items:center; justify-content:center; }
+                  .mem-ob .of{ display:flex; align-items:center; gap:10px; margin-top:10px; padding-top:9px; border-top:1px solid var(--cp-border); }
+                  .mem-ob .of .fs{ flex:1; min-width:0; font-size:11.5px; color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                  .mem-ob .of .ol{ flex:none; font-size:11.5px; color:var(--mon-accent,#58a6ff); cursor:pointer; }
+                  .mem-stat{ text-align:center; }
+                  .mem-stat .now{ font-size:32px; font-weight:660; color:var(--cp-text); line-height:1; }
+                  .mem-stat .now.good{ color:var(--cp-success,#3fb950); } .mem-stat .now.bad{ color:var(--cp-warning,#d29922); }
+                  .mem-stat .tgt{ font-size:12px; color:var(--cp-text-faint); margin-top:6px; }
+                  .mem-stat .delta{ font-size:12px; margin-top:3px; color:var(--cp-text-muted); }
+                  .mem-stat .delta.good{ color:var(--cp-success,#3fb950); } .mem-stat .delta.bad{ color:var(--cp-warning,#d29922); }
+                  .mem-gap{ text-align:center; padding:6px 4px; }
+                  .mem-gap .gi{ font-size:22px; opacity:.7; }
+                  .mem-gap .gt{ font-size:13px; font-weight:560; color:var(--cp-text); margin-top:4px; }
+                  .mem-gap .gm{ font-size:11.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.4; }
+                  .mem-gap .gl{ display:inline-block; font-size:11px; color:var(--mon-accent,#58a6ff); margin-top:7px; }
+                  .mem-check{ display:flex; align-items:center; gap:14px; text-align:left; }
+                  .mem-check .rt{ flex:none; text-align:center; font-size:11px; color:var(--cp-text-faint); }
+                  .mem-check .rt b{ font-size:24px; color:var(--cp-text); }
+                  .mem-check .rows{ flex:1; min-width:0; font-size:12px; }
+                  .mem-check .rows .ok{ color:var(--cp-success,#3fb950); } .mem-check .rows .no{ color:var(--cp-text-muted); }
+                  .mem-otwrap{ overflow:auto; padding-right:4px; }
+                  .mem-otwrap .oth{ display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+                  .mem-otsel{ appearance:none; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; color:var(--cp-text); font-size:13px; padding:7px 11px; max-width:60%; }
+                  .mem-otwrap .oth .rl{ color:var(--cp-text-faint); font-size:12px; }
+                  .mem-otwrap .otchart{ border:1px solid var(--cp-border); border-radius:11px; background:var(--cp-bg-subtle,var(--cp-bg)); padding:14px 12px 6px; }
+                  .mem-otwrap .otnote{ color:var(--cp-text-muted); font-size:12.5px; margin:12px 2px; line-height:1.5; }
+                  .mem-otwrap .otnote b{ color:var(--cp-text); }
+                  .mem-otempty{ display:grid; place-items:center; min-height:220px; color:var(--cp-text-muted); text-align:center; padding:30px; font-size:13px; line-height:1.5; }
+                  .mem-otwrap .ottbl{ border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; max-width:420px; }
+                  .mem-otwrap .ottbl .tr{ display:flex; justify-content:space-between; padding:7px 13px; font-size:12.5px; border-bottom:1px solid var(--cp-border); }
+                  .mem-otwrap .ottbl .tr:last-child{ border-bottom:0; }
+                  .mem-otwrap .ottbl .tr.th{ background:var(--cp-bg-subtle,var(--cp-bg)); color:var(--cp-text-faint); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+                  .mem-otwrap .ottbl .tr span:last-child{ color:var(--cp-text); font-variant-numeric:tabular-nums; }
                 </style>
-                <button class="monx-back" @click="monObjClose()">← Back to Monitoring</button>
+                <div class="mem-top">
+                  <button class="monx-back" @click="monObjBack()" x-text="monObjBackLabel()"></button>
+                  <div class="mem-seg" x-show="!monitoring.obj.loading && !monitoring.obj.error && monitoring.obj.mode !== 'detail'">
+                    <button class="seg" :class="{ on: monitoring.obj.mode === 'overview' }" @click="monObjOverview()">Overview</button>
+                    <button class="seg" :class="{ on: monitoring.obj.mode === 'overtime' }" @click="monObjOpenOvertime()" x-show="monEmOtObjectives().length">Over time</button>
+                  </div>
+                  <span class="sp"></span>
+                  <div class="mem-rng" x-show="monitoring.obj.mode === 'overtime'">
+                    <button :class="{ on: monitoring.obj.otRange === 'all' }" @click="monObjOtRange('all')">All</button>
+                    <button :class="{ on: monitoring.obj.otRange === '90' }" @click="monObjOtRange('90')">90d</button>
+                    <button :class="{ on: monitoring.obj.otRange === '30' }" @click="monObjOtRange('30')">30d</button>
+                  </div>
+                </div>
                 <div class="moh-bridge" x-show="monitoring.obj.epicKey">
                   <a class="chip epic" x-show="monitoring.obj.epicUrl" :href="monitoring.obj.epicUrl" target="_blank" rel="noopener" title="Open the epic work item">🏔 <b x-text="monitoring.obj.epicTitle || 'Epic'"></b> ↗</a>
                   <span class="chip epic" x-show="!monitoring.obj.epicUrl">🏔 <b x-text="monitoring.obj.epicTitle || 'Epic'"></b></span>
@@ -22017,7 +22098,68 @@
                 <template x-if="!monitoring.obj.loading && monitoring.obj.error">
                   <div class="moh"><div class="moh-loading" x-text="monitoring.obj.error"></div></div>
                 </template>
-                <template x-if="!monitoring.obj.loading && !monitoring.obj.error">
+
+                <!-- ===== Epic Metrics OVERVIEW (default landing) ===== -->
+                <template x-if="!monitoring.obj.loading && !monitoring.obj.error && monitoring.obj.mode === 'overview'">
+                  <div class="mem-wrap">
+                    <div class="mem-hero">
+                      <div class="mem-comp">
+                        <div class="ring" x-html="monEmDonut()"></div>
+                        <div class="ctr"><b x-text="monEmMeasurablePct() + '%'"></b><span>measurable</span></div>
+                      </div>
+                      <div class="mem-summ">
+                        <div class="big" x-text="monitoring.obj.objectives.length + ' objectives'"></div>
+                        <div class="sub" x-html="monObjReduSub()"></div>
+                        <div class="leg">
+                          <span><i style="background:var(--cp-success,#3fb950)"></i> Live <b x-text="monObjCounts().live"></b></span>
+                          <span><i style="background:var(--cp-warning,#d29922)"></i> Partial <b x-text="monObjCounts().part"></b></span>
+                          <span><i style="background:var(--cp-danger,#f85149)"></i> Missing <b x-text="monObjCounts().miss"></b></span>
+                          <span><i style="background:var(--cp-text-faint)"></i> Manual <b x-text="monObjCounts().man"></b></span>
+                        </div>
+                        <a class="mem-otlink" x-show="monEmOtObjectives().length" @click="monObjOpenOvertime()">📈 View objectives over time →</a>
+                      </div>
+                    </div>
+                    <div class="mem-grid">
+                      <template x-for="o in monitoring.obj.objectives" :key="'em'+o.n">
+                        <div class="mem-ob" :class="'st-'+monObjStatusCls(o)" @click="monObjOpenDetail(o.n)">
+                          <div class="oh">
+                            <div class="ot"><span class="g" x-text="monObjIcon(o)"></span><span class="tt" x-text="o.title"></span></div>
+                            <span class="vt" x-text="monEmVizLabel(o)"></span>
+                          </div>
+                          <div class="ov" x-html="monEmCardViz(o)"></div>
+                          <div class="of">
+                            <span class="fs" x-text="monEmFootSrc(o)"></span>
+                            <a class="ol" x-show="monEmHasTrend(o)" @click.stop="monObjOpenOvertime(o.n)">over time →</a>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- ===== Epic Metrics OVER-TIME ===== -->
+                <template x-if="!monitoring.obj.loading && !monitoring.obj.error && monitoring.obj.mode === 'overtime'">
+                  <div class="mem-otwrap">
+                    <div class="oth">
+                      <select class="mem-otsel" x-model="monitoring.obj.otSel">
+                        <template x-for="o in monEmOtObjectives()" :key="'ot'+o.n">
+                          <option :value="o.n" x-text="o.title"></option>
+                        </template>
+                      </select>
+                      <span class="rl" x-text="monEmOtRangeLabel()"></span>
+                    </div>
+                    <div class="otchart" x-html="monEmBigChart()"></div>
+                    <div class="otnote" x-html="monEmOtNote()"></div>
+                    <div class="ottbl" x-show="monEmOtHist().length">
+                      <div class="tr th"><span>Recorded</span><span>Value</span></div>
+                      <template x-for="(d, i) in monEmOtHist().slice().reverse()" :key="'otr'+i">
+                        <div class="tr"><span x-text="_monShortDate(d.t)"></span><span x-text="d.raw != null ? d.raw : d.v"></span></div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="!monitoring.obj.loading && !monitoring.obj.error && monitoring.obj.mode === 'detail'">
                   <div class="moh">
                     <div class="moh-idx">
                       <div class="moh-redu">
@@ -33023,6 +33165,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             epicKey: '', epicTitle: '', epicUrl: '', docId: '',
             doc: null, title: '', summary: '', sourcesConnected: 0,
             objectives: [], sel: '',
+            mode: 'overview',     // 'overview'(landing nav hub) | 'detail'(master-detail drill-down) | 'overtime'(per-objective trend)
+            otSel: 0,             // objective n selected on the over-time view
+            otRange: 'all',       // 'all' | '90' | '30'
           },
         },
         chainModalOpen: false,
@@ -42018,7 +42163,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const o = this.monitoring.obj;
           o.loading = true; o.error = ''; o.epicKey = key; o.docId = docId || '';
           o.objectives = []; o.sel = ''; o.doc = null; o.title = ''; o.summary = ''; o.ai = false;
-          o.generatedAt = 0; o.counts = null;
+          o.generatedAt = 0; o.counts = null; o.mode = 'overview'; o.otSel = 0; o.otRange = 'all';
           try {
             let r = null;
             if (!force) {
@@ -42044,9 +42189,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             o.counts = r.counts || null;
             // Refresh the epic-side cache so the cockpit card reflects the latest.
             this._epicOHStore(key, r);
-            // Land on the first gap (miss/part) so the actionable work is front-and-center.
+            // Land on the first gap (miss/part) so the actionable work is front-and-center in detail.
             const first = o.objectives.find(x => x.status === 'miss' || x.status === 'part') || o.objectives[0];
             o.sel = first ? ('obj' + first.n) : 'sources';
+            // Over-time defaults to the first objective that already has recorded readings.
+            const withHist = o.objectives.find(x => Array.isArray(x.history) && x.history.length >= 2) || o.objectives[0];
+            o.otSel = withHist ? withHist.n : 0;
+            // Landing = the browse-first Overview (nav hub); detail/over-time are drill-downs.
+            o.mode = 'overview';
           } catch (e) {
             o.error = 'Couldn\'t build the objective-health dashboard: ' + (e && e.message || 'error') + '. Open the Epics tab first so the epic is loaded.';
           } finally { o.loading = false; }
@@ -42065,8 +42215,167 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
           });
         },
-        monObjClose() { this.monitoring.view = this.monitoring.dash ? 'studio' : 'home'; },
+        monObjClose() { this.monitoring.obj.mode = 'overview'; this.monitoring.view = this.monitoring.dash ? 'studio' : 'home'; },
         monObjSelect(k) { this.monitoring.obj.sel = k; },
+
+        // ---- Epic Metrics: overview / detail / over-time navigation --------
+        monObjOverview() { this.monitoring.obj.mode = 'overview'; },
+        monObjOpenDetail(n) { this.monitoring.obj.sel = 'obj' + n; this.monitoring.obj.mode = 'detail'; },
+        monObjOpenOvertime(n) {
+          const o = this.monitoring.obj;
+          if (n != null) o.otSel = n;
+          if (!o.otSel) { const w = (o.objectives || []).find(x => this.monEmHasTrend(x)) || (o.objectives || [])[0]; o.otSel = w ? w.n : 0; }
+          o.mode = 'overtime';
+        },
+        monObjOtRange(r) { this.monitoring.obj.otRange = r; },
+        monObjBack() {
+          const m = this.monitoring.obj.mode;
+          if (m === 'detail' || m === 'overtime') { this.monObjOverview(); return; }
+          this.monObjClose();
+        },
+        monObjBackLabel() { const m = this.monitoring.obj.mode; return (m === 'detail' || m === 'overtime') ? '← Overview' : '← Back to Monitoring'; },
+
+        // ---- Epic Metrics: honest reading helpers --------------------------
+        _monNum(s) { if (s == null) return null; const m = String(s).replace(/,/g, '').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; },
+        _monFmtVal(o, v) {
+          const raw = String((o && (o.now || o.tgt)) || '');
+          const m = raw.match(/^([^\d\-]*)-?[\d.,]+(.*)$/);
+          const pre = m ? m[1] : ''; const suf = m ? m[2].slice(0, 3) : '';
+          const num = Number.isInteger(v) ? v : Math.round(v * 10) / 10;
+          return pre + num + suf;
+        },
+        _monShortDate(t) { try { return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (_) { return ''; } },
+        monEmOnTarget(o) { return o && o.deltaCls === 'good' ? true : (o && o.deltaCls === 'bad' ? false : null); },
+        monEmTrendColor(o) { const t = this.monEmOnTarget(o); return t === true ? 'var(--cp-success,#3fb950)' : t === false ? 'var(--cp-warning,#d29922)' : 'var(--mon-accent,#58a6ff)'; },
+        monEmHasTrend(o) { return !!(o && Array.isArray(o.history) && o.history.length >= 2); },
+        monEmVizType(o) {
+          if (!o) return 'gap';
+          if (o.status === 'miss') return 'gap';
+          if (o.status === 'manual') return 'manual';
+          if (this.monEmHasTrend(o)) return 'trend';
+          if (this._monNum(o.now) != null || o.now) return 'gauge';
+          return 'gap';
+        },
+        monEmVizLabel(o) { return { trend: 'Trend', gauge: 'Gauge', gap: 'No source', manual: 'Manual' }[this.monEmVizType(o)]; },
+        monObjStatusCls(o) { return o && o.status === 'manual' ? 'man' : (o ? o.status : 'miss'); },
+        monEmFootSrc(o) {
+          if (!o) return '';
+          if (o.status === 'miss') return 'Connect a source to begin recording';
+          if (o.status === 'manual') return 'Validated manually';
+          return o.srcName ? (this._monSrcTypeIcon(o.srcType) + ' ' + o.srcName) : this.monObjStatusLabel(o.status);
+        },
+        monEmMeasurablePct() {
+          const c = this.monObjCounts();
+          const total = Math.max(1, (this.monitoring.obj.objectives || []).length);
+          return Math.round(((c.live + c.part) / total) * 100);
+        },
+
+        // ---- Epic Metrics: SVG builders (strings for x-html) ---------------
+        monEmDonut() {
+          const c = this.monObjCounts();
+          const total = Math.max(1, (this.monitoring.obj.objectives || []).length);
+          const segs = [['var(--cp-success,#3fb950)', c.live], ['var(--cp-warning,#d29922)', c.part], ['var(--cp-danger,#f85149)', c.miss], ['var(--cp-text-faint,#6b7684)', c.man]];
+          const R = 60, C = 75, sw = 16; let a = -Math.PI / 2; let out = '';
+          for (const [col, val] of segs) {
+            if (!val) continue;
+            const frac = val / total, a2 = a + frac * Math.PI * 2;
+            const x1 = C + R * Math.cos(a), y1 = C + R * Math.sin(a), x2 = C + R * Math.cos(a2), y2 = C + R * Math.sin(a2);
+            const large = frac > 0.5 ? 1 : 0;
+            out += `<path d="M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}"/>`;
+            a = a2;
+          }
+          return `<svg width="150" height="150" viewBox="0 0 150 150">${out}</svg>`;
+        },
+        monEmCardViz(o) {
+          const t = this.monEmVizType(o);
+          if (t === 'trend') return this._monEmSparkline(o, 268, 118);
+          if (t === 'gauge') return this._monEmGauge(o);
+          if (t === 'manual') return this._monEmManualCard(o);
+          return this._monEmGapCard(o);
+        },
+        _monEmSparkline(o, w, hgt) {
+          const hist = (o && o.history) || []; if (hist.length < 2) return '';
+          const tgt = this._monNum(o.tgt);
+          const vals = hist.map(d => d.v).concat(tgt != null ? [tgt] : []);
+          const min = Math.min(...vals), max = Math.max(...vals);
+          const pad = (max - min) * 0.12 || 1, lo = min - pad, hi = max + pad;
+          const X = i => 8 + (i / (hist.length - 1)) * (w - 16);
+          const Y = v => hgt - 14 - ((v - lo) / (hi - lo)) * (hgt - 24);
+          const pts = hist.map((d, i) => [X(i), Y(d.v)]);
+          const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+          const area = line + ` L ${X(hist.length - 1).toFixed(1)} ${hgt - 14} L ${X(0).toFixed(1)} ${hgt - 14} Z`;
+          const col = this.monEmTrendColor(o); const gid = 'emg' + o.n;
+          let tref = '';
+          if (tgt != null) { const ty = Y(tgt); tref = `<line x1="8" y1="${ty.toFixed(1)}" x2="${(w - 8)}" y2="${ty.toFixed(1)}" stroke="var(--mon-accent,#58a6ff)" stroke-width="1" stroke-dasharray="4 3" opacity=".7"/><text x="${w - 10}" y="${(ty - 4).toFixed(1)}" text-anchor="end" fill="var(--cp-text-faint,#6b7684)" font-size="10">target ${this._monEsc(this._monFmtVal(o, tgt))}</text>`; }
+          return `<svg width="${w}" height="${hgt}" viewBox="0 0 ${w} ${hgt}"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".26"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${tref}<path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2"/><circle cx="${pts[pts.length - 1][0].toFixed(1)}" cy="${pts[pts.length - 1][1].toFixed(1)}" r="3.4" fill="${col}"/></svg>`;
+        },
+        _monEmGauge(o) {
+          const e = this._monEsc;
+          const t = this.monEmOnTarget(o); const cls = t === true ? 'good' : t === false ? 'bad' : '';
+          const now = o.now ? e(o.now) : '—';
+          const tgt = o.tgt ? '<div class="tgt">target ' + e(o.tgt) + '</div>' : '';
+          const delta = o.delta ? '<div class="delta ' + (o.deltaCls === 'good' ? 'good' : o.deltaCls === 'bad' ? 'bad' : '') + '">' + e(o.delta) + '</div>' : '';
+          return '<div class="mem-stat"><div class="now ' + cls + '">' + now + '</div>' + tgt + delta + '</div>';
+        },
+        _monEmGapCard(o) {
+          const e = this._monEsc;
+          const need = (o.shape && Array.isArray(o.shape.types) && o.shape.types[0] && o.shape.types[0].name) ? o.shape.types[0].name : this._monSrcTypeName(o.srcType);
+          const why = o.blockedWhat ? e(o.blockedWhat) : (o.lede ? e(String(o.lede).slice(0, 120)) : 'No source is connected — this measure is not currently readable.');
+          return '<div class="mem-gap"><div class="gi">🔌</div><div class="gt">Needs a ' + e(need) + ' source</div><div class="gm">' + why + '</div><span class="gl">▸ view desired telemetry shape</span></div>';
+        },
+        _monEmManualCard(o) {
+          const e = this._monEsc;
+          const rb = Array.isArray(o.runbooks) ? o.runbooks : [];
+          const ok = rb.filter(r => r && r.ok).length;
+          const rows = rb.slice(0, 4).map(r => '<div class="' + (r.ok ? 'ok' : 'no') + '">' + (r.ok ? '✓' : '○') + ' ' + e(r.nm) + '</div>').join('') || '<div class="no">Validated manually — no automated source by design.</div>';
+          return '<div class="mem-gap man"><div class="mem-check"><div class="rt"><b>' + ok + '/' + rb.length + '</b><br>checks</div><div class="rows">' + rows + '</div></div></div>';
+        },
+
+        // ---- Epic Metrics: over-time view ----------------------------------
+        monEmOtObj() {
+          const o = this.monitoring.obj;
+          return (o.objectives || []).find(x => String(x.n) === String(o.otSel)) || (o.objectives || []).find(x => this.monEmHasTrend(x)) || (o.objectives || [])[0] || null;
+        },
+        monEmOtObjectives() { return (this.monitoring.obj.objectives || []).filter(x => this.monEmHasTrend(x)); },
+        monEmOtHist() {
+          const o = this.monEmOtObj(); if (!o || !Array.isArray(o.history)) return [];
+          let hist = o.history.slice(); const r = this.monitoring.obj.otRange;
+          if (r !== 'all') { const days = r === '30' ? 30 : 90; const cut = Date.now() - days * 86400000; const f = hist.filter(x => x.t >= cut); hist = f.length >= 2 ? f : hist.slice(-Math.min(hist.length, r === '30' ? 5 : 10)); }
+          return hist;
+        },
+        monEmOtRangeLabel() {
+          const o = this.monEmOtObj(); const total = (o && Array.isArray(o.history)) ? o.history.length : 0;
+          const shown = this.monEmOtHist().length;
+          return this.monitoring.obj.otRange === 'all' ? ('All ' + total + ' readings') : ('Last ' + shown + ' readings');
+        },
+        monEmBigChart() {
+          const o = this.monEmOtObj(); const hist = this.monEmOtHist();
+          if (!o || hist.length < 1) return '<div class="mem-otempty">No readings recorded yet — trends begin once a source is connected and the first value is captured on a sync.</div>';
+          const W = 760, H = 300, L = 46, Rp = 16, T = 16, B = 34;
+          const tgt = this._monNum(o.tgt);
+          const vals = hist.map(d => d.v).concat(tgt != null ? [tgt] : []);
+          const min = Math.min(...vals), max = Math.max(...vals);
+          const pad = (max - min) * 0.12 || 1, lo = min - pad, hi = max + pad;
+          const X = i => L + (i / Math.max(1, hist.length - 1)) * (W - L - Rp);
+          const Y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+          const col = this.monEmTrendColor(o); let g = '';
+          for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; const y = Y(v); g += `<line x1="${L}" y1="${y.toFixed(1)}" x2="${W - Rp}" y2="${y.toFixed(1)}" stroke="var(--cp-border)" stroke-dasharray="2 4" opacity=".6"/><text x="${L - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--cp-text-faint,#6b7684)" font-size="10">${this._monEsc(this._monFmtVal(o, v))}</text>`; }
+          const step = Math.ceil(hist.length / 7);
+          hist.forEach((d, i) => { if (i % step === 0 || i === hist.length - 1) g += `<text x="${X(i).toFixed(1)}" y="${H - 14}" text-anchor="middle" fill="var(--cp-text-faint,#6b7684)" font-size="10">${this._monEsc(this._monShortDate(d.t))}</text>`; });
+          if (tgt != null) { const ty = Y(tgt); g += `<line x1="${L}" y1="${ty.toFixed(1)}" x2="${W - Rp}" y2="${ty.toFixed(1)}" stroke="var(--mon-accent,#58a6ff)" stroke-width="1" stroke-dasharray="4 3" opacity=".75"/><text x="${W - Rp}" y="${(ty - 5).toFixed(1)}" text-anchor="end" fill="var(--mon-accent,#58a6ff)" font-size="10">target ${this._monEsc(this._monFmtVal(o, tgt))}</text>`; }
+          const pts = hist.map((d, i) => [X(i), Y(d.v)]);
+          const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+          const area = line + ` L ${X(hist.length - 1).toFixed(1)} ${H - B} L ${X(0).toFixed(1)} ${H - B} Z`;
+          g += `<defs><linearGradient id="embg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".2"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#embg)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2.4"/>`;
+          pts.forEach(p => { g += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.2" fill="${col}"/>`; });
+          return `<svg width="100%" height="300" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>`;
+        },
+        monEmOtNote() {
+          const o = this.monEmOtObj(); const hist = this.monEmOtHist();
+          if (!o) return '';
+          if (hist.length < 4) return 'Only <b>' + hist.length + '</b> reading' + (hist.length === 1 ? '' : 's') + ' recorded so far — the trend firms up as more syncs accrue. Values are captured, never interpolated.';
+          return 'Each point is a value Monitoring.AI recorded at a sync. The dashed line is the objective\u2019s target' + (this._monNum(o.tgt) != null ? (' (' + this._monEsc(o.tgt) + ')') : '') + '.';
+        },
         monObjCounts() {
           const objs = this.monitoring.obj.objectives || [];
           const c = { live: 0, part: 0, miss: 0, man: 0 };
