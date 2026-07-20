@@ -33168,6 +33168,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             mode: 'overview',     // 'overview'(landing nav hub) | 'detail'(master-detail drill-down) | 'overtime'(per-objective trend)
             otSel: 0,             // objective n selected on the over-time view
             otRange: 'all',       // 'all' | '90' | '30'
+            pendingNav: false,    // one-shot: set by monEpicDashboard so the route-load doesn't clobber the intentional epic→objective nav
           },
         },
         chainModalOpen: false,
@@ -41422,18 +41423,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.monLoadAlerts();
             this.monLoadEpicChoices();
             this.monLoadEpicDashboards();
-            if (uid) { await this.monLoadDashboard(uid); }
-            else if (w.view === 'objective' && w.obj && w.obj.loading) {
-              // An epic -> Objective Health build is in flight: monEpicDashboard()
-              // set view='objective' synchronously, then goTo('#/monitoring')
-              // triggered this route load asynchronously. Don't clobber that
-              // intentional navigation by auto-opening the home hub.
+            if (uid) { await this.monLoadDashboard(uid); if (w.obj) w.obj.pendingNav = false; }
+            else if (w.view === 'objective' && w.obj && w.obj.pendingNav) {
+              // An epic → Objective Health build was launched: monEpicDashboard() set
+              // view='objective' + pendingNav synchronously, then goTo('#/monitoring')
+              // triggered this route load asynchronously. Honor that intentional
+              // navigation (consume the one-shot sentinel) instead of auto-opening
+              // the home hub. Timing-independent — does not rely on obj.loading.
+              w.obj.pendingNav = false;
             }
             else {
               // Land on the browse-first home hub (not auto-studio): the hub lists
               // every dashboard (incl. epic Objective Health) + recent + alerts, and
               // creating a dashboard is its own separate page.
               w.view = 'home';
+              if (w.obj) w.obj.pendingNav = false;   // consume any leaked sentinel from a same-route rebuild
             }
           } catch (e) {
             this.toast('Failed to load Monitoring.AI: ' + (e.message || e), 'error');
@@ -42102,6 +42106,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         monGoHome() {
           const w = this.monitoring;
           w.view = 'home';
+          if (w.obj) w.obj.pendingNav = false;   // clear any stale epic→objective sentinel so it can't hijack this home nav
           this.monLoadEpicDashboards();
         },
         monHomeCatToggle() {
@@ -42158,6 +42163,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async monEpicDashboard(key, docId, force) {
           if (!this.featureEnabled('monitoring')) { this.toast('Enable Monitoring.AI in Settings → Experience to use this.'); return; }
           if (!key) return;
+          // Sentinel: mark this an intentional epic→objective nav BEFORE we change the
+          // hash. goTo() only sets window.location.hash; the hashchange listener runs
+          // monLoad() asynchronously, and monLoad's parallel loads can finish AFTER this
+          // method's (cached) GET resolves — so a `loading` check races. The one-shot
+          // pendingNav flag is timing-independent: monLoad consumes it to keep the
+          // objective view instead of clobbering it with the home hub.
+          this.monitoring.obj.pendingNav = true;
           this.goTo('#/monitoring');
           this.monitoring.view = 'objective';
           const o = this.monitoring.obj;

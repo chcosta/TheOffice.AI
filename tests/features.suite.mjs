@@ -3671,6 +3671,34 @@ await t.test('monitoring.ai: browse-first home hub + separate Create page (atten
     'plural endpoint returns dashboards from _epicOHLoad');
 });
 
+await t.test('monitoring.ai: epic→objective nav is not clobbered by the async route-load (pendingNav sentinel)', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // State carries the one-shot sentinel.
+  const obj = _win(html, "mode: 'overview',", 400) || html;
+  t.ok(/pendingNav:\s*false/.test(obj), "obj.pendingNav sentinel defaults to false");
+
+  // monEpicDashboard sets the sentinel BEFORE changing the hash (goTo only sets the
+  // hash; the hashchange listener runs monLoad asynchronously).
+  const med = _win(html, 'async monEpicDashboard(key, docId, force)', 1400) || html;
+  t.ok(/this\.monitoring\.obj\.pendingNav = true;[\s\S]*this\.goTo\('#\/monitoring'\);[\s\S]*this\.monitoring\.view = 'objective';/.test(med),
+    'monEpicDashboard sets pendingNav=true before goTo, then view=objective');
+
+  // monLoad honors the sentinel (timing-independent) instead of the old obj.loading race.
+  const ml = _win(html, 'async monLoad(uid)', 2400) || html;
+  t.ok(/w\.view === 'objective' && w\.obj && w\.obj\.pendingNav/.test(ml),
+    'monLoad keeps the objective view when pendingNav is set');
+  t.ok(!/w\.view === 'objective' && w\.obj && w\.obj\.loading/.test(ml),
+    'monLoad no longer relies on the racy obj.loading check');
+  // The sentinel is consumed on every entry path (kept, deep-link, and home landing).
+  t.ok((ml.match(/pendingNav = false/g) || []).length >= 2,
+    'monLoad consumes the sentinel on its entry branches');
+
+  // Going home explicitly clears any leaked sentinel so it cannot hijack a later home nav.
+  const gh = _win(html, 'monGoHome() {', 260) || html;
+  t.ok(/w\.obj\.pendingNav = false/.test(gh), 'monGoHome clears the sentinel');
+});
+
 await t.test('epic metrics: overview navigation hub + honest per-objective viz + over-time', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
