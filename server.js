@@ -10149,6 +10149,10 @@ function _monNormObjective(o, i) {
     blockedWhat: str(o && o.blockedWhat, 120),
     now: str(o && o.now, 40), tgt: str(o && o.tgt, 40), delta: str(o && o.delta, 40),
     deltaCls: /^(bad|good)$/.test(o && o.deltaCls) ? o.deltaCls : null,
+    // Optional "look" override chosen by the Objective Health assistant. null/auto lets
+    // the client pick the best-fit visualization; a 'trend' override still requires real
+    // recorded history client-side (never fabricated).
+    viz: /^(trend|gauge|gap|manual)$/.test(o && o.viz) ? o.viz : null,
     shape: null, runbooks: null,
   };
   if ((status === 'miss' || status === 'part') && o && o.shape && typeof o.shape === 'object') {
@@ -10236,6 +10240,82 @@ function _epicOHAppendReadings(key, objectives, generatedAt) {
     }
     if (o) o.history = hist;
   }
+}
+
+// Apply structured edit ops from the Objective Health assistant to a persisted
+// snapshot. Mutates snapshot.objectives (each op is validated/clamped like
+// _monNormObjective), re-counts, and appends a REAL reading when the assistant
+// records a current value the owner supplied. HONEST INVARIANT: set_reading records
+// exactly one owner-provided value — it never fabricates a series; a 'trend' look
+// still needs recorded history to render as a line. Returns { applied, changed }.
+function _epicOHApplyOps(snapshot, ops) {
+  const applied = [];
+  if (!snapshot || !Array.isArray(snapshot.objectives) || !Array.isArray(ops)) return { applied, changed: false };
+  const objs = snapshot.objectives;
+  const byN = (n) => objs.find(o => String(o.n) === String(n));
+  const clamp = (v, len) => (v == null ? null : String(v).slice(0, len));
+  let changed = false;
+  let readingTouched = false;
+  for (const op of ops) {
+    if (!op || typeof op !== 'object') continue;
+    const kind = String(op.op || '').trim();
+    try {
+      if (kind === 'add_objective') {
+        const n = (objs.reduce((m, o) => Math.max(m, o.n || 0), 0) || 0) + 1;
+        const nn = _monNormObjective({
+          n, title: op.title, measure: op.measure, target: op.target,
+          srcType: op.srcType, srcName: op.srcName, status: op.status, lede: op.lede, viz: op.viz,
+        }, n - 1);
+        nn.history = [];
+        objs.push(nn);
+        applied.push({ op: kind, n, title: nn.title });
+        changed = true;
+        continue;
+      }
+      const o = byN(op.n);
+      if (!o) continue;
+      if (kind === 'remove_objective') {
+        const i = objs.indexOf(o);
+        if (i >= 0) { objs.splice(i, 1); applied.push({ op: kind, n: op.n }); changed = true; }
+      } else if (kind === 'set_source') {
+        if (op.srcType != null && /^(api|kusto|appinsights|manual)$/.test(op.srcType)) o.srcType = op.srcType;
+        if (op.srcName != null) o.srcName = clamp(op.srcName, 160);
+        if (op.status != null && /^(live|part|miss|manual)$/.test(op.status)) o.status = op.status;
+        applied.push({ op: kind, n: op.n, srcType: o.srcType, srcName: o.srcName, status: o.status });
+        changed = true;
+      } else if (kind === 'set_viz') {
+        if (/^(auto|trend|gauge|gap|manual)$/.test(op.viz)) { o.viz = op.viz === 'auto' ? null : op.viz; applied.push({ op: kind, n: op.n, viz: o.viz }); changed = true; }
+      } else if (kind === 'set_status') {
+        if (/^(live|part|miss|manual)$/.test(op.status)) { o.status = op.status; applied.push({ op: kind, n: op.n, status: o.status }); changed = true; }
+      } else if (kind === 'set_target') {
+        if (op.target != null) o.target = clamp(op.target, 200);
+        if (op.tgt != null) o.tgt = clamp(op.tgt, 40);
+        applied.push({ op: kind, n: op.n, target: o.target, tgt: o.tgt });
+        changed = true;
+      } else if (kind === 'set_reading') {
+        const v = clamp(op.value, 40);
+        if (v != null) {
+          o.now = v;
+          if (op.delta != null) o.delta = clamp(op.delta, 40);
+          if (/^(bad|good)$/.test(op.deltaCls)) o.deltaCls = op.deltaCls;
+          readingTouched = true;
+          applied.push({ op: kind, n: op.n, value: o.now });
+          changed = true;
+        }
+      } else if (kind === 'set_lede') {
+        if (op.lede != null) { o.lede = clamp(op.lede, 1400); applied.push({ op: kind, n: op.n }); changed = true; }
+      } else if (kind === 'set_title') {
+        if (op.title != null) { o.title = clamp(op.title, 140); applied.push({ op: kind, n: op.n }); changed = true; }
+      }
+    } catch { /* skip a malformed op */ }
+  }
+  if (!changed) return { applied, changed: false };
+  // A recorded value appends a genuine reading (carry-forward by title-slug from disk,
+  // one point/day) so the over-time view stays honest.
+  if (readingTouched) { try { _epicOHAppendReadings(snapshot.key, snapshot.objectives, Date.now()); } catch { /* best-effort */ } }
+  snapshot.counts = _epicOHCounts(snapshot.objectives);
+  snapshot.generatedAt = Date.now();
+  return { applied, changed: true };
 }
 
 
@@ -10369,6 +10449,109 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
     summary: model.summary,
     generatedAt, counts,
   });
+});
+
+// SSE-streamed Objective Health assistant. Analyze + edit an epic's Objective Health
+// dashboard (data sources, readiness, targets, look, wording, add/remove objectives).
+// Mirrors the epic-assistant pattern: intermediate thinking/tool steps + coalesced
+// answer deltas stream over the /api/events bus (event 'epic-oh-assistant') keyed by a
+// client runId; the final reply is authoritative in the JSON body. The assistant appends
+// a ===OPS=== control block to request structured edits, applied via _epicOHApplyOps.
+app.post('/api/monitoring/epic-dashboard/:key/assist', async (req, res) => {
+  const key = String((req.params && req.params.key) || '').trim();
+  const message = String((req.body && req.body.message) || '').trim();
+  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  const runId = String((req.body && req.body.runId) || '');
+  if (!key) return res.status(400).json({ ok: false, error: 'key required' });
+  if (!message) return res.status(400).json({ ok: false, error: 'message is required' });
+  const map = _epicOHLoad();
+  const snap = map[key];
+  if (!snap) return res.status(404).json({ ok: false, error: 'no Objective Health dashboard for this epic yet — build it first' });
+  const _emit = (ev) => { if (runId) { try { broadcastSSE('epic-oh-assistant', Object.assign({ runId, at: Date.now() }, ev)); } catch (_) { /* ignore */ } } };
+  try {
+    const brief = (snap.objectives || []).map(o => ({
+      n: o.n, title: o.title, measure: o.measure, target: o.target,
+      srcType: o.srcType, srcName: o.srcName, status: o.status, viz: o.viz || 'auto',
+      now: o.now, tgt: o.tgt, delta: o.delta,
+      readings: Array.isArray(o.history) ? o.history.length : 0,
+    }));
+    const convo = history.slice(-8).map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${String(h.text || '').slice(0, 800)}`).join('\n');
+    const prompt = [
+      `You are the Objective Health assistant for the engineering epic "${snap.epicTitle || 'this epic'}". You help the owner ANALYZE and EDIT this epic's Objective Health dashboard — its measurable business objectives, the data SOURCE bound to each (App Insights / Kusto / Web API / Manual), each objective's readiness, its numeric reading vs target, and how each objective is visualized ("look").`,
+      'Answer conversationally and concisely, grounded ONLY in the objectives below. When the owner asks you to CHANGE something (bind or switch a data source, change readiness, retarget, record a current reading, change the chart/look, edit wording, add or remove an objective), emit the change as a structured op block AND briefly confirm what you changed in prose.',
+      '',
+      'To apply changes, append a control block at the VERY END of your reply, EXACTLY this shape (omit it entirely when nothing changes):',
+      '===OPS===',
+      '{"ops":[ ... ]}',
+      'Op shapes — emit only the ops you actually intend:',
+      '- {"op":"set_source","n":<num>,"srcType":"api|kusto|appinsights|manual","srcName":"<concrete source>","status":"live|part|miss|manual"}',
+      '- {"op":"set_status","n":<num>,"status":"live|part|miss|manual"}',
+      '- {"op":"set_viz","n":<num>,"viz":"auto|trend|gauge|gap|manual"}',
+      '- {"op":"set_target","n":<num>,"target":"<prose target>","tgt":"<numeric target, optional>"}',
+      '- {"op":"set_reading","n":<num>,"value":"<current value>","delta":"<gap vs target, optional>","deltaCls":"good|bad (optional)"}',
+      '- {"op":"set_lede","n":<num>,"lede":"<2-4 sentence explanation>"}',
+      '- {"op":"set_title","n":<num>,"title":"<title>"}',
+      '- {"op":"add_objective","title":"...","measure":"...","target":"...","srcType":"...","srcName":"...","status":"...","lede":"..."}',
+      '- {"op":"remove_objective","n":<num>}',
+      '',
+      'RULES:',
+      '- HONEST readiness: mark status "live" ONLY when a real source is connected and emitting. Use "part" (partial/bound-but-incomplete), "miss" (no source yet), or "manual" otherwise. Never invent a live source.',
+      '- set_reading records exactly ONE real value the owner gave you — never fabricate a trend or history.',
+      '- "viz" chooses the look: trend (line — needs recorded readings), gauge (single value vs target), gap (no-source callout), manual (checklist), auto (let the system pick the best fit).',
+      '- If the owner is only asking a question, DO NOT emit an ops block.',
+      '',
+      'OBJECTIVES (JSON): ' + JSON.stringify(brief),
+      convo ? `\nConversation so far:\n${convo}` : '',
+      `\nUser: ${message}`,
+      '\nReply in plain prose (short paragraphs / bullets), then the optional ===OPS=== block. No code fences around prose.',
+    ].filter(Boolean).join('\n');
+    // Everything before the control block is the visible answer.
+    const _visible = (s) => String(s || '').split('===OPS===')[0];
+    let acc = '';
+    let _lastDelta = 0;
+    const _flushDelta = (force) => {
+      const now = Date.now();
+      if (force || now - _lastDelta >= 140) { _lastDelta = now; _emit({ kind: 'delta', text: _visible(acc).slice(0, 8000) }); }
+    };
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+      availableTools: [],
+      onChunk: (ch) => { acc += ch; _flushDelta(false); },
+      onStep: (s) => {
+        if (!s || !runId) return;
+        if (s.kind === 'thinking') _emit({ kind: 'thinking', content: String(s.content || '').slice(0, 600) });
+        else if (s.kind === 'tool_start') _emit({ kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId });
+        else if (s.kind === 'tool_complete') _emit({ kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success });
+        else if (s.kind === 'agent') _emit({ kind: 'agent', name: s.name });
+      },
+      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
+    });
+    if (result && result.fallback) { _emit({ kind: 'done' }); return res.json({ ok: false, reply: 'The assistant runtime is not available right now.' }); }
+    const full = (acc.trim() || (result && result.output) || '').trim();
+    const reply = _visible(full).trim();
+    // Parse + apply any ops block, then persist.
+    let applied = [];
+    const opsPart = full.split('===OPS===')[1];
+    if (opsPart) {
+      const j = _connectExtractJson(opsPart.trim());
+      if (j && Array.isArray(j.ops) && j.ops.length) {
+        const r = _epicOHApplyOps(snap, j.ops);
+        applied = r.applied;
+        if (r.changed) { try { map[key] = snap; _epicOHSave(map); } catch { /* best-effort */ } }
+      }
+    }
+    _flushDelta(true);
+    _emit({ kind: 'done', applied: applied.length });
+    res.json({
+      ok: true,
+      reply: reply || 'Done.',
+      applied,
+      objectives: snap.objectives,
+      counts: snap.counts,
+      generatedAt: snap.generatedAt,
+    });
+  } catch (e) { _emit({ kind: 'done', error: e.message }); res.status(502).json({ ok: false, error: e.message }); }
 });
 
 app.get('/api/system-agents', (req, res) => {

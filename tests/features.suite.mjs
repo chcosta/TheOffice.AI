@@ -3205,7 +3205,7 @@ await t.test('epic metrics: overview navigation hub + honest per-objective viz +
   // trend ONLY when >= 2 recorded readings, else a gauge of the single value.
   t.ok(/monEmHasTrend\(o\)\s*\{\s*return[^}]*history[^}]*length >= 2/.test(html),
     'monEmHasTrend requires at least two recorded readings');
-  const vt = _win(html, 'monEmVizType(o) {', 300);
+  const vt = _win(html, 'monEmVizType(o) {', 760);
   t.ok(vt && /status === 'miss'\) return 'gap'/.test(vt) && /monEmHasTrend\(o\)\) return 'trend'/.test(vt),
     'monEmVizType: miss -> gap; trend only with recorded history');
   t.ok(/_monEmGapCard\(o\)/.test(html) && /_monEmManualCard\(o\)/.test(html) && /_monEmGauge\(o\)/.test(html),
@@ -3226,6 +3226,60 @@ await t.test('epic metrics: overview navigation hub + honest per-objective viz +
   t.ok(/function _epicOHAppendReadings\(/.test(srv), 'server records reading history');
   t.ok(srv.includes('_epicOHAppendReadings(key, model.objectives, generatedAt)'),
     'POST epic-dashboard appends readings after the model is built');
+});
+
+await t.test('epic Objective Health assistant: SSE-streamed chat that analyzes + edits the dashboard', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+
+  // (1) SERVER — the assist route streams reasoning/tool/delta over the SSE bus keyed by runId
+  // and applies structured ops via _epicOHApplyOps, persisting the authoritative snapshot.
+  t.ok(/app\.post\('\/api\/monitoring\/epic-dashboard\/:key\/assist'/.test(srv),
+    'server exposes the Objective Health assist route');
+  t.ok(/broadcastSSE\('epic-oh-assistant'/.test(srv), 'assist route streams epic-oh-assistant SSE events');
+  const route = _win(srv, "app.post('/api/monitoring/epic-dashboard/:key/assist'", 6600) || '';
+  t.ok(/kind: 'thinking'/.test(route) && /kind: 'tool_start'/.test(route) && /kind: 'delta'/.test(route) && /kind: 'done'/.test(route),
+    'assist route maps SDK thinking/tool/delta/done steps into emitted events');
+  t.ok(/===OPS===/.test(route) && /_epicOHApplyOps\(snap, j\.ops\)/.test(route),
+    'assist route parses the ===OPS=== control block and applies it via _epicOHApplyOps');
+  t.ok(/objectives: snap\.objectives/.test(route) && /applied,/.test(route),
+    'assist route returns the authoritative objectives + applied ops');
+
+  // _epicOHApplyOps honestly edits sources/readiness/viz/readings and recomputes counts.
+  const ops = _win(srv, 'function _epicOHApplyOps(', 3700) || '';
+  t.ok(/set_viz/.test(ops) && /auto\|trend\|gauge\|gap\|manual/.test(ops),
+    'set_viz accepts auto/trend/gauge/gap/manual (auto clears the override)');
+  t.ok(/readingTouched[\s\S]*_epicOHAppendReadings/.test(ops),
+    'a recorded reading appends genuine history (never fabricated)');
+  t.ok(/snapshot\.counts = _epicOHCounts/.test(ops), 'ops recompute the readiness counts');
+
+  // (2) CLIENT — honors o.viz first (never fabricates a line without recorded readings).
+  const vt = _win(html, 'monEmVizType(o) {', 500) || '';
+  t.ok(/o\.viz/.test(vt) && /monEmHasTrend\(o\)/.test(vt),
+    'monEmVizType honors an explicit o.viz override but still gates trend on real readings');
+
+  // (3) CLIENT — SSE listener routes epic-oh-assistant events into the drawer live buffer by runId.
+  t.ok(/addEventListener\('epic-oh-assistant'/.test(html), 'client subscribes to the epic-oh-assistant stream');
+  const lis = _win(html, "addEventListener('epic-oh-assistant'", 1200) || '';
+  t.ok(/live\.runId/.test(lis) && /p\.runId !== live\.runId/.test(lis), 'OH SSE listener filters by the live runId');
+  t.ok(/'delta'/.test(lis) && /'thinking'/.test(lis) && /'tool_start'/.test(lis) && /'done'/.test(lis),
+    'OH SSE listener routes delta/thinking/tool/done into the live buffer');
+
+  // (4) CLIENT — the teleported FAB + slide-over drawer is reachable from the epic dashboard.
+  t.ok(/route === 'monitoring' && monitoring\.obj\.epicKey && !monitoring\.obj\.loading && !monitoring\.obj\.error/.test(html),
+    'the OH assistant is gated to a loaded epic dashboard');
+  const drawer = _win(html, 'Objective Health assistant FAB', 4300) || '';
+  t.ok(/x-teleport="body"/.test(drawer), 'OH drawer is a top-level teleport to body');
+  t.ok(/x-ref="monOhChatBody"/.test(drawer), 'OH drawer body carries the scroll ref');
+  t.ok(/monOhChatOpen\(\)/.test(drawer) && /monOhChatSend\(\)/.test(drawer) && /monOhChatSuggestions\(\)/.test(drawer),
+    'OH drawer wires open/send/suggestions');
+  t.ok(/class="epx-applied"/.test(drawer), 'OH drawer renders an applied-changes affordance');
+
+  // (5) CLIENT — monOhChatSend threads a runId, seeds the live buffer, applies edits + refreshes.
+  const send = _win(html, 'async monOhChatSend(', 2400) || '';
+  t.ok(/runId/.test(send) && /ch\.live = \{ runId/.test(send), 'monOhChatSend generates a runId + seeds the live buffer');
+  t.ok(/\/assist'/.test(send) && /_epicOHStore\(key,/.test(send),
+    'monOhChatSend posts to the assist route + re-caches the epic-side snapshot on edits');
 });
 
 await t.done();

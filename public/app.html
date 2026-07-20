@@ -21642,6 +21642,56 @@
             </div>
           </section>
 
+          <!-- self-contained Objective Health assistant FAB → slide-over drawer (Monitoring.AI epic dashboard) -->
+          <template x-teleport="body">
+           <div x-show="route === 'monitoring' && monitoring.obj.epicKey && !monitoring.obj.loading && !monitoring.obj.error">
+             <button class="epx-fab" x-show="!monitoring.obj.chat.open" @click="monOhChatOpen()" title="Objective Health assistant — analyze &amp; edit this epic's objectives" aria-label="Open Objective Health assistant chat">📊</button>
+             <div class="epx-chatback" x-show="monitoring.obj.chat.open" x-cloak @click="if($event.target===$el) monOhChatClose()">
+               <aside class="epx-drawer" role="dialog" aria-label="Objective Health assistant">
+                 <div class="epx-chat-head">
+                   <span class="av">📊</span>
+                   <div><div class="nm">Objective Health assistant</div><div class="sc" x-text="monitoring.obj.epicTitle || monitoring.obj.title || ''"></div></div>
+                   <div class="hx"><button class="epx-icon-btn" @click="monOhChatClose()" title="Close">✕</button></div>
+                 </div>
+                 <div class="epx-chat-body" x-ref="monOhChatBody">
+                   <template x-for="(m, mi) in monOhChatMsgs()" :key="mi">
+                     <div class="epx-bubble" :class="m.role === 'user' ? 'me' : 'ai'">
+                       <div class="md-body" x-html="m.html || m.text"></div>
+                       <div class="epx-applied" x-show="m.applied" x-text="'✓ Applied ' + m.applied + ' change' + (m.applied === 1 ? '' : 's') + ' to the dashboard'"></div>
+                     </div>
+                   </template>
+                   <div class="epx-bubble ai" x-show="monitoring.obj.chat.sending" x-cloak>
+                     <div class="ctx">
+                       <span class="epx-ai-tag" style="padding:1px 6px"><span class="dot"></span>Objective Health assistant is thinking</span>
+                       <button type="button" class="epx-trace-toggle" x-show="monOhChatLive() && monOhChatLive().steps.length" @click="monOhChatToggleTrace()" x-text="(monitoring.obj.chat.traceOpen ? 'Hide' : 'Show') + ' reasoning (' + (monOhChatLive() ? monOhChatLive().steps.length : 0) + ')'"></button>
+                     </div>
+                     <div class="epx-trace" x-show="monitoring.obj.chat.traceOpen && monOhChatLive() && monOhChatLive().steps.length" x-cloak>
+                       <template x-for="(s, si) in (monOhChatLive() ? monOhChatLive().steps : [])" :key="si">
+                         <div class="epx-trace-step" :class="s.type">
+                           <template x-if="s.type === 'thinking'"><span class="tstep-ic">💭</span></template>
+                           <template x-if="s.type === 'tool'"><span class="tstep-ic" x-text="s.success === false ? '⚠' : (s.success === true ? '✓' : '⚙')"></span></template>
+                           <span class="tstep-txt" x-text="s.type === 'tool' ? ('Used ' + (s.tool || 'a tool')) : s.content"></span>
+                         </div>
+                       </template>
+                     </div>
+                     <div class="md-body" x-show="monOhChatLive() && monOhChatLive().text" x-html="monOhChatLive() ? renderMarkdown(monOhChatLive().text) : ''"></div>
+                     <span class="epx-typing" x-show="!monOhChatLive() || (!monOhChatLive().text && !monOhChatLive().steps.length)" aria-label="Assistant is thinking"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>
+                   </div>
+                   <div class="epx-sugg" x-show="monOhChatMsgs().length <= 1">
+                     <template x-for="(s, si) in monOhChatSuggestions()" :key="si">
+                       <button class="s" @click="monOhChatSend(s)" x-text="s"></button>
+                     </template>
+                   </div>
+                 </div>
+                 <div class="epx-compose">
+                   <textarea rows="1" x-model="monitoring.obj.chat.input" @keydown.enter.prevent="monOhChatSend()" placeholder="Bind a source, set readiness, record a reading, change the visualization, add/remove an objective…"></textarea>
+                   <button class="epx-btn pri" style="align-self:stretch" :disabled="monitoring.obj.chat.sending" @click="monOhChatSend()" x-text="monitoring.obj.chat.sending ? '…' : 'Ask'"></button>
+                 </div>
+               </aside>
+             </div>
+           </div>
+          </template>
+
           <!-- ===== Compose.AI (purpose-driven composition studio; superset of Newsletter) ===== -->
           <section x-show="!loading && !errorMessage && (route === 'compose' || route === 'documents')" :class="{ 'cmpx-fs': compose.fsMode, 'cmpx-fs-view': compose.fsMode === 'view', 'cmpx-fs-pair': compose.fsMode === 'pair' }">
             <style>
@@ -24609,6 +24659,7 @@
               .epx-trace-step .tstep-ic { flex:0 0 auto; opacity:.85; }
               .epx-trace-step .tstep-txt { flex:1 1 auto; word-break:break-word; }
               .epx-trace-step.tool .tstep-txt { color:var(--cp-text-soft); }
+              .epx-applied { margin-top:6px; font-size:11px; color:var(--cp-success,#3fb950); }
             </style>
 
             <div class="nlx-top">
@@ -32572,6 +32623,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             otSel: 0,             // objective n selected on the over-time view
             otRange: 'all',       // 'all' | '90' | '30'
             pendingNav: false,    // one-shot: set by monEpicDashboard so the route-load doesn't clobber the intentional epic→objective nav
+            // Objective Health assistant (analyze + edit sources / look / objectives).
+            // live = the in-flight SSE stream (thinking/tool trace + progressive answer).
+            chat: { open: false, input: '', sending: false, byKey: {}, live: null, traceOpen: false },
           },
         },
         chainModalOpen: false,
@@ -34591,6 +34645,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               else if (p.kind === 'agent') { live.steps.push({ type: 'thinking', content: 'Consulting ' + (p.name || 'a sub-agent') + '…' }); }
               else if (p.kind === 'done') { live.done = true; }
               this.$nextTick(() => this._epicChatScroll());
+            });
+            // Objective Health assistant live reasoning (Monitoring.AI epic dashboard).
+            // Same streaming contract as epic-assistant, targeting the OH drawer's live buffer.
+            source.addEventListener('epic-oh-assistant', (event) => {
+              let p = {}; try { p = JSON.parse(event.data || '{}'); } catch { return; }
+              const live = this.monitoring && this.monitoring.obj && this.monitoring.obj.chat && this.monitoring.obj.chat.live;
+              if (!live || !p.runId || p.runId !== live.runId) return;
+              if (p.kind === 'delta') { live.text = p.text || live.text; }
+              else if (p.kind === 'thinking') { live.steps.push({ type: 'thinking', content: String(p.content || '') }); }
+              else if (p.kind === 'tool_start') { live.steps.push({ type: 'tool', tool: p.tool || '?', toolCallId: p.toolCallId, success: undefined }); }
+              else if (p.kind === 'tool_complete') {
+                const st = p.toolCallId && live.steps.find(x => x.toolCallId === p.toolCallId);
+                if (st) st.success = p.success; else live.steps.push({ type: 'tool', tool: p.tool || '?', success: p.success });
+              }
+              else if (p.kind === 'agent') { live.steps.push({ type: 'thinking', content: 'Consulting ' + (p.name || 'a sub-agent') + '…' }); }
+              else if (p.kind === 'done') { live.done = true; }
+              this.$nextTick(() => this._monOhChatScroll());
             });
             // Live output streaming
             // Live title updates (auto-title / rename) — patch the list + header.
@@ -40915,6 +40986,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         monEmHasTrend(o) { return !!(o && Array.isArray(o.history) && o.history.length >= 2); },
         monEmVizType(o) {
           if (!o) return 'gap';
+          // Honor an explicit "look" override chosen via the Objective Health assistant,
+          // but a 'trend' look still requires REAL recorded history (never fabricate a line)
+          // — fall to gauge/gap when there aren't ≥2 readings.
+          if (o.viz && /^(trend|gauge|gap|manual)$/.test(o.viz)) {
+            if (o.viz === 'trend') return this.monEmHasTrend(o) ? 'trend' : ((this._monNum(o.now) != null || o.now) ? 'gauge' : 'gap');
+            return o.viz;
+          }
           if (o.status === 'miss') return 'gap';
           if (o.status === 'manual') return 'manual';
           if (this.monEmHasTrend(o)) return 'trend';
@@ -40933,6 +41011,87 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const c = this.monObjCounts();
           const total = Math.max(1, (this.monitoring.obj.objectives || []).length);
           return Math.round(((c.live + c.part) / total) * 100);
+        },
+
+        // ---- Objective Health assistant (analyze + edit sources / look / objectives) ----
+        monOhChat() { return this.monitoring.obj.chat; },
+        monOhChatMsgs() {
+          const ch = this.monitoring.obj.chat;
+          const key = this.monitoring.obj.epicKey;
+          return (key && ch.byKey[key]) || [];
+        },
+        monOhChatLive() { return this.monitoring.obj.chat.live; },
+        monOhChatToggleTrace() { const ch = this.monitoring.obj.chat; ch.traceOpen = !ch.traceOpen; },
+        _monOhChatScroll() { try { const el = this.$refs.monOhChatBody; if (el) el.scrollTop = el.scrollHeight; } catch {} },
+        monOhChatSuggestions() {
+          return [
+            'Which objectives still have no data source?',
+            'Suggest a source and desired telemetry for the missing ones',
+            'Show the on-target objectives as gauges',
+          ];
+        },
+        monOhChatOpen() {
+          const ch = this.monitoring.obj.chat;
+          const key = this.monitoring.obj.epicKey;
+          ch.open = true;
+          if (key && (!ch.byKey[key] || !ch.byKey[key].length)) {
+            const greeting = 'I can analyze and edit this epic\u2019s Objective Health \u2014 bind or switch data sources, set readiness, record a current reading, change how each objective is visualized, or add/remove objectives. What would you like to do?';
+            ch.byKey = { ...ch.byKey, [key]: [{ role: 'ai', html: this.renderMarkdown ? this.renderMarkdown(greeting) : greeting }] };
+          }
+          this.$nextTick(() => this._monOhChatScroll());
+        },
+        monOhChatClose() { this.monitoring.obj.chat.open = false; },
+        async monOhChatSend(preset) {
+          const ch = this.monitoring.obj.chat;
+          const key = this.monitoring.obj.epicKey;
+          if (!key) return;
+          const text = (preset != null ? preset : ch.input || '').trim();
+          if (!text || ch.sending) return;
+          const list = (ch.byKey[key] || []).slice();
+          list.push({ role: 'user', text: this._esc(text) });
+          const history = list.filter(m => m.role === 'user' || m.role === 'ai')
+            .map(m => ({ role: m.role, text: (m.text || m.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }))
+            .slice(-8);
+          ch.byKey = { ...ch.byKey, [key]: list };
+          ch.input = '';
+          ch.sending = true;
+          const runId = (function () { try { return crypto.randomUUID(); } catch { return 'ohx-' + Date.now() + '-' + Math.random().toString(36).slice(2); } })();
+          ch.live = { runId, steps: [], text: '', done: false };
+          this.$nextTick(() => this._monOhChatScroll());
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard/' + encodeURIComponent(key) + '/assist', {
+              method: 'POST',
+              body: JSON.stringify({ message: text, history, runId }),
+            });
+            const reply = (r && r.reply) ? r.reply : 'I couldn\u2019t answer that just now.';
+            const applied = (r && Array.isArray(r.applied)) ? r.applied : [];
+            const cur = (ch.byKey[key] || []).slice();
+            cur.push({ role: 'ai', html: this.renderMarkdown ? this.renderMarkdown(reply) : this._esc(reply), applied: applied.length });
+            ch.byKey = { ...ch.byKey, [key]: cur };
+            // If the assistant edited the dashboard, refresh the live view + epic-side cache.
+            if (r && r.ok && applied.length && Array.isArray(r.objectives)) {
+              const o = this.monitoring.obj;
+              o.objectives = r.objectives;
+              if (r.counts) o.counts = r.counts;
+              if (r.generatedAt) o.generatedAt = r.generatedAt;
+              try {
+                this._epicOHStore(key, {
+                  ok: true, none: false, title: o.title, summary: o.summary, ai: o.ai,
+                  objectives: r.objectives, counts: r.counts, generatedAt: r.generatedAt,
+                  doc: o.doc, docId: o.docId,
+                });
+              } catch {}
+              this.toast && this.toast('Objective Health updated \u2014 ' + applied.length + ' change' + (applied.length === 1 ? '' : 's'), 'success');
+            }
+          } catch (e) {
+            const cur = (ch.byKey[key] || []).slice();
+            cur.push({ role: 'ai', html: 'Something went wrong reaching the assistant.' });
+            ch.byKey = { ...ch.byKey, [key]: cur };
+          } finally {
+            ch.sending = false;
+            ch.live = null;
+            this.$nextTick(() => this._monOhChatScroll());
+          }
         },
 
         // ---- Epic Metrics: SVG builders (strings for x-html) ---------------
