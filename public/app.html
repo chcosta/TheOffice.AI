@@ -1225,19 +1225,35 @@
       color: var(--cp-text-soft); flex: 0 0 auto; padding-right: 2px;
     }
     .ql-chip {
-      display: inline-flex; align-items: center; gap: 6px;
-      flex: 0 0 auto; max-width: 220px; height: 26px; box-sizing: border-box;
-      padding: 0 10px;
+      display: inline-flex; align-items: center;
+      flex: 0 0 auto; max-width: 240px; height: 26px; box-sizing: border-box;
       border: 1px solid var(--cp-border); border-radius: 999px;
       background: var(--cp-surface); color: var(--cp-text);
-      cursor: pointer; font-size: 12px; font-weight: 500; line-height: 1;
+      font-size: 12px; font-weight: 500; line-height: 1; overflow: hidden;
       transition: border-color .14s ease, background .14s ease, color .14s ease;
     }
     .ql-chip:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
     .ql-chip.active { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .ql-chip-open {
+      display: inline-flex; align-items: center; gap: 6px;
+      max-width: 100%; height: 100%; padding: 0 4px 0 10px;
+      border: none; background: transparent; color: inherit; cursor: pointer;
+      font: inherit; line-height: 1;
+    }
     .ql-chip .ql-emoji { font-size: 13px; line-height: 1; flex: 0 0 auto; }
     .ql-chip .ql-swatch { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
     .ql-chip .ql-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Hover-revealed remove (✕): unstars a board / unpins anything else so a stranded
+       pin can be cleared straight from the bar, even when its source page is hidden. */
+    .ql-chip-x {
+      flex: 0 0 auto; width: 0; height: 100%; padding: 0; overflow: hidden;
+      display: inline-grid; place-items: center;
+      border: none; background: transparent; color: var(--cp-text-soft);
+      cursor: pointer; font-size: 11px; line-height: 1;
+      transition: width .12s ease, color .12s ease, padding .12s ease;
+    }
+    .ql-chip:hover .ql-chip-x, .ql-chip:focus-within .ql-chip-x { width: 18px; padding-right: 5px; }
+    .ql-chip-x:hover { color: var(--cp-danger); }
     .ql-chip .ql-attn {
       flex: 0 0 auto; min-width: 16px; height: 16px; padding: 0 4px;
       display: inline-grid; place-items: center;
@@ -6956,13 +6972,18 @@
     <nav class="quick-launch" x-show="quickLaunchItems().length" x-cloak aria-label="Quick launch">
       <span class="quick-launch-label">★ Quick launch</span>
       <template x-for="item in quickLaunchItems()" :key="item.kind + ':' + item.id">
-        <button type="button" class="ql-chip"
-          :class="{ active: item.kind === 'board' && route === 'boards' && activeBoardId === item.id }"
-          @click="quickLaunchOpen(item)" :title="item.kindLabel + ' · ' + item.name">
-          <span class="ql-swatch" x-show="item.kind === 'board'" :style="quickLaunchSwatch(item)"></span>
-          <span class="ql-emoji" x-show="item.kind !== 'board'" x-text="item.emoji || '📌'"></span>
-          <span class="ql-name" x-text="item.name"></span>
-        </button>
+        <span class="ql-chip"
+          :class="{ active: item.kind === 'board' && route === 'boards' && activeBoardId === item.id }">
+          <button type="button" class="ql-chip-open"
+            @click="quickLaunchOpen(item)" :title="item.kindLabel + ' · ' + item.name">
+            <span class="ql-swatch" x-show="item.kind === 'board'" :style="quickLaunchSwatch(item)"></span>
+            <span class="ql-emoji" x-show="item.kind !== 'board'" x-text="item.emoji || '📌'"></span>
+            <span class="ql-name" x-text="item.name"></span>
+          </button>
+          <button type="button" class="ql-chip-x" @click.stop="toggleQuickPin(item)"
+            :aria-label="'Remove ' + item.name + ' from Quick launch'"
+            :title="(item.kind === 'board' ? 'Unstar' : 'Remove') + ' ' + item.name + ' from Quick launch'">✕</button>
+        </span>
       </template>
     </nav>
 
@@ -21433,6 +21454,8 @@
                   .mem-summ .leg i{ width:9px; height:9px; border-radius:50%; display:inline-block; }
                   .mem-summ .leg b{ color:var(--cp-text); }
                   .mem-otlink{ display:inline-block; margin-top:12px; color:var(--mon-accent,#58a6ff); font-size:13px; cursor:pointer; }
+                  .mem-othint{ display:block; margin-top:12px; color:var(--cp-text-muted); font-size:12px; line-height:1.45; max-width:520px; }
+                  .mem-othint b{ color:var(--cp-text-soft); font-weight:600; }
                   .mem-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
                   .mem-ob{ border:1px solid var(--cp-border); border-radius:11px; background:var(--cp-bg); padding:14px 15px 12px; cursor:pointer; transition:border-color .12s, box-shadow .12s; border-left-width:3px; }
                   .mem-ob:hover{ box-shadow:0 3px 12px rgba(0,0,0,.14); }
@@ -21559,6 +21582,7 @@
                           <span><i style="background:var(--cp-text-faint)"></i> Manual <b x-text="monObjCounts().man"></b></span>
                         </div>
                         <a class="mem-otlink" x-show="monEmOtObjectives().length" @click="monObjOpenOvertime()">📈 View objectives over time →</a>
+                        <span class="mem-othint" x-show="!monEmOtObjectives().length">📈 <b>Trends over time appear once an objective has recorded readings.</b> Each sync records one point per objective; a line needs at least two. Connect a data source (or log a manual reading) via the Objective Health assistant and the over-time view unlocks as history accrues — we never draw a trend we haven't measured.</span>
                       </div>
                     </div>
                     <div class="mem-grid">

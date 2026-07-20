@@ -3659,17 +3659,25 @@ function _cfDismissedSet(rec) {
 }
 // Best-effort reconciliation: recognize findings the user posted to the PR before
 // we tracked them (or from another machine) by matching our own posted format
-// (the "_Posted from AI code review._" footer + the finding's title/body) against
-// the PR's existing comment threads. Persists any newly-recognized fingerprints so
+// (the bold severity header + "Suggested fix:" line, plus the finding's title/body)
+// against the PR's existing comment threads. Persists any newly-recognized fingerprints so
 // the card count and modal stop re-offering them. Returns the (possibly updated) rec.
 async function _cfReconcilePosted(o, key, rec, comments) {
   try {
     if (!Array.isArray(comments) || !comments.length) return rec;
     const threads = await forge(o).getPrActiveThreads(o.org, o.project, o.repo, o.prId, { max: 200 });
     const texts = [];
+    // Recognize comments WE posted by their distinctive format — a bold severity header
+    // ("**… Minor — <title>**") and/or a "**Suggested fix:**" line. (We used to tag them
+    // with a "Posted from AI code review." footer; that footer was removed, so match the
+    // structural markers instead. Older footered comments still satisfy the header match.)
+    const looksOurs = (tx) =>
+      /\*\*[^*\n]*\b(blocker|major|minor|nit|comment)\b[^*\n]*—[^*\n]*\*\*/.test(tx) ||
+      tx.includes('**suggested fix:**') ||
+      tx.includes('posted from ai code review');
     for (const t of (threads || [])) for (const c of (t.comments || [])) {
-      const tx = String(c.text || '');
-      if (/Posted from AI code review/i.test(tx)) texts.push(tx.toLowerCase());
+      const tx = String(c.text || '').toLowerCase();
+      if (looksOurs(tx)) texts.push(tx);
     }
     if (!texts.length) return rec;
     const have = _cfPostedSet(rec);
@@ -4476,7 +4484,6 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
       const parts = ['**' + sevTag(c.severity) + (c.title ? ' — ' + c.title : '') + '**', ''];
       if (c.body) parts.push(c.body);
       if (c.suggestion) parts.push('', '**Suggested fix:** ' + c.suggestion);
-      parts.push('', '_Posted from AI code review._');
       const file = c.file ? (String(c.file).startsWith('/') ? String(c.file) : '/' + String(c.file)) : null;
       const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null;
       await forge(o).createPrThread(o.org, o.project, o.repo, o.prId, {
@@ -19477,9 +19484,20 @@ function _meAiCarryOverTodos(cfg, day) {
       d.setDate(d.getDate() - 1);
       if (workDays.length && !workDays.includes(d.getDay())) continue; // skip off-days
       const prevDate = d.toISOString().slice(0, 10);
-      const snap = loadAgendaForDate(prevDate);
-      if (!snap) continue; // no plan that day — keep walking to the last worked day
-      const open = _meAiNormTodos(snap.todos).filter(t => !t.done);
+      // The durable todo store is the SOURCE OF TRUTH for the prior day: it reflects what
+      // the user actually left — items they completed (done:true) and items they deleted
+      // (dropped from the store + tombstoned). The agenda snapshot can lag the store (it is
+      // only refreshed on a re-plan), so carrying from the snapshot resurrected done/deleted
+      // todos as fresh open carries the next day. Prefer the store; fall back to the snapshot
+      // only for legacy days that were never persisted to a store.
+      const store = loadMeAiTodoStore(prevDate);
+      const snap = store ? null : loadAgendaForDate(prevDate);
+      const src = store || (snap ? _meAiNormTodos(snap.todos) : null);
+      if (!src) continue; // neither a store nor a plan that day — keep walking back
+      // Never carry a title the user deliberately removed on the source day (tombstoned):
+      // a deletion must stick as the list rolls forward, not just on the day it happened.
+      const tomb = new Set(loadMeAiTodoTomb(prevDate));
+      const open = src.filter(t => !t.done && !tomb.has(String(t && t.title || '').trim().toLowerCase()));
       // Preserve checklist-kind + its seed keys so a carried triage item (e.g. an
       // unrotated PAT) STAYS a checklist item and keeps deep-linking as it rolls forward.
       return open.map(t => {
@@ -20350,6 +20368,9 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
       const carried = _meAiCarryOverTodos(cfg, day);
       if (carried.length) {
         const have = new Set(effTodos.map(t => t.title.toLowerCase()));
+        // A title the user removed on THIS day (tombstone) must never be re-added by a
+        // carry — belt-and-suspenders on top of the source-day tombstone filter.
+        const tombToday = new Set(loadMeAiTodoTomb(day));
         // Live-entity + signature indexes so a carried goal doesn't duplicate a fresh
         // one that tracks the SAME work item / PR under a different label (e.g. a carried
         // "Dev: #11499" against today's "DNCENG Task #11499").
@@ -20357,7 +20378,7 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
         const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
         for (const c of carried) {
           const lc = c.title.toLowerCase();
-          if (have.has(lc)) continue;
+          if (have.has(lc) || tombToday.has(lc)) continue;
           const ce = _meAiGoalEntKey(c.link, c.meta);
           if (ce && haveEnt.has(ce)) continue;
           const cs = _meAiGoalSig(c.title);

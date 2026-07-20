@@ -3191,7 +3191,7 @@ await t.test('epic metrics: overview navigation hub + honest per-objective viz +
 
   // (2) OVERVIEW markup — donut hero + measurable % + per-objective card grid that
   // drills into detail; over-time link only when the objective has recorded trend.
-  const ov = _win(html, 'class="mem-wrap"', 2600);
+  const ov = _win(html, 'class="mem-wrap"', 3000);
   t.ok(ov && /class="mem-grid"/.test(ov) && /class="mem-ob"/.test(ov),
     'overview renders the mem-grid card grid');
   t.ok(ov && /x-html="monEmDonut\(\)"/.test(ov) && /monEmMeasurablePct\(\) \+ '%'/.test(ov),
@@ -3280,6 +3280,49 @@ await t.test('epic Objective Health assistant: SSE-streamed chat that analyzes +
   t.ok(/runId/.test(send) && /ch\.live = \{ runId/.test(send), 'monOhChatSend generates a runId + seeds the live buffer');
   t.ok(/\/assist'/.test(send) && /_epicOHStore\(key,/.test(send),
     'monOhChatSend posts to the assist route + re-caches the epic-side snapshot on edits');
+});
+
+await t.test('review-footer removed + todo carry-over honors tombstones + quick-launch remove + epic trend hint', () => {
+  const srv = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+
+  // (1) PR review comments no longer append the "Posted from AI code review." footer.
+  const builder = _win(srv, "const parts = ['**' + sevTag(", 400) || '';
+  t.ok(builder, 'PR-comment builder found');
+  t.ok(!/posted from ai code review/i.test(builder),
+    'the posted review comment no longer carries the "Posted from AI code review." footer');
+  // _cfReconcilePosted still recognizes OUR comments structurally (header / suggested-fix / legacy footer).
+  const looks = _win(srv, 'const looksOurs = (tx) =>', 400) || '';
+  t.ok(/blocker\|major\|minor\|nit\|comment/.test(looks) && /\*\*suggested fix:\*\*/.test(looks),
+    'looksOurs matches our comments by their structural markers, not the removed footer');
+  t.ok(/posted from ai code review/.test(looks),
+    'looksOurs still recognizes older footered comments for back-compat');
+
+  // (2) Daily todo carry-over reads the durable store as source of truth + honors tombstones.
+  const carry = _win(srv, 'const store = loadMeAiTodoStore(prevDate);', 800) || '';
+  t.ok(/loadMeAiTodoStore\(prevDate\)/.test(carry) && /store \|\| \(snap/.test(carry),
+    'carry-over prefers the durable store over the (laggy) agenda snapshot');
+  t.ok(/loadMeAiTodoTomb\(prevDate\)/.test(carry) && /!tomb\.has\(/.test(carry),
+    'carry-over never carries a title the user tombstoned on the source day');
+  // fold-in loop also guards a title the user tombstoned on the TARGET day.
+  const fold = _win(srv, 'const tombToday = new Set(loadMeAiTodoTomb(day));', 900) || '';
+  t.ok(/tombToday\.has\(lc\)/.test(fold),
+    'fold-in loop skips a carry the user removed on the target day (belt-and-suspenders)');
+
+  // (3) Quick-launch chips expose a per-item remove (✕) that calls toggleQuickPin.
+  t.ok(/class="ql-chip-open"/.test(html) && /class="ql-chip-x"/.test(html),
+    'quick-launch chip is split into an open button + a remove button');
+  const chipX = _win(html, 'class="ql-chip-x"', 240) || '';
+  t.ok(/toggleQuickPin\(item\)/.test(chipX), 'the ✕ removes the pin via toggleQuickPin');
+  t.ok(/\.ql-chip:hover \.ql-chip-x/.test(html) && /\.ql-chip-x:hover \{ color: var\(--cp-danger\)/.test(html),
+    'the remove button is hover/focus-revealed and reddens on hover');
+
+  // (4) Epic Objective Health overview shows an honest empty-state hint when no objective has trend history.
+  const hint = _win(html, 'class="mem-othint"', 400) || '';
+  t.ok(/x-show="!monEmOtObjectives\(\)\.length"/.test(hint),
+    'the trend hint shows only when NO objective has enough recorded readings');
+  t.ok(/at least two/.test(hint),
+    'the hint explains a trend line needs at least two real recorded readings (honesty invariant)');
 });
 
 await t.done();
