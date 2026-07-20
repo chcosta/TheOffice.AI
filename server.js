@@ -10662,6 +10662,30 @@ function _epicOHCounts(objectives) {
   return c;
 }
 
+// LIST every persisted Objective Health snapshot (the epic dashboards). Lets the
+// Monitoring.AI home hub surface epic dashboards so they're discoverable — they
+// are NOT Grafana dashboards, so they never appear in /dashboards. Lightweight:
+// returns the header/counts/doc only, not the full per-objective payload.
+app.get('/api/monitoring/epic-dashboards', (req, res) => {
+  const map = _epicOHLoad();
+  const list = Object.keys(map || {}).map((key) => {
+    const s = map[key] || {};
+    return {
+      key,
+      epicId: s.epicId || null,
+      epicTitle: s.epicTitle || key,
+      epicUrl: s.epicUrl || '',
+      title: s.title || '',
+      doc: s.doc || null,
+      ai: !!s.ai,
+      counts: s.counts || _epicOHCounts(s.objectives),
+      objectiveCount: Array.isArray(s.objectives) ? s.objectives.length : 0,
+      generatedAt: s.generatedAt || 0,
+    };
+  }).sort((a, b) => (b.generatedAt || 0) - (a.generatedAt || 0));
+  res.json({ ok: true, dashboards: list });
+});
+
 // GET the persisted Objective Health snapshot for an epic (no AI, no epic-load required).
 app.get('/api/monitoring/epic-dashboard', (req, res) => {
   const key = String((req.query && req.query.key) || '').trim();

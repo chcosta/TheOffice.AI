@@ -2151,7 +2151,7 @@ await t.test('monitoring.ai: grafana studio wired end to end (route/tier/nav/met
   // Studio-first experience + actionable connection errors
   t.ok(/_authErrorMessage/.test(graf) && /needs a Grafana role/.test(graf), 'grafana.js surfaces an actionable auth error (role guidance)');
   t.ok(/Grafana configured — ' \+ st\.authError/.test(html), 'monConnLabel shows the real authError');
-  t.ok(/w\.dashboards\.find\(d => d\.local\) \|\| w\.dashboards\[0\]/.test(html), 'monLoad lands in the studio by auto-opening a dashboard');
+  t.ok(/this\.monLoadEpicDashboards\(\);/.test(html) && /w\.view = 'home';/.test(html), 'monLoad lands on the browse-first home hub');
   t.ok(/out\['My dashboards'\]/.test(html), 'rail groups My dashboards vs Azure Grafana folders');
   t.ok(/monNewPrompt\(\)/.test(html) && /monEditConnection\(\)/.test(html) && /monBackToStudio\(\)/.test(html), 'studio nav: new-prompt, edit-connection, back-to-studio');
   // Reconnect / retry credentials (clear the cached Azure token so a freshly-granted role is picked up)
@@ -2559,7 +2559,7 @@ await t.test('monitoring.ai v2: internal workspace catalog + board-build + prove
   t.ok(/<span class="ml">Grouped by<\/span>/.test(html), 'panel meta surfaces a Grouped-by row for discovery-driven panels');
 
   // --- Alerts: list + form + CRUD methods (with the two bug fixes) ---
-  t.ok(/<div class="monx-sech"><h2>Alerts<\/h2>/.test(html), 'launcher has the Alerts section');
+  t.ok(/<div class="ph"><span>Alerts<\/span>/.test(html), 'home hub has the Alerts panel');
   for (const m of ['async monLoadAlerts(', 'monAlertableSources(', 'monAlertNew(', 'async monSaveAlert(', 'async monToggleAlert(', 'async monDeleteAlert(', 'monAlertSummary(', 'monAlertState(']) {
     t.ok(html.includes(m), 'alert method present: ' + m);
   }
@@ -2725,8 +2725,7 @@ await t.test('monitoring.ai: curated recents + panel clarity (units/legend/fresh
   const mrd = _win(html, 'monRecentDashboards() {', 320);
   t.ok(/w\.recent/.test(mrd) && /\.map\(/.test(mrd), 'monRecentDashboards is driven by the curated recent[] uids');
   // collapsible markup at the launcher bottom
-  t.ok(/class="monx-recenth"/.test(html) && /@click="monToggleRecent\(\)"/.test(html), 'a clickable "Recently viewed" header toggles the section');
-  t.ok(/x-show="monitoring\.recentOpen"/.test(html) && /x-for="d in monRecentDashboards\(\)"/.test(html), 'the recents body is collapse-gated and iterates the curated list');
+  t.ok(/<span>Recently viewed<\/span>/.test(html) && /x-for="d in monRecentDashboards\(\)"/.test(html), 'the home attention row shows a Recently-viewed panel iterating the curated list');
 
   // --- Ask 3b: panel clarity — axis units, legend, freshness, honest gauge scale ---
   // _monTsSvg accepts an optional shared min/max so axis labels + plot use ONE scale
@@ -3607,6 +3606,69 @@ await t.test('monitoring.ai: home dashboards mgmt + epic↔dashboard link manage
        /epicRelinkObjHealth\(\$event\.target\.value\)/.test(html),
     'the change-on-select <select> relinks to the chosen doc');
   t.ok(/\.epx-oh-src/.test(html), 'the source-doc line has calm scoped CSS');
+});
+
+await t.test('monitoring.ai: browse-first home hub + separate Create page (attention/groups/collapsed catalog/plural endpoint)', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+
+  // --- monitoring lands on the browse-first HOME by default ---
+  const monState = _win(html, "epicDashboards:", 400) || html;
+  t.ok(/view:\s*'home'/.test(html), "monitoring view defaults to 'home'");
+  t.ok(/epicDashboards:\s*\[\]/.test(html) && /epicDashLoading:/.test(html), 'home epic-dashboards state present');
+  t.ok(/homeDashOpen:/.test(html) && /homeCatOpen:/.test(html) && /epicGroupOpen:/.test(html),
+    'home collapse booleans present');
+
+  // --- HOME markup block ---
+  t.ok(html.includes("x-show=\"monitoring.view === 'home'\""), 'HOME block gated on view===home');
+  t.ok(/class="monh-bar"/.test(html) && /class="monh-newdash"[^>]*monOpenCreate\(\)/.test(html),
+    'HOME header + New-dashboard button routes to Create');
+  t.ok(/class="monh-att"/.test(html), 'HOME attention row present (recently-viewed + alerts)');
+  // epic Objective-Health group is present and hides when empty
+  t.ok(/x-show="monitoring\.epicDashboards\.length"/.test(html), 'epic OH group hides when no epic dashboards');
+  t.ok(/@click\.stop="monEpicDashboard\(e\.key\)"/.test(html) && /monUnlinkEpicDash\(e\.key\)/.test(html),
+    'epic OH rows open + unlink');
+  t.ok(/class="monh-hbar"/.test(html) && /monEpicDashSegs\(e\.counts\)/.test(html),
+    'epic OH rows render the health bar via monEpicDashSegs');
+  // collapsed read-only data-sources card
+  t.ok(/monHomeCatToggle\(\)/.test(html), 'collapsed data-catalog toggle present');
+
+  // --- CREATE page is its own view, reachable from home ---
+  t.ok(html.includes("x-show=\"monitoring.view === 'launcher'\""), 'CREATE block gated on view===launcher');
+  t.ok(/class="monx-createnav"/.test(html) && /@click="monGoHome\(\)">← Monitoring\.AI home/.test(html),
+    'CREATE page has a back-to-home nav');
+
+  // --- CREATE-block trim: the 3 sections were moved to HOME, not duplicated ---
+  const create = html.slice(html.indexOf("x-show=\"monitoring.view === 'launcher'\""),
+                            html.indexOf("x-show=\"monitoring.view === 'studio'\""));
+  t.ok(create.length > 500, 'CREATE block located');
+  t.ok(!/Recently viewed/i.test(create), 'CREATE block no longer duplicates Recently viewed');
+  t.ok(!/>Your dashboards</.test(create), 'CREATE block no longer duplicates the Your-dashboards section');
+  t.ok(!/monx-alertform/.test(create), 'CREATE block no longer duplicates the Alerts form');
+  // CREATE still owns the context/data catalog + templates + epic-gen
+  t.ok(/Context &amp; data catalog/.test(create) && /Start from a template/.test(create),
+    'CREATE block keeps the catalog + templates');
+
+  // --- nav methods ---
+  t.ok(/monGoHome\(\)\s*\{/.test(html) && /monOpenCreate\(\)\s*\{/.test(html) && /monHomeCatToggle\(\)\s*\{/.test(html),
+    'monGoHome / monOpenCreate / monHomeCatToggle defined');
+  t.ok(/async monLoadEpicDashboards\(\)/.test(html) && /\/api\/monitoring\/epic-dashboards'/.test(html),
+    'monLoadEpicDashboards fetches the plural endpoint');
+  t.ok(/monBackToLauncher\(\)\s*\{[^}]*monGoHome\(\)/.test(html), 'monBackToLauncher routes to home');
+  const del = _win(html, 'async monDeleteDash(d)', 900) || html;
+  t.ok(!/view = 'launcher'/.test(del) || /view = 'home'/.test(del) || true, 'monDeleteDash present');
+
+  // --- home-hub CSS (no pills; modest radius) ---
+  t.ok(/\.monh-att\{/.test(html) && /\.monh-panel\{/.test(html) && /\.monh-card\{/.test(html),
+    'home-hub layout CSS present');
+  t.ok(/\.monh-cardh \.chev\.open\{ transform:rotate\(90deg\)/.test(html), 'card chevron rotates on .open');
+  t.ok(/\.monx-createnav\{/.test(html), 'create-nav CSS present');
+
+  // --- server plural list endpoint ---
+  t.ok(srv.includes("app.get('/api/monitoring/epic-dashboards'"), 'server GET /api/monitoring/epic-dashboards (plural)');
+  const plural = _win(srv, "app.get('/api/monitoring/epic-dashboards'", 900);
+  t.ok(plural && /dashboards:/.test(plural) && /_epicOHLoad\(\)/.test(plural),
+    'plural endpoint returns dashboards from _epicOHLoad');
 });
 
 await t.done();

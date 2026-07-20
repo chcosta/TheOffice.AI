@@ -21270,12 +21270,262 @@
               .monx-analysis .ab{ padding:15px; }
               .monx-verdict{ display:flex; gap:10px; align-items:flex-start; background:var(--cp-bg); border:1px solid var(--cp-border); border-left:3px solid var(--cp-warning, #d29922); border-radius:8px; padding:11px 13px; margin-bottom:14px; font-size:13px; }
               .monx-empty{ text-align:center; color:var(--cp-text-muted); padding:40px 20px; }
+              /* ===== home hub ===== */
+              .monh-bar{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin:0 0 20px; }
+              .monh-bar-t .kick{ color:var(--mon-graf); font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px; }
+              .monh-bar-t h1{ font-size:23px; margin:0; font-weight:650; letter-spacing:-.01em; }
+              .monh-newdash{ flex:none; background:linear-gradient(135deg, var(--mon-graf), var(--mon-accent, #6ea8fe)); color:#fff; border:0; border-radius:8px; padding:9px 15px; font-size:13px; font-weight:600; cursor:pointer; }
+              .monh-newdash:hover{ filter:brightness(1.06); }
+              .monh-att{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:0 0 18px; }
+              @media (max-width:860px){ .monh-att{ grid-template-columns:1fr; } }
+              .monh-panel{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; overflow:hidden; }
+              .monh-panel .ph{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 14px; border-bottom:1px solid var(--cp-border); font-size:12.5px; font-weight:600; letter-spacing:.02em; color:var(--cp-text-muted); }
+              .monh-panel .ph .c{ font-size:11.5px; color:var(--cp-text-faint); font-weight:500; }
+              .monh-panel .ph .lnk{ background:none; border:0; color:var(--mon-graf); font-size:12px; cursor:pointer; padding:0; font-weight:600; }
+              .monh-panel .pb{ padding:8px 10px; max-height:260px; overflow:auto; }
+              .monh-card{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; margin:0 0 14px; overflow:hidden; }
+              .monh-cardh{ display:flex; align-items:center; gap:10px; padding:13px 15px; cursor:pointer; user-select:none; }
+              .monh-cardh:hover{ background:var(--cp-bg); }
+              .monh-cardh .chev{ font-size:9px; color:var(--cp-text-faint); transition:transform .12s ease; }
+              .monh-cardh .chev.open{ transform:rotate(90deg); }
+              .monh-cardh .t{ font-size:14px; font-weight:650; }
+              .monh-cardh .c{ font-size:12px; color:var(--cp-text-faint); margin-left:auto; text-align:right; }
+              .monh-cardb{ padding:6px 15px 15px; border-top:1px solid var(--cp-border); }
+              .monh-grp{ margin-top:10px; }
+              .monh-grph{ display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; user-select:none; color:var(--cp-text-muted); }
+              .monh-grph:hover{ color:var(--cp-text); }
+              .monh-grph .chev{ font-size:9px; color:var(--cp-text-faint); transition:transform .12s ease; }
+              .monh-grph .chev.open{ transform:rotate(90deg); }
+              .monh-grph .gn{ font-size:12.5px; font-weight:600; letter-spacing:.02em; }
+              .monh-grph .gc{ font-size:11.5px; color:var(--cp-text-faint); }
+              .monh-grpb{ padding:2px 0 4px; }
+              .monh-erow, .monx-home-row{ display:flex; align-items:center; gap:11px; padding:8px 8px; border-radius:8px; }
+              .monh-erow:hover, .monx-home-row:hover{ background:var(--cp-bg); }
+              .monh-erow .ric, .monx-home-row .ric{ font-size:15px; flex:none; }
+              .monh-erow .rt, .monx-home-row .rt{ flex:1; min-width:0; cursor:pointer; }
+              .monh-erow .rt b, .monx-home-row .rt b{ font-size:13px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+              .monh-erow .rt .sub, .monx-home-row .rt .sub{ font-size:11.5px; color:var(--cp-text-faint); }
+              .monh-hbar{ display:flex; height:5px; border-radius:3px; overflow:hidden; margin-top:6px; max-width:320px; background:var(--cp-border); }
+              .monh-hbar span{ height:100%; }
+              .monh-eacts, .monx-home-acts{ display:flex; gap:10px; flex:none; }
+              .monh-eacts .lnk, .monx-home-acts .lnk{ background:none; border:0; color:var(--mon-graf); font-size:12px; cursor:pointer; padding:0; }
+              .monh-eacts .lnk.danger, .monx-home-acts .lnk.danger{ color:var(--cp-danger, #e5534b); }
+              .monh-eacts .lnk:hover, .monx-home-acts .lnk:hover{ text-decoration:underline; }
+              .monx-home-filt{ width:100%; box-sizing:border-box; background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:8px; padding:7px 10px; font-size:12.5px; color:var(--cp-text); margin:8px 0 4px; }
+              .monx-home-rin{ flex:1; background:var(--cp-bg); border:1px solid var(--mon-graf); border-radius:6px; padding:5px 8px; font-size:13px; color:var(--cp-text); }
+              /* create nav */
+              .monx-createnav{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+              .monx-createnav .monx-back{ margin-bottom:0; }
             </style>
 
             <div class="monx">
-              <!-- ============ LAUNCHER ============ -->
+              <!-- ============ HOME (browse hub) ============ -->
+              <div class="monx-wrap" x-show="monitoring.view === 'home'">
+                <div class="monh-bar">
+                  <div class="monh-bar-t">
+                    <div class="kick">Monitoring.AI · Grafana + AI</div>
+                    <h1>Your monitoring hub</h1>
+                  </div>
+                  <button class="monh-newdash" @click="monOpenCreate()">✨ New dashboard</button>
+                </div>
+
+                <!-- attention row: recently viewed + alerts -->
+                <div class="monh-att">
+                  <div class="monh-panel">
+                    <div class="ph"><span>Recently viewed</span><span class="c" x-show="monRecentDashboards().length" x-text="monRecentDashboards().length"></span></div>
+                    <div class="pb">
+                      <template x-for="d in monRecentDashboards()" :key="d.uid">
+                        <div class="monx-rrow" @click="monLoadDashboard(d.uid)">
+                          <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
+                          <div class="rt"><b x-text="d.title"></b><div class="sub" x-text="monDashSub(d)"></div></div>
+                          <div class="spark" x-html="monSpark(d.spark, monStatusColor(monSparkStatus(d)))"></div>
+                          <div class="rmeta"><div class="st" :class="monStatusClass(monSparkStatus(d))" x-text="monSparkStatus(d)"></div><div style="color:var(--cp-text-faint)" x-text="d.updated ? formatRelative(d.updated) : ''"></div></div>
+                        </div>
+                      </template>
+                      <div class="monx-railempty" x-show="!monRecentDashboards().length">Dashboards you open will appear here.</div>
+                    </div>
+                  </div>
+                  <div class="monh-panel">
+                    <div class="ph"><span>Alerts</span><button class="lnk" x-show="!monitoring.alerts.open" @click="monAlertNew()">＋ New</button></div>
+                    <div class="pb">
+                      <template x-for="a in monitoring.alerts.list" :key="a.id">
+                        <div class="monx-alert">
+                          <div><div class="an" x-text="a.name"></div><div class="ad" x-text="monAlertSummary(a)"></div></div>
+                          <div class="ast" :class="{ firing: a.lastState === 'firing' }" x-text="monAlertState(a)"></div>
+                          <button class="axn" @click="monToggleAlert(a)" x-text="a.enabled ? 'Disable' : 'Enable'"></button>
+                          <button class="axn" @click="monDeleteAlert(a)">Delete</button>
+                        </div>
+                      </template>
+                      <div class="monx-railempty" x-show="!monitoring.alerts.list.length && !monitoring.alerts.open">No alerts yet — watch an alertable workspace collection and notify when a threshold trips.</div>
+                      <div class="monx-alertform" x-show="monitoring.alerts.open" x-cloak>
+                        <template x-if="monitoring.alerts.draft">
+                        <div>
+                        <div class="arow">
+                          <label>Source
+                            <select x-model="monitoring.alerts.draft.sourceId">
+                              <option value="">Choose…</option>
+                              <template x-for="s in monAlertableSources()" :key="s.id">
+                                <option :value="s.id" x-text="s.name"></option>
+                              </template>
+                            </select>
+                          </label>
+                          <label>Name <input type="text" x-model="monitoring.alerts.draft.name" placeholder="e.g. Task backlog spike" style="min-width:180px;" /></label>
+                        </div>
+                        <div class="arow">
+                          <label>When
+                            <select x-model="monitoring.alerts.draft.agg">
+                              <option value="last">latest</option><option value="sum">sum</option><option value="max">max</option><option value="avg">avg</option>
+                            </select>
+                          </label>
+                          <label>
+                            <select x-model="monitoring.alerts.draft.op">
+                              <option value="&gt;">&gt;</option><option value="&gt;=">&ge;</option><option value="&lt;">&lt;</option><option value="&lt;=">&le;</option><option value="==">=</option>
+                            </select>
+                          </label>
+                          <label><input type="number" x-model.number="monitoring.alerts.draft.value" style="width:90px;" /></label>
+                          <label>over
+                            <select x-model.number="monitoring.alerts.draft.windowDays">
+                              <option :value="1">1 day</option><option :value="7">7 days</option><option :value="14">14 days</option><option :value="30">30 days</option>
+                            </select>
+                          </label>
+                          <label>notify
+                            <select x-model="monitoring.alerts.draft.target">
+                              <option value="app">in-app</option><option value="email">email</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div class="arow">
+                          <button class="abtn" @click="monSaveAlert()" :disabled="monitoring.alerts.saving || !monitoring.alerts.draft.sourceId || !monitoring.alerts.draft.name" x-text="monitoring.alerts.saving ? 'Saving…' : 'Save alert'"></button>
+                          <button class="abtn ghost" @click="monitoring.alerts.open = false">Cancel</button>
+                        </div>
+                        </div>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Your dashboards (collapsible) -->
+                <div class="monh-card">
+                  <div class="monh-cardh" @click="monitoring.homeDashOpen = !monitoring.homeDashOpen" role="button" tabindex="0" @keydown.enter.prevent="monitoring.homeDashOpen = !monitoring.homeDashOpen">
+                    <span class="chev" :class="{ open: monitoring.homeDashOpen }">▶</span>
+                    <span class="t">Your dashboards</span>
+                    <span class="c">open, rename or remove local dashboards — Grafana-owned ones open read-only</span>
+                  </div>
+                  <div class="monh-cardb" x-show="monitoring.homeDashOpen" x-cloak>
+                    <input class="monx-home-filt" type="text" placeholder="Filter dashboards…" x-model="monitoring.railFilter" />
+
+                    <!-- Objective Health · epics -->
+                    <div class="monh-grp" x-show="monitoring.epicDashboards.length">
+                      <div class="monh-grph" @click="monitoring.epicGroupOpen = !monitoring.epicGroupOpen" role="button" tabindex="0" @keydown.enter.prevent="monitoring.epicGroupOpen = !monitoring.epicGroupOpen">
+                        <span class="chev" :class="{ open: monitoring.epicGroupOpen }">▶</span>
+                        <span class="gn">Objective Health · epics</span>
+                        <span class="gc" x-text="monitoring.epicDashboards.length"></span>
+                      </div>
+                      <div class="monh-grpb" x-show="monitoring.epicGroupOpen" x-cloak>
+                        <template x-for="e in monitoring.epicDashboards" :key="e.key">
+                          <div class="monh-erow">
+                            <div class="ric">🎯</div>
+                            <div class="rt" @click="monEpicDashboard(e.key)">
+                              <b x-text="e.epicTitle || e.title || 'Objective Health'"></b>
+                              <span class="sub" x-text="((e.objectiveCount||0) + ' objective' + ((e.objectiveCount||0)===1?'':'s')) + (e.doc ? ' · linked doc' : '') + (e.ai ? ' · AI' : '')"></span>
+                              <div class="monh-hbar" x-show="monEpicDashSegs(e.counts).length">
+                                <template x-for="(s,i) in monEpicDashSegs(e.counts)" :key="i">
+                                  <span :style="`width:${s.pct}%;background:${s.color}`" :title="s.n + ' ' + s.label"></span>
+                                </template>
+                              </div>
+                            </div>
+                            <div class="monh-eacts">
+                              <button class="lnk" @click.stop="monEpicDashboard(e.key)">Open</button>
+                              <button class="lnk danger" @click.stop="monUnlinkEpicDash(e.key)">Unlink</button>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
+                    <!-- Grafana / local folders -->
+                    <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
+                      <div class="monh-grp">
+                        <div class="monh-grph" @click="monFolderToggle(folder)" role="button" tabindex="0" @keydown.enter.prevent="monFolderToggle(folder)">
+                          <span class="chev" :class="{ open: monFolderIsOpen(folder) }">▶</span>
+                          <span class="gn" x-text="folder"></span>
+                          <span class="gc" x-text="dashes.length"></span>
+                        </div>
+                        <div class="monh-grpb" x-show="monFolderIsOpen(folder)" x-cloak>
+                          <template x-for="d in dashes" :key="d.uid">
+                            <div class="monx-home-row">
+                              <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
+                              <template x-if="monitoring.rename.uid === d.uid">
+                                <input class="monx-home-rin" x-model="monitoring.rename.title" @click.stop
+                                  @keydown.enter.prevent="monRenameCommit()" @keydown.escape.prevent="monRenameCancel()" x-init="$nextTick(() => $el.focus())" />
+                              </template>
+                              <template x-if="monitoring.rename.uid !== d.uid">
+                                <div class="rt" @click="monLoadDashboard(d.uid)"><b x-text="d.title"></b><span class="sub" x-text="((d.panelCount||0) + ' panel' + ((d.panelCount||0) === 1 ? '' : 's')) + (d.local ? '' : ' · Grafana')"></span></div>
+                              </template>
+                              <div class="monx-home-acts">
+                                <template x-if="monitoring.rename.uid === d.uid">
+                                  <span>
+                                    <button class="lnk" @click.stop="monRenameCommit()" :disabled="monitoring.rename.busy" x-text="monitoring.rename.busy ? 'Saving…' : 'Save'"></button>
+                                    <button class="lnk" @click.stop="monRenameCancel()">Cancel</button>
+                                  </span>
+                                </template>
+                                <template x-if="monitoring.rename.uid !== d.uid && d.local">
+                                  <span>
+                                    <button class="lnk" @click.stop="monRenameStart(d)">Rename</button>
+                                    <button class="lnk danger" @click.stop="monDeleteDash(d)">Delete</button>
+                                  </span>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <div class="monx-railempty" x-show="!monitoring.epicDashboards.length && !Object.keys(monDashboardsByFolder()).length" x-text="monitoring.railFilter ? 'No dashboards match.' : 'No dashboards yet — create one with New dashboard.'"></div>
+                  </div>
+                </div>
+
+                <!-- Connected data sources (collapsible, default closed) -->
+                <div class="monh-card">
+                  <div class="monh-cardh" @click="monHomeCatToggle()" role="button" tabindex="0" @keydown.enter.prevent="monHomeCatToggle()">
+                    <span class="chev" :class="{ open: monitoring.homeCatOpen }">▶</span>
+                    <span class="t">Connected data sources</span>
+                    <span class="c">workspace collections + external data sources available to dashboards</span>
+                  </div>
+                  <div class="monh-cardb" x-show="monitoring.homeCatOpen" x-cloak>
+                    <div class="monx-cat">
+                      <template x-if="monitoring.catalog.workspace.length">
+                        <div class="monx-catgrp">Workspace (internal)</div>
+                      </template>
+                      <template x-for="s in monitoring.catalog.workspace" :key="s.id">
+                        <div class="monx-catrow">
+                          <div class="ci" x-text="s.icon || '🗂'"></div>
+                          <div class="cmeta"><div class="cn" x-text="s.name"></div><div class="cs" x-text="monCatSub(s)"></div></div>
+                        </div>
+                      </template>
+                      <template x-if="monitoring.catalog.external.length">
+                        <div class="monx-catgrp">External data sources</div>
+                      </template>
+                      <template x-for="s in monitoring.catalog.external" :key="s.id">
+                        <div class="monx-catrow">
+                          <div class="ci" x-text="s.icon || '🔷'"></div>
+                          <div class="cmeta"><div class="cn" x-text="s.name"></div><div class="cs" x-text="monCatSub(s)"></div></div>
+                        </div>
+                      </template>
+                      <div class="monx-railempty" x-show="monitoring.catalog.loading && !monitoring.catalog.loaded">Loading catalog…</div>
+                      <div class="monx-railempty" x-show="monitoring.catalog.loaded && !monitoring.catalog.workspace.length && !monitoring.catalog.external.length">No data sources connected yet — connect Grafana on the New dashboard page.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ============ CREATE (was launcher) ============ -->
               <div class="monx-wrap" x-show="monitoring.view === 'launcher'">
-                <button class="monx-back" x-show="monitoring.dash" @click="monBackToStudio()">← Back to <span x-text="monitoring.dash ? monitoring.dash.title : ''"></span></button>
+                <div class="monx-createnav">
+                  <button class="monx-back" @click="monGoHome()">← Monitoring.AI home</button>
+                  <button class="monx-back" x-show="monitoring.dash" @click="monBackToStudio()">Back to <span x-text="monitoring.dash ? monitoring.dash.title : ''"></span> →</button>
+                </div>
                 <div class="monx-hero">
                   <div class="kick">Monitoring.AI · Grafana + AI</div>
                   <h1>Describe what you want to watch. Get a live Grafana dashboard.</h1>
@@ -21330,43 +21580,6 @@
                   </div>
                 </div>
 
-                <div class="monx-sech"><h2>Your dashboards</h2><span class="c">open, rename or remove locally-generated dashboards — Grafana-owned ones open read-only</span></div>
-                <div class="monx-home-dash">
-                  <input class="monx-home-filt" type="text" placeholder="Filter dashboards…" x-model="monitoring.railFilter" />
-                  <template x-for="(dashes, folder) in monDashboardsByFolder()" :key="folder">
-                    <div class="monx-home-grp">
-                      <div class="monx-home-grph" x-text="folder"></div>
-                      <template x-for="d in dashes" :key="d.uid">
-                        <div class="monx-home-row">
-                          <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
-                          <template x-if="monitoring.rename.uid === d.uid">
-                            <input class="monx-home-rin" x-model="monitoring.rename.title" @click.stop
-                              @keydown.enter.prevent="monRenameCommit()" @keydown.escape.prevent="monRenameCancel()" x-init="$nextTick(() => $el.focus())" />
-                          </template>
-                          <template x-if="monitoring.rename.uid !== d.uid">
-                            <div class="rt" @click="monLoadDashboard(d.uid)"><b x-text="d.title"></b><span class="sub" x-text="((d.panelCount||0) + ' panel' + ((d.panelCount||0) === 1 ? '' : 's')) + (d.local ? '' : ' · Grafana')"></span></div>
-                          </template>
-                          <div class="monx-home-acts">
-                            <template x-if="monitoring.rename.uid === d.uid">
-                              <span>
-                                <button class="lnk" @click.stop="monRenameCommit()" :disabled="monitoring.rename.busy" x-text="monitoring.rename.busy ? 'Saving…' : 'Save'"></button>
-                                <button class="lnk" @click.stop="monRenameCancel()">Cancel</button>
-                              </span>
-                            </template>
-                            <template x-if="monitoring.rename.uid !== d.uid && d.local">
-                              <span>
-                                <button class="lnk" @click.stop="monRenameStart(d)">Rename</button>
-                                <button class="lnk danger" @click.stop="monDeleteDash(d)">Delete</button>
-                              </span>
-                            </template>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                  <div class="monx-railempty" x-show="!Object.keys(monDashboardsByFolder()).length" x-text="monitoring.railFilter ? 'No dashboards match.' : 'No dashboards yet — generate one below.'"></div>
-                </div>
-
                 <div class="monx-sech"><h2>Start from a template</h2><span class="c">AI fills in queries for your data sources</span></div>
                 <div class="monx-grid3">
                   <template x-for="t in monTemplates()" :key="t.t">
@@ -21413,126 +21626,45 @@
                   <div class="monx-railempty" x-show="!monitoring.epicGen.loading && !monitoring.epicGen.epics.length">No epics found — open the Epics tab in Code Flow first.</div>
                 </div>
 
-                <div class="monx-sech"><h2>Context &amp; data catalog</h2><span class="c">workspace collections + external data sources — pick <b style="color:var(--mon-ground)">Ground</b> (AI context) and <b style="color:var(--mon-accent)">Chart</b> (panels)</span></div>
-                <div class="monx-cat">
-                  <template x-if="monitoring.catalog.workspace.length">
-                    <div class="monx-catgrp">Workspace (internal)</div>
-                  </template>
-                  <template x-for="s in monitoring.catalog.workspace" :key="s.id">
-                    <div class="monx-catrow">
-                      <div class="ci" x-text="s.icon || '🗂'"></div>
-                      <div class="cmeta">
-                        <div class="cn" x-text="s.name"></div>
-                        <div class="cs" x-text="monCatSub(s)"></div>
-                      </div>
-                      <div class="monx-roles">
-                        <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
-                        <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="monitoring.catalog.external.length">
-                    <div class="monx-catgrp">External data sources</div>
-                  </template>
-                  <template x-for="s in monitoring.catalog.external" :key="s.id">
-                    <div class="monx-catrow">
-                      <div class="ci" x-text="s.icon || '🔷'"></div>
-                      <div class="cmeta">
-                        <div class="cn" x-text="s.name"></div>
-                        <div class="cs" x-text="monCatSub(s)"></div>
-                      </div>
-                      <div class="monx-roles">
-                        <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
-                        <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
-                      </div>
-                    </div>
-                  </template>
-                  <div class="monx-railempty" x-show="!monitoring.catalog.loaded && monitoring.catalog.loading">Loading catalog…</div>
-                </div>
-
-                <div class="monx-sech"><h2>Alerts</h2><span class="c">watch an alertable workspace collection and notify when a threshold trips</span></div>
-                <div class="monx-alerts">
-                  <template x-for="a in monitoring.alerts.list" :key="a.id">
-                    <div class="monx-alert">
-                      <div>
-                        <div class="an" x-text="a.name"></div>
-                        <div class="ad" x-text="monAlertSummary(a)"></div>
-                      </div>
-                      <div class="ast" :class="{ firing: a.lastState === 'firing' }" x-text="monAlertState(a)"></div>
-                      <button class="axn" @click="monToggleAlert(a)" x-text="a.enabled ? 'Disable' : 'Enable'"></button>
-                      <button class="axn" @click="monDeleteAlert(a)">Delete</button>
-                    </div>
-                  </template>
-                  <div class="monx-railempty" x-show="!monitoring.alerts.list.length && !monitoring.alerts.open">No alerts yet.</div>
-                </div>
-                <button class="monx-qk" style="margin-top:10px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;padding:7px 12px;font-size:12.5px;color:var(--cp-text-muted);" x-show="!monitoring.alerts.open" @click="monAlertNew()">＋ New alert</button>
-                <div class="monx-alertform" x-show="monitoring.alerts.open" x-cloak>
-                  <template x-if="monitoring.alerts.draft">
-                  <div>
-                  <div class="arow">
-                    <label>Source
-                      <select x-model="monitoring.alerts.draft.sourceId">
-                        <option value="">Choose…</option>
-                        <template x-for="s in monAlertableSources()" :key="s.id">
-                          <option :value="s.id" x-text="s.name"></option>
-                        </template>
-                      </select>
-                    </label>
-                    <label>Name <input type="text" x-model="monitoring.alerts.draft.name" placeholder="e.g. Task backlog spike" style="min-width:180px;" /></label>
-                  </div>
-                  <div class="arow">
-                    <label>When
-                      <select x-model="monitoring.alerts.draft.agg">
-                        <option value="last">latest</option><option value="sum">sum</option><option value="max">max</option><option value="avg">avg</option>
-                      </select>
-                    </label>
-                    <label>
-                      <select x-model="monitoring.alerts.draft.op">
-                        <option value="&gt;">&gt;</option><option value="&gt;=">&ge;</option><option value="&lt;">&lt;</option><option value="&lt;=">&le;</option><option value="==">=</option>
-                      </select>
-                    </label>
-                    <label><input type="number" x-model.number="monitoring.alerts.draft.value" style="width:90px;" /></label>
-                    <label>over
-                      <select x-model.number="monitoring.alerts.draft.windowDays">
-                        <option :value="1">1 day</option><option :value="7">7 days</option><option :value="14">14 days</option><option :value="30">30 days</option>
-                      </select>
-                    </label>
-                    <label>notify
-                      <select x-model="monitoring.alerts.draft.target">
-                        <option value="app">in-app</option><option value="email">email</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div class="arow">
-                    <button class="abtn" @click="monSaveAlert()" :disabled="monitoring.alerts.saving || !monitoring.alerts.draft.sourceId || !monitoring.alerts.draft.name" x-text="monitoring.alerts.saving ? 'Saving…' : 'Save alert'"></button>
-                    <button class="abtn ghost" @click="monitoring.alerts.open = false">Cancel</button>
-                  </div>
-                  </div>
-                  </template>
-                </div>
-
-                <!-- Recently viewed — curated to dashboards the user actually opened; collapsible, at the bottom -->
-                <div class="monx-recentwrap">
-                  <div class="monx-recenth" @click="monToggleRecent()" role="button" tabindex="0" @keydown.enter.prevent="monToggleRecent()" @keydown.space.prevent="monToggleRecent()">
-                    <span class="chev" :class="{ open: monitoring.recentOpen }">▶</span>
-                    <span class="rh-t">Recently viewed</span>
-                    <span class="rh-c" x-show="monRecentDashboards().length" x-text="monRecentDashboards().length"></span>
-                  </div>
-                  <div class="monx-recent" x-show="monitoring.recentOpen" x-cloak>
-                    <template x-for="d in monRecentDashboards()" :key="d.uid">
-                      <div class="monx-rrow" @click="monLoadDashboard(d.uid)">
-                        <div class="ric" x-text="d.local ? '🆕' : '📈'"></div>
-                        <div class="rt"><b x-text="d.title"></b><div class="sub" x-text="monDashSub(d)"></div></div>
-                        <div class="spark" x-html="monSpark(d.spark, monStatusColor(monSparkStatus(d)))"></div>
-                        <div class="rmeta"><div class="st" :class="monStatusClass(monSparkStatus(d))" x-text="monSparkStatus(d)"></div><div style="color:var(--cp-text-faint)" x-text="d.updated ? formatRelative(d.updated) : ''"></div></div>
+                  <div class="monx-sech"><h2>Context &amp; data catalog</h2><span class="c">workspace collections + external data sources — pick <b style="color:var(--mon-ground)">Ground</b> (AI context) and <b style="color:var(--mon-accent)">Chart</b> (panels)</span></div>
+                  <div class="monx-cat">
+                    <template x-if="monitoring.catalog.workspace.length">
+                      <div class="monx-catgrp">Workspace (internal)</div>
+                    </template>
+                    <template x-for="s in monitoring.catalog.workspace" :key="s.id">
+                      <div class="monx-catrow">
+                        <div class="ci" x-text="s.icon || '🗂'"></div>
+                        <div class="cmeta">
+                          <div class="cn" x-text="s.name"></div>
+                          <div class="cs" x-text="monCatSub(s)"></div>
+                        </div>
+                        <div class="monx-roles">
+                          <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
+                          <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
+                        </div>
                       </div>
                     </template>
-                    <div class="monx-railempty" x-show="!monRecentDashboards().length">Dashboards you open will appear here.</div>
+                    <template x-if="monitoring.catalog.external.length">
+                      <div class="monx-catgrp">External data sources</div>
+                    </template>
+                    <template x-for="s in monitoring.catalog.external" :key="s.id">
+                      <div class="monx-catrow">
+                        <div class="ci" x-text="s.icon || '🔷'"></div>
+                        <div class="cmeta">
+                          <div class="cn" x-text="s.name"></div>
+                          <div class="cs" x-text="monCatSub(s)"></div>
+                        </div>
+                        <div class="monx-roles">
+                          <span class="monx-role ground" :class="{ on: monRoleOn(s.id, 'ground') }" @click="monToggleRole(s.id, 'ground')">Ground</span>
+                          <span class="monx-role chart" :class="{ on: monRoleOn(s.id, 'chart'), off: !s.chartable }" @click="s.chartable && monToggleRole(s.id, 'chart')">Chart</span>
+                        </div>
+                      </div>
+                    </template>
+                    <div class="monx-railempty" x-show="!monitoring.catalog.loaded && monitoring.catalog.loading">Loading catalog…</div>
                   </div>
                 </div>
-              </div>
 
-              <!-- ============ STUDIO ============ -->
+                <!-- ============ STUDIO ============ -->
               <div class="monx-wrap" x-show="monitoring.view === 'studio'" style="max-width:none;">
                 <div class="monx-studio" :class="{ railhidden: !monRailOpen() }" x-show="monitoring.dash">
                   <!-- rail -->
@@ -32830,7 +32962,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         newTaskOpen: false,
         // Monitoring.AI — Grafana + AI dashboard studio (default OFF opt-in feature)
         monitoring: {
-          view: 'launcher',        // 'launcher' | 'studio' | 'deep' | 'objective'
+          view: 'home',            // 'home' | 'launcher'(create) | 'studio' | 'deep' | 'objective'
           loading: false,
           loaded: false,
           status: null,            // GET /status
@@ -32871,6 +33003,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           boardBuild: { open: false, prompt: '', boardId: '', boards: [], loading: false },
           // Objective Health: generate a dashboard from an epic's business objectives.
           epicGen: { epics: [], epicKey: '', loading: false },
+          // Home hub: list of persisted epic Objective Health dashboards (GET /epic-dashboards).
+          epicDashboards: [],
+          epicDashLoading: false,
+          // Home hub collapse state.
+          homeDashOpen: true,      // "Your dashboards" section card
+          homeCatOpen: false,      // "Connected data sources" section card
+          epicGroupOpen: true,     // "Objective Health · epics" group
           rename: { uid: '', title: '', busy: false }, // inline rename of a local dashboard on the home page
           boardRefs: null,         // last generate's mined refs { kusto, appInsights, repos, grafana }
           provenance: [],          // last generate's per-panel provenance [{ title, kind, access, alert, dimension, metric }]
@@ -41137,19 +41276,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.monLoadBoards();
             this.monLoadAlerts();
             this.monLoadEpicChoices();
+            this.monLoadEpicDashboards();
             if (uid) { await this.monLoadDashboard(uid); }
             else if (w.view === 'objective' && w.obj && w.obj.loading) {
               // An epic -> Objective Health build is in flight: monEpicDashboard()
               // set view='objective' synchronously, then goTo('#/monitoring')
               // triggered this route load asynchronously. Don't clobber that
-              // intentional navigation by auto-opening a Grafana dashboard.
+              // intentional navigation by auto-opening the home hub.
             }
-            else if ((w.dashboards || []).length) {
-              // Land in the studio (persistent dashboard tree + copilot), matching the design.
-              const first = w.dashboards.find(d => d.local) || w.dashboards[0];
-              await this.monLoadDashboard(first.uid);
+            else {
+              // Land on the browse-first home hub (not auto-studio): the hub lists
+              // every dashboard (incl. epic Objective Health) + recent + alerts, and
+              // creating a dashboard is its own separate page.
+              w.view = 'home';
             }
-            else { w.view = 'launcher'; }
           } catch (e) {
             this.toast('Failed to load Monitoring.AI: ' + (e.message || e), 'error');
           } finally {
@@ -41484,7 +41624,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.monitoring.dashboards = (this.monitoring.dashboards || []).filter(x => x.uid !== d.uid);
               this.monitoring.recent = (this.monitoring.recent || []).filter(u => u !== d.uid);
               try { localStorage.setItem('mon-recent', JSON.stringify(this.monitoring.recent)); } catch (_) {}
-              if (this.monitoring.dash && this.monitoring.dash.uid === d.uid) { this.monitoring.dash = null; this.monitoring.view = 'launcher'; }
+              if (this.monitoring.dash && this.monitoring.dash.uid === d.uid) { this.monitoring.dash = null; this.monitoring.view = 'home'; }
               this.toast(r.remoteError ? 'Removed locally (Grafana copy could not be deleted).' : 'Dashboard deleted.');
             } else { this.toast((r && r.error) || 'Could not delete.', 'error'); }
           } catch (e) { this.toast((e && e.message) || 'Could not delete.', 'error'); }
@@ -41807,11 +41947,53 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return dash.panels.find(p => p.id === this.monitoring.deepPanel) || null;
         },
         monNewPrompt() {
-          // Open the prompt surface without discarding the open dashboard, so the
+          // Open the CREATE page without discarding the open dashboard, so the
           // user can cancel back to it.
           const w = this.monitoring;
           w.view = 'launcher';
           w.prompt = '';
+        },
+        monOpenCreate() { this.monNewPrompt(); },
+        monGoHome() {
+          const w = this.monitoring;
+          w.view = 'home';
+          this.monLoadEpicDashboards();
+        },
+        monHomeCatToggle() {
+          const w = this.monitoring;
+          w.homeCatOpen = !w.homeCatOpen;
+          if (w.homeCatOpen && !w.catalog.loaded && !w.catalog.loading && this.monLoadCatalog) this.monLoadCatalog();
+        },
+        async monLoadEpicDashboards() {
+          const w = this.monitoring;
+          w.epicDashLoading = true;
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboards').catch(() => null);
+            w.epicDashboards = (r && r.ok && Array.isArray(r.dashboards)) ? r.dashboards : [];
+          } finally { w.epicDashLoading = false; }
+        },
+        async monUnlinkEpicDash(key) {
+          if (!key) return;
+          if (!confirm('Unlink this epic dashboard? This clears the epic\u2194dashboard link; it does not delete any Grafana dashboard.')) return;
+          try {
+            await this.request('/api/monitoring/epic-dashboard?key=' + encodeURIComponent(key), { method: 'DELETE' });
+            this.monitoring.epicDashboards = (this.monitoring.epicDashboards || []).filter(d => d.key !== key);
+            this.toast('Epic dashboard unlinked.');
+          } catch (e) { this.toast('Couldn\'t unlink: ' + (e.message || e), 'error'); }
+        },
+        // A calm 4-segment health bar (live/part/miss/manual) for an epic dashboard row.
+        monEpicDashSegs(counts) {
+          const c = counts || {};
+          const live = c.live || 0, part = c.part || 0, miss = c.miss || 0, man = c.man || 0;
+          const total = live + part + miss + man;
+          if (!total) return [];
+          const seg = (n, color, label) => n ? [{ pct: (n / total) * 100, color, label, n }] : [];
+          return [].concat(
+            seg(live, 'var(--cp-success,#3fb950)', 'live'),
+            seg(part, 'var(--cp-warning,#d29922)', 'partial'),
+            seg(man, 'var(--cp-accent,#58a6ff)', 'manual'),
+            seg(miss, 'var(--cp-text-faint,#6b7684)', 'gap'),
+          );
         },
         monEditConnection() {
           const w = this.monitoring;
@@ -41822,9 +42004,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.monitoring.dash) this.monitoring.view = 'studio';
         },
         monBackToLauncher() {
-          // Retained for compatibility; behaves like "New from prompt" and keeps
-          // the current dashboard so the studio is one click away.
-          this.monNewPrompt();
+          // The studio "Home" button + generic back: go to the browse-first home hub.
+          this.monGoHome();
         },
         // ---- Objective Health (epic → tracking-doc → per-objective readiness) ----
         // GET-first: if a persisted snapshot exists we hydrate instantly (no AI call).
@@ -41884,7 +42065,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
           });
         },
-        monObjClose() { this.monitoring.view = this.monitoring.dash ? 'studio' : 'launcher'; },
+        monObjClose() { this.monitoring.view = this.monitoring.dash ? 'studio' : 'home'; },
         monObjSelect(k) { this.monitoring.obj.sel = k; },
         monObjCounts() {
           const objs = this.monitoring.obj.objectives || [];
