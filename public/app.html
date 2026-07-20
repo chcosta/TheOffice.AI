@@ -25281,6 +25281,12 @@
               .epx-bubble .md-hr { border:none; border-top:1px solid var(--cp-border); margin:12px 0; }
               .epx-bubble .md-h1,.epx-bubble .md-h2,.epx-bubble .md-h3,.epx-bubble .md-h4,.epx-bubble .md-h5,.epx-bubble .md-h6 { margin:10px 0 4px; font-size:13.5px; font-weight:700; }
               .epx-typing { display:inline-flex; align-items:center; gap:5px; padding:2px 0; }
+              .epx-trace-toggle { margin-left:auto; background:none; border:none; color:var(--cp-link); font-size:10.5px; cursor:pointer; padding:0; text-decoration:underline; text-underline-offset:2px; }
+              .epx-trace { display:flex; flex-direction:column; gap:4px; margin:2px 0 8px; padding:6px 8px; background:color-mix(in srgb, var(--cp-surface-soft) 45%, transparent); border:1px solid var(--cp-border); border-radius:8px; }
+              .epx-trace-step { display:flex; align-items:flex-start; gap:6px; font-size:11.5px; line-height:1.45; color:var(--cp-text-muted); }
+              .epx-trace-step .tstep-ic { flex:0 0 auto; opacity:.85; }
+              .epx-trace-step .tstep-txt { flex:1 1 auto; word-break:break-word; }
+              .epx-trace-step.tool .tstep-txt { color:var(--cp-text-soft); }
             </style>
 
             <div class="nlx-top">
@@ -25683,8 +25689,21 @@
                         </div>
                       </template>
                       <div class="epx-bubble ai" x-show="codeflow.epics.chat.sending" x-cloak>
-                        <div class="ctx"><span class="epx-ai-tag" style="padding:1px 6px"><span class="dot"></span><span x-text="epicPersonaLabel()"></span> is thinking</span></div>
-                        <span class="epx-typing" aria-label="Assistant is thinking"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>
+                        <div class="ctx">
+                          <span class="epx-ai-tag" style="padding:1px 6px"><span class="dot"></span><span x-text="epicPersonaLabel()"></span> is thinking</span>
+                          <button type="button" class="epx-trace-toggle" x-show="epicChatLive() && epicChatLive().steps.length" @click="epicChatToggleTrace()" x-text="(codeflow.epics.chat.traceOpen ? 'Hide' : 'Show') + ' reasoning (' + (epicChatLive() ? epicChatLive().steps.length : 0) + ')'"></button>
+                        </div>
+                        <div class="epx-trace" x-show="codeflow.epics.chat.traceOpen && epicChatLive() && epicChatLive().steps.length" x-cloak>
+                          <template x-for="(s, si) in (epicChatLive() ? epicChatLive().steps : [])" :key="si">
+                            <div class="epx-trace-step" :class="s.type">
+                              <template x-if="s.type === 'thinking'"><span class="tstep-ic">💭</span></template>
+                              <template x-if="s.type === 'tool'"><span class="tstep-ic" x-text="s.success === false ? '⚠' : (s.success === true ? '✓' : '⚙')"></span></template>
+                              <span class="tstep-txt" x-text="s.type === 'tool' ? ('Used ' + (s.tool || 'a tool')) : s.content"></span>
+                            </div>
+                          </template>
+                        </div>
+                        <div class="md-body" x-show="epicChatLive() && epicChatLive().text" x-html="epicChatLive() ? renderMarkdown(epicChatLive().text) : ''"></div>
+                        <span class="epx-typing" x-show="!epicChatLive() || (!epicChatLive().text && !epicChatLive().steps.length)" aria-label="Assistant is thinking"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>
                       </div>
                       <div class="epx-sugg" x-show="epicChatMsgs().length <= 1">
                         <template x-for="(s, si) in epicChatSuggestions()" :key="si">
@@ -33092,7 +33111,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // persisted server snapshot (title/summary/objectives/counts/generatedAt/doc).
             oh: {},
             // self-contained Epic assistant (lower-right FAB → drawer, scoped to the epics tab)
-            chat: { open: false, sending: false, byKey: {}, input: '' },
+            // `live` holds the in-flight run's streamed reasoning/tool trace + progressive
+            // answer text (keyed by runId), surfaced via the /api/events SSE bus.
+            chat: { open: false, sending: false, byKey: {}, input: '', live: null, traceOpen: true },
           },
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0, otherActive: 0 },
@@ -35286,6 +35307,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 }
                 this.scheduleRefresh();
               });
+            });
+            // Epic assistant live reasoning: the /assistant route streams thinking/tool
+            // steps + coalesced answer deltas keyed by the client-supplied runId. Route
+            // them into the drawer's live buffer if the ids match; ignore stale/foreign runs.
+            source.addEventListener('epic-assistant', (event) => {
+              let p = {}; try { p = JSON.parse(event.data || '{}'); } catch { return; }
+              const live = this.codeflow && this.codeflow.epics && this.codeflow.epics.chat && this.codeflow.epics.chat.live;
+              if (!live || !p.runId || p.runId !== live.runId) return;
+              if (p.kind === 'delta') { live.text = p.text || live.text; }
+              else if (p.kind === 'thinking') { live.steps.push({ type: 'thinking', content: String(p.content || '') }); }
+              else if (p.kind === 'tool_start') { live.steps.push({ type: 'tool', tool: p.tool || '?', toolCallId: p.toolCallId, success: undefined }); }
+              else if (p.kind === 'tool_complete') {
+                const st = p.toolCallId && live.steps.find(x => x.toolCallId === p.toolCallId);
+                if (st) st.success = p.success; else live.steps.push({ type: 'tool', tool: p.tool || '?', success: p.success });
+              }
+              else if (p.kind === 'agent') { live.steps.push({ type: 'thinking', content: 'Consulting ' + (p.name || 'a sub-agent') + '…' }); }
+              else if (p.kind === 'done') { live.done = true; }
+              this.$nextTick(() => this._epicChatScroll());
             });
             // Live output streaming
             // Live title updates (auto-title / rename) — patch the list + header.
@@ -55036,11 +55075,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           ch.byKey = { ...ch.byKey, [key]: list };
           ch.input = '';
           ch.sending = true;
+          // Start a live reasoning buffer keyed by a fresh runId; the SSE listener
+          // fills steps/text as the server streams. Cleared in finally.
+          const runId = (function () { try { return crypto.randomUUID(); } catch { return 'epx-' + Date.now() + '-' + Math.random().toString(36).slice(2); } })();
+          ch.live = { runId, steps: [], text: '', done: false };
           this.$nextTick(() => this._epicChatScroll());
           try {
             const r = await this.request('/api/codeflow/epics/assistant', {
               method: 'POST',
-              body: JSON.stringify({ key, message: text, history, persona: this.codeflow.epics.persona }),
+              body: JSON.stringify({ key, message: text, history, persona: this.codeflow.epics.persona, runId }),
             });
             const reply = (r && r.ok && r.reply) ? r.reply : (r && r.reply) || 'I couldn\u2019t answer that just now.';
             const cur = (ch.byKey[key] || []).slice();
@@ -55052,9 +55095,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             ch.byKey = { ...ch.byKey, [key]: cur };
           } finally {
             ch.sending = false;
+            ch.live = null;
             this.$nextTick(() => this._epicChatScroll());
           }
         },
+        // The in-flight live reasoning buffer for the epic assistant (null when idle).
+        epicChatLive() { return this.codeflow.epics.chat.live; },
+        epicChatToggleTrace() { this.codeflow.epics.chat.traceOpen = !this.codeflow.epics.chat.traceOpen; },
         // The "Reviews needed from me" toggle on the Active PRs tab. On → only PRs that
         // list me as a reviewer (server view 'reviews'); off → every open PR ('active').
         // Persisted so the choice sticks across sessions.

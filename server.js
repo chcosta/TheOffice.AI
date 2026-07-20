@@ -5200,10 +5200,16 @@ app.post('/api/codeflow/epics/assistant', async (req, res) => {
   const key = String((req.body && req.body.key) || '');
   const message = String((req.body && req.body.message) || '').trim();
   const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  const runId = String((req.body && req.body.runId) || '');
   const entry = _epicCache.get(key);
   if (!entry) return res.status(404).json({ error: 'epic not loaded — refresh the Epics tab first' });
   if (!message) return res.status(400).json({ error: 'message is required' });
   const { config: personaCfg, persona } = _epicPersonaConfig(req.body && req.body.persona);
+  // Live reasoning: stream the SDK's thinking/tool steps + coalesced answer deltas to
+  // the drawer over the shared SSE bus, keyed by the client-supplied runId. This is a
+  // read-only advisor (no tools), so in practice this surfaces the model's reasoning as
+  // it forms. The final reply is still returned in the JSON body (authoritative).
+  const _emit = (ev) => { if (runId) { try { broadcastSSE('epic-assistant', Object.assign({ runId, at: Date.now() }, ev)); } catch (_) { /* ignore */ } } };
   try {
     const c = entry.cockpit;
     const raw = entry.raw;
@@ -5225,16 +5231,31 @@ app.post('/api/codeflow/epics/assistant', async (req, res) => {
       '\nReply in plain prose (short paragraphs / bullets). No JSON, no code fence.',
     ].filter(Boolean).join('\n');
     let acc = '';
+    let _lastDelta = 0;
+    const _flushDelta = (force) => {
+      const now = Date.now();
+      if (force || now - _lastDelta >= 140) { _lastDelta = now; _emit({ kind: 'delta', text: acc.slice(0, 8000) }); }
+    };
     const result = await sdkRunner.runChat({
       config: personaCfg, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
-      availableTools: [], onChunk: (ch) => { acc += ch; },
+      availableTools: [],
+      onChunk: (ch) => { acc += ch; _flushDelta(false); },
+      onStep: (s) => {
+        if (!s || !runId) return;
+        if (s.kind === 'thinking') _emit({ kind: 'thinking', content: String(s.content || '').slice(0, 600) });
+        else if (s.kind === 'tool_start') _emit({ kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId });
+        else if (s.kind === 'tool_complete') _emit({ kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success });
+        else if (s.kind === 'agent') _emit({ kind: 'agent', name: s.name });
+      },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
       meta: { source: 'system', category: 'chat' },
     });
-    if (result && result.fallback) return res.json({ ok: false, persona, reply: 'The assistant runtime is not available right now.' });
+    if (result && result.fallback) { _emit({ kind: 'done' }); return res.json({ ok: false, persona, reply: 'The assistant runtime is not available right now.' }); }
     const reply = (acc.trim() || (result && result.output) || '').trim();
+    _flushDelta(true);
+    _emit({ kind: 'done' });
     res.json({ ok: true, persona, reply: reply || 'I could not produce a response.' });
-  } catch (e) { res.status(502).json({ error: e.message }); }
+  } catch (e) { _emit({ kind: 'done', error: e.message }); res.status(502).json({ error: e.message }); }
 });
 
 

@@ -2176,7 +2176,7 @@ await t.test('code flow: Epics tab — DNCEng epic cockpit wired end to end (tab
   const cfTabDefault = _win(html, "cfTab", 400);
   t.ok(cfTabDefault, 'cfTab wiring present');
   // --- state block ---
-  const st = _win(html, 'epics: {', 1300);
+  const st = _win(html, 'epics: {', 2000);
   t.ok(st, 'codeflow.epics state block exists');
   t.ok(/list:/.test(st) && /idx:/.test(st) && /loading:/.test(st) && /chat:/.test(st) && /aiBusy:/.test(st), 'epics state carries list/idx/loading/chat/aiBusy');
   // --- key methods defined ---
@@ -2334,7 +2334,7 @@ await t.test('code flow: Epics — AI persona picker + auto-AI standup (built-in
   // --- persona is sent in BOTH POST bodies ---
   const up = _win(html, 'async epicUpgradeAi()', 700);
   t.ok(/persona:\s*ep\.persona/.test(up), 'epicUpgradeAi POSTs the chosen persona');
-  t.ok(/persona:\s*this\.codeflow\.epics\.persona/.test(_win(html, 'async epicChatSend(', 1400) || ''), 'epicChatSend POSTs the chosen persona');
+  t.ok(/persona:\s*this\.codeflow\.epics\.persona/.test(_win(html, 'async epicChatSend(', 1600) || ''), 'epicChatSend POSTs the chosen persona');
 
   // --- picker markup (calm dropdown, no pills) + honest provenance ---
   t.ok(/class="epx-persona"/.test(html) && /epicPersonaChoices\(\)/.test(html), 'persona picker dropdown rendered from epicPersonaChoices');
@@ -2353,13 +2353,48 @@ await t.test('code flow: Epics — AI persona picker + auto-AI standup (built-in
   t.ok(/persona/.test(as) && /_epicPersonaConfig/.test(as), '/assistant route resolves the persona config');
 
   // --- chat renders full markdown (tables/lists) + shows an active "thinking" indicator ---
-  const send = _win(html, 'async epicChatSend(', 1400) || '';
+  const send = _win(html, 'async epicChatSend(', 2600) || '';
   t.ok(/renderMarkdown\(reply\)/.test(send) && !/inlineMarkdown\(reply\)/.test(send),
     'epicChatSend renders the reply with the full block renderMarkdown (tables/lists), not inline-only');
-  t.ok(/x-show="codeflow\.epics\.chat\.sending"[\s\S]{0,500}epx-typing/.test(html),
+  t.ok(/x-show="codeflow\.epics\.chat\.sending"[\s\S]{0,1800}epx-typing/.test(html),
     'a thinking/typing indicator bubble shows while the assistant request is in flight');
   t.ok(/\.epx-typing \{/.test(html) && /class="md-body" x-html="m\.html \|\| m\.text"/.test(html),
     'chat bubble renders into a .md-body host with typing-indicator CSS present');
+
+  // --- LIVE streaming: server emits reasoning/tool/delta over the SSE bus keyed by runId ---
+  t.ok(/broadcastSSE\('epic-assistant'/.test(srv), 'server streams epic-assistant events over the SSE bus');
+  t.ok(/req\.body && req\.body\.runId/.test(srv), 'assistant route reads a client-supplied runId');
+  const route = _win(srv, "app.post('/api/codeflow/epics/assistant'", 4600) || '';
+  t.ok(/onStep/.test(route) && /kind: 'thinking'/.test(route) && /kind: 'tool_start'/.test(route) && /kind: 'tool_complete'/.test(route),
+    'assistant route maps SDK thinking/tool steps into emitted events');
+  t.ok(/kind: 'delta'/.test(route) && /kind: 'done'/.test(route),
+    'assistant route coalesces answer deltas and emits a terminal done event');
+
+  // --- client SSE listener routes events into the live buffer, filtered by runId ---
+  t.ok(/addEventListener\('epic-assistant'/.test(html), 'client subscribes to the epic-assistant SSE stream');
+  const lis = _win(html, "addEventListener('epic-assistant'", 1400) || '';
+  t.ok(/live\.runId/.test(lis), 'SSE listener filters events by the live runId');
+  t.ok(/'delta'/.test(lis) && /'thinking'/.test(lis) && /'tool_start'/.test(lis) && /'done'/.test(lis),
+    'SSE listener routes delta/thinking/tool/done into the live buffer');
+
+  // --- send lifecycle: runId created, POSTed, and ch.live cleared ---
+  t.ok(/runId/.test(send) && /\.live = \{/.test(send), 'epicChatSend seeds ch.live with a fresh runId');
+  t.ok(/\.live = null/.test(send), 'epicChatSend clears ch.live when the turn settles');
+  t.ok(/epicChatLive\(\)/.test(html) && /epicChatToggleTrace\(\)/.test(html),
+    'epicChatLive + epicChatToggleTrace helpers defined');
+
+  // --- state carries the live buffer + trace toggle ---
+  const chatSt = _win(html, "chat: { open: false, sending: false", 200) || '';
+  t.ok(/live: null/.test(chatSt) && /traceOpen:/.test(chatSt), 'epics chat state carries live + traceOpen');
+
+  // --- live-trace markup + progressive answer + calm CSS (no pills) ---
+  t.ok(/class="epx-trace"/.test(html) && /epx-trace-step/.test(html) && /epx-trace-toggle/.test(html),
+    'live-trace markup present (trace list + steps + toggle)');
+  t.ok(/renderMarkdown\(epicChatLive\(\)\.text\)/.test(html),
+    'progressive answer renders epicChatLive().text through renderMarkdown as it streams');
+  const traceCss = _win(html, '.epx-trace {', 220) || '';
+  t.ok(/\.epx-trace \{/.test(html) && /border-radius:\s*8px/.test(traceCss),
+    'calm .epx-trace CSS with modest radius (no pills)');
 });
 
 await t.test('monitoring.ai: native render fidelity — var quoting, hidden vars, $__interval, time range, tables/no-data', () => {
