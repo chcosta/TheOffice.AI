@@ -41138,6 +41138,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.monLoadAlerts();
             this.monLoadEpicChoices();
             if (uid) { await this.monLoadDashboard(uid); }
+            else if (w.view === 'objective' && w.obj && w.obj.loading) {
+              // An epic -> Objective Health build is in flight: monEpicDashboard()
+              // set view='objective' synchronously, then goTo('#/monitoring')
+              // triggered this route load asynchronously. Don't clobber that
+              // intentional navigation by auto-opening a Grafana dashboard.
+            }
             else if ((w.dashboards || []).length) {
               // Land in the studio (persistent dashboard tree + copilot), matching the design.
               const first = w.dashboards.find(d => d.local) || w.dashboards[0];
