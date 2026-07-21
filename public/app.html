@@ -1919,6 +1919,9 @@
     }
     .cnav-grip:active { cursor: grabbing; }
     body.nav-dragging { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+    /* Desktop (WebView2) native-DnD → pointer bridge: cursor + a faint floating drag-image. */
+    body.dnd-dragging { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+    .dnd-ghost { border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); overflow: hidden; }
     .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .6; }
     .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
     .cnav-row > .nav-link { flex: 1; min-width: 0; }
@@ -72977,6 +72980,191 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         if (prev) clearTimeout(prev);
         timers.set(el, setTimeout(() => el.classList.remove('sb-live'), 700));
       }, true);
+    })();
+  </script>
+  <script>
+    // ── Native drag-and-drop → pointer bridge (desktop / WebView2 only) ──────────
+    // WebView2 (the Tauri desktop shell) does not reliably initiate an HTML5 native
+    // drag session on [draggable] elements — `dragstart` never fires — so EVERY
+    // draggable feature (boards cards/groups/toolbox/trash, workspace + management
+    // home section reorder, agent grouping, Me.AI blocks, compose library, flow
+    // palette → canvas) silently dies in the desktop app while working fine in the
+    // browser. The engine-level OLE-drag quirk does NOT affect synthetic DOM events,
+    // so here we replay the exact DragEvent sequence the browser would fire
+    // (dragstart → dragenter/over/leave → drop → dragend) from pointer gestures,
+    // reusing one shared DataTransfer so setData()/getData() round-trips. Every
+    // existing @dragstart/@dragover/@drop handler and all `draggable` markup stay
+    // untouched — this is a transparent shim. It is GATED to the desktop shell so
+    // the browser keeps using its own working native DnD (no double-processing).
+    (function () {
+      const THRESH2 = 25; // (5px)^2 movement before a drag begins
+      // Native controls that must stay interactive — pressing them never drags
+      // (mirrors the browser, which won't drag from a real form control).
+      const INTERACTIVE = 'input,textarea,select,button,a[href],option,[contenteditable=""],[contenteditable="true"],[role="button"],[role="tab"],[role="switch"],[role="checkbox"]';
+
+      let src = null, ptrId = null;
+      let startX = 0, startY = 0, grabX = 0, grabY = 0;
+      let active = false, dt = null, overEl = null;
+      let ghost = null, ghostImg = null;
+
+      function inDesktop() {
+        try { return !!window.__DESKTOP__ || !!(window.__TAURI__ || window.__TAURI_INTERNALS__); } catch (e) { return false; }
+      }
+
+      function makeDT() {
+        let d;
+        try { d = new DataTransfer(); } catch (e) { d = { _m: {}, setData(k, v) { this._m[k] = String(v); }, getData(k) { return this._m[k] || ''; }, effectAllowed: 'all', dropEffect: 'move', types: [] }; }
+        // Capture setDragImage so we can render a matching ghost (synthetic drags
+        // paint none). Shadows the prototype method on this instance only.
+        try {
+          Object.defineProperty(d, 'setDragImage', {
+            value: function (img, ox, oy) { ghostImg = { el: img, ox: ox || 0, oy: oy || 0 }; },
+            configurable: true, writable: true
+          });
+        } catch (e) {}
+        return d;
+      }
+
+      function fire(target, type, x, y) {
+        if (!target) return false;
+        let ev;
+        try {
+          ev = new DragEvent(type, { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, screenX: x, screenY: y, button: 0, buttons: 1, dataTransfer: dt });
+        } catch (e) {
+          ev = new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0 });
+          try { Object.defineProperty(ev, 'dataTransfer', { value: dt, configurable: true }); } catch (e2) {}
+        }
+        target.dispatchEvent(ev);
+        return ev.defaultPrevented;
+      }
+
+      function draggableAt(node) {
+        let el = node;
+        while (el && el !== document.body && el.nodeType) {
+          if (el.nodeType === 1 && el.draggable === true) return el;
+          el = el.parentNode;
+        }
+        return null;
+      }
+
+      function buildGhost(x, y) {
+        const base = (ghostImg && ghostImg.el) || src;
+        if (!base || !base.getBoundingClientRect) return;
+        const r = base.getBoundingClientRect();
+        if (ghostImg) { grabX = ghostImg.ox; grabY = ghostImg.oy; }
+        else { grabX = startX - r.left; grabY = startY - r.top; }
+        let g;
+        try { g = base.cloneNode(true); } catch (e) { return; }
+        const s = g.style;
+        s.position = 'fixed'; s.left = '0'; s.top = '0'; s.margin = '0';
+        s.width = r.width + 'px'; s.height = r.height + 'px';
+        s.pointerEvents = 'none'; s.opacity = '0.82'; s.zIndex = '2147483646';
+        s.boxSizing = 'border-box';
+        g.setAttribute('aria-hidden', 'true');
+        g.classList.add('dnd-ghost');
+        document.body.appendChild(g);
+        ghost = g;
+        moveGhost(x, y);
+      }
+      function moveGhost(x, y) {
+        if (ghost) ghost.style.transform = 'translate(' + Math.round(x - grabX) + 'px,' + Math.round(y - grabY) + 'px)';
+      }
+      function killGhost() {
+        if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+        ghost = null; ghostImg = null;
+      }
+
+      // elementFromPoint already ignores the ghost (pointer-events:none).
+      function targetAt(x, y) { return document.elementFromPoint(x, y); }
+
+      function reset() {
+        if (active) { try { document.body.classList.remove('dnd-dragging'); } catch (e) {} }
+        killGhost();
+        src = null; dt = null; active = false; overEl = null; ptrId = null;
+        window.removeEventListener('pointermove', onMove, true);
+        window.removeEventListener('pointerup', onUp, true);
+        window.removeEventListener('pointercancel', onCancel, true);
+      }
+
+      function onDown(e) {
+        if (!inDesktop()) return;                        // browser: leave native DnD alone
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (e.target && e.target.closest && e.target.closest(INTERACTIVE)) return;
+        const el = draggableAt(e.target);
+        if (!el) return;
+        src = el; startX = e.clientX; startY = e.clientY; ptrId = e.pointerId;
+        active = false; dt = null; overEl = null; ghostImg = null;
+        window.addEventListener('pointermove', onMove, true);
+        window.addEventListener('pointerup', onUp, true);
+        window.addEventListener('pointercancel', onCancel, true);
+      }
+
+      function begin(x, y) {
+        dt = makeDT();
+        const cancelled = fire(src, 'dragstart', x, y);
+        // A dragstart handler that preventDefault()s is vetoing the drag (wrong
+        // mode / grabbed a control) — honour it and do nothing.
+        if (cancelled) { reset(); return false; }
+        active = true;
+        try { document.body.classList.add('dnd-dragging'); } catch (e) {}
+        buildGhost(x, y);
+        return true;
+      }
+
+      function onMove(e) {
+        if (!src) return;
+        const x = e.clientX, y = e.clientY;
+        if (!active) {
+          const dx = x - startX, dy = y - startY;
+          if (dx * dx + dy * dy < THRESH2) return;
+          try { e.preventDefault(); } catch (er) {}
+          if (!begin(x, y)) return;
+          return;
+        }
+        try { e.preventDefault(); } catch (er) {}
+        moveGhost(x, y);
+        const target = targetAt(x, y);
+        if (target !== overEl) {
+          if (overEl) fire(overEl, 'dragleave', x, y);
+          overEl = target;
+          if (overEl) fire(overEl, 'dragenter', x, y);
+        }
+        if (overEl) fire(overEl, 'dragover', x, y);
+      }
+
+      function onUp(e) {
+        const x = e.clientX, y = e.clientY;
+        if (active) {
+          const target = targetAt(x, y);
+          if (target) {
+            if (target !== overEl) {
+              if (overEl) fire(overEl, 'dragleave', x, y);
+              overEl = target;
+              fire(overEl, 'dragenter', x, y);
+            }
+            // Spec: drop only fires on a zone whose last dragover was cancelled.
+            const allow = fire(target, 'dragover', x, y);
+            if (allow) fire(target, 'drop', x, y);
+          }
+          if (src) fire(src, 'dragend', x, y);
+          swallowNextClick();
+        }
+        reset();
+      }
+
+      function onCancel(e) {
+        if (active && src) fire(src, 'dragend', (e && e.clientX) || startX, (e && e.clientY) || startY);
+        reset();
+      }
+
+      // A real drag must not also register as a click (e.g. open the card).
+      function swallowNextClick() {
+        const kill = function (ev) { ev.stopPropagation(); ev.preventDefault(); window.removeEventListener('click', kill, true); };
+        window.addEventListener('click', kill, true);
+        setTimeout(function () { window.removeEventListener('click', kill, true); }, 350);
+      }
+
+      window.addEventListener('pointerdown', onDown, true);
     })();
   </script>
 </body>

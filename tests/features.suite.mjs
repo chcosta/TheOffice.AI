@@ -3599,6 +3599,44 @@ await t.test('custom sidebar nav: items are drag-reorderable + groupable (pointe
   t.ok(/nav-dragging/.test(html), 'active drag toggles a body.nav-dragging class');
 });
 
+await t.test('desktop native-DnD → pointer bridge (WebView2-safe drag everywhere else)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // The SAME WebView2 quirk that broke the sidebar nav breaks EVERY other native
+  // draggable feature (boards cards/groups/toolbox, home + management section
+  // reorder, agent grouping, Me.AI blocks, compose library, flow palette). A single
+  // global bridge replays the DragEvent sequence from pointer gestures so those
+  // untouched handlers still fire in the desktop shell.
+
+  // (1) The bridge exists and replays the full native-DnD sequence.
+  t.ok(/Native drag-and-drop . pointer bridge/.test(html), 'the desktop native-DnD → pointer bridge is present');
+  t.ok(/new DragEvent\(type,/.test(html), 'the bridge dispatches synthetic DragEvents');
+  t.ok(/'dragstart'/.test(html) && /'dragover'/.test(html) && /'drop'/.test(html) && /'dragend'/.test(html),
+    'the bridge fires dragstart → dragover → drop → dragend');
+
+  // (2) It reuses ONE DataTransfer so setData()/getData() round-trips across the sequence.
+  t.ok(/new DataTransfer\(\)/.test(html), 'the bridge shares a single DataTransfer for setData/getData round-trips');
+
+  // (3) It is GATED to the desktop shell so the browser keeps its own working native DnD
+  // (no double-processing / double-drop). Gate reads __DESKTOP__ (with a __TAURI__ fallback).
+  t.ok(/function inDesktop\(\)/.test(html), 'the bridge exposes an inDesktop() gate');
+  t.ok(/if \(!inDesktop\(\)\) return;/.test(html), 'the bridge no-ops in the browser (native DnD left intact)');
+  t.ok(/__DESKTOP__/.test(html) && /__TAURI__/.test(html), 'the gate keys off __DESKTOP__ with a __TAURI__ fallback');
+
+  // (4) It engages on existing [draggable] sources via pointerdown (no markup rewrites needed).
+  t.ok(/el\.draggable === true/.test(html), 'the bridge picks up existing [draggable] sources');
+  t.ok(/addEventListener\('pointerdown', onDown, true\)/.test(html), 'the bridge is driven by a capture-phase pointerdown');
+
+  // (5) A dragstart that preventDefault()s (mode veto) cancels the drag; a real drop only
+  // fires on a zone whose dragover was cancelled (spec-faithful).
+  t.ok(/if \(cancelled\) \{ reset\(\); return false; \}/.test(html), 'a vetoed dragstart cancels the bridge drag');
+  t.ok(/const allow = fire\(target, 'dragover'[\s\S]*if \(allow\) fire\(target, 'drop'/.test(html),
+    'drop only fires on a zone whose dragover was cancelled');
+
+  // (6) It suppresses the click that follows a real drag (cards don't "open" after a move).
+  t.ok(/swallowNextClick\(\)/.test(html), 'a completed drag swallows the trailing click');
+});
+
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
