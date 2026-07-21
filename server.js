@@ -20102,6 +20102,28 @@ function markMeAiGoalsSeeded(date) {
     fs.writeFileSync(_meAiGoalsSeededPath(date), JSON.stringify({ at: new Date().toISOString() }));
   } catch (_) { /* best-effort */ }
 }
+// Per-day "carry-over already seeded" marker. REQ-3 carry-over must run exactly ONCE per
+// day. It USED to be gated on "first generate with no store AND no snapshot", but the
+// day's store/snapshot can be created BEFORE the first real generate — the user adds or
+// toggles a todo (POST /agenda/todos creates the store), a background pre-plan runs, or the
+// client re-posts its in-memory list — which permanently skipped carry-over and stranded
+// yesterday's open todos. This marker decouples carry from "first generate": carry runs the
+// first time we build the day regardless of whether a store/snapshot exists, then marks so
+// it never re-runs (no resurrection of items the user later drops). A brand-new day has no
+// marker, so each day carries yesterday's open work exactly once.
+function _meAiCarrySeededPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_TODOS_DIR, 'carried', `${safe}.json`);
+}
+function meAiCarrySeeded(date) {
+  try { return fs.existsSync(_meAiCarrySeededPath(date)); } catch { return false; }
+}
+function markMeAiCarrySeeded(date) {
+  try {
+    fs.mkdirSync(path.dirname(_meAiCarrySeededPath(date)), { recursive: true });
+    fs.writeFileSync(_meAiCarrySeededPath(date), JSON.stringify({ at: new Date().toISOString() }));
+  } catch (_) { /* best-effort */ }
+}
 function _meAiSuggestions(cfg, agenda, date) {
   const out = [];
   try {
@@ -20568,10 +20590,12 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     planSignals.length = 0;
     for (const sig of _bk.signals) planSignals.push(sig);
   }
-  // REQ-3: on the FIRST agenda for a work day, seed uncompleted todos carried over from
-  // the most recent prior work day (deduped against anything already passed in). On later
-  // regenerates the day's own persisted todos are authoritative (no re-seeding) so a
-  // carried item the user drops does not come back.
+  // REQ-3: seed uncompleted todos carried over from the most recent prior work day. Carry
+  // runs EXACTLY ONCE per day (durable marker below), NOT "on the first generate" — the
+  // day's store/snapshot can be created before the first real generate (a todo add/toggle
+  // persists the store, a background pre-plan, or the client re-posting), which used to skip
+  // carry-over forever and strand yesterday's open todos. Deduped against anything already
+  // present + the day's tombstone, so a carried item the user drops does not come back.
   const priorSnapshot = loadAgendaForDate(day);
   // The durable todo store (if present) is the source of truth for the day's todos: it
   // survives server restarts and background regenerates, so a removed todo never resurrects.
@@ -20591,32 +20615,38 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
     }
   } else {
     effTodos = _meAiNormTodos(todos);
-    if (!priorSnapshot) {
-      const carried = _meAiCarryOverTodos(cfg, day);
-      if (carried.length) {
-        const have = new Set(effTodos.map(t => t.title.toLowerCase()));
-        // A title the user removed on THIS day (tombstone) must never be re-added by a
-        // carry — belt-and-suspenders on top of the source-day tombstone filter.
-        const tombToday = new Set(loadMeAiTodoTomb(day));
-        // Live-entity + signature indexes so a carried goal doesn't duplicate a fresh
-        // one that tracks the SAME work item / PR under a different label (e.g. a carried
-        // "Dev: #11499" against today's "DNCENG Task #11499").
-        const haveEnt = new Set(effTodos.map(t => _meAiGoalEntKey(t && t.link, t && t.meta)).filter(Boolean));
-        const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
-        for (const c of carried) {
-          const lc = c.title.toLowerCase();
-          if (have.has(lc) || tombToday.has(lc)) continue;
-          const ce = _meAiGoalEntKey(c.link, c.meta);
-          if (ce && haveEnt.has(ce)) continue;
-          const cs = _meAiGoalSig(c.title);
-          if (cs && !c.link && haveSig.has(cs)) continue;
-          effTodos.push(c);
-          have.add(lc);
-          if (ce) haveEnt.add(ce);
-          if (cs) haveSig.add(cs);
-        }
+  }
+  // Carry-over — once per day, tracked by a durable marker so it's independent of whether a
+  // store/snapshot already exists for the day. This is the fix for "yesterday's todos didn't
+  // carry over": a store created before the first generate no longer suppresses the carry.
+  if (!meAiCarrySeeded(day)) {
+    const carried = _meAiCarryOverTodos(cfg, day);
+    if (carried.length) {
+      const have = new Set(effTodos.map(t => t.title.toLowerCase()));
+      // A title the user removed on THIS day (tombstone) must never be re-added by a
+      // carry — belt-and-suspenders on top of the source-day tombstone filter.
+      const tombToday = new Set(loadMeAiTodoTomb(day));
+      // Live-entity + signature indexes so a carried goal doesn't duplicate a fresh
+      // one that tracks the SAME work item / PR under a different label (e.g. a carried
+      // "Dev: #11499" against today's "DNCENG Task #11499").
+      const haveEnt = new Set(effTodos.map(t => _meAiGoalEntKey(t && t.link, t && t.meta)).filter(Boolean));
+      const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
+      for (const c of carried) {
+        const lc = c.title.toLowerCase();
+        if (have.has(lc) || tombToday.has(lc)) continue;
+        const ce = _meAiGoalEntKey(c.link, c.meta);
+        if (ce && haveEnt.has(ce)) continue;
+        const cs = _meAiGoalSig(c.title);
+        if (cs && !c.link && haveSig.has(cs)) continue;
+        effTodos.push(c);
+        have.add(lc);
+        if (ce) haveEnt.add(ce);
+        if (cs) haveSig.add(cs);
       }
     }
+    // Mark even when nothing carried (no prior work day, or all deduped) so we don't re-walk
+    // the history every generate and can never resurrect a later-dropped carry.
+    markMeAiCarrySeeded(day);
   }
   // Split any persisted compound aggregate goals into their constituent source items
   // (migration for stores created before goal-splitting existed).

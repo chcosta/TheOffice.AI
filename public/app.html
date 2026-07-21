@@ -32974,6 +32974,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Marketplace "new items" nav badge — lazy + periodic so it never blocks startup.
           setTimeout(() => this.loadMarketplaceUpdates(true), 5000);
           this._marketplaceUpdTimer = setInterval(() => this.loadMarketplaceUpdates(true), 300000);
+          // "Updates available" nav badge — installed agents/plugins whose source changed.
+          setTimeout(() => this.loadUpdatesAvailable(), 5500);
+          this._updatesAvailTimer = setInterval(() => this.loadUpdatesAvailable(), 300000);
           // Newsletter "ready for review" nav badge — cheap status poll (scheduled
           // auto-generation may have run while the app was closed).
           setTimeout(() => this.loadNewsletterStatus(), 6000);
@@ -35164,6 +35167,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
             case 'autonomous': return mk('Automation', '⚡', '#/autonomous', 'autonomous');
             case 'marketplace': return mk('Marketplace', '🛍️', '#/marketplace', 'marketplace', { badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' });
+            case 'updates': return mk('Updates', '🔄', '#/updates', 'updates', { badge: this.updatesAvailable || 0, badgeTitle: 'Installed agents/plugins with a newer source' });
             case 'sessions': return mk('CLI Sessions', '⌨', '#/sessions', 'sessions');
             case 'activity': return mk('Activity', '📜', '#/activity', 'activity');
             case 'reports': return mk('Reports', '📊', '#/reports', 'reports');
@@ -35180,7 +35184,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out.push('agents');
             if (en('diary')) out.push('diary');
             if (en('autonomous')) out.push('autonomous');
-            out.push('marketplace');
+            out.push('marketplace', 'updates');
             if (en('watercooler')) out.push('watercooler');
             if (en('sessions')) out.push('sessions');
             if (en('news')) { out.push('activity', 'reports'); }
@@ -35198,7 +35202,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           out.push('boards');
           out.push('codeflow', 'agents');
           if (en('autonomous')) out.push('autonomous');
-          out.push('marketplace');
+          out.push('marketplace', 'updates');
           if (en('diary')) out.push('diary');
           if (en('connect')) out.push('connect');
           if (en('newsletter')) out.push('newsletter', 'documents');
@@ -35818,7 +35822,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes (core, non-gateable).
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'settings', 'events'].includes(r)) return true;
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
@@ -35842,7 +35846,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         advancedRouteVisible(route) {
           const r = route || this.route;
           // Always-available core (never opt-out-able).
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design', 'settings', 'events'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'design', 'settings', 'events'].includes(r)) return true;
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
@@ -66277,10 +66281,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.showToast('Board', e.message, 'error');
           }
         },
-        async loadUpdatesAvailable() {
-          // Lightweight aggregate for the Employees page badge. Server-cached.
+        async loadUpdatesAvailable(force) {
+          // Lightweight aggregate for the Updates nav badge. Server-cached (5 min);
+          // pass force=true to bypass the cache after a reinstall/check.
           try {
-            const r = await this.request('/api/updates/available-count');
+            const r = await this.request('/api/updates/available-count' + (force ? '?force=1' : ''));
             this.updatesAvailable = r.available || 0;
           } catch (e) { /* non-fatal */ }
         },
@@ -66334,6 +66339,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await Promise.all(targets.map(i => this.checkUpdate(i)));
           } finally {
             this.updatesChecking = false;
+            this.loadUpdatesAvailable(true);
           }
         },
 
@@ -66353,6 +66359,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.request(`/api/agents/${encodeURIComponent(item.id)}/reinstall`, { method: 'POST' });
             this.showToast('Reinstalled', `${item.name} was reinstalled from its source.`, 'success');
             await this.loadUpdates();
+            this.loadUpdatesAvailable(true);
           } catch (e) {
             this.showToast('Reinstall failed', e.message, 'error');
           } finally {
@@ -67229,6 +67236,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.showToast('Reinstalled', 'Agent definition refreshed from source.', 'info');
             if (this.selectedAgent && this.selectedAgent.id === id) this.selectedAgent._updateAvailable = false;
             await this.refreshAll(false);
+            this.loadUpdatesAvailable(true);
           } catch (error) {
             this.showToast('Reinstall failed', error.message, 'error');
           }
