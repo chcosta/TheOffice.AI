@@ -10141,6 +10141,50 @@ function _monEpicGuidanceDoc(entry, explicitDocId) {
   return null;
 }
 
+// Clamp/normalize an executable "live" source binding attached to an objective.
+// A bound objective's current value is RE-FETCHED from the real source on each
+// snapshot (that is what makes a trend actually move), instead of re-recording a
+// static AI-established number. Two kinds: 'kusto' (Kusto/ADX v2 REST, auth via the
+// machine's `az login`) and 'http' (JSON endpoint, optional az bearer). No secrets
+// are stored — tokens are minted at run time. Runtime status fields (lastValue/at/
+// ok/error) are set by the executor and preserved across reloads.
+function _monNormLive(b) {
+  if (!b || typeof b !== 'object') return null;
+  const kind = /^(kusto|http)$/.test(b.kind) ? b.kind : null;
+  if (!kind) return null;
+  const str = (v, n) => (v == null ? null : String(v).slice(0, n));
+  const out = { kind };
+  if (kind === 'kusto') {
+    out.cluster = str(b.cluster, 200);
+    out.database = str(b.database, 120);
+    out.query = str(b.query, 4000);
+    out.column = str(b.column, 80);
+  } else {
+    out.url = str(b.url, 500);
+    out.method = /^POST$/i.test(b.method) ? 'POST' : 'GET';
+    out.jsonPath = str(b.jsonPath, 200);
+    out.body = str(b.body, 4000);
+    out.authResource = str(b.authResource, 200);
+    if (b.headers && typeof b.headers === 'object' && !Array.isArray(b.headers)) {
+      const h = {}; let i = 0;
+      for (const k of Object.keys(b.headers)) { if (i++ >= 8) break; h[String(k).slice(0, 60)] = String(b.headers[k]).slice(0, 300); }
+      out.headers = h;
+    } else out.headers = null;
+  }
+  // Direction + display formatting. dir lets the snapshot recompute good/bad vs target.
+  out.dir = /^(up|down)$/.test(b.dir) ? b.dir : null;
+  out.unit = str(b.unit, 8);
+  out.scale = (b.scale != null && Number.isFinite(+b.scale)) ? +b.scale : null;
+  out.precision = Number.isInteger(b.precision) ? Math.max(0, Math.min(4, b.precision)) : null;
+  // Runtime status (executor-owned; carried across reloads for the card/detail UI).
+  out.lastValue = (b.lastValue != null && Number.isFinite(+b.lastValue)) ? +b.lastValue : null;
+  out.lastRaw = str(b.lastRaw, 60);
+  out.at = Number.isFinite(+b.at) ? +b.at : null;
+  out.ok = (typeof b.ok === 'boolean') ? b.ok : null;
+  out.error = str(b.error, 200);
+  return out;
+}
+
 // Clamp/normalize one AI objective into the honest Objective-Health shape.
 function _monNormObjective(o, i) {
   const status = /^(live|part|miss|manual)$/.test(o && o.status) ? o.status : 'miss';
@@ -10162,6 +10206,9 @@ function _monNormObjective(o, i) {
     // the client pick the best-fit visualization; a 'trend' override still requires real
     // recorded history client-side (never fabricated).
     viz: /^(trend|gauge|gap|manual)$/.test(o && o.viz) ? o.viz : null,
+    // Optional executable source binding (Kusto/HTTP). When present, the objective's
+    // current value is re-fetched live on each snapshot rather than re-recorded static.
+    live: _monNormLive(o && o.live),
     shape: null, runbooks: null,
   };
   if ((status === 'miss' || status === 'part') && o && o.shape && typeof o.shape === 'object') {
@@ -10232,26 +10279,149 @@ function _epicOHDayStamp(t) {
   const d = new Date(t);
   return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
 }
+
+// ─── Live source execution (Kusto + HTTP) ──────────────────────────────────
+// Execute an objective's `live` binding so the snapshot records the REAL current
+// value. Auth reuses the machine's `az login` (a bearer minted on demand, cached
+// per-resource for this process, NEVER persisted). HONEST INVARIANT: a run that
+// fails records an error and appends NO reading — it never fabricates or duplicates
+// a point. Every helper resolves rather than throws upstream of _epicOHRunLive.
+const _liveTokenCache = new Map(); // resource → { token, exp(ms) }
+function _liveAzToken(resource) {
+  const res = String(resource || '').trim();
+  if (!res) throw new Error('no auth resource');
+  const now = Date.now();
+  const cached = _liveTokenCache.get(res);
+  if (cached && cached.exp - now > 60000) return cached.token;
+  let out;
+  try {
+    // execSync (shell) — `az` is az.cmd on Windows; execFileSync('az',…) fails ENOENT.
+    out = require('child_process').execSync(
+      'az account get-access-token --resource ' + res + ' --output json',
+      { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch (e) {
+    throw new Error('az token failed — run `az login` (' + String((e && e.message) || 'unknown').slice(0, 80) + ')');
+  }
+  let j; try { j = JSON.parse(out); } catch { throw new Error('az token parse failed'); }
+  if (!j || !j.accessToken) throw new Error('az returned no token');
+  let exp = now + 30 * 60000;
+  try { const t = Date.parse(j.expiresOn || j.expires_on); if (Number.isFinite(t)) exp = t; } catch { /* keep default */ }
+  _liveTokenCache.set(res, { token: j.accessToken, exp });
+  return j.accessToken;
+}
+function _liveTimeout(ms) { const c = new AbortController(); const t = setTimeout(() => { try { c.abort(); } catch {} }, ms); return { signal: c.signal, clear: () => clearTimeout(t) }; }
+// Resolve a dot/bracket JSON path ("a.b[0].c" or "$.a.b") into a parsed object.
+function _liveJsonPath(obj, path) {
+  let cur = obj;
+  const p = String(path || '').replace(/^\$\.?/, '');
+  if (!p) return cur;
+  const parts = p.match(/[^.[\]]+/g) || [];
+  for (const key of parts) { if (cur == null) return null; cur = cur[key]; }
+  return cur;
+}
+async function _liveRunKusto(b) {
+  const cluster = String(b.cluster || '').replace(/\/+$/, '');
+  if (!/^https:\/\/[^\s/]+\.kusto\./i.test(cluster)) throw new Error('invalid Kusto cluster URI');
+  const db = String(b.database || '').trim();
+  const csl = String(b.query || '').trim();
+  if (!db || !csl) throw new Error('Kusto binding needs database + query');
+  const token = _liveAzToken(cluster);
+  const to = _liveTimeout(20000);
+  let r;
+  try {
+    r = await fetch(cluster + '/v2/rest/query', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ db, csl }), signal: to.signal,
+    });
+  } finally { to.clear(); }
+  if (!r.ok) { const txt = await r.text().catch(() => ''); throw new Error('Kusto HTTP ' + r.status + (txt ? ': ' + txt.slice(0, 120) : '')); }
+  const frames = await r.json();
+  const primary = Array.isArray(frames) ? frames.find(f => f && f.FrameType === 'DataTable' && f.TableKind === 'PrimaryResult') : null;
+  if (!primary || !Array.isArray(primary.Rows) || !primary.Rows.length) throw new Error('query returned no rows');
+  const cols = Array.isArray(primary.Columns) ? primary.Columns.map(c => c && c.ColumnName) : [];
+  const row = primary.Rows[0];
+  if (b.column && cols.indexOf(b.column) >= 0) return row[cols.indexOf(b.column)];
+  return row[row.length - 1]; // last column by convention holds the KPI value
+}
+async function _liveRunHttp(b) {
+  const url = String(b.url || '').trim();
+  if (!/^https?:\/\//i.test(url)) throw new Error('invalid HTTP url');
+  const headers = Object.assign({ Accept: 'application/json' }, (b.headers && typeof b.headers === 'object') ? b.headers : {});
+  if (b.authResource) headers.Authorization = 'Bearer ' + _liveAzToken(b.authResource);
+  const to = _liveTimeout(15000);
+  let r;
+  try {
+    r = await fetch(url, { method: (b.method === 'POST' ? 'POST' : 'GET'), headers, body: (b.method === 'POST' && b.body) ? b.body : undefined, signal: to.signal });
+  } finally { to.clear(); }
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  const raw = _liveJsonPath(j, b.jsonPath);
+  if (raw == null || typeof raw === 'object') throw new Error('json path "' + String(b.jsonPath || '') + '" did not resolve to a value');
+  return raw;
+}
+// Run one objective's live binding. Returns { ok, num, display, error } — never throws.
+// `num` is the scaled numeric value used for the trend point + delta; `display` is the
+// formatted value shown as `o.now`.
+async function _epicOHRunLive(o) {
+  const b = o && o.live;
+  if (!b || !b.kind) return { ok: false, num: null, display: null, error: 'no live binding' };
+  try {
+    const raw = b.kind === 'kusto' ? await _liveRunKusto(b) : await _liveRunHttp(b);
+    let num = _epicOHNum(raw);
+    if (num != null && b.scale != null) num = num * b.scale;
+    let display = null;
+    if (num != null) {
+      const prec = b.precision != null ? b.precision : (Number.isInteger(num) ? 0 : 1);
+      const factor = Math.pow(10, Math.max(0, Math.min(4, prec)));
+      display = String(Math.round(num * factor) / factor) + (b.unit || '');
+    } else if (raw != null && typeof raw !== 'object') {
+      display = String(raw).slice(0, 40);
+    }
+    return { ok: true, num, display, error: null };
+  } catch (e) {
+    return { ok: false, num: null, display: null, error: (e && e.message) ? String(e.message).slice(0, 160) : 'live run failed' };
+  }
+}
+// Recompute an objective's delta/deltaCls from a fresh live value, when a direction
+// (up=higher-is-better, down=lower-is-better) and a numeric target are known.
+function _epicOHApplyLiveDelta(o, num) {
+  if (num == null || !o || !o.live) return;
+  const dir = o.live.dir;
+  const tgtNum = _epicOHNum(o.tgt);
+  if (tgtNum == null || !(dir === 'up' || dir === 'down')) return;
+  o.deltaCls = (dir === 'down' ? (num <= tgtNum) : (num >= tgtNum)) ? 'good' : 'bad';
+  const diff = Math.round((num - tgtNum) * 10) / 10;
+  o.delta = (diff > 0 ? '+' : diff < 0 ? '\u2212' : '') + Math.abs(diff) + (o.live.unit || '') + ' vs target';
+}
 // Carry prior readings forward (by objective title-slug) and append today's value.
 // Mutates `objectives` in place, attaching an `.history` array to each.
-function _epicOHAppendReadings(key, objectives, generatedAt) {
+function _epicOHAppendReadings(key, objectives, generatedAt, opts) {
+  opts = opts || {};
   let prevObjs = [];
   try { const s = _epicOHLoad()[key]; if (s && Array.isArray(s.objectives)) prevObjs = s.objectives; } catch { /* first build */ }
   // Carry prior history forward by objective title-slug; fall back to the prior
   // objective at the same position (n) so a pure AI rename doesn't reset the
   // series (the dashboard is AI-regenerated on every rebuild).
-  const prevBySlug = {}, prevByN = {};
+  const prevBySlug = {}, prevByN = {}, liveBySlug = {}, liveByN = {};
   for (const p of prevObjs) {
     if (!p) continue;
     const h = Array.isArray(p.history) ? p.history : [];
-    if (p.title) prevBySlug[_epicOHSlug(p.title)] = h;
-    if (p.n != null) prevByN[String(p.n)] = h;
+    if (p.title) { prevBySlug[_epicOHSlug(p.title)] = h; if (p.live) liveBySlug[_epicOHSlug(p.title)] = p.live; }
+    if (p.n != null) { prevByN[String(p.n)] = h; if (p.live) liveByN[String(p.n)] = p.live; }
   }
   for (const o of (objectives || [])) {
     const id = _epicOHSlug(o && o.title);
     let hist = (prevBySlug[id] || (o && o.n != null ? prevByN[String(o.n)] : null) || []).slice();
+    // Carry a prior live binding forward when an AI rebuild dropped it (bindings are
+    // owner config, not model output) so re-generation never silently unbinds a source.
+    if (o && !o.live) { const carried = liveBySlug[id] || (o.n != null ? liveByN[String(o.n)] : null); if (carried) o.live = carried; }
     const v = _epicOHNum(o && o.now);
-    if (v != null) {
+    // HONEST INVARIANT for a live snapshot: a live-bound objective whose fetch FAILED
+    // this run must NOT append a point (no fabricated/duplicated value). Its history
+    // is still carried forward so an earlier good series survives the blip.
+    const skipLiveFail = opts.liveRun && o && o.live && o.live.kind && o._liveOk !== true;
+    if (v != null && !skipLiveFail) {
       const reading = { t: generatedAt, v, raw: (o.now != null ? String(o.now) : String(v)) };
       const last = hist[hist.length - 1];
       if (last && _epicOHDayStamp(last.t) === _epicOHDayStamp(generatedAt)) hist[hist.length - 1] = reading;
@@ -10276,7 +10446,31 @@ async function _epicOHSnapshot(key) {
   if (!snap || !Array.isArray(snap.objectives) || !snap.objectives.length) return { ok: false, reason: 'no-dashboard' };
   const generatedAt = Date.now();
   const before = snap.objectives.map(o => (Array.isArray(o.history) ? o.history.length : 0));
-  _epicOHAppendReadings(key, snap.objectives, generatedAt);
+  // Execute every live-bound objective's source FIRST so the recorded reading is the
+  // REAL current value (that is what makes a trend actually move), not the static
+  // AI-established number. On failure the objective keeps its prior value + carries an
+  // error; the append gate below refuses to fabricate a point for a failed live run.
+  const live = { attempted: 0, ok: 0, failed: 0 };
+  for (const o of snap.objectives) {
+    if (!o || !o.live || !o.live.kind) continue;
+    live.attempted++;
+    const run = await _epicOHRunLive(o);
+    o.live.at = generatedAt;
+    if (run.ok) {
+      live.ok++;
+      o._liveOk = true;
+      o.live.ok = true; o.live.error = null;
+      o.live.lastValue = run.num; o.live.lastRaw = run.display;
+      if (run.display != null) o.now = run.display;
+      _epicOHApplyLiveDelta(o, run.num);
+    } else {
+      live.failed++;
+      o._liveOk = false;
+      o.live.ok = false; o.live.error = run.error;
+    }
+  }
+  _epicOHAppendReadings(key, snap.objectives, generatedAt, { liveRun: true });
+  for (const o of snap.objectives) { if (o && '_liveOk' in o) delete o._liveOk; } // transient — never persist
   let appended = 0, withReadings = 0;
   snap.objectives.forEach((o, i) => {
     const len = Array.isArray(o.history) ? o.history.length : 0;
@@ -10297,7 +10491,7 @@ async function _epicOHSnapshot(key) {
     }
   }
   try { map[key] = snap; _epicOHSave(map); } catch { /* best-effort */ }
-  return { ok: true, key, generatedAt, snapshotAt: generatedAt, appended, objectivesWithReadings: withReadings, counts: snap.counts, telemetry: snap.telemetry || null, objectives: snap.objectives };
+  return { ok: true, key, generatedAt, snapshotAt: generatedAt, appended, objectivesWithReadings: withReadings, counts: snap.counts, telemetry: snap.telemetry || null, live, objectives: snap.objectives };
 }
 
 // Apply structured edit ops from the Objective Health assistant to a persisted
@@ -10364,6 +10558,19 @@ function _epicOHApplyOps(snapshot, ops) {
         if (op.lede != null) { o.lede = clamp(op.lede, 1400); applied.push({ op: kind, n: op.n }); changed = true; }
       } else if (kind === 'set_title') {
         if (op.title != null) { o.title = clamp(op.title, 140); applied.push({ op: kind, n: op.n }); changed = true; }
+      } else if (kind === 'bind_live') {
+        // Attach an executable source binding (Kusto/HTTP). The op may carry the binding
+        // as op.live or inline on the op itself. A bound miss→part (the objective is no
+        // longer sourceless once it can fetch live).
+        const bound = _monNormLive(op.live && typeof op.live === 'object' ? op.live : op);
+        o.live = bound;
+        if (bound && o.status === 'miss') o.status = 'part';
+        applied.push({ op: kind, n: op.n, kind2: bound ? bound.kind : null });
+        changed = true;
+      } else if (kind === 'unbind_live') {
+        o.live = null;
+        applied.push({ op: kind, n: op.n });
+        changed = true;
       }
     } catch { /* skip a malformed op */ }
   }
@@ -10499,7 +10706,32 @@ app.post('/api/monitoring/epic-dashboard/:key/snapshot', async (req, res) => {
   res.json(r);
 });
 
-// Daily automated Objective Health snapshot (leader-gated, once per LOCAL calendar day).
+// Probe a live source binding WITHOUT recording anything — used by the bind/test UX so the
+// owner can confirm a Kusto/HTTP source resolves before committing to it. Body may carry a raw
+// binding as { live: {...} } (test an arbitrary binding) or { n } (test objective n's existing
+// binding). Never mutates the snapshot; returns { ok, value, raw, error }.
+app.post('/api/monitoring/epic-dashboard/:key/probe', async (req, res) => {
+  const key = String(req.params.key || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'missing epic key' });
+  const b = req.body || {};
+  let live = null;
+  if (b.live && typeof b.live === 'object') {
+    live = _monNormLive(b.live);
+  } else if (b.n != null) {
+    try {
+      const map = _epicOHLoad();
+      const snap = map[key];
+      const o = snap && Array.isArray(snap.objectives) ? snap.objectives.find(x => String(x.n) === String(b.n)) : null;
+      if (o && o.live) live = o.live;
+    } catch { /* fall through */ }
+  }
+  if (!live || !live.kind) return res.status(400).json({ ok: false, error: 'no live binding to probe (supply { live } or { n })' });
+  let run;
+  try { run = await _epicOHRunLive({ live }); } catch (e) { return res.json({ ok: false, error: (e && e.message) || 'probe failed' }); }
+  res.json({ ok: !!run.ok, value: run.num, raw: run.display, error: run.error || null });
+});
+
+
 // Records a fresh dated reading for every epic that already has a built dashboard so trends
 // accrue on their own — no one has to click, and the AI rebuild stays a separate, explicit
 // action. Default ON; disable via settings.monitoringAutoSnapshot === false. Purely local +

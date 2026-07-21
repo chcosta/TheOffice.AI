@@ -3246,7 +3246,7 @@ await t.test('epic Objective Health assistant: SSE-streamed chat that analyzes +
     'assist route returns the authoritative objectives + applied ops');
 
   // _epicOHApplyOps honestly edits sources/readiness/viz/readings and recomputes counts.
-  const ops = _win(srv, 'function _epicOHApplyOps(', 3700) || '';
+  const ops = _win(srv, 'function _epicOHApplyOps(', 5200) || '';
   t.ok(/set_viz/.test(ops) && /auto\|trend\|gauge\|gap\|manual/.test(ops),
     'set_viz accepts auto/trend/gauge/gap/manual (auto clears the override)');
   t.ok(/readingTouched[\s\S]*_epicOHAppendReadings/.test(ops),
@@ -3385,7 +3385,7 @@ await t.test('epic objective health: daily no-AI snapshot + explicit AI rebuild 
   const set = readFileSync('settings.js', 'utf8');
 
   // (1) No-AI snapshot helper: re-records readings WITHOUT re-running the AI model build.
-  const snap = _win(srv, 'async function _epicOHSnapshot(', 1700) || '';
+  const snap = _win(srv, 'async function _epicOHSnapshot(', 2900) || '';
   t.ok(snap, '_epicOHSnapshot helper exists');
   t.ok(/_epicOHAppendReadings\(key, snap\.objectives/.test(snap), 'snapshot appends readings from the persisted objectives');
   t.ok(/snap\.snapshotAt = generatedAt/.test(snap), 'snapshot stamps snapshotAt');
@@ -3415,6 +3415,109 @@ await t.test('epic objective health: daily no-AI snapshot + explicit AI rebuild 
   t.ok(/epic-dashboard\/'\s*\+\s*encodeURIComponent\(key\)\s*\+\s*'\/snapshot/.test(doSnap),
     'monObjSnapshot POSTs the per-epic snapshot route');
   t.ok(/o\.snapshotAt = r\.snapshotAt/.test(doSnap), 'monObjSnapshot refreshes snapshotAt from the response');
+});
+
+await t.test('epic objective health: LIVE data wiring — executable bindings, live snapshot run, probe + combined KPI card', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // (1) SERVER — _monNormLive normalizes an executable binding (kusto|http) and nothing else.
+  const norm = _win(srv, 'function _monNormLive(', 900) || '';
+  t.ok(norm, '_monNormLive helper exists');
+  t.ok(/\^\(kusto\|http\)\$/.test(norm), '_monNormLive accepts only kusto|http binding kinds');
+  t.ok(/out\.cluster/.test(norm) && /out\.database/.test(norm) && /out\.query/.test(norm),
+    '_monNormLive normalizes the kusto binding fields');
+  t.ok(/out\.url/.test(norm) && /out\.jsonPath/.test(norm),
+    '_monNormLive normalizes the http binding fields');
+
+  // (2) SERVER — _epicOHRunLive executes the bound source and returns {ok,num,display,error},
+  // never throwing (a failed fetch resolves to ok:false).
+  const runLive = _win(srv, 'async function _epicOHRunLive(', 900) || '';
+  t.ok(runLive, '_epicOHRunLive helper exists');
+  t.ok(/_liveRunKusto\(b\)/.test(runLive) && /_liveRunHttp\(b\)/.test(runLive),
+    '_epicOHRunLive dispatches to the kusto/http executor by binding kind');
+  t.ok(/ok: true, num, display/.test(runLive) && /catch \(e\)[\s\S]*ok: false/.test(runLive),
+    '_epicOHRunLive returns a value on success and degrades to ok:false on failure');
+
+  // (3) SERVER — the snapshot loop runs every live binding FIRST, gates the append on a
+  // real success (_liveOk), and stamps live status — this is what makes a trend actually MOVE.
+  const snap = _win(srv, 'async function _epicOHSnapshot(', 2900) || '';
+  t.ok(/await _epicOHRunLive\(o\)/.test(snap), 'snapshot executes each live binding before recording');
+  t.ok(/o\._liveOk = true/.test(snap) && /o\._liveOk = false/.test(snap),
+    'snapshot marks each objective live-ok transiently');
+  t.ok(/o\.live\.lastValue = run\.num/.test(snap) && /o\.now = run\.display/.test(snap),
+    'snapshot updates the recorded value from the REAL live result');
+  t.ok(/'_liveOk' in o[\s\S]*delete o\._liveOk/.test(snap),
+    'the transient _liveOk gate is deleted before persisting (never stored)');
+  t.ok(/liveRun: true/.test(snap), 'snapshot appends readings in liveRun mode (honest failed-fetch gate)');
+
+  // (4) SERVER — HONEST INVARIANT: a live-bound objective whose fetch FAILED appends NO reading.
+  const append = _win(srv, 'function _epicOHAppendReadings(', 2400) || '';
+  t.ok(/skipLiveFail = opts\.liveRun && o && o\.live && o\.live\.kind && o\._liveOk !== true/.test(append),
+    'a failed live fetch is skipped — history is carried forward, never fabricated');
+  t.ok(/if \(v != null && !skipLiveFail\)/.test(append),
+    'the append gate honors the failed-live-fetch skip');
+
+  // (5) SERVER — the probe route runs the binding WITHOUT recording and returns a top-level result.
+  t.ok(/app\.post\('\/api\/monitoring\/epic-dashboard\/:key\/probe'/.test(srv),
+    'server exposes the live-source probe route');
+  const probe = _win(srv, "app.post('/api/monitoring/epic-dashboard/:key/probe'", 1600) || '';
+  t.ok(/_monNormLive\(b\.live\)/.test(probe), 'probe normalizes an inline binding');
+  t.ok(/await _epicOHRunLive\(\{ live \}\)/.test(probe), 'probe runs the binding through the executor');
+  t.ok(/ok: !!run\.ok, value: run\.num, raw: run\.display, error: run\.error/.test(probe),
+    'probe returns {ok,value,raw,error} at the top level and never appends a reading');
+  t.ok(!/_epicOHAppendReadings/.test(probe), 'probe does NOT record a reading (dry-run only)');
+
+  // (6) SERVER — bind_live / unbind_live ops attach + clear an executable binding.
+  const ops = _win(srv, 'function _epicOHApplyOps(', 5200) || '';
+  t.ok(/kind === 'bind_live'/.test(ops) && /_monNormLive\(op\.live/.test(ops),
+    'bind_live normalizes + attaches an executable binding');
+  t.ok(/bound && o\.status === 'miss'[\s\S]*o\.status = 'part'/.test(ops),
+    'binding a sourceless objective flips miss → part');
+  t.ok(/kind === 'unbind_live'/.test(ops) && /o\.live = null/.test(ops), 'unbind_live clears the binding');
+
+  // (7) CLIENT — the combined KPI card renders current value AND trend together (one card).
+  const kpi = _win(html, '_monEmKpiCard(o) {', 1200) || '';
+  t.ok(kpi, '_monEmKpiCard helper exists');
+  t.ok(/class="mem-kpi"/.test(kpi), 'the KPI card is one combined mem-kpi block');
+  t.ok(/class="kv"/.test(kpi) && /class="ks"/.test(kpi),
+    'the combined card pairs a value block (kv) with a trend/sparkline block (ks)');
+  t.ok(/monEmHasTrend\(o\)/.test(kpi) && /Trend appears once/.test(kpi),
+    'the trend half falls back to an honest empty-state until two readings are recorded');
+  const cardViz = _win(html, 'monEmCardViz(o) {', 400) || '';
+  t.ok(/_monEmKpiCard\(o\)/.test(cardViz), 'trend AND gauge objectives route to the combined KPI card');
+
+  // (8) CLIENT — monEmLiveOn / monEmTopBadge / monEmTrendChip surface live + trend on the card.
+  t.ok(/monEmLiveOn\(o\) \{ return !!\(o && o\.live && o\.live\.kind\)/.test(html),
+    'monEmLiveOn detects an executable live binding');
+  const topBadge = _win(html, 'monEmTopBadge(o) {', 400) || '';
+  t.ok(/monEmTrendChip\(o\)/.test(topBadge), 'the card badge prefers the trend chip when a delta exists');
+  const chip = _win(html, 'monEmTrendChip(o) {', 400) || '';
+  t.ok(/monEmPriorDelta\(o\)/.test(chip) && /class="vt trend/.test(chip),
+    'the trend chip renders a directional delta vs the prior reading');
+
+  // (9) CLIENT — the footer live status reflects a failed fetch vs a fresh update.
+  const foot = _win(html, 'monEmFootSrc(o) {', 700) || '';
+  t.ok(/o\.live\.ok === false/.test(foot) && /live fetch failed/.test(foot),
+    'the footer honestly reports a failed live fetch');
+  t.ok(/monEmRelTime\(o\.live\.at\)/.test(foot) && /updated /.test(foot),
+    'the footer shows the relative time of the last live update');
+
+  // (10) CLIENT — probe UX: real Alpine markup (not x-html), state, and reset behavior.
+  const detcol = _win(html, 'x-if="monObjLiveSel()"', 900) || '';
+  t.ok(/class="moh-live/.test(detcol), 'the probe panel lives in the detail column as real Alpine markup');
+  t.ok(/@click="monObjProbe\(\)"/.test(detcol) && /:disabled="monitoring\.obj\.probing"/.test(detcol),
+    'the "Test live source" button runs a probe and disables while probing');
+  t.ok(/monObjLiveBindHtml\(\)/.test(detcol) && /monObjProbeHtml\(\)/.test(detcol),
+    'the probe panel shows the binding summary + the probe result');
+  const doProbe = _win(html, 'async monObjProbe() {', 900) || '';
+  t.ok(/\/probe'/.test(doProbe) && /body: JSON\.stringify\(\{ live: o\.live \}\)/.test(doProbe),
+    'monObjProbe POSTs the objective binding to the probe route');
+  t.ok(/monitoring\.obj\.probing = true; this\.monitoring\.obj\.probe = null/.test(doProbe),
+    'monObjProbe seeds the probing state + clears the prior result');
+  const probeHtml = _win(html, 'monObjProbeHtml() {', 600) || '';
+  t.ok(/Source responded/.test(probeHtml) && /Fetch failed/.test(probeHtml),
+    'the probe result HTML distinguishes success from a failed fetch');
 });
 
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {

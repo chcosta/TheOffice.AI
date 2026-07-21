@@ -21443,6 +21443,19 @@
                   .moh-orow .m{ color:var(--cp-text-faint); font-size:11.5px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
                   .moh-orow .num{ color:var(--cp-text-faint); font-size:11px; width:16px; text-align:right; flex:none; padding-top:2px; }
                   .moh-det{ overflow:auto; padding:22px 26px 60px; }
+                  /* Detail column wraps the x-html detail PLUS a live Alpine probe panel */
+                  .moh-detcol{ display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+                  .moh-detcol .moh-det{ flex:1; min-height:0; }
+                  .moh-live{ flex:none; border-top:1px solid var(--cp-border); padding:13px 26px 15px; background:var(--cp-bg); }
+                  .moh-live-h{ display:flex; align-items:center; gap:12px; }
+                  .moh-live-h .lt{ flex:1; font-size:12.5px; font-weight:600; color:var(--cp-text); }
+                  .moh-live-test{ appearance:none; border:1px solid var(--mon-accent,#58a6ff); background:transparent; color:var(--mon-accent,#58a6ff); font-size:12px; padding:5px 12px; border-radius:7px; cursor:pointer; }
+                  .moh-live-test:disabled{ opacity:.5; cursor:default; }
+                  .moh-live-bind{ font-size:11.5px; color:var(--cp-text-muted); margin-top:8px; line-height:1.5; }
+                  .moh-live-bind code{ font-family:var(--cp-mono,ui-monospace,monospace); background:var(--cp-surface); padding:1px 5px; border-radius:4px; color:var(--cp-text); }
+                  .moh-live-res{ margin-top:10px; font-size:12.5px; }
+                  .moh-live-res .ok{ color:var(--cp-success,#3fb950); font-weight:560; } .moh-live-res .err{ color:var(--cp-danger,#f85149); font-weight:560; }
+                  .moh-live-res .val{ font-size:22px; font-weight:680; color:var(--cp-text); margin-top:2px; letter-spacing:-.01em; }
                   .moh-det .kick{ color:var(--mon-graf); font-size:11.5px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; }
                   .moh-det h2{ font-size:21px; margin:6px 0 4px; font-weight:660; letter-spacing:-.01em; }
                   .moh-det .lede{ color:var(--cp-text-muted); max-width:760px; }
@@ -21547,6 +21560,21 @@
                   .mem-stat .tgt{ font-size:12px; color:var(--cp-text-faint); margin-top:6px; }
                   .mem-stat .delta{ font-size:12px; margin-top:3px; color:var(--cp-text-muted); }
                   .mem-stat .delta.good{ color:var(--cp-success,#3fb950); } .mem-stat .delta.bad{ color:var(--cp-warning,#d29922); }
+                  /* Combined KPI card — current status AND trend together on one card */
+                  .mem-ob .oh .oh-badge{ flex:none; margin-top:1px; display:inline-flex; align-items:center; }
+                  .mem-ob .vt.trend{ font-size:11px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--cp-text-muted); }
+                  .mem-ob .vt.trend.good{ color:var(--cp-success,#3fb950); }
+                  .mem-ob .vt.trend.bad{ color:var(--cp-warning,#d29922); }
+                  .mem-kpi{ display:flex; gap:14px; width:100%; align-items:center; }
+                  .mem-kpi .kv{ flex:none; min-width:84px; display:flex; flex-direction:column; gap:3px; }
+                  .mem-kpi .kv .now{ font-size:29px; font-weight:700; line-height:1; letter-spacing:-.02em; color:var(--cp-text); }
+                  .mem-kpi .kv .now.good{ color:var(--cp-success,#3fb950); } .mem-kpi .kv .now.bad{ color:var(--cp-warning,#d29922); }
+                  .mem-kpi .kv .tgt{ font-size:11.5px; color:var(--cp-text-muted); }
+                  .mem-kpi .kv .delta{ font-size:11px; padding:2px 8px; border-radius:6px; align-self:flex-start; margin-top:1px; color:var(--cp-text-muted); }
+                  .mem-kpi .kv .delta.good{ color:var(--cp-success,#3fb950); background:rgba(63,185,80,.12); }
+                  .mem-kpi .kv .delta.bad{ color:var(--cp-warning,#d29922); background:rgba(210,153,34,.14); }
+                  .mem-kpi .ks{ flex:1; min-width:0; display:flex; align-items:center; justify-content:flex-end; }
+                  .mem-kpi .ks.empty{ color:var(--cp-text-faint); font-size:11px; justify-content:center; text-align:center; line-height:1.4; padding:0 6px; }
                   .mem-gap{ text-align:center; padding:6px 4px; }
                   .mem-gap .gi{ font-size:22px; opacity:.7; }
                   .mem-gap .gt{ font-size:13px; font-weight:560; color:var(--cp-text); margin-top:4px; }
@@ -21723,7 +21751,7 @@
                         <div class="mem-ob" :class="'st-'+monObjStatusCls(o)" @click="monObjOpenDetail(o.n)">
                           <div class="oh">
                             <div class="ot"><span class="g" x-text="monObjIcon(o)"></span><span class="tt" x-text="o.title"></span></div>
-                            <span class="vt" x-text="monEmVizLabel(o)"></span>
+                            <span class="oh-badge" x-html="monEmTopBadge(o)"></span>
                           </div>
                           <div class="ov" x-html="monEmCardViz(o)"></div>
                           <div class="of">
@@ -21792,7 +21820,22 @@
                         <div class="g">🧭</div><div class="b"><div class="t">How this was built</div><div class="m">Doc → objectives → binding</div></div>
                       </div>
                     </div>
-                    <div class="moh-det" x-html="monObjDetail()"></div>
+                    <div class="moh-detcol">
+                      <div class="moh-det" x-html="monObjDetail()"></div>
+                      <template x-if="monObjLiveSel()">
+                        <div class="moh-live">
+                          <div class="moh-live-h">
+                            <div class="lt">🔌 Live source binding</div>
+                            <button class="moh-live-test" @click="monObjProbe()" :disabled="monitoring.obj.probing">
+                              <span x-show="!monitoring.obj.probing">Test live source</span>
+                              <span x-show="monitoring.obj.probing">Testing…</span>
+                            </button>
+                          </div>
+                          <div class="moh-live-bind" x-html="monObjLiveBindHtml()"></div>
+                          <div class="moh-live-res" x-show="monitoring.obj.probe" x-html="monObjProbeHtml()"></div>
+                        </div>
+                      </template>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -32821,6 +32864,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             epicKey: '', epicTitle: '', epicUrl: '', docId: '',
             doc: null, title: '', summary: '', sourcesConnected: 0,
             objectives: [], sel: '',
+            probing: false, probe: null,  // live-source "Test now" probe (in-flight flag + last result)
             mode: 'overview',     // 'overview'(landing nav hub) | 'detail'(master-detail drill-down) | 'overtime'(per-objective trend)
             otSel: 0,             // objective n selected on the over-time view
             otRange: 'all',       // 'all' | '90' | '30'
@@ -41272,11 +41316,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
         },
         monObjClose() { this.monitoring.obj.mode = 'overview'; this.monBackToEpic(); },
-        monObjSelect(k) { this.monitoring.obj.sel = k; },
+        monObjSelect(k) { this.monitoring.obj.sel = k; this.monitoring.obj.probe = null; },
 
         // ---- Epic Metrics: overview / detail / over-time navigation --------
         monObjOverview() { this.monitoring.obj.mode = 'overview'; },
-        monObjOpenDetail(n) { this.monitoring.obj.sel = 'obj' + n; this.monitoring.obj.mode = 'detail'; },
+        monObjOpenDetail(n) { this.monitoring.obj.sel = 'obj' + n; this.monitoring.obj.mode = 'detail'; this.monitoring.obj.probe = null; },
         monObjOpenOvertime(n) {
           const o = this.monitoring.obj;
           if (n != null) o.otSel = n;
@@ -41323,6 +41367,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         monObjStatusCls(o) { return o && o.status === 'manual' ? 'man' : (o ? o.status : 'miss'); },
         monEmFootSrc(o) {
           if (!o) return '';
+          if (this.monEmLiveOn(o)) {
+            if (o.live.ok === false) return '⚠ live fetch failed' + (o.live.error ? ' — ' + this._monEsc(String(o.live.error).slice(0, 80)) : '');
+            const icon = this._monSrcTypeIcon(o.srcType);
+            const nm = o.srcName ? (icon + ' ' + o.srcName) : icon + ' live source';
+            const rel = this.monEmRelTime(o.live.at);
+            return rel ? (nm + ' · updated ' + rel) : nm;
+          }
           if (o.status === 'miss') return 'Connect a source to begin recording';
           if (o.status === 'manual') return 'Validated manually';
           return o.srcName ? (this._monSrcTypeIcon(o.srcType) + ' ' + o.srcName) : this.monObjStatusLabel(o.status);
@@ -41331,6 +41382,52 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const c = this.monObjCounts();
           const total = Math.max(1, (this.monitoring.obj.objectives || []).length);
           return Math.round(((c.live + c.part) / total) * 100);
+        },
+
+        // ---- Objective Health: live source binding probe ("Test now") ------
+        monObjLiveSel() { const o = this.monObjSelected(); return this.monEmLiveOn(o); },
+        monObjLiveBindHtml() {
+          const o = this.monObjSelected(); if (!this.monEmLiveOn(o)) return '';
+          const e = this._monEsc; const L = o.live;
+          if (L.kind === 'kusto') {
+            const parts = [];
+            if (L.cluster) parts.push('Cluster <code>' + e(L.cluster) + '</code>');
+            if (L.database) parts.push('database <code>' + e(L.database) + '</code>');
+            if (L.column) parts.push('column <code>' + e(L.column) + '</code>');
+            return 'Kusto — ' + (parts.join(' · ') || 'query bound') + '.';
+          }
+          if (L.kind === 'http') {
+            const parts = [];
+            if (L.method) parts.push('<code>' + e(String(L.method).toUpperCase()) + '</code>');
+            if (L.url) parts.push('<code>' + e(L.url) + '</code>');
+            if (L.jsonPath) parts.push('→ <code>' + e(L.jsonPath) + '</code>');
+            return 'Web API — ' + (parts.join(' ') || 'endpoint bound') + '.';
+          }
+          return 'Bound to a ' + e(L.kind) + ' source.';
+        },
+        async monObjProbe() {
+          const o = this.monObjSelected(); if (!this.monEmLiveOn(o)) return;
+          const key = this.monitoring.obj.epicKey; if (!key) return;
+          this.monitoring.obj.probing = true; this.monitoring.obj.probe = null;
+          try {
+            const r = await this.request('/api/monitoring/epic-dashboard/' + encodeURIComponent(key) + '/probe', {
+              method: 'POST', body: JSON.stringify({ live: o.live }), timeoutMs: 60000
+            });
+            this.monitoring.obj.probe = r || { ok: false, error: 'no response' };
+          } catch (e) {
+            this.monitoring.obj.probe = { ok: false, error: (e && e.message) || 'request failed' };
+          } finally {
+            this.monitoring.obj.probing = false;
+          }
+        },
+        monObjProbeHtml() {
+          const p = this.monitoring.obj.probe; if (!p) return '';
+          const e = this._monEsc;
+          if (p.ok) {
+            const val = (p.value != null) ? e(String(p.value)) : (p.raw != null ? e(String(p.raw)) : '—');
+            return '<span class="ok">✓ Source responded</span><div class="val">' + val + '</div>';
+          }
+          return '<span class="err">✗ Fetch failed</span> ' + e(String(p.error || 'unknown error').slice(0, 200));
         },
 
         // ---- Objective Health assistant (analyze + edit sources / look / objectives) ----
@@ -41432,10 +41529,60 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         monEmCardViz(o) {
           const t = this.monEmVizType(o);
-          if (t === 'trend') return this._monEmSparkline(o, 268, 118);
-          if (t === 'gauge') return this._monEmGauge(o);
+          if (t === 'trend' || t === 'gauge') return this._monEmKpiCard(o);
           if (t === 'manual') return this._monEmManualCard(o);
           return this._monEmGapCard(o);
+        },
+        monEmLiveOn(o) { return !!(o && o.live && o.live.kind); },
+        monEmRelTime(t) {
+          if (!t) return '';
+          const then = new Date(t).getTime(); if (!then) return '';
+          const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+          if (s < 45) return 'just now';
+          if (s < 3600) return Math.round(s / 60) + 'm ago';
+          if (s < 86400) return Math.round(s / 3600) + 'h ago';
+          return Math.round(s / 86400) + 'd ago';
+        },
+        monEmPriorDelta(o) {
+          const hist = (o && o.history) || [];
+          if (hist.length >= 2) {
+            const cur = hist[hist.length - 1].v, prev = hist[hist.length - 2].v;
+            if (cur != null && prev != null) {
+              const d = cur - prev;
+              const dir = (o.live && o.live.dir) === 'down' ? 'down' : 'up';
+              const toward = d === 0 ? 'flat' : ((d > 0) === (dir === 'up') ? 'good' : 'bad');
+              return { d, toward, prevLabel: this._monShortDate(hist[hist.length - 2].t) };
+            }
+          }
+          return null;
+        },
+        monEmTrendChip(o) {
+          const pd = this.monEmPriorDelta(o);
+          if (!pd) return '';
+          const cls = pd.toward === 'good' ? 'good' : pd.toward === 'bad' ? 'bad' : '';
+          const arrow = pd.d > 0 ? '▲' : pd.d < 0 ? '▼' : '▬';
+          const mag = this._monEsc(this._monFmtVal(o, Math.abs(pd.d)));
+          return '<span class="vt trend ' + cls + '">' + arrow + ' ' + mag + '</span>';
+        },
+        monEmTopBadge(o) {
+          const t = this.monEmVizType(o);
+          if (t === 'gap') return '<span class="vt">No source</span>';
+          if (t === 'manual') return '<span class="vt">Manual</span>';
+          const chip = this.monEmTrendChip(o);
+          if (chip) return chip;
+          return '<span class="vt">' + this._monEsc(this.monEmVizLabel(o)) + '</span>';
+        },
+        _monEmKpiCard(o) {
+          const e = this._monEsc;
+          const t = this.monEmOnTarget(o); const cls = t === true ? 'good' : t === false ? 'bad' : '';
+          const now = o.now ? e(o.now) : '—';
+          const tgt = o.tgt ? '<div class="tgt">target ' + e(o.tgt) + '</div>' : '';
+          const delta = o.delta ? '<div class="delta ' + (o.deltaCls === 'good' ? 'good' : o.deltaCls === 'bad' ? 'bad' : '') + '">' + e(o.delta) + '</div>' : '';
+          const kv = '<div class="kv"><div class="now ' + cls + '">' + now + '</div>' + tgt + delta + '</div>';
+          let ks;
+          if (this.monEmHasTrend(o)) ks = '<div class="ks">' + this._monEmSparkline(o, 156, 96) + '</div>';
+          else ks = '<div class="ks empty">Trend appears once<br>two readings are recorded</div>';
+          return '<div class="mem-kpi">' + kv + ks + '</div>';
         },
         _monEmSparkline(o, w, hgt) {
           const hist = (o && o.history) || []; if (hist.length < 2) return '';
