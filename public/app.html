@@ -20571,7 +20571,7 @@
                                           <button class="pc-s-full" @click.stop="pulseReelOpenFull(it, i)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                           <div class="pc-svg">
                                             <img x-show="it.img" :src="it.img" alt="" loading="lazy">
-                                            <div x-show="!it.img" x-html="it.svg" style="width:100%;height:100%"></div>
+                                            <div x-show="!it.img" x-html="pulseSvgNS(it.svg, 'reel' + i)" style="width:100%;height:100%"></div>
                                           </div>
                                         </div>
                                         <div class="pc-s-foot">
@@ -20599,10 +20599,11 @@
                               <button class="pc-lb-nav next" x-show="pulseReelFullNavable()" @click="pulseReelFullStep(1)" aria-label="Next">›</button>
                               <div class="pc-lb-media" :class="pulseReelFullNavable() ? 'clickable' : ''" @click="pulseReelFullNavable() ? pulseReelFullStep(1) : null" :title="pulseReelFullNavable() ? 'Next' : ''">
                                 <img x-show="pulse._reelFull && pulse._reelFull.img" :src="pulse._reelFull ? pulse._reelFull.img : ''" alt="">
-                                <div class="pc-lb-svg" x-show="pulse._reelFull && !pulse._reelFull.img" x-html="pulse._reelFull ? pulse._reelFull.svg : ''"></div>
+                                <div class="pc-lb-svg" x-show="pulse._reelFull && !pulse._reelFull.img" x-html="pulse._reelFull ? pulseSvgNS(pulse._reelFull.svg, 'lb') : ''"></div>
                               </div>
                               <div class="pc-lb-cap" x-text="pulse._reelFull ? pulseReelCaption(pulse._reelFull) : ''"></div>
                               <div class="pc-lb-acts">
+                                <button class="pc-lb-act" x-show="pulse._reelFull && pulse._reelFull.id" :class="pulse._reelFull &amp;&amp; pulse._reelFull.pinned ? 'on' : ''" @click.stop="pulse._reelFull && pulseComedyArt(pulse._reelFull.id, pulse._reelFull.pinned ? 'unpin' : 'pin')" x-text="pulse._reelFull &amp;&amp; pulse._reelFull.pinned ? '★ Kept' : '☆ Keep'"></button>
                                 <button class="pc-lb-act" @click.stop="pulseReelCopyFull()" x-text="pulse._reelCopied ? '✓ Copied' : 'Copy image'"></button>
                                 <button class="pc-lb-act" @click.stop="pulse._reelFull && pulseShareReel(pulse._reelFull)">Share</button>
                                 <button class="pc-lb-act" x-show="pulse._reelFull && pulse._reelFull.img" @click.stop="pulseReelOpenImg()">Open original</button>
@@ -20662,7 +20663,7 @@
                             <div class="pc-sec-h"><span class="i">🗞️</span><span class="t">Daily strip</span><span class="c" x-show="c &amp;&amp; c.premise" x-text="'· ' + c.premise"></span><span class="c" x-show="pulse.gatheredAt" x-text="'· ' + pulseGenStamp(pulse.gatheredAt)"></span><button class="pc-share-btn" @click="pulseShareStrip()">Share</button></div>
                             <div class="pc-strip-art clickable" @click="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" title="View fullscreen">
                               <button class="pc-s-full" @click.stop="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
-                              <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? c.art.svg : ''"></div>
+                              <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? pulseSvgNS(c.art.svg, 'sd') : ''"></div>
                             </div>
                           </div>
 
@@ -20671,7 +20672,7 @@
                             <div class="pc-sec-h"><span class="i">👔</span><span class="t">A Bill Dirt strip</span><span class="c" x-show="c &amp;&amp; c.premise" x-text="'· ' + c.premise"></span><span class="c" x-show="pulse.gatheredAt" x-text="'· ' + pulseGenStamp(pulse.gatheredAt)"></span><button class="pc-share-btn" @click="pulseShareStrip2()">Share</button></div>
                             <div class="pc-strip-art clickable" @click="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" title="View fullscreen">
                               <button class="pc-s-full" @click.stop="c &amp;&amp; c.art &amp;&amp; pulseReelOpenFull(c.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
-                              <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? c.art.svg : ''"></div>
+                              <div class="pc-strip-svg" x-html="c &amp;&amp; c.art ? pulseSvgNS(c.art.svg, 'sb') : ''"></div>
                             </div>
                           </div>
                           <div class="pc-sec" x-show="pulseActiveComedy().bit">
@@ -20692,7 +20693,7 @@
                                   <div class="pc-svg clickable" @click="pulseReelOpenFull(b.art)" title="View fullscreen">
                                     <button class="pc-s-full" @click.stop="pulseReelOpenFull(b.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                     <img x-show="b.art && b.art.img" :src="b.art ? b.art.img : ''" alt="" loading="lazy">
-                                    <div x-show="b.art && !b.art.img" x-html="b.art ? b.art.svg : ''" style="width:100%;height:100%"></div>
+                                    <div x-show="b.art && !b.art.img" x-html="b.art ? pulseSvgNS(b.art.svg, 'bit') : ''" style="width:100%;height:100%"></div>
                                   </div>
                                   <div class="pc-lab" x-text="(b.art ? b.art.kind : 'meme') + (b.art && b.art.img ? '' : ' · generated') + (b.art && b.art.vault && b.art.createdAt ? ' · from the vault · first made ' + pulseAgo(b.art.createdAt) : '')"></div>
                                 </div>
@@ -20721,7 +20722,7 @@
                                       <div class="pc-svg clickable" @click="pulseReelOpenFull(g.art)" title="View fullscreen">
                                         <button class="pc-s-full" @click.stop="pulseReelOpenFull(g.art)" aria-label="View fullscreen" title="View fullscreen">⤢</button>
                                         <img x-show="g.art && g.art.img" :src="g.art ? g.art.img : ''" alt="" loading="lazy">
-                                        <div x-show="g.art && !g.art.img" x-html="g.art ? g.art.svg : ''" style="width:100%;height:100%"></div>
+                                        <div x-show="g.art && !g.art.img" x-html="g.art ? pulseSvgNS(g.art.svg, 'gag' + gi) : ''" style="width:100%;height:100%"></div>
                                       </div>
                                       <div class="pc-lab" x-text="(g.art ? g.art.kind : 'meme') + (g.art && g.art.img ? '' : ' · generated') + (g.art && g.art.vault && g.art.createdAt ? ' · from the vault · first made ' + pulseAgo(g.art.createdAt) : '')"></div>
                                     </div>
@@ -42344,6 +42345,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         pulseComedyStale() { const w = this.pulse; return w.includeDms ? w.comedyStale : (w.comedyNoDm ? w.comedyNoDmStale : w.comedyStale); },
         pulseThreadFor(key) { return (this.pulse._byKey || {})[key] || null; },
         // The Reel (vertical carousel over generated comedy art)
+        // The SAME generated comic SVG is injected in several places at once (the reel,
+        // the inline daily/Bill-Dirt strips, and the fullscreen lightbox). Its internal
+        // element ids (clipPath / halftone pattern) are content-hashed, so two copies of
+        // one strip carry IDENTICAL ids. Duplicate ids in a single document make every
+        // url(#id) clip/fill reference resolve to the FIRST copy only — so the later
+        // copies lose their clipped artwork and render as empty panels. Namespacing the
+        // ids per injection site (a stable, site-unique prefix) makes each copy
+        // self-contained. Display-only: the raw art.svg (used for share/rasterize) is
+        // left untouched.
+        pulseSvgNS(svg, ns) {
+          const s = (typeof svg === 'string') ? svg : '';
+          if (!s || ns == null || ns === '') return s;
+          const p = 'n' + String(ns).replace(/[^a-zA-Z0-9]/g, '') + '_';
+          return s
+            .replace(/\sid="([^"]*)"/g, ' id="' + p + '$1"')
+            .replace(/url\(#([^)]*)\)/g, 'url(#' + p + '$1)')
+            .replace(/((?:xlink:)?href)="#([^"]*)"/g, '$1="#' + p + '$2"');
+        },
         pulseComedyReel() { return Array.isArray(this.pulse.comedyReel) ? this.pulse.comedyReel : []; },
         pulseReelIdx() {
           const n = this.pulseComedyReel().length; if (!n) return 0;
@@ -42633,6 +42652,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && Array.isArray(r.reel)) {
               this.pulse.comedyReel = r.reel;
               if ((this.pulse._reelIdx | 0) >= r.reel.length) this.pulse._reelIdx = 0;
+              // Keep the open lightbox's pin state in sync so its ★/☆ label updates live.
+              if (this.pulse._reelFull && this.pulse._reelFull.id === id) {
+                const m = r.reel.find(x => x && x.id === id);
+                this.pulse._reelFull.pinned = m ? !!m.pinned : (action === 'pin');
+              }
             }
           } catch (e) { this.toast('Could not update: ' + (e.message || e), 'error'); }
         },

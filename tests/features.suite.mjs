@@ -1084,6 +1084,26 @@ await t.test('Pulse.AI share — inline-SVG comic is rasterized to a PNG data UR
   t.ok(!/markdown: body, images: sh\.images/.test(send), 'raw sh.images is no longer posted directly');
 });
 
+await t.test('Pulse.AI comic panels — SVG element ids are namespaced per injection site (no duplicate-id clip collision) + lightbox Keep', () => {
+  const src = readFileSync('public/app.html', 'utf8');
+  // The helper rewrites id="X" / url(#X) / href="#X" with a per-site prefix so each
+  // injected copy of a content-hashed SVG is self-contained (duplicate ids in one
+  // document make every url(#id) clip resolve to the FIRST copy → empty later panels).
+  t.ok(/pulseSvgNS\(svg, ns\)\s*\{/.test(src), 'pulseSvgNS helper exists');
+  t.ok(/const p = 'n' \+ String\(ns\)\.replace\(\/\[\^a-zA-Z0-9\]\/g, ''\) \+ '_';/.test(src), 'prefix is a sanitized, site-unique token');
+  t.ok(/\.replace\(\/\\sid="\(\[\^"\]\*\)"\/g, ' id="' \+ p \+ '\$1"'\)/.test(src), 'rewrites id attributes');
+  t.ok(/\.replace\(\/url\\\(#\(\[\^\)\]\*\)\\\)\/g, 'url\(#' \+ p \+ '\$1\)'\)/.test(src), 'rewrites url(#id) references');
+  t.ok(/\.replace\(\/\(\(\?:xlink:\)\?href\)="#\(\[\^"\]\*\)"\/g, '\$1="#' \+ p \+ '\$2"'\)/.test(src), 'rewrites (xlink:)href="#id" references');
+  // Every SVG injection site passes a UNIQUE namespace so no two copies collide.
+  const namespaces = [...src.matchAll(/pulseSvgNS\([^,]+,\s*('[^']*'|`[^`]*`|[^)]+)\)/g)].map(m => m[1].trim());
+  const literalNs = namespaces.filter(n => /^'/.test(n));
+  t.ok(literalNs.length >= 5, 'multiple injection sites are namespaced (found ' + literalNs.length + ')');
+  t.ok(/pulseSvgNS\(pulse\._reelFull\.svg, 'lb'\)/.test(src), 'lightbox uses its own namespace');
+  // Lightbox Keep button toggles pin state, guarded to reel items that carry an id.
+  t.ok(/class="pc-lb-act"[^>]*x-show="pulse\._reelFull && pulse\._reelFull\.id"[^>]*pulseComedyArt\(pulse\._reelFull\.id, pulse\._reelFull\.pinned \? 'unpin' : 'pin'\)/.test(src), 'lightbox Keep button toggles pin/unpin, guarded on id');
+  t.ok(/pulse\._reelFull &amp;&amp; pulse\._reelFull\.pinned \? '★ Kept' : '☆ Keep'/.test(src), 'Keep button label reflects pinned state');
+});
+
 await t.test('Compose paired assistant negotiates structure — server judges + applies, client mirrors into the framing panel', async () => {
   const srv = readFileSync('server.js', 'utf8');
   // Server: fence-tolerant JSON extractor + per-purpose format lock helpers.
