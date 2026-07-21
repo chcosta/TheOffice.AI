@@ -1,6 +1,6 @@
 [package]
 name = "theoffice-desktop"
-version = "1.0.3"
+version = "1.0.5"
 description = "Tauri desktop shell for TheOffice.AI"
 authors = ["TheOffice.AI"]
 edition = "2021"

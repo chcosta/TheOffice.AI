@@ -223,6 +223,40 @@ fn cleanup_old_runtimes(base: &std::path::Path, keep: &str) {
     }
 }
 
+/// Deterministic FNV-1a 64-bit hash (stable across platforms + Rust versions,
+/// unlike `DefaultHasher`) so a fingerprint written by build N compares
+/// meaningfully against one recomputed by build N+1.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// `<len>:<hash>` for a single file, or `0:0` when absent/unreadable.
+fn file_fp(p: &std::path::Path) -> String {
+    match std::fs::read(p) {
+        Ok(b) => format!("{}:{:016x}", b.len(), fnv1a(&b)),
+        Err(_) => "0:0".to_string(),
+    }
+}
+
+/// Content fingerprint of the parts of a server tree that must never lag the
+/// installed bundle: the SPA (`public/app.html`), the build stamp
+/// (`build-info.json`), and the entrypoint (`server.js`). Comparing these —
+/// not just the version string or `build-info.json` alone — is what prevents a
+/// per-version runtime cache from silently serving a stale SPA after an
+/// in-place upgrade (the delta applier can bump `build-info.json` without
+/// rewriting `app.html`, so `build-info` alone is NOT a reliable signal).
+fn server_fingerprint(server_dir: &std::path::Path) -> String {
+    let app = file_fp(&server_dir.join("public").join("app.html"));
+    let bi = file_fp(&server_dir.join("build-info.json"));
+    let srv = file_fp(&server_dir.join("server.js"));
+    format!("app={app}|build-info={bi}|server={srv}")
+}
+
 /// Ensure the per-user runtime for the current version exists, copying the
 /// bundled `node\`/`server\` into it on first launch. Returns the runtime dir
 /// (containing `node\` and `server\`), or `None` to signal "use bundled
@@ -255,13 +289,8 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
     let server_js = dir.join("server").join("server.js");
     let marker = dir.join(".provisioned");
 
-    // Already provisioned for this version — nothing to copy.
-    if marker.exists() && node_bin.exists() && server_js.exists() {
-        cleanup_old_runtimes(&base, &version);
-        return Some(dir);
-    }
-
-    // Locate the bundled sources. Absent in a dev build → fall back to bundled.
+    // Locate the bundled sources first. Absent in a dev build → fall back to
+    // bundled (returns None here; the caller uses the resource path directly).
     let res = de_verbatim(app.path().resource_dir().ok()?);
     let src_node = [res.join("node"), res.join("resources").join("node")]
         .into_iter()
@@ -269,6 +298,24 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
     let src_server = [res.join("server"), res.join("resources").join("server")]
         .into_iter()
         .find(|p| p.join("server.js").exists())?;
+
+    // Content-aware reuse gate. Keying the runtime dir on the version STRING and
+    // checking mere file EXISTENCE (the old behavior) let the runtime tree lag
+    // the freshly-installed bundle forever after an in-place upgrade — the SPA
+    // stayed frozen while `build-info.json` advanced independently. Instead,
+    // reuse only when the runtime tree's content fingerprint matches the bundle;
+    // otherwise fall through and re-copy.
+    let want_fp = server_fingerprint(&src_server);
+    if marker.exists() && node_bin.exists() && server_js.exists() {
+        let have_fp = std::fs::read_to_string(&marker).unwrap_or_default();
+        if have_fp == want_fp && !want_fp.is_empty() {
+            cleanup_old_runtimes(&base, &version);
+            return Some(dir);
+        }
+        log_line(&format!(
+            "[desktop] runtime v{version} content differs from installed bundle — re-provisioning"
+        ));
+    }
 
     // Fresh (re)provision: clear any partial remains, then copy both trees.
     let _ = std::fs::remove_file(&marker);
@@ -279,7 +326,7 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
         return None;
     }
     log_line(&format!(
-        "[desktop] provisioning runtime v{version} (first launch of this build)…"
+        "[desktop] provisioning runtime v{version} (new build or changed content)…"
     ));
     if let Err(e) = copy_dir_all(&src_node, &dir.join("node")) {
         log_line(&format!("[desktop] runtime: copy node failed: {e}"));
@@ -293,7 +340,9 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
         log_line("[desktop] runtime: copy finished but expected files are missing");
         return None;
     }
-    let _ = std::fs::write(&marker, version.as_bytes());
+    // Store the content fingerprint (not the version string) so the next launch
+    // re-copies whenever the installed bundle's content changes.
+    let _ = std::fs::write(&marker, want_fp.as_bytes());
     cleanup_old_runtimes(&base, &version);
     Some(dir)
 }
