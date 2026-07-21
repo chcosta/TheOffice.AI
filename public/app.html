@@ -1915,9 +1915,10 @@
       flex: none; width: 16px; align-self: stretch; display: flex; align-items: center; justify-content: center;
       color: var(--cp-text-soft); opacity: .22; cursor: grab; font-size: 12px; line-height: 1;
       border-radius: calc(var(--cp-radius-scale, 1) * 6px); transition: opacity .12s ease, color .12s ease;
-      -webkit-user-drag: element;
+      -webkit-user-drag: none; user-select: none; -webkit-user-select: none; touch-action: none;
     }
     .cnav-grip:active { cursor: grabbing; }
+    body.nav-dragging { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
     .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .6; }
     .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
     .cnav-row > .nav-link { flex: 1; min-width: 0; }
@@ -7086,13 +7087,8 @@
                 <div>
                   <!-- Item -->
                   <template x-if="node.t === 'item'">
-                    <div class="cnav-row" draggable="true" :class="{ 'drop-before': _navDropKey === node.key, 'drop-after': _navDropAfter === node.key, 'drop-onto': _navDropOnto === node.key }"
-                         @dragstart.stop="onNavItemDragStart($event, node.key)"
-                         @dragend="_navClearHints(); _navDrag=null"
-                         @dragover.prevent="onNavItemDragOver($event, node.key, null)"
-                         @dragleave="_navRowDragLeave(node.key)"
-                         @drop.prevent.stop="onNavItemDrop($event, node.key, null)">
-                      <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, node.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder — drop onto another item to group them">⠿</span>
+                    <div class="cnav-row" data-navtarget="item" :data-navkey="node.key" data-navgroup="" :class="{ 'drop-before': _navDropKey === node.key, 'drop-after': _navDropAfter === node.key, 'drop-onto': _navDropOnto === node.key }">
+                      <span class="cnav-grip" @pointerdown="onNavGripDown($event, 'item', node.key)" title="Drag to reorder — drop onto another item to group them">⠿</span>
                       <a class="nav-link" draggable="false" :class="{ active: isRouteGroup(_navItemDef(node.key).routeGroup) }" :href="_navItemDef(node.key).href">
                         <span x-text="_navItemDef(node.key).icon"></span>
                         <span x-text="_navItemDef(node.key).label" style="flex:1"></span>
@@ -7112,11 +7108,8 @@
                   <!-- Group -->
                   <template x-if="node.t === 'group'">
                     <div class="cnav-group" :class="{ 'drop-into': _navDropGroup === node.id }">
-                      <div class="cnav-ghead"
-                           @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropGroup = node.id; _navDropKey = null"
-                           @dragleave="if(_navDropGroup===node.id)_navDropGroup=null"
-                           @drop.prevent.stop="onNavGroupHeaderDrop($event, node.id)">
-                        <span class="cnav-grip" draggable="true" @dragstart.stop="onNavGroupDragStart($event, node.id)" @dragend="_navClearHints(); _navDrag=null" title="Drag group">⠿</span>
+                      <div class="cnav-ghead" data-navtarget="ghead" :data-navgroup="node.id">
+                        <span class="cnav-grip" @pointerdown="onNavGripDown($event, 'group', node.id)" title="Drag group">⠿</span>
                         <button class="cnav-gchev" type="button" @click="navToggleGroup(node.id)" x-text="node.collapsed ? '▸' : '▾'" :title="node.collapsed ? 'Expand' : 'Collapse'"></button>
                         <template x-if="_navRenameId === node.id">
                           <input class="cnav-gname-input" x-model="_navRenameText" @keydown.enter.prevent="navCommitRename()" @keydown.escape.prevent="navCancelRename()" @blur="navCommitRename()" @click.stop>
@@ -7128,19 +7121,11 @@
                       </div>
                       <div class="cnav-gbody" x-show="!node.collapsed" x-transition.opacity.duration.150ms>
                         <template x-if="!node.children.length">
-                          <div class="cnav-gempty" :class="{ 'drop-into': _navDropGroup === node.id }"
-                               @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropGroup = node.id"
-                               @dragleave="if(_navDropGroup===node.id)_navDropGroup=null"
-                               @drop.prevent.stop="onNavGroupHeaderDrop($event, node.id)">Drop items here</div>
+                          <div class="cnav-gempty" data-navtarget="gempty" :data-navgroup="node.id" :class="{ 'drop-into': _navDropGroup === node.id }">Drop items here</div>
                         </template>
                         <template x-for="child in node.children" :key="child.key">
-                          <div class="cnav-row" draggable="true" :class="{ 'drop-before': _navDropKey === child.key, 'drop-after': _navDropAfter === child.key }"
-                               @dragstart.stop="onNavItemDragStart($event, child.key)"
-                               @dragend="_navClearHints(); _navDrag=null"
-                               @dragover.prevent="onNavItemDragOver($event, child.key, node.id)"
-                               @dragleave="_navRowDragLeave(child.key)"
-                               @drop.prevent.stop="onNavItemDrop($event, child.key, node.id)">
-                            <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, child.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder — drop onto the header to leave the group">⠿</span>
+                          <div class="cnav-row" data-navtarget="item" :data-navkey="child.key" :data-navgroup="node.id" :class="{ 'drop-before': _navDropKey === child.key, 'drop-after': _navDropAfter === child.key }">
+                            <span class="cnav-grip" @pointerdown="onNavGripDown($event, 'item', child.key)" title="Drag to reorder — drop onto the header to leave the group">⠿</span>
                             <a class="nav-link" draggable="false" :class="{ active: isRouteGroup(_navItemDef(child.key).routeGroup) }" :href="_navItemDef(child.key).href">
                               <span x-text="_navItemDef(child.key).icon"></span>
                               <span x-text="_navItemDef(child.key).label" style="flex:1"></span>
@@ -7163,10 +7148,7 @@
                 </div>
               </template>
               <!-- trailing drop zone: append to the end of the top level -->
-              <div class="cnav-end" :class="{ 'drop-before': _navDropEnd }"
-                   @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropEnd = true; _navDropKey = null; _navDropGroup = null"
-                   @dragleave="_navDropEnd = false"
-                   @drop.prevent.stop="onNavEndDrop($event)"></div>
+              <div class="cnav-end" data-navtarget="end" :class="{ 'drop-before': _navDropEnd }"></div>
             </div>
           </template>
           <template x-if="!navIsCustom()">
@@ -31779,6 +31761,10 @@
         _navDropEnd: false,
         _navDropOnto: null,
         _navDropAfter: null,
+        _navPtr: null,
+        _navDragActive: false,
+        _navPtrMove: null,
+        _navPtrUp: null,
         _navRenameId: null,
         _navRenameText: '',
         // Experience level: 'basic' (default, simplified single-view) vs 'advanced'
@@ -35449,17 +35435,89 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return null;
         },
-        onNavItemDragStart(ev, key) { this._navDrag = { kind: 'item', key }; try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', key); } catch {} },
-        onNavGroupDragStart(ev, id) { this._navDrag = { kind: 'group', id }; try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', id); } catch {} },
-        _navClearHints() { this._navDropKey = null; this._navDropGroup = null; this._navDropEnd = false; this._navDropOnto = null; this._navDropAfter = null; },
-        // Where in an item row is the cursor? Splits the row into three bands so one gesture
-        // covers reorder AND grouping: top → drop before, bottom → drop after, middle → combine
-        // into a new group. Combine only applies to a top-level item target dragging another
-        // item (the layout is two levels deep — we never nest a group inside a group).
-        _navItemDropIntent(ev, groupId) {
+        // ---- Pointer-based sidebar nav drag (works in WebView2 AND browsers) ----
+        // HTML5 native drag-and-drop does not reliably initiate inside WebView2, so the menu
+        // reorder/group gesture is driven entirely by pointer events. The grip handle starts a
+        // drag; rows carry data-navtarget/-navkey/-navgroup markers so the moving pointer can
+        // hit-test drop targets via elementFromPoint. The drop-resolution model
+        // (_navDetachNode / _navCombineIntoGroup / order splices) is unchanged.
+        onNavGripDown(ev, kind, key) {
+          if (ev.button != null && ev.button !== 0) return; // primary button / touch / pen only
+          try { ev.preventDefault(); ev.stopPropagation(); } catch {}
+          this._navDrag = kind === 'group' ? { kind: 'group', id: key } : { kind: 'item', key };
+          this._navPtr = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, active: false, drop: null };
+          this._navClearHints();
+          const move = (e) => this._onNavPointerMove(e);
+          const up = (e) => this._onNavPointerUp(e);
+          this._navPtrMove = move; this._navPtrUp = up;
+          window.addEventListener('pointermove', move, true);
+          window.addEventListener('pointerup', up, true);
+          window.addEventListener('pointercancel', up, true);
+        },
+        _onNavPointerMove(ev) {
+          const p = this._navPtr;
+          if (!p || (ev.pointerId != null && ev.pointerId !== p.id)) return;
+          if (!p.active) {
+            const dx = ev.clientX - p.x0, dy = ev.clientY - p.y0;
+            if ((dx * dx + dy * dy) < 16) return; // ~4px threshold so a click on the grip isn't a drag
+            p.active = true; this._navDragActive = true;
+            try { document.body.classList.add('nav-dragging'); } catch {}
+          }
+          try { ev.preventDefault(); } catch {}
+          this._navHitTest(ev.clientX, ev.clientY);
+        },
+        _onNavPointerUp(ev) {
+          const p = this._navPtr;
+          try {
+            window.removeEventListener('pointermove', this._navPtrMove, true);
+            window.removeEventListener('pointerup', this._navPtrUp, true);
+            window.removeEventListener('pointercancel', this._navPtrUp, true);
+          } catch {}
+          this._navPtrMove = null; this._navPtrUp = null; this._navDragActive = false;
+          try { document.body.classList.remove('nav-dragging'); } catch {}
+          const d = this._navDrag;
+          const drop = (p && p.active) ? p.drop : null;
+          this._navClearHints(); this._navDrag = null; this._navPtr = null;
+          if (!d || !drop) return; // was a click (no move) or released over nothing droppable
+          this._navApplyDrop(d, drop);
+        },
+        // Which drop target sits under the pointer? Reads the data-nav* markers via elementFromPoint.
+        _navHitTest(x, y) {
+          this._navClearHints();
+          if (this._navPtr) this._navPtr.drop = null;
+          let el = null;
+          try { el = document.elementFromPoint(x, y); } catch {}
+          const t = (el && el.closest) ? el.closest('[data-navtarget]') : null;
+          if (!t) return;
+          const kind = t.getAttribute('data-navtarget');
+          if (kind === 'end') {
+            this._navDropEnd = true; this._navDropKey = null; this._navDropGroup = null;
+            if (this._navPtr) this._navPtr.drop = { targetKind: 'end' };
+            return;
+          }
+          if (kind === 'ghead' || kind === 'gempty') {
+            const gid = t.getAttribute('data-navgroup') || null;
+            this._navDropGroup = gid; this._navDropKey = null;
+            if (this._navPtr) this._navPtr.drop = { targetKind: kind, groupId: gid };
+            return;
+          }
+          if (kind === 'item') {
+            const key = t.getAttribute('data-navkey');
+            const groupId = t.getAttribute('data-navgroup') || null;
+            const intent = this._navPtrItemIntent(t, y, groupId);
+            this._navDropGroup = null;
+            this._navDropKey = intent === 'before' ? key : null;
+            this._navDropAfter = intent === 'after' ? key : null;
+            this._navDropOnto = intent === 'onto' ? key : null;
+            if (this._navPtr) this._navPtr.drop = { targetKind: 'item', key, groupId, intent };
+          }
+        },
+        // Row band → intent. Top → before, bottom → after, middle → combine into a group
+        // (combine only when dragging a top-level item onto another top-level item).
+        _navPtrItemIntent(el, y, groupId) {
           const canCombine = !groupId && this._navDrag && this._navDrag.kind === 'item';
           let f = 0.5;
-          try { const r = ev.currentTarget.getBoundingClientRect(); const h = r.height || 1; f = (ev.clientY - r.top) / h; } catch {}
+          try { const r = el.getBoundingClientRect(); const h = r.height || 1; f = (y - r.top) / h; } catch {}
           if (canCombine) {
             if (f < 0.25) return 'before';
             if (f > 0.75) return 'after';
@@ -35467,19 +35525,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return f < 0.5 ? 'before' : 'after';
         },
-        onNavItemDragOver(ev, key, groupId) {
-          try { ev.dataTransfer.dropEffect = 'move'; } catch {}
-          const intent = this._navItemDropIntent(ev, groupId);
-          this._navDropGroup = null;
-          this._navDropKey = intent === 'before' ? key : null;
-          this._navDropAfter = intent === 'after' ? key : null;
-          this._navDropOnto = intent === 'onto' ? key : null;
-        },
-        _navRowDragLeave(key) {
-          if (this._navDropKey === key) this._navDropKey = null;
-          if (this._navDropAfter === key) this._navDropAfter = null;
-          if (this._navDropOnto === key) this._navDropOnto = null;
-        },
+        _navClearHints() { this._navDropKey = null; this._navDropGroup = null; this._navDropEnd = false; this._navDropOnto = null; this._navDropAfter = null; },
         // Drag one item onto another top-level item → wrap both in a fresh group (dragged
         // item nested under the target). This is the drag-native replacement for "New group".
         _navCombineIntoGroup(order, targetKey, d) {
@@ -35493,59 +35539,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this._saveNavCustom();
           this.navStartRename(id, 'New group');
         },
-        // Drop onto/near an item row. groupId set → the row lives inside that group.
-        onNavItemDrop(ev, targetKey, groupId) {
-          const intent = this._navItemDropIntent(ev, groupId);
-          const d = this._navDrag; this._navClearHints(); this._navDrag = null;
-          if (!d) return;
+        // Apply a resolved drop. `drop` = { targetKind:'end'|'ghead'|'gempty'|'item', key?, groupId?, intent? }.
+        // Splice logic mirrors the former native onNavItemDrop / onNavGroupHeaderDrop / onNavEndDrop.
+        _navApplyDrop(d, drop) {
+          if (!d || !drop) return;
           const order = this._navOrder();
-          if (intent === 'onto' && !groupId && d.kind === 'item' && d.key !== targetKey) {
-            this._navCombineIntoGroup(order, targetKey, d);
+          if (drop.targetKind === 'end') {
+            const node = this._navDetachNode(order, d);
+            if (node) order.push(node);
+            this._saveNavCustom();
             return;
           }
-          const after = intent === 'after' ? 1 : 0;
-          const node = this._navDetachNode(order, d);
-          if (!node) { this._saveNavCustom(); return; }
-          if (node.t === 'group') {
-            // Groups can only live at the top level. Insert relative to the target's owner.
-            let idx = order.length;
-            if (groupId) { const gi = this._navFindGroupIdx(order, groupId); if (gi >= 0) idx = gi + after; }
-            else { const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey); if (ti >= 0) idx = ti + after; }
-            order.splice(idx, 0, node);
-          } else if (groupId) {
-            const g = order.find(n => n.t === 'group' && n.id === groupId);
-            if (g) { const ci = g.children.findIndex(c => c.key === targetKey); g.children.splice(ci < 0 ? g.children.length : ci + after, 0, node); }
-            else order.push(node);
-          } else {
-            const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey);
-            order.splice(ti < 0 ? order.length : ti + after, 0, node);
+          if (drop.targetKind === 'ghead' || drop.targetKind === 'gempty') {
+            const groupId = drop.groupId;
+            if (d.kind === 'group' && d.id === groupId) return; // no-op onto self
+            const node = this._navDetachNode(order, d);
+            if (!node) { this._saveNavCustom(); return; }
+            if (node.t === 'group') {
+              const gi = this._navFindGroupIdx(order, groupId);
+              order.splice(gi < 0 ? order.length : gi, 0, node);
+            } else {
+              const g = order.find(n => n.t === 'group' && n.id === groupId);
+              if (g) g.children.push(node); else order.push(node);
+            }
+            this._saveNavCustom();
+            return;
           }
-          this._saveNavCustom();
-        },
-        // Drop onto a group header: append item into the group, or reorder groups.
-        onNavGroupHeaderDrop(ev, groupId) {
-          const d = this._navDrag; this._navClearHints(); this._navDrag = null;
-          if (!d) return;
-          const order = this._navOrder();
-          if (d.kind === 'group' && d.id === groupId) return; // no-op onto self
-          const node = this._navDetachNode(order, d);
-          if (!node) { this._saveNavCustom(); return; }
-          if (node.t === 'group') {
-            const gi = this._navFindGroupIdx(order, groupId);
-            order.splice(gi < 0 ? order.length : gi, 0, node);
-          } else {
-            const g = order.find(n => n.t === 'group' && n.id === groupId);
-            if (g) g.children.push(node); else order.push(node);
+          if (drop.targetKind === 'item') {
+            const targetKey = drop.key;
+            const groupId = drop.groupId || null;
+            const intent = drop.intent || 'before';
+            if (intent === 'onto' && !groupId && d.kind === 'item' && d.key !== targetKey) {
+              this._navCombineIntoGroup(order, targetKey, d);
+              return;
+            }
+            const after = intent === 'after' ? 1 : 0;
+            const node = this._navDetachNode(order, d);
+            if (!node) { this._saveNavCustom(); return; }
+            if (node.t === 'group') {
+              // Groups can only live at the top level. Insert relative to the target's owner.
+              let idx = order.length;
+              if (groupId) { const gi = this._navFindGroupIdx(order, groupId); if (gi >= 0) idx = gi + after; }
+              else { const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey); if (ti >= 0) idx = ti + after; }
+              order.splice(idx, 0, node);
+            } else if (groupId) {
+              const g = order.find(n => n.t === 'group' && n.id === groupId);
+              if (g) { const ci = g.children.findIndex(c => c.key === targetKey); g.children.splice(ci < 0 ? g.children.length : ci + after, 0, node); }
+              else order.push(node);
+            } else {
+              const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey);
+              order.splice(ti < 0 ? order.length : ti + after, 0, node);
+            }
+            this._saveNavCustom();
           }
-          this._saveNavCustom();
-        },
-        onNavEndDrop(ev) {
-          const d = this._navDrag; this._navClearHints(); this._navDrag = null;
-          if (!d) return;
-          const order = this._navOrder();
-          const node = this._navDetachNode(order, d);
-          if (node) order.push(node);
-          this._saveNavCustom();
         },
         navNewGroup() {
           const order = this._navOrder();

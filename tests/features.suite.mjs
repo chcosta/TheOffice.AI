@@ -3557,28 +3557,46 @@ await t.test('epic objective health: LIVE data wiring — executable bindings, l
     'the probe result HTML distinguishes success from a failed fetch');
 });
 
-await t.test('custom sidebar nav: items are drag-reorderable + groupable (grip is a real drag handle)', () => {
+await t.test('custom sidebar nav: items are drag-reorderable + groupable (pointer-based, WebView2-safe)', () => {
   const html = readFileSync('public/app.html', 'utf8');
 
-  // (1) REGRESSION GUARD — each item row's <a class="nav-link" draggable="false"> covers the
-  // whole row, so WebView2/Chromium swallows a drag started on the label. The GRIP (not the row)
-  // must be its own draggable source wired to onNavItemDragStart, matching the working group grip.
-  const gripStarts = (html.match(/class="cnav-grip" draggable="true" @dragstart\.stop="onNavItemDragStart\(/g) || []).length;
-  t.ok(gripStarts >= 2, 'both the top-level and grouped item grips are draggable handles wired to onNavItemDragStart');
+  // (1) ROOT-CAUSE GUARD — HTML5 native drag-and-drop does not reliably initiate inside WebView2,
+  // so the grips must be POINTER-driven handles (@pointerdown → onNavGripDown), NOT native
+  // draggable="true"/@dragstart sources. Both the top-level and grouped item grips + the group grip.
+  const gripDowns = (html.match(/class="cnav-grip"[^>]*@pointerdown[^>]*="onNavGripDown\(/g) || []).length;
+  t.ok(gripDowns >= 3, 'item + group grips are pointer handles wired to onNavGripDown');
 
-  // (2) The grip is discoverable (not opacity:0) so the drag handle can actually be found.
+  // (2) No stale native-DnD wiring survives on the nav (the prior failed fix).
+  t.ok(!/onNavItemDragStart|onNavGroupDragStart|onNavItemDragOver|onNavItemDrop\(|onNavGroupHeaderDrop|onNavEndDrop\(/.test(
+    html.replace(/former native onNavItemDrop \/ onNavGroupHeaderDrop \/ onNavEndDrop/, '')),
+    'no stale native drag-and-drop handlers remain on the sidebar nav');
+  t.ok(!/data-navtarget="item"[^>]*draggable="true"/.test(html), 'item rows are no longer native draggable sources');
+
+  // (3) Rows/headers/zones carry data-navtarget hit-test markers the pointer path resolves via elementFromPoint.
+  t.ok(/data-navtarget="item"/.test(html) && /data-navtarget="ghead"/.test(html)
+    && /data-navtarget="gempty"/.test(html) && /data-navtarget="end"/.test(html),
+    'nav rows/headers/empty-group/end zones expose data-navtarget hit-test markers');
+
+  // (4) The pointer drag core is present: move/up/hit-test/apply-drop.
+  t.ok(/_onNavPointerMove\(/.test(html) && /_onNavPointerUp\(/.test(html)
+    && /_navHitTest\(/.test(html) && /_navApplyDrop\(/.test(html),
+    'pointer drag core methods present (move/up/hit-test/apply-drop)');
+
+  // (5) The grip is discoverable (not opacity:0) so the drag handle can actually be found.
   t.ok(/\.cnav-grip \{[^}]*opacity: \.22/.test(html), 'the grip has a faint always-visible baseline (discoverable)');
 
-  // (3) Rows still accept dragover + drop to reorder.
-  t.ok(/@dragover\.prevent="onNavItemDragOver\(/.test(html) && /@drop\.prevent\.stop="onNavItemDrop\(/.test(html),
-    'item rows accept dragover + drop to reorder');
-
-  // (4) Dropping one item ONTO another combines them into a fresh group (drag-native grouping).
-  const drop = _win(html, 'onNavItemDrop(ev, targetKey, groupId) {', 900) || '';
+  // (6) Dropping one item ONTO another still combines them into a fresh group.
+  const drop = _win(html, '_navApplyDrop(d, drop) {', 1600) || '';
   t.ok(/intent === 'onto'[\s\S]*_navCombineIntoGroup/.test(drop),
     'dropping one item onto another combines them into a new group');
-  const intent = _win(html, '_navItemDropIntent(ev, groupId) {', 600) || '';
-  t.ok(/return 'onto'/.test(intent), 'the middle band of an item row expresses a group (onto) intent');
+
+  // (7) The item-row intent still has a middle (onto) band expressing a group intent.
+  const intent = _win(html, '_navPtrItemIntent(', 700) || '';
+  t.ok(/return 'onto'/.test(intent) || /intent: 'onto'/.test(intent) || /'onto'/.test(intent),
+    'the middle band of an item row expresses a group (onto) intent');
+
+  // (8) Active drag paints a body class so the cursor/selection behave (grabbing).
+  t.ok(/nav-dragging/.test(html), 'active drag toggles a body.nav-dragging class');
 });
 
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {
