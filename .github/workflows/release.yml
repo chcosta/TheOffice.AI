@@ -75,6 +75,19 @@ jobs:
         shell: bash
         run: node desktop/scripts/set-version.mjs "${{ steps.ver.outputs.version }}"
 
+      # Generate the What's-new entry now (before the desktop prebuild re-runs it
+      # idempotently) and capture a Markdown rendering for the GitHub release body,
+      # so the in-app "What's included" view shows real, per-build notes.
+      - name: Generate release notes
+        shell: bash
+        run: |
+          node scripts/generate-release-notes.mjs \
+            --version "${{ steps.ver.outputs.version }}" \
+            --body-out release-notes.md || true
+          if [ ! -s release-notes.md ]; then
+            printf '## TheOffice.AI %s\n\nMaintenance build.\n' "${{ steps.ver.outputs.tag }}" > release-notes.md
+          fi
+
       - name: Build installer
         working-directory: desktop
         run: npm run build
@@ -114,6 +127,24 @@ jobs:
             echo "No delta produced (first release or no diff) — installer only."
           fi
 
+      - name: Assemble release body
+        shell: bash
+        run: |
+          cp release-notes.md release-body-final.md
+          cat >> release-body-final.md <<EOF
+
+          ---
+          Automated **preview** build from \`main\` @ ${{ github.sha }}.
+
+          - **Installer:** \`${{ steps.art.outputs.name }}\`
+          - **SHA-256:** \`${{ steps.art.outputs.sha256 }}\`
+
+          Per-user install (no admin required). Download the \`*-setup.exe\` asset
+          below and run it. See the
+          [README](https://github.com/chcosta/TheOffice.AI#-download-windows-desktop)
+          for details.
+          EOF
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -135,13 +166,4 @@ jobs:
             ${{ steps.delta.outputs.manifest }}
             ${{ steps.delta.outputs.delta }}
             ${{ steps.delta.outputs.deltasha }}
-          body: |
-            Automated **preview** build from `main` @ ${{ github.sha }}.
-
-            - **Installer:** `${{ steps.art.outputs.name }}`
-            - **SHA-256:** `${{ steps.art.outputs.sha256 }}`
-
-            Per-user install (no admin required). Download the `*-setup.exe` asset
-            below and run it. See the
-            [README](https://github.com/chcosta/TheOffice.AI#-download-windows-desktop)
-            for details.
+          body_path: release-body-final.md

@@ -7369,6 +7369,9 @@
                       :title="'A new version (v' + update.latest + ') is available'"
                       x-text="update.busy ? 'Preparing…' : ('↑ Update to v' + update.latest)"></button>
             </template>
+            <template x-if="update.supported && update.available && (update.phase === 'idle' || update.phase === 'error') && !update.dismissed && updatePendingEntries().length">
+              <a href="#" class="svc-logs-link" @click.prevent="openUpdateNotes()" title="See what's included in this update">What's included</a>
+            </template>
             <template x-if="update.supported && (update.phase === 'downloading' || update.phase === 'verifying' || update.phase === 'ready')">
               <div class="sidebar-update-note" :class="update.phase === 'ready' ? 'is-ready' : ''" x-text="updateStatusText()"></div>
             </template>
@@ -28934,6 +28937,7 @@
                   <template x-if="update.supported">
                     <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end">
                       <span x-show="update.checked && !update.available && !update.checking" style="color:var(--cp-success);font-size:0.85rem">✓ Up to date</span>
+                      <a href="#" x-show="update.available && !update.checking && updatePendingEntries().length" @click.prevent="openUpdateNotes()" style="font-size:0.85rem">See what's included</a>
                       <a href="#" x-show="update.available && !update.checking" @click.prevent="downloadUpdate()" x-text="'Update to v' + update.latest + ' →'"></a>
                       <button type="button" class="btn ghost" @click="checkForUpdatesFromAbout()" :disabled="update.checking || update.busy || (update.phase && update.phase !== 'idle' && update.phase !== 'error')" x-text="update.checking ? 'Checking…' : 'Check for updates'"></button>
                     </span>
@@ -28943,6 +28947,7 @@
                   </template>
                 </span>
               </div>
+              <div class="help-row" style="margin-top:10px" x-show="update.lastApplied"><strong>Last update applied</strong><span x-text="lastAppliedLabel()"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Process</strong><span x-text="data.version?.pid ? 'PID ' + data.version.pid : 'Unknown'"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Started</strong><span x-text="data.version?.startedAt ? formatDateTime(data.version.startedAt) : 'Unknown'"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Realtime</strong><span x-text="sseStatusLabel()"></span></div>
@@ -30662,6 +30667,34 @@
     </div>
   </div>
 
+  <!-- "What's included in the next update" — forward-looking release notes for the
+       pending update(s) (releases newer than what's installed). Desktop-only. -->
+  <div class="modal-backdrop modal-overlay" x-show="update.notesOpen" x-transition.opacity @click.self="update.notesOpen = false" style="z-index:10000" x-cloak>
+    <div class="modal-card" style="max-width:620px">
+      <div class="modal-header">
+        <h2 class="modal-title">⬆️ What's in the next update</h2>
+        <button class="icon-button" type="button" @click="update.notesOpen = false">✕</button>
+      </div>
+      <div style="padding:0 20px 20px;max-height:70vh;overflow:auto">
+        <div class="hint" style="padding:8px 0 4px" x-text="'Updating from v' + (update.current || versionLabel()) + ' to v' + update.latest + '.'"></div>
+        <div class="empty-state" x-show="!updatePendingEntries().length">Release notes aren't available for this update.</div>
+        <template x-for="(e, ei) in updatePendingEntries()" :key="(e.version || '') + ':' + ei">
+          <div style="padding:16px 0;border-bottom:1px solid var(--cp-border)">
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+              <span style="font-weight:700;font-size:1.05rem" x-text="'Version ' + (e.version || '')"></span>
+              <span x-show="e.publishedAt" style="opacity:.5;font-size:.78rem" x-text="(e.publishedAt || '').slice(0, 10)"></span>
+            </div>
+            <div class="md-output" style="margin-top:8px;line-height:1.55" x-html="renderMarkdown(e.notes || '_No release notes were published for this version._')"></div>
+          </div>
+        </template>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
+          <button class="btn ghost" type="button" @click="update.notesOpen = false">Close</button>
+          <button class="btn primary" type="button" x-show="update.available" @click="update.notesOpen = false; downloadUpdate()" x-text="'Update to v' + update.latest"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Feedback Modal -->
   <div class="modal-backdrop modal-overlay" x-show="feedback.open && !feedback.capturing" x-transition.opacity @click.self="feedback.submitting || (feedback.open = false)" style="z-index:10000" x-cloak>
     <div class="modal-card" style="max-width:460px">
@@ -31677,7 +31710,7 @@
         restarting: false,
         // In-app self-updater state (desktop build only). `supported` gates the
         // whole UI so browser/LAN builds never show update chrome.
-        update: { supported: false, checked: false, checking: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '' },
+        update: { supported: false, checked: false, checking: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '', notes: '', publishedAt: '', pending: [], notesOpen: false, lastApplied: null },
         updateConfirmOpen: false,
         _whatsNewChecked: false,
         // "What's new" release-notes dialog. Populated from /api/whats-new; shown
@@ -70107,6 +70140,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.update.latest = r.latest || '';
             this.update.current = r.current || '';
             this.update.deltaAvailable = !!r.deltaAvailable;
+            this.update.notes = r.notes || '';
+            this.update.publishedAt = r.publishedAt || '';
+            this.update.pending = Array.isArray(r.pending) ? r.pending : [];
             // If a download is already staged/in-flight, reflect it.
             await this.pollUpdateStatus();
           } catch { /* leave state as-is */ }
@@ -70129,6 +70165,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.update.checking = false;
           }
+        },
+        // Forward-looking changelog for the pending update(s): the releases newer
+        // than what's installed. Falls back to a single synthesized entry from the
+        // latest release's notes when the per-release list isn't available.
+        updatePendingEntries() {
+          const list = Array.isArray(this.update.pending) ? this.update.pending : [];
+          if (list.length) return list;
+          if (this.update.available && this.update.notes) {
+            return [{ version: this.update.latest, notes: this.update.notes, publishedAt: this.update.publishedAt }];
+          }
+          return [];
+        },
+        openUpdateNotes() {
+          if (!this.updatePendingEntries().length) return;
+          this.update.notesOpen = true;
         },
         async downloadUpdate() {
           if (!this.update.supported || !this.update.available) return;
@@ -70171,6 +70222,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.update.error = s.error || '';
             if (typeof s.delta === 'boolean') this.update.delta = s.delta;
             if (s.applyOn) this.update.applyOn = s.applyOn;
+            if ('lastApplied' in s) this.update.lastApplied = s.lastApplied || null;
             if (s.phase === 'downloading' || s.phase === 'verifying') {
               this._startUpdatePolling();
             } else {
@@ -70196,6 +70248,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (u.phase === 'error') return `Update failed: ${u.error || 'unknown error'}`;
           return '';
+        },
+        lastAppliedLabel() {
+          const la = this.update.lastApplied;
+          if (!la || !la.version) return '';
+          let when = '';
+          try { if (la.at) when = this.formatDateTime(la.at); } catch { when = ''; }
+          return `v${la.version}` + (when ? ` — ${when}` : '');
         },
 
         sseStatusLabel() {

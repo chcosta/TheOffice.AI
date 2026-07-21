@@ -3442,4 +3442,34 @@ await t.test('boot splash reel + About check-for-updates (client + server)', () 
   t.ok(/checking:\s*false/.test(html), 'update state carries a checking flag');
 });
 
+await t.test('updater: last-applied verifiable signal (server + client + parser)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  const upd = readFileSync('updater.js', 'utf8');
+
+  // (A) updater.lastApplied() parses the apply-update.log format, desktop-only, last match.
+  t.ok(/function lastApplied\(\)/.test(upd), 'updater.lastApplied() defined');
+  const la = _win(upd, 'function lastApplied()', 700) || '';
+  t.ok(/isDesktop\(\)/.test(la), 'lastApplied is desktop-only guarded');
+  t.ok(/apply-update\.log/.test(la), 'lastApplied reads apply-update.log');
+  t.ok(/applied server update ->/.test(la), 'lastApplied regex anchors on the log line format');
+  t.ok(/keep the LAST match|match = m/.test(la), 'lastApplied keeps the last (most recent) match');
+  t.ok(/lastApplied,/.test(upd), 'updater exports lastApplied');
+
+  // (B) /api/update/status returns lastApplied.
+  const route = _win(srv, "app.get('/api/update/status'", 260) || '';
+  t.ok(/lastApplied:\s*updater\.lastApplied\(\)/.test(route), 'status route returns updater.lastApplied()');
+
+  // (C) pollUpdateStatus stores update.lastApplied; state default present.
+  const poll = _win(html, 'async pollUpdateStatus()', 700) || '';
+  t.ok(/'lastApplied' in s/.test(poll) && /this\.update\.lastApplied\s*=/.test(poll), 'pollUpdateStatus stores lastApplied');
+  t.ok(/lastApplied:\s*null/.test(html), 'update state carries a lastApplied default');
+
+  // (D) About row + label helper (desktop-only via x-show).
+  t.ok(/x-show="update\.lastApplied"/.test(html), 'About row shown only when lastApplied present');
+  t.ok(/lastAppliedLabel\(\)/.test(html), 'About row renders lastAppliedLabel()');
+  const lbl = _win(html, 'lastAppliedLabel() {', 400) || '';
+  t.ok(/la\.version/.test(lbl) && /formatDateTime/.test(lbl), 'lastAppliedLabel formats version + date');
+});
+
 await t.done();

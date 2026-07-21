@@ -20,6 +20,9 @@
 //   node scripts/generate-release-notes.mjs --version 1.2.3 # override version
 //   node scripts/generate-release-notes.mjs --since v1.0.3  # override git range
 //   node scripts/generate-release-notes.mjs --dry-run       # print, don't write
+//   node scripts/generate-release-notes.mjs --version 1.2.3 --body-out b.md
+//                                                           # also write a Markdown
+//                                                           # rendering (CI release body)
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -86,29 +89,37 @@ if (existing && ((Array.isArray(existing.highlights) && existing.highlights.leng
 }
 
 // ---- determine commit range -------------------------------------------------
-// Prefer the tag matching the most recent *other* entry's version, then the most
-// recent tag reachable from HEAD (excluding HEAD itself), then a bounded window.
+// Prefer the previous release tag reachable from HEAD (excluding HEAD itself),
+// then the tag matching the most recent *other* whats-new.json entry, then a
+// bounded window.
 function resolveTag(v) {
   if (!v) return '';
   for (const cand of [`v${v}`, v]) {
-    if (gitSafe(`rev-parse --verify --quiet ${cand}^{commit}`)) return cand;
+    if (gitSafe(`rev-list -n1 ${cand}`)) return cand;
   }
   return '';
 }
 let since = String(argVal('--since') || '').trim();
+// Prefer the most recent release tag that is an ancestor of HEAD but is not HEAD
+// itself — i.e. the PREVIOUS release. Each build's notes then cover only what
+// changed since that release (the tight per-build delta the user expects), not a
+// rollup across many builds. whats-new.json is NOT committed back per build, so
+// its newest entry lags many releases behind and must never drive the range.
+if (!since) {
+  const headSha = gitSafe('rev-parse HEAD');
+  const tags = gitSafe('tag --sort=-creatordate').split(/\r?\n/).filter(Boolean);
+  for (const t of tags) {
+    const sha = gitSafe(`rev-list -n1 ${t}`);
+    if (sha && sha !== headSha && gitSafe(`merge-base --is-ancestor ${t} HEAD && echo ok`) === 'ok') { since = t; break; }
+  }
+}
+// Fallback (e.g. tags not fetched): the tag matching the most recent *other*
+// whats-new.json entry, then a bounded window for a genuine first release.
 if (!since) {
   const priorEntry = doc.entries
     .filter(e => e && e.version && e.version !== version)
     .sort((a, b) => cmpVer(b.version, a.version))[0];
   if (priorEntry) since = resolveTag(priorEntry.version);
-}
-if (!since) {
-  const headSha = gitSafe('rev-parse HEAD');
-  const tags = gitSafe('tag --sort=-creatordate').split(/\r?\n/).filter(Boolean);
-  for (const t of tags) {
-    const sha = gitSafe(`rev-parse ${t}^{commit}`);
-    if (sha && sha !== headSha && gitSafe(`merge-base --is-ancestor ${t} HEAD && echo ok`) === 'ok') { since = t; break; }
-  }
 }
 const range = since ? `${since}..HEAD` : '-30';
 log(`version=${version}  range=${range}`);
@@ -171,7 +182,11 @@ const nNew = (groups.get('New') || []).length;
 const nFix = (groups.get('Fixes') || []).length;
 const nImp = (groups.get('Improvements') || []).length + (groups.get('Performance') || []).length;
 
-function plural(n, w) { return `${n} ${w}${n === 1 ? '' : 's'}`; }
+function plural(n, w) {
+  // Proper English plural for the summary words (fix -> fixes, not "fixs").
+  const p = /(?:x|s|z|sh|ch)$/i.test(w) ? `${w}es` : `${w}s`;
+  return `${n} ${n === 1 ? w : p}`;
+}
 function listJoin(arr) {
   if (arr.length <= 1) return arr.join('');
   if (arr.length === 2) return `${arr[0]} and ${arr[1]}`;
@@ -219,6 +234,25 @@ if (orderedCats.length) {
 
 const date = gitSafe('log -1 --format=%cs') || new Date().toISOString().slice(0, 10);
 const entry = { version, date, title, summary, highlights, details };
+
+// ---- optional: emit a Markdown rendering of this entry ----------------------
+// CI passes --body-out so the generated notes populate the GitHub release body.
+// updater.checkForUpdate() reads that body, so the in-app "What's included in
+// the next update" view then shows real notes instead of a static template.
+const bodyOut = String(argVal('--body-out') || '').trim();
+if (bodyOut) {
+  const md = [`## ${title}`, ''];
+  if (summary) md.push(summary, '');
+  for (const g of details) {
+    md.push(`### ${g.heading}`);
+    for (const it of g.items) md.push(`- ${it}`);
+    md.push('');
+  }
+  if (!details.length) for (const h of highlights) md.push(`- ${h}`);
+  const text = md.join('\n').trim() + '\n';
+  if (DRY) { log(`--body-out (dry) ${bodyOut}:`); console.log(text); }
+  else { writeFileSync(bodyOut, text); log(`wrote release body markdown -> ${bodyOut}`); }
+}
 
 // ---- write ------------------------------------------------------------------
 // Replace any pre-existing (empty) placeholder for this version, then sort

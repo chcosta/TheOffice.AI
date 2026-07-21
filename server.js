@@ -6506,7 +6506,7 @@ app.post('/api/update/download', async (req, res) => {
 
 app.get('/api/update/status', (req, res) => {
   if (!updater.isDesktop()) return res.json({ supported: false });
-  res.json({ supported: true, ...updater.status() });
+  res.json({ supported: true, ...updater.status(), lastApplied: updater.lastApplied() });
 });
 
 app.post('/api/update/cancel', (req, res) => {

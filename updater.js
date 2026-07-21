@@ -148,6 +148,7 @@ async function checkForUpdate(currentVersion, opts = {}) {
 
   const releases = await fetchJson(`https://api.github.com/repos/${REPO}/releases?per_page=30`);
   let best = null; // { version, tag, asset, shaAsset, notes, publishedAt, delta* }
+  const pending = []; // every installable release newer than `current`, for a "what's included" view
   for (const rel of Array.isArray(releases) ? releases : []) {
     if (rel.draft) continue;
     const tag = rel.tag_name || rel.name || '';
@@ -158,6 +159,16 @@ async function checkForUpdate(currentVersion, opts = {}) {
     const sha = assets.find(a => a.name === `${setup.name}.sha256`)
       || assets.find(a => /-setup\.exe\.sha256$/i.test(a.name || ''));
     const version = String(tag).replace(/^v/i, '');
+    // Forward-looking changelog: releases strictly newer than what's installed.
+    if (current && parseSemver(current) && compareSemver(version, current) > 0) {
+      pending.push({
+        version,
+        tag,
+        name: rel.name || tag,
+        notes: rel.body || '',
+        publishedAt: rel.published_at || '',
+      });
+    }
     if (!best || compareSemver(version, best.version) > 0) {
       // Optional delta asset, named `server-delta-<base>__<target>.zip`.
       let deltaBase = '', deltaUrl = '', deltaShaUrl = '';
@@ -196,6 +207,8 @@ async function checkForUpdate(currentVersion, opts = {}) {
   }
 
   const updateAvailable = !!(best && current && parseSemver(current) && compareSemver(best.version, current) > 0);
+  // Newest-first, and never hand back an unbounded list.
+  pending.sort((a, b) => compareSemver(b.version, a.version));
   const result = {
     supported: true,
     current,
@@ -205,6 +218,7 @@ async function checkForUpdate(currentVersion, opts = {}) {
     deltaAvailable: !!(best && best.canDelta),
     notes: best ? best.notes : '',
     publishedAt: best ? best.publishedAt : '',
+    pending: pending.slice(0, 25),
     _best: best, // internal: consumed by startDownload
   };
   _checkCache = { at: now, current, result };
@@ -491,6 +505,34 @@ function cancel() {
   return { ok: true };
 }
 
+// Read the last in-place delta application recorded by apply-update.js. This is
+// the verifiable signal that the sidecar code actually updated (delta updates
+// apply silently on launch with no installer dialog by design). Returns
+// { version, at, files, deleted } for the most recent apply, or null if nothing
+// has been applied (or we're not in the desktop sidecar).
+function lastApplied() {
+  if (!isDesktop()) return null;
+  let text;
+  try {
+    text = fs.readFileSync(path.join(BASE_DIR, 'apply-update.log'), 'utf-8');
+  } catch { return null; }
+  // Lines look like:
+  //   [2026-07-12T18:04:11.220Z] applied server update -> 1.0.5-preview.637 (12 files, 1 deleted)
+  const re = /^\[([^\]]+)\]\s+applied server update -> (\S+)(?:\s+\((\d+) files,\s*(\d+) deleted\))?/;
+  let match = null;
+  for (const line of text.split(/\r?\n/)) {
+    const m = re.exec(line.trim());
+    if (m) match = m; // keep the LAST match (chronological log, appended)
+  }
+  if (!match) return null;
+  return {
+    version: String(match[2]).replace(/^v/i, ''),
+    at: match[1] || '',
+    files: match[3] != null ? Number(match[3]) : null,
+    deleted: match[4] != null ? Number(match[4]) : null,
+  };
+}
+
 module.exports = {
   isDesktop,
   compareSemver,
@@ -498,6 +540,7 @@ module.exports = {
   startDownload,
   status,
   cancel,
+  lastApplied,
   MARKER_PATH,
   SERVER_MARKER_PATH,
   UPDATE_DIR,
