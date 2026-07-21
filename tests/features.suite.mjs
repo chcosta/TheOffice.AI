@@ -3633,8 +3633,15 @@ await t.test('desktop native-DnD → pointer bridge (WebView2-safe drag everywhe
   t.ok(/const allow = fire\(target, 'dragover'[\s\S]*if \(allow\) fire\(target, 'drop'/.test(html),
     'drop only fires on a zone whose dragover was cancelled');
 
-  // (6) It suppresses the click that follows a real drag (cards don't "open" after a move).
-  t.ok(/swallowNextClick\(\)/.test(html), 'a completed drag swallows the trailing click');
+  // (6) It suppresses ONLY the same-gesture click that follows a real drag (cards don't
+  // "open" after a move), and can never eat an unrelated later click — a fresh pointerdown
+  // clears the flag, so a button pressed after a drag still clicks.
+  t.ok(/dragJustEnded = true;\s*\/\/ suppress ONLY the same-gesture click/.test(html),
+    'a completed drag arms same-gesture click suppression');
+  t.ok(/if \(dragJustEnded\) \{ dragJustEnded = false; ev\.stopPropagation\(\); ev\.preventDefault\(\); \}/.test(html),
+    'the capture click listener swallows only a still-armed same-gesture click');
+  t.ok(/if \(!inDesktop\(\)\) return;\s*\/\/ browser: leave native DnD alone\s*dragJustEnded = false;/.test(html),
+    'a fresh pointerdown clears the suppression so later clicks (e.g. a button) are never eaten');
 });
 
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {

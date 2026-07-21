@@ -73006,6 +73006,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
       let startX = 0, startY = 0, grabX = 0, grabY = 0;
       let active = false, dt = null, overEl = null;
       let ghost = null, ghostImg = null;
+      let dragJustEnded = false;
 
       function inDesktop() {
         try { return !!window.__DESKTOP__ || !!(window.__TAURI__ || window.__TAURI_INTERNALS__); } catch (e) { return false; }
@@ -73088,6 +73089,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
       function onDown(e) {
         if (!inDesktop()) return;                        // browser: leave native DnD alone
+        dragJustEnded = false;                           // fresh gesture → its click is legitimate
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         if (e.target && e.target.closest && e.target.closest(INTERACTIVE)) return;
         const el = draggableAt(e.target);
@@ -73147,7 +73149,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (allow) fire(target, 'drop', x, y);
           }
           if (src) fire(src, 'dragend', x, y);
-          swallowNextClick();
+          dragJustEnded = true;   // suppress ONLY the same-gesture click (see below)
         }
         reset();
       }
@@ -73157,12 +73159,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         reset();
       }
 
-      // A real drag must not also register as a click (e.g. open the card).
-      function swallowNextClick() {
-        const kill = function (ev) { ev.stopPropagation(); ev.preventDefault(); window.removeEventListener('click', kill, true); };
-        window.addEventListener('click', kill, true);
-        setTimeout(function () { window.removeEventListener('click', kill, true); }, 350);
-      }
+      // A real drag must not also register as a click (e.g. open the card). But the
+      // suppression must be surgically scoped so it can NEVER eat an unrelated click
+      // (e.g. a button pressed shortly after a drag): a fresh gesture's own pointerdown
+      // clears the flag, so only the immediate same-gesture click — which arrives with
+      // no intervening pointerdown — is swallowed.
+      window.addEventListener('click', function (ev) {
+        if (dragJustEnded) { dragJustEnded = false; ev.stopPropagation(); ev.preventDefault(); }
+      }, true);
 
       window.addEventListener('pointerdown', onDown, true);
     })();
