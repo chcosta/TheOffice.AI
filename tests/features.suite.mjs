@@ -3282,6 +3282,43 @@ await t.test('epic Objective Health assistant: SSE-streamed chat that analyzes +
     'monOhChatSend posts to the assist route + re-caches the epic-side snapshot on edits');
 });
 
+await t.test('updates inventory: atomic agents.json writes + resilient inventory read (no false empty)', () => {
+  const src = readFileSync('server.js', 'utf8');
+
+  // (1) Atomic writer exists and writes via a temp file + rename (never truncates in place).
+  const writer = _win(src, 'function writeAgentsFile(', 500) || '';
+  t.ok(writer, 'writeAgentsFile helper defined');
+  t.ok(/AGENTS_PATH \+ '\.' \+ process\.pid \+ '\.tmp'/.test(writer), 'writeAgentsFile writes to a per-process temp file');
+  t.ok(/fs\.writeFileSync\(tmp,/.test(writer) && /fs\.renameSync\(tmp, AGENTS_PATH\)/.test(writer),
+    'writeAgentsFile renames the temp file over the target (atomic, no truncation window)');
+
+  // (2) Resilient async reader retries on an empty/partial file, returns [] only for a real ENOENT.
+  const reader = _win(src, 'async function readAgentsFileAsync(', 600) || '';
+  t.ok(reader, 'readAgentsFileAsync helper defined');
+  t.ok(/for \(let i = 0; i < 5; i\+\+\)/.test(reader), 'readAgentsFileAsync retries several times');
+  t.ok(/setTimeout\(r, 40\)/.test(reader), 'readAgentsFileAsync backs off between retries');
+  t.ok(/code === 'ENOENT'/.test(reader), 'readAgentsFileAsync only maps a genuine ENOENT to []');
+  const parse = _win(src, 'function _parseAgents(', 400) || '';
+  t.ok(/if \(!trimmed\) throw/.test(parse), '_parseAgents treats an empty (mid-write) file as a retryable error, not an empty inventory');
+
+  // (3) The init reset routes through the atomic writer.
+  t.ok(/if \(!fs\.existsSync\(AGENTS_PATH\)\) \{\s*writeAgentsFile\(\[\]\);/.test(src),
+    'the agents.json init reset uses the atomic writer');
+
+  // (4) No raw truncating writes to AGENTS_PATH remain anywhere.
+  t.ok(!/fs\.writeFileSync\(AGENTS_PATH,/.test(src),
+    'no remaining raw fs.writeFileSync(AGENTS_PATH, ...) truncating writes');
+
+  // (5) saveAgents persists through the atomic writer.
+  const save = _win(src, 'function saveAgents(', 200) || '';
+  t.ok(/writeAgentsFile\(agents\)/.test(save), 'saveAgents writes atomically');
+
+  // (6) The inventory endpoint is async and reads resiliently (so a transient empty read is retried, not reported as empty).
+  const inv = _win(src, "app.get('/api/updates/inventory'", 300) || '';
+  t.ok(/async \(req, res\)/.test(inv), 'inventory endpoint is async');
+  t.ok(/await readAgentsFileAsync\(\)/.test(inv), 'inventory endpoint uses the resilient async reader');
+});
+
 await t.test('review-footer removed + todo carry-over honors tombstones + quick-launch remove + epic trend hint', () => {
   const srv = readFileSync(SERVER, 'utf8');
   const html = readFileSync(APP_HTML, 'utf8');

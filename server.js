@@ -90,6 +90,55 @@ const INSIGHTS_PATH = dataPath('insights.json');
 const CODEFLOW_PATH = dataPath('codeflow-repos.json');
 const CODEFLOW_WT_PATH = dataPath('codeflow-worktrees.json');
 
+// ---- Atomic + resilient agents.json IO ----
+// agents.json is user-global (shared by the desktop sidecar AND a dev server, and
+// re-read by many routes + an fs.watch). A plain writeFileSync truncates the file
+// to zero bytes before streaming the new content, so any reader landing mid-write
+// observes an empty/partial file — which the Updates inventory then reports as
+// "No installed agents or plugins found". Write to a temp file and rename over the
+// target (rename is atomic on same-volume writes) so readers only ever see a
+// complete old-or-new file, and read with a short retry so a read that races a
+// rename is retried instead of surfacing as an empty inventory.
+function writeAgentsFile(agents) {
+  const data = JSON.stringify(Array.isArray(agents) ? agents : [], null, 2);
+  const tmp = AGENTS_PATH + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, AGENTS_PATH);
+}
+function _parseAgents(raw) {
+  const trimmed = String(raw == null ? '' : raw).trim();
+  if (!trimmed) throw new Error('agents.json is empty (mid-write)');
+  const parsed = JSON.parse(trimmed);
+  if (!Array.isArray(parsed)) throw new Error('agents.json is not an array');
+  return parsed;
+}
+function readAgentsFileSync() {
+  let lastErr = null;
+  for (let i = 0; i < 5; i++) {
+    try { return _parseAgents(fs.readFileSync(AGENTS_PATH, 'utf-8')); }
+    catch (e) {
+      lastErr = e;
+      if (e && e.code === 'ENOENT' && i >= 1) return [];
+      const until = Date.now() + 40; while (Date.now() < until) { /* brief backoff */ }
+    }
+  }
+  if (lastErr && lastErr.code === 'ENOENT') return [];
+  throw lastErr || new Error('failed to read agents.json');
+}
+async function readAgentsFileAsync() {
+  let lastErr = null;
+  for (let i = 0; i < 5; i++) {
+    try { return _parseAgents(await fs.promises.readFile(AGENTS_PATH, 'utf-8')); }
+    catch (e) {
+      lastErr = e;
+      if (e && e.code === 'ENOENT' && i >= 1) return [];
+      await new Promise(r => setTimeout(r, 40));
+    }
+  }
+  if (lastErr && lastErr.code === 'ENOENT') return [];
+  throw lastErr || new Error('failed to read agents.json');
+}
+
 // Ensure tasks.json exists
 if (!fs.existsSync(TASKS_PATH)) {
   fs.writeFileSync(TASKS_PATH, '[]');
@@ -98,7 +147,7 @@ if (!fs.existsSync(TASKS_PATH)) {
 // Ensure agents.json exists (it no longer ships in the repo — it is per-user
 // runtime data under the profile dir). loadAgents()/fs.watch read it unguarded.
 if (!fs.existsSync(AGENTS_PATH)) {
-  fs.writeFileSync(AGENTS_PATH, '[]');
+  writeAgentsFile([]);
 }
 
 // One-time migration: "Organizations" were renamed to "Teams". Rename the data
@@ -1303,7 +1352,7 @@ setInterval(() => eventListener.cleanupIdleSessions(), 60000);
 
 // Load agent configs
 function loadAgents() {
-  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const agents = readAgentsFileSync();
   // Normalize any pluginDir still pointing at the legacy in-repo plugins/ folder
   // to the relocated runtime store. Persist once so the scan/paths stay clean.
   const legacyPluginsDir = path.join(__dirname, 'plugins');
@@ -1315,7 +1364,7 @@ function loadAgents() {
     }
   }
   if (normalized) {
-    try { fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2)); } catch {}
+    try { writeAgentsFile(agents); } catch {}
   }
   agents.forEach(agent => supervisor.register(agent));
   supervisor.pruneOrphans(agents.map(a => a.id));
@@ -1325,7 +1374,7 @@ function loadAgents() {
 // Persist the agents array to disk (pure writer — no re-register side effects,
 // unlike loadAgents which registers every agent on read).
 function saveAgents(agents) {
-  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  writeAgentsFile(agents);
 }
 
 loadAgents();
@@ -2147,7 +2196,7 @@ async function installForgeItem({ provider, org, project, repo, branch, item, gr
   }
   const existing = agents.findIndex(a => a.id === config.id);
   if (existing >= 0) agents[existing] = config; else agents.push(config);
-  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  writeAgentsFile(agents);
   supervisor.register(config);
   broadcastSSE('agent-update', { agentId: config.id });
   return config;
@@ -5713,7 +5762,7 @@ function installLocalCatalogEntry(entry, group) {
   }
   const existing = agents.findIndex(a => a.id === config.id);
   if (existing >= 0) agents[existing] = config; else agents.push(config);
-  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  writeAgentsFile(agents);
   supervisor.register(config);
   broadcastSSE('agent-update', { agentId: config.id });
   return config;
@@ -6086,7 +6135,7 @@ app.post('/api/marketplace/design/apply', async (req, res) => {
     const { config, id: agentId } = await buildProposalConfig(proposal, { persist: true });
     const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
     agents.push(config);
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
     supervisor.register(config);
 
     const { attached, failed } = await attachCapsToAgent(agentId, proposal.attach);
@@ -7014,7 +7063,7 @@ app.put('/api/agents/:id/group', (req, res) => {
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   agent.group = group || undefined;
   if (!group) delete agent.group;
-  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  writeAgentsFile(agents);
   // Update in-memory
   const entry = supervisor.agents.get(req.params.id);
   if (entry) entry.config.group = group || undefined;
@@ -7055,7 +7104,7 @@ app.put('/api/agents/:id/details', (req, res) => {
   if (agent) {
     if (description !== undefined) agent.description = String(description);
     if (normalizedSkills !== undefined) agent.skills = normalizedSkills;
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
   }
   res.json({ ok: true, description: entry.config.description || '', skills: entry.config.skills || [] });
 });
@@ -7342,7 +7391,7 @@ app.put('/api/agents/:id/name', (req, res) => {
   const agent = agents.find(a => a.id === req.params.id);
   if (agent) {
     agent.name = name;
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
   }
   res.json({ ok: true });
 });
@@ -7376,7 +7425,7 @@ app.put('/api/agents/:id/autostart', (req, res) => {
     const agent = agents.find(a => a.id === id);
     if (agent) {
       if (autoStart === false) { agent.autoStart = false; } else { delete agent.autoStart; }
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+      writeAgentsFile(agents);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -7400,7 +7449,7 @@ app.post('/api/agents', (req, res) => {
   } else {
     agents.push(config);
   }
-  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  writeAgentsFile(agents);
   supervisor.register(config);
   res.json({ ok: true });
 });
@@ -7500,7 +7549,7 @@ app.post('/api/standup-agents', async (req, res) => {
     const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
     const existing = agents.findIndex(a => a.id === config.id);
     if (existing >= 0) agents[existing] = config; else agents.push(config);
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
     supervisor.register(config);
 
     res.json({ ok: true, agent: config });
@@ -7563,7 +7612,7 @@ app.delete('/api/agents/:id', (req, res) => {
   supervisor.unregister(agentId);
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const filtered = agents.filter(a => a.id !== agentId);
-  fs.writeFileSync(AGENTS_PATH, JSON.stringify(filtered, null, 2));
+  writeAgentsFile(filtered);
   res.json({ ok: true, cascade: { tasksDisabled, flowsDisabled } });
 });
 
@@ -7602,7 +7651,7 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
       }
       const azIdx = agents.findIndex(a => a.id === agentId);
       agents[azIdx] = agent;
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+      writeAgentsFile(agents);
       supervisor.register(agent);
       broadcastSSE('agent-update', { agentId });
       return res.json({ ok: true, agent });
@@ -7661,7 +7710,7 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
     // Save updated config
     const idx = agents.findIndex(a => a.id === agentId);
     agents[idx] = agent;
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
 
     // Re-register in supervisor
     supervisor.register(agent);
@@ -7725,7 +7774,7 @@ app.put('/api/groups/rename', (req, res) => {
       if (a.group === oldName && (!scope || scope.has(a.id))) { a.group = newName; changed++; }
     });
     if (changed === 0) return res.status(404).json({ error: 'No agents in that group' });
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
     // Update in-memory configs
     for (const [id, entry] of supervisor.agents) {
       if (entry.config.group === oldName && (!scope || scope.has(id))) entry.config.group = newName;
@@ -7751,7 +7800,7 @@ app.delete('/api/groups/:name', (req, res) => {
       if (a.group === groupName && (!scope || scope.has(a.id))) { delete a.group; changed++; }
     });
     if (changed === 0) return res.status(404).json({ error: 'No agents in that group' });
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    writeAgentsFile(agents);
     for (const [id, entry] of supervisor.agents) {
       if (entry.config.group === groupName && (!scope || scope.has(id))) delete entry.config.group;
     }
@@ -9456,9 +9505,9 @@ app.post('/api/cli/sessions/cluster', async (req, res) => {
 // A single normalized inventory of every installed agent/plugin with its origin,
 // type, last-updated time, and commit id. Update-availability is checked per-row
 // by the existing GET /api/agents/:id/check-update; reinstall via POST .../reinstall.
-app.get('/api/updates/inventory', (req, res) => {
+app.get('/api/updates/inventory', async (req, res) => {
   try {
-    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const agents = await readAgentsFileAsync();
     const out = agents.map(a => {
       const s = a.source || null;
       const kind = (s && s.kind) || (a.pluginDir ? 'plugin' : 'agent');
@@ -9889,7 +9938,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
           results.warnings.push(`Agent "${agent.name || agent.id}": CWD does not exist: ${agent.cwd}`);
         }
       }
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+      writeAgentsFile(agents);
       results.imported.push(`agents.json: ${agents.length} agents`);
     }
 
@@ -33922,7 +33971,7 @@ async function installFromMachine(machineId, items) {
     }
 
     if (results.installed.length) {
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(localAgents, null, 2));
+      writeAgentsFile(localAgents);
       loadAgents();
       configSync.pushConfig().catch(e => results.warnings.push(`cloud push failed: ${e.message}`));
     }
