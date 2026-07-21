@@ -1913,10 +1913,12 @@
     .cnav-row.drop-onto { box-shadow: 0 0 0 1px var(--cp-accent) inset; background: color-mix(in srgb, var(--cp-accent) 12%, transparent); }
     .cnav-grip {
       flex: none; width: 16px; align-self: stretch; display: flex; align-items: center; justify-content: center;
-      color: var(--cp-text-soft); opacity: 0; cursor: grab; font-size: 12px; line-height: 1;
+      color: var(--cp-text-soft); opacity: .22; cursor: grab; font-size: 12px; line-height: 1;
       border-radius: calc(var(--cp-radius-scale, 1) * 6px); transition: opacity .12s ease, color .12s ease;
+      -webkit-user-drag: element;
     }
-    .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .5; }
+    .cnav-grip:active { cursor: grabbing; }
+    .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .6; }
     .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
     .cnav-row > .nav-link { flex: 1; min-width: 0; }
     .cnav-star {
@@ -7090,7 +7092,7 @@
                          @dragover.prevent="onNavItemDragOver($event, node.key, null)"
                          @dragleave="_navRowDragLeave(node.key)"
                          @drop.prevent.stop="onNavItemDrop($event, node.key, null)">
-                      <span class="cnav-grip" title="Drag to reorder — drop onto another item to group them">⠿</span>
+                      <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, node.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder — drop onto another item to group them">⠿</span>
                       <a class="nav-link" draggable="false" :class="{ active: isRouteGroup(_navItemDef(node.key).routeGroup) }" :href="_navItemDef(node.key).href">
                         <span x-text="_navItemDef(node.key).icon"></span>
                         <span x-text="_navItemDef(node.key).label" style="flex:1"></span>
@@ -7138,7 +7140,7 @@
                                @dragover.prevent="onNavItemDragOver($event, child.key, node.id)"
                                @dragleave="_navRowDragLeave(child.key)"
                                @drop.prevent.stop="onNavItemDrop($event, child.key, node.id)">
-                            <span class="cnav-grip" title="Drag to reorder">⠿</span>
+                            <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, child.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder — drop onto the header to leave the group">⠿</span>
                             <a class="nav-link" draggable="false" :class="{ active: isRouteGroup(_navItemDef(child.key).routeGroup) }" :href="_navItemDef(child.key).href">
                               <span x-text="_navItemDef(child.key).icon"></span>
                               <span x-text="_navItemDef(child.key).label" style="flex:1"></span>

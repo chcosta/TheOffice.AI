@@ -3520,6 +3520,30 @@ await t.test('epic objective health: LIVE data wiring — executable bindings, l
     'the probe result HTML distinguishes success from a failed fetch');
 });
 
+await t.test('custom sidebar nav: items are drag-reorderable + groupable (grip is a real drag handle)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // (1) REGRESSION GUARD — each item row's <a class="nav-link" draggable="false"> covers the
+  // whole row, so WebView2/Chromium swallows a drag started on the label. The GRIP (not the row)
+  // must be its own draggable source wired to onNavItemDragStart, matching the working group grip.
+  const gripStarts = (html.match(/class="cnav-grip" draggable="true" @dragstart\.stop="onNavItemDragStart\(/g) || []).length;
+  t.ok(gripStarts >= 2, 'both the top-level and grouped item grips are draggable handles wired to onNavItemDragStart');
+
+  // (2) The grip is discoverable (not opacity:0) so the drag handle can actually be found.
+  t.ok(/\.cnav-grip \{[^}]*opacity: \.22/.test(html), 'the grip has a faint always-visible baseline (discoverable)');
+
+  // (3) Rows still accept dragover + drop to reorder.
+  t.ok(/@dragover\.prevent="onNavItemDragOver\(/.test(html) && /@drop\.prevent\.stop="onNavItemDrop\(/.test(html),
+    'item rows accept dragover + drop to reorder');
+
+  // (4) Dropping one item ONTO another combines them into a fresh group (drag-native grouping).
+  const drop = _win(html, 'onNavItemDrop(ev, targetKey, groupId) {', 900) || '';
+  t.ok(/intent === 'onto'[\s\S]*_navCombineIntoGroup/.test(drop),
+    'dropping one item onto another combines them into a new group');
+  const intent = _win(html, '_navItemDropIntent(ev, groupId) {', 600) || '';
+  t.ok(/return 'onto'/.test(intent), 'the middle band of an item row expresses a group (onto) intent');
+});
+
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
