@@ -62,6 +62,25 @@ function safeSlug(v) {
   return String(v || 'item').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 }
 
+// Bound an async network scan so one unreachable repo (VPN drop, dnceng down,
+// GitHub stall) can't hang the whole sync forever. The underlying fetch may keep
+// running in the background, but the caller settles with a clear error and moves
+// on to the next source. `ms` of 0/falsy disables the guard.
+function withTimeout(promise, ms, label) {
+  if (!ms) return promise;
+  let timer;
+  const guard = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error((label || 'scan') + ' timed out after ' + Math.round(ms / 1000) + 's')),
+      ms
+    );
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
+}
+
+// Per-source network-scan ceiling. Override via env for slow links.
+const SCAN_TIMEOUT_MS = Math.max(0, parseInt(process.env.MKT_SCAN_TIMEOUT_MS || '', 10) || 60000);
+
 // ---- sources store -------------------------------------------------------
 
 function listSources() {
@@ -154,8 +173,8 @@ async function previewSource(input) {
   const exists = listSources().some(s => s.id === source.id);
   let entries;
   if (source.kind === 'local') entries = scanLocal(source);
-  else if (source.kind === 'github') entries = await scanGithub(source);
-  else entries = await scanAzdo(source);
+  else if (source.kind === 'github') entries = await withTimeout(scanGithub(source), SCAN_TIMEOUT_MS, 'GitHub preview of ' + (source.label || source.id));
+  else entries = await withTimeout(scanAzdo(source), SCAN_TIMEOUT_MS, 'AzDO preview of ' + (source.label || source.id));
   const counts = {};
   for (const e of entries) counts[e.type] = (counts[e.type] || 0) + 1;
   return { source, exists, entries, counts };
@@ -486,8 +505,8 @@ async function scanSource(id) {
   if (!source) throw new Error('Unknown source: ' + id);
   let entries;
   if (source.kind === 'local') entries = scanLocal(source);
-  else if (source.kind === 'github') entries = await scanGithub(source);
-  else entries = await scanAzdo(source);
+  else if (source.kind === 'github') entries = await withTimeout(scanGithub(source), SCAN_TIMEOUT_MS, 'GitHub scan of ' + (source.label || source.id));
+  else entries = await withTimeout(scanAzdo(source), SCAN_TIMEOUT_MS, 'AzDO scan of ' + (source.label || source.id));
 
   const counts = {};
   for (const e of entries) counts[e.type] = (counts[e.type] || 0) + 1;

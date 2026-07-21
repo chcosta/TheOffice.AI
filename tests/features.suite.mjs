@@ -3417,4 +3417,29 @@ await t.test('epic objective health: daily no-AI snapshot + explicit AI rebuild 
   t.ok(/o\.snapshotAt = r\.snapshotAt/.test(doSnap), 'monObjSnapshot refreshes snapshotAt from the response');
 });
 
+await t.test('boot splash reel + About check-for-updates (client + server)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+
+  // (A) Boot splash overlay is present and reveals on body.booted — pre-Alpine, no x-cloak.
+  t.ok(/id="bootSplash"/.test(html), 'boot splash overlay present');
+  t.ok(/id="bootReel"/.test(html), 'boot reel container present');
+  t.ok(/'booted':\s*!loading/.test(html), 'body :class flips booted on !loading');
+  t.ok(/body\.booted #bootSplash/.test(html), 'booted fades the splash out');
+  // splash script fetches the reel endpoint
+  t.ok(/\/api\/boot\/reel/.test(html), 'boot splash fetches the reel endpoint');
+
+  // (A) Server endpoint returns a reel (clamped), never throws.
+  const route = _win(srv, "app.get('/api/boot/reel'", 800) || '';
+  t.ok(route, 'boot reel route defined');
+  t.ok(/_pulseComedyReel\(/.test(route), 'boot reel route reuses the comedy reel backlog');
+  t.ok(/reel:\s*\[\]/.test(route), 'boot reel route degrades to an empty reel on error');
+
+  // (B) About "Check for updates" — row + method + state.
+  t.ok(/checkForUpdatesFromAbout/.test(html), 'About check-for-updates method wired');
+  const m = _win(html, 'async checkForUpdatesFromAbout()', 900) || '';
+  t.ok(/this\.checkForUpdate\(\)/.test(m), 'About check reuses checkForUpdate()');
+  t.ok(/checking:\s*false/.test(html), 'update state carries a checking flag');
+});
+
 await t.done();

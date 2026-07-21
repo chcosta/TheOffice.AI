@@ -6941,7 +6941,65 @@
     @media (max-width: 760px) { .mode-seg .mode-seg-label { display:none; } .mode-seg { padding:5px 8px; } }
   </style>
 </head>
-<body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)" :class="{ 'nav-collapsed': navCollapsed }">
+<body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)" :class="{ 'nav-collapsed': navCollapsed, 'booted': !loading }">
+  <!-- Boot splash: a friendly branded overlay shown while the SPA parses + fetches
+       supervisor data. It is visible by DEFAULT (plain CSS, NOT x-cloak) so it paints
+       before Alpine mounts; it fades out once `loading` flips false (body.booted).
+       A small vanilla script fills it with a slideshow of the user's own water-cooler
+       reel art (cached only — never generated) plus a cycling loading message. -->
+  <style id="boot-splash-style">
+    #bootSplash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px;text-align:center;background:var(--cp-bg,#0e0e13);color:var(--cp-text,#e8e8ef);transition:opacity .45s ease,visibility .45s ease}
+    body.booted #bootSplash{opacity:0;visibility:hidden;pointer-events:none}
+    #bootSplash .boot-brand{display:flex;align-items:center;gap:12px;font-size:22px;font-weight:700;letter-spacing:-.01em}
+    #bootSplash .boot-mark{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-size:22px;background:var(--cp-accent,#1f2937);color:var(--cp-accent-fg,#fff);box-shadow:var(--cp-shadow,0 12px 30px rgba(0,0,0,.25))}
+    #bootSplash .boot-reel{display:none;position:relative;width:min(360px,72vw);height:230px;border-radius:14px;overflow:hidden;border:1px solid var(--cp-border,#26262e);background:var(--cp-surface,#17171d);box-shadow:var(--cp-shadow,0 18px 48px rgba(0,0,0,.28))}
+    #bootSplash .boot-reel.has-art{display:block}
+    #bootSplash .boot-slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .7s ease;background:var(--cp-surface,#17171d)}
+    #bootSplash .boot-slide img,#bootSplash .boot-slide svg{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+    #bootSplash .boot-cap{position:absolute;left:0;right:0;bottom:0;padding:8px 12px;font-size:12px;line-height:1.35;color:#fff;background:linear-gradient(to top,rgba(0,0,0,.72),rgba(0,0,0,0));text-align:left}
+    #bootSplash .boot-bar{width:min(320px,60vw);height:4px;border-radius:999px;overflow:hidden;background:var(--cp-surface-soft,#2a2a33)}
+    #bootSplash .boot-bar>span{display:block;height:100%;width:40%;border-radius:999px;background:var(--cp-accent,#5b6474);animation:bootslide 1.35s ease-in-out infinite}
+    @keyframes bootslide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+    #bootSplash .boot-msg{font-size:14px;color:var(--cp-text-muted,#9aa0ab);transition:opacity .25s ease;min-height:1.2em}
+    @media (prefers-reduced-motion:reduce){#bootSplash .boot-bar>span{animation:none;width:100%}#bootSplash .boot-slide{transition:none}}
+  </style>
+  <div id="bootSplash" aria-hidden="true">
+    <div class="boot-brand"><div class="boot-mark">⚡</div><div>TheOffice.AI</div></div>
+    <div id="bootReel" class="boot-reel"></div>
+    <div class="boot-bar"><span></span></div>
+    <div id="bootMsg" class="boot-msg">Warming up the office…</div>
+  </div>
+  <script>
+    (function(){
+      var msgs = ['Warming up the office…','Rounding up your agents…','Brewing the watercooler…','Straightening the desks…','Booting up the board…','Catching up on the reel…'];
+      var mi = 0, msgEl = document.getElementById('bootMsg');
+      var msgTimer = setInterval(function(){ if(!msgEl) return; mi=(mi+1)%msgs.length; msgEl.style.opacity='0'; setTimeout(function(){ msgEl.textContent=msgs[mi]; msgEl.style.opacity=''; }, 250); }, 2600);
+      var reelEl = document.getElementById('bootReel'), slides = [], si = 0, reelTimer = null;
+      function show(n){ for(var i=0;i<slides.length;i++){ slides[i].style.opacity = (i===n)?'1':'0'; } }
+      try {
+        fetch('/api/boot/reel?n=8').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+          var items = (d && Array.isArray(d.reel)) ? d.reel.filter(function(x){ return x && (x.svg || x.img); }) : [];
+          if(!items.length || !reelEl || document.body.classList.contains('booted')) return;
+          reelEl.classList.add('has-art');
+          items.slice(0,8).forEach(function(it){
+            var slide = document.createElement('div'); slide.className = 'boot-slide';
+            if(it.img){ var img = document.createElement('img'); img.src = it.img; img.alt = ''; slide.appendChild(img); }
+            else if(it.svg){ slide.innerHTML = it.svg; }
+            var caps = (it.captions || []).filter(Boolean);
+            if(caps.length){ var cap = document.createElement('div'); cap.className = 'boot-cap'; cap.textContent = caps.join(' · '); slide.appendChild(cap); }
+            reelEl.appendChild(slide); slides.push(slide);
+          });
+          if(slides.length){ show(0); }
+          if(slides.length > 1){ reelTimer = setInterval(function(){ si = (si+1) % slides.length; show(si); }, 2800); }
+        }).catch(function(){});
+      } catch(e){}
+      function stop(){ clearInterval(msgTimer); if(reelTimer) clearInterval(reelTimer); }
+      var obs = new MutationObserver(function(){ if(document.body.classList.contains('booted')){ stop(); obs.disconnect(); } });
+      obs.observe(document.body, { attributes:true, attributeFilter:['class'] });
+      // Safety net: never let the splash trap the UI if boot stalls.
+      setTimeout(function(){ document.body.classList.add('booted'); stop(); }, 30000);
+    })();
+  </script>
   <div class="app-shell" x-effect="syncBaDock(); syncConnectDock()" :style="'--ql-h:' + (quickLaunchItems().length ? '38px' : '0px')">
     <header class="topbar">
       <div class="brand">
@@ -28870,6 +28928,21 @@
               <h2 style="font-size:1rem;margin-bottom:12px">System Info</h2>
               <div class="help-row"><strong>Version</strong><span class="mono" x-text="versionLabel()"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>What's new</strong><a href="#" @click.prevent="openWhatsNew()">View release notes</a></div>
+              <div class="help-row" style="margin-top:10px">
+                <strong>Updates</strong>
+                <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end">
+                  <template x-if="update.supported">
+                    <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end">
+                      <span x-show="update.checked && !update.available && !update.checking" style="color:var(--cp-success);font-size:0.85rem">✓ Up to date</span>
+                      <a href="#" x-show="update.available && !update.checking" @click.prevent="downloadUpdate()" x-text="'Update to v' + update.latest + ' →'"></a>
+                      <button type="button" class="btn ghost" @click="checkForUpdatesFromAbout()" :disabled="update.checking || update.busy || (update.phase && update.phase !== 'idle' && update.phase !== 'error')" x-text="update.checking ? 'Checking…' : 'Check for updates'"></button>
+                    </span>
+                  </template>
+                  <template x-if="!update.supported">
+                    <span style="color:var(--cp-text-muted);font-size:0.85rem">Auto-updates are managed by the desktop app</span>
+                  </template>
+                </span>
+              </div>
               <div class="help-row" style="margin-top:10px"><strong>Process</strong><span x-text="data.version?.pid ? 'PID ' + data.version.pid : 'Unknown'"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Started</strong><span x-text="data.version?.startedAt ? formatDateTime(data.version.startedAt) : 'Unknown'"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Realtime</strong><span x-text="sseStatusLabel()"></span></div>
@@ -31604,7 +31677,7 @@
         restarting: false,
         // In-app self-updater state (desktop build only). `supported` gates the
         // whole UI so browser/LAN builds never show update chrome.
-        update: { supported: false, checked: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '' },
+        update: { supported: false, checked: false, checking: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '' },
         updateConfirmOpen: false,
         _whatsNewChecked: false,
         // "What's new" release-notes dialog. Populated from /api/whats-new; shown
@@ -70038,6 +70111,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.pollUpdateStatus();
           } catch { /* leave state as-is */ }
         },
+        // About-page "Check for updates" — interactive: shows a spinner, toasts the result.
+        async checkForUpdatesFromAbout() {
+          if (!this.update.supported || this.update.checking) return;
+          this.update.checking = true;
+          try {
+            await this.checkForUpdate();
+            if (this.update.supported === false) {
+              this.showToast('Updates', 'Auto-updates are managed by the desktop app.', 'info');
+            } else if (this.update.available) {
+              this.showToast('Update available', `Version ${this.update.latest} is ready to download.`, 'info');
+            } else {
+              this.showToast('Up to date', `You're on the latest version (${this.update.current || this.versionLabel()}).`, 'success');
+            }
+          } catch (e) {
+            this.showToast('Update check failed', (e && e.message) || 'Could not check for updates.', 'error');
+          } finally {
+            this.update.checking = false;
+          }
+        },
         async downloadUpdate() {
           if (!this.update.supported || !this.update.available) return;
           const delta = !!this.update.deltaAvailable;
@@ -70615,12 +70707,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.mkt.newBanner = null;
             this.mktClearNewFilter();
           }
+          let loadedOk = false;
           try {
-            const r = await this.request('/api/marketplace/sources');
+            const r = await this.request('/api/marketplace/sources', { timeoutMs: 20000 });
             this.mkt.sources = r.sources || [];
-          } catch (e) { this.mkt.sources = []; }
-          // First visit with no sources: seed from installed agents/plugins.
-          if (!this.mkt.sources.length && !this.mkt.autoPopulated) {
+            loadedOk = true;
+          } catch (e) {
+            // A transient/timed-out load must NOT blank the Marketplace — keep the
+            // last-known sources and surface a quiet inline note instead.
+            this.mkt.error = 'Could not refresh sources — showing the last known list. Try Sync again.';
+          }
+          // Only auto-seed from installed agents on a genuine first-run (a *successful*
+          // load that came back empty). Never after a failed/timed-out load, which
+          // would just kick off another scan that can hang.
+          if (loadedOk && !this.mkt.sources.length && !this.mkt.autoPopulated) {
             this.mkt.autoPopulated = true;
             await this.mktAutoPopulate(true);
           }
@@ -70645,7 +70745,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async mktAutoPopulate(silent) {
           this.mkt.syncing = true;
           try {
-            const r = await this.request('/api/marketplace/sources/autopopulate', { method: 'POST', body: JSON.stringify({ scan: true }) });
+            // Bound the sync: a hung scan (unreachable repo, VPN drop) aborts via the
+            // request timeout instead of spinning "Syncing…" forever. The server-side
+            // scan is best-effort per source, so 45s is a comfortable ceiling.
+            const r = await this.request('/api/marketplace/sources/autopopulate', { method: 'POST', body: JSON.stringify({ scan: true }), timeoutMs: 45000 });
             this.mkt.sources = r.sources || this.mkt.sources;
             await this.loadMarketplaceCatalog();
             const n = (r.added || []).length;
@@ -70656,7 +70759,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.showToast('Some sources skipped', r.errors.map(e => e.label || e.id).join(', '), 'error');
             }
           } catch (e) {
-            if (!silent) this.showToast('Sync failed', e.message || 'Could not sync sources', 'error');
+            // The sync timed out or failed — never leave the list blank. Re-pull the
+            // current sources (they're still on disk) so the view recovers, then tell
+            // the user the sync didn't finish.
+            try {
+              const cur = await this.request('/api/marketplace/sources', { timeoutMs: 15000 });
+              if (cur && Array.isArray(cur.sources) && cur.sources.length) this.mkt.sources = cur.sources;
+            } catch (_) {}
+            if (!silent) this.showToast(e && e.timeout ? 'Sync timed out' : 'Sync failed', (e && e.message) || 'Could not sync sources', 'error');
           } finally {
             this.mkt.syncing = false;
           }

@@ -32721,7 +32721,17 @@ app.post('/api/me-ai/pulse/comedy/art', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/pulse/thread { key, action } → mute | unmute | hide.
+// GET /api/boot/reel?n=8 — cheap boot-splash reel. Returns already-generated
+// water-cooler comedy art from the on-disk backlog so the loading screen can show
+// the user their own reel while the SPA warms up. NEVER generates and needs no
+// consent (it's the user's own cached art shown back to them). Empty when none.
+app.get('/api/boot/reel', (req, res) => {
+  try {
+    const n = Math.max(1, Math.min(12, parseInt((req.query && req.query.n) || '8', 10) || 8));
+    res.json({ reel: _pulseComedyReel(n) });
+  } catch { res.json({ reel: [] }); }
+});
+
 // mute: hide but resurface on new activity. hide: "not interesting" (persistent).
 app.post('/api/me-ai/pulse/thread', (req, res) => {
   try {
