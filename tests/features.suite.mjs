@@ -3671,6 +3671,8 @@ await t.test('boot splash reel + About check-for-updates (client + server)', () 
   // (A) Boot splash overlay is present and reveals on body.booted — pre-Alpine, no x-cloak.
   t.ok(/id="bootSplash"/.test(html), 'boot splash overlay present');
   t.ok(/id="bootReel"/.test(html), 'boot reel container present');
+  // Reel images are shown large (container was 360x230 → enlarged so cached art reads clearly).
+  t.ok(/#bootSplash \.boot-reel\{[^}]*width:min\(860px,94vw\)[^}]*height:min\(520px,62vh\)/.test(html), 'boot reel is enlarged for readable art');
   t.ok(/'booted':\s*!loading/.test(html), 'body :class flips booted on !loading');
   t.ok(/body\.booted #bootSplash/.test(html), 'booted fades the splash out');
   // splash script fetches the reel endpoint
