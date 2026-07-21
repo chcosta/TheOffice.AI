@@ -1200,6 +1200,91 @@ await t.test('_meAiDirectorSweep re-arms a bounded follow-up so newly-surfaced p
 });
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Todo carry-over seeding — yesterday's uncompleted todos roll into today AND
+// carry a visible "carried over" badge, whether the user generates OR merely
+// views/edits their list. Exercises the REAL _meAiSeedCarryOver body with the
+// disk-backed deps stubbed so the stamp-vs-push invariant is proven directly.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const stub = { seeded: false, marked: false, carried: [], tomb: [] };
+  const prelude = [
+    'const meAiCarrySeeded = (day) => __stub.seeded;',
+    'const markMeAiCarrySeeded = (day) => { __stub.marked = true; };',
+    'const _meAiCarryOverTodos = (cfg, day) => __stub.carried;',
+    'const loadMeAiTodoTomb = (day) => __stub.tomb || [];',
+    // simple identity stubs — title collision is what this test drives
+    'const _meAiGoalEntKey = (link, meta) => (meta && meta.ent) || "";',
+    'const _meAiGoalSig = (s) => String(s || "").toLowerCase().trim();',
+  ].join('\n');
+  const { _meAiSeedCarryOver } = extractFns(SERVER, ['_meAiSeedCarryOver'], {
+    prelude, sandbox: { __stub: stub },
+  });
+  const reset = (over) => Object.assign(stub, { seeded: false, marked: false, carried: [], tomb: [] }, over || {});
+
+  // _meAiCarryOverTodos pre-tags each rolled item {carried:true, carriedFrom}.
+  const carriedItem = () => ({ title: 'Ship the report', done: false, carried: true, carriedFrom: '2026-07-20', link: '', meta: {} });
+
+  await t.test('carry seed: a genuinely-new carried todo is appended with its badge', () => {
+    reset({ carried: [carriedItem()] });
+    const eff = [];
+    _meAiSeedCarryOver({}, '2026-07-21', eff);
+    t.eq(eff.length, 1, 'carried item pushed');
+    t.eq(eff[0].carried, true, 'badge set');
+    t.eq(eff[0].carriedFrom, '2026-07-20', 'source day preserved');
+    t.eq(stub.marked, true, 'day marked seeded');
+  });
+
+  await t.test('carry seed: a colliding OPEN item is STAMPED, not skipped (badge appears)', () => {
+    reset({ carried: [carriedItem()] });
+    const eff = [{ title: 'Ship the report', done: false }];
+    _meAiSeedCarryOver({}, '2026-07-21', eff);
+    t.eq(eff.length, 1, 'no duplicate row');
+    t.eq(eff[0].carried, true, 'existing open item stamped carried');
+    t.eq(eff[0].carriedFrom, '2026-07-20', 'carriedFrom stamped');
+  });
+
+  await t.test('carry seed: a colliding DONE item is never stamped or duplicated', () => {
+    reset({ carried: [carriedItem()] });
+    const eff = [{ title: 'Ship the report', done: true }];
+    _meAiSeedCarryOver({}, '2026-07-21', eff);
+    t.eq(eff.length, 1, 'no duplicate');
+    t.ok(!eff[0].carried, 'done item left untouched');
+  });
+
+  await t.test('carry seed: a same-day tombstoned title is not re-added', () => {
+    reset({ carried: [carriedItem()], tomb: ['ship the report'] });
+    const eff = [];
+    _meAiSeedCarryOver({}, '2026-07-21', eff);
+    t.eq(eff.length, 0, 'tombstoned title stays gone');
+    t.eq(stub.marked, true, 'still marks the day (no re-walk)');
+  });
+
+  await t.test('carry seed: once seeded it is a no-op for the rest of the day', () => {
+    reset({ seeded: true, carried: [carriedItem()] });
+    const eff = [];
+    _meAiSeedCarryOver({}, '2026-07-21', eff);
+    t.eq(eff.length, 0, 'no carry when already seeded');
+    t.eq(stub.marked, false, 'marker untouched');
+  });
+
+  await t.test('carry seed is wired into BOTH generate and the todos POST (gated to today)', () => {
+    const src = readFileSync(SERVER, 'utf8');
+    t.ok(/function _meAiSeedCarryOver\(cfg, day, effTodos\) \{/.test(src), 'helper defined');
+    // generate uses the helper (no stale inline carry block)
+    t.ok(/_meAiSeedCarryOver\(cfg, day, effTodos\);/.test(src), 'generate seeds via the helper');
+    t.ok(!/if \(!meAiCarrySeeded\(day\)\) \{[\s\S]{0,200}const carried = _meAiCarryOverTodos/.test(src), 'stale inline carry block removed from generate');
+    // todos POST seeds carry once/day, gated to today, AFTER the tombstone save
+    const i = src.indexOf("app.post('/api/me-ai/agenda/todos'");
+    t.ok(i > 0, 'todos POST present');
+    const blk = src.slice(i, i + 2400);
+    t.ok(/saveMeAiTodoTomb\(date, Array\.from\(tomb\)\);/.test(blk), 'tombstone saved first');
+    t.ok(/if \(date === _meAiLocalDay\(\)\) \{[\s\S]{0,160}_meAiSeedCarryOver\(_meAiConfig\(\), date, todos\);/.test(blk), 'carry seeded, gated to today');
+    t.ok(blk.indexOf('_meAiSeedCarryOver') < blk.indexOf('saveMeAiTodoStore(date, todos)'), 'seed runs before the store save');
+  });
+}
+
+
 if (!(await serverUp())) {
   t.skipAll('dev server not running on :3847 (unit tests above still ran)');
 }

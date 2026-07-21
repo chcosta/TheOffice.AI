@@ -20025,6 +20025,68 @@ function _meAiCarryOverTodos(cfg, day) {
   return [];
 }
 
+// Seed yesterday's uncompleted todos onto `effTodos` (mutated in place), EXACTLY ONCE per
+// day (durable marker). Two behaviours, both needed for the "carried over" badge to be
+// honest:
+//   • STAMP: when a carried item collides with an item already in today's list (same title /
+//     live-entity / signature) that is still OPEN, mark THAT item carried instead of silently
+//     dropping the carry — otherwise an item that both rolled over AND re-entered today's list
+//     via the client payload / a fresh seed never shows the badge.
+//   • PUSH: a genuinely-new carried item (not in today's list, not tombstoned) is appended
+//     with its badge.
+// Never stamps or resurrects a done / same-day-tombstoned title. Shared by generateMeAiAgenda
+// AND the todos POST so a user who only ever views/edits their list (never generates) still
+// gets the rollover + badge. Best-effort; returns effTodos.
+function _meAiSeedCarryOver(cfg, day, effTodos) {
+  try {
+    if (meAiCarrySeeded(day)) return effTodos;
+    const carried = _meAiCarryOverTodos(cfg, day);
+    if (carried.length) {
+      // A title the user removed on THIS day (tombstone) must never be re-added or stamped.
+      const tombToday = new Set(loadMeAiTodoTomb(day));
+      // Index today's list by title / live-entity / signature so a carried goal reconciles
+      // against the SAME work item / PR even under a different label.
+      const byTitle = new Map();
+      const byEnt = new Map();
+      const bySig = new Map();
+      for (const t of effTodos) {
+        const lc = String((t && t.title) || '').toLowerCase();
+        if (lc && !byTitle.has(lc)) byTitle.set(lc, t);
+        const e = _meAiGoalEntKey(t && t.link, t && t.meta);
+        if (e && !byEnt.has(e)) byEnt.set(e, t);
+        const s = _meAiGoalSig(t && t.title);
+        if (s && !bySig.has(s)) bySig.set(s, t);
+      }
+      // Stamp an existing OPEN item as carried (only if not already carried); never a done item.
+      const stamp = (existing, c) => {
+        if (!existing || existing.done) return;
+        if (!existing.carried) {
+          existing.carried = true;
+          existing.carriedFrom = c.carriedFrom || existing.carriedFrom || '';
+        }
+      };
+      for (const c of carried) {
+        const lc = c.title.toLowerCase();
+        if (tombToday.has(lc)) continue;
+        const ce = _meAiGoalEntKey(c.link, c.meta);
+        const cs = _meAiGoalSig(c.title);
+        // Collision with an item already in today's list → stamp it instead of dropping the badge.
+        const hit = byTitle.get(lc) || (ce && byEnt.get(ce)) || (cs && !c.link && bySig.get(cs));
+        if (hit) { stamp(hit, c); continue; }
+        // Genuinely new → append with its badge and index it.
+        effTodos.push(c);
+        byTitle.set(lc, c);
+        if (ce) byEnt.set(ce, c);
+        if (cs) bySig.set(cs, c);
+      }
+    }
+    // Mark even when nothing carried (no prior work day, or all deduped) so we don't re-walk
+    // the history every generate and can never resurrect a later-dropped carry.
+    markMeAiCarrySeeded(day);
+  } catch (_) { /* best-effort */ }
+  return effTodos;
+}
+
 // Item 4 (floating checklist / "today's goals"): seed the day's substantive WORK
 // blocks into the day's todo list as `checklist`-kind items so they double as a record
 // of what you hoped to accomplish and never silently drop when the agenda regenerates.
@@ -20900,35 +20962,9 @@ async function _generateMeAiAgendaImpl({ date, todos, reindex, cause } = {}) {
   // Carry-over — once per day, tracked by a durable marker so it's independent of whether a
   // store/snapshot already exists for the day. This is the fix for "yesterday's todos didn't
   // carry over": a store created before the first generate no longer suppresses the carry.
-  if (!meAiCarrySeeded(day)) {
-    const carried = _meAiCarryOverTodos(cfg, day);
-    if (carried.length) {
-      const have = new Set(effTodos.map(t => t.title.toLowerCase()));
-      // A title the user removed on THIS day (tombstone) must never be re-added by a
-      // carry — belt-and-suspenders on top of the source-day tombstone filter.
-      const tombToday = new Set(loadMeAiTodoTomb(day));
-      // Live-entity + signature indexes so a carried goal doesn't duplicate a fresh
-      // one that tracks the SAME work item / PR under a different label (e.g. a carried
-      // "Dev: #11499" against today's "DNCENG Task #11499").
-      const haveEnt = new Set(effTodos.map(t => _meAiGoalEntKey(t && t.link, t && t.meta)).filter(Boolean));
-      const haveSig = new Set(effTodos.map(t => _meAiGoalSig(t && t.title)).filter(Boolean));
-      for (const c of carried) {
-        const lc = c.title.toLowerCase();
-        if (have.has(lc) || tombToday.has(lc)) continue;
-        const ce = _meAiGoalEntKey(c.link, c.meta);
-        if (ce && haveEnt.has(ce)) continue;
-        const cs = _meAiGoalSig(c.title);
-        if (cs && !c.link && haveSig.has(cs)) continue;
-        effTodos.push(c);
-        have.add(lc);
-        if (ce) haveEnt.add(ce);
-        if (cs) haveSig.add(cs);
-      }
-    }
-    // Mark even when nothing carried (no prior work day, or all deduped) so we don't re-walk
-    // the history every generate and can never resurrect a later-dropped carry.
-    markMeAiCarrySeeded(day);
-  }
+  // The helper STAMPS a colliding open item (so a rolled item that also arrived via the caller
+  // payload still shows the "carried over" badge) and PUSHES genuinely-new carried items.
+  _meAiSeedCarryOver(cfg, day, effTodos);
   // Split any persisted compound aggregate goals into their constituent source items
   // (migration for stores created before goal-splitting existed).
   effTodos = _meAiSplitStoredGoals(effTodos);
@@ -21752,6 +21788,14 @@ app.post('/api/me-ai/agenda/todos', (req, res) => {
     for (const t of prior) { const k = t.title.toLowerCase(); if (!nextTitles.has(k)) tomb.add(k); }
     for (const k of nextTitles) tomb.delete(k);
     saveMeAiTodoTomb(date, Array.from(tomb));
+    // Seed yesterday's uncompleted todos (once per day) so a user who only ever views/edits
+    // their list — never runs a generate — still gets the rollover + the "carried over" badge.
+    // Tombstone is saved FIRST (above) so carry respects a same-day deletion; only for TODAY
+    // (never retro-fill a past day the user is merely editing). The helper stamps a colliding
+    // open item and appends genuinely-new carried items, then no-ops for the rest of the day.
+    if (date === _meAiLocalDay()) {
+      try { _meAiSeedCarryOver(_meAiConfig(), date, todos); } catch (_) { /* best-effort */ }
+    }
     saveMeAiTodoStore(date, todos);
     const snap = loadAgendaForDate(date);
     if (snap) { snap.todos = todos; _meAiCleanSnapshotBlocks(snap); saveAgendaForDate(date, snap); }
