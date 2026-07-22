@@ -10460,6 +10460,13 @@
                                         </template>
 
                                         <!-- One identical lifecycle block per repo slot (primary first, then extras) -->
+                                        <template x-if="!devSlots(d).length">
+                                          <div style="border-top:1px dashed var(--cp-border);padding-top:10px;display:flex;flex-direction:column;gap:6px;align-items:flex-start">
+                                            <span style="font-weight:600;font-size:12.5px">No repository yet</span>
+                                            <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'This card was created from a work item but has no repository assigned, so there is no worktree to open and no place to add agents. Assign a repo to start a worktree and add specialized agents.' : 'Assign a repository to start a worktree and add specialized agents.'"></p>
+                                            <button class="btn primary" type="button" style="font-size:11px;padding:3px 10px" @click.stop="openDevModal(d)">Assign a repository</button>
+                                          </div>
+                                        </template>
                                         <template x-for="s in devSlots(d)" :key="s.id">
                                           <div class="cal-repo" style="border-top:1px dashed var(--cp-border);padding-top:8px">
                                             <div class="cal-rail" :class="s.worktreePath ? (devGitBadge(s).attention ? 'dirty' : 'clean') : ''"></div>
@@ -12062,7 +12069,7 @@
               </div>
               <div class="nlx-actions">
                 <a class="btn ghost" href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" title="Archived dev cards (read-only audit)">🗄 Archive</a>
-                <button class="btn ghost" type="button" :disabled="!devItemsLoaded" @click="loadDevItems()" x-text="devItemsLoaded ? '↻ Refresh' : '…'"></button>
+                <button class="btn ghost" type="button" :disabled="!devItemsLoaded || devRefreshing" @click="refreshDevItems()" x-text="!devItemsLoaded ? '…' : (devRefreshing ? 'Refreshing…' : '↻ Refresh')"></button>
                 <button class="btn primary" type="button" @click="openDevModal()">＋ New dev card</button>
               </div>
             </div>
@@ -12498,6 +12505,13 @@
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:calc(var(--cp-radius-scale, 1) * 6px);padding:6px 8px">
                                             <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — worktrees can be cleaned up.'"></span>
                                             <button class="btn" type="button" style="font-size:11px;padding:2px 8px" :class="devGitBadge(d).attention ? 'danger' : 'primary'" :disabled="devBusy[d.id]==='cleanup'" @click="cleanupDevWorktree(d)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up primary worktree'"></button>
+                                          </div>
+                                        </template>
+                                        <template x-if="!devSlots(d).length">
+                                          <div style="border-top:1px dashed var(--cp-border);padding-top:10px;display:flex;flex-direction:column;gap:6px;align-items:flex-start">
+                                            <span style="font-weight:600;font-size:12.5px">No repository yet</span>
+                                            <p class="cf-agent-explain" style="margin:0" x-text="d.workItemId ? 'This card was created from a work item but has no repository assigned, so there is no worktree to open and no place to add agents. Assign a repo to start a worktree and add specialized agents.' : 'Assign a repository to start a worktree and add specialized agents.'"></p>
+                                            <button class="btn primary" type="button" style="font-size:11px;padding:3px 10px" @click.stop="openDevModal(d)">Assign a repository</button>
                                           </div>
                                         </template>
                                         <template x-for="s in devSlots(d)" :key="s.id">
@@ -32259,6 +32273,7 @@
         // same cards via their own devItems, so the two stay in sync through SSE.
         devItems: [],
         devItemsLoaded: false,
+        devRefreshing: false,
         devPage: { q: '', provider: 'all', status: 'active', board: 'all', groupBy: 'board', selectedId: null },
         devGroupsCollapsed: {},
         // Code Flow — Azure DevOps PR monitoring across watched repos.
@@ -63009,6 +63024,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             if (!silent) this.toast && this.toast(e.message || 'Could not load dev cards', 'error');
           }
+        },
+        // The Code Flow "↻ Refresh" on the Dev tab. Beyond reloading the list, this
+        // checks Azure DevOps for newly-assigned work items ON DEMAND (POST the manual
+        // auto-create run — NOT leader-gated) so a just-assigned item surfaces now,
+        // instead of waiting for the ~30-min leader poller (the "refresh does nothing /
+        // maybe I have to wait?" complaint). If no auto-create rule is enabled (400) or a
+        // check is already running (409), degrade silently to a plain reload — no nag.
+        async refreshDevItems() {
+          if (this.devRefreshing) return;
+          this.devRefreshing = true;
+          let msg = '';
+          try {
+            const r = await this.request('/api/dev-auto-create/run', { method: 'POST', body: JSON.stringify({}) });
+            if (r && typeof r.created === 'number') {
+              msg = r.created
+                ? ('Created ' + r.created + ' new dev card' + (r.created === 1 ? '' : 's') + ' from your assigned work items')
+                : 'No new work items assigned \u2014 you\u2019re all caught up';
+            }
+          } catch (e) { /* no enabled rules (400) or already running (409) — just reload */ }
+          try { await this.loadDevItems(); } finally { this.devRefreshing = false; }
+          if (msg) this.toast && this.toast(msg);
         },
         // Lazily hydrate the Dev tab of Code Flow: the studio needs the global dev-card
         // list + boards (for names / pin targets). Both are light; load in parallel.

@@ -111,6 +111,32 @@ await t.test('dev cards: GET /api/dev-items returns an array', async () => {
   });
 });
 
+// Code Flow "↻ Refresh" must actually RUN the auto-create sweep (POST /api/dev-auto-create/run),
+// not merely reload the list — otherwise a newly-assigned work item never gets a card until the
+// background sweep happens to fire ("refresh does nothing / had to wait"). And a repo-less
+// auto-created card (empty repoMappings → no slots → no agents) must offer a way to assign a
+// repo, or the user is stranded with a bare shell and no agent UI.
+await t.test('code flow: Refresh runs the auto-create sweep + repo-less cards offer an "Assign a repository" CTA', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  // Refresh button is wired to refreshDevItems (not the bare list reload) + busy-aware.
+  t.ok(/@click="refreshDevItems\(\)"/.test(html), 'Refresh button calls refreshDevItems()');
+  t.ok(!/x-text="devItemsLoaded \? '↻ Refresh' : '…'"[^>]*@click="loadDevItems\(\)"/.test(html), 'Refresh no longer only reloads the list');
+  // The method posts the sweep, tolerates 400/409, then reloads, and toasts an honest result.
+  const fn = _win(html, 'async refreshDevItems() {', 900);
+  t.ok(fn, 'refreshDevItems method exists');
+  t.ok(/\/api\/dev-auto-create\/run/.test(fn), 'refreshDevItems POSTs the auto-create sweep');
+  t.ok(/method:\s*'POST'/.test(fn), 'sweep is a POST');
+  t.ok(/catch\s*\(/.test(fn), 'swallows 400 (no rules) / 409 (busy) without a fatal error');
+  t.ok(/loadDevItems\(\)/.test(fn), 'always reloads the list after the sweep');
+  t.ok(/typeof r\.created === 'number'/.test(fn), 'honest toast keyed on the created count');
+  // Repo-less card CTA present in BOTH worktree panes (board-embedded + Code Flow page).
+  const ctas = html.match(/x-if="!devSlots\(d\)\.length"/g) || [];
+  t.gte(ctas.length, 2, '"no slots" CTA renders in both worktree panes');
+  const assignBtns = html.match(/@click\.stop="openDevModal\(d\)">Assign a repository/g) || [];
+  t.gte(assignBtns.length, 2, 'both CTAs open the dev modal to assign a repo');
+});
+
+
 // --- Code Flow ---
 await t.test('code flow: GET /api/codeflow/repos returns { repos: [] }', async () => {
   await probe('/api/codeflow/repos', (j) => {
