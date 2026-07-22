@@ -219,6 +219,31 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
     Ok(())
 }
 
+/// Recursively copy `src` → `dst`, skipping a single top-level entry by name
+/// (e.g. `node_modules`, which is adopted separately via a fast rename).
+fn copy_dir_all_except(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    skip_top: &str,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        if entry.file_name().to_string_lossy() == skip_top {
+            continue;
+        }
+        let ft = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
 /// Best-effort removal of runtime dirs for other (older) versions.
 fn cleanup_old_runtimes(base: &std::path::Path, keep: &str) {
     if let Ok(rd) = std::fs::read_dir(base) {
@@ -262,6 +287,85 @@ fn server_fingerprint(server_dir: &std::path::Path) -> String {
     let bi = file_fp(&server_dir.join("build-info.json"));
     let srv = file_fp(&server_dir.join("server.js"));
     format!("app={app}|build-info={bi}|server={srv}")
+}
+
+/// Fingerprint of the dependency lock — a cheap signal that an already-installed
+/// `node_modules` tree is identical to what this bundle wants. `package-lock.json`
+/// fully pins the resolved dependency tree; `package.json` is a secondary guard.
+fn deps_fingerprint(server_dir: &std::path::Path) -> String {
+    let lock = file_fp(&server_dir.join("package-lock.json"));
+    let pkg = file_fp(&server_dir.join("package.json"));
+    format!("lock={lock}|pkg={pkg}")
+}
+
+/// Try to adopt an identical `node_modules` from a sibling runtime via a fast
+/// same-volume rename instead of re-copying it from the bundle (hundreds of MB /
+/// thousands of small files, the dominant cost of a version bump). Returns `true`
+/// when `dst_server/node_modules` was populated by the rename.
+///
+/// Sound because provisioning always copies a matched (lock, node_modules) pair
+/// out of one bundle, so a sibling whose `deps_fingerprint` equals the current
+/// bundle's has a byte-identical dependency tree. The donor sibling is about to
+/// be deleted by `cleanup_old_runtimes`, so moving its `node_modules` out is
+/// strictly cheaper than delete-then-copy. Any failure returns `false` and the
+/// caller falls back to a full copy.
+fn adopt_node_modules(
+    base: &std::path::Path,
+    current_version: &str,
+    src_server: &std::path::Path,
+    dst_server: &std::path::Path,
+) -> bool {
+    // Without a lock we can't prove a sibling's tree matches — copy fresh.
+    if !src_server.join("package-lock.json").exists() {
+        return false;
+    }
+    let target = dst_server.join("node_modules");
+    if target.exists() {
+        return false; // never clobber an existing/partial copy
+    }
+    let want = deps_fingerprint(src_server);
+    let rd = match std::fs::read_dir(base) {
+        Ok(rd) => rd,
+        Err(_) => return false,
+    };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name == current_version {
+            continue;
+        }
+        let donor_server = e.path().join("server");
+        let donor_nm = donor_server.join("node_modules");
+        if !donor_nm.is_dir() {
+            continue;
+        }
+        if deps_fingerprint(&donor_server) != want {
+            continue;
+        }
+        if let Err(err) = std::fs::create_dir_all(dst_server) {
+            log_line(&format!(
+                "[desktop] runtime: create {} failed: {err}",
+                dst_server.display()
+            ));
+            return false;
+        }
+        match std::fs::rename(&donor_nm, &target) {
+            Ok(_) => {
+                log_line(&format!(
+                    "[desktop] runtime: adopted node_modules from v{name} (fast rename; deps unchanged)"
+                ));
+                return true;
+            }
+            Err(err) => {
+                log_line(&format!(
+                    "[desktop] runtime: rename node_modules from v{name} failed ({err}); copying instead"
+                ));
+                // A partial target from a failed rename must not shadow the copy.
+                let _ = std::fs::remove_dir_all(&target);
+                return false;
+            }
+        }
+    }
+    false
 }
 
 /// Ensure the per-user runtime for the current version exists, copying the
@@ -339,7 +443,18 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
         log_line(&format!("[desktop] runtime: copy node failed: {e}"));
         return None;
     }
-    if let Err(e) = copy_dir_all(&src_server, &dir.join("server")) {
+    // node_modules dominates the copy cost. If a sibling runtime already has a
+    // byte-identical tree (same package-lock), move it over via a fast rename and
+    // copy only the lighter server files; otherwise copy the whole tree. This
+    // MUST run before cleanup_old_runtimes, which deletes the donor sibling.
+    let dst_server = dir.join("server");
+    let adopted = adopt_node_modules(&base, &version, &src_server, &dst_server);
+    let copy_res = if adopted {
+        copy_dir_all_except(&src_server, &dst_server, "node_modules")
+    } else {
+        copy_dir_all(&src_server, &dst_server)
+    };
+    if let Err(e) = copy_res {
         log_line(&format!("[desktop] runtime: copy server failed: {e}"));
         return None;
     }
