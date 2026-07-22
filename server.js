@@ -36493,7 +36493,16 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
       if (!fresh) return;
       const save = { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null };
-      _saveRepoSlot(fresh, slot.id, save);
+      // Write through the ACTIVE approach so devs[] and the mirrored slot top-level
+      // stay consistent. A card that already carries a devs[] array must have its
+      // active approach updated (not just the legacy top-level fields), otherwise
+      // per-worktree readers (wtReady/activeDevWt → the agent block) see an empty
+      // approach path while the top level reads "ready". _saveDevWorktree migrates a
+      // legacy single-worktree slot into devs[0] on first write, so no-devs cards are
+      // unaffected. Falls back to a plain slot save if the slot can't be resolved.
+      const freshSlot = _findRepoSlot(fresh.dev, slot.id);
+      if (freshSlot) _saveDevWorktree(fresh, slot.id, _activeDevWtId(freshSlot), save);
+      else _saveRepoSlot(fresh, slot.id, save);
       // Re-aggregate reports across EVERY repo slot (this newly-ready worktree plus
       // any siblings), tagging each with its source repo. Re-read the context so the
       // freshly-persisted worktree path for this slot is included in the scan.
@@ -36514,7 +36523,12 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       } catch {}
     } catch (e) {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
-      if (fresh) _saveRepoSlot(fresh, slot.id, { worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
+      if (fresh) {
+        const errSave = { worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' };
+        const freshSlot = _findRepoSlot(fresh.dev, slot.id);
+        if (freshSlot) _saveDevWorktree(fresh, slot.id, _activeDevWtId(freshSlot), errSave);
+        else _saveRepoSlot(fresh, slot.id, errSave);
+      }
     }
   })();
 });

@@ -514,6 +514,29 @@ await t.test('server: _rescanDevFiles aggregates live worktree files + a repo-sc
   t.ok(/reportHistory,[\s\S]{0,120}files: f\.files, filesTruncated: f\.truncated/.test(s), 'files ride alongside reports on save');
 });
 
+// The primary dev-card /worktree route must persist the ready (and error) worktree
+// THROUGH the active approach (_saveDevWorktree), not the slot top-level only
+// (_saveRepoSlot). A card that already carries a devs[] array keeps its runtime
+// fields ONLY on the active approach; writing top-level-only leaves devs[0] empty,
+// so the SPA's per-approach readers (wtReady/activeDevWt → the agent block + "＋ Add
+// an agent" button) never render. That was the "sibling card shows no agents / no
+// way to create them" bug.
+await t.test('server: dev-card /worktree persists through the active approach (mirror invariant)', () => {
+  const s = readFileSync('server.js', 'utf8');
+  const start = s.indexOf("app.post('/api/boards/:id/dev-items/:devId/worktree'");
+  t.ok(start >= 0, 'primary dev worktree POST route exists');
+  const route = s.slice(start, start + 5200);
+  // Success branch: write through the active approach, fall back to slot save only
+  // when the slot can't be resolved.
+  t.ok(/const freshSlot = _findRepoSlot\(fresh\.dev, slot\.id\);/.test(route), 'resolves the fresh slot for the ready write');
+  t.ok(/if \(freshSlot\) _saveDevWorktree\(fresh, slot\.id, _activeDevWtId\(freshSlot\), save\);/.test(route), 'ready worktree is saved through the active approach');
+  t.ok(/else _saveRepoSlot\(fresh, slot\.id, save\);/.test(route), 'falls back to a plain slot save when unresolved');
+  // Error branch mirrors the same discipline.
+  t.ok(/if \(freshSlot\) _saveDevWorktree\(fresh, slot\.id, _activeDevWtId\(freshSlot\), errSave\);/.test(route), 'error status is also saved through the active approach');
+  // The success branch never writes the ready status via the top-level-only path.
+  t.ok(!/_saveRepoSlot\(fresh, slot\.id, \{ worktreePath: r\.worktreePath/.test(route), 'no top-level-only ready save remains');
+});
+
 await t.test('app.html: dev-card Artifacts pane surfaces a Files section with a per-file open link', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   t.ok(/devFileUrl\(d, f\) \{[\s\S]{0,200}_devUrl\(d, 'file'\)[\s\S]{0,120}repoId=/.test(html), 'devFileUrl builds a repo-scoped file URL');
