@@ -10778,6 +10778,29 @@
                                            </div>
                                          </div>
                                        </template>
+                                       <!-- Files subgroup: the agent's uncommitted worktree files (scripts, data,
+                                            source edits) that the Reports scan doesn't surface. Live-only — they
+                                            exist while the worktree does, so they vanish after cleanup. -->
+                                       <template x-if="d.files && d.files.length">
+                                         <div style="display:flex;flex-direction:column;gap:4px">
+                                           <span class="cal-caption">📁 Files<span class="hint" x-text="' ' + d.files.length" style="font-size:10px;margin-left:2px;font-weight:400"></span></span>
+                                           <div style="display:flex;flex-direction:column">
+                                             <template x-for="f in d.files" :key="(f.repoId||'') + '::' + f.rel">
+                                               <div class="cal-row">
+                                                 <template x-if="!f.deleted">
+                                                   <a class="cal-row-link" :href="devFileUrl(d,f)" target="_blank" rel="noopener" :title="'Open ' + (f.rel || '') + ' in a new tab'">
+                                                     <span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + devFileStatusLabel(f)"></span><span x-show="devFilesMultiRepo(d) && f.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + f.repo"></span>
+                                                   </a>
+                                                 </template>
+                                                 <template x-if="f.deleted">
+                                                   <span class="cal-row-link" style="opacity:0.6;text-decoration:line-through" :title="f.rel + ' — deleted, nothing to open'"><span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px">· deleted</span></span>
+                                                 </template>
+                                               </div>
+                                             </template>
+                                           </div>
+                                           <div class="hint" style="font-size:10px" x-show="d.filesTruncated">Some files not shown — open the worktree to see them all.</div>
+                                         </div>
+                                       </template>
                                        <!-- Links subgroup -->
                                        <div style="display:flex;flex-direction:column;gap:4px">
                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -10804,7 +10827,7 @@
                                            </div>
                                          </template>
                                        </div>
-                                       <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
+                                       <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length) && !(d.files && d.files.length)">No artifacts yet — the dev agent's reports, scripts and data files appear here automatically.</div>
                                       </div>
                                          </div>
                                          <div class="cf-pane" x-show="devActivePane(d)==='boards'">
@@ -12791,6 +12814,26 @@
                                            </div>
                                          </div>
                                        </template>
+                                       <template x-if="d.files && d.files.length">
+                                         <div style="display:flex;flex-direction:column;gap:4px">
+                                           <span class="cal-caption">📁 Files<span class="hint" x-text="' ' + d.files.length" style="font-size:10px;margin-left:2px;font-weight:400"></span></span>
+                                           <div style="display:flex;flex-direction:column">
+                                             <template x-for="f in d.files" :key="(f.repoId||'') + '::' + f.rel">
+                                               <div class="cal-row">
+                                                 <template x-if="!f.deleted">
+                                                   <a class="cal-row-link" :href="devFileUrl(d,f)" target="_blank" rel="noopener" :title="'Open ' + (f.rel || '') + ' in a new tab'">
+                                                     <span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + devFileStatusLabel(f)"></span><span x-show="devFilesMultiRepo(d) && f.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + f.repo"></span>
+                                                   </a>
+                                                 </template>
+                                                 <template x-if="f.deleted">
+                                                   <span class="cal-row-link" style="opacity:0.6;text-decoration:line-through" :title="f.rel + ' — deleted, nothing to open'"><span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px">· deleted</span></span>
+                                                 </template>
+                                               </div>
+                                             </template>
+                                           </div>
+                                           <div class="hint" style="font-size:10px" x-show="d.filesTruncated">Some files not shown — open the worktree to see them all.</div>
+                                         </div>
+                                       </template>
                                        <div style="display:flex;flex-direction:column;gap:4px">
                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                            <span class="cal-caption">🔗 Links</span>
@@ -12816,7 +12859,7 @@
                                            </div>
                                          </template>
                                        </div>
-                                       <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
+                                       <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length) && !(d.files && d.files.length)">No artifacts yet — the dev agent's reports, scripts and data files appear here automatically.</div>
                                       </div>
                                     </div>
                                     <div class="cf-pane" x-show="false" style="display:none">
@@ -64521,6 +64564,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devReportsMultiApproach(d) {
           try { return (this.devSlots(d) || []).some(s => (this.devWorktrees(d, s) || []).length > 1); }
           catch { return false; }
+        },
+        // Serve a single uncommitted worktree file (the agent's new scripts/data/
+        // source edits) back through the file endpoint. Repo-scoped via the slot's
+        // stable id so the server can resolve the right live worktree.
+        devFileUrl(d, f) {
+          if (!f) return '#';
+          return this._devUrl(d, 'file') + '?repoId=' + encodeURIComponent(f.repoId || '') + '&rel=' + encodeURIComponent(f.rel || '');
+        },
+        // True when a card's files span more than one repo — mirrors
+        // devReportsMultiRepo so the "· <repo>" tag only shows when needed.
+        devFilesMultiRepo(d) {
+          const fs = (d && d.files) || [];
+          const set = new Set();
+          for (const f of fs) set.add((f && (f.repoId || f.repo)) || 'primary');
+          return set.size > 1;
+        },
+        // A small glyph per file kind (scripts, data, source, docs) so the Files
+        // list reads at a glance without leaning on pills.
+        devFileIcon(f) {
+          const k = (f && f.kind) || '';
+          if (['ps1','psm1','psd1','sh','bash','zsh','bat','cmd','py','rb','pl','lua'].includes(k)) return '⚙️';
+          if (['csv','tsv','json','jsonl','ndjson','sql','xml','yaml','yml','toml','ini'].includes(k)) return '🗄️';
+          if (['md','markdown','txt','log','rst'].includes(k)) return '📝';
+          if (['html','htm'].includes(k)) return '📄';
+          return '📎';
+        },
+        // Human label for a worktree file's git status (new/modified/…); deletions
+        // are called out since they can't be opened.
+        devFileStatusLabel(f) {
+          const s = (f && f.status) || 'changed';
+          return { 'new':'new', 'added':'added', 'renamed':'renamed', 'deleted':'deleted', 'modified':'modified' }[s] || 'changed';
         },
         devLinkHref(d, l) {
           // A link backed by a cached local file is served (and survives worktree

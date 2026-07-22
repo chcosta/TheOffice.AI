@@ -452,6 +452,78 @@ await t.test('devitems: throwaway .bak/.tmp/.orig droppings are ignorable (not c
   t.notOk(droppingsOnly.dirty, 'droppings-only tree is clean');
 });
 
+// Dev-card Artifacts "Files": the agent's uncommitted worktree files (scripts,
+// data, source edits) that the Reports scan intentionally skips must surface —
+// backend lister + status mapper + traversal-guarded reader, server-side
+// aggregation + serve route wired next to reports, and a SPA Files section.
+await t.test('devitems: worktree file lister maps porcelain status + reader is traversal/ext guarded', () => {
+  const D = 'devitems.js';
+  const prelude = [
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    sliceSource(D, 'const WORKTREE_TEXT_EXTS', ']);'),
+    sliceSource(D, 'const WORKTREE_TEXT_NAMES', ']);'),
+  ].join('\n');
+  const F = extractFns(D, ['_porcelainStatus', 'readWorktreeFile'], { prelude });
+
+  // Porcelain XY -> human status. Untracked (??) is "new"; a .ps1/.csv the agent
+  // wrote lands here, NOT in the report scan.
+  t.eq(F._porcelainStatus('??'), 'new', 'untracked -> new');
+  t.eq(F._porcelainStatus('A '), 'added', 'added -> added');
+  t.eq(F._porcelainStatus('R '), 'renamed', 'renamed -> renamed');
+  t.eq(F._porcelainStatus(' D'), 'deleted', 'deleted -> deleted');
+  t.eq(F._porcelainStatus(' M'), 'modified', 'modified -> modified');
+
+  // readWorktreeFile: reads a real text file, blocks traversal + non-text types.
+  const osM = require('node:os'), fsM = require('node:fs'), pathM = require('node:path');
+  const dir = fsM.mkdtempSync(pathM.join(osM.tmpdir(), 'wtfiles-'));
+  try {
+    fsM.writeFileSync(pathM.join(dir, 'probe.ps1'), 'Write-Host hi');
+    const r = F.readWorktreeFile(dir, 'probe.ps1');
+    t.eq(String(r.content), 'Write-Host hi', 'reads the script content back');
+    t.eq(r.contentType, 'text/plain; charset=utf-8', 'a .ps1 serves as text/plain (source), not executed');
+    fsM.writeFileSync(pathM.join(dir, 'report.html'), '<b>x</b>');
+    t.eq(F.readWorktreeFile(dir, 'report.html').contentType, 'text/html; charset=utf-8', 'html serves as text/html');
+    let threw = null; try { F.readWorktreeFile(dir, '..\\..\\secret.txt'); } catch (e) { threw = e; }
+    t.ok(threw && threw.status === 403, 'path traversal is forbidden (403)');
+    threw = null; try { F.readWorktreeFile(dir, 'x.exe'); } catch (e) { threw = e; }
+    t.ok(threw && threw.status === 415, 'a non-text/binary ext is refused (415)');
+  } finally { try { fsM.rmSync(dir, { recursive: true, force: true }); } catch {} }
+});
+
+await t.test('devitems: exports the worktree file lister + reader', () => {
+  const d = readFileSync('devitems.js', 'utf8');
+  const exp = d.slice(d.lastIndexOf('module.exports'));
+  t.ok(/\blistWorktreeFiles\b/.test(exp), 'listWorktreeFiles is exported');
+  t.ok(/\breadWorktreeFile\b/.test(exp), 'readWorktreeFile is exported');
+});
+
+await t.test('server: _rescanDevFiles aggregates live worktree files + a repo-scoped serve route', () => {
+  const s = readFileSync('server.js', 'utf8');
+  t.ok(/function _rescanDevFiles\(d\)/.test(s), '_rescanDevFiles helper exists');
+  // Files come from LIVE slots only (worktree present) - dead slots contribute
+  // nothing, since these files are not cached like reports.
+  t.ok(/_rescanDevFiles[\s\S]{0,400}if \(!s\.worktreePath\) continue;/.test(s), 'skips dead slots (live-only)');
+  t.ok(/devitems\.listWorktreeFiles\(s\.worktreePath\)/.test(s), 'delegates to devitems.listWorktreeFiles per live slot');
+  // The serve route resolves the slot by its stable id and reads live.
+  const route = s.slice(s.indexOf("app.get('/api/boards/:id/dev-items/:devId/file'"));
+  t.ok(route.startsWith("app.get('/api/boards/:id/dev-items/:devId/file'"), 'GET .../file route exists');
+  t.ok(/_devReportSlots\(d\)\.find\(s => s\.id === repoId && s\.worktreePath\)/.test(route.slice(0, 900)), 'route resolves the live slot by repoId');
+  t.ok(/devitems\.readWorktreeFile\(slot\.worktreePath, rel\)/.test(route.slice(0, 900)), 'route serves via the guarded reader');
+  // Wired next to reports at the reports/scan endpoint (representative site).
+  t.ok(/reportHistory,[\s\S]{0,120}files: f\.files, filesTruncated: f\.truncated/.test(s), 'files ride alongside reports on save');
+});
+
+await t.test('app.html: dev-card Artifacts pane surfaces a Files section with a per-file open link', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/devFileUrl\(d, f\) \{[\s\S]{0,200}_devUrl\(d, 'file'\)[\s\S]{0,120}repoId=/.test(html), 'devFileUrl builds a repo-scoped file URL');
+  t.ok(/\uD83D\uDCC1 Files/.test(html), 'a Files caption is rendered');
+  t.ok(/:href="devFileUrl\(d,f\)"/.test(html), 'each non-deleted file links to devFileUrl');
+  t.ok(/f\.deleted[\s\S]{0,200}line-through/.test(html), 'deletions are struck through, not linked');
+  // The empty-state now speaks to reports AND files (no longer "No reports yet").
+  t.ok(/x-show="!\(d\.reports && d\.reports\.length\) && !\(d\.files && d\.files\.length\)"/.test(html), 'empty-state is files-aware');
+});
+
 // Code Flow worktree route: the drift "dirty" badge and the "Uncommitted N files"
 // row must be computed from a SINGLE change read so they can never contradict each
 // other ("Out of sync (uncommitted)" vs "Clean") due to worktree churn between two
@@ -542,8 +614,8 @@ await t.test('codeflow: PR + dev artifacts show timestamps and a Past reports di
 await t.test('server: dev routes plumb reportHistory alongside reports', () => {
   const s = readFileSync('server.js', 'utf8');
   t.ok(/partial\.reportHistory = devitems\.listReportHistory\(req\.params\.id, req\.params\.devId\)/.test(s), 'GET refresh attaches reportHistory');
-  t.ok(/ctx\.save\(\{ reports, reportHistory \}\)/.test(s), 'manual scan saves reports + reportHistory');
-  t.ok(/cR\.save\(\{ reports, reportHistory \}\)/.test(s), 'summarizer loop saves reports + reportHistory on change');
+  t.ok(/ctx\.save\(\{ reports, reportHistory, files: f\.files, filesTruncated: f\.truncated \}\)/.test(s), 'manual scan saves reports + reportHistory (+ files)');
+  t.ok(/cR\.save\(\{ reports, reportHistory, files: f\.files, filesTruncated: f\.truncated \}\)/.test(s), 'summarizer loop saves reports + reportHistory (+ files) on change');
 });
 
 // The themed icon engine swaps nav emoji for SVG glyphs when a non-emoji icon set is

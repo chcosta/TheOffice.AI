@@ -36127,6 +36127,29 @@ function _rescanDevReports(boardId, devId, d) {
   return reports.slice(0, 32);
 }
 
+// Aggregate the agent's uncommitted worktree FILES (scripts/data/source edits —
+// everything the Reports scan doesn't surface) across a dev card's LIVE repo
+// slots. Unlike reports these are not cached: they exist only while the worktree
+// lives, so dead slots contribute nothing. Each file is tagged with its source
+// repo + approach so the client can serve it back and disambiguate. Capped.
+function _rescanDevFiles(d) {
+  const out = [];
+  let anyTrunc = false;
+  for (const s of _devReportSlots(d)) {
+    if (!s.worktreePath) continue;
+    let res;
+    try { res = devitems.listWorktreeFiles(s.worktreePath) || { files: [], truncated: false }; } catch { res = { files: [], truncated: false }; }
+    if (res.truncated) anyTrunc = true;
+    for (const f of (res.files || [])) {
+      out.push({ ...f, repoId: s.id, repo: s.repo, wtId: s.wtId, aspect: s.aspect, approachActive: !!s.active });
+    }
+  }
+  const rank = (x) => (x.status === 'new' || x.status === 'added') ? 0 : 1;
+  out.sort((a, b) => (rank(a) - rank(b)) || String(a.rel).localeCompare(String(b.rel)));
+  const CAP = 80;
+  return { files: out.slice(0, CAP), truncated: anyTrunc || out.length > CAP };
+}
+
 // ---- Provider dispatch for dev cards -------------------------------------
 // A dev card (or repo slot) may target Azure DevOps (default) or GitHub. These
 // helpers build a provider descriptor and dispatch the work-item / PR calls that
@@ -36476,7 +36499,7 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       // freshly-persisted worktree path for this slot is included in the scan.
       try {
         const withWt = _devItemCtx(req.params.id, req.params.devId);
-        if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); withWt.save({ reports }); }
+        if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); const files = _rescanDevFiles(withWt.dev); withWt.save({ reports, files: files.files, filesTruncated: files.truncated }); }
       } catch {}
       // Per-worktree agents: seed this slot's ACTIVE worktree with its OWN default
       // implementer (the intrinsic "worktree agent" the CLI auto-selects) when it has
@@ -36560,7 +36583,7 @@ app.post('/api/boards/:id/dev-items/:devId/dev-worktree', async (req, res) => {
         }
       } catch {}
       // Re-aggregate reports across every slot now that a new worktree is live.
-      try { const withWt = _devItemCtx(req.params.id, req.params.devId); if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); withWt.save({ reports }); } } catch {}
+      try { const withWt = _devItemCtx(req.params.id, req.params.devId); if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); const files = _rescanDevFiles(withWt.dev); withWt.save({ reports, files: files.files, filesTruncated: files.truncated }); } } catch {}
     } catch (e) {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
       if (fresh) _saveDevWorktree(fresh, slot.id, wtId, { worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
@@ -36682,6 +36705,8 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   }
   // Reports: aggregate across every repo slot (live worktrees + cached-from-removed).
   try { partial.reports = _rescanDevReports(req.params.id, req.params.devId, d); } catch {}
+  // Files: the agent's uncommitted worktree scripts/data/source edits (live slots only).
+  try { const f = _rescanDevFiles(d); partial.files = f.files; partial.filesTruncated = f.truncated; } catch {}
   // Preserved previous report versions ("Past reports"), enriched with (N) names.
   try { partial.reportHistory = devitems.listReportHistory(req.params.id, req.params.devId) || []; } catch {}
   // Work item.
@@ -37035,12 +37060,14 @@ async function _reconcileDevSummaries() {
           if (_devRepoSlots(d).some(s => s.worktreePath)) {
             try {
               const reports = _rescanDevReports(b.id, d.id, d);
+              const f = _rescanDevFiles(d);
               const sig = (arr) => (Array.isArray(arr) ? arr : []).map(r => (r.cacheRel || r.rel) + ':' + Math.round(r.mtime)).join('|');
-              if (sig(reports) !== sig(d.reports)) {
+              const fsig = (arr) => (Array.isArray(arr) ? arr : []).map(r => (r.wtId || '') + ':' + r.rel + ':' + (r.status || '')).join('|');
+              if (sig(reports) !== sig(d.reports) || fsig(f.files) !== fsig(d.files)) {
                 let reportHistory = [];
                 try { reportHistory = devitems.listReportHistory(b.id, d.id) || []; } catch {}
                 const cR = _devItemCtx(b.id, d.id);
-                if (cR) cR.save({ reports, reportHistory });
+                if (cR) cR.save({ reports, reportHistory, files: f.files, filesTruncated: f.truncated });
               }
             } catch {}
           }
@@ -37167,7 +37194,7 @@ app.post('/api/boards/:id/dev-items/:devId/repos/remove', async (req, res) => {
   // The slot is gone entirely, so its reports should drop out of the aggregate.
   const fresh = _devItemCtx(req.params.id, req.params.devId) || ctx;
   let updated = fresh.dev;
-  try { updated = fresh.save({ reports: _rescanDevReports(req.params.id, req.params.devId, fresh.dev) }); } catch {}
+  try { const f = _rescanDevFiles(fresh.dev); updated = fresh.save({ reports: _rescanDevReports(req.params.id, req.params.devId, fresh.dev), files: f.files, filesTruncated: f.truncated }); } catch {}
   res.json({ ok: true, dev: updated });
 });
 
@@ -37204,7 +37231,8 @@ app.post('/api/boards/:id/dev-items/:devId/reports/scan', (req, res) => {
   const reports = _rescanDevReports(req.params.id, req.params.devId, ctx.dev);
   let reportHistory = [];
   try { reportHistory = devitems.listReportHistory(req.params.id, req.params.devId) || []; } catch {}
-  const updated = ctx.save({ reports, reportHistory });
+  const f = _rescanDevFiles(ctx.dev);
+  const updated = ctx.save({ reports, reportHistory, files: f.files, filesTruncated: f.truncated });
   res.json({ ok: true, dev: updated });
 });
 
@@ -37230,6 +37258,31 @@ app.get('/api/boards/:id/dev-items/:devId/report', (req, res) => {
     res.send(r.content);
   } catch (e) {
     res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read report');
+  }
+});
+
+// Serve a single uncommitted worktree FILE for a dev card (the agent's new
+// scripts/data/source edits surfaced in the Files section). Resolves the repo
+// slot by its stable id, reads the file live from that slot's worktree —
+// path-traversal guarded + text-extension allowlisted in devitems.readWorktreeFile.
+// These files are not cached (they live only while the worktree lives), so a
+// gone slot / removed file 404s honestly.
+app.get('/api/boards/:id/dev-items/:devId/file', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).send('Dev card not found');
+  const d = ctx.dev;
+  const repoId = req.query.repoId;
+  const rel = req.query.rel;
+  if (!rel) return res.status(400).send('A file is required');
+  const slot = _devReportSlots(d).find(s => s.id === repoId && s.worktreePath);
+  if (!slot) return res.status(404).send('Worktree not found');
+  try {
+    const r = devitems.readWorktreeFile(slot.worktreePath, rel);
+    res.setHeader('Content-Type', r.contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(r.content);
+  } catch (e) {
+    res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read file');
   }
 });
 

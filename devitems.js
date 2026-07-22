@@ -1291,6 +1291,96 @@ function _readReportFrom(rootDir, rel) {
 function readReport(wt, rel) { return _readReportFrom(wt, rel); }
 
 // ---------------------------------------------------------------------------
+// Worktree files. The dev agent frequently produces new/changed files that are
+// NOT status reports — scripts (.ps1/.sh/.py), data (.csv/.json), source edits —
+// and those have no home in the Reports list. Surface a worktree's uncommitted
+// committable changes (git-untracked + modified) as an openable "Files" list so
+// the agent's real work products are reachable from the card. Read-only, derived
+// from `worktreeChanges` so already-shown reports + build noise (which live in
+// `.ignored`) are excluded by construction. Files are NOT cached — they exist
+// only while the worktree lives.
+// ---------------------------------------------------------------------------
+
+// Human-readable status from a 2-char `git status --porcelain` XY code.
+function _porcelainStatus(xy) {
+  const s = String(xy || '');
+  if (s.indexOf('?') >= 0) return 'new';
+  if (/[AC]/.test(s)) return 'added';
+  if (/R/.test(s)) return 'renamed';
+  if (/D/.test(s)) return 'deleted';
+  if (/[MTU]/.test(s)) return 'modified';
+  return 'changed';
+}
+
+// List a worktree's uncommitted committable files as
+// { rel, name, status(new/added/modified/deleted/renamed/changed), kind(ext), deleted }.
+// New/added first, then alphabetical by path. Capped with a `truncated` flag so a
+// large source refactor can't flood the card. Never throws.
+function listWorktreeFiles(wt) {
+  try {
+    if (!wt || !_isRepo(wt)) return { files: [], truncated: false };
+    const wc = worktreeChanges(wt);
+    const items = (wc.changed || []).map((c) => {
+      const rel = c.path;
+      const name = String(rel).replace(/\\/g, '/').split('/').pop();
+      const ext = path.extname(name).toLowerCase().replace(/^\./, '');
+      const status = _porcelainStatus(c.xy);
+      return { rel, name, status, kind: ext || 'file', deleted: status === 'deleted' };
+    });
+    const rank = (s) => (s === 'new' || s === 'added') ? 0 : 1;
+    items.sort((a, b) => (rank(a.status) - rank(b.status)) || String(a.rel).localeCompare(String(b.rel)));
+    const CAP = 60;
+    return { files: items.slice(0, CAP), truncated: items.length > CAP };
+  } catch { return { files: [], truncated: false }; }
+}
+
+// Text-safe extensions/names we allow the in-app viewer to read from a worktree.
+// Broader than the report-only REPORT_EXTS: scripts, source, data, config, docs.
+const WORKTREE_TEXT_EXTS = new Set([
+  '.ps1', '.psm1', '.psd1', '.ps', '.sh', '.bash', '.zsh', '.bat', '.cmd',
+  '.py', '.rb', '.pl', '.lua', '.r',
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+  '.cs', '.fs', '.vb', '.go', '.rs', '.java', '.kt', '.swift', '.scala',
+  '.c', '.h', '.cpp', '.hpp', '.cc', '.m',
+  '.sql', '.csv', '.tsv', '.json', '.jsonl', '.ndjson',
+  '.yaml', '.yml', '.xml', '.toml', '.ini', '.cfg', '.conf', '.properties',
+  '.md', '.markdown', '.txt', '.log', '.rst',
+  '.html', '.htm', '.css', '.scss', '.less',
+  '.env', '.props', '.targets', '.gradle', '.tf', '.bicep', '.proto', '.graphql'
+]);
+const WORKTREE_TEXT_NAMES = new Set([
+  'dockerfile', 'makefile', 'jenkinsfile', 'procfile', 'rakefile',
+  '.gitignore', '.gitattributes', '.editorconfig', '.dockerignore'
+]);
+
+// Safely read an arbitrary text file from a worktree for in-app viewing. Same
+// traversal guard + size cap as _readReportFrom, but a broader text-safe
+// allow-list; HTML serves text/html, everything else text/plain so scripts and
+// data render as source. Returns { content, contentType, name } or throws with
+// a `.status`.
+function readWorktreeFile(rootDir, rel) {
+  const err = (msg, status) => { const e = new Error(msg); e.status = status; return e; };
+  if (!rootDir || !fs.existsSync(rootDir)) throw err('Not found', 404);
+  if (!rel || typeof rel !== 'string') throw err('Missing file', 400);
+  const root = path.resolve(rootDir);
+  const abs = path.resolve(root, rel);
+  const within = abs === root || abs.startsWith(root + path.sep);
+  if (!within) throw err('Forbidden path', 403);
+  const base = path.basename(abs);
+  const ext = path.extname(abs).toLowerCase();
+  const ok = WORKTREE_TEXT_EXTS.has(ext) || WORKTREE_TEXT_NAMES.has(base.toLowerCase());
+  if (!ok) throw err('Unsupported file type', 415);
+  let st;
+  try { st = fs.statSync(abs); } catch { throw err('Not found', 404); }
+  if (!st.isFile()) throw err('Not a file', 404);
+  if (st.size > 8 * 1024 * 1024) throw err('File too large to preview', 413);
+  const content = fs.readFileSync(abs);
+  const isHtml = ext === '.html' || ext === '.htm';
+  const contentType = isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8';
+  return { content, contentType, name: base };
+}
+
+// ---------------------------------------------------------------------------
 // Report cache. Reports surfaced from a worktree live inside that worktree, so
 // they vanish the moment the user deletes the worktree. We mirror each surfaced
 // report into a durable per-card store under the supervisor data dir, keyed by
@@ -1679,6 +1769,8 @@ module.exports = {
   openWorkspace,
   findReports,
   readReport,
+  listWorktreeFiles,
+  readWorktreeFile,
   findAndCacheReports,
   findAndCacheReportsForSlots,
   cacheReports,
