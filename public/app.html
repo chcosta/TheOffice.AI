@@ -59802,16 +59802,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // On drag-start immediately switch to the target board section so the user can
         // see where the drop will land (instead of waiting for release).
         onTbxItemDragStart(p, ev) {
-          // Whole-row native drag = place on a board. Decide direction from the LAST
-          // tracked pointer delta (dragstart's own clientX/Y is the press point, ≈0), so
-          // a normal rightward drag reliably starts. Block only when the swipe is armed,
-          // the gesture is clearly LEFTward (unpin/delete) or clearly vertical (does
-          // neither). Ambiguous / tiny movement defaults to allowing the drag.
-          const dx = this._tbxLastDX || 0;
-          const dy = this._tbxLastDY || 0;
-          const leftward = dx < 0 && Math.abs(dx) >= Math.abs(dy);
-          const verticalDominant = Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 6;
-          if (this._tbxSwipeArmed || leftward || verticalDominant) { try { ev.preventDefault(); } catch {} return; }
+          // Whole-row native drag = place on a board. The ONLY gesture that must NOT
+          // start a board drag is the leftward swipe that reveals Unpin/Delete, and that
+          // is captured authoritatively by `_tbxSwipeArmed` (the swipe move-handler only
+          // arms on clearly leftward-dominant movement). Everything else — rightward,
+          // vertical, or ambiguous — is a board drag and must be allowed.
+          //
+          // Do NOT gate on `_tbxLastDX/DY` direction here: the swipe move-listener calls
+          // `_tbxSwipeCleanup()` (removing itself) on the first non-leftward sample, so
+          // those deltas FREEZE at a ~6px micro-sample and never track the real drag. A
+          // genuinely rightward drag whose first micro-move happened to be vertical-ish
+          // was being wrongly cancelled by a stale "verticalDominant" read (and the
+          // desktop DnD bridge, which dispatches dragstart much later, always saw the
+          // stale value). `_tbxSwipeArmed` alone is reliable in both paths.
+          if (this._tbxSwipeArmed) { try { ev.preventDefault(); } catch {} return; }
           this._tbxSwipeCleanup();
           this.onToolboxDragStart(this.panelBaseId(p), ev);
         },

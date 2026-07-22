@@ -3814,6 +3814,35 @@ await t.test('desktop native-DnD → pointer bridge (WebView2-safe drag everywhe
     'a fresh pointerdown clears the suppression so later clicks (e.g. a button) are never eaten');
 });
 
+await t.test('boards toolbox→board drag gate keys off the armed swipe, not a stale delta', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const gate = _win(html, 'onTbxItemDragStart(p, ev) {', 1600);
+  t.ok(gate, 'onTbxItemDragStart present');
+
+  // The ONLY thing that may cancel a board drag is the armed left-swipe (unpin/delete).
+  t.ok(/if \(this\._tbxSwipeArmed\) \{[\s\S]*?ev\.preventDefault\(\)[\s\S]*?return;\s*\}/.test(gate),
+    'an armed left-swipe cancels the drag');
+  // Every non-armed gesture (rightward / vertical / ambiguous) proceeds to start the drag.
+  t.ok(/this\._tbxSwipeCleanup\(\);\s*this\.onToolboxDragStart\(this\.panelBaseId\(p\), ev\);/.test(gate),
+    'a non-armed gesture starts the board drag');
+
+  // The fragile stale-delta direction reads are GONE — they froze at a ~6px micro-sample
+  // (the swipe move-listener removes itself on the first non-leftward move) and wrongly
+  // cancelled genuinely-rightward drags whose first micro-move was vertical-ish. The desktop
+  // bridge (which dispatches dragstart much later) always saw that stale value.
+  // (Strip // comments so the explanatory comment block doesn't trip these code-only checks.)
+  const gateCode = gate.replace(/\/\/[^\n]*/g, '');
+  t.ok(!/verticalDominant/.test(gateCode), 'no stale verticalDominant cancel in the gate');
+  t.ok(!/const leftward = this\._tbxLastDX/.test(gateCode) && !/_tbxLastDX \|\| 0/.test(gateCode),
+    'the gate no longer reads a frozen _tbxLastDX to decide direction');
+
+  // The armed flag is only set on clearly leftward-dominant movement, so it reliably
+  // distinguishes an unpin swipe from a board drag in BOTH the browser and desktop paths.
+  const move = _win(html, 'tbxSwipeStart(p, ev) {', 2400);
+  t.ok(/if \(ddx < 0 && Math\.abs\(ddx\) > Math\.abs\(ddy\)\) this\._tbxSwipeArmed = true;/.test(move),
+    'the swipe arms only on clearly leftward-dominant movement');
+});
+
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
