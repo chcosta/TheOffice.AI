@@ -130,7 +130,7 @@
   <div class="card" id="starting">
     <div class="spinner" aria-hidden="true"></div>
     <div class="title">TheOffice.AI</div>
-    <div class="sub">Starting local service…</div>
+    <div class="sub" id="sSub">Starting local service…</div>
   </div>
 
   <!-- Recovery: shown when the service stopped or is taking too long. -->
@@ -159,7 +159,15 @@
       const params = new URLSearchParams(location.search);
       const startedInRecovery = params.get("state") === "recovering";
       const crashes = parseInt(params.get("crashes") || "0", 10) || 0;
-      const GRACE_MS = 15000; // how long "Starting…" shows before offering recovery
+      // A fresh first launch — especially the first one after an update — is slow:
+      // the shell copies the node/+server runtime (~30s+) AND the server then cold-
+      // starts (Copilot CLI resolution, git, DB init) for another ~30-60s. A short
+      // fixed timer used to flip to the alarming "not responding / Restart" screen
+      // at 15s even though nothing was wrong, and restarting mid-startup only made
+      // it slower. So: show a gentle note after SOFT, and only treat it as a real
+      // problem after HARD — and never advance while the runtime is still copying.
+      const GRACE_SOFT_MS = 20000;  // gentle "this can take a minute" reassurance
+      const GRACE_HARD_MS = 120000; // only now offer the recovery screen (non-provisioning)
 
       const el = (id) => document.getElementById(id);
       const startingView = el("starting");
@@ -168,6 +176,7 @@
       const rTitle = el("rTitle");
       const rSub = el("rSub");
       const rLogPath = el("rLogPath");
+      const sSub = el("sSub");
 
       const invoke = () =>
         (window.__TAURI__ && (window.__TAURI__.core?.invoke || window.__TAURI__.invoke)) || null;
@@ -175,6 +184,7 @@
       const startTs = Date.now();
       let navigating = false;
       let inRecovery = startedInRecovery;
+      let provisioning = false;
 
       function showRecovery() {
         if (!recoveryView.classList.contains("hidden")) return;
@@ -207,6 +217,18 @@
         }
       }
 
+      // Ask the shell whether it's still copying the runtime (first launch after
+      // an update). Cheap; only called once we're past the soft grace.
+      async function refreshProvisioning() {
+        const inv = invoke();
+        if (!inv) return;
+        try {
+          const d = await inv("get_diagnostics");
+          provisioning = !!d.provisioning;
+          window.__diag = d;
+        } catch (_) { /* leave last known value */ }
+      }
+
       // Poll the local service. On a healthy response it's safe to load it —
       // we only ever navigate to the port we just confirmed is serving, so an
       // ephemeral-port fallback can never send us to a dead URL (the Rust shell
@@ -229,8 +251,26 @@
         if (inRecovery) {
           rStatus.textContent = "Service is not responding yet — retrying…";
           rStatus.classList.remove("is-back");
-        } else if (Date.now() - startTs > GRACE_MS) {
-          showRecovery();
+          return;
+        }
+
+        // Fresh (non-crash) startup. Stay calm and patient: reassure after the
+        // soft grace, keep the runtime copy from ever tripping the error screen,
+        // and only surface real recovery after the hard grace. We keep polling
+        // throughout, so the moment the service answers we navigate automatically —
+        // no manual "Restart service" needed.
+        const waited = Date.now() - startTs;
+        if (waited > GRACE_SOFT_MS) {
+          await refreshProvisioning();
+          if (provisioning) {
+            sSub.textContent =
+              "Finishing update — the first launch after an update can take a minute…";
+          } else if (waited > GRACE_HARD_MS) {
+            showRecovery();
+          } else {
+            sSub.textContent =
+              "Still starting — the first launch after an update can take a minute or two…";
+          }
         }
       }
 

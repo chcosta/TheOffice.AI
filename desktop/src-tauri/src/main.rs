@@ -149,6 +149,13 @@ struct SidecarState {
     crash_count: AtomicU32,
     /// Human-readable summary of the most recent unexpected exit.
     last_reason: Mutex<String>,
+    /// True while the per-user runtime is being provisioned — the first launch
+    /// after an install/upgrade copies the whole `node\`+`server\` trees, which
+    /// can take ~30s+ on Windows (AV scans every node_modules file). The splash
+    /// reads this via `get_diagnostics` so it shows a calm "finishing update"
+    /// message and stays patient instead of flipping to the alarming
+    /// "not responding / Restart" recovery screen while a legit copy is running.
+    provisioning: AtomicBool,
 }
 
 /// Strip a Windows extended-length (`\\?\`) prefix from a path.
@@ -434,7 +441,14 @@ fn start_sidecar(app: &tauri::AppHandle, state: Arc<SidecarState>) {
         // than the versioned install dir. This keeps $INSTDIR\node.exe unlocked,
         // so an in-place upgrade never stalls on a locked file, and Node/Copilot
         // are copied once per version instead of re-extracted every launch.
+        //
+        // The copy can take ~30s+ after an upgrade; flag it so the splash shows a
+        // calm "finishing update" message and stays patient (it must NOT punish a
+        // service that hasn't even been spawned yet). Cleared once provisioning
+        // returns, regardless of outcome.
+        state.provisioning.store(true, Ordering::SeqCst);
         let _ = provision_runtime(&handle);
+        state.provisioning.store(false, Ordering::SeqCst);
 
         // Backoff between crash-restarts: start small, double up to a cap, and
         // reset once a spawn has stayed up long enough to be considered healthy.
@@ -768,6 +782,7 @@ fn get_diagnostics(
         "lastReason": state.last_reason.lock().ok().map(|g| g.clone()).unwrap_or_default(),
         "sidecarPid": pid,
         "running": pid.is_some(),
+        "provisioning": state.provisioning.load(Ordering::SeqCst),
     })
 }
 
@@ -789,6 +804,11 @@ fn main() {
         splash_url: Mutex::new(None),
         crash_count: AtomicU32::new(0),
         last_reason: Mutex::new(String::new()),
+        // Provisioning begins the instant the supervisor thread starts (before the
+        // first spawn), so initialize true; start_sidecar clears it when the copy
+        // finishes. This closes the tiny gap where the splash could otherwise see
+        // "not provisioning" before the thread has flagged it.
+        provisioning: AtomicBool::new(true),
     });
     let setup_state = state.clone();
     let exit_state = state.clone();
