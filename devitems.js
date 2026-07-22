@@ -235,6 +235,29 @@ function ensureClone(org, project, repo, desc) {
   return dir;
 }
 
+// Resolve a usable base ref in `clone`, falling back to the remote's advertised default
+// branch when the requested base can't be found. Guards the "dev card repo was changed"
+// case: the old base branch (seeded from the previous repo) won't exist on the new
+// remote, and blindly checking out a non-existent base fails with "invalid reference".
+// Returns a resolvable ref string (e.g. 'origin/main') or null when nothing resolves.
+function _resolveBaseRef(clone, base) {
+  const want = (base || '').trim();
+  if (want) {
+    if (_gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + want], clone).ok) return 'origin/' + want;
+    if (_gitTry(['rev-parse', '--verify', '--quiet', want], clone).ok) return want;
+  }
+  // Remote's advertised default branch (origin/HEAD → e.g. refs/remotes/origin/main).
+  const sym = _gitTry(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], clone);
+  if (sym.ok && sym.out) {
+    const ref = sym.out.trim().replace(/^refs\/remotes\//, '');
+    if (ref && _gitTry(['rev-parse', '--verify', '--quiet', ref], clone).ok) return ref;
+  }
+  for (const cand of ['origin/main', 'origin/master']) {
+    if (_gitTry(['rev-parse', '--verify', '--quiet', cand], clone).ok) return cand;
+  }
+  return null;
+}
+
 // Create (or reuse) a worktree for a Dev item. Returns { worktreePath, branch, reused }.
 function createWorktree({ org, project, repo, baseBranch, branch, devId, detach, provider }) {
   const desc = provider ? { provider, org, project, repo } : null;
@@ -292,8 +315,12 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId, detach,
     _git(['worktree', 'add', '--track', '-B', br, wt, 'origin/' + br], clone);
   } else {
     // Brand-new branch off the base; no upstream yet (status compares vs origin/base).
-    const baseRef = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + base], clone).ok
-      ? 'origin/' + base : base;
+    // Resolve the base robustly: the requested base may not exist on this remote (e.g.
+    // the card's repo was changed and the old base doesn't exist on the new repo), so
+    // fall back to the remote's default branch instead of failing with "invalid
+    // reference". Only throw when the remote has no resolvable base at all.
+    const baseRef = _resolveBaseRef(clone, base);
+    if (!baseRef) throw new Error('Cannot resolve a base branch for ' + repo + ' (tried "' + base + '" and the remote default).');
     _git(['worktree', 'add', '-b', br, wt, baseRef], clone);
   }
   return { worktreePath: wt, branch: br, reused: false };

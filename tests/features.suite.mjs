@@ -537,6 +537,35 @@ await t.test('server: dev-card /worktree persists through the active approach (m
   t.ok(!/_saveRepoSlot\(fresh, slot\.id, \{ worktreePath: r\.worktreePath/.test(route), 'no top-level-only ready save remains');
 });
 
+// Changing a dev card's repo IDENTITY (provider/org/project/repo) must reconcile the
+// primary slot's approaches to fresh branches off the NEW repo: the old branch/base/
+// worktree/PR were seeded from the previous repo and won't resolve against the new
+// clone (the next /worktree fails with "fatal: invalid reference"). The PATCH route
+// resets the top-level worktree mirror + old-repo PR wiring + every approach's runtime
+// (keeping id/aspect/agents), and createWorktree resolves the base robustly.
+await t.test('server: repo-change PATCH reconciles the primary slot; createWorktree base fallback', () => {
+  const s = readFileSync('server.js', 'utf8');
+  const start = s.indexOf("app.patch('/api/dev-items/:devId'");
+  t.ok(start >= 0, 'dev-item PATCH route exists');
+  const route = s.slice(start, start + 2400);
+  t.ok(/const repoChanged = \['provider', 'org', 'project', 'repo'\]\.some\(k => k in fields\)/.test(route), 'detects a repo-identity change from the client fields');
+  t.ok(/idKey\(next\) !== idKey\(card\)/.test(route), 'repo change requires the identity key to actually differ');
+  t.ok(/if \(!\('baseBranch' in fields\)\) fields\.baseBranch = '';/.test(route), 'clears baseBranch to fall back to the new remote default');
+  t.ok(/prId: '', prBranch: '', prWorktreePath: '', prSeq: 0/.test(route), 'drops the old-repo PR wiring');
+  t.ok(/worktreePath: '', worktreeStatus: null, worktreeError: null, git: null/.test(route), 'clears the top-level worktree mirror');
+  // Approaches are rebuilt whole (arrays replace in devStore.patch), keeping identity.
+  t.ok(/fields\.devs = card\.devs\.map\(w => \(\{[\s\S]{0,160}branch: '', worktreePath: ''/.test(route), 'rebuilds every approach with cleared runtime');
+  t.ok(/repoReconciled: repoChanged/.test(route), 'response reports whether a reconcile happened');
+
+  // createWorktree resolves the base robustly so a repo change never hard-fails.
+  const dev = readFileSync('devitems.js', 'utf8');
+  t.ok(/function _resolveBaseRef\(clone, base\)/.test(dev), '_resolveBaseRef helper present');
+  t.ok(/symbolic-ref', '--quiet', 'refs\/remotes\/origin\/HEAD'/.test(dev), 'falls back to the remote advertised default branch');
+  t.ok(/for \(const cand of \['origin\/main', 'origin\/master'\]\)/.test(dev), 'falls back to origin/main|master');
+  t.ok(/const baseRef = _resolveBaseRef\(clone, base\);/.test(dev), 'createWorktree uses the robust resolver');
+  t.ok(/if \(!baseRef\) throw new Error/.test(dev), 'throws a clear error only when nothing resolves');
+});
+
 await t.test('app.html: dev-card Artifacts pane surfaces a Files section with a per-file open link', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   t.ok(/devFileUrl\(d, f\) \{[\s\S]{0,200}_devUrl\(d, 'file'\)[\s\S]{0,120}repoId=/.test(html), 'devFileUrl builds a repo-scoped file URL');

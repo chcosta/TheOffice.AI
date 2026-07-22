@@ -36430,13 +36430,51 @@ app.get('/api/dev-items/:devId', (req, res) => {
   res.json(card);
 });
 
-// Edit a dev card's client-editable metadata.
+// Edit a dev card's client-editable metadata. When the repo IDENTITY changes
+// (provider/org/project/repo), reconcile the PRIMARY slot's approaches to fresh
+// branches off the NEW repo's base: the existing worktrees, branches and PR were
+// seeded from the OLD repo and won't resolve against the new clone (the next
+// /worktree would fail with "fatal: invalid reference", and the stale ready state
+// misleads the SPA). We clear each approach's branch + worktree runtime + old-repo
+// PR link (preserving the approach identity/agents) so the next /worktree clones
+// fresh off the new remote's default. Extra repos (d.repos[]) are independent slots
+// and are untouched by a primary-repo change.
 app.patch('/api/dev-items/:devId', (req, res) => {
   const card = devStore.find(req.params.devId);
   if (!card) return res.status(404).json({ error: 'Dev card not found' });
-  const updated = devStore.patch(req.params.devId, _pickDevClientFields(req.body || {}));
+  const fields = _pickDevClientFields(req.body || {});
+  const idKey = (o) => ['provider', 'org', 'project', 'repo']
+    .map(k => String((o && o[k]) || '').toLowerCase().trim()).join('/');
+  const next = {
+    provider: 'provider' in fields ? fields.provider : card.provider,
+    org: 'org' in fields ? fields.org : card.org,
+    project: 'project' in fields ? fields.project : card.project,
+    repo: 'repo' in fields ? fields.repo : card.repo
+  };
+  const repoChanged = ['provider', 'org', 'project', 'repo'].some(k => k in fields)
+    && idKey(next) !== idKey(card);
+  if (repoChanged) {
+    // Base branch: honor an explicit new base, else clear it so the worktree resolves
+    // the new remote's default branch (createWorktree falls back robustly).
+    if (!('baseBranch' in fields)) fields.baseBranch = '';
+    if (!('branch' in fields)) fields.branch = '';
+    // Reset the primary slot's top-level worktree mirror + old-repo PR wiring.
+    Object.assign(fields, {
+      worktreePath: '', worktreeStatus: null, worktreeError: null, git: null,
+      prId: '', prBranch: '', prWorktreePath: '', prSeq: 0
+    });
+    // Reset every approach on the primary slot (keep id/aspect/scope/agents). Arrays
+    // replace wholesale in devStore.patch, so we rebuild the full devs[] array.
+    if (Array.isArray(card.devs) && card.devs.length) {
+      fields.devs = card.devs.map(w => ({
+        ...w, branch: '', worktreePath: '', worktreeStatus: null,
+        worktreeError: null, git: null, promotedPrId: ''
+      }));
+    }
+  }
+  const updated = devStore.patch(req.params.devId, fields);
   broadcastSSE('boards-changed', { id: updated.homeBoardId || null, devId: updated.id, dev: updated });
-  res.json({ ok: true, dev: updated });
+  res.json({ ok: true, dev: updated, repoReconciled: repoChanged });
 });
 
 // Delete a dev card from the store (and drop its durable report cache).
