@@ -33395,7 +33395,7 @@ async function _meetingsGatherRange(start, end) {
     // transcript available" for real meetings and (b) suppressed every background
     // summary. Transcript presence is resolved honestly at build time instead.
     const prompt = `Using WorkIQ, read my Microsoft 365 calendar for meetings that have ALREADY ENDED between ${iso(start)} and ${iso(end)} by calling /me/calendarView?startDateTime=${iso(start)}&endDateTime=${iso(end)} with $select=id,iCalUId,subject,start,end,isAllDay,isCancelled,organizer,attendees,onlineMeeting,webLink and $orderby=start/dateTime desc and a high $top. Return ONLY a JSON array (no prose, no code fence), newest first, one element per meeting that has already ended: {"meetingId":string (the event id), "subject":string, "start":{"dateTime":string,"timeZone":string}, "end":{"dateTime":string,"timeZone":string}, "organizer":string (organizer display name), "attendees":[string] (attendee display names), "recordingUrl":string|null (a playback URL for the meeting recording if one exists, else null), "webLink":string|null (the event's own webLink that opens it in Outlook/OWA, NOT the join URL)}. Skip all-day and cancelled events. If there are none, return [].`;
-    const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 150000, 'calendar gather');
+    const text = await _meetingsWorkIqAsk(prompt, 150000);
     const arr = _connectExtractJson(text);
     if (!Array.isArray(arr)) return [];
     const out = [];
@@ -33434,10 +33434,219 @@ async function _meetingsGatherRecent(days) {
   return _meetingsGatherRange(start, end);
 }
 
+function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    let config;
+    try {
+      config = JSON.parse(fs.readFileSync(path.join(connectPluginDir, '.mcp.json'), 'utf8'));
+    } catch (e) {
+      reject(new Error(`WorkIQ configuration is unavailable: ${e.message}`));
+      return;
+    }
+    const workiq = config && config.mcpServers && config.mcpServers.workiq;
+    if (!workiq || !workiq.command) {
+      reject(new Error('WorkIQ is not configured.'));
+      return;
+    }
+
+    const { spawn, spawnSync } = require('child_process');
+    const command = String(workiq.command);
+    const args = Array.isArray(workiq.args) ? workiq.args.map(String) : [];
+    const commandParts = [command, ...args];
+    if (process.platform === 'win32' && commandParts.some(value => /[&|<>^"%!\r\n]/.test(value))) {
+      reject(new Error('WorkIQ command contains unsupported shell characters.'));
+      return;
+    }
+    const windowsCommand = commandParts.map(value => /\s/.test(value) ? `"${value}"` : value).join(' ');
+    const child = process.platform === 'win32'
+      ? spawn(process.env.ComSpec, ['/d', '/s', '/c', windowsCommand], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      : spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let initialized = false;
+    const terminate = force => {
+      try { child.stdin.end(); } catch (_) {}
+      const stop = () => {
+        if (child.exitCode !== null) return;
+        try {
+          if (process.platform === 'win32') {
+            spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+              stdio: 'ignore',
+              windowsHide: true,
+            });
+          } else {
+            child.kill('SIGTERM');
+          }
+        } catch (_) {}
+      };
+      if (force) stop();
+      else {
+        const cleanup = setTimeout(stop, 1000);
+        cleanup.unref();
+      }
+    };
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      terminate(!!error);
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const send = payload => {
+      try { child.stdin.write(JSON.stringify(payload) + '\n'); }
+      catch (e) { finish(e); }
+    };
+    const timer = setTimeout(() => finish(new Error('WorkIQ meeting recap timed out')), timeoutMs);
+
+    child.on('error', e => finish(new Error(`WorkIQ could not start: ${e.message}`)));
+    child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000); });
+    child.stdout.on('data', chunk => {
+      stdout += String(chunk);
+      for (;;) {
+        const nl = stdout.indexOf('\n');
+        if (nl < 0) break;
+        const line = stdout.slice(0, nl).trim();
+        stdout = stdout.slice(nl + 1);
+        if (!line) continue;
+        let message;
+        try { message = JSON.parse(line); } catch (_) { continue; }
+        if (message.id === 1 && !initialized) {
+          if (message.error) return finish(new Error(message.error.message || 'WorkIQ initialization failed.'));
+          initialized = true;
+          send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+          send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ask', arguments: { question } } });
+        } else if (message.id === 2) {
+          if (message.error) return finish(new Error(message.error.message || 'WorkIQ meeting recap failed.'));
+          const result = message.result || {};
+          if (result.isError) {
+            const detail = Array.isArray(result.content) ? result.content.map(x => x && x.text).filter(Boolean).join('\n') : '';
+            return finish(new Error(detail || 'WorkIQ meeting recap failed.'));
+          }
+          const answer = result.structuredContent && result.structuredContent.answer;
+          const text = answer || (Array.isArray(result.content) ? result.content.map(x => x && x.text).filter(Boolean).join('\n') : '');
+          if (!text) return finish(new Error('WorkIQ returned an empty meeting recap.'));
+          finish(null, text);
+        }
+      }
+    });
+    child.on('exit', code => {
+      if (!settled) finish(new Error(`WorkIQ exited before returning a recap (code ${code})${stderr ? `: ${stderr.trim()}` : ''}`));
+    });
+    send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'TheOffice.AI Meetings', version: '1.0' } },
+    });
+  });
+}
+
+function _meetingsStoryFromWorkIq(raw, subject, date) {
+  if (!raw || raw.available === false) return null;
+  const summary = String(raw.summary || '').trim();
+  const highlights = Array.isArray(raw.highlights) ? raw.highlights.filter(Boolean).slice(0, 6) : [];
+  const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(String).filter(Boolean).slice(0, 12) : [];
+  const questions = Array.isArray(raw.questions) ? raw.questions.map(String).filter(Boolean).slice(0, 12) : [];
+  const rawActions = Array.isArray(raw.actions) ? raw.actions.filter(Boolean).slice(0, 20) : [];
+  const rawPeople = Array.isArray(raw.people) ? raw.people.filter(Boolean) : [];
+  const rawParticipants = Array.isArray(raw.participants) ? raw.participants.filter(Boolean) : [];
+  if (!summary || (!highlights.length && !decisions.length && !rawActions.length)) return null;
+
+  const names = [];
+  const addName = value => {
+    const name = String((value && value.name) || value || '').trim();
+    if (name && !names.some(x => x.toLowerCase() === name.toLowerCase())) names.push(name);
+  };
+  rawPeople.forEach(addName);
+  rawParticipants.forEach(addName);
+  highlights.forEach(x => addName(x && x.speaker));
+  rawActions.forEach(x => addName(x && x.owner));
+  addName(raw.organizer);
+  if (!names.length) names.push('Meeting');
+
+  const usedKeys = new Set();
+  const keyByName = new Map();
+  const keyFor = value => {
+    const name = String(value || 'meeting').trim() || 'meeting';
+    const lookup = name.toLowerCase();
+    if (keyByName.has(lookup)) return keyByName.get(lookup);
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 18) || 'speaker';
+    let key = base;
+    let n = 2;
+    while (usedKeys.has(key)) key = `${base}${n++}`;
+    usedKeys.add(key);
+    keyByName.set(lookup, key);
+    return key;
+  };
+  const palette = ['#5aa9ff', '#a371f7', '#32c48d', '#ff9f43', '#f06292', '#26c6da', '#ffca58'];
+  const people = {};
+  names.forEach((name, index) => {
+    const source = rawPeople.find(x => String((x && x.name) || x || '').trim().toLowerCase() === name.toLowerCase());
+    const key = keyFor(name);
+    people[key] = {
+      name,
+      role: String((source && source.role) || ''),
+      gender: source && source.gender === 'f' ? 'f' : 'm',
+      color: palette[index % palette.length],
+      key,
+    };
+  });
+
+  const segments = highlights.map((item, index) => {
+    const speakerName = String((item && item.speaker) || names[0]);
+    const quoteText = String((item && item.quote) || '');
+    const point = String((item && (item.point || item.heading)) || `Key moment ${index + 1}`);
+    return {
+      heading: point,
+      narration: String((item && item.narration) || point),
+      speaker: keyFor(speakerName),
+      quote: quoteText,
+      screen: quoteText
+        ? { kind: 'quote', title: point, items: [quoteText] }
+        : { kind: 'bullets', title: point, items: [point] },
+    };
+  });
+  if (!segments.length && decisions.length) {
+    segments.push({
+      heading: 'Decisions',
+      narration: 'The meeting produced these decisions.',
+      speaker: keyFor(names[0]),
+      quote: '',
+      screen: { kind: 'bullets', title: 'Decisions', items: decisions.slice(0, 5) },
+    });
+  }
+
+  const organizerName = String(raw.organizer || names[0]);
+  const chatter = raw.chatter && Array.isArray(raw.chatter.items)
+    ? {
+        intro: String(raw.chatter.intro || ''),
+        items: raw.chatter.items.map(x => ({ who: keyFor(x && x.who), text: String((x && x.text) || '') })).filter(x => x.text),
+      }
+    : null;
+  return {
+    story: {
+      title: String(raw.title || subject || 'Meeting recap'),
+      subtitle: String(raw.subtitle || 'Meeting recap'),
+      date: String(raw.date || date || ''),
+      organizer: keyFor(organizerName),
+      attendees: names.map(keyFor),
+      overview: summary,
+      segments,
+      decisions,
+      questions,
+      actions: rawActions.map(x => ({ owner: keyFor(x && x.owner), text: String((x && x.text) || '') })).filter(x => x.text),
+      chatter,
+    },
+    people,
+  };
+}
+
 // Build a recap story for a meeting. Seed id → the authored SFI story; otherwise
-// read the transcript via WorkIQ and weave it into the STORY schema; graceful
-// minimal story on failure.
-async function _meetingsBuildRecap(meetingId, subject) {
+// call WorkIQ's M365 Copilot meeting recap directly and shape the result locally.
+async function _meetingsBuildRecap(meetingId, subject, date) {
   const id = String(meetingId || '').trim();
   if (!id || id === _MEETINGS_SEED_ID) {
     return { story: _MEETINGS_SEED_STORY, people: _MEETINGS_SEED_PEOPLE, demo: true };
@@ -33449,17 +33658,22 @@ async function _meetingsBuildRecap(meetingId, subject) {
   let reason = 'no-transcript';
   let error = '';
   try {
-    const prompt = `Using WorkIQ, read the meeting transcript and chat for the Microsoft 365 online meeting with event id "${id}"${subject ? ` (subject: "${String(subject).slice(0, 200)}")` : ''}. Fetch the call transcript (getAllTranscripts / transcript content) and the meeting chat messages. Then weave a useful, honest newscast-style recap that highlights key decisions, insights, disagreements, and action items. Return ONLY JSON (no prose, no code fence) with this exact shape:
+    const prompt = `Build the Meetings.AI recap for this completed Microsoft 365 meeting:
+- calendar event id: "${id}"
+- subject: "${String(subject || '').slice(0, 200)}"
+- date: "${String(date || '').slice(0, 40)}"
+
+Use WorkIQ ask (Microsoft 365 Copilot) to read the meeting recap/transcript summary and chat insights for this exact meeting. Then weave a useful, honest newscast-style recap that highlights key decisions, insights, disagreements, and action items. Return ONLY JSON (no prose, no code fence) with this exact shape:
 {"story":{"title":string,"subtitle":string,"date":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]}},
 "people":{"<speakerKey>":{"name":string,"role":string,"gender":"m"|"f","color":string hex,"key":string}}}
 Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". Quotes MUST be verbatim from the transcript — never fabricate. Pick a plausible gender per person for the animated avatar. Use 3–6 segments. If the transcript is unavailable, return {"story":null,"people":{}}.`;
-    // Transcript + chat fetch AND the full JSON weave in one agent run is heavy; 90s
-    // was too short and EVERY real build timed out ("transcript recap timed out") →
-    // state 'error' → a summary never appeared. 4 minutes lets it actually finish.
-    const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 240000, 'transcript recap');
+    const text = await _meetingsWorkIqAsk(prompt, 120000);
     const obj = _connectExtractJson(text);
-    if (obj && obj.story && Array.isArray(obj.story.segments) && obj.story.segments.length && obj.people && typeof obj.people === 'object') {
-      return { story: obj.story, people: obj.people, demo: false };
+    const shaped = obj && obj.story
+      ? { story: obj.story, people: obj.people }
+      : _meetingsStoryFromWorkIq(obj, subject, date);
+    if (shaped && shaped.story && Array.isArray(shaped.story.segments) && shaped.story.segments.length && shaped.people && typeof shaped.people === 'object') {
+      return { story: shaped.story, people: shaped.people, demo: false };
     }
   } catch (e) { reason = 'error'; error = (e && e.message) || 'Could not read the transcript.'; }
   // Graceful minimal story so the player never crashes.
@@ -33496,7 +33710,7 @@ app.get('/api/meetings/recent', async (req, res) => {
     const ttl = isCurrent ? 10 * 60 * 1000 : 6 * 60 * 60 * 1000;
     const cached = _meetingsRecentCache.get(key);
     if (cached && (now - cached.at) < ttl) {
-      return res.json({ ok: true, days, range: key, meetings: cached.meetings, demo: cached.demo });
+      return res.json({ ok: true, days, range: key, meetings: _meetingsWithBriefStatus(cached.meetings), demo: cached.demo });
     }
     let meetings = isRange ? await _meetingsGatherRange(start, end) : await _meetingsGatherRecent(days);
     let demo = false;
@@ -33514,28 +33728,62 @@ app.get('/api/meetings/recent', async (req, res) => {
     // Real meetings with a transcript: warm their briefs/recaps in the background
     // so the summary is ready by the time the user opens them.
     if (!demo) { try { _meetingsEnqueueBriefs(meetings); } catch (_) {} }
-    res.json({ ok: true, days, range: key, meetings, demo });
+    res.json({ ok: true, days, range: key, meetings: _meetingsWithBriefStatus(meetings), demo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Built recaps are cached by meetingId so re-opening (or a page reload that
-// restores the recap view) is instant and never re-runs the ~90s transcript AI.
+// restores the recap view) is instant and never re-runs the transcript AI.
 // Empty/failed builds are NOT cached, so a transient failure can be retried.
 // Pass { force:true } to bypass the cache and rebuild.
 const _meetingsRecapCache = new Map();
+const _MEETINGS_RECAP_DIR = path.join(dataPath('meetings'), 'recaps');
+function _meetingsRecapFile(meetingId) {
+  const hash = require('crypto').createHash('sha256').update(String(meetingId || '')).digest('hex');
+  return path.join(_MEETINGS_RECAP_DIR, `${hash}.json`);
+}
+function _meetingsGetCachedRecap(meetingId) {
+  const id = String(meetingId || '').trim();
+  if (!id) return null;
+  if (_meetingsRecapCache.has(id)) return _meetingsRecapCache.get(id);
+  try {
+    const stored = JSON.parse(fs.readFileSync(_meetingsRecapFile(id), 'utf8'));
+    if (stored && stored.meetingId === id && stored.recap && stored.recap.story && !stored.recap.empty) {
+      _meetingsRecapCache.set(id, stored.recap);
+      return stored.recap;
+    }
+  } catch (_) { /* not cached on disk */ }
+  return null;
+}
+function _meetingsCacheRecap(meetingId, recap) {
+  const id = String(meetingId || '').trim();
+  if (!id || !recap || !recap.story || recap.empty) return;
+  _meetingsRecapCache.set(id, recap);
+  try {
+    fs.mkdirSync(_MEETINGS_RECAP_DIR, { recursive: true });
+    const file = _meetingsRecapFile(id);
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ meetingId: id, cachedAt: Date.now(), recap }));
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    console.warn('[meetings] could not persist recap cache —', e && e.message);
+  }
+}
 app.post('/api/meetings/recap', async (req, res) => {
   try {
     const meetingId = String((req.body && req.body.meetingId) || '').trim();
     const subject = String((req.body && req.body.subject) || '').trim();
+    const date = String((req.body && req.body.date) || '').trim();
     const force = !!(req.body && req.body.force);
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
-    if (!force && _meetingsRecapCache.has(meetingId)) {
-      const c = _meetingsRecapCache.get(meetingId);
+    const cached = !force && _meetingsGetCachedRecap(meetingId);
+    if (cached) {
+      const c = cached;
       return res.json({ ok: true, meetingId, story: c.story, people: c.people, demo: !!c.demo, empty: !!c.empty, cached: true });
     }
-    const built = await _meetingsBuildRecap(meetingId, subject);
+    const built = await _meetingsBuildRecap(meetingId, subject, date);
     if (built && built.story && !built.empty) {
-      _meetingsRecapCache.set(meetingId, { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
+      _meetingsCacheRecap(meetingId, { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
     }
     res.json({ ok: true, meetingId, story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -33572,6 +33820,17 @@ const _meetingsBriefPromises = new Map();
 // produced an empty/failed result left NO trace, so GET fell back to 'none' and the
 // "Load summary" button silently reappeared as if nothing had ever happened.
 const _meetingsBriefState = new Map();
+function _meetingsWithBriefStatus(meetings) {
+  return (Array.isArray(meetings) ? meetings : []).map((meeting) => {
+    const id = String((meeting && (meeting.meetingId || meeting.id)) || '').trim();
+    if (!id || meeting.demo) return meeting;
+    if (_meetingsGetCachedRecap(id)) return { ...meeting, briefStatus: 'ready' };
+    const state = _meetingsBriefState.get(id);
+    if (!state || !state.status) return { ...meeting, briefStatus: 'none' };
+    const status = state.status === 'building' || state.status === 'queued' ? 'pending' : state.status;
+    return { ...meeting, briefStatus: status, briefPhase: state.status, briefStartedAt: state.startedAt || state.queuedAt || state.at || 0 };
+  });
+}
 // Brief state is persisted to disk so building/ready/empty/error survive a server
 // (or desktop sidecar) RESTART. Previously this was purely in-memory: a restart
 // wiped it, GET fell back to 'none', and the "Load summary" button silently
@@ -33621,19 +33880,21 @@ function _meetingsSetBriefState(id, patch) {
   _meetingsBriefState.set(key, { ...(_meetingsBriefState.get(key) || {}), ...(patch || {}) });
   _meetingsPersistBriefState();
 }
-function _meetingsEnsureRecap(meetingId, subject) {
+function _meetingsEnsureRecap(meetingId, subject, date) {
   const id = String(meetingId || '').trim();
   if (!id) return Promise.resolve({ story: null, people: {}, empty: true });
-  if (_meetingsRecapCache.has(id)) return Promise.resolve(_meetingsRecapCache.get(id));
+  const cached = _meetingsGetCachedRecap(id);
+  if (cached) return Promise.resolve(cached);
   if (_meetingsBriefPromises.has(id)) return _meetingsBriefPromises.get(id);
   // Remember the subject so a restart-orphan re-kick (from GET) still has it.
   const subj = String(subject || '').trim() || (_meetingsBriefState.get(id) || {}).subject || '';
-  _meetingsSetBriefState(id, { status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj });
+  const meetingDate = String(date || '').trim() || (_meetingsBriefState.get(id) || {}).date || '';
+  _meetingsSetBriefState(id, { status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj, date: meetingDate });
   const p = (async () => {
-    const built = await _meetingsBuildRecap(id, subject);
+    const built = await _meetingsBuildRecap(id, subj, meetingDate);
     const rec = { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty };
     if (rec.story && !rec.empty) {
-      _meetingsRecapCache.set(id, rec);
+      _meetingsCacheRecap(id, rec);
       _meetingsSetBriefState(id, { status: 'ready', at: Date.now(), error: '' });
     } else {
       const failed = built && built.reason === 'error';
@@ -33662,10 +33923,11 @@ function _meetingsEnqueueBriefs(meetings) {
     if (m.hasTranscript === false) continue; // definitively known-absent (not asserted from listing)
     const id = String(m.meetingId || m.id || '').trim();
     if (!id || id === _MEETINGS_SEED_ID) continue;
-    if (_meetingsRecapCache.has(id)) continue;
+    if (_meetingsGetCachedRecap(id)) continue;
     if (_meetingsBriefPromises.has(id)) continue;
     if (_meetingsBriefQueue.some(q => q.meetingId === id)) continue;
-    _meetingsBriefQueue.push({ meetingId: id, subject: m.subject || '' });
+    _meetingsBriefQueue.push({ meetingId: id, subject: m.subject || '', date: m.date || '' });
+    _meetingsSetBriefState(id, { status: 'queued', queuedAt: Date.now(), at: Date.now(), error: '', subject: m.subject || '', date: m.date || '' });
   }
   _meetingsDrainBriefs();
 }
@@ -33675,8 +33937,8 @@ async function _meetingsDrainBriefs() {
   try {
     while (_meetingsBriefQueue.length) {
       const job = _meetingsBriefQueue.shift();
-      if (!job || _meetingsRecapCache.has(job.meetingId)) continue;
-      try { await _meetingsEnsureRecap(job.meetingId, job.subject); }
+      if (!job || _meetingsGetCachedRecap(job.meetingId)) continue;
+      try { await _meetingsEnsureRecap(job.meetingId, job.subject, job.date); }
       catch (e) { console.warn('[meetings] background brief failed for', job.meetingId, '—', e && e.message); }
     }
   } finally { _meetingsBriefDraining = false; }
@@ -33692,8 +33954,9 @@ app.get('/api/meetings/brief', (req, res) => {
     if (meetingId === _MEETINGS_SEED_ID) {
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap({ story: _MEETINGS_SEED_STORY }) });
     }
-    if (_meetingsRecapCache.has(meetingId)) {
-      const rec = _meetingsRecapCache.get(meetingId);
+    const cached = _meetingsGetCachedRecap(meetingId);
+    if (cached) {
+      const rec = cached;
       if (rec.empty) return res.json({ ok: true, meetingId, status: 'empty' });
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
     }
@@ -33707,9 +33970,18 @@ app.get('/api/meetings/brief', (req, res) => {
         const inflight = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
         const age = Date.now() - (st.startedAt || st.at || 0);
         if (!inflight && age > _MEETINGS_BRIEF_STALE_MS) {
-          try { _meetingsEnsureRecap(meetingId, st.subject || ''); } catch (_) {}
+          try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || ''); } catch (_) {}
         }
-        return res.json({ ok: true, meetingId, status: 'pending', startedAt: st.startedAt || st.at || 0 });
+        return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: st.startedAt || st.at || 0 });
+      }
+      if (st.status === 'queued') {
+        const inflight = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
+        if (!inflight) {
+          _meetingsEnsureRecap(meetingId, st.subject || '', st.date || '').catch(() => {});
+          const active = _meetingsBriefState.get(meetingId) || st;
+          return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: active.startedAt || active.at || Date.now() });
+        }
+        return res.json({ ok: true, meetingId, status: 'pending', phase: 'queued', startedAt: st.queuedAt || st.at || 0 });
       }
       if (st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || 0, error: st.error || '' });
       if (st.status === 'empty') return res.json({ ok: true, meetingId, status: 'empty', at: st.at || 0 });
@@ -33717,7 +33989,7 @@ app.get('/api/meetings/brief', (req, res) => {
         // 'ready' but the recap cache is gone (it's in-memory and dies on restart).
         // Re-kick the build rather than falling through to 'none' — which would make
         // the "Load summary" button silently reappear. Report 'pending' meanwhile.
-        try { _meetingsEnsureRecap(meetingId, st.subject || ''); } catch (_) {}
+        try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || ''); } catch (_) {}
         return res.json({ ok: true, meetingId, status: 'pending', startedAt: Date.now() });
       }
     }
@@ -33735,17 +34007,19 @@ app.post('/api/meetings/brief', (req, res) => {
   try {
     const meetingId = String((req.body && req.body.meetingId) || '').trim();
     const subject = String((req.body && req.body.subject) || '').trim();
+    const date = String((req.body && req.body.date) || '').trim();
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
     if (meetingId === _MEETINGS_SEED_ID) {
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap({ story: _MEETINGS_SEED_STORY }) });
     }
     // Already built — hand it back at once.
-    if (_meetingsRecapCache.has(meetingId)) {
-      const rec = _meetingsRecapCache.get(meetingId);
+    const cached = _meetingsGetCachedRecap(meetingId);
+    if (cached) {
+      const rec = cached;
       if (rec && rec.story && !rec.empty) return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
     }
     // Kick off (or join) the build without blocking the request.
-    _meetingsEnsureRecap(meetingId, subject).catch(() => {});
+    _meetingsEnsureRecap(meetingId, subject, date).catch(() => {});
     const st = _meetingsBriefState.get(meetingId);
     // A previous run may have already produced a terminal state.
     if (st && st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || Date.now(), error: st.error || '' });
@@ -33772,7 +34046,7 @@ async function _meetingsHourlySweep() {
     const meetings = await _meetingsGatherRecent(7);
     if (Array.isArray(meetings) && meetings.length) {
       // Refresh the recent cache so an immediate page open is instant + real.
-      _meetingsRecentCache = { at: Date.now(), days: 7, meetings, demo: false };
+      _meetingsRecentCache.set('d:7', { at: Date.now(), meetings, demo: false });
       _meetingsEnqueueBriefs(meetings);
     }
   } catch (e) { console.warn('[meetings] hourly sweep skipped —', e && e.message); }

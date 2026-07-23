@@ -4108,12 +4108,14 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
   const srv = readFileSync('server.js', 'utf8');
   const html = readFileSync('public/app.html', 'utf8');
 
-  // (1) SERVER — recent-meetings gather is AI (collector) but timeout-bounded so the route
-  // can never hang; on timeout/failure the surrounding try returns [] and the route seeds.
+  // (1) SERVER — recent-meetings gather talks to WorkIQ directly and is timeout-bounded,
+  // so the route can never hang; on timeout/failure the surrounding try returns [] and seeds.
   const gather = _win(srv, 'async function _meetingsGatherRange(', 3600) || '';
   t.ok(gather, '_meetingsGatherRange helper exists');
-  t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 150000, 'calendar gather'\)/.test(gather),
-    'the calendar gather is wrapped in a timeout');
+  t.ok(/_meetingsWorkIqAsk\(prompt, 150000\)/.test(gather),
+    'the calendar gather calls WorkIQ directly with a bounded timeout');
+  t.ok(!/_connectRunAgent\('collector'/.test(gather),
+    'meeting discovery does not use the Connect collector agent');
   t.ok(/catch \{ return \[\]; \}/.test(gather), 'a failed/timed-out gather degrades to an empty list');
 
   // (2) SERVER — recap build: seed short-circuit, AI transcript path is timeout-bounded, and the
@@ -4121,12 +4123,19 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
   const recap = _win(srv, 'async function _meetingsBuildRecap(', 4200) || '';
   t.ok(recap, '_meetingsBuildRecap helper exists');
   t.ok(/id === _MEETINGS_SEED_ID/.test(recap), 'the seed meeting short-circuits to the authored SFI story');
-  t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 240000, 'transcript recap'\)/.test(recap),
-    'the transcript recap is wrapped in a 240s timeout');
-  t.ok(/const text = await _composeWithTimeout[\s\S]{0,80}const obj = _connectExtractJson\(text\);/.test(recap),
+  t.ok(/_meetingsWorkIqAsk\(prompt, 120000\)/.test(recap),
+    'the transcript recap calls WorkIQ directly with a bounded timeout');
+  t.ok(/const text = await _meetingsWorkIqAsk[\s\S]{0,80}const obj = _connectExtractJson\(text\);/.test(recap),
     'the AI text is parsed via _connectExtractJson (obj is defined before use — regression guard)');
   t.ok(/return \{ story: minimal, people: \{[\s\S]*empty: true/.test(recap),
     'an unavailable transcript degrades to a minimal never-crash story with empty:true');
+  const workiq = _win(srv, 'function _meetingsWorkIqAsk(', 4200) || '';
+  t.ok(/spawnSync\('taskkill', \['\/PID', String\(child\.pid\), '\/T', '\/F'\]/.test(workiq),
+    'Windows WorkIQ cleanup terminates the bounded subprocess tree by PID');
+  t.ok(/child\.stdin\.end\(\)/.test(workiq),
+    'successful WorkIQ calls close stdin so the MCP server can exit cleanly');
+  t.ok(/commandParts\.map\(value => \/\\s\/\.test\(value\) \? `"\$\{value\}"` : value\)/.test(workiq),
+    'Windows WorkIQ launch quotes safe command/argument values that contain spaces');
 
   // (3) SERVER — routes: recent is cached (per-window TTL) with a current-window seed fallback; recap requires a meetingId.
   const rec = _win(srv, "app.get('/api/meetings/recent'", 2400) || '';
@@ -4135,10 +4144,10 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
     'recent is cached per window with a TTL (10 min current / 6h past)');
   t.ok(/if \(isCurrent\) \{ meetings = _meetingsSeedRecent\(\); demo = true; \}/.test(rec),
     'recent falls back to the seed meetings (demo:true) only for the CURRENT window when the gather is empty');
-  const rcp = _win(srv, "app.post('/api/meetings/recap'", 900) || '';
+  const rcp = _win(srv, "app.post('/api/meetings/recap'", 1600) || '';
   t.ok(rcp, 'POST /api/meetings/recap route exists');
   t.ok(/if \(!meetingId\) return res\.status\(400\)/.test(rcp), 'recap 400s without a meetingId');
-  t.ok(/story: built\.story, people: built\.people, demo: !!built\.demo, empty: !!built\.empty/.test(rcp),
+  t.ok(/res\.json\(\{ ok: true, meetingId, story: built\.story, people: built\.people, demo: !!built\.demo, empty: !!built\.empty \}\)/.test(rcp),
     'recap returns story/people/demo/empty');
 
   // (4) SPA — the Meetings.AI studio section + the data-driven iframe player + the ready handshake.
@@ -4182,6 +4191,8 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/_MEETINGS_BRIEF_STATE_FILE\s*=\s*path\.join\(_MEETINGS_BRIEF_DIR/.test(srv), 'the brief state has an on-disk file path');
   t.ok(/function _meetingsLoadBriefState\(/.test(srv), 'the state is loaded from disk on startup');
   t.ok(/function _meetingsPersistBriefState\(/.test(srv), 'a persist helper writes the state to disk');
+  t.ok(/function _meetingsCacheRecap\(/.test(srv) && /function _meetingsGetCachedRecap\(/.test(srv),
+    'completed recap payloads are cached on disk, not only in process memory');
   t.ok(/_meetingsPersistBriefState\(\);/.test(_win(srv, 'function _meetingsSetBriefState(', 260) || ''),
     'every state mutation persists to disk');
   const ensure = _win(srv, 'function _meetingsEnsureRecap(', 1800) || '';
@@ -4190,24 +4201,28 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/subject: subj/.test(ensure), 'the building state stores the subject so a restart-orphan re-kick still has it');
   t.ok(/status: 'ready'/.test(ensure) && /failed \? 'error' : 'empty'/.test(ensure) && /status: 'error'/.test(ensure),
     'the build resolves to a durable ready/empty/error state');
+  t.ok(/status: 'queued'/.test(_win(srv, 'function _meetingsEnqueueBriefs(', 1200) || ''),
+    'background jobs stamp queued state before the worker reaches them');
 
   // SERVER — GET consults the durable state before falling through to none (the actual bug),
   // and auto-heals a restart-orphaned build (stale 'building', or 'ready' with no live cache).
-  const get = _win(srv, "app.get('/api/meetings/brief'", 2200) || '';
+  const get = _win(srv, "app.get('/api/meetings/brief'", 3600) || '';
   t.ok(get, 'GET /api/meetings/brief route exists');
   t.ok(/const st = _meetingsBriefState\.get\(meetingId\)/.test(get), 'GET reads the durable state map');
-  t.ok(/st\.status === 'building'[\s\S]{0,900}status: 'pending', startedAt/.test(get), "building → pending (with startedAt)");
+  t.ok(/st\.status === 'building'[\s\S]{0,900}status: 'pending'[\s\S]{0,80}startedAt/.test(get), "building → pending (with startedAt)");
   t.ok(/age > _MEETINGS_BRIEF_STALE_MS[\s\S]{0,120}_meetingsEnsureRecap/.test(get), 'a stale orphaned building state re-kicks the build');
-  t.ok(/st\.status === 'ready'[\s\S]{0,400}_meetingsEnsureRecap/.test(get), "'ready' with no cache re-kicks (never reverts to none)");
+  t.ok(/st\.status === 'queued'[\s\S]{0,500}!inflight[\s\S]{0,160}_meetingsEnsureRecap/.test(get),
+    'a restart-orphaned queued state re-kicks instead of remaining pending forever');
+  t.ok(/st\.status === 'ready'[\s\S]{0,500}_meetingsEnsureRecap/.test(get), "'ready' with no cache re-kicks (never reverts to none)");
   t.ok(/st\.status === 'error'[\s\S]{0,80}status: 'error'/.test(get), 'error → error (durable)');
   t.ok(/st\.status === 'empty'[\s\S]{0,80}status: 'empty'/.test(get), 'empty → empty (durable, never reverts to none)');
 
   // SERVER — POST is NON-BLOCKING: it kicks the build and returns immediately (no long await),
   // so a navigated-away user is never hit by the client request timeout firing later as fatal.
-  const post = _win(srv, "app.post('/api/meetings/brief'", 1400) || '';
+  const post = _win(srv, "app.post('/api/meetings/brief'", 2200) || '';
   t.ok(post, 'POST /api/meetings/brief route exists');
   t.ok(/app\.post\('\/api\/meetings\/brief', \(req, res\) =>/.test(srv), 'POST is not async/awaiting the build (non-blocking)');
-  t.ok(/_meetingsEnsureRecap\(meetingId, subject\)\.catch\(/.test(post), 'POST kicks the build fire-and-forget');
+  t.ok(/_meetingsEnsureRecap\(meetingId, subject, date\)\.catch\(/.test(post), 'POST kicks the build fire-and-forget');
   t.ok(/status: 'pending', startedAt/.test(post), 'POST returns pending immediately when not already terminal');
   t.ok(/status: 'ready'[\s\S]{0,80}_meetingsBriefFromRecap/.test(post), 'POST returns ready at once when already cached');
 
@@ -4223,7 +4238,11 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/w\.briefError = \(r && r\.error\)/.test(loadStatus) && /w\.briefStartedAt = \(r && r\.startedAt\)/.test(loadStatus),
     'mtgLoadBriefStatus captures error/at/startedAt from GET');
   t.ok(/w\.briefStatus === 'pending'\) this\.mtgPollBrief/.test(loadStatus), 'mtgLoadBriefStatus polls while pending');
-  const prioritize = _win(html, 'async mtgPrioritizeBrief(', 1800) || '';
+  t.ok(/w\.list = w\.list\.map/.test(loadStatus), 'brief state is mirrored into the meeting index across navigation');
+  const select = _win(html, 'mtgSelect(id) {', 1500) || '';
+  t.ok(/indexed && indexed\.briefStatus[\s\S]{0,180}w\.briefStatus = indexed\.briefStatus/.test(select),
+    'selecting a meeting immediately restores its indexed server status instead of flashing Load summary');
+  const prioritize = _win(html, 'async mtgPrioritizeBrief(', 2400) || '';
   t.ok(/this\.mtgPollBrief\(m\.id\)/.test(prioritize),
     'mtgPrioritizeBrief polls GET instead of blocking on the POST — a navigated-away user never hits a fatal timeout');
   t.ok(/w\.briefStatus = 'error'/.test(prioritize),
@@ -4233,6 +4252,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/We couldn.t build the summary/.test(html), 'the error block explains the failure');
   t.ok(/↻ Try again/.test(html), 'the error block offers a retry');
   t.ok(/↻ Check again/.test(html), 'the empty block offers a re-check');
+  t.ok(/Summary ready/.test(html) && /Summarizing…/.test(html), 'the meeting index exposes ready/running state');
 });
 
 await t.test('meetings.ai: transcript availability is UNKNOWN at list time (never a fabricated false) — real meetings enroll for background summaries (server.js + app.html)', () => {

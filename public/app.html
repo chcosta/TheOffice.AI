@@ -21184,6 +21184,7 @@
               .mtg-item .s{ font-size:13.5px; font-weight:600; line-height:1.3; margin-bottom:3px; }
               .mtg-item .m{ font-size:11.5px; color:var(--cp-text-faint); }
               .mtg-item .m .demo{ color:var(--mtg-ai); }
+              .mtg-item .m .brief{ color:var(--mtg-accent); }
               .mtg-empty{ color:var(--cp-text-faint); font-size:13px; padding:14px 10px; }
               .mtg-detail{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:20px 22px; min-height:360px; }
               .mtg-links{ display:flex; flex-wrap:wrap; gap:18px; }
@@ -21243,6 +21244,7 @@
                       <div class="s" x-text="m.subject || m.title || 'Untitled meeting'"></div>
                       <div class="m">
                         <span x-text="mtgFmtWhen(m)"></span>
+                        <span class="brief" x-show="mtgBriefLabel(m)" x-text="' · ' + mtgBriefLabel(m)"></span>
                         <template x-if="m.demo"><span class="demo"> · sample</span></template>
                       </div>
                     </button>
@@ -21313,7 +21315,7 @@
                         <div class="mtg-sec" x-show="!mtgSelected().demo && meetings.briefStatus === 'pending'">
                           <div class="lbl">Summary</div>
                           <p style="margin:0;color:var(--cp-muted);font-size:13px;line-height:1.55;">
-                            Summarizing this meeting from its transcript… this can take a minute.
+                            <span x-text="meetings.briefPhase === 'queued' ? 'Queued for transcript summarization…' : 'Summarizing this meeting from its transcript…'"></span>
                             <span x-show="meetings.briefStartedAt" x-text="'Requested ' + formatRelative(meetings.briefStartedAt) + '.'"></span>
                           </p>
                         </div>
@@ -33246,7 +33248,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           view: 'detail',        // 'detail' | 'recap'
           recapLoading: false, recap: null, people: null, recapDemo: false, recapEmpty: false,
           _pendingRecap: null,   // recap payload awaiting the iframe player's mrv:ready handshake
-          brief: null, briefStatus: '', briefLoading: false, _briefPoll: null, briefError: '', briefAt: 0, briefStartedAt: 0,
+          brief: null, briefStatus: '', briefPhase: '', briefLoading: false, _briefPoll: null, briefError: '', briefAt: 0, briefStartedAt: 0,
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -41610,16 +41612,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const w = this.meetings;
           return w.list.find(m => m.id === w.selectedId) || null;
         },
+        mtgBriefLabel(m) {
+          if (!m || m.demo) return '';
+          if (m.briefStatus === 'ready') return 'Summary ready';
+          if (m.briefStatus === 'pending') return m.briefPhase === 'queued' ? 'Queued' : 'Summarizing…';
+          if (m.briefStatus === 'error') return 'Summary failed';
+          if (m.briefStatus === 'empty') return 'No transcript yet';
+          return '';
+        },
         mtgSelect(id) {
           const w = this.meetings;
           if (w.selectedId !== id) {
             // Switching meetings drops any recap tied to the old one.
             w.recap = null; w.people = null; w._pendingRecap = null; w.recapDemo = false; w.recapEmpty = false;
             // …and its brief; stop any poll from the prior meeting.
-            w.brief = null; w.briefStatus = ''; w.briefLoading = false; w.briefError = ''; w.briefAt = 0; w.briefStartedAt = 0;
+            w.brief = null; w.briefStatus = ''; w.briefPhase = ''; w.briefLoading = false; w.briefError = ''; w.briefAt = 0; w.briefStartedAt = 0;
             if (w._briefPoll) { try { clearTimeout(w._briefPoll); } catch (_) {} w._briefPoll = null; }
           }
           w.selectedId = id;
+          const indexed = w.list.find(m => m.id === id);
+          if (indexed && indexed.briefStatus) {
+            w.briefStatus = indexed.briefStatus;
+            w.briefPhase = indexed.briefPhase || '';
+            w.briefStartedAt = indexed.briefStartedAt || 0;
+          }
           w.view = 'detail';
           if (window.location.hash !== `#/meetings/${encodeURIComponent(id)}`) {
             try { window.history.replaceState(null, '', `#/meetings/${encodeURIComponent(id)}`); } catch (_) {}
@@ -41639,10 +41655,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request(`/api/meetings/brief?meetingId=${encodeURIComponent(mid)}`);
             if (w.selectedId !== mid) return; // selection moved on
             w.briefStatus = (r && r.status) || 'none';
+            w.briefPhase = (r && r.phase) || '';
             w.brief = (r && r.brief) || null;
             w.briefError = (r && r.error) || '';
             w.briefAt = (r && r.at) || 0;
             w.briefStartedAt = (r && r.startedAt) || 0;
+            w.list = w.list.map(m => m.id === mid ? { ...m, briefStatus: w.briefStatus, briefPhase: w.briefPhase, briefStartedAt: w.briefStartedAt } : m);
             if (w.briefStatus === 'pending') this.mtgPollBrief(mid);
           } catch (_) {
             // A transient GET failure (e.g. the server is busy running a build) must
@@ -41650,7 +41668,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // button silently reappear over a build already in flight. Preserve the
             // prior status; if we were polling, keep polling so we recover.
             if (w.selectedId === mid) {
-              if (w.briefStatus === 'pending') this.mtgPollBrief(mid);
+              if (w.briefStatus === 'pending' || (w.briefStatus === 'ready' && !w.brief)) this.mtgPollBrief(mid);
             }
           }
         },
@@ -41667,14 +41685,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const w = this.meetings;
           const m = this.mtgSelected();
           if (!m || w.briefLoading) return;
-          w.briefLoading = true; w.briefStatus = 'pending'; w.briefError = ''; w.briefStartedAt = Date.now();
+          w.briefLoading = true; w.briefStatus = 'pending'; w.briefPhase = 'building'; w.briefError = ''; w.briefStartedAt = Date.now();
+          w.list = w.list.map(x => x.id === m.id ? { ...x, briefStatus: 'pending', briefPhase: 'building', briefStartedAt: w.briefStartedAt } : x);
           try {
             const r = await this.request('/api/meetings/brief', {
               method: 'POST',
-              body: JSON.stringify({ meetingId: m.id, subject: m.subject || m.title || '' }),
+              body: JSON.stringify({ meetingId: m.id, subject: m.subject || m.title || '', date: m.date || '' }),
             });
             if (w.selectedId !== m.id) return;
             w.briefStatus = (r && r.status) || 'pending';
+            w.briefPhase = (r && r.phase) || (w.briefStatus === 'pending' ? 'building' : '');
             w.brief = (r && r.brief) || null;
             w.briefError = (r && r.error) || '';
             w.briefAt = (r && r.at) || Date.now();
@@ -41712,7 +41732,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/meetings/recap', {
               method: 'POST',
-              body: JSON.stringify({ meetingId: m.id, subject: m.subject || m.title || '' }),
+              body: JSON.stringify({ meetingId: m.id, subject: m.subject || m.title || '', date: m.date || '' }),
             });
             if (!r || !r.story || !r.people) throw new Error('The recap came back empty.');
             w.recap = r.story;
