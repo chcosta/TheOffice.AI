@@ -2215,6 +2215,42 @@ await t.test('compose explorer: doc rows are not clipped (grid min-width floor)'
   t.ok(/\.cmpx-lib-trow \.doc\{min-width:0\}/.test(html), '.doc grid item allows shrinking below content width');
 });
 
+// Feature — import an external text file into the Documents library (default
+// "Reference" type, user-selectable composition type) + a board "Add link" action
+// that creates a document card from a browsed file via that same import.
+await t.test('documents import: external file → library (+ board Add link card)', () => {
+  const src = readFileSync('server.js', 'utf8');
+  // Server route: POST /api/compose/import, ordered before the /:id catch-all.
+  const imp = src.indexOf("app.post('/api/compose/import'");
+  const idget = src.indexOf("app.get('/api/compose/:id'");
+  t.ok(imp > 0, 'POST /api/compose/import route present');
+  t.ok(imp < idget, 'import route precedes the /api/compose/:id catch-all');
+  const route = _win(src, "app.post('/api/compose/import'", 1700);
+  t.ok(/purposeById\(b\.purpose\) \? b\.purpose : 'reference'/.test(route), 'composition type defaults to reference, honors a valid purpose');
+  t.ok(/createComposition\(\{ purpose, title, content, format \}\)/.test(route), 'import reuses createComposition');
+  t.ok(/=== 'html' \|\| ext === 'htm'\) \? 'site' : 'doc'/.test(route), 'format derives from file extension (html→site else doc)');
+  t.ok(/No text content to import/.test(route), 'rejects empty content');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  // Shared teleported import modal + state.
+  t.ok(/x-teleport="body"/.test(html) && /docImport\.open/.test(html), 'import modal is a top-level teleport gated on docImport.open');
+  t.ok(/open: false, mode: 'library', filename: '', title: '', purpose: 'reference'/.test(html), 'docImport state defaults to library mode + reference purpose');
+  // Documents Import button + board Add-link affordance both open the modal.
+  t.ok(/docImportOpen\('library'\)/.test(html), 'Documents toolbar Import button opens the library-mode modal');
+  t.ok(/docImportOpen\('board'\)/.test(html), 'board pin-picker Add-link opens the board-mode modal');
+  // The 8 import methods/helpers.
+  for (const m of ['composeImportPurposes()', 'composeImportPurposeHint()', 'docImportIsHtml()', 'docImportSizeLabel()', 'docImportOpen(mode)', 'docImportClose()', 'docImportPick(ev)', 'async docImportSubmit()']) {
+    t.ok(html.includes(m + ' {'), 'import method present: ' + m);
+  }
+  const submit = _win(html, 'async docImportSubmit()', 2600);
+  t.ok(/\/api\/compose\/import/.test(submit), 'docImportSubmit posts to /api/compose/import');
+  t.ok(/pinCandidate\(/.test(submit) && /loadBoardDocCandidates\(true\)/.test(submit), 'board mode pins a document card + refreshes candidates');
+  t.ok(/loadCompose\(\)/.test(submit) && /goTo\('#\/compose'\)/.test(submit), 'library mode reloads Documents + opens the studio');
+  // Reference is excluded from newsletter store + surfaced first.
+  const purposes = _win(html, 'composeImportPurposes() {', 400);
+  t.ok(/newsletter/.test(purposes), 'import purpose picker filters out newsletter');
+});
+
 await t.test('data-paths: SUPERVISOR_DATA_DIR env aligns to the resolved dir', () => {
   const src = readFileSync('data-paths.js', 'utf8');
   // The split-brain fix: modules that read process.env.SUPERVISOR_DATA_DIR directly

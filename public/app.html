@@ -11859,6 +11859,9 @@
                   <div x-show="boardPinKind === 'pr' && _boardPrLoading" class="hint" style="padding:8px 2px">Loading pull requests…</div>
                   <div x-show="boardPinKind === 'document' && _boardDocLoading" class="hint" style="padding:8px 2px">Loading documents…</div>
                   <div x-show="boardPinKind === 'meairun' && _boardMeAiLoading" class="hint" style="padding:8px 2px">Loading Me.AI runs…</div>
+                  <div x-show="boardPinKind === 'document'" style="display:flex;justify-content:flex-start">
+                    <button type="button" class="btn ghost" @click="docImportOpen('board')" title="Import a text file into Documents and add it to this board as a document card">＋ Add link</button>
+                  </div>
                   <div x-show="boardPinKind !== 'location'" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
                     <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading) && !(boardPinKind==='document' && _boardDocLoading) && !(boardPinKind==='meairun' && _boardMeAiLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : (boardPinKind === 'document' ? 'No documents yet. Create one in Compose.AI.' : (boardPinKind === 'meairun' ? 'No Me.AI runs yet. Start one from Me.AI.' : 'No matching items in this team.'))"></div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
@@ -11900,6 +11903,52 @@
                   </div>
                   <div style="display:flex;justify-content:flex-end">
                     <button class="btn" type="button" @click="boardPinOpen=false">Done</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </template>
+
+            <!-- Import an external text file into the Documents library (shared by the
+                 Documents toolbar "⬆ Import" and the board pin-picker "＋ Add link").
+                 Top-level teleport so it lives in <body> and is reachable from both
+                 the Documents page and any board, staying reactive under the Alpine root. -->
+            <template x-teleport="body">
+            <div class="modal-backdrop modal-overlay" x-show="docImport.open" x-transition.opacity.duration.150ms @click.self="docImportClose()" x-cloak style="z-index:10003">
+              <div class="modal-card" style="max-width:560px">
+                <div class="modal-header">
+                  <h2 class="modal-title" x-text="docImport.mode === 'board' ? 'Add a document link' : 'Import a document'"></h2>
+                  <button class="icon-button" type="button" @click="docImportClose()">✕</button>
+                </div>
+                <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+                  <div class="hint" x-text="docImport.mode === 'board' ? 'Bring an external text file into your Documents library and add it to this board as a document card.' : 'Bring an external text file (Markdown, HTML, plain text, code, CSV, JSON, …) into your Documents library. It becomes a document you can view, iterate on, and pin to a workspace.'"></div>
+
+                  <label class="field">
+                    <span class="field-label">File</span>
+                    <input type="file" accept=".md,.markdown,.txt,.text,.html,.htm,.csv,.tsv,.json,.log,.yml,.yaml,.xml,.rst,.adoc,.js,.ts,.jsx,.tsx,.py,.cs,.java,.go,.rb,.rs,.c,.h,.cpp,.sh,.ps1,.sql,text/*,application/json" @change="docImportPick($event)" />
+                  </label>
+                  <div class="hint" x-show="docImport.reading">Reading file…</div>
+                  <div class="hint" x-show="docImport.readErr" style="color:var(--cp-danger)" x-text="docImport.readErr"></div>
+                  <div class="hint" x-show="docImport.filename && !docImport.readErr && !docImport.reading" x-text="'Loaded ' + docImport.filename + ' · ' + docImportSizeLabel() + (docImportIsHtml() ? ' · renders as an interactive page' : ' · renders as a document')"></div>
+
+                  <label class="field" x-show="docImport.filename && !docImport.readErr">
+                    <span class="field-label">Title</span>
+                    <input class="field-input" type="text" x-model="docImport.title" placeholder="Document title" />
+                  </label>
+
+                  <label class="field" x-show="docImport.filename && !docImport.readErr">
+                    <span class="field-label">Composition type</span>
+                    <select class="field-input" x-model="docImport.purpose">
+                      <template x-for="p in composeImportPurposes()" :key="p.id">
+                        <option :value="p.id" x-text="(p.icon ? p.icon + ' ' : '') + p.label"></option>
+                      </template>
+                    </select>
+                    <span class="hint" x-text="composeImportPurposeHint()"></span>
+                  </label>
+
+                  <div style="display:flex;justify-content:flex-end;gap:8px">
+                    <button class="btn" type="button" @click="docImportClose()">Cancel</button>
+                    <button class="btn primary" type="button" :disabled="docImport.busy || docImport.reading || !docImport.content.trim() || !!docImport.readErr" @click="docImportSubmit()" x-text="docImport.busy ? 'Importing…' : (docImport.mode === 'board' ? 'Import & add card' : 'Import')"></button>
                   </div>
                 </div>
               </div>
@@ -22436,6 +22485,7 @@
                       <button type="button" :class="{on: compose.lib.mode==='explorer'}" @click="compose.lib.mode='explorer'" title="Folders (file explorer)">🗂</button>
                     </div>
                     <button class="btn" type="button" @click="goTo('#/compose')">Iterations studio →</button>
+                    <button class="btn" type="button" @click="docImportOpen('library')" title="Import a text file (Markdown, HTML, plain text, code, …) into Documents">⬆ Import</button>
                     <button class="btn primary" type="button" @click="composeLibNew()">＋ New</button>
                   </div>
 
@@ -32179,6 +32229,10 @@
         boardForm: { id: '', name: '', color: '' },
         boardPinOpen: false,
         boardPinKind: 'task',
+        // External-document import (shared by the Documents "⬆ Import" toolbar action and
+        // the board pin-picker "＋ Add link"). mode 'library' just adds to Documents +
+        // opens it; mode 'board' also pins the new doc card to the active board.
+        docImport: { open: false, mode: 'library', filename: '', title: '', purpose: 'reference', content: '', readErr: '', busy: false, reading: false },
         boardPinSearch: '',
         boardPrCandidates: [],
         _boardPrLoaded: false,
@@ -51014,6 +51068,105 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.compose.lib.assignments = (r && r.assignments) || {};
             if (r && r.compositions) this.compose.compositions = r.compositions;
           } catch (_) { }
+        },
+        // ---- External-document import (Documents "⬆ Import" + board "＋ Add link") ----
+        // Purposes offered when importing. Excludes 'newsletter' (a separate store with
+        // its own reader). Reference is the sensible default for imported material.
+        composeImportPurposes() {
+          const list = (this.compose.purposes || []).filter(p => p && p.id && p.id !== 'newsletter' && p.linksTo !== 'newsletter');
+          if (!list.some(p => p.id === 'reference')) list.unshift({ id: 'reference', label: 'Reference', icon: '📚' });
+          // Reference first, then the rest as declared.
+          return list.slice().sort((a, b) => (a.id === 'reference' ? -1 : b.id === 'reference' ? 1 : 0));
+        },
+        composeImportPurposeHint() {
+          const p = this.composePurpose(this.docImport.purpose);
+          if (this.docImport.purpose === 'reference') return 'Reference — stored for reading and pinning; a good default for imported material.';
+          return p ? ('Imported as a ' + p.label + ' — affects how it is framed and iterated.') : '';
+        },
+        docImportIsHtml() {
+          const n = (this.docImport.filename || '').toLowerCase();
+          return n.endsWith('.html') || n.endsWith('.htm');
+        },
+        docImportSizeLabel() {
+          const n = (this.docImport.content || '').length;
+          if (n < 1024) return n + ' chars';
+          if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+          return (n / (1024 * 1024)).toFixed(1) + ' MB';
+        },
+        docImportOpen(mode) {
+          this.docImport = { open: true, mode: mode === 'board' ? 'board' : 'library', filename: '', title: '', purpose: 'reference', content: '', readErr: '', busy: false, reading: false };
+        },
+        docImportClose() {
+          this.docImport.open = false;
+        },
+        docImportPick(ev) {
+          const file = ev && ev.target && ev.target.files && ev.target.files[0];
+          if (!file) return;
+          const name = file.name || 'document';
+          const lower = name.toLowerCase();
+          // Guard obvious binaries we can't read as text.
+          if (/\.(pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|gif|webp|bmp|ico|mp[34]|mov|avi|wav|ogg|ttf|otf|woff2?|exe|dll|bin)$/i.test(lower)) {
+            this.docImport.readErr = 'That looks like a binary file. Convert it to text or Markdown first, then import.';
+            this.docImport.content = ''; this.docImport.filename = name;
+            return;
+          }
+          this.docImport.readErr = '';
+          this.docImport.reading = true;
+          this.docImport.filename = name;
+          if (!this.docImport.title) this.docImport.title = name.replace(/\.[^.]+$/, '');
+          const reader = new FileReader();
+          reader.onload = () => {
+            this.docImport.reading = false;
+            const txt = String(reader.result || '');
+            if (!txt.trim()) { this.docImport.readErr = 'That file is empty.'; this.docImport.content = ''; return; }
+            if (txt.length > 4000000) { this.docImport.readErr = 'That file is too large to import (over ~4M characters).'; this.docImport.content = ''; return; }
+            this.docImport.content = txt;
+          };
+          reader.onerror = () => { this.docImport.reading = false; this.docImport.readErr = 'Could not read that file.'; this.docImport.content = ''; };
+          reader.readAsText(file);
+        },
+        async docImportSubmit() {
+          if (this.docImport.busy) return;
+          const content = this.docImport.content || '';
+          if (!content.trim()) { this.docImport.readErr = 'Choose a text file first.'; return; }
+          this.docImport.busy = true;
+          try {
+            const body = {
+              content,
+              filename: this.docImport.filename || '',
+              title: (this.docImport.title || '').trim(),
+              purpose: this.docImport.purpose || 'reference',
+            };
+            const r = await this.request('/api/compose/import', { method: 'POST', body: JSON.stringify(body) });
+            const comp = r && r.composition;
+            if (!comp || !comp.id) throw new Error('Import failed');
+            const mode = this.docImport.mode;
+            this.docImport.open = false;
+            if (mode === 'board') {
+              // Add a document card to the active board, then refresh the picker.
+              await this.pinCandidate({
+                kind: 'document', refId: comp.id,
+                label: comp.title || 'Untitled',
+                sublabel: [this.composePurposeLabel(comp.purpose), this.composeFormatLabel(comp.format)].filter(Boolean).join(' · '),
+                meta: { compositionId: comp.id, title: comp.title || '', format: comp.format || '', purpose: comp.purpose || '', updatedAt: comp.updatedAt || '', preview: comp.preview || '' },
+              });
+              await this.loadBoardDocCandidates(true);
+              this.showToast('Documents', 'Imported "' + (comp.title || 'document') + '" and added it to the board.', 'success');
+            } else {
+              // Library mode — refresh Documents and open the new doc in the studio.
+              try { await this.loadCompose(); } catch {}
+              try { await this.composeReloadFolders(); } catch {}
+              try { localStorage.setItem('compose-last-id', comp.id); } catch {}
+              this.showToast('Documents', 'Imported "' + (comp.title || 'document') + '".', 'success');
+              this.goTo('#/compose');
+            }
+          } catch (e) {
+            this.docImport.busy = false;
+            this.docImport.open = true;
+            this.showToast('Import', (e && e.message) || 'Import failed', 'error');
+            return;
+          }
+          this.docImport.busy = false;
         },
         async composeStart(purposeId, opts = {}) {
           const p = this.composePurpose(purposeId);

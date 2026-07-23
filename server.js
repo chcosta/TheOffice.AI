@@ -14517,6 +14517,40 @@ app.post('/api/compose', (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Import an external text file into the Documents library as a composition.
+// The client browses & uploads a file (FileReader.readAsText → text content).
+// The composition type (purpose) defaults to Reference; the rendering format is
+// derived from the file extension (.html/.htm → an interactive 'site' page,
+// everything else → a 'doc' rendered as markdown) so imported HTML displays as a
+// page, not raw tags. Declared BEFORE /api/compose/:id so ":id" doesn't capture
+// "import".
+app.post('/api/compose/import', (req, res) => {
+  try {
+    const b = req.body || {};
+    let content = typeof b.content === 'string' ? b.content : '';
+    if (!content.trim()) return res.status(400).json({ ok: false, error: 'No text content to import. Choose a text-based file (Markdown, HTML, plain text, code, CSV, JSON, …).' });
+    // Generous safety ceiling so a pathological upload can't bloat the store.
+    const MAX_IMPORT = 4000000;
+    if (content.length > MAX_IMPORT) content = content.slice(0, MAX_IMPORT);
+    const filename = typeof b.filename === 'string' ? b.filename : '';
+    // Composition type defaults to Reference; honor any valid purpose the user picks.
+    const purpose = compose.purposeById(b.purpose) ? b.purpose : 'reference';
+    // Title: explicit → filename without extension → a sensible default.
+    let title = typeof b.title === 'string' ? b.title.trim() : '';
+    if (!title) title = filename.replace(/\.[^.]+$/, '').trim();
+    if (!title) title = 'Imported document';
+    // Format is derived from the file type unless an explicit valid format is
+    // supplied: HTML renders as an interactive page ('site'); everything else
+    // renders as a markdown document ('doc').
+    const ext = ((filename.match(/\.([A-Za-z0-9]+)$/) || [, ''])[1] || '').toLowerCase();
+    const format = compose.FORMATS.includes(b.format)
+      ? b.format
+      : ((ext === 'html' || ext === 'htm') ? 'site' : 'doc');
+    const composition = compose.createComposition({ purpose, title, content, format });
+    res.json({ ok: true, composition });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // --- Documents folders (organization only) ----------------------------------
 // Folders group documents on the Documents page for browsing. They are pure
 // metadata over the flat composition + newsletter stores — a folder never owns
