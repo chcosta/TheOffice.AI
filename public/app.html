@@ -11849,7 +11849,7 @@
                   <button class="icon-button" type="button" @click="boardPinOpen=false">✕</button>
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
-                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <div style="display:flex;gap:6px;flex-wrap:wrap" x-effect="boardPinKind; boardPinOpen && $nextTick(() => { try { window.cpIcons && window.cpIcons.sweep($el); } catch (e) {} })">
                     <template x-for="k in ['session','chat','task','flow','agent','manager','location','pr','document','meairun']" :key="k">
                       <button type="button" class="btn ghost" :class="{ primary: boardPinKind === k }" @click="setPinKind(k)" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
                     </template>

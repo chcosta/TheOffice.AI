@@ -14493,10 +14493,11 @@ body{margin:0;padding:0;background:#f4f5f7}
 // List compositions + the purpose catalog + capture capability.
 app.get('/api/compose', (req, res) => {
   try {
+    const snap = compose.snapshot();
     res.json({
-      compositions: compose.listCompositions(),
-      folders: compose.listFolders(),
-      assignments: compose.getAssignments(),
+      compositions: snap.compositions,
+      folders: snap.folders,
+      assignments: snap.assignments,
       purposes: compose.PURPOSES,
       blueprints: compose.PURPOSE_BLUEPRINTS,
       formats: compose.FORMATS.map(f => ({ id: f, label: ({ email: 'Email', teams: 'Teams message', doc: 'Document', site: 'Prototype site' })[f] || f })),

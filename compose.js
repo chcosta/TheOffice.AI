@@ -357,8 +357,8 @@ function _writeAll(state) { return _writeJson(_statePath(), state); }
 // ---- Public API -------------------------------------------------------------
 
 // Lightweight metadata for the launcher list (no big draft bodies).
-function listCompositions() {
-  const st = _readAll();
+function listCompositions(st) {
+  st = st || _readAll();
   return st.items
     .map(c => {
       const content = (c.draft && c.draft.content) || '';
@@ -436,8 +436,8 @@ function deleteComposition(id) {
   return true;
 }
 
-function listFolders() {
-  const st = _readAll();
+function listFolders(st) {
+  st = st || _readAll();
   // Count documents assigned directly to each folder (compositions + newsletters).
   const counts = {};
   for (const k of Object.keys(st.assignments || {})) {
@@ -449,9 +449,23 @@ function listFolders() {
 
 // The full docId → folderId map (a copy), so the client can resolve a folder for
 // newsletter rows too (they aren't compositions, so they carry no folderId field).
-function getAssignments() {
-  const st = _readAll();
+function getAssignments(st) {
+  st = st || _readAll();
   return { ...(st.assignments || {}) };
+}
+
+// One-shot read of the whole store for read-only aggregate consumers (e.g. the
+// GET /api/compose payload) — reads + hydrates state ONCE, then derives the
+// compositions/folders/assignments views from that single state instead of
+// hitting disk three times. Scales the launcher/pin-picker fetch with the store
+// size instead of 3× the store size.
+function snapshot() {
+  const st = _readAll();
+  return {
+    compositions: listCompositions(st),
+    folders: listFolders(st),
+    assignments: getAssignments(st),
+  };
 }
 
 function createFolder(patch) {
@@ -780,6 +794,7 @@ module.exports = {
   deleteComposition,
   listFolders,
   getAssignments,
+  snapshot,
   createFolder,
   updateFolder,
   deleteFolder,

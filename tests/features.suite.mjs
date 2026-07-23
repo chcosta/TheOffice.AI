@@ -1300,7 +1300,7 @@ await t.test('Compose paired assistant negotiates structure — server judges + 
 await t.test('Compose.AI documents library — real list/search/sort/filter/grid/bulk wired to compositions', async () => {
   // Server list carries the fields the library needs (size + preview) per composition.
   const cjs = readFileSync('compose.js', 'utf8');
-  const list = (cjs.match(/function listCompositions\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  const list = (cjs.match(/function listCompositions\(st\)\s*\{[\s\S]*?\n\}/) || [''])[0];
   t.ok(/size:\s*Buffer\.byteLength\(content, 'utf8'\)/.test(list), 'listCompositions reports byte size from the draft content');
   t.ok(/preview:\s*String\(content\)/.test(list), 'listCompositions carries a plain-text preview snippet');
 
@@ -2176,7 +2176,7 @@ await t.test('documents explorer: folder tree, drag-move, and additive-only grou
 
   const src = readFileSync('server.js', 'utf8');
   // GET payload carries folders + assignments; folder/move routes exist BEFORE /api/compose/:id.
-  t.ok(/folders: compose\.listFolders\(\)/.test(src) && /assignments: compose\.getAssignments\(\)/.test(src), 'GET /api/compose returns folders + assignments');
+  t.ok(/folders: snap\.folders/.test(src) && /assignments: snap\.assignments/.test(src), 'GET /api/compose returns folders + assignments');
   const fpost = src.indexOf("app.post('/api/compose/folders'");
   const mpost = src.indexOf("app.post('/api/compose/move'");
   const idget = src.indexOf("app.get('/api/compose/:id'");
@@ -3866,7 +3866,51 @@ await t.test('desktop (WebView2): native OLE drag is disabled so the pointer bri
     'draggableAt still matches on el.draggable so the bridge engages');
 });
 
-await t.test('boot splash reel + About check-for-updates (client + server)', () => {
+await t.test('pin picker themes manager/Me.AI Run icons via a re-sweep so they match the active icon set', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // The pin-kind button row (session…meairun) renders emoji via boardKindIcon; the global
+  // emoji→SVG replacer normally themes them, but a couple stragglers (manager 👔, Me.AI Run
+  // 🔭) could be left as raw color emoji when Alpine's x-text write lands inside the
+  // replacer's `busy` sweep window (onMutations drops those). An x-effect nudges a targeted
+  // re-sweep of the row after render/kind-change so every icon matches the active icon set.
+  t.ok(/x-effect="boardPinKind; boardPinOpen && \$nextTick\(\(\) => \{ try \{ window\.cpIcons && window\.cpIcons\.sweep\(\$el\); \} catch \(e\) \{\} \}\)"/.test(html),
+    'the pin-kind row re-sweeps icons on open / kind change via window.cpIcons.sweep');
+  // The emoji the two stragglers use ARE mapped (so a sweep actually themes them): 👔→manager,
+  // 🔭→insights. Guard the mapping so a future emoji swap can't silently un-theme them again.
+  t.ok(/"👔":\s*"manager"/.test(html), 'the manager emoji maps to the manager glyph role');
+  t.ok(/"🔭":\s*"insights"/.test(html), 'the Me.AI Run telescope maps to the insights glyph role');
+  // sweep() is a no-op in emoji mode, so this never forces themed glyphs on emoji users.
+  t.ok(/if \(!root \|\| current === 'emoji'\) return;/.test(html),
+    'cpIcons.sweep is a no-op when the icon set is plain emoji (respects appearance settings)');
+});
+
+await t.test('GET /api/compose reads the store ONCE via compose.snapshot() (faster document/pin-picker load)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const compose = readFileSync('compose.js', 'utf8');
+
+  // The launcher/pin-picker document list is backed by GET /api/compose. It used to call
+  // _readAll() three times (listCompositions + listFolders + getAssignments), re-reading and
+  // re-hydrating the ENTIRE store (full doc bodies) 3× — cost that scales with the user's
+  // document count and shows up as a long "Loading documents…" spinner. snapshot() reads once.
+  const route = _win(srv, "app.get('/api/compose',", 700) || '';
+  t.ok(route, 'GET /api/compose route present');
+  t.ok(/const snap = compose\.snapshot\(\);/.test(route), 'the route reads the store once via compose.snapshot()');
+  t.ok(!/compose\.listCompositions\(\)/.test(route) && !/compose\.listFolders\(\)/.test(route) && !/compose\.getAssignments\(\)/.test(route),
+    'the route no longer triggers three separate full-store reads');
+
+  // compose.snapshot() derives all three views from a single _readAll(), and the three list
+  // helpers accept that pre-read state so nothing re-reads disk.
+  const snap = _win(compose, 'function snapshot()', 400) || '';
+  t.ok(/const st = _readAll\(\);/.test(snap), 'snapshot() reads the store exactly once');
+  t.ok(/listCompositions\(st\)/.test(snap) && /listFolders\(st\)/.test(snap) && /getAssignments\(st\)/.test(snap),
+    'snapshot() derives compositions/folders/assignments from the single read');
+  t.ok(/function listCompositions\(st\) \{\s*st = st \|\| _readAll\(\);/.test(compose),
+    'listCompositions accepts an optional pre-read state');
+  t.ok(/module\.exports = \{[\s\S]*?\bsnapshot,/.test(compose), 'snapshot is exported');
+});
+
+await t.test('boot splash reel + About check-for-updates', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');
 
