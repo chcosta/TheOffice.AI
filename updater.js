@@ -161,7 +161,11 @@ async function checkForUpdate(currentVersion, opts = {}) {
   const current = String(currentVersion || '').trim();
   const serverDir = opts.serverDir || '';
   const now = Date.now();
-  if (_checkCache.result && _checkCache.current === current && now - _checkCache.at < CHECK_CACHE_MS) {
+  // A manual "Check for updates" (force) must always hit GitHub — otherwise the
+  // 15-min cache, warmed by the automatic check that runs seconds after launch,
+  // reports "up to date" for a release that published moments ago. Only the
+  // automatic/background checks reuse the cache to spare GitHub traffic.
+  if (!opts.force && _checkCache.result && _checkCache.current === current && now - _checkCache.at < CHECK_CACHE_MS) {
     return _checkCache.result;
   }
 

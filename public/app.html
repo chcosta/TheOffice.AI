@@ -70643,10 +70643,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } catch { /* never break app load on updater failure */ }
         },
-        async checkForUpdate() {
+        async checkForUpdate(force) {
           if (!this.update.supported) return;
           try {
-            const r = await this.request('/api/update/check');
+            const r = await this.request('/api/update/check' + (force ? '?refresh=1' : ''));
             if (!r || r.supported === false) { this.update.supported = false; return; }
             this.update.checked = true;
             this.update.available = !!r.updateAvailable;
@@ -70665,7 +70665,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!this.update.supported || this.update.checking) return;
           this.update.checking = true;
           try {
-            await this.checkForUpdate();
+            await this.checkForUpdate(true);
             if (this.update.supported === false) {
               this.showToast('Updates', 'Auto-updates are managed by the desktop app.', 'info');
             } else if (this.update.available) {

@@ -6256,6 +6256,26 @@ function cmpWhatsNewVer(a, b) {
   }
   return 0;
 }
+// The release "line" for a version: its major.minor.patch base, with any
+// -preview.N prerelease and +build metadata stripped. 1.0.5-preview.657+abc → 1.0.5.
+// "What's new" scopes to the running version's line so it shows iterations of the
+// current version (1.0.5-*) rather than dumping older release lines (1.0.4, 1.0.3).
+function whatsNewBase(v) {
+  return String(v || '').trim().replace(/^v/i, '').split('+')[0].split('-')[0];
+}
+// A minimal, honest entry for the running version — used when no bundled note
+// matches it, so the dialog never looks a build behind (e.g. running .657 while
+// the newest bundled note is .654).
+function whatsNewCurrentEntry(version) {
+  return {
+    version,
+    date: (GIT_VERSION.builtAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+    title: 'Latest update',
+    summary: 'You are on the latest version. Detailed release notes were not bundled with this build.',
+    highlights: ['Improvements, fixes, and behind-the-scenes updates.'],
+    details: [],
+  };
+}
 function readWhatsNew() {
   try {
     const raw = fs.readFileSync(path.join(__dirname, 'whats-new.json'), 'utf-8');
@@ -6302,18 +6322,24 @@ app.get('/api/whats-new', (req, res) => {
     if (commitNotes.length) return res.json({ current: commitNotes[0].version, entries: commitNotes, source: 'commits' });
   }
   let entries = readWhatsNew();
-  // Safety net: never hand the UI an empty changelog. If the file is missing or
-  // yields nothing (e.g. a build that skipped note generation), synthesize a
-  // minimal entry for the running version so "What's new" is never blank.
-  if (!entries.length && current) {
-    entries = [{
-      version: current,
-      date: (GIT_VERSION.builtAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
-      title: 'Latest update',
-      summary: 'You are on the latest version. Detailed release notes were not bundled with this build.',
-      highlights: ['Improvements, fixes, and behind-the-scenes updates.'],
-      details: [],
-    }];
+  // Scope to the running version's line so the dialog shows iterations of the
+  // current version (e.g. 1.0.5-preview.*), not older release lines (1.0.4, 1.0.3).
+  const base = whatsNewBase(current);
+  if (base && entries.length) {
+    entries = entries.filter(e => whatsNewBase(e && e.version) === base);
+  }
+  // Guarantee the running version sits at the top so "What's new" never looks a
+  // build behind. If the exact running version has no bundled note (the file
+  // lags the installed build), synthesize a minimal current-version entry.
+  if (current && !entries.some(e => e && e.version === current)) {
+    entries.unshift(whatsNewCurrentEntry(current));
+  }
+  // Safety net: never hand the UI an empty changelog. If scoping/synthesis still
+  // yielded nothing (no current version to anchor on), fall back to the full,
+  // unscoped list, then to a single synthesized entry.
+  if (!entries.length) {
+    entries = readWhatsNew();
+    if (!entries.length && current) entries = [whatsNewCurrentEntry(current)];
   }
   res.json({ current, entries });
 });
@@ -6534,7 +6560,10 @@ app.post('/api/feedback', async (req, res) => {
 app.get('/api/update/check', async (req, res) => {
   if (!updater.isDesktop()) return res.json({ supported: false });
   try {
-    const r = await updater.checkForUpdate(GIT_VERSION.version || '', { serverDir: __dirname });
+    // A manual check (?refresh=1) bypasses the updater's release-lookup cache so
+    // a just-published build is seen immediately; background checks stay cached.
+    const force = req.query.refresh === '1' || req.query.force === '1';
+    const r = await updater.checkForUpdate(GIT_VERSION.version || '', { serverDir: __dirname, force });
     const { _best, ...pub } = r;
     res.json(pub);
   } catch (e) {

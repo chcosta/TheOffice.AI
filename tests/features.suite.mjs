@@ -2251,6 +2251,40 @@ await t.test('documents import: external file → library (+ board Add link card
   t.ok(/newsletter/.test(purposes), 'import purpose picker filters out newsletter');
 });
 
+await t.test('updates + Whats new: manual check bypasses the cache; release notes scope to the running version line', () => {
+  const upd = readFileSync('updater.js', 'utf8');
+  // (#3) A manual "Check for updates" must skip the 15-min release-lookup cache so
+  // a build published seconds ago is seen (the auto-check on launch warms the cache).
+  const check = _win(upd, 'async function checkForUpdate(', 600);
+  t.ok(check, 'updater.checkForUpdate found');
+  t.ok(/!opts\.force &&/.test(check), 'a forced check bypasses the release-lookup cache');
+
+  const src = readFileSync('server.js', 'utf8');
+  const chk = _win(src, "app.get('/api/update/check'", 600);
+  t.ok(chk, '/api/update/check route found');
+  t.ok(/req\.query\.refresh === '1' \|\| req\.query\.force === '1'/.test(chk), 'a manual check (?refresh=1/force=1) sets force');
+  t.ok(/checkForUpdate\(GIT_VERSION\.version \|\| '', \{ serverDir: __dirname, force \}\)/.test(chk), 'force is threaded into checkForUpdate');
+
+  // (#1/#2) whats-new scopes to the running version line + always represents current.
+  t.ok(/function whatsNewBase\(v\)/.test(src), 'whatsNewBase helper defined');
+  const wb = _win(src, 'function whatsNewBase(v)', 220);
+  t.ok(/split\('\+'\)\[0\]\.split\('-'\)\[0\]/.test(wb), 'base strips -prerelease and +build metadata (1.0.5-preview.657+abc → 1.0.5)');
+  t.ok(/function whatsNewCurrentEntry\(version\)/.test(src), 'whatsNewCurrentEntry helper defined');
+  const wn = _win(src, "app.get('/api/whats-new'", 1400);
+  t.ok(wn, '/api/whats-new route found');
+  t.ok(/whatsNewBase\(e && e\.version\) === base/.test(wn), 'entries scope to the current version line (drops 1.0.4/1.0.3)');
+  t.ok(/!entries\.some\(e => e && e\.version === current\)/.test(wn), 'ensures the running version is represented');
+  t.ok(/entries\.unshift\(whatsNewCurrentEntry\(current\)\)/.test(wn), 'synthesizes a current-version entry at top when the file lags the build');
+
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/async checkForUpdate\(force\) \{/.test(html), 'SPA checkForUpdate accepts a force flag');
+  t.ok(/\/api\/update\/check' \+ \(force \? '\?refresh=1' : ''\)/.test(html), 'force adds ?refresh=1 to the check request');
+  const about = _win(html, 'async checkForUpdatesFromAbout()', 400);
+  t.ok(about, 'checkForUpdatesFromAbout found');
+  t.ok(/this\.checkForUpdate\(true\)/.test(about), 'the manual About button forces a fresh check');
+  t.ok(/setInterval\(\(\) => \{ this\.checkForUpdate\(\); \}/.test(html), 'the periodic auto-check stays cached (no force)');
+});
+
 await t.test('data-paths: SUPERVISOR_DATA_DIR env aligns to the resolved dir', () => {
   const src = readFileSync('data-paths.js', 'utf8');
   // The split-brain fix: modules that read process.env.SUPERVISOR_DATA_DIR directly
@@ -3969,7 +4003,7 @@ await t.test('boot splash reel + About check-for-updates', () => {
   // (B) About "Check for updates" — row + method + state.
   t.ok(/checkForUpdatesFromAbout/.test(html), 'About check-for-updates method wired');
   const m = _win(html, 'async checkForUpdatesFromAbout()', 900) || '';
-  t.ok(/this\.checkForUpdate\(\)/.test(m), 'About check reuses checkForUpdate()');
+  t.ok(/this\.checkForUpdate\(true\)/.test(m), 'About check reuses checkForUpdate() with a forced (cache-bypassing) refresh');
   t.ok(/checking:\s*false/.test(html), 'update state carries a checking flag');
 });
 
