@@ -3920,6 +3920,32 @@ await t.test('boards toolbox→board drag gate detects the leftward swipe live, 
     'the swipe arms only on clearly leftward-dominant movement');
 });
 
+await t.test('boards toolbox: hover-reveal × remove button works independent of the swipe (desktop-safe)', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // A real <button> is the guaranteed-robust removal path on desktop: the swipe gesture can be
+  // starved by WebView2's native OLE drag, but a button click is always delivered (and the DnD
+  // bridge ignores INTERACTIVE targets, so no drag starts).
+  const btn = _win(html, '<button type="button" class="tbx-remove"', 620);
+  t.ok(btn, 'tbx-remove button present in the toolbox item');
+  t.ok(/^<button type="button"/.test(btn), 'the remove control is a real <button type="button">');
+  t.ok(/@click\.stop(?:\.prevent)?="confirmRemovePanel\(p\)"/.test(btn),
+    'clicking × calls the shared confirmRemovePanel(p) removal');
+  t.ok(/@pointerdown\.stop/.test(btn),
+    'pointerdown is stopped so pressing × never starts a row swipe/drag');
+  t.ok(/draggable="false"/.test(btn), 'the button is not itself draggable');
+  t.ok(/panelIsPinned\(p\)\s*\?\s*'Unpin/.test(btn),
+    'the title is pinned-aware (Unpin vs Delete)');
+
+  // CSS: hidden until hover/focus, danger tint on hover — calm, no layout shift.
+  t.ok(/\.board-tbx-item \.tbx-remove \{[\s\S]*?opacity:\s*0;/.test(html),
+    'the × is opacity:0 by default');
+  t.ok(/\.board-tbx-item:hover \.tbx-remove,\s*\n?\s*\.board-tbx-item:focus-within \.tbx-remove \{ opacity:/.test(html),
+    'the × reveals on hover/focus-within');
+  t.ok(/\.board-tbx-item \.tbx-remove:hover \{[\s\S]*?var\(--cp-danger/.test(html),
+    'hovering the × tints it danger');
+});
+
 await t.test('desktop (WebView2): native OLE drag is disabled so the pointer bridge owns dragging', () => {
   const html = readFileSync('public/app.html', 'utf8');
 

@@ -5579,6 +5579,21 @@
     .board-tbx-item .tbx-done.is-closed { color: var(--cp-danger); }
     .board-tbx-item .tbx-grip-r { margin: -2px -2px -2px 0; }
     .board-tbx-item.tbx-over { border-color: var(--cp-accent); box-shadow: inset 0 2px 0 0 var(--cp-accent); }
+    /* Trailing remove (×) affordance — a real <button>, so it works reliably in BOTH
+       the browser and the desktop (WebView2) shell where the swipe gesture can be eaten
+       by the native OLE drag. Hover/focus-reveal keeps the tray calm. It is INTERACTIVE,
+       so the desktop DnD bridge and native drag both ignore it. */
+    .board-tbx-item .tbx-remove {
+      flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; margin: -2px -3px -2px 0; padding: 0;
+      border: 0; background: none; color: var(--cp-text-faint, var(--cp-text-muted));
+      cursor: pointer; font-size: 15px; line-height: 1; border-radius: calc(var(--cp-radius-scale, 1) * 5px);
+      opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
+    }
+    .board-tbx-item:hover .tbx-remove,
+    .board-tbx-item:focus-within .tbx-remove { opacity: .6; }
+    .board-tbx-item .tbx-remove:hover { opacity: 1; color: var(--cp-danger, #d9534f); background: color-mix(in srgb, var(--cp-danger, #d9534f) 14%, transparent); }
+    @media (prefers-reduced-motion: reduce) { .board-tbx-item .tbx-remove { transition: none; } }
     /* Swipe-left-to-remove: the row slides left over an "Unpin"/"Delete" action that
        sits behind it on the right. The row has an opaque bg so the action stays hidden
        until the row is swiped open. */
@@ -9341,6 +9356,11 @@
                                     <span class="tbx-name" x-text="chipName(p)"></span>
                                     <template x-if="tbxPrDone(p)"><span class="tbx-done" :class="'is-' + tbxPrDone(p).key" x-text="tbxPrDone(p).label" title="This PR has landed — you can remove the card"></span></template>
                                     <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
+                                    <button type="button" class="tbx-remove" draggable="false"
+                                            @click.stop.prevent="confirmRemovePanel(p)"
+                                            @pointerdown.stop
+                                            :title="panelIsPinned(p) ? 'Unpin this item from the board' : 'Delete this item from the workspace'"
+                                            aria-label="Remove card">&times;</button>
                                   </div>
                                 </div>
                               </template>
