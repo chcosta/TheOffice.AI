@@ -3937,6 +3937,40 @@ await t.test('boot splash reel + About check-for-updates', () => {
   t.ok(/checking:\s*false/.test(html), 'update state carries a checking flag');
 });
 
+await t.test('version number opens GitHub source in desktop (both sidebar + Settings) via openSourceRepo', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // A shared helper routes through the OS-browser bridge on desktop (WebView2
+  // blocks target=_blank) and falls back to a normal tab in a plain browser.
+  const fn = _win(html, 'openSourceRepo() {', 600) || '';
+  t.ok(fn, 'openSourceRepo() method defined');
+  t.ok(/github\.com\/chcosta\/TheOffice\.AI/.test(fn), 'openSourceRepo targets the source repo');
+  t.ok(/window\.__DESKTOP__ && typeof window\.__openExternal === 'function'/.test(fn),
+    'desktop path uses the __openExternal OS-browser bridge');
+  t.ok(/window\.open\(url, '_blank', 'noopener'\)/.test(fn), 'browser path opens a normal tab');
+
+  // Sidebar version link keeps target=_blank (browser) AND an explicit @click so
+  // it works even if the capture-phase interceptor never fires (WebView2 quirk).
+  t.ok(/x-text="versionLabel\(\)"[\s\S]{0,80}?title="View the source on GitHub"/.test(html)
+    && /@click\.prevent="openSourceRepo\(\)"[\s\S]{0,120}?x-text="versionLabel\(\)"/.test(html),
+    'sidebar version anchor calls openSourceRepo() on click');
+
+  // Settings > System Info "Version" is a real link now (was a dead <span>).
+  t.ok(/<strong>Version<\/strong><a href="#"[^>]*@click\.prevent="openSourceRepo\(\)"[^>]*x-text="versionLabel\(\)"/.test(html),
+    'Settings System Info version is a clickable source link');
+});
+
+await t.test('updater bounds the GitHub release lookup with a timeout (no infinite "Checking…")', () => {
+  const upd = readFileSync('updater.js', 'utf8');
+  t.ok(/CHECK_TIMEOUT_MS\s*=/.test(upd), 'a bounded check timeout is defined');
+  const fj = _win(upd, 'async function fetchJson(url)', 1200) || '';
+  t.ok(/new AbortController\(\)/.test(fj), 'fetchJson wires an AbortController');
+  t.ok(/setTimeout\(\(\) => ctrl\.abort\(\), CHECK_TIMEOUT_MS\)/.test(fj), 'the fetch aborts after CHECK_TIMEOUT_MS');
+  t.ok(/signal:\s*ctrl\.signal/.test(fj), 'the fetch passes the abort signal');
+  t.ok(/AbortError|ABORT_ERR/.test(fj) && /timed out/.test(fj), 'an aborted check surfaces a clear timeout error');
+  t.ok(/clearTimeout\(timer\)/.test(fj), 'the timer is always cleared');
+});
+
 await t.test('updater: last-applied verifiable signal (server + client + parser)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');

@@ -7372,6 +7372,7 @@
             </template>
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
               <a :href="'https://github.com/chcosta/TheOffice.AI'" target="_blank" rel="noopener"
+                 @click.prevent="openSourceRepo()"
                  class="svc-logs-link" style="text-decoration:none" x-text="versionLabel()"
                  title="View the source on GitHub"></a>
               <a href="#" class="svc-logs-link" @click.prevent="openWhatsNew()" title="See what changed in recent updates">What's new</a>
@@ -29025,7 +29026,7 @@
             <!-- System Info -->
             <div class="card" style="margin-top:24px">
               <h2 style="font-size:1rem;margin-bottom:12px">System Info</h2>
-              <div class="help-row"><strong>Version</strong><span class="mono" x-text="versionLabel()"></span></div>
+              <div class="help-row"><strong>Version</strong><a href="#" class="mono" style="text-decoration:none" @click.prevent="openSourceRepo()" x-text="versionLabel()" title="View the source on GitHub"></a></div>
               <div class="help-row" style="margin-top:10px"><strong>What's new</strong><a href="#" @click.prevent="openWhatsNew()">View release notes</a></div>
               <div class="help-row" style="margin-top:10px">
                 <strong>Updates</strong>
@@ -70457,6 +70458,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return `v${v.version}${commit && commit !== 'unknown' ? '+' + commit : ''}${dirty}`;
           }
           return `${v.gitHash || 'unknown'}${dirty}`;
+        },
+
+        // Open the GitHub source page. WebView2 (desktop shell) silently blocks
+        // target="_blank" new windows and there's no NewWindowRequested handler,
+        // so route explicitly through the OS-browser bridge on desktop; in a plain
+        // browser just open a new tab. Called by the sidebar + Settings version.
+        openSourceRepo() {
+          const url = 'https://github.com/chcosta/TheOffice.AI';
+          try {
+            if (window.__DESKTOP__ && typeof window.__openExternal === 'function') {
+              window.__openExternal(url);
+              return;
+            }
+          } catch (e) { /* fall through to a normal tab */ }
+          try { window.open(url, '_blank', 'noopener'); } catch (e) { location.href = url; }
         },
 
         // --- In-app self-updater (desktop build only) ------------------------

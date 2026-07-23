@@ -27,6 +27,7 @@ const { Readable } = require('stream');
 
 const REPO = process.env.THEOFFICE_UPDATE_REPO || 'chcosta/TheOffice.AI';
 const CHECK_CACHE_MS = 15 * 60 * 1000; // cache release lookups; avoid needless GitHub traffic
+const CHECK_TIMEOUT_MS = 15 * 1000;    // bound the GitHub release lookup so "Checking…" can't hang forever
 const DOWNLOAD_IDLE_MS = 90 * 1000;    // abort a stalled read; we retry
 const DOWNLOAD_RETRIES = 3;
 
@@ -128,12 +129,28 @@ function compareSemver(av, bv) {
 let _checkCache = { at: 0, current: '', result: null };
 
 async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: _authHeaders({
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    }),
-  });
+  // Node's fetch has NO default timeout: a slow, throttled, or (on a corporate
+  // NAT) HTML rate-limit response from github.com would leave the "Checking…"
+  // spinner running forever. Bound it so the check either returns or fails fast.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CHECK_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: _authHeaders({
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      }),
+    });
+  } catch (e) {
+    if (e && (e.name === 'AbortError' || e.code === 'ABORT_ERR')) {
+      throw new Error(`GitHub update check timed out after ${Math.round(CHECK_TIMEOUT_MS / 1000)}s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`GitHub API ${res.status} ${res.statusText}`);
   return res.json();
 }
