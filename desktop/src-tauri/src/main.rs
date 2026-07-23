@@ -11,8 +11,10 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 /// On exit, if the in-app updater staged a downloaded installer, launch it
-/// detached with `/UPDATE /P /R` (in-place upgrade, passive, relaunch) so the
-/// upgrade applies seamlessly after the app closes. The marker is written by
+/// detached with `/UPDATE /S` (in-place upgrade, silent) so the upgrade installs
+/// in the background after the app closes and the app STAYS closed — the new
+/// version is live the next time the user opens it (matches the "installs when
+/// you close the app" messaging; no surprise relaunch). The marker is written by
 /// `updater.js` at `%LOCALAPPDATA%\TheOffice.AI\pending-update.json`.
 fn run_pending_update() {
     let base = match std::env::var("LOCALAPPDATA") {
@@ -40,7 +42,7 @@ fn run_pending_update() {
         .get("args")
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-        .unwrap_or_else(|| vec!["/UPDATE".into(), "/P".into(), "/R".into()]);
+        .unwrap_or_else(|| vec!["/UPDATE".into(), "/S".into()]);
 
     // Consume the marker before launching so a failed spawn can't loop.
     let _ = std::fs::remove_file(&marker);

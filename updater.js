@@ -10,9 +10,11 @@
 //   3. stage a "pending update" marker that the Tauri shell reads on app exit.
 //
 // The Tauri shell (desktop/src-tauri/src/main.rs) runs the staged installer with
-// `/UPDATE /P /R` on exit: `/UPDATE` skips the reinstall prompt and upgrades in
-// place (single version, no WebView2 re-download, prereq hook skipped), `/P` is
-// passive (progress only), `/R` relaunches the app afterwards. => seamless.
+// `/UPDATE /S` on exit: `/UPDATE` skips the reinstall prompt and upgrades in
+// place (single version, no WebView2 re-download, prereq hook skipped), `/S`
+// runs it silently in the background. No `/R`, so the app stays closed after
+// installing — the next time the user opens it, it's the new version. This
+// matches the "installs when you close the app" messaging (no surprise relaunch).
 //
 // Everything here is a no-op unless running as the desktop sidecar
 // (SUPERVISOR_SIDECAR=1), so `npm start` / browser / LAN use is unaffected.
@@ -240,7 +242,8 @@ function status() {
     error: _dl.error,
     installer: _dl.installer,
     // How the staged update applies: a small delta applies on the NEXT app
-    // launch (fast); a full installer applies when the app CLOSES (then reopens).
+    // launch (fast); a full installer installs silently when the app CLOSES and
+    // stays closed — the new version is live the next time the user opens it.
     delta: !!_dl.delta,
     applyOn: _dl.applyOn || '',
   };
@@ -346,7 +349,7 @@ async function _run(best) {
     fs.writeFileSync(MARKER_PATH, JSON.stringify({
       installer: dest,
       version: best.version,
-      args: ['/UPDATE', '/P', '/R'],
+      args: ['/UPDATE', '/S'],
       stagedAt: new Date().toISOString(),
     }, null, 2));
 
