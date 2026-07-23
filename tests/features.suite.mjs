@@ -3843,6 +3843,29 @@ await t.test('boards toolbox→board drag gate keys off the armed swipe, not a s
     'the swipe arms only on clearly leftward-dominant movement');
 });
 
+await t.test('desktop (WebView2): native OLE drag is disabled so the pointer bridge owns dragging', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // The CSS kills WebView2's broken native drag on EVERY bridge-managed [draggable]
+  // (toolbox items, board cards, home sections, agent cards…) — scoped to desktop via
+  // html.dnd-desktop so the browser keeps its own working native DnD untouched. This is
+  // the real fix for "toolbox items won't drag / show a not-allowed cursor" in the app.
+  t.ok(/html\.dnd-desktop \[draggable="true"\] \{ -webkit-user-drag: none; \}/.test(html),
+    'html.dnd-desktop [draggable="true"] disables the native OLE drag (keeps the attribute)');
+
+  // The desktop marker class is applied BOTH synchronously in the bridge IIFE (covers the
+  // Tauri __TAURI__ shell) AND after the async /api/version probe (covers __DESKTOP__).
+  t.ok(/if \(inDesktop\(\)\) \{ try \{ document\.documentElement\.classList\.add\('dnd-desktop'\); \} catch \(e\) \{\} \}/.test(html),
+    'the bridge IIFE tags <html> with dnd-desktop synchronously when in desktop');
+  t.ok(/window\.__DESKTOP__ = !!\(v && v\.desktop\); if \(window\.__DESKTOP__\) \{ try \{ document\.documentElement\.classList\.add\('dnd-desktop'\);/.test(html),
+    'the async /api/version handler also tags <html> with dnd-desktop as a fallback');
+
+  // draggableAt() reads el.draggable (the attribute/IDL prop), which -webkit-user-drag does
+  // NOT change — so the bridge still picks up these elements after native drag is disabled.
+  t.ok(/el\.draggable === true/.test(html),
+    'draggableAt still matches on el.draggable so the bridge engages');
+});
+
 await t.test('boot splash reel + About check-for-updates (client + server)', () => {
   const html = readFileSync('public/app.html', 'utf8');
   const srv = readFileSync('server.js', 'utf8');

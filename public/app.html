@@ -177,7 +177,7 @@
     window.__DESKTOP__ = false;
     fetch('/api/version')
       .then(r => r.json())
-      .then(v => { window.__DESKTOP__ = !!(v && v.desktop); })
+      .then(v => { window.__DESKTOP__ = !!(v && v.desktop); if (window.__DESKTOP__) { try { document.documentElement.classList.add('dnd-desktop'); } catch (e) {} } })
       .catch(() => {});
 
     function openExternal(url) {
@@ -1922,6 +1922,14 @@
     /* Desktop (WebView2) native-DnD → pointer bridge: cursor + a faint floating drag-image. */
     body.dnd-dragging { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
     .dnd-ghost { border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); overflow: hidden; }
+    /* Desktop (WebView2) ONLY: the pointer bridge is the SOLE drag mechanism. WebView2
+       starts a broken native OLE drag on [draggable] elements (dragstart never lands,
+       cursor shows "not-allowed") that preempts the bridge — most visibly on toolbox
+       items, whose @pointerdown swipe handler doesn't suppress it. Killing the native
+       drag makes the bridge authoritative everywhere. The `draggable` attribute stays,
+       so draggableAt() still matches (it reads el.draggable, unaffected by this CSS).
+       Browser (no .dnd-desktop marker) keeps its own working native DnD untouched. */
+    html.dnd-desktop [draggable="true"] { -webkit-user-drag: none; }
     .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .6; }
     .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
     .cnav-row > .nav-link { flex: 1; min-width: 0; }
@@ -73307,6 +73315,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
       }, true);
 
       window.addEventListener('pointerdown', onDown, true);
+      // Mark the desktop shell so the CSS can disable WebView2's broken native OLE
+      // drag on [draggable] elements (see html.dnd-desktop rule). __TAURI__ is sync
+      // in the desktop shell; the async /api/version handler adds it too as a fallback.
+      if (inDesktop()) { try { document.documentElement.classList.add('dnd-desktop'); } catch (e) {} }
     })();
   </script>
 </body>
