@@ -59,6 +59,11 @@ const DEFAULTS = {
   // trends accrue without anyone clicking. Structure is untouched — an AI rebuild (which
   // re-reads the tracking doc) stays a separate, explicit action. Set false to opt out.
   monitoringAutoSnapshot: true,
+  // Meetings.AI: an hourly leader-gated background sweep finds recently-ended meetings
+  // that now have a recording/transcript and summarizes them as soon as they're ready,
+  // so a brief is waiting before the user ever opens the page. Requires connectConsent
+  // (background M365 access). Set false to opt out of the automatic summarization.
+  meetingsAutoSummarize: true,
   // GitHub source provider (Code Flow + Dev cards). Auth is secretless by
   // default via the `gh` CLI login store (githubAuthMode='cli'); 'env' uses
   // GH_TOKEN/GITHUB_TOKEN; 'pat' falls back to githubPat below. githubOwner is

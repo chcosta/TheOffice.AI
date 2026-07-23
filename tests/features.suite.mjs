@@ -4104,4 +4104,135 @@ await t.test('updater: last-applied verifiable signal (server + client + parser)
   t.ok(/la\.version/.test(lbl) && /formatDateTime/.test(lbl), 'lastAppliedLabel formats version + date');
 });
 
+await t.test('meetings.ai: studio page — server recent/recap routes (seed fallback + AI timeouts) + SPA player wiring', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // (1) SERVER — recent-meetings gather is AI (collector) but timeout-bounded so the route
+  // can never hang; on timeout/failure the surrounding try returns [] and the route seeds.
+  const gather = _win(srv, 'async function _meetingsGatherRecent(', 2600) || '';
+  t.ok(gather, '_meetingsGatherRecent helper exists');
+  t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 150000, 'calendar gather'\)/.test(gather),
+    'the calendar gather is wrapped in a timeout');
+  t.ok(/catch \{ return \[\]; \}/.test(gather), 'a failed/timed-out gather degrades to an empty list');
+
+  // (2) SERVER — recap build: seed short-circuit, AI transcript path is timeout-bounded, and the
+  // dropped-then-restored _connectExtractJson is present (the bug that broke the real recap path).
+  const recap = _win(srv, 'async function _meetingsBuildRecap(', 4200) || '';
+  t.ok(recap, '_meetingsBuildRecap helper exists');
+  t.ok(/id === _MEETINGS_SEED_ID/.test(recap), 'the seed meeting short-circuits to the authored SFI story');
+  t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 90000, 'transcript recap'\)/.test(recap),
+    'the transcript recap is wrapped in a 90s timeout');
+  t.ok(/const text = await _composeWithTimeout[\s\S]{0,80}const obj = _connectExtractJson\(text\);/.test(recap),
+    'the AI text is parsed via _connectExtractJson (obj is defined before use — regression guard)');
+  t.ok(/return \{ story: minimal, people: \{[\s\S]*empty: true/.test(recap),
+    'an unavailable transcript degrades to a minimal never-crash story with empty:true');
+
+  // (3) SERVER — routes: recent is cached with a seed fallback; recap requires a meetingId.
+  const rec = _win(srv, "app.get('/api/meetings/recent'", 900) || '';
+  t.ok(rec, 'GET /api/meetings/recent route exists');
+  t.ok(/_meetingsRecentCache\.meetings && _meetingsRecentCache\.days === days && \(now - _meetingsRecentCache\.at\) < 600000/.test(rec),
+    'recent is cached for 10 minutes');
+  t.ok(/if \(!meetings\.length\) \{ meetings = _meetingsSeedRecent\(\)[\s\S]*demo = true; \}/.test(rec),
+    'recent falls back to the seed meetings (demo:true) when the gather is empty');
+  const rcp = _win(srv, "app.post('/api/meetings/recap'", 900) || '';
+  t.ok(rcp, 'POST /api/meetings/recap route exists');
+  t.ok(/if \(!meetingId\) return res\.status\(400\)/.test(rcp), 'recap 400s without a meetingId');
+  t.ok(/story: built\.story, people: built\.people, demo: !!built\.demo, empty: !!built\.empty/.test(rcp),
+    'recap returns story/people/demo/empty');
+
+  // (4) SPA — the Meetings.AI studio section + the data-driven iframe player + the ready handshake.
+  t.ok(/route === 'meetings'/.test(html), 'the Meetings.AI section renders on the meetings route');
+  t.ok(/<iframe x-ref="mtgPlayer" src="\/meeting-recap\.html" @load="_mtgPushRecap\(\)"/.test(html),
+    'the recap player is the standalone meeting-recap.html iframe, pushed on load');
+  t.ok(/if \(d && d\.type === 'mrv:ready'\) \{ try \{ this\._mtgPushRecap\(\); \} catch/.test(html),
+    'the global message listener answers the player mrv:ready handshake');
+
+  // (5) SPA — field-name reconciliation with the server shapes (the mtg-verify fixes).
+  const load = _win(html, 'async loadMeetings(', 1200) || '';
+  t.ok(/\.map\(m => \(\{ \.\.\.m, id: m\.meetingId \|\| m\.id \|\| '' \}\)\)/.test(load),
+    'loadMeetings normalizes the server meetingId → client id');
+  const push = _win(html, '_mtgPushRecap() {', 700) || '';
+  t.ok(/w\._pendingRecap/.test(push) && /postMessage\(w\._pendingRecap, '\*'\)/.test(push),
+    '_mtgPushRecap posts the stashed mrv:load payload to the player');
+  const fmt = _win(html, 'mtgFmtWhen(m) {', 400) || '';
+  t.ok(/const t = m\.start \|\| m\.time/.test(fmt), 'mtgFmtWhen reads the server start field');
+
+  // (6) SPA — routing / nav / tier registration (flagship top-level page, always-on in both tiers).
+  t.ok(/if \(first === 'meetings' && second\) return \{ route: 'meetings', param: second \}/.test(html),
+    'parseHash handles the meetings deep link');
+  t.ok(/else if \(this\.route === 'meetings'\) \{[\s\S]{0,80}this\.loadMeetings\(/.test(html),
+    'handleRouteChange dispatches meetings → loadMeetings');
+  t.ok(/case 'meetings': return mk\('Meetings\.AI', '🎬', '#\/meetings', 'meetings'\)/.test(html),
+    'the nav item is registered');
+  t.ok(/const out = \['home', 'boards', 'codeflow', 'meetings'\]/.test(html),
+    'meetings is an always-on Basic nav default');
+});
+
+await t.test('meetings.ai: durable brief state — a summary that already ran (empty/error/pending) survives navigate-away-and-back (server.js + settings.js + app.html)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  const settings = readFileSync('settings.js', 'utf8');
+
+  // SERVER — a module-level durable state map is the source of truth (not just the in-flight promise).
+  t.ok(/_meetingsBriefState = new Map\(\)/.test(srv), 'the durable _meetingsBriefState map exists');
+  t.ok(/function _meetingsSetBriefState\(/.test(srv), 'the _meetingsSetBriefState helper exists');
+  // The state is persisted to disk so it survives a SERVER/desktop RESTART (the core bug —
+  // an in-memory-only map wiped on restart made the "Load summary" button silently reappear).
+  t.ok(/_MEETINGS_BRIEF_STATE_FILE\s*=\s*path\.join\(_MEETINGS_BRIEF_DIR/.test(srv), 'the brief state has an on-disk file path');
+  t.ok(/function _meetingsLoadBriefState\(/.test(srv), 'the state is loaded from disk on startup');
+  t.ok(/function _meetingsPersistBriefState\(/.test(srv), 'a persist helper writes the state to disk');
+  t.ok(/_meetingsPersistBriefState\(\);/.test(_win(srv, 'function _meetingsSetBriefState(', 260) || ''),
+    'every state mutation persists to disk');
+  const ensure = _win(srv, 'function _meetingsEnsureRecap(', 1800) || '';
+  t.ok(ensure, '_meetingsEnsureRecap exists');
+  t.ok(/status: 'building', startedAt/.test(ensure), 'a kicked build stamps a durable building state with startedAt');
+  t.ok(/subject: subj/.test(ensure), 'the building state stores the subject so a restart-orphan re-kick still has it');
+  t.ok(/status: 'ready'/.test(ensure) && /failed \? 'error' : 'empty'/.test(ensure) && /status: 'error'/.test(ensure),
+    'the build resolves to a durable ready/empty/error state');
+
+  // SERVER — GET consults the durable state before falling through to none (the actual bug),
+  // and auto-heals a restart-orphaned build (stale 'building', or 'ready' with no live cache).
+  const get = _win(srv, "app.get('/api/meetings/brief'", 2200) || '';
+  t.ok(get, 'GET /api/meetings/brief route exists');
+  t.ok(/const st = _meetingsBriefState\.get\(meetingId\)/.test(get), 'GET reads the durable state map');
+  t.ok(/st\.status === 'building'[\s\S]{0,900}status: 'pending', startedAt/.test(get), "building → pending (with startedAt)");
+  t.ok(/age > _MEETINGS_BRIEF_STALE_MS[\s\S]{0,120}_meetingsEnsureRecap/.test(get), 'a stale orphaned building state re-kicks the build');
+  t.ok(/st\.status === 'ready'[\s\S]{0,400}_meetingsEnsureRecap/.test(get), "'ready' with no cache re-kicks (never reverts to none)");
+  t.ok(/st\.status === 'error'[\s\S]{0,80}status: 'error'/.test(get), 'error → error (durable)');
+  t.ok(/st\.status === 'empty'[\s\S]{0,80}status: 'empty'/.test(get), 'empty → empty (durable, never reverts to none)');
+
+  // SERVER — POST is NON-BLOCKING: it kicks the build and returns immediately (no long await),
+  // so a navigated-away user is never hit by the client request timeout firing later as fatal.
+  const post = _win(srv, "app.post('/api/meetings/brief'", 1400) || '';
+  t.ok(post, 'POST /api/meetings/brief route exists');
+  t.ok(/app\.post\('\/api\/meetings\/brief', \(req, res\) =>/.test(srv), 'POST is not async/awaiting the build (non-blocking)');
+  t.ok(/_meetingsEnsureRecap\(meetingId, subject\)\.catch\(/.test(post), 'POST kicks the build fire-and-forget');
+  t.ok(/status: 'pending', startedAt/.test(post), 'POST returns pending immediately when not already terminal');
+  t.ok(/status: 'ready'[\s\S]{0,80}_meetingsBriefFromRecap/.test(post), 'POST returns ready at once when already cached');
+
+  // SETTINGS — the hourly auto-summarize sweep is discoverable + opt-out (default ON).
+  t.ok(/meetingsAutoSummarize: true/.test(settings), 'meetingsAutoSummarize defaults ON (opt-out)');
+  t.ok(/s\.meetingsAutoSummarize === false/.test(srv), 'the sweep honors the opt-out flag');
+
+  // CLIENT — the three durable fields are in state, captured from GET + POST, and reset on select.
+  t.ok(/briefError: ?'', ?briefAt: ?0, ?briefStartedAt: ?0/.test(html) ||
+       (/briefError:/.test(html) && /briefAt:/.test(html) && /briefStartedAt:/.test(html)),
+    'the meetings state carries briefError/briefAt/briefStartedAt');
+  const loadStatus = _win(html, 'async mtgLoadBriefStatus(', 900) || '';
+  t.ok(/w\.briefError = \(r && r\.error\)/.test(loadStatus) && /w\.briefStartedAt = \(r && r\.startedAt\)/.test(loadStatus),
+    'mtgLoadBriefStatus captures error/at/startedAt from GET');
+  t.ok(/w\.briefStatus === 'pending'\) this\.mtgPollBrief/.test(loadStatus), 'mtgLoadBriefStatus polls while pending');
+  const prioritize = _win(html, 'async mtgPrioritizeBrief(', 1800) || '';
+  t.ok(/this\.mtgPollBrief\(m\.id\)/.test(prioritize),
+    'mtgPrioritizeBrief polls GET instead of blocking on the POST — a navigated-away user never hits a fatal timeout');
+  t.ok(/w\.briefStatus = 'error'/.test(prioritize),
+    'a genuine failure still sets a durable briefStatus=error (not a bare none) so the outcome survives navigation');
+
+  // CLIENT — the DOM renders pending / empty / error blocks with retry affordances.
+  t.ok(/We couldn.t build the summary/.test(html), 'the error block explains the failure');
+  t.ok(/↻ Try again/.test(html), 'the error block offers a retry');
+  t.ok(/↻ Check again/.test(html), 'the empty block offers a re-check');
+});
+
 await t.done();

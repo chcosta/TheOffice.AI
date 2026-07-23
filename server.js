@@ -33284,6 +33284,454 @@ app.get('/api/me-ai/pulse/teams/:id/channels', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ============================================================================
+// Meetings.AI — recent meetings index + animated newscast recap
+// ----------------------------------------------------------------------------
+// GET  /api/meetings/recent?days=7  → { ok, meetings:[…], demo? }
+// POST /api/meetings/recap {meetingId} → { ok, story, people, demo? }
+// Real WorkIQ data when available; a seeded SFI meeting is the graceful fallback
+// so the studio is never blank in dev (WorkIQ may not be authed here).
+// ============================================================================
+
+// The people in the seeded SFI meeting — gender drives the animated bust.
+const _MEETINGS_SEED_PEOPLE = {
+  missy:   { name: 'Missy Messa',         role: 'Organizer · Program',  gender: 'f', color: '#c58cff', key: 'missy' },
+  shawn:   { name: 'Shawn Rothlisberger', role: 'Engineering',          gender: 'm', color: '#5aa9ff', key: 'shawn' },
+  greg:    { name: 'Greg Arnits',         role: 'Engineering',          gender: 'm', color: '#7ee0c9', key: 'greg' },
+  epsitha: { name: 'Epsitha Ananth',      role: 'Tooling / Automation', gender: 'f', color: '#ffb27a', key: 'epsitha' },
+  dana:    { name: 'Dana Okoye',          role: 'Security',             gender: 'f', color: '#ff8fb0', key: 'dana' },
+  raj:     { name: 'Raj Patel',           role: 'Platform',             gender: 'm', color: '#ffd166', key: 'raj' },
+};
+
+// The AI-woven story for the seeded SFI-AR1.2.7 meeting (drives the recap player).
+const _MEETINGS_SEED_STORY = {
+  title: 'SFI-AR1.2.7 — Autoupgrades, autopatching & pinning',
+  subtitle: 'Vulnerability posture · image-ownership model · retiring manual pinning',
+  date: 'July 22, 2026',
+  organizer: 'missy',
+  attendees: ['missy', 'shawn', 'greg', 'epsitha'],
+  overview: 'The team met to agree a position they can take to management on SFI KPI exceptions. Three threads ran through the hour: why the vulnerability counts look so alarming, who should own machine images going forward, and the automation that finally ends manual version pinning.',
+  segments: [
+    { heading: 'Why the numbers look alarming', speaker: 'shawn',
+      narration: 'The headline vulnerability count runs into the hundreds of thousands — but the team argued it badly overstates real risk.',
+      quote: "We're seeing hundreds of thousands of SFI vulnerability findings, and the counts are this high largely because most machines aren't using autopatching yet.",
+      screen: { kind: 'stat', big: '100,000s', label: 'SFI vulnerability findings', foot: 'Inflated — most machines are not autopatched yet' } },
+    { heading: 'Real exposure vs. inflated counts', speaker: 'greg',
+      narration: 'Greg attributed much of the inflation to Azure inventory latency rather than genuine exposure, so the raw number is not the picture we should take to management.',
+      quote: "A big chunk of the inflated vulnerability numbers is just Azure inventory latency — the underlying data shows it isn't real exposure.",
+      screen: { kind: 'bullets', title: 'Why the count overstates risk', items: [
+        "Most machines aren't autopatched yet",
+        'Azure inventory latency lags the true machine state',
+        'Autopatching is held back deliberately for control over what lands'] } },
+    { heading: 'The image-ownership question', speaker: 'shawn',
+      narration: 'The central tension of the meeting: who should own machine images going forward. Shawn wants the budgeting and ownership model settled before committing to any large change, and worries that decentralizing now would duplicate effort across teams.',
+      quote: "We need to settle the right budgeting and ownership model before we commit to a big change, or we'll just duplicate effort across every team.",
+      screen: { kind: 'compare',
+        a: { who: 'Shawn — hold & settle first', points: ['Keep tighter central control for now', 'Settle budgeting + ownership model first', 'Pilot + document rationale for KPI exceptions'] },
+        b: { who: 'Greg — decentralize', points: ['Move ownership to product/customer teams', 'Central ownership does not scale', 'Report real cost + usage back to each team'] } } },
+    { heading: 'Push ownership out to the teams', speaker: 'greg',
+      narration: 'Greg pushed the opposite direction — central ownership does not scale, and the current model hides who is accountable for cost and upkeep. His answer is to decentralize, backed by reporting that shows each team its real usage and cost.',
+      quote: "I think we should move image ownership out to the customer and product teams, and build reporting that reflects the real usage and cost back to each of them.",
+      screen: { kind: 'bullets', title: 'The decentralized model', items: [
+        'Product / customer teams own their own images',
+        'Accountability for cost + upkeep sits with the owner',
+        'Central team provides tooling + cost/usage reporting'] } },
+    { heading: 'Retiring manual pinning', speaker: 'epsitha',
+      narration: 'On the tooling side, Epsitha is landing the automation that ends hand-pinning image versions — machines will always pull the latest successful image instead of a version someone pinned by hand.',
+      quote: "I'm continuing the automation work to move us off pinned image versions, so we always select the latest successful image automatically instead of pinning by hand.",
+      screen: { kind: 'bullets', title: 'Automation in flight', items: [
+        'Automatically select the latest *successful* image',
+        'Stop hand-pinning specific versions',
+        'Stay current without manual steps or drift'] } },
+  ],
+  decisions: [
+    'Treat the raw vulnerability count as inflated (autopatching gaps + Azure inventory latency), not real exposure.',
+    'Pilot an alternative image-ownership model rather than commit to a big change now.',
+    'Pursue SFI KPI exceptions where justified, with documented rationale for management.',
+  ],
+  questions: [
+    'What is the right budgeting + ownership model? — unresolved (Shawn: settle first; Greg: decentralize + report cost back).',
+  ],
+  actions: [
+    { owner: 'shawn',   text: 'Pilot the approach and document the rationale to pursue SFI KPI exceptions.' },
+    { owner: 'greg',    text: 'Build reporting that reflects real usage and cost back to each owning team.' },
+    { owner: 'epsitha', text: 'Land the automation to always select the latest successful image (retire manual pinning).' },
+  ],
+  chatter: {
+    intro: 'The chat had its own conversation alongside the call — and surfaced a couple of points nobody said aloud.',
+    items: [
+      { who: 'raj',     text: '+1 on the inventory-latency read — we saw the same lag skew our own dashboards last sprint.' },
+      { who: 'dana',    text: 'Can we split "real exposure" out from the raw count before this goes to management? That delta is the story.' },
+      { who: 'greg',    text: 'Dropping the cost-reporting mock in the follow-up — it maps spend to the owning team.' },
+      { who: 'epsitha', text: 'Automation PR is up if anyone wants to sanity-check the latest-successful-image logic.' },
+    ],
+  },
+};
+
+const _MEETINGS_SEED_ID = 'demo-sfi-ar127';
+
+// The seeded recent-meetings index (fallback when WorkIQ returns nothing).
+function _meetingsSeedRecent() {
+  const pad = n => String(n).padStart(2, '0');
+  const day = (offset) => { const d = new Date(); d.setDate(d.getDate() - offset); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  return [
+    { meetingId: _MEETINGS_SEED_ID, subject: 'SFI-AR1.2.7 — Autoupgrades, autopatching & pinning', date: day(1), start: '10:00', end: '11:00', organizer: 'Missy Messa', attendees: ['Missy Messa', 'Shawn Rothlisberger', 'Greg Arnits', 'Epsitha Ananth'], hasTranscript: true, webLink: '', demo: true },
+    { meetingId: 'demo-standup', subject: 'Twice Weekly Standup', date: day(2), start: '09:30', end: '10:00', organizer: 'Missy Messa', attendees: ['Missy Messa', 'Greg Arnits', 'Epsitha Ananth'], hasTranscript: false, webLink: '', demo: true },
+    { meetingId: 'demo-helix-sync', subject: 'Helix engineering sync', date: day(4), start: '14:00', end: '14:45', organizer: 'Shawn Rothlisberger', attendees: ['Shawn Rothlisberger', 'Greg Arnits', 'Raj Patel'], hasTranscript: false, webLink: '', demo: true },
+  ];
+}
+
+// WorkIQ gather: ended meetings over the past N days, each with a stable id +
+// whether a transcript exists. Best-effort; returns [] on any failure.
+async function _meetingsGatherRecent(days) {
+  try {
+    const d = Math.max(1, Math.min(30, Number(days) || 7));
+    const end = new Date();
+    const start = new Date(); start.setDate(start.getDate() - d);
+    const iso = x => x.toISOString();
+    const prompt = `Using WorkIQ, read my Microsoft 365 calendar for meetings that have ALREADY ENDED between ${iso(start)} and ${iso(end)} by calling /me/calendarView?startDateTime=${iso(start)}&endDateTime=${iso(end)} with $select=id,iCalUId,subject,start,end,isAllDay,isCancelled,organizer,attendees,onlineMeeting,webLink and $orderby=start/dateTime desc and a high $top. Return ONLY a JSON array (no prose, no code fence), newest first, one element per meeting that has already ended: {"meetingId":string (the event id), "subject":string, "start":{"dateTime":string,"timeZone":string}, "end":{"dateTime":string,"timeZone":string}, "organizer":string (organizer display name), "attendees":[string] (attendee display names), "hasTranscript":boolean (true if the online meeting has a recording/transcript), "webLink":string|null}. Skip all-day and cancelled events. If there are none, return [].`;
+    const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 150000, 'calendar gather');
+    const arr = _connectExtractJson(text);
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (const e of arr) {
+      if (!e || typeof e !== 'object') continue;
+      const sd = _meAiGraphLocal(e.start);
+      const ed = _meAiGraphLocal(e.end);
+      const subject = String(e.subject || '').trim();
+      const meetingId = String(e.meetingId || e.id || e.iCalUId || '').trim();
+      if (!subject || !meetingId) continue;
+      out.push({
+        meetingId,
+        subject: subject.slice(0, 240),
+        date: sd ? sd.date : '',
+        start: sd ? sd.hm : '',
+        end: ed ? ed.hm : '',
+        organizer: String(e.organizer || '').slice(0, 160),
+        attendees: (Array.isArray(e.attendees) ? e.attendees : []).map(a => String(a || '').slice(0, 160)).filter(Boolean).slice(0, 40),
+        hasTranscript: !!e.hasTranscript,
+        webLink: typeof e.webLink === 'string' ? e.webLink : '',
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
+// Build a recap story for a meeting. Seed id → the authored SFI story; otherwise
+// read the transcript via WorkIQ and weave it into the STORY schema; graceful
+// minimal story on failure.
+async function _meetingsBuildRecap(meetingId, subject) {
+  const id = String(meetingId || '').trim();
+  if (!id || id === _MEETINGS_SEED_ID) {
+    return { story: _MEETINGS_SEED_STORY, people: _MEETINGS_SEED_PEOPLE, demo: true };
+  }
+  // 'reason' distinguishes an honest empty (transcript genuinely unavailable) from a
+  // failure (agent unavailable / M365 unreachable / consent missing) so the UI can be
+  // honest ("no transcript yet" vs "couldn't read it — try again") instead of silently
+  // reverting to the "Load summary" button.
+  let reason = 'no-transcript';
+  let error = '';
+  try {
+    const prompt = `Using WorkIQ, read the meeting transcript and chat for the Microsoft 365 online meeting with event id "${id}"${subject ? ` (subject: "${String(subject).slice(0, 200)}")` : ''}. Fetch the call transcript (getAllTranscripts / transcript content) and the meeting chat messages. Then weave a useful, honest newscast-style recap that highlights key decisions, insights, disagreements, and action items. Return ONLY JSON (no prose, no code fence) with this exact shape:
+{"story":{"title":string,"subtitle":string,"date":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]}},
+"people":{"<speakerKey>":{"name":string,"role":string,"gender":"m"|"f","color":string hex,"key":string}}}
+Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". Quotes MUST be verbatim from the transcript — never fabricate. Pick a plausible gender per person for the animated avatar. Use 3–6 segments. If the transcript is unavailable, return {"story":null,"people":{}}.`;
+    const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 90000, 'transcript recap');
+    const obj = _connectExtractJson(text);
+    if (obj && obj.story && Array.isArray(obj.story.segments) && obj.story.segments.length && obj.people && typeof obj.people === 'object') {
+      return { story: obj.story, people: obj.people, demo: false };
+    }
+  } catch (e) { reason = 'error'; error = (e && e.message) || 'Could not read the transcript.'; }
+  // Graceful minimal story so the player never crashes.
+  const minimal = {
+    title: String(subject || 'Meeting recap'),
+    subtitle: 'No transcript was available for this meeting',
+    date: '', organizer: 'you', attendees: ['you'],
+    overview: 'A transcript or recording was not available for this meeting, so there is nothing to weave into a recap yet. Record the meeting or enable transcription to generate a recap.',
+    segments: [], decisions: [], questions: [], actions: [], chatter: null,
+  };
+  return { story: minimal, people: { you: { name: 'You', role: '', gender: 'm', color: '#5aa9ff', key: 'you' } }, demo: false, empty: true, reason, error };
+}
+
+let _meetingsRecentCache = { at: 0, days: 0, meetings: null };
+app.get('/api/meetings/recent', async (req, res) => {
+  try {
+    const days = Math.max(1, Math.min(30, Number(req.query.days) || 7));
+    const now = Date.now();
+    if (_meetingsRecentCache.meetings && _meetingsRecentCache.days === days && (now - _meetingsRecentCache.at) < 600000) {
+      return res.json({ ok: true, days, meetings: _meetingsRecentCache.meetings, demo: _meetingsRecentCache.demo });
+    }
+    let meetings = await _meetingsGatherRecent(days);
+    let demo = false;
+    if (!meetings.length) { meetings = _meetingsSeedRecent().filter(m => true); demo = true; }
+    _meetingsRecentCache = { at: now, days, meetings, demo };
+    // Real meetings with a transcript: warm their briefs/recaps in the background
+    // so the summary is ready by the time the user opens them.
+    if (!demo) { try { _meetingsEnqueueBriefs(meetings); } catch (_) {} }
+    res.json({ ok: true, days, meetings, demo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Built recaps are cached by meetingId so re-opening (or a page reload that
+// restores the recap view) is instant and never re-runs the ~90s transcript AI.
+// Empty/failed builds are NOT cached, so a transient failure can be retried.
+// Pass { force:true } to bypass the cache and rebuild.
+const _meetingsRecapCache = new Map();
+app.post('/api/meetings/recap', async (req, res) => {
+  try {
+    const meetingId = String((req.body && req.body.meetingId) || '').trim();
+    const subject = String((req.body && req.body.subject) || '').trim();
+    const force = !!(req.body && req.body.force);
+    if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+    if (!force && _meetingsRecapCache.has(meetingId)) {
+      const c = _meetingsRecapCache.get(meetingId);
+      return res.json({ ok: true, meetingId, story: c.story, people: c.people, demo: !!c.demo, empty: !!c.empty, cached: true });
+    }
+    const built = await _meetingsBuildRecap(meetingId, subject);
+    if (built && built.story && !built.empty) {
+      _meetingsRecapCache.set(meetingId, { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
+    }
+    res.json({ ok: true, meetingId, story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Meeting briefs ──────────────────────────────────────────────────────────
+// A "brief" is the read-first summary shown in the detail panel BEFORE the
+// animated recap: overview + decisions + open questions + action items + a few
+// key moments. It's derived from the same transcript read that powers the recap,
+// so warming a brief also warms the recap (and vice-versa) — one AI call, cached.
+function _meetingsBriefFromRecap(rec) {
+  const s = (rec && rec.story) || {};
+  const highlights = Array.isArray(s.segments)
+    ? s.segments.map(x => x && (x.heading || x.quote || x.narration)).filter(Boolean).slice(0, 6)
+    : [];
+  return {
+    summary: s.overview || s.subtitle || '',
+    decisions: Array.isArray(s.decisions) ? s.decisions.filter(Boolean) : [],
+    questions: Array.isArray(s.questions) ? s.questions.filter(Boolean) : [],
+    actions: Array.isArray(s.actions) ? s.actions.filter(a => a && a.text) : [],
+    highlights,
+  };
+}
+
+// Build-or-reuse a recap for a meeting, deduped so the background worker and an
+// on-demand "Load summary" click never build the same meeting twice — the second
+// caller awaits the first's in-flight promise. Non-empty results are cached in
+// _meetingsRecapCache (shared with the recap route, so a warmed brief makes the
+// recap instant too).
+const _meetingsBriefPromises = new Map();
+// Durable per-meeting brief state so a build's progress + outcome survive the user
+// navigating away and coming back (in-memory; the hourly sweep repopulates it after a
+// restart). status: 'building' | 'ready' | 'empty' | 'error'. Without this a build that
+// produced an empty/failed result left NO trace, so GET fell back to 'none' and the
+// "Load summary" button silently reappeared as if nothing had ever happened.
+const _meetingsBriefState = new Map();
+// Brief state is persisted to disk so building/ready/empty/error survive a server
+// (or desktop sidecar) RESTART. Previously this was purely in-memory: a restart
+// wiped it, GET fell back to 'none', and the "Load summary" button silently
+// reappeared as if a build had never been requested — the core reported bug.
+const _MEETINGS_BRIEF_DIR = dataPath('meetings');
+const _MEETINGS_BRIEF_STATE_FILE = path.join(_MEETINGS_BRIEF_DIR, 'brief-state.json');
+// A 'building' entry older than this with NO in-flight promise/queue entry is a
+// restart orphan (the build died with the old process) — GET re-kicks it instead
+// of leaving the meeting stuck "Summarizing…" forever.
+const _MEETINGS_BRIEF_STALE_MS = 5 * 60 * 1000;
+(function _meetingsLoadBriefState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(_MEETINGS_BRIEF_STATE_FILE, 'utf8'));
+    if (raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw)) {
+        if (k && v && typeof v === 'object') _meetingsBriefState.set(k, v);
+      }
+    }
+  } catch (_) { /* first run / no file yet */ }
+})();
+let _meetingsBriefStateSaveTimer = null;
+function _meetingsPersistBriefState() {
+  if (_meetingsBriefStateSaveTimer) return;
+  _meetingsBriefStateSaveTimer = setTimeout(() => {
+    _meetingsBriefStateSaveTimer = null;
+    try {
+      let entries = [..._meetingsBriefState.entries()];
+      // Cap to the 500 most-recent so the file can't grow unbounded.
+      if (entries.length > 500) {
+        entries.sort((a, b) => ((b[1] && b[1].at) || 0) - ((a[1] && a[1].at) || 0));
+        entries = entries.slice(0, 500);
+        _meetingsBriefState.clear();
+        for (const [k, v] of entries) _meetingsBriefState.set(k, v);
+      }
+      fs.mkdirSync(_MEETINGS_BRIEF_DIR, { recursive: true });
+      const obj = {};
+      for (const [k, v] of entries) obj[k] = v;
+      const tmp = _MEETINGS_BRIEF_STATE_FILE + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(obj));
+      fs.renameSync(tmp, _MEETINGS_BRIEF_STATE_FILE);
+    } catch (_) { /* best effort */ }
+  }, 400);
+}
+function _meetingsSetBriefState(id, patch) {
+  const key = String(id || '').trim();
+  if (!key) return;
+  _meetingsBriefState.set(key, { ...(_meetingsBriefState.get(key) || {}), ...(patch || {}) });
+  _meetingsPersistBriefState();
+}
+function _meetingsEnsureRecap(meetingId, subject) {
+  const id = String(meetingId || '').trim();
+  if (!id) return Promise.resolve({ story: null, people: {}, empty: true });
+  if (_meetingsRecapCache.has(id)) return Promise.resolve(_meetingsRecapCache.get(id));
+  if (_meetingsBriefPromises.has(id)) return _meetingsBriefPromises.get(id);
+  // Remember the subject so a restart-orphan re-kick (from GET) still has it.
+  const subj = String(subject || '').trim() || (_meetingsBriefState.get(id) || {}).subject || '';
+  _meetingsSetBriefState(id, { status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj });
+  const p = (async () => {
+    const built = await _meetingsBuildRecap(id, subject);
+    const rec = { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty };
+    if (rec.story && !rec.empty) {
+      _meetingsRecapCache.set(id, rec);
+      _meetingsSetBriefState(id, { status: 'ready', at: Date.now(), error: '' });
+    } else {
+      const failed = built && built.reason === 'error';
+      _meetingsSetBriefState(id, { status: failed ? 'error' : 'empty', at: Date.now(), error: (built && built.error) || '' });
+    }
+    return rec;
+  })();
+  _meetingsBriefPromises.set(id, p);
+  p.catch((e) => { _meetingsSetBriefState(id, { status: 'error', at: Date.now(), error: (e && e.message) || 'Could not build the summary.' }); })
+   .finally(() => _meetingsBriefPromises.delete(id));
+  return p;
+}
+
+// Background brief queue — one build at a time so we never fan out concurrent
+// agent runs. Only meetings with a transcript are enrolled (others would just
+// waste ~90s producing an empty brief).
+let _meetingsBriefQueue = [];
+let _meetingsBriefDraining = false;
+function _meetingsEnqueueBriefs(meetings) {
+  for (const m of (Array.isArray(meetings) ? meetings : [])) {
+    if (!m || m.demo) continue;
+    if (m.hasTranscript === false) continue; // only ones that can actually be summarized
+    const id = String(m.meetingId || m.id || '').trim();
+    if (!id || id === _MEETINGS_SEED_ID) continue;
+    if (_meetingsRecapCache.has(id)) continue;
+    if (_meetingsBriefPromises.has(id)) continue;
+    if (_meetingsBriefQueue.some(q => q.meetingId === id)) continue;
+    _meetingsBriefQueue.push({ meetingId: id, subject: m.subject || '' });
+  }
+  _meetingsDrainBriefs();
+}
+async function _meetingsDrainBriefs() {
+  if (_meetingsBriefDraining) return;
+  _meetingsBriefDraining = true;
+  try {
+    while (_meetingsBriefQueue.length) {
+      const job = _meetingsBriefQueue.shift();
+      if (!job || _meetingsRecapCache.has(job.meetingId)) continue;
+      try { await _meetingsEnsureRecap(job.meetingId, job.subject); }
+      catch (e) { console.warn('[meetings] background brief failed for', job.meetingId, '—', e && e.message); }
+    }
+  } finally { _meetingsBriefDraining = false; }
+}
+
+// GET /api/meetings/brief?meetingId=… — non-blocking status probe the detail
+// panel polls. status: 'ready' (brief attached) | 'pending' (building/queued) |
+// 'empty' (built, no transcript) | 'none' (not started).
+app.get('/api/meetings/brief', (req, res) => {
+  try {
+    const meetingId = String(req.query.meetingId || '').trim();
+    if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+    if (meetingId === _MEETINGS_SEED_ID) {
+      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap({ story: _MEETINGS_SEED_STORY }) });
+    }
+    if (_meetingsRecapCache.has(meetingId)) {
+      const rec = _meetingsRecapCache.get(meetingId);
+      if (rec.empty) return res.json({ ok: true, meetingId, status: 'empty' });
+      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
+    }
+    // Durable state from a build that already ran (survives the user navigating away
+    // AND a server restart, since the state is persisted to disk).
+    const st = _meetingsBriefState.get(meetingId);
+    if (st && st.status) {
+      if (st.status === 'building') {
+        // If nothing is actually in flight and the build is stale, it's a restart
+        // orphan — re-kick it (fire-and-forget) so it completes instead of hanging.
+        const inflight = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
+        const age = Date.now() - (st.startedAt || st.at || 0);
+        if (!inflight && age > _MEETINGS_BRIEF_STALE_MS) {
+          try { _meetingsEnsureRecap(meetingId, st.subject || ''); } catch (_) {}
+        }
+        return res.json({ ok: true, meetingId, status: 'pending', startedAt: st.startedAt || st.at || 0 });
+      }
+      if (st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || 0, error: st.error || '' });
+      if (st.status === 'empty') return res.json({ ok: true, meetingId, status: 'empty', at: st.at || 0 });
+      if (st.status === 'ready') {
+        // 'ready' but the recap cache is gone (it's in-memory and dies on restart).
+        // Re-kick the build rather than falling through to 'none' — which would make
+        // the "Load summary" button silently reappear. Report 'pending' meanwhile.
+        try { _meetingsEnsureRecap(meetingId, st.subject || ''); } catch (_) {}
+        return res.json({ ok: true, meetingId, status: 'pending', startedAt: Date.now() });
+      }
+    }
+    const pending = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
+    res.json({ ok: true, meetingId, status: pending ? 'pending' : 'none' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/meetings/brief { meetingId, subject } — user-initiated "Load summary":
+// jump the queue by kicking the build NOW, but return IMMEDIATELY without awaiting
+// the full ~60–90s build. The client polls GET /brief for completion. Awaiting the
+// whole build here meant a user who navigated away could later be hit by the client
+// request timeout firing "some time later" as a fatal error — the reported symptom.
+app.post('/api/meetings/brief', (req, res) => {
+  try {
+    const meetingId = String((req.body && req.body.meetingId) || '').trim();
+    const subject = String((req.body && req.body.subject) || '').trim();
+    if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+    if (meetingId === _MEETINGS_SEED_ID) {
+      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap({ story: _MEETINGS_SEED_STORY }) });
+    }
+    // Already built — hand it back at once.
+    if (_meetingsRecapCache.has(meetingId)) {
+      const rec = _meetingsRecapCache.get(meetingId);
+      if (rec && rec.story && !rec.empty) return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
+    }
+    // Kick off (or join) the build without blocking the request.
+    _meetingsEnsureRecap(meetingId, subject).catch(() => {});
+    const st = _meetingsBriefState.get(meetingId);
+    // A previous run may have already produced a terminal state.
+    if (st && st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || Date.now(), error: st.error || '' });
+    if (st && st.status === 'empty') return res.json({ ok: true, meetingId, status: 'empty', at: st.at || Date.now() });
+    return res.json({ ok: true, meetingId, status: 'pending', startedAt: (st && (st.startedAt || st.at)) || Date.now() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Hourly background sweep — find recently-ended meetings that now have a
+// recording/transcript available and summarize them as soon as they're ready,
+// so briefs are waiting before the user ever opens the page. Leader-gated (only
+// one node does the work), consent-gated (background M365 access = connectConsent)
+// and opt-out via meetingsAutoSummarize. Never throws.
+let _meetingsSweepBusy = false;
+async function _meetingsHourlySweep() {
+  if (_meetingsSweepBusy) return;
+  if (!leaderCheck()) return;
+  try {
+    const s = settings.getSettings();
+    if (s && s.meetingsAutoSummarize === false) return; // opt-out; default ON
+    if (!s || !s.connectConsent) return;                // background M365 access requires consent
+    if (_anyAgentBusy()) return;                         // don't collide with a live agent run
+    _meetingsSweepBusy = true;
+    const meetings = await _meetingsGatherRecent(7);
+    if (Array.isArray(meetings) && meetings.length) {
+      // Refresh the recent cache so an immediate page open is instant + real.
+      _meetingsRecentCache = { at: Date.now(), days: 7, meetings, demo: false };
+      _meetingsEnqueueBriefs(meetings);
+    }
+  } catch (e) { console.warn('[meetings] hourly sweep skipped —', e && e.message); }
+  finally { _meetingsSweepBusy = false; }
+}
+setInterval(() => { _meetingsHourlySweep().catch(() => {}); }, 60 * 60 * 1000);
+// First sweep shortly after boot (once leader election + WorkIQ auth settle).
+setTimeout(() => { _meetingsHourlySweep().catch(() => {}); }, 90 * 1000);
+
 // GET /api/me-ai/pulse/monitoring → current selection.
 // POST /api/me-ai/pulse/monitoring { teams:[{teamId,teamName,channels?:[{id,name}]}] }
 //   → validate + persist the selection, kick a background monitored gather.
