@@ -3884,30 +3884,37 @@ await t.test('desktop native-DnD → pointer bridge (WebView2-safe drag everywhe
     'a fresh pointerdown clears the suppression so later clicks (e.g. a button) are never eaten');
 });
 
-await t.test('boards toolbox→board drag gate keys off the armed swipe, not a stale delta', () => {
+await t.test('boards toolbox→board drag gate detects the leftward swipe live, not just the armed flag', () => {
   const html = readFileSync('public/app.html', 'utf8');
-  const gate = _win(html, 'onTbxItemDragStart(p, ev) {', 1600);
+  const gate = _win(html, 'onTbxItemDragStart(p, ev) {', 2800);
   t.ok(gate, 'onTbxItemDragStart present');
 
-  // The ONLY thing that may cancel a board drag is the armed left-swipe (unpin/delete).
-  t.ok(/if \(this\._tbxSwipeArmed\) \{[\s\S]*?ev\.preventDefault\(\)[\s\S]*?return;\s*\}/.test(gate),
-    'an armed left-swipe cancels the drag');
-  // Every non-armed gesture (rightward / vertical / ambiguous) proceeds to start the drag.
-  t.ok(/this\._tbxSwipeCleanup\(\);\s*this\.onToolboxDragStart\(this\.panelBaseId\(p\), ev\);/.test(gate),
-    'a non-armed gesture starts the board drag');
-
-  // The fragile stale-delta direction reads are GONE — they froze at a ~6px micro-sample
-  // (the swipe move-listener removes itself on the first non-leftward move) and wrongly
-  // cancelled genuinely-rightward drags whose first micro-move was vertical-ish. The desktop
-  // bridge (which dispatches dragstart much later) always saw that stale value.
-  // (Strip // comments so the explanatory comment block doesn't trip these code-only checks.)
+  // Direction is derived LIVE from the dragstart coordinates vs. the pointerdown origin
+  // (reliable on both platforms) rather than only the armed flag — on desktop the DnD
+  // bridge fires dragstart at ~5px, before the 6px swipe-arm, so the armed flag alone
+  // reads false and the unpin/delete swipe loses the race to a board drag.
   const gateCode = gate.replace(/\/\/[^\n]*/g, '');
+  t.ok(/ddx\s*=\s*ev\.clientX\s*-\s*this\._tbxSwipeStartX/.test(gateCode),
+    'gate computes live ddx from ev.clientX and the swipe origin');
+  t.ok(/ddy\s*=\s*ev\.clientY\s*-\s*this\._tbxSwipeStartY/.test(gateCode),
+    'gate computes live ddy from ev.clientY and the swipe origin');
+  t.ok(/leftwardSwipe\s*=\s*ddx\s*<\s*0\s*&&\s*Math\.abs\(ddx\)\s*>\s*Math\.abs\(ddy\)/.test(gateCode),
+    'gate flags a leftward-dominant gesture as the swipe');
+
+  // A leftward swipe OR an already-armed swipe cancels the board drag (and force-arms so
+  // the swipe move-listener keeps tracking to release).
+  t.ok(/if \(this\._tbxSwipeArmed \|\| leftwardSwipe\) \{[\s\S]*?this\._tbxSwipeArmed = true;[\s\S]*?ev\.preventDefault\(\)[\s\S]*?return;\s*\}/.test(gateCode),
+    'a leftward or armed swipe cancels the drag and force-arms');
+  // Every other gesture (rightward / vertical / ambiguous) proceeds to start the drag.
+  t.ok(/this\._tbxSwipeCleanup\(\);\s*this\.onToolboxDragStart\(this\.panelBaseId\(p\), ev\);/.test(gateCode),
+    'a non-swipe gesture starts the board drag');
+
+  // The fragile stale-delta direction reads stay GONE.
   t.ok(!/verticalDominant/.test(gateCode), 'no stale verticalDominant cancel in the gate');
   t.ok(!/const leftward = this\._tbxLastDX/.test(gateCode) && !/_tbxLastDX \|\| 0/.test(gateCode),
-    'the gate no longer reads a frozen _tbxLastDX to decide direction');
+    'the gate does not read a frozen _tbxLastDX to decide direction');
 
-  // The armed flag is only set on clearly leftward-dominant movement, so it reliably
-  // distinguishes an unpin swipe from a board drag in BOTH the browser and desktop paths.
+  // The swipe move-listener still arms only on clearly leftward-dominant movement.
   const move = _win(html, 'tbxSwipeStart(p, ev) {', 2400);
   t.ok(/if \(ddx < 0 && Math\.abs\(ddx\) > Math\.abs\(ddy\)\) this\._tbxSwipeArmed = true;/.test(move),
     'the swipe arms only on clearly leftward-dominant movement');

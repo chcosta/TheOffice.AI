@@ -59965,19 +59965,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // see where the drop will land (instead of waiting for release).
         onTbxItemDragStart(p, ev) {
           // Whole-row native drag = place on a board. The ONLY gesture that must NOT
-          // start a board drag is the leftward swipe that reveals Unpin/Delete, and that
-          // is captured authoritatively by `_tbxSwipeArmed` (the swipe move-handler only
-          // arms on clearly leftward-dominant movement). Everything else — rightward,
-          // vertical, or ambiguous — is a board drag and must be allowed.
+          // start a board drag is the leftward swipe that reveals Unpin/Delete.
           //
-          // Do NOT gate on `_tbxLastDX/DY` direction here: the swipe move-listener calls
-          // `_tbxSwipeCleanup()` (removing itself) on the first non-leftward sample, so
-          // those deltas FREEZE at a ~6px micro-sample and never track the real drag. A
-          // genuinely rightward drag whose first micro-move happened to be vertical-ish
-          // was being wrongly cancelled by a stale "verticalDominant" read (and the
-          // desktop DnD bridge, which dispatches dragstart much later, always saw the
-          // stale value). `_tbxSwipeArmed` alone is reliable in both paths.
-          if (this._tbxSwipeArmed) { try { ev.preventDefault(); } catch {} return; }
+          // We cannot rely on `_tbxSwipeArmed` alone here. On the desktop the WebView2
+          // DnD bridge fires this (synthetic) dragstart the instant the pointer crosses
+          // its ~5px threshold, which is SMALLER than — and runs BEFORE — the swipe's own
+          // move handler that only arms at 6px. So `_tbxSwipeArmed` still reads false at
+          // dragstart and the swipe loses the race to a board drag (works in the browser,
+          // where native dragstart fires later, but not on desktop).
+          //
+          // Instead, derive the gesture direction directly from the LIVE dragstart
+          // coordinates vs. the pointerdown origin. Both are reliable: `_tbxSwipeStartX/Y`
+          // are set on pointerdown (always precedes dragstart) and never mutate, and the
+          // dragstart event carries the current pointer position (the browser's native
+          // event and the bridge's synthetic one both do). This is NOT the frozen
+          // `_tbxLastDX/DY` the swipe move-listener stops updating once it self-cleans.
+          // A leftward-dominant gesture is the swipe → arm it and veto the drag; a toolbox
+          // card has no valid drop target to its left anyway, so this is safe on both
+          // platforms. Rightward / vertical / ambiguous gestures fall through to a drag.
+          const ddx = ev.clientX - this._tbxSwipeStartX;
+          const ddy = ev.clientY - this._tbxSwipeStartY;
+          const leftwardSwipe = ddx < 0 && Math.abs(ddx) > Math.abs(ddy);
+          if (this._tbxSwipeArmed || leftwardSwipe) {
+            this._tbxSwipeArmed = true; // keep the swipe move-listener tracking to release
+            try { ev.preventDefault(); } catch {}
+            return;
+          }
           this._tbxSwipeCleanup();
           this.onToolboxDragStart(this.panelBaseId(p), ev);
         },
