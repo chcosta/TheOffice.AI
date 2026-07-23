@@ -4110,8 +4110,8 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
 
   // (1) SERVER — recent-meetings gather is AI (collector) but timeout-bounded so the route
   // can never hang; on timeout/failure the surrounding try returns [] and the route seeds.
-  const gather = _win(srv, 'async function _meetingsGatherRecent(', 2600) || '';
-  t.ok(gather, '_meetingsGatherRecent helper exists');
+  const gather = _win(srv, 'async function _meetingsGatherRange(', 3600) || '';
+  t.ok(gather, '_meetingsGatherRange helper exists');
   t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 150000, 'calendar gather'\)/.test(gather),
     'the calendar gather is wrapped in a timeout');
   t.ok(/catch \{ return \[\]; \}/.test(gather), 'a failed/timed-out gather degrades to an empty list');
@@ -4121,20 +4121,20 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
   const recap = _win(srv, 'async function _meetingsBuildRecap(', 4200) || '';
   t.ok(recap, '_meetingsBuildRecap helper exists');
   t.ok(/id === _MEETINGS_SEED_ID/.test(recap), 'the seed meeting short-circuits to the authored SFI story');
-  t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 90000, 'transcript recap'\)/.test(recap),
-    'the transcript recap is wrapped in a 90s timeout');
+  t.ok(/_composeWithTimeout\(_connectRunAgent\('collector', prompt\), 240000, 'transcript recap'\)/.test(recap),
+    'the transcript recap is wrapped in a 240s timeout');
   t.ok(/const text = await _composeWithTimeout[\s\S]{0,80}const obj = _connectExtractJson\(text\);/.test(recap),
     'the AI text is parsed via _connectExtractJson (obj is defined before use — regression guard)');
   t.ok(/return \{ story: minimal, people: \{[\s\S]*empty: true/.test(recap),
     'an unavailable transcript degrades to a minimal never-crash story with empty:true');
 
-  // (3) SERVER — routes: recent is cached with a seed fallback; recap requires a meetingId.
-  const rec = _win(srv, "app.get('/api/meetings/recent'", 900) || '';
+  // (3) SERVER — routes: recent is cached (per-window TTL) with a current-window seed fallback; recap requires a meetingId.
+  const rec = _win(srv, "app.get('/api/meetings/recent'", 2400) || '';
   t.ok(rec, 'GET /api/meetings/recent route exists');
-  t.ok(/_meetingsRecentCache\.meetings && _meetingsRecentCache\.days === days && \(now - _meetingsRecentCache\.at\) < 600000/.test(rec),
-    'recent is cached for 10 minutes');
-  t.ok(/if \(!meetings\.length\) \{ meetings = _meetingsSeedRecent\(\)[\s\S]*demo = true; \}/.test(rec),
-    'recent falls back to the seed meetings (demo:true) when the gather is empty');
+  t.ok(/const cached = _meetingsRecentCache\.get\(key\);[\s\S]{0,120}\(now - cached\.at\) < ttl/.test(rec),
+    'recent is cached per window with a TTL (10 min current / 6h past)');
+  t.ok(/if \(isCurrent\) \{ meetings = _meetingsSeedRecent\(\); demo = true; \}/.test(rec),
+    'recent falls back to the seed meetings (demo:true) only for the CURRENT window when the gather is empty');
   const rcp = _win(srv, "app.post('/api/meetings/recap'", 900) || '';
   t.ok(rcp, 'POST /api/meetings/recap route exists');
   t.ok(/if \(!meetingId\) return res\.status\(400\)/.test(rcp), 'recap 400s without a meetingId');
@@ -4233,6 +4233,37 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/We couldn.t build the summary/.test(html), 'the error block explains the failure');
   t.ok(/↻ Try again/.test(html), 'the error block offers a retry');
   t.ok(/↻ Check again/.test(html), 'the empty block offers a re-check');
+});
+
+await t.test('meetings.ai: transcript availability is UNKNOWN at list time (never a fabricated false) — real meetings enroll for background summaries (server.js + app.html)', () => {
+  const srv = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+
+  // SERVER — the bulk gather no longer asks the collector for hasTranscript (it can't be
+  // determined reliably in a single calendar listing), and the parse sets it to null (unknown)
+  // rather than coercing an unreliable value to false.
+  const gather = _win(srv, 'function _meetingsGatherRange(', 4000) || '';
+  t.ok(gather, '_meetingsGatherRange exists');
+  t.ok(/hasTranscript: null/.test(gather),
+    'parsed meetings carry hasTranscript:null (unknown at list time), never a fabricated false');
+  t.ok(!/hasTranscript: !!e\.hasTranscript/.test(gather),
+    'the old !!e.hasTranscript coercion (which lied "no transcript" for every meeting) is gone');
+
+  // SERVER — the background brief queue no longer skips every meeting; only a definitively-known
+  // absent transcript is skipped, and that is no longer asserted from the listing.
+  const enqueue = _win(srv, 'Background brief queue', 1100) || '';
+  t.ok(enqueue, '_meetingsEnqueueBriefs (with its header comment) exists');
+  t.ok(/if \(m\.hasTranscript === false\) continue;/.test(enqueue),
+    'enqueue still guards on a definitive false (harmless now, future-proof) — not on null/unknown');
+  t.ok(/UNKNOWN at list time/i.test(enqueue),
+    'the enqueue comment documents that availability is unknown at list time (all real meetings enroll)');
+
+  // CLIENT — the two gates behave correctly for null: Load-summary shows (null !== false),
+  // and the misleading "No transcript available" hint stays hidden (null === false is false).
+  t.ok(/meetings\.briefStatus === 'none'[\s\S]{0,120}mtgSelected\(\)\.hasTranscript !== false/.test(html),
+    'the Load-summary block gates on hasTranscript !== false (null passes → it shows)');
+  t.ok(/mtgSelected\(\)\.hasTranscript === false">No transcript available/.test(html),
+    'the "No transcript available" hint gates on === false (null → hidden; only a definitive false fires it)');
 });
 
 await t.done();

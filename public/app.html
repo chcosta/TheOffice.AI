@@ -21169,6 +21169,15 @@
               .mtg-nav-h{ display:flex; align-items:center; justify-content:space-between; padding:6px 8px 8px; }
               .mtg-nav-h .t{ font-size:12px; font-weight:650; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-muted); }
               .mtg-nav-h .n{ font-size:12px; color:var(--cp-text-faint); }
+              .mtg-wk{ display:flex; align-items:center; justify-content:space-between; gap:6px; padding:2px 6px 8px; }
+              .mtg-wk .lab{ font-size:13px; font-weight:600; color:var(--cp-text); }
+              .mtg-wk .sub{ font-size:11px; color:var(--cp-text-faint); }
+              .mtg-wk .nav{ background:transparent; border:0; color:var(--cp-text-muted); font-size:16px; line-height:1; cursor:pointer; padding:2px 6px; border-radius:6px; }
+              .mtg-wk .nav:hover:not(:disabled){ background:var(--cp-surface-2, rgba(127,127,127,.10)); color:var(--cp-text); }
+              .mtg-wk .nav:disabled{ opacity:.3; cursor:default; }
+              .mtg-search{ margin:0 6px 8px; }
+              .mtg-search input{ width:100%; box-sizing:border-box; background:var(--cp-bg, rgba(127,127,127,.06)); border:1px solid var(--cp-border); border-radius:8px; padding:7px 10px; font-size:13px; color:var(--cp-text); outline:none; }
+              .mtg-search input:focus{ border-color:var(--mtg-accent); }
               .mtg-item{ display:block; width:100%; text-align:left; background:transparent; border:0; border-left:2px solid transparent; border-radius:8px; padding:9px 10px; cursor:pointer; color:var(--cp-text); }
               .mtg-item:hover{ background:var(--cp-surface-2, rgba(127,127,127,.08)); }
               .mtg-item.active{ background:var(--cp-surface-2, rgba(127,127,127,.10)); border-left-color:var(--mtg-accent); }
@@ -21177,6 +21186,9 @@
               .mtg-item .m .demo{ color:var(--mtg-ai); }
               .mtg-empty{ color:var(--cp-text-faint); font-size:13px; padding:14px 10px; }
               .mtg-detail{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:20px 22px; min-height:360px; }
+              .mtg-links{ display:flex; flex-wrap:wrap; gap:18px; }
+              .mtg-link{ color:var(--mtg-accent); font-size:13px; text-decoration:none; }
+              .mtg-link:hover{ text-decoration:underline; }
               .mtg-detail h2{ font-size:20px; margin:0 0 6px; font-weight:650; letter-spacing:-.01em; }
               .mtg-detail .when{ color:var(--cp-text-muted); font-size:13px; margin:0 0 14px; }
               .mtg-sec{ margin:16px 0 0; }
@@ -21208,13 +21220,25 @@
               <div class="mtg-wrap">
                 <!-- Left index: recent meetings -->
                 <div class="mtg-nav">
+                  <div class="mtg-wk">
+                    <button type="button" class="nav" title="Previous week" @click="mtgPrevWeek()">‹</button>
+                    <div style="text-align:center;flex:1;min-width:0;">
+                      <div class="lab" x-text="mtgWeekLabel()"></div>
+                      <div class="sub" x-text="mtgWeekSub()"></div>
+                    </div>
+                    <button type="button" class="nav" title="Next week" :disabled="meetings.weekOffset === 0" @click="mtgNextWeek()">›</button>
+                  </div>
+                  <div class="mtg-search">
+                    <input type="text" x-model="meetings.query" placeholder="Search meetings…" aria-label="Search meetings">
+                  </div>
                   <div class="mtg-nav-h">
-                    <span class="t">Last <span x-text="meetings.days"></span> days</span>
-                    <span class="n" x-show="meetings.list.length" x-text="meetings.list.length + (meetings.list.length === 1 ? ' meeting' : ' meetings')"></span>
+                    <span class="t">Completed</span>
+                    <span class="n" x-show="mtgFilteredList().length" x-text="mtgFilteredList().length + (mtgFilteredList().length === 1 ? ' meeting' : ' meetings')"></span>
                   </div>
                   <div x-show="meetings.loading" class="mtg-empty">Reading your calendar…</div>
-                  <div x-show="!meetings.loading && !meetings.list.length" class="mtg-empty">No meetings found in this window.</div>
-                  <template x-for="m in meetings.list" :key="m.id">
+                  <div x-show="!meetings.loading && !meetings.list.length" class="mtg-empty">No completed meetings this week.</div>
+                  <div x-show="!meetings.loading && meetings.list.length && !mtgFilteredList().length" class="mtg-empty">No meetings match “<span x-text="meetings.query"></span>”.</div>
+                  <template x-for="m in mtgFilteredList()" :key="m.id">
                     <button type="button" class="mtg-item" :class="{ active: m.id === meetings.selectedId }" @click="mtgSelect(m.id)">
                       <div class="s" x-text="m.subject || m.title || 'Untitled meeting'"></div>
                       <div class="m">
@@ -21239,6 +21263,14 @@
                               <span class="who"><span class="dot"></span><span x-text="(typeof a === 'string') ? a : (a.name || a.upn || '')"></span></span>
                             </template>
                           </div>
+                        </div>
+                        <div class="mtg-sec mtg-links" x-show="!mtgSelected().demo && (mtgSelected().recordingUrl || mtgSelected().webLink)">
+                          <template x-if="mtgSelected().recordingUrl">
+                            <a class="mtg-link" :href="mtgSelected().recordingUrl" target="_blank" rel="noopener">▶ Watch recording</a>
+                          </template>
+                          <template x-if="mtgSelected().webLink">
+                            <a class="mtg-link" :href="mtgSelected().webLink" target="_blank" rel="noopener">↗ Open in Outlook</a>
+                          </template>
                         </div>
                         <!-- AI brief: summary/decisions/questions/actions/highlights, prefetched in the background -->
                         <div class="mtg-sec" x-show="meetings.briefStatus === 'ready' && meetings.brief">
@@ -33207,6 +33239,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meetings: {
           loaded: false, loading: false, error: '',
           days: 7,
+          weekOffset: 0,          // 0 = current work week; +1 = last week, etc.
+          query: '',              // search/filter over the loaded week's meetings
           list: [], demo: false,
           selectedId: '',
           view: 'detail',        // 'detail' | 'recap'
@@ -41552,7 +41586,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const wantRecap = slash >= 0 && rawParam.slice(slash + 1) === 'recap';
           w.loading = true; w.error = '';
           try {
-            const r = await this.request(`/api/meetings/recent?days=${w.days}`);
+            const range = this.mtgWeekRange(w.weekOffset);
+            const r = await this.request(`/api/meetings/recent?start=${encodeURIComponent(range.startISO)}&end=${encodeURIComponent(range.endISO)}`);
             const arr = Array.isArray(r && r.meetings) ? r.meetings : [];
             // Normalize: the server keys meetings by `meetingId`; alias to `id`.
             w.list = arr.map(m => ({ ...m, id: m.meetingId || m.id || '' }));
@@ -41609,7 +41644,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             w.briefAt = (r && r.at) || 0;
             w.briefStartedAt = (r && r.startedAt) || 0;
             if (w.briefStatus === 'pending') this.mtgPollBrief(mid);
-          } catch (_) { if (w.selectedId === mid) w.briefStatus = 'none'; }
+          } catch (_) {
+            // A transient GET failure (e.g. the server is busy running a build) must
+            // NOT downgrade a known meeting to 'none' — that made the "Load summary"
+            // button silently reappear over a build already in flight. Preserve the
+            // prior status; if we were polling, keep polling so we recover.
+            if (w.selectedId === mid) {
+              if (w.briefStatus === 'pending') this.mtgPollBrief(mid);
+            }
+          }
         },
         mtgPollBrief(id) {
           const w = this.meetings;
@@ -41705,6 +41748,38 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const t = m.start || m.time || '';
           if (t) bits.push(m.end ? `${t}–${m.end}` : t);
           return bits.join(' · ');
+        },
+        // Monday-anchored work week for a given offset (0 = current week). Returns the
+        // Mon 00:00 → Sun 23:59:59 range as ISO (for the server) plus a display label.
+        mtgWeekRange(offset) {
+          const off = Math.max(0, Number(offset) || 0);
+          const now = new Date();
+          const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const dow = (mon.getDay() + 6) % 7;           // 0 = Monday
+          mon.setDate(mon.getDate() - dow - off * 7);    // this week's Monday, back `off` weeks
+          mon.setHours(0, 0, 0, 0);
+          const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
+          const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+          const md = d => `${d.toLocaleDateString(undefined, { month: 'short' })} ${d.getDate()}`;
+          const label = off === 0 ? 'This week' : (off === 1 ? 'Last week' : `${md(mon)} – ${md(fri)}`);
+          return { startISO: mon.toISOString(), endISO: sun.toISOString(), label, sub: `${md(mon)} – ${md(fri)}` };
+        },
+        mtgWeekLabel() { return this.mtgWeekRange(this.meetings.weekOffset).label; },
+        mtgWeekSub() { return this.mtgWeekRange(this.meetings.weekOffset).sub; },
+        mtgPrevWeek() { this.meetings.weekOffset += 1; this.meetings.query = ''; this.loadMeetings(''); },
+        mtgNextWeek() { if (this.meetings.weekOffset > 0) { this.meetings.weekOffset -= 1; this.meetings.query = ''; this.loadMeetings(''); } },
+        // Search/filter over the loaded week — matches subject, organizer, or any attendee.
+        mtgFilteredList() {
+          const w = this.meetings;
+          const q = String(w.query || '').trim().toLowerCase();
+          if (!q) return w.list;
+          return w.list.filter(m => {
+            if (!m) return false;
+            const hay = [m.subject, m.title, m.organizer,
+              ...(Array.isArray(m.attendees) ? m.attendees.map(a => (typeof a === 'string') ? a : (a && (a.name || a.upn))) : [])]
+              .filter(Boolean).join(' ').toLowerCase();
+            return hay.includes(q);
+          });
         },
         // GET-first: if a persisted snapshot exists we hydrate instantly (no AI call).
         // Pass force=true (or use monObjRebuild) to regenerate via POST.

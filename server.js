@@ -33381,15 +33381,20 @@ function _meetingsSeedRecent() {
   ];
 }
 
-// WorkIQ gather: ended meetings over the past N days, each with a stable id +
-// whether a transcript exists. Best-effort; returns [] on any failure.
-async function _meetingsGatherRecent(days) {
+// WorkIQ gather: ended meetings over an explicit [start,end) window, each with a
+// stable id, whether a transcript exists, and (when available) a recording link.
+// Best-effort; returns [] on any failure.
+async function _meetingsGatherRange(start, end) {
   try {
-    const d = Math.max(1, Math.min(30, Number(days) || 7));
-    const end = new Date();
-    const start = new Date(); start.setDate(start.getDate() - d);
     const iso = x => x.toISOString();
-    const prompt = `Using WorkIQ, read my Microsoft 365 calendar for meetings that have ALREADY ENDED between ${iso(start)} and ${iso(end)} by calling /me/calendarView?startDateTime=${iso(start)}&endDateTime=${iso(end)} with $select=id,iCalUId,subject,start,end,isAllDay,isCancelled,organizer,attendees,onlineMeeting,webLink and $orderby=start/dateTime desc and a high $top. Return ONLY a JSON array (no prose, no code fence), newest first, one element per meeting that has already ended: {"meetingId":string (the event id), "subject":string, "start":{"dateTime":string,"timeZone":string}, "end":{"dateTime":string,"timeZone":string}, "organizer":string (organizer display name), "attendees":[string] (attendee display names), "hasTranscript":boolean (true if the online meeting has a recording/transcript), "webLink":string|null}. Skip all-day and cancelled events. If there are none, return [].`;
+    // NOTE: we deliberately do NOT ask for transcript availability here. Determining
+    // whether a given meeting has a recording/transcript requires resolving each
+    // meeting's onlineMeeting and calling getAllTranscripts — a per-meeting call that
+    // can't be done reliably in a single bulk calendarView listing. Asking for it here
+    // made the collector return false for everything, which (a) falsely showed "No
+    // transcript available" for real meetings and (b) suppressed every background
+    // summary. Transcript presence is resolved honestly at build time instead.
+    const prompt = `Using WorkIQ, read my Microsoft 365 calendar for meetings that have ALREADY ENDED between ${iso(start)} and ${iso(end)} by calling /me/calendarView?startDateTime=${iso(start)}&endDateTime=${iso(end)} with $select=id,iCalUId,subject,start,end,isAllDay,isCancelled,organizer,attendees,onlineMeeting,webLink and $orderby=start/dateTime desc and a high $top. Return ONLY a JSON array (no prose, no code fence), newest first, one element per meeting that has already ended: {"meetingId":string (the event id), "subject":string, "start":{"dateTime":string,"timeZone":string}, "end":{"dateTime":string,"timeZone":string}, "organizer":string (organizer display name), "attendees":[string] (attendee display names), "recordingUrl":string|null (a playback URL for the meeting recording if one exists, else null), "webLink":string|null (the event's own webLink that opens it in Outlook/OWA, NOT the join URL)}. Skip all-day and cancelled events. If there are none, return [].`;
     const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 150000, 'calendar gather');
     const arr = _connectExtractJson(text);
     if (!Array.isArray(arr)) return [];
@@ -33409,12 +33414,24 @@ async function _meetingsGatherRecent(days) {
         end: ed ? ed.hm : '',
         organizer: String(e.organizer || '').slice(0, 160),
         attendees: (Array.isArray(e.attendees) ? e.attendees : []).map(a => String(a || '').slice(0, 160)).filter(Boolean).slice(0, 40),
-        hasTranscript: !!e.hasTranscript,
-        webLink: typeof e.webLink === 'string' ? e.webLink : '',
+        // Unknown at list time — resolved honestly when the recap/brief actually
+        // fetches the transcript. Do NOT coerce to false: that falsely claimed "no
+        // transcript" for every meeting and suppressed all background summaries.
+        hasTranscript: null,
+        recordingUrl: typeof e.recordingUrl === 'string' ? e.recordingUrl.slice(0, 800) : '',
+        webLink: typeof e.webLink === 'string' ? e.webLink.slice(0, 800) : '',
       });
     }
     return out;
   } catch { return []; }
+}
+// Back-compat rolling-window helper (used by the hourly sweep): ended meetings
+// over the past N days.
+async function _meetingsGatherRecent(days) {
+  const d = Math.max(1, Math.min(30, Number(days) || 7));
+  const end = new Date();
+  const start = new Date(); start.setDate(start.getDate() - d);
+  return _meetingsGatherRange(start, end);
 }
 
 // Build a recap story for a meeting. Seed id → the authored SFI story; otherwise
@@ -33436,7 +33453,10 @@ async function _meetingsBuildRecap(meetingId, subject) {
 {"story":{"title":string,"subtitle":string,"date":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]}},
 "people":{"<speakerKey>":{"name":string,"role":string,"gender":"m"|"f","color":string hex,"key":string}}}
 Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". Quotes MUST be verbatim from the transcript — never fabricate. Pick a plausible gender per person for the animated avatar. Use 3–6 segments. If the transcript is unavailable, return {"story":null,"people":{}}.`;
-    const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 90000, 'transcript recap');
+    // Transcript + chat fetch AND the full JSON weave in one agent run is heavy; 90s
+    // was too short and EVERY real build timed out ("transcript recap timed out") →
+    // state 'error' → a summary never appeared. 4 minutes lets it actually finish.
+    const text = await _composeWithTimeout(_connectRunAgent('collector', prompt), 240000, 'transcript recap');
     const obj = _connectExtractJson(text);
     if (obj && obj.story && Array.isArray(obj.story.segments) && obj.story.segments.length && obj.people && typeof obj.people === 'object') {
       return { story: obj.story, people: obj.people, demo: false };
@@ -33453,22 +33473,48 @@ Rules: derive a short lowercase "speaker key" for each participant (e.g. first n
   return { story: minimal, people: { you: { name: 'You', role: '', gender: 'm', color: '#5aa9ff', key: 'you' } }, demo: false, empty: true, reason, error };
 }
 
-let _meetingsRecentCache = { at: 0, days: 0, meetings: null };
+// Keyed by window (range or rolling-days) so week-by-week navigation each get
+// their own cache slot. Past weeks are immutable → long TTL; the current window
+// → 10 min so newly-ended meetings show up.
+const _meetingsRecentCache = new Map();
 app.get('/api/meetings/recent', async (req, res) => {
   try {
-    const days = Math.max(1, Math.min(30, Number(req.query.days) || 7));
     const now = Date.now();
-    if (_meetingsRecentCache.meetings && _meetingsRecentCache.days === days && (now - _meetingsRecentCache.at) < 600000) {
-      return res.json({ ok: true, days, meetings: _meetingsRecentCache.meetings, demo: _meetingsRecentCache.demo });
+    let start = null, end = null, key = '', isRange = false, days = 7;
+    if (req.query.start && req.query.end) {
+      const s = new Date(String(req.query.start)), e = new Date(String(req.query.end));
+      if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
+        start = s;
+        end = new Date(Math.min(e.getTime(), now)); // only ended meetings, never the future
+        isRange = true;
+        key = 'r:' + start.toISOString().slice(0, 10) + ':' + e.toISOString().slice(0, 10);
+      }
     }
-    let meetings = await _meetingsGatherRecent(days);
+    if (!isRange) { days = Math.max(1, Math.min(30, Number(req.query.days) || 7)); key = 'd:' + days; }
+    // Is this window the live/current one (its end is at/after ~now)?
+    const isCurrent = !isRange || (end && (now - end.getTime()) < 10 * 60 * 1000);
+    const ttl = isCurrent ? 10 * 60 * 1000 : 6 * 60 * 60 * 1000;
+    const cached = _meetingsRecentCache.get(key);
+    if (cached && (now - cached.at) < ttl) {
+      return res.json({ ok: true, days, range: key, meetings: cached.meetings, demo: cached.demo });
+    }
+    let meetings = isRange ? await _meetingsGatherRange(start, end) : await _meetingsGatherRecent(days);
     let demo = false;
-    if (!meetings.length) { meetings = _meetingsSeedRecent().filter(m => true); demo = true; }
-    _meetingsRecentCache = { at: now, days, meetings, demo };
+    if (!meetings.length) {
+      // Only fall back to sample meetings for the CURRENT window (so a brand-new user
+      // sees the demo). Empty PAST weeks should honestly say "no meetings", not samples.
+      if (isCurrent) { meetings = _meetingsSeedRecent(); demo = true; }
+    }
+    _meetingsRecentCache.set(key, { at: now, meetings, demo });
+    // Bound the cache — drop the oldest entries beyond 40 windows.
+    if (_meetingsRecentCache.size > 40) {
+      const oldest = [..._meetingsRecentCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) _meetingsRecentCache.delete(oldest[0]);
+    }
     // Real meetings with a transcript: warm their briefs/recaps in the background
     // so the summary is ready by the time the user opens them.
     if (!demo) { try { _meetingsEnqueueBriefs(meetings); } catch (_) {} }
-    res.json({ ok: true, days, meetings, demo });
+    res.json({ ok: true, days, range: key, meetings, demo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -33602,14 +33648,18 @@ function _meetingsEnsureRecap(meetingId, subject) {
 }
 
 // Background brief queue — one build at a time so we never fan out concurrent
-// agent runs. Only meetings with a transcript are enrolled (others would just
-// waste ~90s producing an empty brief).
+// agent runs. Transcript availability is UNKNOWN at list time (it can't be
+// determined cheaply in a bulk calendar listing), so we enroll every real
+// meeting and let the build itself be the source of truth: a meeting with no
+// transcript lands honestly on 'empty' (and is retried by a later sweep once a
+// transcript becomes available). Only a definitively-known-absent transcript
+// (hasTranscript === false, which we no longer assert at list time) is skipped.
 let _meetingsBriefQueue = [];
 let _meetingsBriefDraining = false;
 function _meetingsEnqueueBriefs(meetings) {
   for (const m of (Array.isArray(meetings) ? meetings : [])) {
     if (!m || m.demo) continue;
-    if (m.hasTranscript === false) continue; // only ones that can actually be summarized
+    if (m.hasTranscript === false) continue; // definitively known-absent (not asserted from listing)
     const id = String(m.meetingId || m.id || '').trim();
     if (!id || id === _MEETINGS_SEED_ID) continue;
     if (_meetingsRecapCache.has(id)) continue;
