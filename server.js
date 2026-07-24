@@ -34181,6 +34181,9 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
       title: String(raw.sourceSubject || raw.title || subject || 'Meeting recap'),
       sourceSubject: String(raw.sourceSubject || raw.title || ''),
       sourceDate: String(raw.sourceDate || raw.date || '').slice(0, 10),
+      sourceStart: String(raw.sourceStart || '').trim().slice(0, 5),
+      sourceOrganizer: String(raw.sourceOrganizer || raw.organizer || '').trim().slice(0, 160),
+      sourceMeetingUrl: String(raw.sourceMeetingUrl || '').trim().slice(0, 1200),
       identityVerified: raw.identityVerified === true,
       subtitle: String(raw.subtitle || 'Meeting recap'),
       date: String(raw.date || date || ''),
@@ -34204,7 +34207,7 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
 
 // Build a recap story for a meeting. Seed id → the authored SFI story; otherwise
 // call WorkIQ's M365 Copilot meeting recap directly and shape the result locally.
-async function _meetingsBuildRecap(meetingId, subject, date) {
+async function _meetingsBuildRecap(meetingId, subject, date, occurrence = {}) {
   const id = String(meetingId || '').trim();
   if (!id || id === _MEETINGS_SEED_ID) {
     return { story: _MEETINGS_SEED_STORY, people: _MEETINGS_SEED_PEOPLE, demo: true };
@@ -34231,15 +34234,31 @@ Rules: derive a short lowercase "speaker key" for each participant (e.g. first n
     // Keep transcript extraction compact and deterministic. The evidence pass below
     // independently gathers rich supporting material; asking one WorkIQ call to do
     // both jobs produced oversized answers and false "no transcript" fallbacks.
+    const occurrenceStart = String(occurrence.start || '').trim().slice(0, 20);
+    const occurrenceOrganizer = String(occurrence.organizer || '').trim().slice(0, 160);
+    const occurrenceAttendees = (Array.isArray(occurrence.attendees) ? occurrence.attendees : []).map(String).filter(Boolean).slice(0, 40);
+    const occurrenceUrl = String(occurrence.webLink || occurrence.meetingUrl || '').trim().slice(0, 1200);
     const compactPrompt = `Use WorkIQ to read the Teams transcript or recap for exactly this completed meeting occurrence:
 - title: "${String(subject || '').slice(0, 200)}"
 - date: "${String(date || '').slice(0, 40)}"
+- local start time: "${occurrenceStart}"
+- organizer: "${occurrenceOrganizer}"
+- expected participants: ${JSON.stringify(occurrenceAttendees)}
+- exact Teams occurrence URL: "${occurrenceUrl}"
 
-Never substitute another occurrence or a similarly named meeting. Return ONLY compact valid JSON (no prose or code fence):
-{"available":true,"sourceSubject":"exact retrieved title","sourceDate":"YYYY-MM-DD","identityVerified":true,"summary":"concise factual recap","editorialThroughline":"the meeting's arc and what changed","evidenceSynthesis":"what the transcript and chat together support","closingSynthesis":"decisions, unresolved risk, and next ownership","organizer":"name","participants":[{"name":"name","role":"role if known","email":"email if known"}],"highlights":[{"speaker":"name","point":"key turning point","quote":"short verbatim transcript quote","narration":"2-4 lively sentences adding context, tradeoff, implication, and transition","whyItMatters":"one factual impact sentence","timestamp":"if known","confidence":0.0}],"decisions":["decision"],"questions":["unresolved question"],"actions":[{"owner":"name","text":"action"}]}.
+When an exact Teams URL is supplied, open that occurrence directly; do not use a title search result as the transcript source. Verify title, date, start time, organizer, and participants against the calendar occurrence before summarizing. Never substitute another occurrence or a similarly named meeting. Return ONLY compact valid JSON (no prose or code fence):
+{"available":true,"sourceSubject":"exact retrieved title","sourceDate":"YYYY-MM-DD","sourceStart":"HH:mm","sourceOrganizer":"exact organizer name","sourceMeetingUrl":"exact Teams occurrence URL","identityVerified":true,"summary":"concise factual recap","editorialThroughline":"the meeting's arc and what changed","evidenceSynthesis":"what the transcript and chat together support","closingSynthesis":"decisions, unresolved risk, and next ownership","organizer":"name","participants":[{"name":"name","role":"role if known","email":"email if known"}],"highlights":[{"speaker":"name","point":"key turning point","quote":"short verbatim transcript quote","narration":"2-4 lively sentences adding context, tradeoff, implication, and transition","whyItMatters":"one factual impact sentence","timestamp":"if known","confidence":0.0}],"decisions":["decision"],"questions":["unresolved question"],"actions":[{"owner":"name","text":"action"}]}.
 
 Use 3-6 substantive highlights. Quotes must be verbatim. Narration must add connective editorial value and must not read or paraphrase the visible quote, point, decisions, or actions. Do not invent facts, people, timestamps, decisions, actions, or impact. If this exact occurrence cannot be verified, return {"available":false,"sourceSubject":"","sourceDate":"","identityVerified":false}.`;
-    const evidencePrompt = `Find the ${date ? `completed ${String(date).slice(0, 40)} occurrence` : 'most recent completed, transcribed occurrence'} of the Microsoft 365 meeting titled exactly "${String(subject || '').slice(0, 200)}". Identify its exact Teams meeting/transcript or chat URL. Then find directly supporting sources from the meeting chat and surrounding work: Teams messages, email threads, SharePoint/OneDrive documents or slides, and real Azure DevOps/GitHub repositories, pull requests, commits, or work items.
+    const evidencePrompt = `Find exactly this completed Microsoft 365 meeting occurrence:
+- title: "${String(subject || '').slice(0, 200)}"
+- date: "${String(date || '').slice(0, 40)}"
+- local start time: "${occurrenceStart}"
+- organizer: "${occurrenceOrganizer}"
+- expected participants: ${JSON.stringify(occurrenceAttendees)}
+- exact Teams occurrence URL: "${occurrenceUrl}"
+
+When an exact Teams URL is supplied, open that occurrence directly. Verify the title, date, start time, organizer, and participants before using its meeting chat or surrounding work. Never substitute another occurrence or a similarly named meeting. Then find directly supporting sources from the meeting chat and surrounding work: Teams messages, email threads, SharePoint/OneDrive documents or slides, and real Azure DevOps/GitHub repositories, pull requests, commits, or work items.
 
 Do not stop at source names. Open and inspect each relevant document, presentation, spreadsheet, or message that WorkIQ can retrieve. Pull out the exact material the newscast should put on screen:
 - 1–3 verbatim citations with a useful locator (page, slide, section heading, worksheet/table, message date, or paragraph context).
@@ -34269,12 +34288,23 @@ Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string
     if (shaped && shaped.story && Array.isArray(shaped.story.segments) && shaped.story.segments.length && shaped.people && typeof shaped.people === 'object') {
       const sourceSubject = String(shaped.story.sourceSubject || '').trim();
       const sourceDate = String(shaped.story.sourceDate || '').trim().slice(0, 10);
+      const sourceStart = String(obj && obj.sourceStart || '').trim().slice(0, 5);
+      const sourceOrganizer = String(obj && obj.sourceOrganizer || obj && obj.organizer || '').trim();
       if (subject && (shaped.story.identityVerified !== true || !_meetingsSubjectsMatch(subject, sourceSubject))) {
         throw new Error(`WorkIQ returned a different meeting ("${sourceSubject || shaped.story.title || 'unknown'}") for "${subject}".`);
       }
       if (date && sourceDate !== String(date).slice(0, 10)) {
         throw new Error(`WorkIQ returned the ${sourceDate || 'unknown-date'} occurrence instead of ${String(date).slice(0, 10)}.`);
       }
+      if (occurrenceStart && sourceStart !== occurrenceStart.slice(0, 5)) {
+        throw new Error(`WorkIQ returned the ${sourceStart || 'unknown-time'} occurrence instead of ${occurrenceStart.slice(0, 5)}.`);
+      }
+      if (occurrenceOrganizer && !_meetingsSubjectsMatch(occurrenceOrganizer, sourceOrganizer)) {
+        throw new Error(`WorkIQ returned an occurrence organized by "${sourceOrganizer || 'unknown'}" instead of "${occurrenceOrganizer}".`);
+      }
+      shaped.story.sourceStart = sourceStart;
+      shaped.story.sourceOrganizer = sourceOrganizer;
+      shaped.story.sourceMeetingUrl = String(obj && obj.sourceMeetingUrl || shaped.story.sourceMeetingUrl || '').trim().slice(0, 1200);
       return { story: shaped.story, people: shaped.people, demo: false };
     }
   } catch (e) { reason = 'error'; error = (e && e.message) || 'Could not read the transcript.'; }
@@ -34335,7 +34365,7 @@ app.get('/api/meetings/recent', async (req, res) => {
 // Pass { force:true } to bypass the cache and rebuild.
 const _meetingsRecapCache = new Map();
 const _MEETINGS_RECAP_DIR = path.join(dataPath('meetings'), 'recaps');
-const _MEETINGS_RECAP_SCHEMA_VERSION = 5;
+const _MEETINGS_RECAP_SCHEMA_VERSION = 7;
 function _meetingsRecapFile(meetingId) {
   const hash = require('crypto').createHash('sha256').update(String(meetingId || '')).digest('hex');
   return path.join(_MEETINGS_RECAP_DIR, `${hash}.json`);
@@ -34349,11 +34379,22 @@ function _meetingsGetCachedRecap(meetingId) {
     if (stored && stored.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION && stored.meetingId === id && stored.recap && stored.recap.story && !stored.recap.empty) {
       const expectedSubject = String(stored.recap.requestedSubject || '').trim();
       const expectedDate = String(stored.recap.requestedDate || '').trim().slice(0, 10);
+      const expectedStart = String(stored.recap.requestedStart || '').trim().slice(0, 5);
+      const expectedOrganizer = String(stored.recap.requestedOrganizer || '').trim();
+      if (!stored.recap.demo && (!expectedSubject || !expectedDate || !expectedStart)) {
+        throw new Error('cached recap lacks its requested occurrence identity');
+      }
       if (expectedSubject && (stored.recap.story.identityVerified !== true || !_meetingsSubjectsMatch(expectedSubject, stored.recap.story.sourceSubject))) {
         throw new Error('cached recap subject does not match its requested meeting');
       }
       if (expectedDate && String(stored.recap.story.sourceDate || '').slice(0, 10) !== expectedDate) {
         throw new Error('cached recap date does not match its requested occurrence');
+      }
+      if (expectedStart && String(stored.recap.story.sourceStart || '').slice(0, 5) !== expectedStart) {
+        throw new Error('cached recap start time does not match its requested occurrence');
+      }
+      if (expectedOrganizer && !_meetingsSubjectsMatch(expectedOrganizer, stored.recap.story.sourceOrganizer)) {
+        throw new Error('cached recap organizer does not match its requested occurrence');
       }
       const shaped = _meetingsNormalizeNewscast(
         stored.recap.story,
@@ -34369,6 +34410,7 @@ function _meetingsGetCachedRecap(meetingId) {
     }
   } catch (error) {
     if (fs.existsSync(_meetingsRecapFile(id))) console.warn('[meetings] could not read cached recap —', error && error.message);
+    try { fs.unlinkSync(_meetingsRecapFile(id)); } catch (_) {}
   }
   return null;
 }
@@ -34381,6 +34423,14 @@ function _meetingsCacheRecap(meetingId, recap) {
   }
   if (recap.requestedDate && String(recap.story.sourceDate || '').slice(0, 10) !== String(recap.requestedDate).slice(0, 10)) {
     console.warn('[meetings] refused to cache recap with a mismatched occurrence date');
+    return;
+  }
+  if (recap.requestedStart && String(recap.story.sourceStart || '').slice(0, 5) !== String(recap.requestedStart).slice(0, 5)) {
+    console.warn('[meetings] refused to cache recap with a mismatched occurrence start time');
+    return;
+  }
+  if (recap.requestedOrganizer && !_meetingsSubjectsMatch(recap.requestedOrganizer, recap.story.sourceOrganizer)) {
+    console.warn('[meetings] refused to cache recap with a mismatched occurrence organizer');
     return;
   }
   _meetingsRecapCache.set(id, recap);
@@ -34668,6 +34718,12 @@ app.post('/api/meetings/recap', async (req, res) => {
     const meetingId = String((req.body && req.body.meetingId) || '').trim();
     const subject = String((req.body && req.body.subject) || '').trim();
     const date = String((req.body && req.body.date) || '').trim();
+    const occurrence = {
+      start: String((req.body && req.body.start) || '').trim(),
+      organizer: String((req.body && req.body.organizer) || '').trim(),
+      attendees: Array.isArray(req.body && req.body.attendees) ? req.body.attendees : [],
+      webLink: String((req.body && req.body.webLink) || '').trim(),
+    };
     const force = !!(req.body && req.body.force);
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
     if (_meetingsIsTransientId(meetingId)) return res.status(409).json({ error: 'This meeting link is stale. Reload Meetings.AI to select the dated occurrence.' });
@@ -34679,9 +34735,15 @@ app.post('/api/meetings/recap', async (req, res) => {
       if (!Object.keys(photos).length) _meetingsEnrichCachedPhotos(meetingId, c);
       return res.json({ ok: true, meetingId, story: c.story, people: c.people, photos, demo: !!c.demo, empty: !!c.empty, quality: c.story && c.story.newscast, cached: true });
     }
-    const builtRaw = await _meetingsBuildRecap(meetingId, subject, date);
+    const builtRaw = await _meetingsBuildRecap(meetingId, subject, date, occurrence);
     const built = builtRaw && builtRaw.story
-      ? { story: builtRaw.story, people: builtRaw.people, demo: !!builtRaw.demo, empty: !!builtRaw.empty, reason: builtRaw.reason || '', error: builtRaw.error || '', requestedSubject: subject, requestedDate: date }
+      ? {
+          story: builtRaw.story, people: builtRaw.people, demo: !!builtRaw.demo, empty: !!builtRaw.empty,
+          reason: builtRaw.reason || '', error: builtRaw.error || '',
+          requestedSubject: subject, requestedDate: date,
+          requestedStart: occurrence.start, requestedOrganizer: occurrence.organizer,
+          requestedAttendees: occurrence.attendees, requestedWebLink: occurrence.webLink,
+        }
       : builtRaw;
     if (built && built.empty && built.reason === 'error') {
       return res.status(502).json({ error: built.error || 'Could not read the meeting transcript.', meetingId, retryable: true });
@@ -34724,16 +34786,16 @@ function _meetingsBriefMeetingMeta(meetingId, rec, state) {
     meetingId,
     subject: String(story.sourceSubject || st.subject || story.title || '').slice(0, 240),
     date: String(story.date || st.date || '').slice(0, 40),
+    start: String(story.sourceStart || st.start || '').slice(0, 20),
     organizer: people[story.organizer] && people[story.organizer].name
       ? String(people[story.organizer].name).slice(0, 160)
-      : '',
-    attendees: (Array.isArray(story.attendees) ? story.attendees : [])
-      .map(key => people[key] && people[key].name ? String(people[key].name).slice(0, 160) : '')
-      .filter(Boolean)
-      .slice(0, 40),
+      : String(story.sourceOrganizer || st.organizer || '').slice(0, 160),
+    attendees: (Array.isArray(story.attendees) && story.attendees.length
+      ? story.attendees.map(key => people[key] && people[key].name ? String(people[key].name).slice(0, 160) : '').filter(Boolean)
+      : (Array.isArray(st.attendees) ? st.attendees.map(String) : [])).slice(0, 40),
     hasTranscript: rec && rec.empty ? false : null,
     recordingUrl: String((story.media && story.media.recordingUrl) || '').slice(0, 800),
-    webLink: '',
+    webLink: String(story.sourceMeetingUrl || st.webLink || '').slice(0, 1200),
   };
 }
 
@@ -34809,7 +34871,19 @@ function _meetingsSetBriefState(id, patch) {
   _meetingsBriefState.set(key, { ...(_meetingsBriefState.get(key) || {}), ...(patch || {}) });
   _meetingsPersistBriefState();
 }
-function _meetingsEnsureRecap(meetingId, subject, date) {
+function _meetingsOccurrenceFromState(state, occurrence = {}) {
+  const st = state && typeof state === 'object' ? state : {};
+  const src = occurrence && typeof occurrence === 'object' ? occurrence : {};
+  return {
+    start: String(src.start || st.start || '').trim(),
+    organizer: String(src.organizer || st.organizer || '').trim(),
+    attendees: Array.isArray(src.attendees) && src.attendees.length
+      ? src.attendees
+      : (Array.isArray(st.attendees) ? st.attendees : []),
+    webLink: String(src.webLink || src.meetingUrl || st.webLink || '').trim(),
+  };
+}
+function _meetingsEnsureRecap(meetingId, subject, date, occurrence = {}) {
   const id = String(meetingId || '').trim();
   if (!id) return Promise.resolve({ story: null, people: {}, empty: true });
   if (_meetingsIsTransientId(id)) return Promise.resolve({ story: null, people: {}, empty: true, reason: 'stale-id', error: 'Reload Meetings.AI to select the dated occurrence.' });
@@ -34817,12 +34891,23 @@ function _meetingsEnsureRecap(meetingId, subject, date) {
   if (cached) return Promise.resolve(cached);
   if (_meetingsBriefPromises.has(id)) return _meetingsBriefPromises.get(id);
   // Remember the subject so a restart-orphan re-kick (from GET) still has it.
-  const subj = String(subject || '').trim() || (_meetingsBriefState.get(id) || {}).subject || '';
-  const meetingDate = String(date || '').trim() || (_meetingsBriefState.get(id) || {}).date || '';
-  _meetingsSetBriefState(id, { status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj, date: meetingDate });
+  const priorState = _meetingsBriefState.get(id) || {};
+  const subj = String(subject || '').trim() || priorState.subject || '';
+  const meetingDate = String(date || '').trim() || priorState.date || '';
+  const exactOccurrence = _meetingsOccurrenceFromState(priorState, occurrence);
+  _meetingsSetBriefState(id, {
+    status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj, date: meetingDate,
+    start: exactOccurrence.start, organizer: exactOccurrence.organizer,
+    attendees: exactOccurrence.attendees, webLink: exactOccurrence.webLink,
+  });
   const p = (async () => {
-    const built = await _meetingsBuildRecap(id, subj, meetingDate);
-    const rec = { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty, requestedSubject: subj, requestedDate: meetingDate };
+    const built = await _meetingsBuildRecap(id, subj, meetingDate, exactOccurrence);
+    const rec = {
+      story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty,
+      requestedSubject: subj, requestedDate: meetingDate,
+      requestedStart: exactOccurrence.start, requestedOrganizer: exactOccurrence.organizer,
+      requestedAttendees: exactOccurrence.attendees, requestedWebLink: exactOccurrence.webLink,
+    };
     if (rec.story && !rec.empty) {
       _meetingsCacheRecap(id, rec);
       _meetingsSetBriefState(id, { status: 'ready', at: Date.now(), error: '' });
@@ -34856,8 +34941,13 @@ function _meetingsEnqueueBriefs(meetings) {
     if (_meetingsGetCachedRecap(id)) continue;
     if (_meetingsBriefPromises.has(id)) continue;
     if (_meetingsBriefQueue.some(q => q.meetingId === id)) continue;
-    _meetingsBriefQueue.push({ meetingId: id, subject: m.subject || '', date: m.date || '' });
-    _meetingsSetBriefState(id, { status: 'queued', queuedAt: Date.now(), at: Date.now(), error: '', subject: m.subject || '', date: m.date || '' });
+    _meetingsBriefQueue.push({ meetingId: id, subject: m.subject || '', date: m.date || '', occurrence: m });
+    _meetingsSetBriefState(id, {
+      status: 'queued', queuedAt: Date.now(), at: Date.now(), error: '',
+      subject: m.subject || '', date: m.date || '', start: m.start || '',
+      organizer: m.organizer || '', attendees: Array.isArray(m.attendees) ? m.attendees : [],
+      webLink: m.webLink || m.meetingUrl || '',
+    });
   }
   _meetingsDrainBriefs();
 }
@@ -34868,7 +34958,7 @@ async function _meetingsDrainBriefs() {
     while (_meetingsBriefQueue.length) {
       const job = _meetingsBriefQueue.shift();
       if (!job || _meetingsGetCachedRecap(job.meetingId)) continue;
-      try { await _meetingsEnsureRecap(job.meetingId, job.subject, job.date); }
+      try { await _meetingsEnsureRecap(job.meetingId, job.subject, job.date, job.occurrence || {}); }
       catch (e) { console.warn('[meetings] background brief failed for', job.meetingId, '—', e && e.message); }
     }
   } finally { _meetingsBriefDraining = false; }
@@ -34902,14 +34992,14 @@ app.get('/api/meetings/brief', (req, res) => {
         const inflight = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
         const age = Date.now() - (st.startedAt || st.at || 0);
         if (!inflight && age > _MEETINGS_BRIEF_STALE_MS) {
-          try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || ''); } catch (_) {}
+          try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || '', _meetingsOccurrenceFromState(st)); } catch (_) {}
         }
         return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: st.startedAt || st.at || 0, meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
       }
       if (st.status === 'queued') {
         const inflight = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
         if (!inflight) {
-          _meetingsEnsureRecap(meetingId, st.subject || '', st.date || '').catch(() => {});
+          _meetingsEnsureRecap(meetingId, st.subject || '', st.date || '', _meetingsOccurrenceFromState(st)).catch(() => {});
           const active = _meetingsBriefState.get(meetingId) || st;
           return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: active.startedAt || active.at || Date.now(), meeting: _meetingsBriefMeetingMeta(meetingId, null, active) });
         }
@@ -34921,7 +35011,7 @@ app.get('/api/meetings/brief', (req, res) => {
         // 'ready' but the recap cache is gone (it's in-memory and dies on restart).
         // Re-kick the build rather than falling through to 'none' — which would make
         // the "Load summary" button silently reappear. Report 'pending' meanwhile.
-        try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || ''); } catch (_) {}
+        try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || '', _meetingsOccurrenceFromState(st)); } catch (_) {}
         return res.json({ ok: true, meetingId, status: 'pending', startedAt: Date.now(), meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
       }
     }
@@ -34940,6 +35030,12 @@ app.post('/api/meetings/brief', (req, res) => {
     const meetingId = String((req.body && req.body.meetingId) || '').trim();
     const subject = String((req.body && req.body.subject) || '').trim();
     const date = String((req.body && req.body.date) || '').trim();
+    const occurrence = {
+      start: String((req.body && req.body.start) || '').trim(),
+      organizer: String((req.body && req.body.organizer) || '').trim(),
+      attendees: Array.isArray(req.body && req.body.attendees) ? req.body.attendees : [],
+      webLink: String((req.body && req.body.webLink) || '').trim(),
+    };
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
     if (_meetingsIsTransientId(meetingId)) return res.status(409).json({ error: 'This meeting link is stale. Reload Meetings.AI to select the dated occurrence.' });
     if (meetingId === _MEETINGS_SEED_ID) {
@@ -34952,7 +35048,7 @@ app.post('/api/meetings/brief', (req, res) => {
       if (rec && rec.story && !rec.empty) return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
     }
     // Kick off (or join) the build without blocking the request.
-    _meetingsEnsureRecap(meetingId, subject, date).catch(() => {});
+    _meetingsEnsureRecap(meetingId, subject, date, occurrence).catch(() => {});
     const st = _meetingsBriefState.get(meetingId);
     // A previous run may have already produced a terminal state.
     if (st && st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || Date.now(), error: st.error || '' });

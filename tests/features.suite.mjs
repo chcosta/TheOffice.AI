@@ -4384,9 +4384,29 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/function _meetingsPersistBriefState\(/.test(srv), 'a persist helper writes the state to disk');
   t.ok(/function _meetingsCacheRecap\(/.test(srv) && /function _meetingsGetCachedRecap\(/.test(srv),
     'completed recap payloads are cached on disk, not only in process memory');
-  t.ok(/_MEETINGS_RECAP_SCHEMA_VERSION = 5/.test(srv) &&
+  t.ok(/_MEETINGS_RECAP_SCHEMA_VERSION = 7/.test(srv) &&
        /stored\.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION/.test(srv),
     'the durable cache invalidates older recaps that lack verified occurrence identity or source extracts');
+  t.ok(/cached recap lacks its requested occurrence identity/.test(srv) &&
+       /fs\.unlinkSync\(_meetingsRecapFile\(id\)\)/.test(srv),
+    'identity-less legacy recap files are rejected and removed rather than attached by ID alone');
+  t.ok(/exact Teams occurrence URL/.test(srv) &&
+       /sourceStart/.test(srv) &&
+       /sourceOrganizer/.test(srv) &&
+       /WorkIQ returned the \$\{sourceStart/.test(srv),
+    'recap retrieval and validation use the exact occurrence URL, start time, and organizer');
+  t.ok(/function _meetingsOccurrenceFromState\(/.test(srv) &&
+       /requestedStart: exactOccurrence\.start/.test(srv) &&
+       /start: m\.start \|\| ''/.test(srv) &&
+       /_meetingsOccurrenceFromState\(st\)/.test(srv),
+    'queued and restart-resumed summary builds retain the full occurrence identity');
+  t.ok(/cached recap start time does not match its requested occurrence/.test(srv) &&
+       /cached recap organizer does not match its requested occurrence/.test(srv) &&
+       /sourceMeetingUrl: String\(raw\.sourceMeetingUrl/.test(srv),
+    'schema-7 caches prove start time and organizer and preserve the canonical meeting URL');
+  t.ok((html.match(/start: m\.start \|\| ''/g) || []).length >= 2 &&
+       (html.match(/webLink: m\.webLink \|\| ''/g) || []).length >= 2,
+    'both summary and newscast requests send the full indexed occurrence identity');
   t.ok(/function _meetingsRecapQualityScore\(/.test(srv) &&
        /_meetingsRecapQualityScore\(prior\) > _meetingsRecapQualityScore\(built\)/.test(srv),
     'a forced retry can improve but never downgrade a richer cached newscast');
@@ -4472,7 +4492,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
     'the weekly index includes attended or unattended meetings but only verified, in-range, deduplicated occurrences');
   t.ok(/_meetingsPersistBriefState\(\);/.test(_win(srv, 'function _meetingsSetBriefState(', 260) || ''),
     'every state mutation persists to disk');
-  const ensure = _win(srv, 'function _meetingsEnsureRecap(', 1800) || '';
+  const ensure = _win(srv, 'function _meetingsEnsureRecap(', 3200) || '';
   t.ok(ensure, '_meetingsEnsureRecap exists');
   t.ok(/status: 'building', startedAt/.test(ensure), 'a kicked build stamps a durable building state with startedAt');
   t.ok(/subject: subj/.test(ensure), 'the building state stores the subject so a restart-orphan re-kick still has it');
@@ -4499,7 +4519,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   const post = _win(srv, "app.post('/api/meetings/brief'", 2200) || '';
   t.ok(post, 'POST /api/meetings/brief route exists');
   t.ok(/app\.post\('\/api\/meetings\/brief', \(req, res\) =>/.test(srv), 'POST is not async/awaiting the build (non-blocking)');
-  t.ok(/_meetingsEnsureRecap\(meetingId, subject, date\)\.catch\(/.test(post), 'POST kicks the build fire-and-forget');
+  t.ok(/_meetingsEnsureRecap\(meetingId, subject, date, occurrence\)\.catch\(/.test(post), 'POST kicks the build fire-and-forget');
   t.ok(/status: 'pending', startedAt/.test(post), 'POST returns pending immediately when not already terminal');
   t.ok(/status: 'ready'[\s\S]{0,80}_meetingsBriefFromRecap/.test(post), 'POST returns ready at once when already cached');
 
@@ -4561,6 +4581,29 @@ await t.test('meetings.ai: transcript availability is UNKNOWN at list time (neve
     'the Load-summary block gates on hasTranscript !== false (null passes → it shows)');
   t.ok(/mtgSelected\(\)\.hasTranscript === false">No transcript available/.test(html),
     'the "No transcript available" hint gates on === false (null → hidden; only a definitive false fires it)');
+});
+
+await t.test('agenda startup: desktop request races retry and never leave a blank page', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  const bootstrap = _win(html, 'async loadMeAi() {', 2100);
+  const loadDay = _win(html, 'async meAiLoadAgenda() {', 1900);
+  t.ok(/loadError:\s*''/.test(html) && /agendaLoading:\s*false/.test(html) && /agendaError:\s*''/.test(html),
+    'Agenda state tracks bootstrap and per-day failures explicitly');
+  t.ok(/requestResilient\('\/api\/me-ai', \{\}, \{ tries: 3, delay: 500 \}\)/.test(bootstrap),
+    'bootstrap retries transient sidecar-readiness failures');
+  t.ok(/requestResilient\('\/api\/me-ai\/agenda\?date='/.test(loadDay),
+    'per-day agenda retrieval retries transient failures');
+  t.ok(/requestedDate !== this\.meai\.date/.test(loadDay),
+    'an older day response cannot overwrite a newer date selection');
+  t.ok(/this\.meai\.agendaError = \(e && e\.message\)/.test(loadDay),
+    'per-day failures are retained for the visible recovery state');
+  t.ok(/x-show="!meai\.loaded"[^>]*aria-live="polite"/.test(html)
+    && /Agenda\.AI could not load/.test(html)
+    && /@click="loadMeAi\(\)"/.test(html),
+    'initial loading and failure states replace the formerly blank Agenda surface');
+  t.ok(/meai\.loaded && meai\.agendaError/.test(html)
+    && /@click="meAiLoadAgenda\(\)"/.test(html),
+    'a failed day load exposes an inline retry instead of silently rendering nothing');
 });
 
 await t.done();

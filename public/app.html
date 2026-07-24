@@ -13128,6 +13128,9 @@
               .meai-consent { border:1px solid var(--cp-warning); background:color-mix(in srgb, var(--cp-warning) 8%, transparent); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:16px 18px; margin:14px 0; }
               .meai-consent h4 { margin:0 0 6px; font-size:15px; color:var(--cp-text); }
               .meai-consent p { margin:0 0 10px; font-size:13px; color:var(--cp-text-muted); line-height:1.5; }
+              .meai-load-state { border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:calc(var(--cp-radius-scale, 1) * 8px); padding:14px 16px; margin:14px 0; display:flex; align-items:center; gap:12px; color:var(--cp-text-muted); font-size:13px; }
+              .meai-load-state.is-error { border-color:color-mix(in srgb, var(--cp-danger) 55%, var(--cp-border)); color:var(--cp-text); }
+              .meai-load-state .btn { margin-left:auto; flex:0 0 auto; }
               .meai-status { display:flex; align-items:center; gap:12px; border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 10px); padding:12px 16px; margin:14px 0; background:var(--cp-surface); }
               .meai-status-dot { width:10px; height:10px; border-radius:999px; flex:0 0 auto; }
               .meai-status-txt { font-weight:600; color:var(--cp-text); }
@@ -15236,6 +15239,14 @@
                 </div>
               </div>
 
+              <!-- Never leave the Agenda surface convincingly blank while its bootstrap request
+                   is retrying or has failed. This is especially important for the desktop sidecar,
+                   where the first WebView request can race server readiness. -->
+              <div class="meai-load-state" :class="{ 'is-error': !!meai.loadError }" x-show="!meai.loaded" x-cloak aria-live="polite">
+                <span x-text="meai.loadError ? ('Agenda.AI could not load: ' + meai.loadError) : 'Loading your agenda…'"></span>
+                <button class="btn ghost" type="button" x-show="meai.loadError" @click="loadMeAi()" :disabled="meai.loading">Try again</button>
+              </div>
+
               <!-- Week-ahead strip: the next 5 work days at a glance. Read-only; click a
                    day to view/plan it. Active day gets an accent underline (no pills). -->
               <div class="meai-week" x-show="meai.loaded && meai.lookahead.length">
@@ -15619,6 +15630,10 @@
               <div class="meai-grid2">
                 <!-- Agenda timeline -->
                 <div id="meaiAgenda">
+                  <div class="meai-load-state is-error" x-show="meai.loaded && meai.agendaError" x-cloak aria-live="polite">
+                    <span x-text="'Could not load this day: ' + meai.agendaError"></span>
+                    <button class="btn ghost" type="button" @click="meAiLoadAgenda()" :disabled="meai.agendaLoading">Try again</button>
+                  </div>
                   <!-- Item A: while a plan is being (re)generated, show a calm planning
                        state instead of the STALE previous timeline. Meetings and fixed
                        time are anchored first server-side, then flexible work is fitted
@@ -32849,6 +32864,9 @@
         meai: {
           loaded: false,
           loading: false,
+          loadError: '',
+          agendaLoading: false,
+          agendaError: '',
           generating: false,
           progress: { phase: '', label: '', at: 0 },  // live planning heartbeat (SSE me-ai-progress)
           rebuilding: false,          // a BACKGROUND regen is touching the viewed day — hold the clean view
@@ -41586,9 +41604,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         async loadMeAi() {
+          if (this.meai.loading) return;
           this.meai.loading = true;
+          this.meai.loadError = '';
           try {
-            const r = await this.request('/api/me-ai');
+            const r = await this.requestResilient('/api/me-ai', {}, { tries: 3, delay: 500 });
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
             const today = this._meLocalDay();
             this.meai.today = today;
@@ -41617,6 +41637,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.request('/api/me-ai/preindex', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) }).catch(() => {});
             }
           } catch (e) {
+            this.meai.loadError = (e && e.message) ? e.message : String(e);
             this.toast('Failed to load Agenda.AI: ' + (e.message || e), 'error');
           } finally {
             this.meai.loading = false;
@@ -41771,7 +41792,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/meetings/brief', {
               method: 'POST',
-              body: JSON.stringify({ meetingId: m.id, subject: m.subject || m.title || '', date: m.date || '' }),
+              body: JSON.stringify({
+                meetingId: m.id,
+                subject: m.subject || m.title || '',
+                date: m.date || '',
+                start: m.start || '',
+                organizer: m.organizer || '',
+                attendees: Array.isArray(m.attendees) ? m.attendees : [],
+                webLink: m.webLink || '',
+              }),
             });
             if (w.selectedId !== m.id) return;
             w.briefStatus = (r && r.status) || 'pending';
@@ -41813,7 +41842,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/meetings/recap', {
               method: 'POST',
-              body: JSON.stringify({ meetingId: m.id, subject: m.subject || m.title || '', date: m.date || '' }),
+              body: JSON.stringify({
+                meetingId: m.id,
+                subject: m.subject || m.title || '',
+                date: m.date || '',
+                start: m.start || '',
+                organizer: m.organizer || '',
+                attendees: Array.isArray(m.attendees) ? m.attendees : [],
+                webLink: m.webLink || '',
+              }),
             });
             if (!r || !r.story || !r.people) throw new Error('The recap came back empty.');
             w.recap = r.story;
@@ -43664,8 +43701,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           await this.loadPulse();
         },
         async meAiLoadAgenda() {
+          const requestedDate = this.meai.date;
+          this.meai.agendaLoading = true;
+          this.meai.agendaError = '';
           try {
-            const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
+            const r = await this.requestResilient('/api/me-ai/agenda?date=' + encodeURIComponent(requestedDate), {}, { tries: 3, delay: 500 });
+            if (requestedDate !== this.meai.date) return;
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
             this.meai.conflictReport = null; // reset fresh reporter status per loaded date (fall back to the snapshot stamp)
             this.meai._lastGeneratedAt = (this.meai.agenda && this.meai.agenda.generatedAt) || '';
@@ -43684,7 +43725,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.meAiLoadLookback();
             this.meAiStartAutoPoll();
           } catch (e) {
-            this.meai.agenda = null;
+            if (!this.meai.agenda || this.meai.agenda.date !== this.meai.date) this.meai.agenda = null;
+            this.meai.agendaError = (e && e.message) ? e.message : String(e);
+          } finally {
+            if (requestedDate === this.meai.date) this.meai.agendaLoading = false;
           }
         },
         // ============ Backlog — future-work workbench ============
